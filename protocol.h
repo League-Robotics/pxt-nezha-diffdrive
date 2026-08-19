@@ -17,12 +17,15 @@
 // can starve every other fiber on the same run queue, including the
 // kernel's.
 //
-// Ticket 001 scope: transport + codec + line grammar + a verb-name
-// registry (with each verb's cleartext/binary flag) only. No verb
-// handler is registered or dispatched -- tickets 002-005 attach
-// handlers for the names this registry already lists. Protocol has no
-// dependency on Rig/shims.cpp yet for the same reason: nothing here
-// calls into the kernel or the Nezha port, directly or indirectly.
+// Ticket 001 scope was transport + codec + line grammar + a verb-name
+// registry only, with no handler dispatched. Ticket 002 (this
+// revision) adds the first four handlers -- HELLO/PING/ID/VER -- the
+// boot banner, and the run()-loop dispatch that calls them; tickets
+// 003-005 attach the remaining (binary) verb handlers. Protocol still
+// has no dependency on Rig/shims.cpp: none of ticket 002's handlers
+// touch the kernel or Nezha port either -- they format identity/
+// liveness strings only, reading nothing but this project's own
+// identity constants and the CODAL clock.
 #pragma once
 
 #include <cstddef>
@@ -118,7 +121,7 @@ struct ParsedLine {
 // name in kVerbRegistry).
 bool parseLine(const uint8_t* line, size_t lineLen, ParsedLine* out);
 
-// ---- Verb registry (scaffold only -- no handlers this ticket) --------
+// ---- Verb registry --------------------------------------------------
 // Wire spec S2.4's registry is the SOLE text/binary discriminator: a
 // verb's own data is never inspected to decide how it's read. This
 // project's closed verb set (sprint.md Scope/Architecture) --
@@ -126,8 +129,10 @@ bool parseLine(const uint8_t* line, size_t lineLen, ParsedLine* out);
 // control-plane verbs, no ack-ring/OK verb (this sprint's fire-and-
 // forget command plane -- sprint.md Open Question 1), no ERR verb
 // (deferred to whichever of tickets 002-005 first needs one). Extending
-// this array is how a later ticket adds a verb name; this ticket adds
-// none as a *handler*, only as a registry entry.
+// this array is how a later ticket adds a verb name. The array itself
+// hasn't grown since ticket 001 -- ticket 002 attaches handlers (see
+// Protocol::run()) for four names already listed here, HELLO/PING/
+// ID/VER, without adding new entries.
 //
 // Binary verbs stay binary here exactly as in the reference spec.
 // TLM is the one entry that reads differently from the reference spec:
@@ -169,8 +174,25 @@ class Protocol {
   static void fiberEntry(void* self);
   void run();
 
+  // ---- ticket 002: cleartext identity/liveness verb handlers --------
+  // Each formats its reply into a small stack buffer, then writes it
+  // via `transport_.writeLine()`. `SerialTransport::writeLine()`
+  // blocks this fiber (SYNC_SLEEP) until the bytes are sent -- on this
+  // single-fiber-per-loop platform that blocking write is this
+  // ticket's accepted approximation of the wire spec's
+  // `sendReliable()` bounded-wait/must-not-drop semantics (ticket 002
+  // acceptance criteria): there is no separate retry/ack layer, but
+  // every reply below is guaranteed to have left the UART before its
+  // handler returns.
+  void sendDeviceBanner();  // DEVICE:NEZHA2:robot:<name>:<serial>
+  void handleHello();       // HELLO -> the same DEVICE banner
+  void handlePing();        // PING -> PONG:t=<ms>
+  void handleId();          // ID -> ID:<drivetrain>:<profile>:<version>
+  void handleVer();         // VER -> VER:<version>
+
   SerialTransport transport_;
   CodalFiberLauncher launcher_;
+  CodalClock clock_;  // reused for PONG's t=<ms>, not a second Clock impl
   bool running_ = false;
 };
 
@@ -178,10 +200,14 @@ class Protocol {
 // Protocol object -- and its fiber -- is constructed and started on
 // first access, never from a global constructor (which would run
 // before uBit.init() has brought up the CODAL fiber scheduler). Ticket
-// 001 does not call this from anywhere; wiring an actual call site
-// (so the loop truly starts "without any host request", SUC-001) is
-// ticket 002's job, alongside the boot banner it emits from the same
-// loop.
+// 002 wires the actual call site: main.ts's `diffDrive` namespace
+// calls this (through the `startProtocol()` shim defined alongside
+// this function in protocol.cpp) as a top-level statement, which runs
+// once when this extension's compiled code loads -- independent of
+// whether any block below is ever placed in a user's program. That is
+// what makes the boot banner (emitted from the top of `Protocol::run()`,
+// before the loop ever blocks on a read) go out "without any host
+// request" per SUC-001.
 Protocol& protocol();
 
 }  // namespace diffDrive

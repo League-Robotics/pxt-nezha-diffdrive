@@ -1,6 +1,7 @@
 // protocol.cpp -- see protocol.h.
 #include "protocol.h"
 
+#include <cstdio>
 #include <cstring>
 
 namespace diffDrive {
@@ -205,6 +206,91 @@ const VerbEntry* findVerb(const char* name) {
   return nullptr;
 }
 
+// ---- Identity constants (ticket 002) ---------------------------------
+// Sourced per this ticket's acceptance criteria ("the implementer picks
+// a reasonable source ... and documents the choice"):
+//
+//   - kDeviceName: a fixed default. This project has no per-robot
+//     naming config yet (no setter, no block) -- adding one is a
+//     follow-up if a future sprint ever needs to tell two robots on
+//     the same bench apart by name; the *serial* field below already
+//     makes each robot's DEVICE banner unique without one.
+//   - The DEVICE banner's <serial>: this micro:bit's own hardware
+//     serial number, via CODAL's microbit_serial_number() -- the same
+//     source pxt-microbit's own `control.deviceSerialNumber()` block
+//     reads. Genuinely unique per device; nothing invented or cached.
+//   - kDrivetrain/kProfile (ID's reply): "diffdrive" names this
+//     extension's own kinematic type (matches the package name and
+//     diffdrive.h/.cpp); "tovez" names the tuning bake shims.cpp's Rig
+//     defaults are measured from (see shims.cpp's "tovez-measured
+//     defaults" comment on Rig::travelCalib/trackWidth) -- a real,
+//     already-existing identifier, not a new invention.
+//   - kVersion (ID and VER's reply): this extension's own semver
+//     identity, i.e. pxt.json's "version" field. There is no
+//     build-time injection mechanism in this repo's C++ build (unlike
+//     the reference firmware's generated version_generated.h), so this
+//     constant is a manually-kept-in-sync mirror of pxt.json -- same
+//     manual convention specification.md S13 already documents for
+//     this project's versioning. Bump this alongside pxt.json's
+//     "version" whenever that changes.
+namespace {
+constexpr const char* kDeviceName = "nezha";
+constexpr const char* kDrivetrain = "diffdrive";
+constexpr const char* kProfile = "tovez";
+constexpr const char* kVersion = "1.0.0";  // keep in sync with pxt.json
+
+// Writes an snprintf() result as one wire line, clamping to what
+// actually fits `bufCap` (snprintf returns the length it WOULD have
+// written, which can exceed the buffer on truncation) and dropping
+// silently on an encoding error (negative return) rather than sending
+// garbage.
+void writeSnprintfResult(SerialTransport& transport, const char* buf, int n,
+                         size_t bufCap) {
+  if (n < 0) return;
+  size_t len = static_cast<size_t>(n);
+  if (len > bufCap - 1) len = bufCap - 1;
+  transport.writeLine(reinterpret_cast<const uint8_t*>(buf), len);
+}
+}  // namespace
+
+// ---- Cleartext identity/liveness verb handlers (ticket 002) ----------
+
+void Protocol::sendDeviceBanner() {
+  char buf[64];
+  const int n = std::snprintf(buf, sizeof(buf), "DEVICE:NEZHA2:robot:%s:%lu",
+                              kDeviceName,
+                              static_cast<unsigned long>(microbit_serial_number()));
+  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+}
+
+void Protocol::handleHello() {
+  sendDeviceBanner();  // "HELLO -> the same DEVICE: banner" (wire spec S2.4)
+}
+
+void Protocol::handlePing() {
+  char buf[32];
+  // t=<ms>: the robot's own clock at reply-formatting time, integer-
+  // only -- matches the spec's newlib-nano rationale (no %f support;
+  // `now` is already an integer, not a workaround).
+  const unsigned long nowMs =
+      static_cast<unsigned long>(clock_.nowMicros() / 1000ull);
+  const int n = std::snprintf(buf, sizeof(buf), "PONG:t=%lu", nowMs);
+  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+}
+
+void Protocol::handleId() {
+  char buf[64];
+  const int n = std::snprintf(buf, sizeof(buf), "ID:%s:%s:%s", kDrivetrain,
+                              kProfile, kVersion);
+  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+}
+
+void Protocol::handleVer() {
+  char buf[32];
+  const int n = std::snprintf(buf, sizeof(buf), "VER:%s", kVersion);
+  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+}
+
 // ---- Protocol loop -----------------------------------------------------
 
 void Protocol::start() {
@@ -218,18 +304,41 @@ void Protocol::fiberEntry(void* self) {
 }
 
 void Protocol::run() {
+  // Boot banner: sent here, before the loop below ever blocks on a
+  // read, so it goes out unsolicited the moment this fiber starts --
+  // SUC-001's "without any host request." This is the only place the
+  // banner is sent proactively; `HELLO` re-sends the identical banner
+  // on request (handleHello() above).
+  sendDeviceBanner();
+
   uint8_t lineBuf[kMaxLineBytes];
   while (true) {
     const size_t len = transport_.readLine(lineBuf, sizeof(lineBuf));
     ParsedLine parsed;
     if (!parseLine(lineBuf, len, &parsed)) continue;  // name too long, drop
     const VerbEntry* verb = findVerb(parsed.command);
-    // Ticket 001: registry lookup only. Tickets 002-005 dispatch
-    // `verb`'s handler here -- each handler MUST stay short and
-    // non-blocking (see this file's header comment). An unrecognized
-    // verb (verb == nullptr) is exactly the wire spec's
-    // malformedCount_ case; tickets 002-005 own the counter.
-    (void)verb;
+    if (verb == nullptr) continue;  // unrecognized verb -- wire spec's
+                                     // malformedCount_ case; no counter
+                                     // exists this sprint (see protocol.h).
+    // Ticket 002 dispatches the four cleartext identity/liveness
+    // verbs. Every other registered verb -- MOVE/CONFIG/... (tickets
+    // 003-005's binary verbs, not yet handled) or a stray reply verb
+    // sent host->robot (e.g. DEVICE/PONG, which only ever originate
+    // from this robot) -- is recognized by the registry but has no
+    // handler here, so it is silently ignored: exactly this ticket's
+    // acceptance criterion for an "unrecognized or out-of-place
+    // cleartext verb," and consistent with tickets 003-005 owning
+    // their own dispatch arms later. Each handler MUST stay short and
+    // non-blocking (see this file's header comment).
+    if (std::strcmp(parsed.command, "HELLO") == 0) {
+      handleHello();
+    } else if (std::strcmp(parsed.command, "PING") == 0) {
+      handlePing();
+    } else if (std::strcmp(parsed.command, "ID") == 0) {
+      handleId();
+    } else if (std::strcmp(parsed.command, "VER") == 0) {
+      handleVer();
+    }
   }
 }
 
@@ -244,5 +353,15 @@ Protocol& protocol() {
   }
   return *gProtocol;
 }
+
+// Boot-time auto-start wiring (ticket 002): called once from a
+// top-level statement in main.ts's `diffDrive` namespace (see
+// protocol()'s doc comment in protocol.h), so the protocol loop -- and
+// its boot banner -- start as soon as this extension's compiled code
+// loads, independent of whether any block is ever placed in a user's
+// program. `protocol()`'s own lazy-singleton guard makes this call
+// (and any other) idempotent.
+//%
+void startProtocol() { protocol(); }
 
 }  // namespace diffDrive
