@@ -60,8 +60,11 @@ struct Rig {
   float trackWidth = 115.0f;     // [mm]
   float countsPerMm() const { return 10.0f / travelCalib; }
 
-  NezhaMotorPort left{2, -1};    // tovez wiring: left = M2, mirrored
-  NezhaMotorPort right{1, +1};
+  // vevov wiring (stakeholder-measured 2026-08-19: forward was inverted
+  // under the old tovez defaults left{2,-1}/right{1,+1} -- both signs
+  // flipped so button-A "forward" drives the robot's actual nose-forward).
+  NezhaMotorPort left{2, +1};    // left = M2
+  NezhaMotorPort right{1, -1};   // right = M1, mirrored
   CodalClock clock;
   CodalSleeper sleeper;
   CodalFiberLauncher launcher;
