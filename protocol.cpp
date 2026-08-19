@@ -282,12 +282,23 @@ constexpr const char* kVersion = "1.0.0";  // keep in sync with pxt.json
 // written, which can exceed the buffer on truncation) and dropping
 // silently on an encoding error (negative return) rather than sending
 // garbage.
+//
+// sprint 002 ticket 006: `radio`, when non-null, mirrors the identical
+// clamped bytes onto that RadioTransport after the serial write -- one
+// formatted buffer, two sinks, the exact same bytes on both (sprint.md's
+// "mirror the exact formatted line bytes" Design Rationale). Defaults to
+// nullptr so this helper's four other call sites (PING/ID/VER/DIAG) are
+// unchanged, serial-only, with no edit needed at those sites; only
+// sendDeviceBanner() and sendTelemetry() below pass their radioTransport_.
 void writeSnprintfResult(SerialTransport& transport, const char* buf, int n,
-                         size_t bufCap) {
+                         size_t bufCap, RadioTransport* radio = nullptr) {
   if (n < 0) return;
   size_t len = static_cast<size_t>(n);
   if (len > bufCap - 1) len = bufCap - 1;
   transport.writeLine(reinterpret_cast<const uint8_t*>(buf), len);
+  if (radio != nullptr) {
+    radio->sendLine(reinterpret_cast<const uint8_t*>(buf), len);
+  }
 }
 }  // namespace
 
@@ -298,7 +309,11 @@ void Protocol::sendDeviceBanner() {
   const int n = snprintf(buf, sizeof(buf), "DEVICE:NEZHA2:robot:%s:%lu",
                               microbit_friendly_name(),
                               static_cast<unsigned long>(microbit_serial_number()));
-  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+  // sprint 002 ticket 006: mirror onto radio, uniformly at this one
+  // function -- covers both call sites (the proactive boot-time send in
+  // run(), and handleHello()'s re-send) with no special-casing between
+  // them (sprint.md Design Rationale).
+  writeSnprintfResult(transport_, buf, n, sizeof(buf), &radioTransport_);
 }
 
 void Protocol::handleHello() {
@@ -733,7 +748,10 @@ void Protocol::sendTelemetry() {
   char buf[48];  // "TLM:" + three int32-range fields + separators + NUL
   const int n = snprintf(buf, sizeof(buf), "TLM:%d:%d:%d", poseX(),
                               poseY(), poseHeading());
-  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+  // sprint 002 ticket 006: mirror the identical formatted bytes onto
+  // radio (SUC-004) -- same buf/n/bufCap, one source of truth for line
+  // content, two sinks (sprint.md Solution).
+  writeSnprintfResult(transport_, buf, n, sizeof(buf), &radioTransport_);
 }
 
 // ---- sprint 002: motion-obligation tracking -----------------------------
@@ -776,6 +794,14 @@ void Protocol::start() {
   if (running_) return;  // idempotent, mirrors DifferentialDrive::start()
   running_ = true;
   transport_.begin();  // size serial rings before any traffic
+  // No analogous radioTransport_.begin() call here: RadioTransport has no
+  // such method (ticket 005) -- it lazily enables uBit.radio on its own
+  // first sendLine() call instead. That first call happens unconditionally
+  // via sendDeviceBanner() at the top of run() below (fiberEntry(), just
+  // launched), so the radio is still effectively started unconditionally
+  // from this boot path, without a redundant explicit call here. See
+  // protocol.h's "sprint 002 ticket 006: radio mirror" comment for the
+  // full rationale and its accepted tradeoff.
   launcher_.launch(&Protocol::fiberEntry, this);
 }
 

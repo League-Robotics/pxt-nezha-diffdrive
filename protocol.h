@@ -51,12 +51,19 @@
 // this file already has an unrelated, earlier-sprint "ticket 003" label
 // a few sections up (the binary motion-verb handlers) that happens to
 // share the same number as this ticket in ITS OWN (current) sprint.
+//
+// Sprint 002 ticket 006 (this revision) mirrors sendDeviceBanner()'s and
+// sendTelemetry()'s already-formatted line bytes onto a second, radio
+// transport (radio_transport.h/.cpp, ticket 005) -- see this file's
+// "sprint 002 ticket 006: radio mirror" comment further down for the
+// member and its rationale.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
 
 #include "platform_ports.h"  // CodalFiberLauncher (reused, not reimplemented)
+#include "radio_transport.h"  // sprint 002 ticket 006: TLM/DEVICE radio mirror
 #include "serial_transport.h"
 
 namespace diffDrive {
@@ -209,6 +216,13 @@ class Protocol {
   // acceptance criteria): there is no separate retry/ack layer, but
   // every reply below is guaranteed to have left the UART before its
   // handler returns.
+  //
+  // sprint 002 ticket 006: sendDeviceBanner() is the ONE handler below
+  // that also mirrors its formatted line onto radioTransport_ (see this
+  // file's own radio-mirror section further down) -- covering both its
+  // call sites (the proactive boot-time send in run(), and handleHello()'s
+  // re-send) uniformly, per sprint.md's Design Rationale. PING/ID/VER/DIAG
+  // stay serial-only; no other reply verb goes over radio this sprint.
   void sendDeviceBanner();  // DEVICE:NEZHA2:robot:<name>:<serial>
   void handleHello();       // HELLO -> the same DEVICE banner
   void handlePing();        // PING -> PONG:t=<ms>
@@ -301,7 +315,37 @@ class Protocol {
   // interleaved with -- never blocking -- incoming command dispatch; see
   // run()'s own comment for how the loop avoids readLine()'s indefinite
   // block to make that interleaving possible.
+  //
+  // sprint 002 ticket 006: also mirrors the identical formatted bytes
+  // onto radioTransport_ -- see this file's radio-mirror section below.
   void sendTelemetry();
+
+  // ---- sprint 002 ticket 006: radio mirror (TLM + DEVICE banner) -----
+  // `radioTransport_` is a second thin transport, sibling to `transport_`
+  // under this same Protocol object (sprint.md's module diagram has no
+  // edge between the two transports themselves) -- mirrors, never
+  // replaces, serial. Only sendDeviceBanner() and sendTelemetry() write
+  // to it (via writeSnprintfResult()'s optional `radio` argument,
+  // protocol.cpp); no other reply verb does, and no wire verb is ever
+  // read from it (ticket 005's module has no RX path). There is no
+  // explicit "begin"/"start" call for it anywhere in this file:
+  // RadioTransport::sendLine() lazily enables and configures uBit.radio
+  // on its own first call (radio_transport.h/.cpp, ticket 005) precisely
+  // so a bench-only serial user who never triggers it never pays the
+  // radio-enable cost. Because sendDeviceBanner() is called unconditionally
+  // at the top of run() (before the loop ever blocks on a read), the radio
+  // IS started unconditionally from this class's boot path the moment the
+  // fiber starts -- satisfying this ticket's "radio transport started
+  // unconditionally from Protocol::start() (or equivalent boot path)"
+  // acceptance criterion without inventing a redundant explicit begin()
+  // surface RadioTransport doesn't have. Tradeoff, stated honestly: this
+  // also means every boot now pays the one-time uBit.radio.enable() cost
+  // (RAM/softdevice), even for a serial-only bench session that never
+  // cares about radio -- accepted per this ticket's own guidance, since
+  // gating the mirror behind a new condition would itself be a new
+  // pxt.json-visible configuration surface, which this ticket's
+  // acceptance criteria explicitly rule out.
+  RadioTransport radioTransport_;
 
   SerialTransport transport_;
   CodalFiberLauncher launcher_;
