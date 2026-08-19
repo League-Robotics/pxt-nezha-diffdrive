@@ -22,13 +22,19 @@
 // four handlers -- HELLO/PING/ID/VER -- the boot banner, and the
 // run()-loop dispatch that calls them; those handlers still had no
 // dependency on Rig/shims.cpp (they format identity/liveness strings
-// only). Ticket 003 (this revision) is the first to add that dependency:
-// its four binary motion-verb handlers -- MOVE/WHEELS/STOP/ESTOP --
-// dispatch onto the existing shims.cpp/Rig surface (startMove/stopAll/
-// estopAll, plus two new duration-bound primitives, setWheelsTimed/
-// driveTwistTimed) via same-package C++ forward declarations (protocol.cpp;
-// shims.cpp has no header of its own). Ticket 004 attaches the remaining
-// (binary config) verb handlers.
+// only). Ticket 003 is the first to add that dependency: its four binary
+// motion-verb handlers -- MOVE/WHEELS/STOP/ESTOP -- dispatch onto the
+// existing shims.cpp/Rig surface (startMove/stopAll/estopAll, plus two
+// new duration-bound primitives, setWheelsTimed/driveTwistTimed) via
+// same-package C++ forward declarations (protocol.cpp; shims.cpp has no
+// header of its own). Ticket 004 (this revision) attaches the remaining
+// four binary config-verb handlers -- CONFIG/SET_FIELD/GET_CONFIG/
+// CALIBRATE -- dispatching CONFIG/SET_FIELD onto the existing
+// setKernelValue() (same surface the block API's `set config` block
+// already uses) and GET_CONFIG onto a new read-back counterpart,
+// getConfigValue() (shims.cpp). GET_CONFIG is the one binary verb this
+// sprint keeps a synchronous reply for (`CFG`) -- see sprint.md
+// Architecture Step 3.
 #pragma once
 
 #include <cstddef>
@@ -204,6 +210,37 @@ class Protocol {
   void handleWheels(const uint8_t* data, size_t dataLen);
   void handleStop(const uint8_t* data, size_t dataLen);
   void handleEstop(const uint8_t* data, size_t dataLen);
+
+  // ---- ticket 004: binary config verb handlers -----------------------
+  // CONFIG/SET_FIELD/CALIBRATE decode their COBS+CRC binary body (ticket
+  // 001's codec) exactly like ticket 003's motion handlers above --
+  // fire-and-forget, no reply, a failed decode or wrong-shape payload
+  // silently dropped (no ack plane, sprint.md Open Question 1). CONFIG
+  // and SET_FIELD dispatch each decoded (field, value) pair onto the
+  // existing shims.cpp `setKernelValue()`. CALIBRATE is decoded (so it is
+  // genuinely "parsed", not merely recognized) but never acts on its
+  // payload: this hardware has no OTOS sensor, so it is a documented
+  // no-op (sprint.md Design Rationale) that never touches motor output.
+  //
+  // GET_CONFIG is the ONE exception this sprint keeps a synchronous
+  // binary reply for (wire spec S6.1/S6.2, sprint.md Architecture Step
+  // 3): it decodes a single field-number, reads that field's current
+  // value back through shims.cpp's new getConfigValue() (the read-back
+  // counterpart to the existing setKernelValue() -- both read/write the
+  // same kernel `Config` state, via `DifferentialDrive::config()`, so the
+  // reply reflects the true current value regardless of whether it was
+  // last set over the wire or via a MakeCode `set config` block), then
+  // sends a COBS+CRC-framed `CFG` reply carrying (field, value) via
+  // encodeBinaryBody()/transport_.writeLine() -- the same outbound path
+  // sendDeviceBanner()/PONG/etc. use for their cleartext replies, just
+  // binary-framed here. An out-of-range field-number on any of these four
+  // verbs is silently ignored (implementer's choice per this ticket's
+  // acceptance criteria) -- GET_CONFIG simply sends no reply in that case,
+  // since no ERR verb exists in this sprint's registry to report one.
+  void handleConfig(const uint8_t* data, size_t dataLen);
+  void handleGetConfig(const uint8_t* data, size_t dataLen);
+  void handleSetField(const uint8_t* data, size_t dataLen);
+  void handleCalibrate(const uint8_t* data, size_t dataLen);
 
   SerialTransport transport_;
   CodalFiberLauncher launcher_;

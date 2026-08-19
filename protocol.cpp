@@ -6,7 +6,7 @@
 
 namespace diffDrive {
 
-// ---- shims.cpp/Rig entry points (ticket 003) --------------------------
+// ---- shims.cpp/Rig entry points (tickets 003-004) ----------------------
 // shims.cpp has no header of its own (see its own file comment) and
 // main.ts's `//% shim=diffDrive::...` mechanism is the TS-facing binding,
 // not a C++ one -- these are plain same-namespace C++ forward
@@ -19,6 +19,11 @@ void stopAll();
 void estopAll();
 void setWheelsTimed(int left, int right, uint32_t durationMs);
 void driveTwistTimed(int speed, int yawRate, uint32_t durationMs);
+// ticket 004: setKernelValue already existed (the block API's `set
+// config` shim); getConfigValue is new -- the read-back counterpart
+// shims.cpp adds for GET_CONFIG (see that file's own comment).
+void setKernelValue(int field, int value);
+int getConfigValue(int field);
 
 // ---- CRC-16/CCITT-FALSE ----------------------------------------------
 
@@ -494,6 +499,144 @@ void Protocol::handleEstop(const uint8_t* data, size_t dataLen) {
   estopAll();
 }
 
+// ---- Binary config verb payload shapes (ticket 004) ---------------------
+// Locally defined, not protobuf-derived, same rationale as ticket 003's
+// motion payloads above (sprint.md Design Rationale). This project has one
+// flat 15-member `ConfigField` enum (main.ts, ordinals 0-14, mirrored in
+// specification.md S4.8), not the reference spec's seven `ConfigGroupTarget`
+// groups -- so a field is addressed by that single ordinal alone, matching
+// sprint.md's "GET_CONFIG/SET_FIELD address a single implicit config group
+// by field number" design decision.
+namespace {
+
+// One (field, value) pair, shared by CONFIG's repeated arm and SET_FIELD's
+// single-pair arm:
+//
+//   offset  size  field
+//   0       1     field -- ConfigField ordinal, 0-14 (main.ts)
+//   1       4     value int32 LE -- x1000-scaled, same convention
+//                 setKernelValue()/getConfigValue() already use
+//                 (shims.cpp's boundary convention, specification.md S9)
+constexpr size_t kFieldValuePairBytes = 5;
+constexpr uint8_t kMaxConfigField = 14;  // ConfigField's last ordinal
+
+// CONFIG: one or more pairs back to back, no count prefix -- the payload
+// length alone (a multiple of kFieldValuePairBytes) says how many.
+// Bounded to one pair per field this project actually has (15), which is
+// already far more than any single wire line needs in practice and stays
+// well inside kMaxLineBytes.
+constexpr size_t kConfigMaxPairs = kMaxConfigField + 1;
+constexpr size_t kConfigMaxPayloadBytes = kConfigMaxPairs * kFieldValuePairBytes;
+
+// GET_CONFIG request: field ordinal only -- no value, nothing else to ask
+// for. Unlike STOP/ESTOP (ticket 003), a 0-byte successful decode is never
+// a legitimate outcome here (a real request always names exactly one
+// field), so decodeBinaryBody()'s failure-vs-empty ambiguity never arises
+// for this verb.
+constexpr size_t kGetConfigPayloadBytes = 1;
+
+// CFG reply: echoes (field, value) back, the same pair shape CONFIG/
+// SET_FIELD already use -- symmetric encode/decode of the same 5-byte
+// layout.
+constexpr size_t kCfgReplyPayloadBytes = kFieldValuePairBytes;
+
+// CALIBRATE: id uint32 LE only, parsed but never read -- same "give a
+// successful decode a nonzero length" rationale as STOP/ESTOP's own id
+// field (ticket 003's comment on kStopPayloadBytes/kEstopPayloadBytes
+// applies verbatim here). CALIBRATE never acts on its payload regardless
+// of whether decoding succeeds: this hardware has no OTOS sensor, so it
+// is a documented no-op (sprint.md Design Rationale) irrespective of what
+// was sent.
+constexpr size_t kCalibratePayloadBytes = 4;
+
+void writeI32LE(uint8_t* p, int32_t v) {
+  const uint32_t u = static_cast<uint32_t>(v);
+  p[0] = static_cast<uint8_t>(u & 0xFF);
+  p[1] = static_cast<uint8_t>((u >> 8) & 0xFF);
+  p[2] = static_cast<uint8_t>((u >> 16) & 0xFF);
+  p[3] = static_cast<uint8_t>((u >> 24) & 0xFF);
+}
+
+// Applies one decoded (field, value) pair via setKernelValue(), the same
+// path the block API's `set config` block already uses. An out-of-range
+// field ordinal is silently ignored -- this ticket's acceptance criteria
+// leaves that choice to the implementer, and CONFIG/SET_FIELD have no
+// ack plane to report it on regardless (sprint.md Open Question 1).
+void applyFieldValuePair(const uint8_t* pair) {
+  const uint8_t field = pair[0];
+  if (field > kMaxConfigField) return;
+  const int32_t value = readI32LE(pair + 1);
+  setKernelValue(static_cast<int>(field), static_cast<int>(value));
+}
+
+}  // namespace
+
+// ---- Binary config verb handlers (ticket 004) ---------------------------
+// CONFIG/SET_FIELD/CALIBRATE mirror ticket 003's motion handlers: decode
+// the COBS+CRC binary body into a fixed-capacity local buffer, and drop a
+// failed decode or wrong-shape payload silently. GET_CONFIG is the
+// exception -- it sends a synchronous binary CFG reply (sprint.md
+// Architecture Step 3), the one binary reply this sprint keeps.
+
+void Protocol::handleConfig(const uint8_t* data, size_t dataLen) {
+  if (data == nullptr) return;
+  uint8_t payload[kConfigMaxPayloadBytes];
+  const size_t payloadLen =
+      decodeBinaryBody("CONFIG", data, dataLen, payload, sizeof(payload));
+  // Malformed, empty, or not a whole number of (field, value) pairs --
+  // nothing applied. (payloadLen == 0 also covers a genuine decode
+  // failure; CONFIG always carries at least one pair, so there is no
+  // legitimate 0-byte success to distinguish it from, same as
+  // GET_CONFIG above.)
+  if (payloadLen == 0 || payloadLen % kFieldValuePairBytes != 0) return;
+  for (size_t offset = 0; offset < payloadLen; offset += kFieldValuePairBytes) {
+    applyFieldValuePair(payload + offset);
+  }
+}
+
+void Protocol::handleSetField(const uint8_t* data, size_t dataLen) {
+  if (data == nullptr) return;
+  uint8_t payload[kFieldValuePairBytes];
+  const size_t payloadLen =
+      decodeBinaryBody("SET_FIELD", data, dataLen, payload, sizeof(payload));
+  if (payloadLen != kFieldValuePairBytes) return;  // malformed -- no write applied
+  applyFieldValuePair(payload);
+}
+
+void Protocol::handleGetConfig(const uint8_t* data, size_t dataLen) {
+  if (data == nullptr) return;
+  uint8_t payload[kGetConfigPayloadBytes];
+  const size_t payloadLen = decodeBinaryBody("GET_CONFIG", data, dataLen,
+                                             payload, sizeof(payload));
+  if (payloadLen != kGetConfigPayloadBytes) return;  // malformed -- no reply
+
+  const uint8_t field = payload[0];
+  if (field > kMaxConfigField) return;  // out-of-range -- no reply (see
+                                         // protocol.h's handler comment)
+  const int32_t value = static_cast<int32_t>(getConfigValue(field));
+
+  uint8_t reply[kCfgReplyPayloadBytes];
+  reply[0] = field;
+  writeI32LE(reply + 1, value);
+
+  uint8_t encoded[cobsMaxEncodedLength(kCfgReplyPayloadBytes + 2)];
+  const size_t encodedLen =
+      encodeBinaryBody("CFG", reply, sizeof(reply), encoded, sizeof(encoded));
+  if (encodedLen == 0) return;  // shouldn't happen at this fixed size
+  transport_.writeLine(encoded, encodedLen);
+}
+
+void Protocol::handleCalibrate(const uint8_t* data, size_t dataLen) {
+  if (data == nullptr) return;
+  uint8_t payload[kCalibratePayloadBytes];
+  // Decoded so CALIBRATE is genuinely "parsed" (this ticket's acceptance
+  // criteria), but the result is never used: no OTOS sensor on this
+  // hardware, so CALIBRATE is a documented no-op (sprint.md Design
+  // Rationale) regardless of whether decoding succeeds. No reply sent,
+  // no motor output touched.
+  decodeBinaryBody("CALIBRATE", data, dataLen, payload, sizeof(payload));
+}
+
 // ---- Protocol loop -----------------------------------------------------
 
 void Protocol::start() {
@@ -524,19 +667,21 @@ void Protocol::run() {
                                      // malformedCount_ case; no counter
                                      // exists this sprint (see protocol.h).
     // Ticket 002 dispatches the four cleartext identity/liveness verbs;
-    // ticket 003 (this revision) adds the four binary motion verbs.
-    // Every other registered verb -- CONFIG/GET_CONFIG/... (ticket 004's
-    // binary verbs, not yet handled) or a stray reply verb sent
-    // host->robot (e.g. DEVICE/PONG/CFG, which only ever originate from
-    // this robot) -- is recognized by the registry but has no handler
-    // here, so it is silently ignored: exactly this ticket's acceptance
-    // criterion for an "unrecognized or out-of-place" verb, and
-    // consistent with ticket 004 owning its own dispatch arms later.
-    // Each handler MUST stay short and non-blocking (see this file's
-    // header comment) -- the four motion handlers below all satisfy this
-    // by construction: they decode a small fixed-size payload and hand
-    // off to shims.cpp/Rig's own non-blocking `kernel.drive()`/
-    // `neutral()`/`estop()` calls, never sleeping or looping themselves.
+    // ticket 003 adds the four binary motion verbs; ticket 004 (this
+    // revision) adds the four binary config verbs. Every other registered
+    // verb -- a stray reply verb sent host->robot (e.g. DEVICE/PONG/CFG,
+    // which only ever originate from this robot) -- is recognized by the
+    // registry but has no handler here, so it is silently ignored: this
+    // ticket's own acceptance criterion (SUC-002) for an "unrecognized or
+    // out-of-place" verb. Each handler MUST stay short and non-blocking
+    // (see this file's header comment) -- every handler below satisfies
+    // this by construction: they decode a small fixed-size (or small
+    // bounded-repeat, for CONFIG) payload and hand off to shims.cpp/Rig's
+    // own non-blocking calls (`kernel.drive()`/`neutral()`/`estop()`/
+    // `setXxx()`), or -- GET_CONFIG only -- one blocking-but-bounded
+    // `transport_.writeLine()` for its synchronous CFG reply, the same
+    // guaranteed-bounded write ticket 002's cleartext replies already rely
+    // on. Never sleeping or looping themselves.
     if (std::strcmp(parsed.command, "HELLO") == 0) {
       handleHello();
     } else if (std::strcmp(parsed.command, "PING") == 0) {
@@ -553,6 +698,14 @@ void Protocol::run() {
       handleStop(parsed.data, parsed.dataLen);
     } else if (std::strcmp(parsed.command, "ESTOP") == 0) {
       handleEstop(parsed.data, parsed.dataLen);
+    } else if (std::strcmp(parsed.command, "CONFIG") == 0) {
+      handleConfig(parsed.data, parsed.dataLen);
+    } else if (std::strcmp(parsed.command, "GET_CONFIG") == 0) {
+      handleGetConfig(parsed.data, parsed.dataLen);
+    } else if (std::strcmp(parsed.command, "SET_FIELD") == 0) {
+      handleSetField(parsed.data, parsed.dataLen);
+    } else if (std::strcmp(parsed.command, "CALIBRATE") == 0) {
+      handleCalibrate(parsed.data, parsed.dataLen);
     }
   }
 }
