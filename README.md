@@ -9,6 +9,16 @@ Unlike open-loop duty control, wheel speeds are measured and corrected
 continuously — straight means straight, distances land on the encoder,
 and the robot's pose (x, y, heading) is always available from odometry.
 
+## Use as Extension
+
+In [MakeCode for micro:bit](https://makecode.microbit.org/), open a
+project, click the gear menu → **Extensions**, and paste this repo's
+URL:
+
+```
+https://github.com/League-Robotics/pxt-nezha-diffdrive
+```
+
 ## Blocks / JavaScript
 
 ```js
@@ -49,9 +59,9 @@ chassis. The motor ports and directions are compile-time defaults in
 ## Provenance
 
 The wheel kernel is vendored from the
-[radio-robot](https://github.com/Busboombot/radio-robot) firmware
+[radio-robot](https://github.com/League-Robotics/radio-robot) firmware
 (`src/firm/diffdrive/`, comments stripped for size) and is maintained
-there; this branch carries the MakeCode packaging. The Nezha motor port
+there; this repo carries the MakeCode packaging. The Nezha motor port
 is a faithful reduction of that firmware's anti-latch motor leaf.
 
 ## Supported targets
