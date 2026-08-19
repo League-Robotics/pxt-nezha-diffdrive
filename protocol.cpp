@@ -32,6 +32,16 @@ int diagValue(int what);
 int poseX();
 int poseY();
 int poseHeading();
+// sprint 002: tickDrive()/moving() are the tick-engine shims this
+// revision's motion-obligation tracking calls directly -- tickDrive() to
+// actually step the kernel while an obligation is live, moving() to
+// read Rig::moveActive as the position-mode obligation's own live
+// signal (see protocol.h's "sprint 002: motion-obligation tracking"
+// section). Both already exist in shims.cpp (sprint 002 ticket 001);
+// same same-package forward-declaration convention as every entry point
+// above.
+bool tickDrive();
+bool moving();
 
 // ---- CRC-16/CCITT-FALSE ----------------------------------------------
 
@@ -272,12 +282,23 @@ constexpr const char* kVersion = "1.0.0";  // keep in sync with pxt.json
 // written, which can exceed the buffer on truncation) and dropping
 // silently on an encoding error (negative return) rather than sending
 // garbage.
+//
+// sprint 002 ticket 006: `radio`, when non-null, mirrors the identical
+// clamped bytes onto that RadioTransport after the serial write -- one
+// formatted buffer, two sinks, the exact same bytes on both (sprint.md's
+// "mirror the exact formatted line bytes" Design Rationale). Defaults to
+// nullptr so this helper's four other call sites (PING/ID/VER/DIAG) are
+// unchanged, serial-only, with no edit needed at those sites; only
+// sendDeviceBanner() and sendTelemetry() below pass their radioTransport_.
 void writeSnprintfResult(SerialTransport& transport, const char* buf, int n,
-                         size_t bufCap) {
+                         size_t bufCap, RadioTransport* radio = nullptr) {
   if (n < 0) return;
   size_t len = static_cast<size_t>(n);
   if (len > bufCap - 1) len = bufCap - 1;
   transport.writeLine(reinterpret_cast<const uint8_t*>(buf), len);
+  if (radio != nullptr) {
+    radio->sendLine(reinterpret_cast<const uint8_t*>(buf), len);
+  }
 }
 }  // namespace
 
@@ -288,7 +309,11 @@ void Protocol::sendDeviceBanner() {
   const int n = snprintf(buf, sizeof(buf), "DEVICE:NEZHA2:robot:%s:%lu",
                               microbit_friendly_name(),
                               static_cast<unsigned long>(microbit_serial_number()));
-  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+  // sprint 002 ticket 006: mirror onto radio, uniformly at this one
+  // function -- covers both call sites (the proactive boot-time send in
+  // run(), and handleHello()'s re-send) with no special-casing between
+  // them (sprint.md Design Rationale).
+  writeSnprintfResult(transport_, buf, n, sizeof(buf), &radioTransport_);
 }
 
 void Protocol::handleHello() {
@@ -458,6 +483,11 @@ void Protocol::handleMove(const uint8_t* data, size_t dataLen) {
         driveTwistTimed(static_cast<int>(fieldA), static_cast<int>(fieldB),
                         durationMs);
       }
+      // sprint 002: a time-stop MOVE is duration-bound -- this fiber
+      // must keep ticking until durationMs elapses, or the kernel would
+      // never actually step (see protocol.h's obligation-tracking
+      // section).
+      beginTimedMotionObligation(durationMs);
       break;
     }
     case kMoveStopDistance: {
@@ -507,6 +537,10 @@ void Protocol::handleWheels(const uint8_t* data, size_t dataLen) {
   // payload[12..15] (id) is present in the wire layout, deliberately
   // never read -- no ack plane to echo it against (Open Question 1).
   setWheelsTimed(static_cast<int>(left), static_cast<int>(right), duration);
+  // sprint 002: WHEELS is duration-bound -- this fiber must keep
+  // ticking until `duration` elapses, or the kernel would never
+  // actually step (see protocol.h's obligation-tracking section).
+  beginTimedMotionObligation(duration);
 }
 
 void Protocol::handleStop(const uint8_t* data, size_t dataLen) {
@@ -518,6 +552,11 @@ void Protocol::handleStop(const uint8_t* data, size_t dataLen) {
   // payload[0..3] (id) is present in the wire layout (see the constants
   // block above), deliberately never read -- no ack plane (Open Question 1).
   stopAll();
+  // sprint 002: clear the local obligation tracking too, not just the
+  // Rig-level stop above -- otherwise the loop would keep ticking (at
+  // tickDrive()'s ~24 ms cadence) until a stale timed deadline elapsed
+  // even though the robot is already stopped.
+  clearTimedMotionObligation();
 }
 
 void Protocol::handleEstop(const uint8_t* data, size_t dataLen) {
@@ -529,6 +568,12 @@ void Protocol::handleEstop(const uint8_t* data, size_t dataLen) {
   // payload[0..3] (id) is present in the wire layout (see the constants
   // block above), deliberately never read -- no ack plane (Open Question 1).
   estopAll();
+  // sprint 002: clear the local obligation tracking too -- see
+  // handleStop()'s identical comment above. ESTOP's own physical stop
+  // effect (kernel.emergencyStopMotors()'s direct port write) is
+  // unaffected by tick cadence either way; this only governs how soon
+  // this loop reverts to its idle poll.
+  clearTimedMotionObligation();
 }
 
 // ---- Binary config verb payload shapes (ticket 004) ---------------------
@@ -703,7 +748,44 @@ void Protocol::sendTelemetry() {
   char buf[48];  // "TLM:" + three int32-range fields + separators + NUL
   const int n = snprintf(buf, sizeof(buf), "TLM:%d:%d:%d", poseX(),
                               poseY(), poseHeading());
-  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+  // sprint 002 ticket 006: mirror the identical formatted bytes onto
+  // radio (SUC-004) -- same buf/n/bufCap, one source of truth for line
+  // content, two sinks (sprint.md Solution).
+  writeSnprintfResult(transport_, buf, n, sizeof(buf), &radioTransport_);
+}
+
+// ---- sprint 002: motion-obligation tracking -----------------------------
+// See protocol.h's own comment on this section (and on why it's labeled
+// "(sprint 002)" rather than by ticket number) for the full rationale.
+// Kept deliberately small and localized (APPROVE-WITH-CHANGES guidance,
+// sprint architecture review): two fields (protocol.h) plus these three
+// one-purpose methods are the entire obligation-tracking surface --
+// every call site below (handleMove/handleWheels/handleStop/handleEstop/
+// run()) goes through one of them rather than touching the fields
+// directly.
+
+bool Protocol::hasLiveMotionObligation() {
+  if (timedObligationActive_) {
+    const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
+    // Wraparound-safe elapsed check, same signed-difference idiom as
+    // run()'s own TLM cadence check and shims.cpp's moveDeadline check.
+    if (static_cast<int32_t>(nowMs - timedObligationDeadlineMs_) >= 0) {
+      timedObligationActive_ = false;  // deadline elapsed -- idle from here
+    }
+  }
+  // Position-mode MOVE: Rig::moveActive itself IS the live signal (read
+  // via the existing moving() shim, no duplicate state kept here).
+  return moving() || timedObligationActive_;
+}
+
+void Protocol::beginTimedMotionObligation(uint32_t durationMs) {
+  timedObligationActive_ = true;
+  const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
+  timedObligationDeadlineMs_ = nowMs + durationMs;
+}
+
+void Protocol::clearTimedMotionObligation() {
+  timedObligationActive_ = false;
 }
 
 // ---- Protocol loop -----------------------------------------------------
@@ -712,6 +794,14 @@ void Protocol::start() {
   if (running_) return;  // idempotent, mirrors DifferentialDrive::start()
   running_ = true;
   transport_.begin();  // size serial rings before any traffic
+  // No analogous radioTransport_.begin() call here: RadioTransport has no
+  // such method (ticket 005) -- it lazily enables uBit.radio on its own
+  // first sendLine() call instead. That first call happens unconditionally
+  // via sendDeviceBanner() at the top of run() below (fiberEntry(), just
+  // launched), so the radio is still effectively started unconditionally
+  // from this boot path, without a redundant explicit call here. See
+  // protocol.h's "sprint 002 ticket 006: radio mirror" comment for the
+  // full rationale and its accepted tradeoff.
   launcher_.launch(&Protocol::fiberEntry, this);
 }
 
@@ -812,9 +902,22 @@ void Protocol::run() {
       lastTlmMs = nowMs;
     }
 
-    fiber_sleep(kPollIntervalMs);  // cooperative yield -- lets the kernel's
-                                   // own fiber (and any other) run between
-                                   // polls; never spins.
+    // Sprint 002: with the kernel's own background fiber removed
+    // (shims.cpp), a wire-issued MOVE/WHEELS has no student loop left to
+    // keep ticking it -- while this fiber's own motion obligation is
+    // live, tickDrive() replaces this iteration's idle poll entirely.
+    // tickDrive()'s own absolute-deadline pacing sleep (~24 ms) IS this
+    // iteration's sleep; it is never followed by fiber_sleep() too (that
+    // would double-sleep). When idle, behavior is unchanged from ticket
+    // 001: a plain 5 ms poll, no tick. See protocol.h's "sprint 002:
+    // motion-obligation tracking" section.
+    if (hasLiveMotionObligation()) {
+      tickDrive();
+    } else {
+      fiber_sleep(kPollIntervalMs);  // cooperative yield -- lets the
+                                     // kernel's own fiber (and any other)
+                                     // run between polls; never spins.
+    }
   }
 }
 

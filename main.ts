@@ -62,7 +62,15 @@ namespace diffDrive {
     // ================= public API: velocity commands =================
 
     /**
-     * Set the two wheel speeds. Runs until superseded or stopped.
+     * Set the two wheel speeds. Continuous-mode command: the robot only
+     * moves while something keeps ticking the control loop -- run a
+     * `while (diffDrive.driveTick())` loop after calling this to keep
+     * the robot moving. If nothing ticks (e.g. your loop exits or the
+     * program pauses), a safety watchdog stops the robot within about
+     * 150 ms; a fresh move or tick loop resumes right away, no
+     * clear-emergency-stop needed. (Position-mode blocks like move()
+     * and whileMoving() tick internally, so this only matters for
+     * setWheelSpeeds()/driveTwist().)
      * @param left left wheel speed, eg: 15
      * @param right right wheel speed, eg: 15
      */
@@ -74,7 +82,12 @@ namespace diffDrive {
     }
 
     /**
-     * Drive with a body speed and yaw rate. Runs until superseded.
+     * Drive with a body speed and yaw rate. Continuous-mode command:
+     * the robot only moves while something keeps ticking the control
+     * loop -- run a `while (diffDrive.driveTick())` loop after calling
+     * this to keep the robot moving. If nothing ticks, a safety
+     * watchdog stops the robot within about 150 ms; a fresh move or
+     * tick loop resumes right away, no clear-emergency-stop needed.
      * @param speed forward speed, eg: 15
      * @param yawRate turn rate CCW+, eg: 0
      */
@@ -83,6 +96,22 @@ namespace diffDrive {
     //% group="Drive"
     export function driveTwist(speed: number, yawRate: number): void {
         _driveTwist(Math.round(speed * 10), Math.round(yawRate * 100))
+    }
+
+    // ================= continuous-mode ticking ========================
+
+    /**
+     * Advance one control cycle. Run this in a loop --
+     * `while (diffDrive.driveTick())` -- after setWheelSpeeds()/
+     * driveTwist() to keep the robot moving; the robot only drives
+     * while this (or an internally-ticking block like move()) keeps
+     * getting called. Self-paces to the drive's control cadence
+     * (about 24 ms), so don't add your own pause() in the loop.
+     */
+    //% block="drive tick"
+    //% group="Move"
+    export function driveTick(): boolean {
+        return _tickDrive()
     }
 
     // ================= position-mode moves: blocking =================
@@ -97,7 +126,7 @@ namespace diffDrive {
     //% group="Move"
     export function move(distance: number, yaw: number): void {
         startMove(distance, yaw)
-        while (_updateMove()) basic.pause(10)
+        while (_tickDrive());
     }
 
     /**
@@ -110,13 +139,20 @@ namespace diffDrive {
     //% group="Move"
     export function goTo(x: number, y: number): void {
         startGoTo(x, y)
-        while (_updateMove()) basic.pause(10)
+        while (_tickDrive());
     }
 
     // ================= position-mode moves: async ====================
 
     /**
      * Start a move without waiting. Poll isMoving() / call stopMove().
+     * KNOWN GAP under the tick model: this poll pattern does not, by
+     * itself, advance the move -- something must still call
+     * driveTick() (or otherwise tick the control loop) concurrently,
+     * or the move never progresses and the safety watchdog stops it
+     * within about 150 ms. This sprint does not supply that tick
+     * source; prefer move()/whileMoving() unless you are pairing this
+     * with your own driveTick() loop.
      */
     //% block="start move %distance cm turning %yaw degrees"
     //% group="Move" advanced=true
@@ -127,7 +163,9 @@ namespace diffDrive {
     }
 
     /**
-     * Start a go-to without waiting.
+     * Start a go-to without waiting. Same tick-model gap as
+     * startMove() -- see its doc comment: without a concurrent
+     * driveTick() loop, this does not progress on its own.
      */
     //% block="start go to x %x cm y %y cm"
     //% group="Move" advanced=true
@@ -149,7 +187,11 @@ namespace diffDrive {
     }
 
     /**
-     * Is a move currently running?
+     * Is a move currently running? Checks state only -- it does not
+     * itself advance the move. Under the tick model, a move started
+     * with startMove()/startGoTo() only progresses while something
+     * else ticks the control loop (e.g. a concurrent driveTick()
+     * loop); see startMove()'s doc comment.
      */
     //% block="moving?"
     //% group="Move"
@@ -158,7 +200,9 @@ namespace diffDrive {
     }
 
     /**
-     * Fraction of the current move completed, 0 to 1.
+     * Fraction of the current move completed, 0 to 1. Checks state
+     * only -- same tick-model gap as isMoving(): it does not itself
+     * advance the move (see startMove()'s doc comment).
      */
     //% block="move progress"
     //% group="Move" advanced=true
@@ -167,7 +211,11 @@ namespace diffDrive {
     }
 
     /**
-     * End the current move now (no-op if none).
+     * End the current move now (no-op if none). Note: under the tick
+     * model, a move started with startMove()/startGoTo() and never
+     * paired with a driveTick() loop will not have progressed anyway
+     * (see startMove()'s doc comment) -- this just clears the
+     * move-engine state.
      */
     //% block="stop move"
     //% group="Move"
@@ -188,9 +236,8 @@ namespace diffDrive {
     export function whileMoving(distance: number, yaw: number,
         body: (x: number, y: number, heading: number) => void): void {
         startMove(distance, yaw)
-        while (_updateMove()) {
+        while (_tickDrive()) {
             body(poseX(), poseY(), heading())
-            basic.pause(24)
         }
         _endMove()
     }
@@ -204,9 +251,8 @@ namespace diffDrive {
     export function whileGoingTo(x: number, y: number,
         body: (x: number, y: number, heading: number) => void): void {
         startGoTo(x, y)
-        while (_updateMove()) {
+        while (_tickDrive()) {
             body(poseX(), poseY(), heading())
-            basic.pause(24)
         }
         _endMove()
     }
@@ -344,15 +390,52 @@ namespace diffDrive {
     let simMoveRemainRad = 0
     let simMoveActive = false
 
+    // Tick-engine sim state (sprint 002): _tickDrive()'s simulator body
+    // mirrors shims.cpp's absolute-deadline pacing (tickDrive(), 24 ms
+    // cadence) so a simulator-run program is timing-observable the same
+    // way hardware is -- an anchored deadline while ticks stay
+    // consecutive, re-anchored to "now" after a gap.
+    const kSimTickPeriodMs = 24
+    let simTickDeadlineMs = 0    // 0 = no tick has run yet
+    let simCycleCount = 0
+    let simTickOverrunCount = 0
+
     function simIntegrate(): void {
         const now = control.millis()
         let dt = (now - simLastMs) / 1000
         if (dt < 0 || dt > 0.5) dt = 0
         simLastMs = now
         if (dt == 0) return
+        // Capture the velocity/yaw-rate actually in effect for THIS
+        // step before any end-of-move zeroing below, and clip this
+        // step's own contribution to the fraction of dt actually
+        // needed to reach the target -- so a move that finishes
+        // partway through a step neither overshoots (crediting the
+        // whole step) nor undershoots (crediting none of it). At the
+        // old 10 ms poll cadence this distinction was invisible for
+        // typical durations (the terminating step happened to land
+        // with floating-point room to spare); the new, coarser 24 ms
+        // tick cadence (main.ts's _tickDrive()) exposed it as a real,
+        // test.ts-square-visible pose drift -- caught by this ticket's
+        // own net-zero-pose simulator check.
+        const stepVel = simVel
+        const stepYawRate = simYawRate
+        let stepDt = dt
         if (simMoveActive) {
             const dMm = simVel * dt
             const dRad = simYawRate * dt
+            let frac = 1
+            if (dMm != 0 && simMoveRemainMm < Math.abs(dMm)) {
+                const f = simMoveRemainMm / Math.abs(dMm)
+                if (f < frac) frac = f
+            }
+            if (dRad != 0 && simMoveRemainRad < Math.abs(dRad)) {
+                const f = simMoveRemainRad / Math.abs(dRad)
+                if (f < frac) frac = f
+            }
+            if (frac < 0) frac = 0
+            stepDt = dt * frac
+
             simMoveRemainMm -= Math.abs(dMm)
             simMoveRemainRad -= Math.abs(dRad)
             if (simMoveRemainMm <= 0 && simMoveRemainRad <= 0) {
@@ -361,10 +444,10 @@ namespace diffDrive {
                 simYawRate = 0
             }
         }
-        const mid = simHeading + simYawRate * dt / 2
-        simX += simVel * dt * Math.cos(mid)
-        simY += simVel * dt * Math.sin(mid)
-        simHeading += simYawRate * dt
+        const mid = simHeading + stepYawRate * stepDt / 2
+        simX += stepVel * stepDt * Math.cos(mid)
+        simY += stepVel * stepDt * Math.sin(mid)
+        simHeading += stepYawRate * stepDt
     }
 
     //% shim=diffDrive::setWheels
@@ -405,6 +488,52 @@ namespace diffDrive {
     function _updateMove(): boolean {
         simIntegrate()
         return simMoveActive
+    }
+
+    // Simulator body for the tick engine: integrate one step (kinematic
+    // stand-in for kernel.step()+serviceMove()), then self-pace to the
+    // next absolute 24 ms schedule with basic.pause(), same anchoring
+    // rule as tickDrive() in shims.cpp -- so blocking/loop forms built
+    // on `while (_tickDrive())` behave the same way in the browser as
+    // on hardware. Always steps (simIntegrate()), even with no move
+    // active, matching the hardware contract that continuous-mode
+    // driving depends on. Returns post-step move-active state.
+    //% shim=diffDrive::tickDrive
+    function _tickDrive(): boolean {
+        simIntegrate()
+        simCycleCount += 1
+        const moveActive = simMoveActive
+
+        const now = control.millis()
+        const consecutive = simTickDeadlineMs != 0 &&
+            now < simTickDeadlineMs + kSimTickPeriodMs
+        const deadline = consecutive ?
+            simTickDeadlineMs + kSimTickPeriodMs : now + kSimTickPeriodMs
+        simTickDeadlineMs = deadline
+
+        const wait = deadline - control.millis()
+        if (wait > 0) {
+            basic.pause(wait)
+        } else {
+            simTickOverrunCount += 1
+        }
+        return moveActive
+    }
+
+    // Minimal simulator stand-in for cycleStat() -- there is no real
+    // fiber/cycle timing to observe in the browser simulator, so this
+    // reports the nominal cadence plus the sim's own tick/overrun
+    // counters (kept for parity with hardware's field layout) rather
+    // than measured timing.
+    //% shim=diffDrive::cycleStat
+    function _cycleStat(which: int32): int32 {
+        switch (which) {
+            case 0: return kSimTickPeriodMs * 1000  // nominal period [us]
+            case 1: return 0                        // busy [us]: not modeled
+            case 2: return simTickOverrunCount
+            case 3: return simCycleCount
+            default: return 0
+        }
     }
 
     //% shim=diffDrive::progress

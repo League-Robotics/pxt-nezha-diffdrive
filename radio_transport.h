@@ -1,0 +1,110 @@
+// radio_transport.h -- RadioTransport: gets a formatted wire line onto
+// the micro:bit radio, framed for the fleet's RADIOBRIDGE relay. This is
+// a second thin CODAL-facing leaf beneath Protocol, playing the same
+// role SerialTransport plays for uBit.serial (see serial_transport.h's
+// own top comment): it knows uBit.radio and the RadioRelay on-air
+// fragment framing, and NOTHING about pose, COBS, CRC, verb names, or
+// command semantics.
+//
+// On-air framing provenance: this module's fragment format is a
+// TX-only port of radio-robot-elite's Platform::MicroBitRadioLink
+// (src/firm/platform/microbit/microbit_radio_link.{h,cpp}) -- the
+// fleet's own robot-side radio driver, which the RADIOBRIDGE relay
+// hardware is built against -- specifically its RadioRelay wire spec
+// section 5: every on-air packet is a fragment
+//     [SEQ:1][FLAGS:1][LEN:1][payload:LEN]
+// carried as the raw CODAL datagram payload (no MakeCode/PXT radio
+// package header). FLAGS: START=0x01, MORE=0x02, END=0x04 (the
+// reference's ACK=0x10 is not declared here -- see below). A message
+// longer than one fragment's payload capacity is split START..END; a
+// single-fragment message is flagged START|END.
+//
+// TX-only, by sprint.md's own explicit scope (Design Rationale: "the
+// reference's full bidirectional implementation... rejected as more
+// code and complexity than this sprint's telemetry-only scope needs" --
+// a sender never needs its own reassembly buffer or ISR listener to
+// speak this framing correctly): no MICROBIT_RADIO_EVT_DATAGRAM
+// listener is ever registered, no reassembly buffer exists, and the
+// reference's FLAG_ACK (0x10) is never set or interpreted -- there is
+// nothing here that could receive an ACK to begin with.
+//
+// Not copied wholesale from the reference: this file only implements
+// the minimal send-side subset (begin/enable + fragment + transmit)
+// the reference's much larger bidirectional class provides.
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace diffDrive {
+
+class RadioTransport {
+ public:
+  // Fragments `data` (len bytes) into RadioRelay-framed radio packets
+  // and transmits each one via uBit.radio.datagram.send(), appending a
+  // trailing 0x0A ('\n') as the final payload byte -- the same
+  // one-terminator-per-line convention SerialTransport::writeLine()
+  // uses. Safe for binary content for the same reason protocol.h
+  // documents for the serial transport: COBS here is keyed on 0x0A, so
+  // a binary line's own bytes never contain a literal 0x0A. Truncates
+  // -- rather than overflows -- a `len` beyond this module's internal
+  // line-buffer capacity, mirroring SerialTransport's own defensive
+  // truncation.
+  //
+  // Lazily enables and configures the radio (uBit.radio.enable(), fixed
+  // group 10, channel 0, transmit power 7 -- matching the reference
+  // driver's own begin()) on the FIRST call, never at construction and
+  // never via a separate begin() step: uBit.radio.enable() has its own
+  // RAM/softdevice cost (sprint.md), so a bench-only serial user who
+  // never calls sendLine() never pays it.
+  void sendLine(const uint8_t* data, size_t len);
+
+ private:
+  void ensureRadioReady();
+
+  // Fragments `payload[0..payloadLen)` -- which already carries its own
+  // trailing '\n' as the last byte, appended by sendLine() -- into
+  // on-air frames of up to one packet's payload capacity each. That
+  // capacity is derived from MICROBIT_RADIO_MAX_PACKET_SIZE, whatever
+  // this build's CODAL target actually resolves it to (CODAL's own
+  // default is 32 bytes -- sprint.md Open Question 1; this module does
+  // not assume a raised value). Always emits at least one fragment,
+  // even for a zero-length payload, so a degenerate empty line still
+  // gets a valid START|END frame.
+  void sendFragmented(const uint8_t* payload, size_t payloadLen);
+
+  // RadioRelay wire spec section 5 fragment framing -- see this
+  // header's top comment for the reference file this mirrors.
+  static constexpr uint8_t kFlagStart = 0x01;
+  static constexpr uint8_t kFlagMore = 0x02;
+  static constexpr uint8_t kFlagEnd = 0x04;
+  // FLAG_ACK (0x10) deliberately not declared -- TX-only, see top
+  // comment: nothing in this module ever sets or interprets it.
+
+  static constexpr int kFrameHeaderBytes = 3;  // [SEQ][FLAGS][LEN]
+
+  // Fixed radio convention matching the fleet's RADIOBRIDGE relay
+  // (sprint.md Design Rationale): group is the relay's own listen
+  // group, channel is this build's single default frequency band (no
+  // per-robot channel-selection surface this sprint -- Open Question
+  // 2), transmit power matches the reference driver's own
+  // setTransmitPower(7).
+  static constexpr uint8_t kGroup = 10;
+  static constexpr int kChannel = 0;
+  static constexpr int kTransmitPower = 7;
+
+  // Internal line-buffer capacity for sendLine()'s truncation bound --
+  // an implementation detail local to this module (not shared with
+  // SerialTransport's own kMaxLineBytes; the two transports are
+  // siblings under Protocol, not coupled to each other -- sprint.md's
+  // module diagram has no edge between them). Sized the same as
+  // SerialTransport's bound purely because both carry the same
+  // Protocol-formatted wire lines (TLM/DEVICE), not because of a shared
+  // dependency.
+  static constexpr size_t kMaxPayloadBytes = 200;
+
+  bool radioReady_ = false;
+  uint8_t txSeq_ = 0;  // rolling RadioRelay §5 sequence number
+};
+
+}  // namespace diffDrive

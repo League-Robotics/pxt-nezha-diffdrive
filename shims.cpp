@@ -1,6 +1,6 @@
 // shims.cpp -- the MakeCode-facing C++ surface. Composes the DiffDrive
-// kernel (its own fiber, 24 ms cadence) with two NezhaMotorPorts and the
-// CODAL platform ports, and adds the two application-layer pieces the
+// kernel (self-contained control law) with two NezhaMotorPorts and the
+// CODAL platform ports, and adds the application-layer pieces the
 // kernel deliberately does not contain:
 //
 //   - ODOMETRY: differential dead-reckoning from the kernel's Output
@@ -10,7 +10,17 @@
 //     TS layer's arc math) as a start/update/end state machine over the
 //     kernel's velocity interface. The TypeScript layer polls
 //     updateMove() -- blocking and loop-style forms are both built on
-//     that poll.
+//     that poll. Both updateMove() and the tick engine below share one
+//     implementation, serviceMove().
+//   - TICK ENGINE (sprint 002): tickDrive() runs one kernel.step() +
+//     serviceMove() on the CALLER's own fiber, then self-paces to the
+//     next 24 ms deadline. The kernel's own background fiber pacer
+//     (start()/run()/fiberEntry()) is deliberately left unwired -- see
+//     ensure()'s own comment -- so every control cycle now runs on
+//     whichever fiber calls tickDrive() instead.
+//   - STARVATION WATCHDOG (sprint 002): the one background fiber this
+//     file still launches -- a safety net, not a control path; see its
+//     own clearly delineated section below.
 //
 // Boundary convention: integers only. mm, mm/s, centidegrees,
 // centidegrees/s; config values scaled x1000. The TS layer owns the
@@ -34,6 +44,13 @@
 using namespace pxt;
 
 namespace diffDrive {
+
+// Forward declaration: the starvation watchdog fiber entry point is
+// defined in its own clearly delineated section further down (see
+// "starvation watchdog"); ensure() launches it via the same
+// CodalFiberLauncher mechanism the kernel used for its own now-unwired
+// fiber.
+static void watchdogEntry(void* context);
 
 // ---- composition ----------------------------------------------------
 
@@ -62,6 +79,25 @@ struct Rig {
   float moveDistTarget = 0.0f;   // [counts] mean-axis target (signed)
   float moveYawTarget = 0.0f;    // [counts] half-differential target
   uint32_t moveDeadline = 0;     // [ms] lease-aligned backstop
+
+  // tick engine (sprint 002): caller-driven stepping replaces the
+  // kernel's own now-unwired fiber pacer -- see ensure(), tickDrive(),
+  // and the starvation watchdog section below.
+  uint64_t lastTickUs = 0;       // [us] clock.nowMicros() at the start
+                                  // of the most recent tickDrive() call
+                                  // -- the watchdog's only freshness
+                                  // signal. 0 = no tick has run yet.
+  uint64_t tickDeadlineUs = 0;   // [us] tickDrive()'s own absolute-
+                                  // deadline pacing anchor. 0 = no tick
+                                  // has run yet -- re-anchor to now.
+  bool stepBusy = false;         // concurrency guard around
+                                  // kernel.step() inside tickDrive();
+                                  // see that function's own comment.
+  uint32_t tickOverrunCount = 0; // Rig-level: tickDrive() calls that ran
+                                  // past their own paced deadline.
+                                  // Distinct from the kernel's own
+                                  // cycleOverrunCount_, which only its
+                                  // unused run() ever increments.
 };
 
 static Rig* rig = nullptr;
@@ -89,7 +125,23 @@ static Rig& ensure() {
     cfg.cyclePeriod = 24;            // [ms]
     rig->kernel.setConfig(cfg);
     rig->kernel.begin();   // primes encoders, arms boot zero-write
-    rig->kernel.start();   // kernel fiber free-runs from here
+
+    // TICK MODEL (sprint 002): the kernel's own background fiber pacer
+    // is intentionally left unwired here -- every control cycle now
+    // runs on whichever fiber calls tickDrive() (below), not a fiber
+    // this file starts. kernel.start()/run()/fiberEntry() stay compiled
+    // and available (diffdrive.h/.cpp are byte-unmodified); restoring
+    // the single call below re-enables the old free-running fiber-paced
+    // mode. See sprint.md's Design Rationale ("pure tick model, fiber
+    // pacer entirely unwired -- no dual mode").
+    // rig->kernel.start();
+
+    // The starvation watchdog is the only background fiber this sprint
+    // leaves running -- launched the same way the kernel used to launch
+    // its own (CodalFiberLauncher), so an abandoned tick caller can
+    // still be stopped even though no control fiber of this file's own
+    // is running. See the "starvation watchdog" section below.
+    rig->launcher.launch(&watchdogEntry, rig);
   }
   return *rig;
 }
@@ -220,10 +272,16 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
       r.clock.nowMicros() / 1000ull) + lease;
 }
 
-//%
-bool updateMove() {
-  if (rig == nullptr) return false;
-  Rig& r = *rig;
+// serviceMove(): odometry update + progress/deadline/stall check +
+// kernel.neutral() on done -- the body previously inline in
+// updateMove(), pulled out so both the old poll path (updateMove(),
+// below) and the new tick path (tickDrive(), in the tick engine section
+// below) share one implementation. INVARIANT: no fiber_sleep/yield
+// anywhere in this function or anything it calls -- that is what keeps
+// one Rig read-modify-write atomic across whichever fiber happens to be
+// calling in (a student's TS loop, the wire protocol, tickDrive()
+// itself). Returns the post-check moveActive state.
+static bool serviceMove(Rig& r) {
   if (!r.moveActive) return false;
   odomUpdate(r);
   const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
@@ -253,6 +311,171 @@ bool updateMove() {
     return false;
   }
   return true;
+}
+
+//%
+bool updateMove() {
+  if (rig == nullptr) return false;
+  return serviceMove(*rig);
+}
+
+// ---- tick engine (sprint 002) -----------------------------------------
+// tickDrive(): the caller-driven replacement for the kernel's own
+// now-unwired fiber. Runs exactly one kernel.step() + serviceMove() on
+// the CALLER's fiber every time it is called, then self-paces to the
+// next absolute 24 ms deadline before returning -- the same
+// absolute-deadline pacing DifferentialDrive::run() uses
+// (diffdrive.cpp:290-306), lifted here since run() itself is no longer
+// wired to anything. The deadline is anchored to the previous tick's
+// own deadline while calls stay consecutive (no drift accumulates from
+// per-call scheduling jitter); a gap since the last recorded deadline
+// re-anchors to now instead of trying to "catch up" a burst of overdue
+// ticks.
+//
+// Always executes the step, even with no move active and no continuous
+// command in force -- see sprint.md's Design Rationale: a
+// while (_tickDrive()) loop driving setWheelSpeeds()/driveTwist() must
+// step the kernel on every call, or continuous-mode driving would never
+// progress. The returned bool reports moveActive AFTER this call's
+// serviceMove() ran, so a position-mode move's final tick still returns
+// false, ending a while (_tickDrive()) loop on the same call that
+// finishes the move (no extra idle tick).
+//%
+bool tickDrive() {
+  Rig& r = ensure();
+  const uint64_t cycleStartUs = r.clock.nowMicros();
+  r.lastTickUs = cycleStartUs;  // the watchdog's only freshness signal
+
+  // Concurrency guard: check-and-set with no intervening yield is
+  // atomic on CODAL's cooperative fibers, so this is safe against a
+  // second fiber also calling tickDrive() -- it just waits (a short
+  // timed poll, since the busy fiber may itself be parked in step()'s
+  // settle sleeps) until the flag clears rather than racing
+  // kernel.step().
+  while (r.stepBusy) {
+    r.sleeper.sleepMillis(1);
+  }
+  r.stepBusy = true;
+  r.kernel.step();
+  r.stepBusy = false;
+
+  const bool moveActive = serviceMove(r);
+
+  // Absolute-deadline self-pacing, lifted from DifferentialDrive::run()
+  // (diffdrive.cpp:290-306): read the cadence from the kernel's own
+  // config (still 24 ms per sprint.md's Design Rationale) rather than
+  // duplicating the constant here.
+  const uint64_t periodUs =
+      static_cast<uint64_t>(r.kernel.config().cyclePeriod) * 1000ull;
+  const bool consecutive =
+      r.tickDeadlineUs != 0 && cycleStartUs < r.tickDeadlineUs + periodUs;
+  const uint64_t deadlineUs =
+      consecutive ? r.tickDeadlineUs + periodUs : cycleStartUs + periodUs;
+  r.tickDeadlineUs = deadlineUs;
+
+  const uint64_t nowUs = r.clock.nowMicros();
+  if (nowUs < deadlineUs) {
+    const uint32_t shortfallMs =
+        static_cast<uint32_t>((deadlineUs - nowUs + 999) / 1000);
+    r.sleeper.sleepMillis(shortfallMs);
+  } else {
+    ++r.tickOverrunCount;
+    r.sleeper.yield();
+  }
+
+  return moveActive;
+}
+
+// cycleStat(): read-only tick/cycle diagnostics for desk verification
+// (and future wire-protocol reporting). 0 = measured cycle period [us],
+// 1 = measured busy time [us] (both straight off the kernel's own
+// Output, unaffected by who calls step()); 2 = the Rig-level
+// tick-overrun counter above (NOT the kernel's own cycleOverrunCount_,
+// which only its unused run() increments); 3 = cycleCount (existing
+// kernel Output field, likewise unaffected by who calls step()).
+// Deliberately NOT exposing more than these four fields -- diagValue()
+// above already covers the rest of Output for the wire protocol's DIAG
+// verb.
+//%
+int cycleStat(int which) {
+  Rig& r = ensure();
+  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
+  switch (which) {
+    case 0: return static_cast<int>(out.cyclePeriodMeasured);
+    case 1: return static_cast<int>(out.cycleBusy);
+    case 2: return static_cast<int>(r.tickOverrunCount);
+    case 3: return static_cast<int>(out.cycleCount);
+    default: return 0;
+  }
+}
+
+// ---- starvation watchdog (sprint 002) ----------------------------------
+// The ONLY background fiber this sprint leaves running (every other
+// control cycle now runs on whichever caller's fiber invokes
+// tickDrive() above). Purely a safety net -- it never drives, only
+// stops -- guaranteeing "the robot only moves while something ticks" is
+// actually true even when a tick caller (a student's loop, a wire
+// session) disappears mid-move. Launched from ensure() via the same
+// CodalFiberLauncher the kernel used for its own now-unwired fiber.
+//
+// Every ~50 ms: if something looks like it is actively commanding the
+// wheels AND it has been more than ~100 ms (about 4 tick periods) since
+// the last tickDrive() call, force a stop DIRECTLY at the motor-port
+// level -- NOT through kernel.neutral() alone, which only takes effect
+// on the next step() and may never run again if the caller has truly
+// abandoned its loop. This reuses NezhaMotorPort::emergencyStop()
+// (nezha_port.cpp:80-85), already proven tick-independent by its
+// exact-zero short-circuit in writeShapedDuty(). kernel.neutral() is
+// still called too, so whichever fiber resumes ticking finds the
+// kernel's own commanded mode already neutral instead of stale.
+//
+// This is a resumable SOFT stop, a third flavor distinct from both the
+// block API's stop() (kernel.neutral(), takes effect on the next step()
+// only) and emergencyStop() (kernel.estop() latch + port zero): it
+// never touches kernel.estop()/estopLatch_, so a fresh tickDrive() call
+// (a new move, or a resumed driveTick() loop) resumes motion
+// immediately, with no clearEmergencyStop() needed. See sprint.md's
+// Design Rationale ("the starvation watchdog stops at the port level,
+// not via the kernel's e-stop latch").
+//
+// Note: while abandonment persists, this fires on every ~50 ms poll,
+// not just once -- kernel.neutral()/moveActive=false/the port zero
+// write are all idempotent, and re-asserting zero is the conservative
+// choice given commandLooksActive() below can only see stale state
+// (nothing refreshes Output without a step()) until ticking resumes.
+
+static constexpr uint32_t kWatchdogPeriodMs = 50;          // [ms]
+static constexpr uint64_t kWatchdogTimeoutUs = 100000ull;  // [us] ~4 periods
+
+// The kernel exposes no direct "is the commanded mode non-neutral"
+// accessor (Command::mode is private, read only inside step()).
+// appliedDutyLeft/Right -- the last duty actually WRITTEN to a motor
+// port -- is the most honest available proxy for "is something
+// currently driving the wheels": writeShapedDuty()'s exact-zero
+// short-circuit (nezha_port.cpp) means a genuinely neutral commanded
+// mode reads back as exactly zero here, with no separate Rig-level
+// "driving" flag needed. Combined with moveActive, this covers both
+// continuous-drive (setWheels/driveTwist and their timed variants) and
+// move-engine abandonment.
+static bool commandLooksActive(const Rig& r) {
+  if (r.moveActive) return true;
+  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
+  return out.appliedDutyLeft != 0.0f || out.appliedDutyRight != 0.0f;
+}
+
+static void watchdogEntry(void* context) {
+  Rig& r = *static_cast<Rig*>(context);
+  while (true) {
+    r.sleeper.sleepMillis(kWatchdogPeriodMs);
+    const uint64_t nowUs = r.clock.nowMicros();
+    const uint64_t sinceLastTickUs = nowUs - r.lastTickUs;
+    if (sinceLastTickUs <= kWatchdogTimeoutUs) continue;
+    if (!commandLooksActive(r)) continue;
+    r.kernel.neutral();      // commands neutral for whenever step() next runs
+    r.moveActive = false;
+    r.left.emergencyStop();  // port-level zero write, NOW, tick-independent
+    r.right.emergencyStop();
+  }
 }
 
 //%
