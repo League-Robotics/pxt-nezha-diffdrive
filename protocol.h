@@ -18,14 +18,17 @@
 // kernel's.
 //
 // Ticket 001 scope was transport + codec + line grammar + a verb-name
-// registry only, with no handler dispatched. Ticket 002 (this
-// revision) adds the first four handlers -- HELLO/PING/ID/VER -- the
-// boot banner, and the run()-loop dispatch that calls them; tickets
-// 003-005 attach the remaining (binary) verb handlers. Protocol still
-// has no dependency on Rig/shims.cpp: none of ticket 002's handlers
-// touch the kernel or Nezha port either -- they format identity/
-// liveness strings only, reading nothing but this project's own
-// identity constants and the CODAL clock.
+// registry only, with no handler dispatched. Ticket 002 added the first
+// four handlers -- HELLO/PING/ID/VER -- the boot banner, and the
+// run()-loop dispatch that calls them; those handlers still had no
+// dependency on Rig/shims.cpp (they format identity/liveness strings
+// only). Ticket 003 (this revision) is the first to add that dependency:
+// its four binary motion-verb handlers -- MOVE/WHEELS/STOP/ESTOP --
+// dispatch onto the existing shims.cpp/Rig surface (startMove/stopAll/
+// estopAll, plus two new duration-bound primitives, setWheelsTimed/
+// driveTwistTimed) via same-package C++ forward declarations (protocol.cpp;
+// shims.cpp has no header of its own). Ticket 004 attaches the remaining
+// (binary config) verb handlers.
 #pragma once
 
 #include <cstddef>
@@ -189,6 +192,18 @@ class Protocol {
   void handlePing();        // PING -> PONG:t=<ms>
   void handleId();          // ID -> ID:<drivetrain>:<profile>:<version>
   void handleVer();         // VER -> VER:<version>
+
+  // ---- ticket 003: binary motion verb handlers -----------------------
+  // Each decodes its COBS+CRC binary body (ticket 001's codec, `data`/
+  // `dataLen` being `ParsedLine::data`/`dataLen`, the bytes after the
+  // verb's ':') and dispatches onto the existing shims.cpp/Rig surface.
+  // Fire-and-forget: none of these four ever sends a reply (sprint.md
+  // Open Question 1). A failed decode or a wrong-shape payload is
+  // dropped silently -- no motion is ever commanded from it.
+  void handleMove(const uint8_t* data, size_t dataLen);
+  void handleWheels(const uint8_t* data, size_t dataLen);
+  void handleStop(const uint8_t* data, size_t dataLen);
+  void handleEstop(const uint8_t* data, size_t dataLen);
 
   SerialTransport transport_;
   CodalFiberLauncher launcher_;

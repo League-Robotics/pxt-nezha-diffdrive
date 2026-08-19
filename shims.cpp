@@ -15,6 +15,15 @@
 // Boundary convention: integers only. mm, mm/s, centidegrees,
 // centidegrees/s; config values scaled x1000. The TS layer owns the
 // cm/deg student units.
+//
+// Second caller (ticket 003): Protocol's binary motion-verb handlers
+// (protocol.cpp) call a small subset of this file's functions directly
+// -- startMove, stopAll, estopAll (unchanged), plus two new duration-
+// bound primitives added by ticket 003 (setWheelsTimed, driveTwistTimed)
+// -- via same-package C++ forward declarations, not through the TS/`//%`
+// shim boundary main.ts uses. See protocol.cpp's own forward-declaration
+// block for the up-to-date list this file must keep signature-compatible
+// with.
 #include "pxt.h"
 #include "diffdrive.h"
 #include "nezha_port.h"
@@ -129,6 +138,43 @@ void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   const float twist = yawRad * 0.5f * r.trackWidth * cpm;  // [counts/s]
   r.kernel.drive(static_cast<float>(speed) * cpm, twist,
                  DiffDrive::DifferentialDrive::kLeaseMax);
+}
+
+// ---- duration-bound direct drive (ticket 003: Protocol's WHEELS and
+// MOVE-with-TIME-stop verb handlers) ------------------------------------
+// Two small additive primitives, each identical to setWheels()/
+// driveTwist() above except the lease is the caller's own duration
+// instead of kLeaseMax (kernel.drive()'s own validUntil bookkeeping,
+// diffdrive.cpp, already treats an expired lease as neutral every
+// subsequent step() -- see that file's `if (leaseExpired) effective =
+// kModeNeutral;` -- so no separate timer/callback is needed here: the
+// kernel's own real-time fiber auto-neutralizes at the deadline, the
+// same backstop mechanism the move engine's own `moveDeadline` already
+// leans on). Deliberately NOT `//%`-annotated: the block API never
+// needed a duration-bound direct-drive primitive (every block-facing use
+// case is already served by setWheels/driveTwist or the move engine), so
+// these stay C++-internal to avoid exposing a new, un-asked-for block
+// (sprint.md Architecture, Impact). Protocol (protocol.cpp) is their only
+// caller, via its own same-package forward declarations.
+void setWheelsTimed(int left, int right,
+                    uint32_t durationMs) {  // [mm/s] [mm/s] [ms]
+  Rig& r = ensure();
+  r.moveActive = false;  // WHEELS supersedes any in-flight move-engine move
+  const float cpm = r.countsPerMm();
+  const float velocity = 0.5f * static_cast<float>(left + right) * cpm;
+  const float twist = 0.5f * static_cast<float>(right - left) * cpm;
+  r.kernel.drive(velocity, twist, durationMs);
+}
+
+void driveTwistTimed(int speed, int yawRate,
+                     uint32_t durationMs) {  // [mm/s] [cdeg/s] [ms]
+  Rig& r = ensure();
+  r.moveActive = false;  // supersedes any in-flight move-engine move
+  const float cpm = r.countsPerMm();
+  const float yawRad =
+      static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
+  const float twist = yawRad * 0.5f * r.trackWidth * cpm;  // [counts/s]
+  r.kernel.drive(static_cast<float>(speed) * cpm, twist, durationMs);
 }
 
 // ---- move engine ----------------------------------------------------
