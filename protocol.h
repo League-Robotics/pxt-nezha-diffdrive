@@ -229,6 +229,10 @@ class Protocol {
   void handleId();          // ID -> ID:<drivetrain>:<profile>:<version>
   void handleVer();         // VER -> VER:<version>
   void handleDiag();        // DIAG -> kernel Output flags/counters (debug)
+  void handleRun(const uint8_t* data, size_t dataLen);  // RUN:<n> ->
+                            // raises a MessageBus event so TS-side test
+                            // functions registered via
+                            // diffDrive.onRunCommand() run remotely
 
   // ---- ticket 003: binary motion verb handlers -----------------------
   // Each decodes its COBS+CRC binary body (ticket 001's codec, `data`/

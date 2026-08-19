@@ -114,6 +114,31 @@ namespace diffDrive {
         return _tickDrive()
     }
 
+    // ================= remote test trigger (RUN verb) =================
+
+    // MessageBus source id for the wire protocol's RUN:<n> verb -- must
+    // match kRunEventSource in protocol.cpp. The C++ handler raises an
+    // event with the test number as the event value; handlers
+    // registered here dispatch on it.
+    const RUN_EVENT_SOURCE = 0x2001
+
+    /**
+     * Run code when a RUN:<n> command arrives over the wire protocol
+     * (USB serial). Register your test functions against numbers so
+     * the bench host can trigger them remotely -- the same functions a
+     * button handler can call. The handler receives the test number n.
+     * Handlers run on their own fiber, so a long test (a full tour)
+     * doesn't block the protocol.
+     */
+    //% block="on run command $n"
+    //% draggableParameters="reporter"
+    //% group="Move"
+    export function onRunCommand(handler: (n: number) => void): void {
+        control.onEvent(RUN_EVENT_SOURCE, 0, function () {
+            handler(control.eventValue())
+        })
+    }
+
     // ================= position-mode moves: blocking =================
 
     /**

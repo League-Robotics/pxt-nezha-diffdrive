@@ -214,6 +214,12 @@ const VerbEntry kVerbRegistry[] = {
     {"ID", false},
     {"VER", false},
     {"DIAG", false},
+    // RUN:<n> -- cleartext with a decimal test number as data. Raises a
+    // MessageBus event (see handleRun) so a TS-side handler registered
+    // via diffDrive.onRunCommand() dispatches the matching test
+    // function. Lets the bench host trigger test.ts programs over the
+    // wire instead of a physical button press.
+    {"RUN", false},
     // Cleartext, robot->host (with data):
     {"DEVICE", false},
     {"PONG", false},
@@ -364,6 +370,38 @@ void Protocol::handleDiag() {
       static_cast<unsigned long>(verbsDispatched_),
       static_cast<unsigned long>(wheelsDecoded_));
   writeSnprintfResult(transport_, buf, n, sizeof(buf));
+}
+
+// ---- RUN: remote test trigger ----------------------------------------
+// RUN:<n> (cleartext, decimal test number as data) raises a MessageBus
+// event carrying <n> as the event value. main.ts's onRunCommand()
+// registers a TS handler against the same source id, so test.ts can
+// bind its test functions to wire commands as well as buttons. The
+// event fires handlers on their own fiber (MessageBus default), so a
+// long-running test (a full square tour ticking the kernel) does not
+// block this protocol fiber.
+namespace {
+// Custom MessageBus source id -- must match RUN_EVENT_SOURCE in
+// main.ts. Chosen well above the MICROBIT_ID_* range.
+constexpr int kRunEventSource = 0x2001;
+}  // namespace
+
+void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
+  if (data == nullptr || dataLen == 0) return;
+  // Parse an unsigned decimal test number; strip one trailing '\r'
+  // (raw-terminal artifact, same tolerance parseLine() gives colon-less
+  // lines). Any other non-digit byte -> malformed, drop silently (wire
+  // spec S7.4 convention, same as the binary verbs).
+  int value = 0;
+  for (size_t i = 0; i < dataLen; ++i) {
+    const uint8_t c = data[i];
+    if (c == '\r' && i == dataLen - 1) break;
+    if (c < '0' || c > '9') return;
+    value = value * 10 + (c - '0');
+    if (value > 9999) return;  // sane bound; also avoids overflow
+  }
+  if (value == 0) return;  // 0 is MICROBIT_EVT_ANY -- never a test id
+  MicroBitEvent(kRunEventSource, static_cast<uint16_t>(value));
 }
 
 // ---- Binary motion verb payload shapes (ticket 003) --------------------
@@ -871,6 +909,8 @@ void Protocol::run() {
             handleVer();
           } else if (std::strcmp(parsed.command, "DIAG") == 0) {
             handleDiag();
+          } else if (std::strcmp(parsed.command, "RUN") == 0) {
+            handleRun(parsed.data, parsed.dataLen);
           } else if (std::strcmp(parsed.command, "MOVE") == 0) {
             handleMove(parsed.data, parsed.dataLen);
           } else if (std::strcmp(parsed.command, "WHEELS") == 0) {
