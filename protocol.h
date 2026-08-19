@@ -34,7 +34,12 @@
 // already uses) and GET_CONFIG onto a new read-back counterpart,
 // getConfigValue() (shims.cpp). GET_CONFIG is the one binary verb this
 // sprint keeps a synchronous reply for (`CFG`) -- see sprint.md
-// Architecture Step 3.
+// Architecture Step 3. Ticket 005 (this revision) adds the cleartext
+// pose-only `TLM` line (SUC-004): run()'s loop no longer blocks
+// indefinitely on a single readLine() call -- it polls
+// SerialTransport::tryReadLine() (non-blocking) alongside a fixed-cadence
+// telemetry emission, so TLM goes out on schedule without starving
+// command dispatch, both on this same fiber (see run()'s own comment).
 #pragma once
 
 #include <cstddef>
@@ -241,6 +246,20 @@ class Protocol {
   void handleGetConfig(const uint8_t* data, size_t dataLen);
   void handleSetField(const uint8_t* data, size_t dataLen);
   void handleCalibrate(const uint8_t* data, size_t dataLen);
+
+  // ---- ticket 005: simplified cleartext pose telemetry (TLM) ---------
+  // Formats and sends the cleartext, pose-only `TLM:<x>:<y>:<heading>`
+  // line -- this sprint's deliberate deviation from the reference spec's
+  // binary `Telemetry` (sprint.md Solution, SUC-004). Reads pose via the
+  // same poseX()/poseY()/poseHeading() shims.cpp accessors main.ts's Pose
+  // blocks already call (same Rig singleton, same odomUpdate() -- so a
+  // concurrent MakeCode `pose x`/`pose y`/`heading` block read is
+  // guaranteed pose-consistent with what this sends). Called from run()'s
+  // own polling loop on a fixed cadence (kTlmPeriodMs, protocol.cpp),
+  // interleaved with -- never blocking -- incoming command dispatch; see
+  // run()'s own comment for how the loop avoids readLine()'s indefinite
+  // block to make that interleaving possible.
+  void sendTelemetry();
 
   SerialTransport transport_;
   CodalFiberLauncher launcher_;

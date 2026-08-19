@@ -43,4 +43,33 @@ void SerialTransport::writeLine(const uint8_t* buf, size_t len) {
   uBit.serial.send(&delimiter, 1, SYNC_SLEEP);
 }
 
+bool SerialTransport::tryReadLine(uint8_t* outBuf, size_t outCap,
+                                  size_t* outLen) {
+  // ASYNC: never blocks -- returns a buffered byte immediately, or
+  // DEVICE_NO_DATA (a negative value) once the rx buffer is drained. The
+  // isReadable() guard is belt-and-suspenders (uBit.serial.read(ASYNC)
+  // already returns immediately either way); it just avoids a call that
+  // would only ever return "no data" once the buffer is empty.
+  while (uBit.serial.isReadable()) {
+    const int c = uBit.serial.read(ASYNC);
+    if (c < 0) break;  // drained (or a transient read error) -- stop here
+    if (static_cast<uint8_t>(c) == kLineDelimiter) {
+      const size_t len = partialLen_ < outCap ? partialLen_ : outCap;
+      if (outBuf != nullptr && len > 0) {
+        for (size_t i = 0; i < len; ++i) outBuf[i] = partial_[i];
+      }
+      *outLen = len;
+      partialLen_ = 0;
+      return true;
+    }
+    if (partialLen_ < sizeof(partial_)) {
+      partial_[partialLen_++] = static_cast<uint8_t>(c);
+    }
+    // else: past kMaxLineBytes -- keep consuming so the stream stays
+    // framed (mirrors readLine()'s own truncate-not-overrun behavior),
+    // just stop copying into partial_.
+  }
+  return false;  // no complete line yet -- partial_ retained for next call
+}
+
 }  // namespace diffDrive

@@ -24,6 +24,13 @@ void driveTwistTimed(int speed, int yawRate, uint32_t durationMs);
 // shims.cpp adds for GET_CONFIG (see that file's own comment).
 void setKernelValue(int field, int value);
 int getConfigValue(int field);
+// ticket 005: poseX/poseY/poseHeading already existed -- the same `//%`
+// shims.cpp entry points main.ts's Pose blocks call (mm, mm, centidegrees
+// -- shims.cpp's own boundary convention). No shims.cpp change was needed
+// for telemetry: these forward declarations are the only new plumbing.
+int poseX();
+int poseY();
+int poseHeading();
 
 // ---- CRC-16/CCITT-FALSE ----------------------------------------------
 
@@ -637,6 +644,37 @@ void Protocol::handleCalibrate(const uint8_t* data, size_t dataLen) {
   decodeBinaryBody("CALIBRATE", data, dataLen, payload, sizeof(payload));
 }
 
+// ---- Cleartext pose telemetry (ticket 005) ------------------------------
+// SUC-004's one deliberate deviation from the reference spec: a cleartext,
+// pose-only `TLM:<x>:<y>:<heading>` line -- no binary ReplyEnvelope, no
+// COBS+CRC, no ack data (sprint.md Solution). Units match shims.cpp's own
+// boundary convention (its file comment, and poseX/poseY/poseHeading's own
+// per-function comments): x/y in [mm], heading in [centidegrees] -- the
+// same integers a MakeCode `pose x`/`pose y`/`heading` block would read,
+// not re-derived or re-scaled here.
+namespace {
+// Emission cadence: coarser than the kernel's own 24 ms real-time cycle
+// (shims.cpp's `cfg.cyclePeriod`) -- sprint.md's implementer-choice cadence
+// explicitly allows this ("matching the kernel's ~24 ms period, or a
+// coarser rate") -- while still on the same order of magnitude as the
+// reference spec's own ~40 ms primary telemetry period (protocol-v5.md
+// S8), plenty responsive for a host tracking pose in real time (SUC-004).
+constexpr uint32_t kTlmPeriodMs = 50;
+// Poll granularity between tryReadLine() checks -- small relative to
+// kTlmPeriodMs so a command that just missed one poll is still picked up
+// well within a single telemetry period (acceptance criterion: TLM must
+// not starve command dispatch), but not so small it spins this fiber
+// against an idle UART between bytes.
+constexpr uint32_t kPollIntervalMs = 5;
+}  // namespace
+
+void Protocol::sendTelemetry() {
+  char buf[48];  // "TLM:" + three int32-range fields + separators + NUL
+  const int n = std::snprintf(buf, sizeof(buf), "TLM:%d:%d:%d", poseX(),
+                              poseY(), poseHeading());
+  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+}
+
 // ---- Protocol loop -----------------------------------------------------
 
 void Protocol::start() {
@@ -657,56 +695,90 @@ void Protocol::run() {
   // on request (handleHello() above).
   sendDeviceBanner();
 
+  // Ticket 005: this loop no longer blocks indefinitely inside
+  // transport_.readLine() -- doing so would starve TLM's own regular
+  // cadence (SUC-004's acceptance criteria) for as long as no host sends
+  // anything. Instead it polls transport_.tryReadLine() (non-blocking:
+  // drains whatever bytes are already buffered, returns immediately
+  // either way) once per short fiber_sleep(kPollIntervalMs) tick,
+  // dispatching a command whenever a full line completed, and checking a
+  // separate kTlmPeriodMs cadence every tick to emit TLM on schedule --
+  // both on this same single fiber, so writes to transport_ (a CFG reply,
+  // a cleartext reply, a TLM line) never interleave with each other.
   uint8_t lineBuf[kMaxLineBytes];
+  uint32_t lastTlmMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
+  sendTelemetry();  // first tick emitted promptly, not after a full
+                     // kTlmPeriodMs wait -- SUC-004 doesn't require
+                     // withholding the very first line.
   while (true) {
-    const size_t len = transport_.readLine(lineBuf, sizeof(lineBuf));
-    ParsedLine parsed;
-    if (!parseLine(lineBuf, len, &parsed)) continue;  // name too long, drop
-    const VerbEntry* verb = findVerb(parsed.command);
-    if (verb == nullptr) continue;  // unrecognized verb -- wire spec's
-                                     // malformedCount_ case; no counter
-                                     // exists this sprint (see protocol.h).
-    // Ticket 002 dispatches the four cleartext identity/liveness verbs;
-    // ticket 003 adds the four binary motion verbs; ticket 004 (this
-    // revision) adds the four binary config verbs. Every other registered
-    // verb -- a stray reply verb sent host->robot (e.g. DEVICE/PONG/CFG,
-    // which only ever originate from this robot) -- is recognized by the
-    // registry but has no handler here, so it is silently ignored: this
-    // ticket's own acceptance criterion (SUC-002) for an "unrecognized or
-    // out-of-place" verb. Each handler MUST stay short and non-blocking
-    // (see this file's header comment) -- every handler below satisfies
-    // this by construction: they decode a small fixed-size (or small
-    // bounded-repeat, for CONFIG) payload and hand off to shims.cpp/Rig's
-    // own non-blocking calls (`kernel.drive()`/`neutral()`/`estop()`/
-    // `setXxx()`), or -- GET_CONFIG only -- one blocking-but-bounded
-    // `transport_.writeLine()` for its synchronous CFG reply, the same
-    // guaranteed-bounded write ticket 002's cleartext replies already rely
-    // on. Never sleeping or looping themselves.
-    if (std::strcmp(parsed.command, "HELLO") == 0) {
-      handleHello();
-    } else if (std::strcmp(parsed.command, "PING") == 0) {
-      handlePing();
-    } else if (std::strcmp(parsed.command, "ID") == 0) {
-      handleId();
-    } else if (std::strcmp(parsed.command, "VER") == 0) {
-      handleVer();
-    } else if (std::strcmp(parsed.command, "MOVE") == 0) {
-      handleMove(parsed.data, parsed.dataLen);
-    } else if (std::strcmp(parsed.command, "WHEELS") == 0) {
-      handleWheels(parsed.data, parsed.dataLen);
-    } else if (std::strcmp(parsed.command, "STOP") == 0) {
-      handleStop(parsed.data, parsed.dataLen);
-    } else if (std::strcmp(parsed.command, "ESTOP") == 0) {
-      handleEstop(parsed.data, parsed.dataLen);
-    } else if (std::strcmp(parsed.command, "CONFIG") == 0) {
-      handleConfig(parsed.data, parsed.dataLen);
-    } else if (std::strcmp(parsed.command, "GET_CONFIG") == 0) {
-      handleGetConfig(parsed.data, parsed.dataLen);
-    } else if (std::strcmp(parsed.command, "SET_FIELD") == 0) {
-      handleSetField(parsed.data, parsed.dataLen);
-    } else if (std::strcmp(parsed.command, "CALIBRATE") == 0) {
-      handleCalibrate(parsed.data, parsed.dataLen);
+    size_t len = 0;
+    if (transport_.tryReadLine(lineBuf, sizeof(lineBuf), &len)) {
+      ParsedLine parsed;
+      if (parseLine(lineBuf, len, &parsed)) {  // else: name too long, drop
+        const VerbEntry* verb = findVerb(parsed.command);
+        if (verb != nullptr) {  // else: unrecognized verb -- wire spec's
+                                 // malformedCount_ case; no counter exists
+                                 // this sprint (see protocol.h).
+          // Ticket 002 dispatches the four cleartext identity/liveness
+          // verbs; ticket 003 adds the four binary motion verbs; ticket
+          // 004 adds the four binary config verbs. Every other registered
+          // verb -- a stray reply verb sent host->robot (e.g.
+          // DEVICE/PONG/CFG/TLM, which only ever originate from this
+          // robot) -- is recognized by the registry but has no handler
+          // here, so it is silently ignored: this ticket's own acceptance
+          // criterion (SUC-002) for an "unrecognized or out-of-place"
+          // verb. Each handler MUST stay short and non-blocking (see this
+          // file's header comment) -- every handler below satisfies this
+          // by construction: they decode a small fixed-size (or small
+          // bounded-repeat, for CONFIG) payload and hand off to
+          // shims.cpp/Rig's own non-blocking calls
+          // (`kernel.drive()`/`neutral()`/`estop()`/`setXxx()`), or --
+          // GET_CONFIG only -- one blocking-but-bounded
+          // `transport_.writeLine()` for its synchronous CFG reply, the
+          // same guaranteed-bounded write ticket 002's cleartext replies
+          // already rely on. Never sleeping or looping themselves.
+          if (std::strcmp(parsed.command, "HELLO") == 0) {
+            handleHello();
+          } else if (std::strcmp(parsed.command, "PING") == 0) {
+            handlePing();
+          } else if (std::strcmp(parsed.command, "ID") == 0) {
+            handleId();
+          } else if (std::strcmp(parsed.command, "VER") == 0) {
+            handleVer();
+          } else if (std::strcmp(parsed.command, "MOVE") == 0) {
+            handleMove(parsed.data, parsed.dataLen);
+          } else if (std::strcmp(parsed.command, "WHEELS") == 0) {
+            handleWheels(parsed.data, parsed.dataLen);
+          } else if (std::strcmp(parsed.command, "STOP") == 0) {
+            handleStop(parsed.data, parsed.dataLen);
+          } else if (std::strcmp(parsed.command, "ESTOP") == 0) {
+            handleEstop(parsed.data, parsed.dataLen);
+          } else if (std::strcmp(parsed.command, "CONFIG") == 0) {
+            handleConfig(parsed.data, parsed.dataLen);
+          } else if (std::strcmp(parsed.command, "GET_CONFIG") == 0) {
+            handleGetConfig(parsed.data, parsed.dataLen);
+          } else if (std::strcmp(parsed.command, "SET_FIELD") == 0) {
+            handleSetField(parsed.data, parsed.dataLen);
+          } else if (std::strcmp(parsed.command, "CALIBRATE") == 0) {
+            handleCalibrate(parsed.data, parsed.dataLen);
+          }
+        }
+      }
     }
+
+    const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
+    // Wraparound-safe elapsed check (signed-difference idiom): correct
+    // across nowMs's uint32_t rollover the same way moveDeadline's own
+    // expiry check (shims.cpp updateMove()) already relies on.
+    if (static_cast<int32_t>(nowMs - lastTlmMs) >=
+        static_cast<int32_t>(kTlmPeriodMs)) {
+      sendTelemetry();
+      lastTlmMs = nowMs;
+    }
+
+    fiber_sleep(kPollIntervalMs);  // cooperative yield -- lets the kernel's
+                                   // own fiber (and any other) run between
+                                   // polls; never spins.
   }
 }
 
