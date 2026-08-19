@@ -14,6 +14,17 @@ namespace {
 constexpr uint8_t kLineDelimiter = 0x0A;
 }  // namespace
 
+void SerialTransport::begin() {
+  // codal's serial rx ring defaults to ~20 bytes -- smaller than one
+  // binary v5 frame (WHEELS is ~27 wire bytes), so a frame sent as a
+  // single burst at 115200 overflows the ring between the protocol
+  // fiber's polls and drops bytes (measured on bench: mangled frames,
+  // eaten delimiters, merged lines). Size both rings to hold a few
+  // full lines.
+  uBit.serial.setRxBufferSize(128);
+  uBit.serial.setTxBufferSize(128);
+}
+
 size_t SerialTransport::readLine(uint8_t* outBuf, size_t outCap) {
   size_t len = 0;
   while (true) {

@@ -38,6 +38,11 @@ class SerialTransport {
   // public contract; Protocol::run() itself uses tryReadLine() below
   // instead (ticket 005), since it must never block indefinitely without
   // starving telemetry's own cadence.
+  // One-time setup: grows codal's default ~20-byte serial rings so a
+  // full binary v5 frame arriving as one burst can't overflow them
+  // between protocol-fiber polls. Call before the first read.
+  void begin();
+
   size_t readLine(uint8_t* outBuf, size_t outCap);
 
   // Writes `len` bytes from `buf`, then a single 0x0A delimiter.

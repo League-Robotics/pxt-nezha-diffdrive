@@ -203,6 +203,7 @@ class Protocol {
   void handlePing();        // PING -> PONG:t=<ms>
   void handleId();          // ID -> ID:<drivetrain>:<profile>:<version>
   void handleVer();         // VER -> VER:<version>
+  void handleDiag();        // DIAG -> kernel Output flags/counters (debug)
 
   // ---- ticket 003: binary motion verb handlers -----------------------
   // Each decodes its COBS+CRC binary body (ticket 001's codec, `data`/
@@ -265,6 +266,12 @@ class Protocol {
   CodalFiberLauncher launcher_;
   CodalClock clock_;  // reused for PONG's t=<ms>, not a second Clock impl
   bool running_ = false;
+  // Bench instrumentation surfaced by DIAG: lines completed by
+  // tryReadLine, parsed lines whose verb matched the registry, and
+  // WHEELS payloads that decoded to the right shape.
+  uint32_t linesSeen_ = 0;
+  uint32_t verbsDispatched_ = 0;
+  uint32_t wheelsDecoded_ = 0;
 };
 
 // Lazy singleton, mirroring shims.cpp's Rig/ensure() pattern: the

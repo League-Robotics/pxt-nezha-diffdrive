@@ -24,6 +24,7 @@ void driveTwistTimed(int speed, int yawRate, uint32_t durationMs);
 // shims.cpp adds for GET_CONFIG (see that file's own comment).
 void setKernelValue(int field, int value);
 int getConfigValue(int field);
+int diagValue(int what);
 // ticket 005: poseX/poseY/poseHeading already existed -- the same `//%`
 // shims.cpp entry points main.ts's Pose blocks call (mm, mm, centidegrees
 // -- shims.cpp's own boundary convention). No shims.cpp change was needed
@@ -202,6 +203,7 @@ const VerbEntry kVerbRegistry[] = {
     {"PING", false},
     {"ID", false},
     {"VER", false},
+    {"DIAG", false},
     // Cleartext, robot->host (with data):
     {"DEVICE", false},
     {"PONG", false},
@@ -314,6 +316,28 @@ void Protocol::handleId() {
 void Protocol::handleVer() {
   char buf[32];
   const int n = snprintf(buf, sizeof(buf), "VER:%s", kVersion);
+  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+}
+
+void Protocol::handleDiag() {
+  // Kernel Output snapshot via shims.cpp's diagValue() -- debug surface
+  // for bench diagnosis (stall/estop/connection/duty), cleartext like
+  // the other identity verbs. Duty values are x100 (percent*100).
+  char buf[192];
+  const int n = snprintf(
+      buf, sizeof(buf),
+      "DIAG:rdy=%d,est=%d,stall=%d,lex=%d,conn=%d/%d,wsus=%d/%d,"
+      "i2cf=%d,lexc=%d,pos=%d/%d,duty=%d/%d,vel=%d/%d,cyc=%d,sat=%d,"
+      "def=%d,ovr=%d,err=%d,ln=%lu,vb=%lu,wh=%lu",
+      diagValue(0), diagValue(1), diagValue(2), diagValue(3),
+      diagValue(4), diagValue(5), diagValue(6), diagValue(7),
+      diagValue(8), diagValue(9), diagValue(10), diagValue(11),
+      diagValue(12), diagValue(13), diagValue(14), diagValue(15),
+      diagValue(16), diagValue(17), diagValue(18), diagValue(19),
+      diagValue(20),
+      static_cast<unsigned long>(linesSeen_),
+      static_cast<unsigned long>(verbsDispatched_),
+      static_cast<unsigned long>(wheelsDecoded_));
   writeSnprintfResult(transport_, buf, n, sizeof(buf));
 }
 
@@ -476,6 +500,7 @@ void Protocol::handleWheels(const uint8_t* data, size_t dataLen) {
       decodeBinaryBody("WHEELS", data, dataLen, payload, sizeof(payload));
   if (payloadLen != kWheelsPayloadBytes) return;  // malformed/wrong shape
 
+  ++wheelsDecoded_;
   const int32_t left = readI32LE(payload + 0);
   const int32_t right = readI32LE(payload + 4);
   const uint32_t duration = readU32LE(payload + 8);
@@ -626,11 +651,17 @@ void Protocol::handleGetConfig(const uint8_t* data, size_t dataLen) {
   reply[0] = field;
   writeI32LE(reply + 1, value);
 
-  uint8_t encoded[cobsMaxEncodedLength(kCfgReplyPayloadBytes + 2)];
+  // The wire line must carry the v5 grammar's "CFG:" command prefix ahead
+  // of the COBS body -- encodeBinaryBody() folds "CFG" into the CRC but
+  // returns only the encoded body, so build the full line here. (Bench
+  // bug: the body used to be written bare, unparseable by the host.)
+  uint8_t line[4 + cobsMaxEncodedLength(kCfgReplyPayloadBytes + 2)];
+  std::memcpy(line, "CFG:", 4);
   const size_t encodedLen =
-      encodeBinaryBody("CFG", reply, sizeof(reply), encoded, sizeof(encoded));
+      encodeBinaryBody("CFG", reply, sizeof(reply), line + 4,
+                       sizeof(line) - 4);
   if (encodedLen == 0) return;  // shouldn't happen at this fixed size
-  transport_.writeLine(encoded, encodedLen);
+  transport_.writeLine(line, 4 + encodedLen);
 }
 
 void Protocol::handleCalibrate(const uint8_t* data, size_t dataLen) {
@@ -680,6 +711,7 @@ void Protocol::sendTelemetry() {
 void Protocol::start() {
   if (running_) return;  // idempotent, mirrors DifferentialDrive::start()
   running_ = true;
+  transport_.begin();  // size serial rings before any traffic
   launcher_.launch(&Protocol::fiberEntry, this);
 }
 
@@ -713,6 +745,7 @@ void Protocol::run() {
   while (true) {
     size_t len = 0;
     if (transport_.tryReadLine(lineBuf, sizeof(lineBuf), &len)) {
+      ++linesSeen_;
       ParsedLine parsed;
       if (parseLine(lineBuf, len, &parsed)) {  // else: name too long, drop
         const VerbEntry* verb = findVerb(parsed.command);
@@ -737,6 +770,7 @@ void Protocol::run() {
           // `transport_.writeLine()` for its synchronous CFG reply, the
           // same guaranteed-bounded write ticket 002's cleartext replies
           // already rely on. Never sleeping or looping themselves.
+          ++verbsDispatched_;
           if (std::strcmp(parsed.command, "HELLO") == 0) {
             handleHello();
           } else if (std::strcmp(parsed.command, "PING") == 0) {
@@ -745,6 +779,8 @@ void Protocol::run() {
             handleId();
           } else if (std::strcmp(parsed.command, "VER") == 0) {
             handleVer();
+          } else if (std::strcmp(parsed.command, "DIAG") == 0) {
+            handleDiag();
           } else if (std::strcmp(parsed.command, "MOVE") == 0) {
             handleMove(parsed.data, parsed.dataLen);
           } else if (std::strcmp(parsed.command, "WHEELS") == 0) {

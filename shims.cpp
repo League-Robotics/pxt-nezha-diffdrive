@@ -310,6 +310,42 @@ void estopAll() {
 //%
 void estopClear() { ensure().kernel.estopClear(); }
 
+// Kernel Output diagnostics accessor for the wire protocol's DIAG verb
+// (protocol.cpp is the only caller, via forward declaration -- same
+// convention as setWheelsTimed/getConfigValue above). Returns one field
+// per call as an int; floats are scaled x100. Not //%-annotated: not a
+// block, C++-internal only.
+int diagValue(int what) {
+  const DiffDrive::DifferentialDrive::Output out = ensure().kernel.output();
+  switch (what) {
+    case 0: return out.ready ? 1 : 0;
+    case 1: return out.estopped ? 1 : 0;
+    case 2: return out.stallHalted ? 1 : 0;
+    case 3: return out.leaseExpired ? 1 : 0;
+    case 4: return out.connectedLeft ? 1 : 0;
+    case 5: return out.connectedRight ? 1 : 0;
+    case 6: return out.wedgeSuspectLeft ? 1 : 0;
+    case 7: return out.wedgeSuspectRight ? 1 : 0;
+    case 8: return static_cast<int>(out.i2cFaultCount);
+    case 9: return static_cast<int>(out.leaseExpiryCount);
+    case 10: return static_cast<int>(out.positionLeft);
+    case 11: return static_cast<int>(out.positionRight);
+    case 12: return static_cast<int>(out.appliedDutyLeft * 100.0f);
+    case 13: return static_cast<int>(out.appliedDutyRight * 100.0f);
+    case 14: return static_cast<int>(out.velocityLeft);
+    case 15: return static_cast<int>(out.velocityRight);
+    case 16: return static_cast<int>(out.cycleCount);
+    case 17: return (out.satLeft ? 1 : 0) | (out.satRight ? 2 : 0);
+    case 18: return (out.deficitLeft ? 1 : 0) | (out.deficitRight ? 2 : 0);
+    case 19: return static_cast<int>(out.cycleOverrunCount);
+    // 20: latched first refusal (Status enum: 0 ok, 1 unconfigured,
+    // 2 not-begun, 3 estopped, 4 non-finite, 5 cadence-preserved).
+    case 20:
+      return static_cast<int>(ensure().kernel.lastError());
+    default: return 0;
+  }
+}
+
 // ---- pose -----------------------------------------------------------
 
 //%
