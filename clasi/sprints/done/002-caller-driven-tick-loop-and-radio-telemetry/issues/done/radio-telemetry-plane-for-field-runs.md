@@ -1,5 +1,9 @@
 ---
-status: pending
+status: done
+sprint: '002'
+tickets:
+- 002-005
+- 002-006
 ---
 
 # Radio telemetry plane for field (untethered) runs

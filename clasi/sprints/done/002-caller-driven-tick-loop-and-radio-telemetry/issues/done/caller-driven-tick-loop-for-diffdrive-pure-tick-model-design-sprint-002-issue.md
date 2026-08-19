@@ -1,5 +1,11 @@
 ---
-status: pending
+status: done
+sprint: '002'
+tickets:
+- 002-001
+- 002-002
+- 002-003
+- 002-004
 ---
 
 # Pure caller-driven tick loop (generator-style next()); unwire fiber pacer
