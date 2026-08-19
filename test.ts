@@ -1,10 +1,11 @@
 // test.ts -- test programs for the extension. Each test is a plain
-// function, bound BOTH to a physical trigger (button A) and to the
-// wire protocol's RUN:<n> command (diffDrive.onRunCommand below), so a
+// function, bound BOTH to a physical trigger and to the wire
+// protocol's RUN:<n> command (diffDrive.onRunCommand below), so a
 // bench host can trigger the same tests remotely over USB serial:
 //
-//   RUN:1  square tour     (also button A)
-//   RUN:2  360-degree in-place pivot (bench-safe: no translation)
+//   button A      / RUN:3  drive straight 80 cm
+//   buttons A+B   / RUN:1  square tour
+//                   RUN:2  360-degree in-place pivot (bench-safe)
 //
 // The square tour: four legs, each (30 cm straight, 90 deg CCW turn),
 // ending with the fourth turn so the robot returns to its start
@@ -41,9 +42,21 @@ function runPivot() {
     touring = false
 }
 
-input.onButtonPressed(Button.A, runTour)
+function runStraight80() {
+    if (touring) return
+    touring = true
+    basic.showString("F")
+    diffDrive.resetPose()
+    diffDrive.move(80, 0)
+    basic.showString("OK")
+    touring = false
+}
+
+input.onButtonPressed(Button.A, runStraight80)
+input.onButtonPressed(Button.AB, runTour)
 
 diffDrive.onRunCommand(function (n: number) {
     if (n == 1) runTour()
     else if (n == 2) runPivot()
+    else if (n == 3) runStraight80()
 })
