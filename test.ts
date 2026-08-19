@@ -18,5 +18,5 @@ input.onButtonPressed(Button.A, function () {
         diffDrive.move(30, 0)
         diffDrive.move(0, 90)
     }
-    basic.showNumber(Math.round(diffDrive.poseX()))
+   
 })
