@@ -13,6 +13,10 @@
         "platform_ports.h",
         "nezha_port.h",
         "nezha_port.cpp",
+        "serial_transport.h",
+        "serial_transport.cpp",
+        "protocol.h",
+        "protocol.cpp",
         "shims.cpp",
         "main.ts"
     ],

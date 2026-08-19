@@ -15,6 +15,15 @@
 // Boundary convention: integers only. mm, mm/s, centidegrees,
 // centidegrees/s; config values scaled x1000. The TS layer owns the
 // cm/deg student units.
+//
+// Second caller (ticket 003): Protocol's binary motion-verb handlers
+// (protocol.cpp) call a small subset of this file's functions directly
+// -- startMove, stopAll, estopAll (unchanged), plus two new duration-
+// bound primitives added by ticket 003 (setWheelsTimed, driveTwistTimed)
+// -- via same-package C++ forward declarations, not through the TS/`//%`
+// shim boundary main.ts uses. See protocol.cpp's own forward-declaration
+// block for the up-to-date list this file must keep signature-compatible
+// with.
 #include "pxt.h"
 #include "diffdrive.h"
 #include "nezha_port.h"
@@ -129,6 +138,43 @@ void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   const float twist = yawRad * 0.5f * r.trackWidth * cpm;  // [counts/s]
   r.kernel.drive(static_cast<float>(speed) * cpm, twist,
                  DiffDrive::DifferentialDrive::kLeaseMax);
+}
+
+// ---- duration-bound direct drive (ticket 003: Protocol's WHEELS and
+// MOVE-with-TIME-stop verb handlers) ------------------------------------
+// Two small additive primitives, each identical to setWheels()/
+// driveTwist() above except the lease is the caller's own duration
+// instead of kLeaseMax (kernel.drive()'s own validUntil bookkeeping,
+// diffdrive.cpp, already treats an expired lease as neutral every
+// subsequent step() -- see that file's `if (leaseExpired) effective =
+// kModeNeutral;` -- so no separate timer/callback is needed here: the
+// kernel's own real-time fiber auto-neutralizes at the deadline, the
+// same backstop mechanism the move engine's own `moveDeadline` already
+// leans on). Deliberately NOT `//%`-annotated: the block API never
+// needed a duration-bound direct-drive primitive (every block-facing use
+// case is already served by setWheels/driveTwist or the move engine), so
+// these stay C++-internal to avoid exposing a new, un-asked-for block
+// (sprint.md Architecture, Impact). Protocol (protocol.cpp) is their only
+// caller, via its own same-package forward declarations.
+void setWheelsTimed(int left, int right,
+                    uint32_t durationMs) {  // [mm/s] [mm/s] [ms]
+  Rig& r = ensure();
+  r.moveActive = false;  // WHEELS supersedes any in-flight move-engine move
+  const float cpm = r.countsPerMm();
+  const float velocity = 0.5f * static_cast<float>(left + right) * cpm;
+  const float twist = 0.5f * static_cast<float>(right - left) * cpm;
+  r.kernel.drive(velocity, twist, durationMs);
+}
+
+void driveTwistTimed(int speed, int yawRate,
+                     uint32_t durationMs) {  // [mm/s] [cdeg/s] [ms]
+  Rig& r = ensure();
+  r.moveActive = false;  // supersedes any in-flight move-engine move
+  const float cpm = r.countsPerMm();
+  const float yawRad =
+      static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
+  const float twist = yawRad * 0.5f * r.trackWidth * cpm;  // [counts/s]
+  r.kernel.drive(static_cast<float>(speed) * cpm, twist, durationMs);
 }
 
 // ---- move engine ----------------------------------------------------
@@ -332,6 +378,53 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     case 14: k.setCrawlPulse(v); break;
     default: break;
   }
+}
+
+// ---- config read-back (ticket 004: Protocol's GET_CONFIG verb handler) --
+// The read-back counterpart to setKernelValue() above: same field-ordinal
+// switch, same x1000 scaling convention, reading from
+// DiffDrive::DifferentialDrive::config() -- the kernel's own existing
+// accessor (unchanged, vendored; setKernelValue's cases 10-12 already read
+// through it for their untouched two stall fields, above). `config()`
+// returns the kernel's `staged_` Config, which every `setXxx()` writes
+// synchronously and unconditionally -- there is no separate "applied"
+// copy to lag behind it -- so this always reflects the true current
+// value, whether it was last set over the wire (setKernelValue, via
+// CONFIG/SET_FIELD) or via a MakeCode `set config` block in the same
+// running program: both paths call this exact same setKernelValue(), into
+// this exact same kernel Config. No kernel change: config() already
+// existed; only this shim-layer getter is new (sprint.md Architecture
+// Impact). Deliberately NOT `//%`-annotated -- like setWheelsTimed/
+// driveTwistTimed (ticket 003), the block API never needed a read-back
+// primitive (its `set config` block is write-only), so this stays
+// C++-internal; Protocol (protocol.cpp) is its only caller, via its own
+// same-package forward declaration. An out-of-range field returns 0 --
+// protocol.cpp's handleGetConfig() validates the field range itself
+// before ever calling this, so `default` here is an unreachable-in-
+// practice guard, not a relied-upon behavior.
+int getConfigValue(int field) {  // -> [x1000 scaled]
+  Rig& r = ensure();
+  const DiffDrive::DifferentialDrive::Config c = r.kernel.config();
+  float v = 0.0f;
+  switch (field) {
+    case 0: v = c.maxDuty; break;
+    case 1: v = c.fullDutyVelocity; break;
+    case 2: v = c.kp; break;
+    case 3: v = c.ki; break;
+    case 4: v = c.iMax; break;
+    case 5: v = c.kaff; break;
+    case 6: v = c.pidMax; break;
+    case 7: v = c.twistHoldGain; break;
+    case 8: v = c.vMin; break;
+    case 9: v = c.posErrMax; break;
+    case 10: v = c.stallSpeed; break;
+    case 11: v = c.stallDemand; break;
+    case 12: v = c.stallWindow; break;
+    case 13: v = c.lambdaEnabled ? 1.0f : 0.0f; break;
+    case 14: v = c.crawlPulse; break;
+    default: return 0;
+  }
+  return static_cast<int>(std::lround(v * 1000.0));
 }
 
 }  // namespace diffDrive

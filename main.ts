@@ -49,6 +49,16 @@ namespace diffDrive {
     let defaultSpeed = 15      // [cm/s]
     let defaultYawRate = 90    // [deg/s]
 
+    // Start the wire-protocol loop (its own CODAL fiber -- see
+    // protocol.h) as soon as this extension's code loads, independent
+    // of whether any block below is ever placed in a user's program.
+    // This is what makes the boot/HELLO identity banner go out
+    // "without any host request" (sprint.md SUC-001). Idempotent (the
+    // underlying Protocol object guards itself), and a no-op in the
+    // simulator (see the shim body below) -- there's no serial link or
+    // fiber scheduler to start there.
+    _startProtocol()
+
     // ================= public API: velocity commands =================
 
     /**
@@ -458,4 +468,7 @@ namespace diffDrive {
 
     //% shim=diffDrive::setKernelValue
     function _setKernelValue(field: int32, value: int32): void { }
+
+    //% shim=diffDrive::startProtocol
+    function _startProtocol(): void { }
 }
