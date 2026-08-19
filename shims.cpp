@@ -55,8 +55,12 @@ static void watchdogEntry(void* context);
 // ---- composition ----------------------------------------------------
 
 struct Rig {
-  // tovez-measured defaults; generic kits adjust via setGeometry().
-  float travelCalib = 0.7837f;   // [mm/deg] wheel travel per shaft degree
+  // vevov-measured travel calibration (2026-08-19 bench: commanded
+  // 80 cm, odometry believed 798 mm, tape measured 825 mm ->
+  // 0.7837 * 825/798 = 0.8102). trackWidth still the tovez default --
+  // calibrate it from a measured pivot the same way. Generic kits
+  // adjust via setGeometry().
+  float travelCalib = 0.8102f;   // [mm/deg] wheel travel per shaft degree
   float trackWidth = 115.0f;     // [mm]
   float countsPerMm() const { return 10.0f / travelCalib; }
 
