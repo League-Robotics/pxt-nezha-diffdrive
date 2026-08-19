@@ -16,15 +16,24 @@ float clampf(float value, float lo, float hi) {
 
 bool NezhaMotorPort::writeFrame(uint8_t arg, uint8_t reg, uint8_t val) {
   uint8_t frame[8] = {0xFF, 0xF9, port_, arg, reg, val, 0xF5, 0x00};
+  // codal-microbit-v2 (V2) I2C takes uint8_t*; classic DAL (V1) takes char*.
+#if MICROBIT_CODAL
+  int status = uBit.i2c.write(kAddress << 1, frame, 8);
+#else
   int status = uBit.i2c.write(kAddress << 1,
                               reinterpret_cast<char*>(frame), 8);
+#endif
   return status == MICROBIT_OK;
 }
 
 bool NezhaMotorPort::readEncoderRaw(int32_t* raw) {
   uint8_t data[4] = {0, 0, 0, 0};
+#if MICROBIT_CODAL
+  int status = uBit.i2c.read(kAddress << 1, data, 4);
+#else
   int status = uBit.i2c.read(kAddress << 1,
                              reinterpret_cast<char*>(data), 4);
+#endif
   if (status != MICROBIT_OK) return false;
   *raw = static_cast<int32_t>(
       static_cast<uint32_t>(data[0]) |

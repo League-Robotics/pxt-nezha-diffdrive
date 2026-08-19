@@ -1,7 +1,7 @@
 // protocol.cpp -- see protocol.h.
 #include "protocol.h"
 
-#include <cstdio>
+#include <stdio.h>  // plain snprintf: mbed-classic gcc lacks std::snprintf
 #include <cstring>
 
 namespace diffDrive {
@@ -236,11 +236,12 @@ const VerbEntry* findVerb(const char* name) {
 // Sourced per this ticket's acceptance criteria ("the implementer picks
 // a reasonable source ... and documents the choice"):
 //
-//   - kDeviceName: a fixed default. This project has no per-robot
-//     naming config yet (no setter, no block) -- adding one is a
-//     follow-up if a future sprint ever needs to tell two robots on
-//     the same bench apart by name; the *serial* field below already
-//     makes each robot's DEVICE banner unique without one.
+//   - The DEVICE banner's <name>: the board's own five-letter
+//     micro:bit name via CODAL's microbit_friendly_name() (derived in
+//     silicon from FICR.DEVICEID[1]). The fleet tooling (mbdeploy)
+//     keys its device registry off this field of the announcement, so
+//     a fixed string here would make every robot announce the same
+//     name and stomp the registry on each probe.
 //   - The DEVICE banner's <serial>: this micro:bit's own hardware
 //     serial number, via CODAL's microbit_serial_number() -- the same
 //     source pxt-microbit's own `control.deviceSerialNumber()` block
@@ -260,7 +261,6 @@ const VerbEntry* findVerb(const char* name) {
 //     this project's versioning. Bump this alongside pxt.json's
 //     "version" whenever that changes.
 namespace {
-constexpr const char* kDeviceName = "nezha";
 constexpr const char* kDrivetrain = "diffdrive";
 constexpr const char* kProfile = "tovez";
 constexpr const char* kVersion = "1.0.0";  // keep in sync with pxt.json
@@ -283,8 +283,8 @@ void writeSnprintfResult(SerialTransport& transport, const char* buf, int n,
 
 void Protocol::sendDeviceBanner() {
   char buf[64];
-  const int n = std::snprintf(buf, sizeof(buf), "DEVICE:NEZHA2:robot:%s:%lu",
-                              kDeviceName,
+  const int n = snprintf(buf, sizeof(buf), "DEVICE:NEZHA2:robot:%s:%lu",
+                              microbit_friendly_name(),
                               static_cast<unsigned long>(microbit_serial_number()));
   writeSnprintfResult(transport_, buf, n, sizeof(buf));
 }
@@ -300,20 +300,20 @@ void Protocol::handlePing() {
   // `now` is already an integer, not a workaround).
   const unsigned long nowMs =
       static_cast<unsigned long>(clock_.nowMicros() / 1000ull);
-  const int n = std::snprintf(buf, sizeof(buf), "PONG:t=%lu", nowMs);
+  const int n = snprintf(buf, sizeof(buf), "PONG:t=%lu", nowMs);
   writeSnprintfResult(transport_, buf, n, sizeof(buf));
 }
 
 void Protocol::handleId() {
   char buf[64];
-  const int n = std::snprintf(buf, sizeof(buf), "ID:%s:%s:%s", kDrivetrain,
+  const int n = snprintf(buf, sizeof(buf), "ID:%s:%s:%s", kDrivetrain,
                               kProfile, kVersion);
   writeSnprintfResult(transport_, buf, n, sizeof(buf));
 }
 
 void Protocol::handleVer() {
   char buf[32];
-  const int n = std::snprintf(buf, sizeof(buf), "VER:%s", kVersion);
+  const int n = snprintf(buf, sizeof(buf), "VER:%s", kVersion);
   writeSnprintfResult(transport_, buf, n, sizeof(buf));
 }
 
@@ -670,7 +670,7 @@ constexpr uint32_t kPollIntervalMs = 5;
 
 void Protocol::sendTelemetry() {
   char buf[48];  // "TLM:" + three int32-range fields + separators + NUL
-  const int n = std::snprintf(buf, sizeof(buf), "TLM:%d:%d:%d", poseX(),
+  const int n = snprintf(buf, sizeof(buf), "TLM:%d:%d:%d", poseX(),
                               poseY(), poseHeading());
   writeSnprintfResult(transport_, buf, n, sizeof(buf));
 }
