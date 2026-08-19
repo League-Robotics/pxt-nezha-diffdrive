@@ -1,6 +1,8 @@
 ---
-status: pending
+status: done
 sprint: '001'
+tickets:
+- NONE
 ---
 
 # Test on the micro:bit named "zetuv", located via mbdeploy
