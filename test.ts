@@ -1,22 +1,36 @@
-// test.ts -- square-drive integration test (SUC-006). On button A,
-// reset pose and drive a 30 cm square: (30 cm straight, 90 deg turn)
-// x 4, ending with the fourth turn so the robot returns to its start
-// position AND orientation. Uses only main.ts's public blocks -- no
-// dependency on this sprint's wire-protocol work. Runs in the browser
-// simulator (pose model) and on hardware (real kernel); verify in the
-// simulator that poseX()/poseY()/heading() return to (approximately)
-// zero after the run.
+// test.ts -- stepwise square-drive test for debugging square closure.
+// Button A starts the tour: four legs, each (30 cm straight, 90 deg CCW
+// turn). The leg number (1-4) shows on the LED matrix while that leg
+// drives; at the end of each leg the robot pauses and waits for a
+// button-B press before starting the next leg, so per-leg position and
+// heading error can be measured on the bench. A checkmark shows when
+// the tour is complete.
 //
-// Hardware verification is deferred to the stakeholder, post sprint
-// close, on master. When run on real hardware, resolve the target
-// micro:bit by name ("zetuv") via the mbdeploy tool -- never a
-// hard-coded serial port or a guess from a /dev listing. See
-// clasi/issues/test-on-microbit-zetuv-via-mbdeploy.md.
+// Hardware runs resolve the target micro:bit by name via the mbdeploy
+// tool -- never a hard-coded serial port. This project's test robot is
+// vevov.
+let bPressed = false
+let touring = false
+
+input.onButtonPressed(Button.B, function () {
+    bPressed = true
+})
+
 input.onButtonPressed(Button.A, function () {
+    if (touring) return
+    touring = true
     diffDrive.resetPose()
-    for (let i = 0; i < 4; i++) {
+    for (let leg = 1; leg <= 4; leg++) {
+        basic.showNumber(leg)
         diffDrive.move(30, 0)
         diffDrive.move(0, 90)
+        if (leg < 4) {
+            bPressed = false
+            while (!bPressed) {
+                basic.pause(50)
+            }
+        }
     }
-   
+    basic.showString("OK")
+    touring = false
 })
