@@ -40,6 +40,17 @@
 // SerialTransport::tryReadLine() (non-blocking) alongside a fixed-cadence
 // telemetry emission, so TLM goes out on schedule without starving
 // command dispatch, both on this same fiber (see run()'s own comment).
+//
+// Sprint 002 (this revision) adds motion-obligation tracking: with the
+// kernel's own background fiber removed (shims.cpp, sprint 002 ticket
+// 001), a wire-issued MOVE/WHEELS has no student loop left to keep
+// ticking it, so THIS fiber becomes its own bounded tickDrive() caller
+// while one of its own dispatched commands is still outstanding -- see
+// run()'s own comment and the "sprint 002: motion-obligation tracking"
+// section below. Labeled "(sprint 002)", not by ticket number, because
+// this file already has an unrelated, earlier-sprint "ticket 003" label
+// a few sections up (the binary motion-verb handlers) that happens to
+// share the same number as this ticket in ITS OWN (current) sprint.
 #pragma once
 
 #include <cstddef>
@@ -217,6 +228,36 @@ class Protocol {
   void handleStop(const uint8_t* data, size_t dataLen);
   void handleEstop(const uint8_t* data, size_t dataLen);
 
+  // ---- sprint 002: motion-obligation tracking -------------------------
+  // With the kernel's background fiber removed (shims.cpp, sprint 002
+  // ticket 001), a wire-issued MOVE/WHEELS has no student loop left to
+  // keep ticking it -- this fiber becomes its own bounded tick caller
+  // instead, but only while one of ITS OWN dispatched commands is still
+  // outstanding (sprint.md's "protocol.cpp ticks conditionally"
+  // decision), not on every loop iteration (that would spin the I2C bus
+  // even when nothing is commanded). Deliberately labeled "(sprint 002)"
+  // rather than by ticket number -- see this header's top-of-file
+  // comment for why "(ticket 003)" alone would be ambiguous in this
+  // particular file.
+  //
+  // Two obligation kinds, one boolean check (hasLiveMotionObligation()):
+  // a position-mode MOVE already tracks itself (Rig::moveActive, read
+  // via the existing moving() shim -- no duplicate state needed here);
+  // WHEELS and a time-stop MOVE are duration-bound, tracked locally via
+  // timedObligationDeadlineMs_ below, mirroring shims.cpp's own
+  // moveActive/moveDeadline pattern at this fiber's own granularity.
+  // handleMove()/handleWheels() call beginTimedMotionObligation() when
+  // they dispatch a duration-bound command; handleStop()/handleEstop()
+  // call clearTimedMotionObligation() so the loop reverts to idle
+  // cadence immediately on a wire-issued stop, rather than continuing to
+  // tick until the tracked deadline naturally elapses. run() calls
+  // hasLiveMotionObligation() once per iteration to decide between
+  // tickDrive() and the loop's normal idle poll -- never both in the
+  // same iteration (that would double-sleep).
+  bool hasLiveMotionObligation();
+  void beginTimedMotionObligation(uint32_t durationMs);
+  void clearTimedMotionObligation();
+
   // ---- ticket 004: binary config verb handlers -----------------------
   // CONFIG/SET_FIELD/CALIBRATE decode their COBS+CRC binary body (ticket
   // 001's codec) exactly like ticket 003's motion handlers above --
@@ -272,6 +313,10 @@ class Protocol {
   uint32_t linesSeen_ = 0;
   uint32_t verbsDispatched_ = 0;
   uint32_t wheelsDecoded_ = 0;
+  // sprint 002: motion-obligation tracking state -- see the methods'
+  // own comment above for what these mean and who touches them.
+  bool timedObligationActive_ = false;
+  uint32_t timedObligationDeadlineMs_ = 0;  // [ms], clock_ ms scale
 };
 
 // Lazy singleton, mirroring shims.cpp's Rig/ensure() pattern: the
