@@ -801,9 +801,15 @@ constexpr uint32_t kPollIntervalMs = 5;
 }  // namespace
 
 void Protocol::sendTelemetry() {
-  char buf[48];  // "TLM:" + three int32-range fields + separators + NUL
-  const int n = snprintf(buf, sizeof(buf), "TLM:%d:%d:%d", poseX(),
-                              poseY(), poseHeading());
+  // On-device millisecond timestamp leads the record (stakeholder,
+  // 2026-08-20): host arrival times carry serial-buffering jitter
+  // (measured: bursty 0/120 ms gaps around the 50 ms cadence), so
+  // trajectory analysis needs the emission time, not the arrival time.
+  char buf[64];  // "TLM:" + u32 ms + three int32 fields + separators
+  const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
+  const int n = snprintf(buf, sizeof(buf), "TLM:%lu:%d:%d:%d",
+                         static_cast<unsigned long>(nowMs), poseX(),
+                         poseY(), poseHeading());
   // sprint 002 ticket 006: mirror the identical formatted bytes onto
   // radio (SUC-004) -- same buf/n/bufCap, one source of truth for line
   // content, two sinks (sprint.md Solution).

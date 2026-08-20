@@ -49,9 +49,17 @@ def main():
     ap.add_argument('--title', default='Square Tour')
     a = ap.parse_args()
 
-    pose_all = read_csv(a.pose_csv)          # t, x_mm, y_mm, h_cdeg
+    pose_all = read_csv(a.pose_csv)
     vel_all = read_csv(a.vel_csv)            # t, vel_l_counts, vel_r_counts
     k = a.travel_calib / 100.0               # counts/s -> cm/s
+
+    # Pose CSV: either legacy 4-col (t, x, y, h) or device-timestamped
+    # 5-col (t_host, t_dev_ms, x, y, h). Prefer device time: host
+    # arrival carries serial-buffering jitter.
+    if pose_all and len(pose_all[0]) == 5:
+        t0d = next((r[1] for r in pose_all if r[1] >= 0), 0.0)
+        pose_all = [[(r[1] - t0d) / 1000.0 if r[1] >= 0 else r[0],
+                     r[2], r[3], r[4]] for r in pose_all]
 
     pose = [p for p in pose_all
             if abs(p[1]) < MAX_POSE_MM and abs(p[2]) < MAX_POSE_MM]
