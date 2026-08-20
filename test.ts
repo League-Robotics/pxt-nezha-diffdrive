@@ -6,6 +6,8 @@
 //   button A      / RUN:3  drive straight 80 cm
 //   buttons A+B   / RUN:1  square tour
 //                   RUN:2  360-degree in-place pivot (bench-safe)
+//                   RUN:4  180-degree CCW pivot (rotation calibration)
+//                   RUN:5  180-degree CW pivot (rotation calibration)
 //
 // The square tour: four legs, each (30 cm straight, 90 deg CCW turn),
 // ending with the fourth turn so the robot returns to its start
@@ -52,11 +54,24 @@ function runStraight80() {
     touring = false
 }
 
+function runTurn(yaw: number, label: string) {
+    if (touring) return
+    touring = true
+    basic.showString(label)
+    diffDrive.resetPose()
+    diffDrive.move(0, yaw)
+    basic.showString("OK")
+    touring = false
+}
+
 input.onButtonPressed(Button.A, runStraight80)
+input.onButtonPressed(Button.B, runPivot)
 input.onButtonPressed(Button.AB, runTour)
 
 diffDrive.onRunCommand(function (n: number) {
     if (n == 1) runTour()
     else if (n == 2) runPivot()
     else if (n == 3) runStraight80()
+    else if (n == 4) runTurn(180, "L")   // CCW half-turn
+    else if (n == 5) runTurn(-180, "R")  // CW half-turn
 })

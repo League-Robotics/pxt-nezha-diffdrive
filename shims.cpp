@@ -61,7 +61,10 @@ struct Rig {
   // calibrate it from a measured pivot the same way. Generic kits
   // adjust via setGeometry().
   float travelCalib = 0.8102f;   // [mm/deg] wheel travel per shaft degree
-  float trackWidth = 115.0f;     // [mm]
+  float trackWidth = 114.2f;     // [mm] vevov, stakeholder-measured
+                                  // 2026-08-19; effective (scrub-
+                                  // corrected) width to be calibrated
+                                  // from camera-measured rotations
   float countsPerMm() const { return 10.0f / travelCalib; }
 
   // vevov wiring (stakeholder-measured 2026-08-19: forward was inverted
