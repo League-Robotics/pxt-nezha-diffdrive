@@ -39,6 +39,7 @@ function runSeg(d: number, y: number, reps: number) {
         if (d != 0) tickedMove(d, 0)
         if (y != 0) tickedMove(0, y)
     }
+    serial.writeLine("GAP:" + maxGapMs)
     basic.showString("OK")
     touring = false
 }
