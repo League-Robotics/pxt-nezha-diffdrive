@@ -662,6 +662,9 @@ int diagValue(int what) {
     // 21/22: peak driven identical-encoder-read streaks (latch evidence)
     case 21: return static_cast<int>(ensure().left.maxDrivenStreak_);
     case 22: return static_cast<int>(ensure().right.maxDrivenStreak_);
+    // 23/24: rejected implausible encoder reads (glitch armor)
+    case 23: return static_cast<int>(ensure().left.glitchCount_);
+    case 24: return static_cast<int>(ensure().right.glitchCount_);
     default: return 0;
   }
 }

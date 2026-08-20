@@ -104,7 +104,11 @@ class NezhaMotorPort final : public DiffDrive::Motor {
   // wheel was driven (cumulative since boot) -- direct latch evidence:
   // streaks are ticks (~24 ms each), so 13 means ~300 ms frozen.
   uint32_t maxDrivenStreak_ = 0;
+  uint32_t glitchCount_ = 0;       // rejected implausible encoder reads
  private:
+  int32_t lastRejectedRaw_ = 0;    // two-strike acceptance state
+  bool rejectPending_ = false;
+
   float dutyCarry_ = 0.0f;         // [-1,1] sigma-delta remainder
   int8_t lastWrittenPct_ = kNeverWritten;
   uint64_t lastWriteTimeUs_ = 0;   // [us]

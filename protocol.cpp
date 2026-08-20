@@ -374,7 +374,8 @@ int Protocol::formatDiag(char* buf, size_t cap) {
   // modest (a 26-arg call bit this fiber's stack before).
   if (n > 0 && static_cast<size_t>(n) < cap) {
     const int m = snprintf(buf + n, cap - static_cast<size_t>(n),
-                           ",wpk=%d/%d", diagValue(21), diagValue(22));
+                           ",wpk=%d/%d,egl=%d/%d", diagValue(21), diagValue(22),
+                           diagValue(23), diagValue(24));
     if (m > 0) return n + m;
   }
   return n;

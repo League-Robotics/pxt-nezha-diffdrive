@@ -196,6 +196,31 @@ void NezhaMotorPort::requestSample() {
 void NezhaMotorPort::collect(uint64_t nowUs) {
   int32_t raw = 0;
   if (readEncoderRaw(&raw)) {
+    // Glitch rejection, ported from the reference driver (see
+    // radio-robot-elite docs/design/encoder-refresh-characterization.md
+    // Phase F: a sample destroyed by interposed bus traffic reads as
+    // raw 0; other corruption shows as a physically impossible jump).
+    // Bench capture 2026-08-20: one such read produced a phantom
+    // -22 m odometry teleport and a 3.5 M counts/s velocity spike that
+    // instantly mis-terminated the tour's last leg. A rejected value
+    // is accepted on its SECOND consecutive appearance (within the
+    // gate of itself), so a genuinely moved wheel (hand-rotation,
+    // repositioning) re-syncs after one tick instead of deadlocking.
+    const int32_t kMaxDeltaCounts = 5000;  // per collect; real max ~75
+    const int32_t delta = raw - lastGoodRaw_;
+    const int32_t mag = delta < 0 ? -delta : delta;
+    if (primed_ && mag > kMaxDeltaCounts) {
+      const int32_t rejDelta = raw - lastRejectedRaw_;
+      const int32_t rejMag = rejDelta < 0 ? -rejDelta : rejDelta;
+      if (!(rejectPending_ && rejMag <= kMaxDeltaCounts)) {
+        lastRejectedRaw_ = raw;
+        rejectPending_ = true;
+        ++glitchCount_;
+        return;  // discarded: position/velocity/sampleTime all HOLD
+      }
+      // second consecutive consistent reading: accept reality below
+    }
+    rejectPending_ = false;
     lastGoodRaw_ = raw;
     connected_ = true;
     const float pos =
