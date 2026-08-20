@@ -1,5 +1,7 @@
 ---
-status: pending
+status: done
+tickets:
+- NONE
 ---
 
 # DEVICE banner never reaches the bridge — multi-fragment radio messages are lost

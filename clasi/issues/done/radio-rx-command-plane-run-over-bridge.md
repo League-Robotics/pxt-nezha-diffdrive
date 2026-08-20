@@ -1,5 +1,7 @@
 ---
-status: pending
+status: done
+tickets:
+- NONE
 ---
 
 # Radio RX command plane — RUN (and other verbs) over the bridge
