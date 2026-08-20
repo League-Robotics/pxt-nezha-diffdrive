@@ -90,7 +90,9 @@ class RadioTransport {
   // 2), transmit power matches the reference driver's own
   // setTransmitPower(7).
   static constexpr uint8_t kGroup = 10;
-  static constexpr int kChannel = 0;
+  // Channel 4: vevov's fleet-assigned radio channel (stakeholder,
+  // 2026-08-19). The zavaz relay is configured to match (!CG 4 10).
+  static constexpr int kChannel = 4;
   static constexpr int kTransmitPower = 7;
 
   // Internal line-buffer capacity for sendLine()'s truncation bound --
