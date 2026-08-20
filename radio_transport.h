@@ -59,6 +59,26 @@ class RadioTransport {
   // never calls sendLine() never pays it.
   void sendLine(const uint8_t* data, size_t len);
 
+  // RX (radio command plane, single-fragment only): polls one queued
+  // datagram, accepts frames whose flags carry START|END together (a
+  // complete message in one fragment -- with the 250-byte fleet packet
+  // size every relay-forwarded command line qualifies), strips the
+  // trailing 0x0A, and copies the line into outBuf. Returns true when a
+  // line was produced. MORE-flagged fragments are dropped (multi-
+  // fragment inbound reassembly is deliberately out of scope; see
+  // clasi/issues/radio-rx-command-plane-run-over-bridge.md).
+  bool tryReceiveLine(uint8_t* outBuf, size_t outCap, size_t* outLen);
+
+  // Event-driven RX internals (public only for the static MessageBus
+  // trampoline): mirrors the reference driver's design -- datagram.recv()
+  // is ONLY called inside the MICROBIT_RADIO_EVT_DATAGRAM handler, where
+  // the queue is guaranteed non-empty. Bench-measured: polling recv() on
+  // an EMPTY queue kills the program within two polls (codal's shared
+  // EmptyPacket refcounting), which is exactly why the reference never
+  // polls. The handler copies a complete single-fragment line into
+  // rxLine_ and sets rxReady_; tryReceiveLine() just consumes the flag.
+  void onDatagram();
+
  private:
   void ensureRadioReady();
 
@@ -105,7 +125,27 @@ class RadioTransport {
   // dependency.
   static constexpr size_t kMaxPayloadBytes = 200;
 
+  // Send-path scratch buffers, deliberately MEMBERS not stack locals:
+  // the protocol fiber's 2 KB stack cannot afford ~450 B of line+frame
+  // buffers at the bottom of the deepest call chain (bench-measured:
+  // run()+formatDiag+sendLine+sendFragmented overflowed the fiber
+  // stack and hard-faulted ~1 s after boot). Single-fiber use only.
+  uint8_t payloadBuf_[kMaxPayloadBytes + 1];
+  uint8_t frameBuf_[256];
+
   bool radioReady_ = false;
+  volatile bool rxReady_ = false;
+  size_t rxLen_ = 0;
+  uint8_t rxLine_[64];
+
+ public:
+  // RX diagnostics (bench): datagrams polled with nonzero length, and
+  // frames accepted as complete single-fragment lines. Read by
+  // Protocol::formatDiag() for the DIAG surface.
+  uint32_t rxFrames_ = 0;
+  uint32_t rxAccepted_ = 0;
+
+ private:
   uint8_t txSeq_ = 0;  // rolling RadioRelay §5 sequence number
 };
 

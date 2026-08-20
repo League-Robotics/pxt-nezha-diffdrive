@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "lib": ["es2020", "dom"],
+    "moduleDetection": "legacy",
+    "strict": false,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "files": [
+    "pxt_modules/core/pxt-core.d.ts",
+    "pxt_modules/core/dal.d.ts",
+    "pxt_modules/core/enums.d.ts",
+    "pxt_modules/core/shims.d.ts",
+    "pxt_modules/core/basic.ts",
+    "pxt_modules/core/control.ts",
+    "pxt_modules/core/input.ts",
+    "main.ts",
+    "test.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

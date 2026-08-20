@@ -350,13 +350,14 @@ void Protocol::handleVer() {
   writeSnprintfResult(transport_, buf, n, sizeof(buf));
 }
 
-void Protocol::handleDiag() {
+int Protocol::formatDiag(char* buf, size_t cap) {
   // Kernel Output snapshot via shims.cpp's diagValue() -- debug surface
   // for bench diagnosis (stall/estop/connection/duty), cleartext like
   // the other identity verbs. Duty values are x100 (percent*100).
-  char buf[192];
-  const int n = snprintf(
-      buf, sizeof(buf),
+  // Shared by the DIAG verb reply (serial) and the 1 Hz radio DIAG
+  // mirror in run() -- one formatter, two sinks.
+  return snprintf(
+      buf, cap,
       "DIAG:rdy=%d,est=%d,stall=%d,lex=%d,conn=%d/%d,wsus=%d/%d,"
       "i2cf=%d,lexc=%d,pos=%d/%d,duty=%d/%d,vel=%d/%d,cyc=%d,sat=%d,"
       "def=%d,ovr=%d,err=%d,ln=%lu,vb=%lu,wh=%lu",
@@ -369,7 +370,11 @@ void Protocol::handleDiag() {
       static_cast<unsigned long>(linesSeen_),
       static_cast<unsigned long>(verbsDispatched_),
       static_cast<unsigned long>(wheelsDecoded_));
-  writeSnprintfResult(transport_, buf, n, sizeof(buf));
+}
+
+void Protocol::handleDiag() {
+  const int n = formatDiag(diagBuf_, sizeof(diagBuf_));
+  writeSnprintfResult(transport_, diagBuf_, n, sizeof(diagBuf_));
 }
 
 // ---- RUN: remote test trigger ----------------------------------------
@@ -932,6 +937,22 @@ void Protocol::run() {
       }
     }
 
+    // Radio command plane (single-fragment RX), gated to RUN only:
+    // motion/config verbs stay wired-only until the fire-and-forget-
+    // over-lossy-link safety question is settled (see
+    // clasi/issues/radio-rx-command-plane-run-over-bridge.md). Reuses
+    // lineBuf -- the serial branch above is done with it this
+    // iteration.
+    size_t radioLen = 0;
+    if (radioTransport_.tryReceiveLine(rxLineBuf_, sizeof(rxLineBuf_),
+                                       &radioLen)) {
+      ParsedLine radioParsed;
+      if (parseLine(rxLineBuf_, radioLen, &radioParsed) &&
+          std::strcmp(radioParsed.command, "RUN") == 0) {
+        handleRun(radioParsed.data, radioParsed.dataLen);
+      }
+    }
+
     const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
     // Wraparound-safe elapsed check (signed-difference idiom): correct
     // across nowMs's uint32_t rollover the same way moveDeadline's own
@@ -940,6 +961,21 @@ void Protocol::run() {
         static_cast<int32_t>(kTlmPeriodMs)) {
       sendTelemetry();
       lastTlmMs = nowMs;
+      // 1 Hz DIAG mirror over radio (every 20th 50 ms TLM tick): the
+      // untethered bench instrument -- stall/wedge/duty/velocity flags
+      // arrive at the relay alongside pose, so an intermittent wheel
+      // failure can be caught in the act without a cable. Single
+      // fragment at the fleet's 250-byte packet size.
+      if (++tlmTicks_ >= 20) {
+        tlmTicks_ = 0;
+        const int dn = formatDiag(diagBuf_, sizeof(diagBuf_));
+        if (dn > 0) {
+          size_t dlen = static_cast<size_t>(dn);
+          if (dlen > sizeof(diagBuf_) - 1) dlen = sizeof(diagBuf_) - 1;
+          radioTransport_.sendLine(
+              reinterpret_cast<const uint8_t*>(diagBuf_), dlen);
+        }
+      }
     }
 
     // Sprint 002: with the kernel's own background fiber removed

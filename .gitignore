@@ -1,0 +1,23 @@
+# --- Node / npm ---
+node_modules/
+.npm-cache/
+npm-debug.log*
+package-lock.json.*
+
+# --- Local scratch: pxt-microbit target clone, node compile cache, scratch builds ---
+.tmp/
+
+# --- MakeCode / PXT build output ---
+built/
+pxt_modules/
+.pxt/
+*.hex
+*.uf2
+binary.asm
+binary.js
+
+# --- macOS / editor cruft ---
+.DS_Store
+._*
+.vscode/settings.json
+*.swp

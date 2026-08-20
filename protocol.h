@@ -229,6 +229,8 @@ class Protocol {
   void handleId();          // ID -> ID:<drivetrain>:<profile>:<version>
   void handleVer();         // VER -> VER:<version>
   void handleDiag();        // DIAG -> kernel Output flags/counters (debug)
+  int formatDiag(char* buf, size_t cap);  // shared formatter: DIAG verb
+                            // reply (serial) + 1 Hz radio DIAG mirror
   void handleRun(const uint8_t* data, size_t dataLen);  // RUN:<n> ->
                             // raises a MessageBus event so TS-side test
                             // functions registered via
@@ -361,6 +363,12 @@ class Protocol {
   uint32_t linesSeen_ = 0;
   uint32_t verbsDispatched_ = 0;
   uint32_t wheelsDecoded_ = 0;
+  uint32_t tlmTicks_ = 0;
+  // Scratch buffers as members, not stack locals -- same fiber-stack
+  // rationale as RadioTransport's own send buffers (see that header).
+  char diagBuf_[192];
+  uint8_t rxLineBuf_[64];   // 50 ms TLM ticks since the last 1 Hz
+                            // radio DIAG mirror emission (run())
   // sprint 002: motion-obligation tracking state -- see the methods'
   // own comment above for what these mean and who touches them.
   bool timedObligationActive_ = false;

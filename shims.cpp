@@ -69,11 +69,33 @@ struct Rig {
                                   // (CCW 1.0096, CW 1.0146)
   float countsPerMm() const { return 10.0f / travelCalib; }
 
-  // vevov wiring (stakeholder-measured 2026-08-19: forward was inverted
-  // under the old tovez defaults left{2,-1}/right{1,+1} -- both signs
-  // flipped so button-A "forward" drives the robot's actual nose-forward).
-  NezhaMotorPort left{2, +1};    // left = M2
-  NezhaMotorPort right{1, -1};   // right = M1, mirrored
+  // vevov wiring. History: the tovez defaults left{2,-1}/right{1,+1}
+  // drove vevov backward, so on 2026-08-19 both fwdSigns were flipped to
+  // left{2,+1}/right{1,-1}. That fixed forward and silently mirrored
+  // rotation: NezhaMotorPort applies fwdSign to the duty AND to the
+  // encoder position (nezha_port.cpp), so flipping both signs reverses
+  // the robot's physical rotation while odometry, reading through the
+  // same flipped signs, stays self-consistent and never notices.
+  //
+  // Camera-measured 2026-08-19 on a single commanded +360 CCW pivot
+  // ("P"): odometry believed +360.83 deg, AprilCam measured -342.58 deg
+  // -- same move, opposite direction. Legs in the square tour tracked
+  // their heading to within 1-8 deg, so translation was never wrong;
+  // only rotation was.
+  //
+  // Flipping signs cannot fix this: forward and rotation flip together,
+  // so no sign pair gives both. The free variable is which port is
+  // called "left". Each motor KEEPS its own sign (M1 -> -1, M2 -> +1, so
+  // forward is untouched) and the side labels swap, which negates the
+  // (right - left) differential that sets heading. Equivalent statement:
+  // vevov's motors are plugged in mirror-swapped relative to the old
+  // config -- M1 is the physical LEFT wheel, M2 the physical RIGHT.
+  //
+  // UNVERIFIED: the Nezha brick was off charge when this was flashed, so
+  // this has not been confirmed on the robot. Re-run the +360 "P" pivot
+  // under the camera: actual sweep must now be POSITIVE (CCW).
+  NezhaMotorPort left{1, -1};    // left = M1, mirrored
+  NezhaMotorPort right{2, +1};   // right = M2
   CodalClock clock;
   CodalSleeper sleeper;
   CodalFiberLauncher launcher;

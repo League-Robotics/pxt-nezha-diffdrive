@@ -43,7 +43,6 @@ class SerialTransport {
   // between protocol-fiber polls. Call before the first read.
   void begin();
 
-  size_t readLine(uint8_t* outBuf, size_t outCap);
 
   // Writes `len` bytes from `buf`, then a single 0x0A delimiter.
   // Callers (Protocol) never include the delimiter themselves.

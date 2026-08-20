@@ -22,6 +22,10 @@ namespace diffDrive {
 
 namespace {
 constexpr uint8_t kLineDelimiter = 0x0A;
+RadioTransport* gRadioRx = nullptr;  // MessageBus trampoline target
+void radioDatagramTrampoline(MicroBitEvent) {
+  if (gRadioRx != nullptr) gRadioRx->onDatagram();
+}
 }  // namespace
 
 void RadioTransport::ensureRadioReady() {
@@ -36,6 +40,28 @@ void RadioTransport::ensureRadioReady() {
   uBit.radio.setFrequencyBand(kChannel);
   uBit.radio.setGroup(kGroup);
   uBit.radio.setTransmitPower(kTransmitPower);
+  // Reference-style RX: listen for the datagram event and recv() only
+  // there (see header comment on onDatagram).
+  gRadioRx = this;
+  uBit.messageBus.listen(MICROBIT_ID_RADIO, MICROBIT_RADIO_EVT_DATAGRAM,
+                         radioDatagramTrampoline);
+}
+
+void RadioTransport::onDatagram() {
+  PacketBuffer p = uBit.radio.datagram.recv();
+  const int plen = p.length();
+  if (plen < static_cast<int>(kFrameHeaderBytes)) return;
+  const uint8_t* d = p.getBytes();
+  const uint8_t flags = d[1];
+  if (!(flags & kFlagStart) || !(flags & kFlagEnd)) return;  // multi-frag: drop
+  size_t len = d[2];
+  if (static_cast<int>(kFrameHeaderBytes + len) > plen) return;
+  if (len > 0 && d[kFrameHeaderBytes + len - 1] == kLineDelimiter) --len;
+  if (len > sizeof(rxLine_)) len = sizeof(rxLine_);
+  if (rxReady_) return;  // previous line unconsumed: drop (reference behavior)
+  if (len > 0) memcpy(rxLine_, d + kFrameHeaderBytes, len);
+  rxLen_ = len;
+  rxReady_ = true;
 }
 
 void RadioTransport::sendFragmented(const uint8_t* payload,
@@ -53,7 +79,9 @@ void RadioTransport::sendFragmented(const uint8_t* payload,
 
   size_t off = 0;
   bool first = true;
-  uint8_t frame[kFrameHeaderBytes + kMtu];
+  uint8_t* frame = frameBuf_;  // member scratch -- see header comment
+  static_assert(sizeof(frameBuf_) >= kFrameHeaderBytes + kMtu,
+                "frameBuf_ must hold one full on-air frame");
 
   do {
     size_t chunk = payloadLen - off;
@@ -81,6 +109,18 @@ void RadioTransport::sendFragmented(const uint8_t* payload,
   } while (off < payloadLen);
 }
 
+bool RadioTransport::tryReceiveLine(uint8_t* outBuf, size_t outCap,
+                                    size_t* outLen) {
+  ensureRadioReady();
+  if (!rxReady_) return false;
+  size_t len = rxLen_;
+  if (len > outCap) len = outCap;
+  if (len > 0) memcpy(outBuf, rxLine_, len);
+  *outLen = len;
+  rxReady_ = false;
+  return true;
+}
+
 void RadioTransport::sendLine(const uint8_t* data, size_t len) {
   ensureRadioReady();
 
@@ -90,8 +130,8 @@ void RadioTransport::sendLine(const uint8_t* data, size_t len) {
   // module's header for why that's safe for binary content). Truncates
   // rather than overflows on an over-length caller, mirroring
   // SerialTransport's own defensive truncation.
-  uint8_t payload[kMaxPayloadBytes + 1];
-  size_t n = (len < sizeof(payload) - 1) ? len : sizeof(payload) - 1;
+  uint8_t* payload = payloadBuf_;  // member scratch -- see header comment
+  size_t n = (len < sizeof(payloadBuf_) - 1) ? len : sizeof(payloadBuf_) - 1;
   if (n > 0) {
     memcpy(payload, data, n);
   }

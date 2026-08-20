@@ -1,34 +1,25 @@
-// test.ts -- test programs for the extension. Each test is a plain
-// function, bound BOTH to a physical trigger and to the wire
-// protocol's RUN:<n> command (diffDrive.onRunCommand below), so a
-// bench host can trigger the same tests remotely over USB serial:
+// test.ts -- test programs, deliberately compact: the deploy image is
+// flash-tight (TS region), so all tests share one parameterized
+// runner. Triggers: buttons and the wire/radio RUN:<n> command.
 //
 //   button A      / RUN:3  drive straight 80 cm
-//   buttons A+B   / RUN:1  square tour
-//                   RUN:2  360-degree in-place pivot (bench-safe)
-//                   RUN:4  180-degree CCW pivot (rotation calibration)
-//                   RUN:5  180-degree CW pivot (rotation calibration)
+//   button B              alternate +-360 pivot (P/Q on the LED)
+//   buttons A+B   / RUN:1  square tour (30 cm + 90 deg, x4)
+//                   RUN:2  +360 pivot
+//                   RUN:4  +180 pivot     RUN:5  -180 pivot
 //
-// The square tour: four legs, each (30 cm straight, 90 deg CCW turn),
-// ending with the fourth turn so the robot returns to its start
-// position and orientation. The leg number (1-4) shows on the LED
-// matrix while each leg drives; "OK" shows on completion. move() is
-// caller-driven under the hood (sprint 002 tick model), so each test
-// runs on its own handler fiber.
-//
-// Hardware runs resolve the target micro:bit by name via the mbdeploy
-// tool -- never a hard-coded serial port. This project's test robot is
-// vevov.
+// Hardware runs resolve the target micro:bit by name via mbdeploy.
+// This project's test robot is vevov.
 let touring = false
 
-function runTour() {
+function runSeg(d: number, y: number, reps: number) {
     if (touring) return
     touring = true
     diffDrive.resetPose()
-    for (let leg = 1; leg <= 4; leg++) {
-        basic.showNumber(leg)
-        diffDrive.move(30, 0)
-        diffDrive.move(0, 90)
+    for (let i = 1; i <= reps; i++) {
+        if (reps > 1) basic.showNumber(i)
+        if (d != 0) diffDrive.move(d, 0)
+        if (y != 0) diffDrive.move(0, y)
     }
     basic.showString("OK")
     touring = false
@@ -36,48 +27,21 @@ function runTour() {
 
 let pivotCCW = true
 
-function runPivot() {
-    if (touring) return
-    touring = true
-    // Alternates direction each run so untethered (button-driven)
-    // rotation calibration gets both directions: first press +360 CCW
-    // ("P"), next press -360 CW ("Q"), and so on.
-    basic.showString(pivotCCW ? "P" : "Q")
-    diffDrive.resetPose()
-    diffDrive.move(0, pivotCCW ? 360 : -360)
+input.onButtonPressed(Button.A, function () {
+    runSeg(80, 0, 1)
+})
+input.onButtonPressed(Button.B, function () {
+    runSeg(0, pivotCCW ? 360 : -360, 1)
     pivotCCW = !pivotCCW
-    basic.showString("OK")
-    touring = false
-}
-
-function runStraight80() {
-    if (touring) return
-    touring = true
-    basic.showString("F")
-    diffDrive.resetPose()
-    diffDrive.move(80, 0)
-    basic.showString("OK")
-    touring = false
-}
-
-function runTurn(yaw: number, label: string) {
-    if (touring) return
-    touring = true
-    basic.showString(label)
-    diffDrive.resetPose()
-    diffDrive.move(0, yaw)
-    basic.showString("OK")
-    touring = false
-}
-
-input.onButtonPressed(Button.A, runStraight80)
-input.onButtonPressed(Button.B, runPivot)
-input.onButtonPressed(Button.AB, runTour)
+})
+input.onButtonPressed(Button.AB, function () {
+    runSeg(30, 90, 4)
+})
 
 diffDrive.onRunCommand(function (n: number) {
-    if (n == 1) runTour()
-    else if (n == 2) runPivot()
-    else if (n == 3) runStraight80()
-    else if (n == 4) runTurn(180, "L")   // CCW half-turn
-    else if (n == 5) runTurn(-180, "R")  // CW half-turn
+    if (n == 1) runSeg(30, 90, 4)
+    else if (n == 2) runSeg(0, 360, 1)
+    else if (n == 3) runSeg(80, 0, 1)
+    else if (n == 4) runSeg(0, 180, 1)
+    else if (n == 5) runSeg(0, -180, 1)
 })
