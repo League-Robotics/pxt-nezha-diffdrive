@@ -412,7 +412,9 @@ void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
     if (c == '\r' && i == dataLen - 1) break;
     if (c < '0' || c > '9') return;
     value = value * 10 + (c - '0');
-    if (value > 9999) return;  // sane bound; also avoids overflow
+    if (value > 65535) return;  // event-value ceiling (uint16); the
+                                // zeguz rig vocabulary (testrig.ts)
+                                // encodes arguments up to 42000
   }
   if (value == 0) return;  // 0 is MICROBIT_EVT_ANY -- never a test id
   MicroBitEvent(kRunEventSource, static_cast<uint16_t>(value));

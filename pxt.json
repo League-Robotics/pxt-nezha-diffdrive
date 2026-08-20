@@ -14,6 +14,8 @@
         "platform_ports.h",
         "nezha_port.h",
         "nezha_port.cpp",
+        "otos_port.h",
+        "otos_port.cpp",
         "serial_transport.h",
         "serial_transport.cpp",
         "radio_transport.h",
@@ -24,7 +26,8 @@
         "main.ts"
     ],
     "testFiles": [
-        "test.ts"
+        "test.ts",
+        "testrig.ts"
     ],
     "supportedTargets": [
         "microbit"

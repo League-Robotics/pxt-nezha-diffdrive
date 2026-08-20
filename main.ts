@@ -625,4 +625,30 @@ namespace diffDrive {
 
     //% shim=diffDrive::startProtocol
     function _startProtocol(): void { }
+
+    // ---- OTOS (zeguz bench bring-up) -- shim-only surface, no blocks.
+    // Call only from the fiber that calls driveTick(): an OTOS I2C
+    // transaction interposed in the Nezha encoder's select->read
+    // window destroys the encoder sample. Sim fallbacks report a
+    // sensor that is absent.
+
+    //% shim=diffDrive::otosBegin
+    export function otosBegin(): number { return 0 }
+
+    //% shim=diffDrive::otosRead
+    export function otosRead(): boolean { return false }
+
+    /**
+     * Cached OTOS value: 0=x [0.1mm] 1=y [0.1mm] 2=heading [cdeg]
+     * 3=vx [mm/s] 4=vy [mm/s] 5=omega [cdeg/s] 6=product id
+     * 7=connected 8=IMU-cal samples remaining
+     */
+    //% shim=diffDrive::otosGet
+    export function otosGet(what: int32): number { return 0 }
+
+    //% shim=diffDrive::otosZero
+    export function otosZero(): void { }
+
+    //% shim=diffDrive::otosCalibrate
+    export function otosCalibrate(samples: int32): void { }
 }

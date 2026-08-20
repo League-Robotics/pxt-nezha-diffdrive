@@ -37,6 +37,7 @@
 #include "pxt.h"
 #include "diffdrive.h"
 #include "nezha_port.h"
+#include "otos_port.h"
 #include "platform_ports.h"
 
 #include <cmath>
@@ -840,6 +841,57 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     default: return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));
+}
+
+// ---- OTOS (zeguz bench bring-up, 2026-08-20) ------------------------
+// Thin shim surface over OtosPort (otos_port.h). Same integer boundary
+// convention as the rest of this file. BUS DISCIPLINE: call these only
+// from the same fiber that calls tickDrive() -- an OTOS transaction
+// interposed in the Nezha encoder's select->read window destroys the
+// encoder sample (Phase F). Lazy singleton, separate from Rig: the
+// sensor is usable without ever starting the drive kernel.
+
+static OtosPort* gOtos = nullptr;
+
+static OtosPort& otosRef() {
+  if (gOtos == nullptr) gOtos = new OtosPort();
+  return *gOtos;
+}
+
+//%
+int otosBegin() {  // -> product id probed (0x5F == present)
+  OtosPort& o = otosRef();
+  o.begin();
+  return o.productId();
+}
+
+//%
+bool otosRead() { return otosRef().read(); }
+
+//%
+int otosGet(int what) {
+  OtosPort& o = otosRef();
+  constexpr float kRadToCdeg = 18000.0f / 3.14159265f;
+  switch (what) {
+    case 0: return static_cast<int>(std::lround(o.x() * 10.0f));  // [0.1 mm]
+    case 1: return static_cast<int>(std::lround(o.y() * 10.0f));  // [0.1 mm]
+    case 2: return static_cast<int>(std::lround(o.heading() * kRadToCdeg));
+    case 3: return static_cast<int>(std::lround(o.vx()));   // [mm/s]
+    case 4: return static_cast<int>(std::lround(o.vy()));   // [mm/s]
+    case 5: return static_cast<int>(std::lround(o.omega() * kRadToCdeg));
+    case 6: return o.productId();
+    case 7: return o.connected() ? 1 : 0;
+    case 8: return o.imuCalibrationSamplesRemaining();
+    default: return 0;
+  }
+}
+
+//%
+void otosZero() { otosRef().zeroPose(); }
+
+//%
+void otosCalibrate(int samples) {
+  otosRef().calibrateImu(static_cast<uint8_t>(samples));
 }
 
 }  // namespace diffDrive
