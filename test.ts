@@ -9,7 +9,7 @@
 //
 //   button A      / RUN:3  drive straight 80 cm
 //   button B              alternate +-360 pivot
-//   buttons A+B   / RUN:1  square tour (30 cm + 90 deg, x4)
+//   buttons A+B   / RUN:1  square tour (60 cm + 90 deg, x4)
 //                   RUN:2  +360 pivot
 //                   RUN:4  +180 pivot     RUN:5  -180 pivot
 //                   RUN:9  show last test's max tick gap [ms] on the LED
@@ -32,10 +32,10 @@ function tickedMove(d: number, y: number) {
 function runSeg(d: number, y: number, reps: number) {
     if (touring) return
     touring = true
-    // Half-speed experiment (2026-08-20): set here, inside the runner,
-    // where execution is guaranteed -- a top-level call was silently
-    // ineffective (file-init order vs the namespace initializer).
-    diffDrive.setDefaultSpeed(7)
+    // Tour profile (stakeholder, 2026-08-20): fast straights, slow
+    // turns. Set inside the runner, where execution is guaranteed (a
+    // top-level call was silently ineffective -- file-init order).
+    diffDrive.setDefaultSpeed(25)
     diffDrive.setDefaultYawRate(45)
     maxGapMs = 0
     diffDrive.resetPose()
@@ -59,11 +59,11 @@ input.onButtonPressed(Button.B, function () {
     pivotCCW = !pivotCCW
 })
 input.onButtonPressed(Button.AB, function () {
-    runSeg(30, 90, 4)
+    runSeg(60, 90, 4)
 })
 
 diffDrive.onRunCommand(function (n: number) {
-    if (n == 1) runSeg(30, 90, 4)
+    if (n == 1) runSeg(60, 90, 4)
     else if (n == 2) runSeg(0, 360, 1)
     else if (n == 3) runSeg(80, 0, 1)
     else if (n == 4) runSeg(0, 180, 1)

@@ -129,6 +129,8 @@ struct Rig {
   float moveYawTarget = 0.0f;    // [counts] half-differential target
   float moveVelCmd = 0.0f;       // [counts/s] full-rate velocity command
   float moveTwistCmd = 0.0f;     // [counts/s] full-rate twist command
+  uint32_t moveStartMs = 0;      // [ms] for the acceleration ramp
+  float moveCmdScale = 1.0f;     // last commanded rate scale (ramp/taper)
   uint32_t moveDeadline = 0;     // [ms] lease-aligned backstop
 
   // tick engine (sprint 002): caller-driven stepping replaces the
@@ -173,6 +175,12 @@ static Rig& ensure() {
     cfg.stallSpeed = 191.4f;         // [counts/s]
     cfg.stallDemand = 510.4f;        // [counts/s]
     cfg.stallWindow = 500.0f;        // [ms]
+    // Twist-hold trim ON (2026-08-20): the tovez bake ships it disabled,
+    // and bench charts show straight legs tilting ~1-2 deg each (wheel
+    // imbalance integrating into heading, rotating the whole square).
+    // This is the kernel's own servo for exactly that -- it trims the
+    // measured differential toward the commanded one.
+    cfg.twistHoldGain = 2.0f;        // [1/s]
     cfg.cyclePeriod = 24;            // [ms]
     rig->kernel.setConfig(cfg);
     rig->kernel.begin();   // primes encoders, arms boot zero-write
@@ -321,7 +329,13 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // ~15 deg / ~40 mm run at reduced rate, adding up to ~1 s.
   const uint32_t lease =
       static_cast<uint32_t>(duration * 1000.0f) + 1500u;  // [ms] backstop
-  r.kernel.drive(velocity, twist, lease);
+  // Acceleration ramp (stakeholder, 2026-08-20): start at the floor
+  // rate, not a full-rate step -- serviceMove() raises the scale over
+  // kRampMs. Mirrors the end-of-move taper; effective accel ~= full
+  // rate / 0.4 s (~375 mm/s^2 at 15 cm/s), reference-shaper-like.
+  r.moveStartMs = static_cast<uint32_t>(r.clock.nowMicros() / 1000ull);
+  r.moveCmdScale = 0.25f;
+  r.kernel.drive(velocity * 0.25f, twist * 0.25f, lease);
   r.moveActive = true;
   r.moveDeadline = static_cast<uint32_t>(
       r.clock.nowMicros() / 1000ull) + lease;
@@ -353,16 +367,26 @@ static bool serviceMove(Rig& r) {
   // the crawl still moves. With the taper in place the termination
   // margin drops from 25 counts (~2 deg allowance for a full-rate
   // coast) to 10 (~0.8).
-  const float margin = 10.0f;    // [counts]
+  // Turn exactness (2026-08-20): a pure turn gets a tighter margin and
+  // a slower final crawl than distance moves -- bench-measured +2 deg
+  // systematic per-turn overshoot (0.8 deg margin + ~1 deg crawl
+  // coast) rotated the whole square, scaling linearly with side
+  // length. At floor 0.12 the turn arrives at ~5 deg/s; coast < 0.3
+  // deg. Straights/arcs keep the wider values (quantization at very
+  // low forward crawl is not worth the trade there).
+  const bool pureTurn =
+      (r.moveYawTarget != 0.0f && r.moveDistTarget == 0.0f);
+  const float distMargin = 10.0f;      // [counts]
+  const float yawMargin = pureTurn ? 4.0f : 10.0f;
   const float kDistTaper = 400.0f;  // [counts] ~32 mm taper window
   const float kYawTaper = 180.0f;   // [counts] ~15 deg taper window
-  const float kTaperFloor = 0.25f;  // never below quarter rate
+  const float kTaperFloor = pureTurn ? 0.12f : 0.25f;
   float scale = 1.0f;
   bool distDone = true;
   if (r.moveDistTarget != 0.0f) {
     const float remain = std::fabs(r.moveDistTarget) -
                          std::fabs(meanProgress);
-    distDone = remain <= margin;
+    distDone = remain <= distMargin;
     const float axisScale = remain / kDistTaper;
     if (axisScale < scale) scale = axisScale;
   }
@@ -370,14 +394,30 @@ static bool serviceMove(Rig& r) {
   if (r.moveYawTarget != 0.0f) {
     const float remain = std::fabs(r.moveYawTarget) -
                          std::fabs(diffProgress);
-    yawDone = remain <= margin;
+    yawDone = remain <= yawMargin;
     const float axisScale = remain / kYawTaper;
     if (axisScale < scale) scale = axisScale;
   }
   if (scale < kTaperFloor) scale = kTaperFloor;
-  if (scale < 1.0f && !(distDone && yawDone)) {
-    // Rolling 500 ms lease: refreshed every tick during the taper, so
-    // the kernel's own lease backstop still covers an abandoned move.
+  // Acceleration ramp: time-based rise from the floor to full rate
+  // over kRampMs, min-combined with the end taper (a very short move
+  // may go straight from ramp to taper without ever reaching full).
+  const float kRampMs = 400.0f;
+  const uint32_t nowMsRamp =
+      static_cast<uint32_t>(r.clock.nowMicros() / 1000ull);
+  float ramp = static_cast<float>(nowMsRamp - r.moveStartMs) / kRampMs;
+  if (ramp < kTaperFloor) ramp = kTaperFloor;
+  if (ramp < scale) scale = ramp;
+  if (scale > 1.0f) scale = 1.0f;
+  // Reissue EVERY tick while the move is active, at the current scale
+  // with a rolling 500 ms lease. Cheap (drive() just stages vars), and
+  // the only form that is lease-safe: gating reissues on scale CHANGE
+  // would let the lease expire during any steady phase (floor crawl,
+  // or full rate after the ramp completes) and neutral the kernel
+  // mid-move. The kernel's lease backstop still covers an abandoned
+  // move within 500 ms.
+  if (!(distDone && yawDone)) {
+    r.moveCmdScale = scale;
     r.kernel.drive(r.moveVelCmd * scale, r.moveTwistCmd * scale, 500u);
   }
   const uint32_t nowMs =

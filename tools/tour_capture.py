@@ -33,8 +33,13 @@ def main():
     p.write(f'RUN:{a.run}\n'.encode())
     last_diag = 0.0
     egl = gap = None
+    last_pose_change = time.time()
+    last_pose_vals = None
     end = time.time() + a.timeout
     while time.time() < end:
+        if pose and time.time() - last_pose_change > 4.0 \
+                and time.time() - t0 > 6.0:
+            break  # motion over (fallback for a missed GAP line)
         now = time.time() - t0
         if now - last_diag > 0.12:
             p.write(b'DIAG\n')
@@ -54,6 +59,9 @@ def main():
                 else:
                     continue
                 pose.append((round(now, 3), t_dev, x, y, h))
+                if (x, y, h) != last_pose_vals:
+                    last_pose_vals = (x, y, h)
+                    last_pose_change = time.time()
             except ValueError:
                 pass
         elif s.startswith('DIAG:'):

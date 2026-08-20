@@ -61,10 +61,22 @@ def main():
         pose_all = [[(r[1] - t0d) / 1000.0 if r[1] >= 0 else r[0],
                      r[2], r[3], r[4]] for r in pose_all]
 
+    # Truncate at end of motion: after a move ends nothing ticks the
+    # kernel, so wheel-speed DIAG polls repeat the last tick's values
+    # forever -- a phantom "still turning" tail. Cut both series 1 s
+    # after the last actual pose change.
+    t_last_motion = pose_all[0][0] if pose_all else 0.0
+    for prev, cur in zip(pose_all, pose_all[1:]):
+        if (cur[1], cur[2], cur[3]) != (prev[1], prev[2], prev[3]):
+            t_last_motion = cur[0]
+    t_cut = t_last_motion + 1.0
+    pose_all = [p for p in pose_all if p[0] <= t_cut]
+
     pose = [p for p in pose_all
             if abs(p[1]) < MAX_POSE_MM and abs(p[2]) < MAX_POSE_MM]
     vel = [(t, l * k, r * k) for t, l, r in vel_all
-           if abs(l * k) < MAX_SPEED_CM_S and abs(r * k) < MAX_SPEED_CM_S]
+           if abs(l * k) < MAX_SPEED_CM_S and abs(r * k) < MAX_SPEED_CM_S
+           and t <= t_cut]
     n_bad = (len(pose_all) - len(pose)) + (len(vel_all) - len(vel))
 
     if not pose:
