@@ -34,12 +34,18 @@ function runTour() {
     touring = false
 }
 
+let pivotCCW = true
+
 function runPivot() {
     if (touring) return
     touring = true
-    basic.showString("P")
+    // Alternates direction each run so untethered (button-driven)
+    // rotation calibration gets both directions: first press +360 CCW
+    // ("P"), next press -360 CW ("Q"), and so on.
+    basic.showString(pivotCCW ? "P" : "Q")
     diffDrive.resetPose()
-    diffDrive.move(0, 360)
+    diffDrive.move(0, pivotCCW ? 360 : -360)
+    pivotCCW = !pivotCCW
     basic.showString("OK")
     touring = false
 }
