@@ -491,7 +491,23 @@ bool tickDrive() {
   // former co-ticking sometimes delivered this step by accident.) Run
   // one extra step here so the stop lands before we report "done".
   if (wasActive && !moveActive) {
-    r.kernel.step();
+    // Settle ticks (2026-08-20): keep stepping until the wheels are
+    // MEASURED at rest (or a small cap). One extra step delivers the
+    // stop but its encoder read lands mid-spin-down, freezing Output
+    // -- and every post-move DIAG -- at a nonzero velocity forever
+    // (bench chart artifact: wheels "ending" at +4/-2.5 cm/s). These
+    // ticks witness the actual stop and fold the coast counts into
+    // odometry before the final telemetry.
+    for (int i = 0; i < 12; ++i) {
+      r.kernel.step();
+      const DiffDrive::DifferentialDrive::Output o = r.kernel.output();
+      const float kRest = 25.0f;  // [counts/s] ~2 mm/s
+      if (o.velocityLeft < kRest && o.velocityLeft > -kRest &&
+          o.velocityRight < kRest && o.velocityRight > -kRest) {
+        break;
+      }
+    }
+    odomUpdate(r);  // coast counts -> pose before the final TLM
   }
   r.stepBusy = false;
 
