@@ -127,6 +127,8 @@ struct Rig {
   float movePosLeft0 = 0.0f, movePosRight0 = 0.0f;  // [counts]
   float moveDistTarget = 0.0f;   // [counts] mean-axis target (signed)
   float moveYawTarget = 0.0f;    // [counts] half-differential target
+  float moveVelCmd = 0.0f;       // [counts/s] full-rate velocity command
+  float moveTwistCmd = 0.0f;     // [counts/s] full-rate twist command
   uint32_t moveDeadline = 0;     // [ms] lease-aligned backstop
 
   // tick engine (sprint 002): caller-driven stepping replaces the
@@ -313,8 +315,12 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
 
   const float velocity = r.moveDistTarget / duration;  // [counts/s]
   const float twist = r.moveYawTarget / duration;      // [counts/s]
+  r.moveVelCmd = velocity;
+  r.moveTwistCmd = twist;
+  // Backstop allows for the end-of-move taper (serviceMove): the last
+  // ~15 deg / ~40 mm run at reduced rate, adding up to ~1 s.
   const uint32_t lease =
-      static_cast<uint32_t>(duration * 1000.0f) + 500u;  // [ms] backstop
+      static_cast<uint32_t>(duration * 1000.0f) + 1500u;  // [ms] backstop
   r.kernel.drive(velocity, twist, lease);
   r.moveActive = true;
   r.moveDeadline = static_cast<uint32_t>(
@@ -339,16 +345,40 @@ static bool serviceMove(Rig& r) {
   const float meanProgress = 0.5f * (dLeft + dRight);
   const float diffProgress = 0.5f * (dRight - dLeft);
 
-  const float margin = 25.0f;  // [counts] ~2 mm decel allowance
+  // End-of-move taper (2026-08-20, exact-turns work): approach the
+  // target at a decreasing rate so the post-stop coast -- measured at
+  // +4-6 deg per turn at full rate -- shrinks to noise. One shared
+  // scale keeps an arc's velocity/twist ratio (curvature) intact; the
+  // floor keeps the binding axis above the kernel's own speed floor so
+  // the crawl still moves. With the taper in place the termination
+  // margin drops from 25 counts (~2 deg allowance for a full-rate
+  // coast) to 10 (~0.8).
+  const float margin = 10.0f;    // [counts]
+  const float kDistTaper = 400.0f;  // [counts] ~32 mm taper window
+  const float kYawTaper = 180.0f;   // [counts] ~15 deg taper window
+  const float kTaperFloor = 0.25f;  // never below quarter rate
+  float scale = 1.0f;
   bool distDone = true;
   if (r.moveDistTarget != 0.0f) {
-    distDone = std::fabs(meanProgress) >=
-               std::fabs(r.moveDistTarget) - margin;
+    const float remain = std::fabs(r.moveDistTarget) -
+                         std::fabs(meanProgress);
+    distDone = remain <= margin;
+    const float axisScale = remain / kDistTaper;
+    if (axisScale < scale) scale = axisScale;
   }
   bool yawDone = true;
   if (r.moveYawTarget != 0.0f) {
-    yawDone = std::fabs(diffProgress) >=
-              std::fabs(r.moveYawTarget) - margin;
+    const float remain = std::fabs(r.moveYawTarget) -
+                         std::fabs(diffProgress);
+    yawDone = remain <= margin;
+    const float axisScale = remain / kYawTaper;
+    if (axisScale < scale) scale = axisScale;
+  }
+  if (scale < kTaperFloor) scale = kTaperFloor;
+  if (scale < 1.0f && !(distDone && yawDone)) {
+    // Rolling 500 ms lease: refreshed every tick during the taper, so
+    // the kernel's own lease backstop still covers an abandoned move.
+    r.kernel.drive(r.moveVelCmd * scale, r.moveTwistCmd * scale, 500u);
   }
   const uint32_t nowMs =
       static_cast<uint32_t>(r.clock.nowMicros() / 1000ull);
