@@ -61,10 +61,12 @@ struct Rig {
   // calibrate it from a measured pivot the same way. Generic kits
   // adjust via setGeometry().
   float travelCalib = 0.8102f;   // [mm/deg] wheel travel per shaft degree
-  float trackWidth = 114.2f;     // [mm] vevov, stakeholder-measured
-                                  // 2026-08-19; effective (scrub-
-                                  // corrected) width to be calibrated
-                                  // from camera-measured rotations
+  float trackWidth = 112.8f;     // [mm] vevov EFFECTIVE (scrub-corrected)
+                                  // width, camera-calibrated 2026-08-19:
+                                  // geometric 114.2 (stakeholder tape) /
+                                  // mean rotation gain 1.0121 from
+                                  // AprilCam-vs-odometry +-360 pivots
+                                  // (CCW 1.0096, CW 1.0146)
   float countsPerMm() const { return 10.0f / travelCalib; }
 
   // vevov wiring (stakeholder-measured 2026-08-19: forward was inverted
