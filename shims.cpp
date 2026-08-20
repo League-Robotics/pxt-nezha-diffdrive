@@ -406,9 +406,24 @@ bool tickDrive() {
   }
   r.stepBusy = true;
   r.kernel.step();
-  r.stepBusy = false;
 
+  const bool wasActive = r.moveActive;
   const bool moveActive = serviceMove(r);
+
+  // Move-completion stop delivery (bench root-cause, 2026-08-20): when
+  // serviceMove() ends the move it posts kernel.neutral(), but the
+  // neutral only reaches the MOTORS on the NEXT kernel.step() -- and a
+  // `while (tickDrive())` caller exits the moment we return false, so
+  // that step never ran. The wheels then coasted at the last commanded
+  // duty until the starvation watchdog's port-level stop (~100-150 ms
+  // = +9-13 deg per turn, +15-22 mm per leg): the intermittent tour
+  // corruption. (It was intermittent only because the protocol fiber's
+  // former co-ticking sometimes delivered this step by accident.) Run
+  // one extra step here so the stop lands before we report "done".
+  if (wasActive && !moveActive) {
+    r.kernel.step();
+  }
+  r.stepBusy = false;
 
   // Absolute-deadline self-pacing, lifted from DifferentialDrive::run()
   // (diffdrive.cpp:290-306): read the cadence from the kernel's own
@@ -614,6 +629,9 @@ int diagValue(int what) {
     // 2 not-begun, 3 estopped, 4 non-finite, 5 cadence-preserved).
     case 20:
       return static_cast<int>(ensure().kernel.lastError());
+    // 21/22: peak driven identical-encoder-read streaks (latch evidence)
+    case 21: return static_cast<int>(ensure().left.maxDrivenStreak_);
+    case 22: return static_cast<int>(ensure().right.maxDrivenStreak_);
     default: return 0;
   }
 }

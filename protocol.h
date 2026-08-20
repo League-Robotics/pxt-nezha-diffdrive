@@ -363,6 +363,11 @@ class Protocol {
   uint32_t linesSeen_ = 0;
   uint32_t verbsDispatched_ = 0;
   uint32_t wheelsDecoded_ = 0;
+  bool protocolMoveActive_ = false;  // a position-mode move THIS fiber
+                            // started (wire MOVE) and must tick.
+                            // TS/button moves tick themselves --
+                            // co-ticking them from here double-ticked
+                            // every move on the robot.
   uint32_t tlmTicks_ = 0;
   // Scratch buffers as members, not stack locals -- same fiber-stack
   // rationale as RadioTransport's own send buffers (see that header).

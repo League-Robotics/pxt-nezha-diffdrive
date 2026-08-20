@@ -88,9 +88,23 @@ class NezhaMotorPort final : public DiffDrive::Motor {
 
   // staged command + write pipeline state
   float stagedDuty_ = 0.0f;        // [-1,1]
-  float lastRequestedDuty_ = 0.0f; // [-1,1] pre-shaping, for sign-flip
+  int lastNonzeroSign_ = 0;        // sign of the last NONZERO command --
+                                   // survives commanded zeros, so a
+                                   // reversal through a brief zero still
+                                   // triggers the dwell (wedgelab: the
+                                   // through-zero corner reversal is the
+                                   // latch trigger)
+  bool atZero_ = false;            // commanded zero is currently held
+  uint32_t zeroSinceMs_ = 0;       // [ms] when the zero hold began --
+                                   // credited toward the reversal dwell
   bool dwelling_ = false;
   uint32_t dwellStart_ = 0;        // [ms]
+ public:
+  // Peak consecutive-identical-encoder-read streak observed while the
+  // wheel was driven (cumulative since boot) -- direct latch evidence:
+  // streaks are ticks (~24 ms each), so 13 means ~300 ms frozen.
+  uint32_t maxDrivenStreak_ = 0;
+ private:
   float dutyCarry_ = 0.0f;         // [-1,1] sigma-delta remainder
   int8_t lastWrittenPct_ = kNeverWritten;
   uint64_t lastWriteTimeUs_ = 0;   // [us]

@@ -85,10 +85,23 @@ void NezhaMotorPort::emergencyStop() {
 }
 
 void NezhaMotorPort::writeShapedDuty(float duty, uint32_t nowMs) {
-  // 1. Exact zero short-circuits ALL shaping. Stop is stop.
+  // 1. Exact zero short-circuits ALL shaping. Stop is stop. The zero
+  //    entry TIME is recorded and the last nonzero SIGN is kept: a
+  //    reversal that passes through a brief commanded zero (a move
+  //    ending, then the next move starting opposite -- every square
+  //    corner) is still a reversal, and the brick still needs its full
+  //    zero dwell. The old code cleared the sign history here, which
+  //    shipped corner reversals ~20-30 ms after the zero -- inside the
+  //    (20, 50] ms window the wedgelab campaign measured as 12/12
+  //    latching (radio-robot-elite docs/knowledge/2026-07-04-encoder-
+  //    wedge.md). Bench signature this fixes: intermittent tour-corner
+  //    encoder freezes -> leg overshoot / heading corruption.
   if (duty == 0.0f) {
-    dwelling_ = false;
-    lastRequestedDuty_ = 0.0f;
+    if (!atZero_) {
+      atZero_ = true;
+      zeroSinceMs_ = nowMs;
+    }
+    dwelling_ = false;  // an explicit stop supersedes a pending dwell
     writeRawDuty(0.0f, lastTickUs_, /*stopping=*/true);
     return;
   }
@@ -97,22 +110,24 @@ void NezhaMotorPort::writeShapedDuty(float duty, uint32_t nowMs) {
   if (std::fabs(duty) < outputDeadband_) {
     duty = duty < 0.0f ? -outputDeadband_ : outputDeadband_;
   }
-  // 3. Reversal dwell: on a sign flip, write 0 and hold before shipping
-  //    the new direction (H-bridge flip under way latches the encoder).
-  const bool signFlip = (duty > 0.0f && lastRequestedDuty_ < 0.0f) ||
-                        (duty < 0.0f && lastRequestedDuty_ > 0.0f);
-  if (signFlip && !dwelling_) {
-    dwelling_ = true;
-    dwellStart_ = nowMs;
-  }
-  if (dwelling_) {
+  const int sign = duty > 0.0f ? 1 : -1;
+  // 3. Reversal dwell: on ANY sign change versus the last NONZERO
+  //    command -- direct flip or through an intervening zero -- hold
+  //    commanded zero until a full reversalDwell_ of zero time has
+  //    elapsed, crediting time already spent at commanded zero.
+  if (lastNonzeroSign_ != 0 && sign != lastNonzeroSign_) {
+    if (!dwelling_) {
+      dwelling_ = true;
+      dwellStart_ = atZero_ ? zeroSinceMs_ : nowMs;
+    }
     if (static_cast<float>(nowMs - dwellStart_) < reversalDwell_) {
       writeRawDuty(0.0f, lastTickUs_, /*stopping=*/true);
       return;  // still holding; the new duty ships on a later tick
     }
     dwelling_ = false;
   }
-  lastRequestedDuty_ = duty;
+  atZero_ = false;
+  lastNonzeroSign_ = sign;
   writeRawDuty(duty, lastTickUs_, /*stopping=*/false);
 }
 
@@ -209,6 +224,8 @@ void NezhaMotorPort::tick(uint64_t nowUs) {
     ++identicalReads_;
     if (std::fabs(appliedDuty()) > kMotionThreshold) {
       ++identicalReadsDriven_;
+      if (identicalReadsDriven_ > maxDrivenStreak_)
+        maxDrivenStreak_ = identicalReadsDriven_;
     } else {
       identicalReadsDriven_ = 0;
     }

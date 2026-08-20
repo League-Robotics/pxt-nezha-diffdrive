@@ -356,7 +356,7 @@ int Protocol::formatDiag(char* buf, size_t cap) {
   // the other identity verbs. Duty values are x100 (percent*100).
   // Shared by the DIAG verb reply (serial) and the 1 Hz radio DIAG
   // mirror in run() -- one formatter, two sinks.
-  return snprintf(
+  const int n = snprintf(
       buf, cap,
       "DIAG:rdy=%d,est=%d,stall=%d,lex=%d,conn=%d/%d,wsus=%d/%d,"
       "i2cf=%d,lexc=%d,pos=%d/%d,duty=%d/%d,vel=%d/%d,cyc=%d,sat=%d,"
@@ -370,6 +370,14 @@ int Protocol::formatDiag(char* buf, size_t cap) {
       static_cast<unsigned long>(linesSeen_),
       static_cast<unsigned long>(verbsDispatched_),
       static_cast<unsigned long>(wheelsDecoded_));
+  // Appended with a second snprintf: keeps each call's vararg count
+  // modest (a 26-arg call bit this fiber's stack before).
+  if (n > 0 && static_cast<size_t>(n) < cap) {
+    const int m = snprintf(buf + n, cap - static_cast<size_t>(n),
+                           ",wpk=%d/%d", diagValue(21), diagValue(22));
+    if (m > 0) return n + m;
+  }
+  return n;
 }
 
 void Protocol::handleDiag() {
@@ -545,6 +553,7 @@ void Protocol::handleMove(const uint8_t* data, size_t dataLen) {
                             ? static_cast<int>((fieldA + fieldB) / 2)
                             : static_cast<int>(fieldA);
       startMove(static_cast<int>(stopValue), 0, speed, 0);
+      protocolMoveActive_ = true;  // this fiber must tick its own move
       break;
     }
     case kMoveStopAngle: {
@@ -559,6 +568,7 @@ void Protocol::handleMove(const uint8_t* data, size_t dataLen) {
                               ? kNominalTurnRateCdegPerS
                               : static_cast<int>(fieldB);
       startMove(0, static_cast<int>(stopValue), 0, yawRate);
+      protocolMoveActive_ = true;  // this fiber must tick its own move
       break;
     }
     default:
@@ -587,6 +597,7 @@ void Protocol::handleWheels(const uint8_t* data, size_t dataLen) {
 }
 
 void Protocol::handleStop(const uint8_t* data, size_t dataLen) {
+  protocolMoveActive_ = false;
   if (data == nullptr) return;
   uint8_t payload[kStopPayloadBytes];
   const size_t payloadLen =
@@ -603,6 +614,7 @@ void Protocol::handleStop(const uint8_t* data, size_t dataLen) {
 }
 
 void Protocol::handleEstop(const uint8_t* data, size_t dataLen) {
+  protocolMoveActive_ = false;
   if (data == nullptr) return;
   uint8_t payload[kEstopPayloadBytes];
   const size_t payloadLen =
@@ -816,9 +828,14 @@ bool Protocol::hasLiveMotionObligation() {
       timedObligationActive_ = false;  // deadline elapsed -- idle from here
     }
   }
-  // Position-mode MOVE: Rig::moveActive itself IS the live signal (read
-  // via the existing moving() shim, no duplicate state kept here).
-  return moving() || timedObligationActive_;
+  // Position-mode MOVE: only one THIS fiber started (wire MOVE verb).
+  // TS/button-driven moves tick themselves in their own loop; ticking
+  // them from here as well made every move double-ticked (two fibers
+  // alternating kernel.step() against one shared pacing anchor).
+  if (protocolMoveActive_ && !moving()) {
+    protocolMoveActive_ = false;  // our move finished
+  }
+  return (protocolMoveActive_ && moving()) || timedObligationActive_;
 }
 
 void Protocol::beginTimedMotionObligation(uint32_t durationMs) {
