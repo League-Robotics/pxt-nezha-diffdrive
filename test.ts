@@ -32,6 +32,11 @@ function tickedMove(d: number, y: number) {
 function runSeg(d: number, y: number, reps: number) {
     if (touring) return
     touring = true
+    // Half-speed experiment (2026-08-20): set here, inside the runner,
+    // where execution is guaranteed -- a top-level call was silently
+    // ineffective (file-init order vs the namespace initializer).
+    diffDrive.setDefaultSpeed(7)
+    diffDrive.setDefaultYawRate(45)
     maxGapMs = 0
     diffDrive.resetPose()
     for (let i = 1; i <= reps; i++) {
