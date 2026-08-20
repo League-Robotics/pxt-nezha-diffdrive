@@ -61,15 +61,28 @@ struct Rig {
   // calibrate it from a measured pivot the same way. Generic kits
   // adjust via setGeometry().
   float travelCalib = 0.8102f;   // [mm/deg] wheel travel per shaft degree
-  float trackWidth = 109.8f;     // [mm] vevov EFFECTIVE width,
-                                  // re-calibrated 2026-08-20 AFTER the
-                                  // port-swap (which invalidated the
-                                  // pre-swap 112.8): camera-vs-odometry
-                                  // single +360 pivot, physical 369.2
-                                  // vs believed 359.5 -> gain 1.027;
-                                  // 112.8/1.027 = 109.8. Geometric
-                                  // (tape) width is 114.2.
+  float trackWidth = 114.2f;     // [mm] MEASURED track (stakeholder
+                                  // tape, 2026-08-19). This is the
+                                  // robot's geometry; it is never
+                                  // "corrected" -- turning slip is
+                                  // modeled separately by
+                                  // rotationScrub below.
+  float rotationScrub = 1.040f;  // [1] physical/odometric rotation
+                                  // ratio (wheel-contact scrub),
+                                  // camera-calibrated 2026-08-20
+                                  // post-port-swap: +360 pivot gave
+                                  // physical 369.2 deg vs believed
+                                  // 359.5 at an effective width of
+                                  // 112.8 -> effective 109.8 ->
+                                  // scrub = 114.2/109.8 = 1.040.
+                                  // Mirrors the fleet schema's
+                                  // separate trackwidth + rotation
+                                  // gain fields (vevov.json).
   float countsPerMm() const { return 10.0f / travelCalib; }
+  // Effective width for odometry and twist conversion: measured track
+  // reduced by the scrub factor. All rotation math uses THIS, never
+  // the raw measured trackWidth.
+  float effectiveTrack() const { return trackWidth / rotationScrub; }
 
   // vevov wiring. History: the tovez defaults left{2,-1}/right{1,+1}
   // drove vevov backward, so on 2026-08-19 both fwdSigns were flipped to
@@ -198,7 +211,7 @@ static void odomUpdate(Rig& r) {
   r.odomPosLeft = out.positionLeft;
   r.odomPosRight = out.positionRight;
   const float dCenter = 0.5f * (dLeft + dRight);          // [mm]
-  const float dHeading = (dRight - dLeft) / r.trackWidth; // [rad]
+  const float dHeading = (dRight - dLeft) / r.effectiveTrack(); // [rad]
   const float midHeading = r.heading + 0.5f * dHeading;
   r.x += dCenter * std::cos(midHeading);
   r.y += dCenter * std::sin(midHeading);
@@ -223,7 +236,7 @@ void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   const float cpm = r.countsPerMm();
   const float yawRad =
       static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
-  const float twist = yawRad * 0.5f * r.trackWidth * cpm;  // [counts/s]
+  const float twist = yawRad * 0.5f * r.effectiveTrack() * cpm;  // [counts/s]
   r.kernel.drive(static_cast<float>(speed) * cpm, twist,
                  DiffDrive::DifferentialDrive::kLeaseMax);
 }
@@ -261,7 +274,7 @@ void driveTwistTimed(int speed, int yawRate,
   const float cpm = r.countsPerMm();
   const float yawRad =
       static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
-  const float twist = yawRad * 0.5f * r.trackWidth * cpm;  // [counts/s]
+  const float twist = yawRad * 0.5f * r.effectiveTrack() * cpm;  // [counts/s]
   r.kernel.drive(static_cast<float>(speed) * cpm, twist, durationMs);
 }
 
@@ -279,14 +292,14 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   r.moveDistTarget = static_cast<float>(distance) * cpm;  // [counts]
   const float yawRad =
       static_cast<float>(yaw) * 0.01f * 3.14159265f / 180.0f;
-  r.moveYawTarget = yawRad * 0.5f * r.trackWidth * cpm;   // [counts]
+  r.moveYawTarget = yawRad * 0.5f * r.effectiveTrack() * cpm;   // [counts]
 
   const float speedCounts =
       static_cast<float>(speed > 0 ? speed : 1) * cpm;    // [counts/s]
   const float yawRadPerS =
       static_cast<float>(yawRate > 0 ? yawRate : 1) * 0.01f *
       3.14159265f / 180.0f;
-  const float twistCounts = yawRadPerS * 0.5f * r.trackWidth * cpm;
+  const float twistCounts = yawRadPerS * 0.5f * r.effectiveTrack() * cpm;
 
   // One duration covers both axes -> simultaneous arc completion.
   float duration = 0.0f;  // [s]
