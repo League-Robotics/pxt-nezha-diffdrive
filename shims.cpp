@@ -61,12 +61,14 @@ struct Rig {
   // calibrate it from a measured pivot the same way. Generic kits
   // adjust via setGeometry().
   float travelCalib = 0.8102f;   // [mm/deg] wheel travel per shaft degree
-  float trackWidth = 112.8f;     // [mm] vevov EFFECTIVE (scrub-corrected)
-                                  // width, camera-calibrated 2026-08-19:
-                                  // geometric 114.2 (stakeholder tape) /
-                                  // mean rotation gain 1.0121 from
-                                  // AprilCam-vs-odometry +-360 pivots
-                                  // (CCW 1.0096, CW 1.0146)
+  float trackWidth = 109.8f;     // [mm] vevov EFFECTIVE width,
+                                  // re-calibrated 2026-08-20 AFTER the
+                                  // port-swap (which invalidated the
+                                  // pre-swap 112.8): camera-vs-odometry
+                                  // single +360 pivot, physical 369.2
+                                  // vs believed 359.5 -> gain 1.027;
+                                  // 112.8/1.027 = 109.8. Geometric
+                                  // (tape) width is 114.2.
   float countsPerMm() const { return 10.0f / travelCalib; }
 
   // vevov wiring. History: the tovez defaults left{2,-1}/right{1,+1}
@@ -91,9 +93,9 @@ struct Rig {
   // vevov's motors are plugged in mirror-swapped relative to the old
   // config -- M1 is the physical LEFT wheel, M2 the physical RIGHT.
   //
-  // UNVERIFIED: the Nezha brick was off charge when this was flashed, so
-  // this has not been confirmed on the robot. Re-run the +360 "P" pivot
-  // under the camera: actual sweep must now be POSITIVE (CCW).
+  // VERIFIED 2026-08-20 under AprilCam: commanded +180 swept the tag
+  // yaw counter-clockwise (17.9 deg -> 169.7 deg mid-turn samples) --
+  // physical direction now matches the commanded sign.
   NezhaMotorPort left{1, -1};    // left = M1, mirrored
   NezhaMotorPort right{2, +1};   // right = M2
   CodalClock clock;
