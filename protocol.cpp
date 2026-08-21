@@ -424,6 +424,27 @@ void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
                                 // encodes arguments up to 42000
   }
   if (value == 0) return;  // 0 is MICROBIT_EVT_ANY -- never a test id
+
+  // Dedupe repeats of the SAME command. The robot's inbound wireless
+  // path is a single-slot buffer, so hosts repeat commands to survive
+  // loss -- but MessageBus events queue and are delivered one at a
+  // time, each after the previous handler returns. A repeated RUN
+  // therefore does not hit the test programs' own re-entry guard
+  // (which has already cleared by then): measured on vevov, one
+  // 3x-repeated RUN:4 ran three consecutive 180 deg pivots.
+  //
+  // Suppression is by (value, arrival time) here at the point of
+  // arrival, NOT at handling time, which is what makes it immune to
+  // that queueing. A deliberate re-run of the same test just needs to
+  // be spaced past the window.
+  const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
+  if (lastRunValue_ == value &&
+      static_cast<int32_t>(nowMs - lastRunMs_) < kRunDedupeMs) {
+    lastRunMs_ = nowMs;   // extend across a burst of repeats
+    return;
+  }
+  lastRunValue_ = value;
+  lastRunMs_ = nowMs;
   MicroBitEvent(kRunEventSource, static_cast<uint16_t>(value));
 }
 

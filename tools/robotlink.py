@@ -28,22 +28,41 @@ class Link:
         self.radio = radio
         self.p = port
 
-    def send(self, line, repeat=None):
-        """Send a line. Over radio it is repeated by default.
+    def send(self, line, repeat=1):
+        """Send a line, once by default.
 
-        The robot's inbound radio path is a single-slot buffer: a second
-        message completing before the firmware drains the first is
-        dropped, and measured inbound loss over the relay is real
-        (tracked upstream as inbound-command-loss). Repeats are spaced
-        past one drain interval. RUN verbs are idempotent in practice --
-        test.ts's `touring` guard makes a duplicate a no-op while a test
-        is already running.
+        Do NOT blind-repeat a command that starts motion. The robot's
+        inbound path is a single-slot buffer so repeats look tempting,
+        but MessageBus events QUEUE and are handled one at a time, each
+        after the previous handler returns -- so a repeat does not hit
+        a test's own re-entry guard, it runs the test again. Measured
+        on vevov: one 3x-repeated RUN:4 ran three consecutive 180 deg
+        pivots. Use send_until() instead, which only resends when the
+        reply that proves arrival never came.
         """
-        n = repeat if repeat is not None else (3 if self.radio else 1)
-        for i in range(n):
+        for i in range(repeat):
             self.p.write((line + '\n').encode())
-            if i + 1 < n:
+            if i + 1 < repeat:
                 time.sleep(0.25)
+
+    def send_until(self, line, expect, tries=3, wait=5.0, echo=True):
+        """Send `line`; resend only if no reply starting with `expect`.
+
+        Returns the lines seen while waiting (empty if it never
+        arrived). Loss-tolerant without ever duplicating work that did
+        land -- the reply IS the delivery receipt.
+        """
+        seen = []
+        for attempt in range(tries):
+            self.send(line)
+            for s in self.lines(wait):
+                seen.append(s)
+                if s.startswith(expect):
+                    return seen
+            if echo:
+                print(f'  (no {expect} yet -- resending {line}, '
+                      f'attempt {attempt + 2}/{tries})')
+        return seen
 
     def lines(self, timeout, until=None):
         """Yield stripped lines until `timeout` s, or `until` matches."""

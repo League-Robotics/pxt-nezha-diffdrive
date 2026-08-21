@@ -75,7 +75,13 @@ def main():
     a = ap.parse_args()
 
     link = open_link(a.port, radio=a.radio)
-    link.send('RUN:8')
+    # OCAL:begin is the delivery receipt -- resend only if it never
+    # arrives, never blindly (a duplicate RUN:8 runs the whole
+    # calibration again).
+    started = link.send_until('RUN:8', 'OCAL:begin', tries=3, wait=6.0)
+    if not any(s.startswith('OCAL:begin') for s in started):
+        raise SystemExit('robot never acknowledged RUN:8 -- is it awake '
+                         'and on the right channel?')
 
     fixes = {}          # tag -> (x_mm, y_mm, h_rad)
     for s in link.lines(a.timeout, until='OCAL:end'):
@@ -96,7 +102,15 @@ def main():
         fixes[tag] = (x01 / 10.0, y01 / 10.0, math.radians(hcd / 100.0))
     link.close()
 
-    pivots = [fixes[k] for k in sorted(fixes) if k.startswith('p')]
+    # p0 is the SEEDED pose read straight back, not a measurement: it is
+    # whatever seedPose() just wrote, taken before the robot has turned
+    # at all and before the gyro's fresh bias calibration has been
+    # exercised. Measured on vevov 2026-08-20 it was the single bad
+    # point -- including it tripled the fit residual (rms 4.05 mm vs
+    # 1.34 mm, max 10.28 vs 2.91) while moving the answer only 0.3 mm.
+    # The circle is defined by the points that actually moved.
+    pivots = [fixes[k] for k in sorted(fixes)
+              if k.startswith('p') and k != 'p0']
     if len(pivots) < 4:
         raise SystemExit(f'only {len(pivots)} pivot fixes -- need >= 4')
 

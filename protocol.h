@@ -251,6 +251,13 @@ class Protocol {
                             // functions registered via
                             // diffDrive.onRunCommand() run remotely
 
+  // RUN repeat suppression -- see handleRun's own comment. Hosts repeat
+  // commands to survive the single-slot inbound buffer, and without
+  // this a repeated RUN runs the test once per copy.
+  static constexpr int32_t kRunDedupeMs = 3000;
+  int lastRunValue_ = 0;
+  uint32_t lastRunMs_ = 0;   // [ms] arrival time of the last accepted RUN
+
   // ---- ticket 003: binary motion verb handlers -----------------------
   // Each decodes its COBS+CRC binary body (ticket 001's codec, `data`/
   // `dataLen` being `ParsedLine::data`/`dataLen`, the bytes after the

@@ -19,6 +19,7 @@
 //                   RUN:7  OTOS-guided tour, arc computed in this file
 //                          (both consult the sensor before EVERY move)
 //                   RUN:8  lever-arm calibration (8x45 pivot + leg)
+//                   RUN:13 apply lever arm   RUN:14 verify lever arm
 //                   RUN:9  show last test's max tick gap [ms] on the LED
 //                   RUN:10 log one world fix    RUN:11 gyro bias cal
 //
@@ -110,9 +111,29 @@ input.onButtonPressed(Button.AB, function () {
 const CORNERS_X = [60, 60, 0, 0]
 const CORNERS_Y = [0, 60, 60, 0]
 
+// vevov's lever arm, MEASURED on the playfield 2026-08-20 by RUN:8 +
+// tools/otos_levercal.py: eight 45 deg pivots swept the sensor around
+// the centre of rotation on a 38.2 mm circle (fit residual rms 1.34 mm,
+// max 2.91). The sensor sits 38.2 mm BEHIND the centre of rotation,
+// within a millimetre of the centreline. The mounting yaw came from
+// the 30 cm straight leg that follows: course 32.0 deg vs a reported
+// heading of 31.1.
+let armX = -3.82      // [cm] +forward
+let armY = -0.07      // [cm] +left
+let armYaw = 0.89     // [deg]
+
+function applyArm() {
+    diffDrive.setWorldSensorOffset(armX, armY, armYaw)
+    diffDrive.emitLine("ARM:" + Math.round(armX * 100)
+        + ":" + Math.round(armY * 100) + ":" + Math.round(armYaw * 100))
+}
+
 function worldReady(): boolean {
     if (diffDrive.worldTrackingReady()) return true
-    if (diffDrive.startWorldTracking()) return true
+    if (diffDrive.startWorldTracking()) {
+        applyArm()      // the chip is re-inited on begin(); re-apply
+        return true
+    }
     diffDrive.emitLine("OERR:no-otos")
     basic.showString("NO")
     return false
@@ -201,11 +222,18 @@ function arcLen(bx: number, by: number): number {
 // circle whose centre is the robot's centre and whose radius is the
 // arm. Eight fixes around a full turn give the host tool a circle to
 // fit; the straight leg afterwards gives the mounting yaw.
-function leverCal() {
+// verify=true runs the identical sweep with the MEASURED arm applied
+// instead of zeroed. A correct arm collapses the circle to a point:
+// re-fitting the verify run must return an arm near zero, and the
+// reported centre must hold still through the whole turn. That is the
+// same check the reference project used to catch its double-corrected
+// arm (a pure pivot traced a 42.7 mm circle instead of holding still).
+function leverCal(verify: boolean = false) {
     if (touring) return
     if (!worldReady()) return
     touring = true
-    diffDrive.setWorldSensorOffset(0, 0, 0)
+    if (verify) applyArm()
+    else diffDrive.setWorldSensorOffset(0, 0, 0)
     diffDrive.setDefaultSpeed(15)
     diffDrive.setDefaultYawRate(45)
     diffDrive.seedPose(0, 0, 0)
@@ -246,4 +274,14 @@ diffDrive.onRunCommand(function (n: number) {
         const id = diffDrive.otosBegin()
         diffDrive.emitLine("OPROBE:" + id + ":" + diffDrive.otosGet(7))
     }
+    // Set the lever arm LIVE, so a re-calibration does not need a
+    // reflash -- flashing needs USB, USB only reaches the bench stand,
+    // and the calibration only works on the floor. Encoded signed:
+    // 50500+mm for x, 52500+mm for y, 54180+deg for yaw, then RUN:13
+    // applies and echoes them.
+    else if (n == 13) applyArm()
+    else if (n == 14) leverCal(true)      // verify the measured arm
+    else if (n >= 50000 && n <= 51000) armX = (n - 50500) / 10
+    else if (n >= 52000 && n <= 53000) armY = (n - 52500) / 10
+    else if (n >= 54000 && n <= 54360) armYaw = n - 54180
 })
