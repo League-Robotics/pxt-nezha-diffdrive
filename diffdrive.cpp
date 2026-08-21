@@ -422,9 +422,29 @@ void DifferentialDrive::step() {
   const uint64_t cycleStartUs = clock_.nowMicros();
   const uint32_t nowMs = static_cast<uint32_t>(cycleStartUs / 1000);
 
-  const uint32_t measuredPeriodUs =
+  // A gap far longer than the control period means this kernel was NOT
+  // being stepped -- the caller was idle between moves -- not that one
+  // enormous control cycle elapsed. Integrating across such a gap is a
+  // measured runaway: positionError() advances its reference by
+  // speed*dt, so the first step after a 70 s idle injected roughly
+  // 40,000 counts of phantom position error in a single tick and
+  // pinned duty at 100%. Observed on vevov 2026-08-21 as a violent
+  // high-speed lurch on the first pivot after any pause -- the robot
+  // turned at ~440 deg/s against a commanded 45, and the move
+  // "completed" in 17 ticks because it blew through its encoder target.
+  //
+  // Treating the gap as a fresh start is exactly what the very first
+  // cycle already does (measuredPeriodUs == 0 -> dt == 0), and
+  // positionError()/adaptBias() both re-anchor rather than integrate
+  // when dt <= 0. So the correct handling is to reuse that path.
+  static constexpr uint32_t kMaxCycleGapUs = 250000;  // [us] ~10 cycles
+  uint32_t measuredPeriodUs =
       everCycled_ ? static_cast<uint32_t>(cycleStartUs - previousCycleStartUs_)
                   : 0u;
+  if (measuredPeriodUs > kMaxCycleGapUs) {
+    measuredPeriodUs = 0u;  // re-anchor the integrators, do not integrate
+    ++cycleGapCount_;
+  }
   previousCycleStartUs_ = cycleStartUs;
   everCycled_ = true;
   const float dt = static_cast<float>(measuredPeriodUs) * 1e-6f;  // [s]
@@ -761,6 +781,7 @@ void DifferentialDrive::publishOutput(uint32_t nowMs, uint64_t cycleStartUs,
   out_.nowFine = static_cast<uint32_t>(busyEndUs);
   out_.cycleCount = cycleCount_;
   out_.cycleOverrunCount = cycleOverrunCount_;
+  out_.cycleGapCount = cycleGapCount_;
   out_.cycleBusy = static_cast<uint32_t>(busyEndUs - cycleStartUs);
   out_.sampleTimeLeft = static_cast<uint32_t>(sampleLeft_.sampleTime);
   out_.sampleTimeRight = static_cast<uint32_t>(sampleRight_.sampleTime);

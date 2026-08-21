@@ -118,6 +118,10 @@ class DifferentialDrive {
     uint32_t cycleCount = 0;        // heartbeat — the RobotLoop sentinel
     uint32_t cyclePeriodMeasured = 0;  // [us] measured (feeds all dt terms).
     uint32_t cycleBusy = 0;         // [us]
+    uint32_t cycleGapCount = 0;      // cycles whose measured period was
+                                     // too long to be a control cycle
+                                     // (caller idle); re-anchored, not
+                                     // integrated across
     uint32_t cycleOverrunCount = 0;  // cycles that missed their absolute
     uint32_t sampleTimeLeft = 0;    // [us]
     uint32_t sampleTimeRight = 0;   // [us]
@@ -308,6 +312,10 @@ class DifferentialDrive {
   uint32_t positionEpochRight_ = 0;
   uint32_t i2cFaultCount_ = 0;     // failed-collect cycles, sticky
   uint32_t cycleOverrunCount_ = 0;  // missed absolute deadlines, sticky
+  // Cycles whose measured period was too long to be a real control
+  // cycle -- the caller had stopped stepping. Counted, and treated as
+  // a fresh start rather than integrated across (see step()).
+  uint32_t cycleGapCount_ = 0;
 
   float biasLeft_ = 0.0f;          // [counts/s] Stage C's adapted parameter
   float biasRight_ = 0.0f;         // [counts/s]
