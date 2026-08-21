@@ -68,17 +68,32 @@ struct Rig {
                                   // "corrected" -- turning slip is
                                   // modeled separately by
                                   // rotationScrub below.
-  float rotationScrub = 1.040f;  // [1] physical/odometric rotation
-                                  // ratio (wheel-contact scrub),
-                                  // camera-calibrated 2026-08-20
-                                  // post-port-swap: +360 pivot gave
-                                  // physical 369.2 deg vs believed
-                                  // 359.5 at an effective width of
-                                  // 112.8 -> effective 109.8 ->
-                                  // scrub = 114.2/109.8 = 1.040.
-                                  // Mirrors the fleet schema's
-                                  // separate trackwidth + rotation
-                                  // gain fields (vevov.json).
+  float rotationScrub = 0.952f;  // [1] physical/odometric rotation
+                                  // ratio (wheel-contact scrub).
+                                  // CAMERA-MEASURED 2026-08-20 on the
+                                  // playfield, overhead AprilCam vs
+                                  // commanded: six steady-state 180 deg
+                                  // pivots turned 164-166 deg physical,
+                                  // ratio 0.915. effectiveTrack must
+                                  // therefore be 109.8/0.915 = 120.0 mm,
+                                  // so scrub = 114.2/120.0 = 0.952.
+                                  //
+                                  // REPLACES 1.040, which came from a
+                                  // single camera pivot on 2026-08-19
+                                  // and had the sign of the effect
+                                  // BACKWARDS (it said the robot
+                                  // over-rotated; it under-rotates).
+                                  // The OTOS agreed with the camera to
+                                  // 1.005 across ten pivots, so the
+                                  // sensor was never the problem --
+                                  // this constant was.
+                                  //
+                                  // Excludes the first one or two
+                                  // pivots of a session, which
+                                  // over-rotate grossly (262 and 233
+                                  // deg commanded 180, reproduced twice)
+                                  // -- a separate defect, see
+                                  // clasi/issues/.
   float countsPerMm() const { return 10.0f / travelCalib; }
   // Effective width for odometry and twist conversion: measured track
   // reduced by the scrub factor. All rotation math uses THIS, never

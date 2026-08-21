@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+"""Ground-truth a pivot: overhead camera vs OTOS gyro vs wheel odometry.
+
+Every rotation number measured so far came from the OTOS itself, which
+cannot say whether the ROBOT under-rotates or the SENSOR under-reads --
+the sensor is grading its own homework. The camera is independent, so
+it settles it.
+
+Rotation needs no world calibration: the AprilTag's yaw is an angle in
+the image plane, and the CHANGE in that angle across a pivot is the
+rotation. (Position would need calibration; this deliberately measures
+only rotation.)
+
+Usage:
+  python3 tools/truth_check.py [--cam arducam-ov9782-usb-camera]
+                               [--pivots 180 -180 360]
+"""
+import argparse
+import json
+import math
+import os
+import subprocess
+import sys
+import threading
+import time
+
+sys.path.insert(0, __file__.rsplit('/', 1)[0])
+from robotlink import open_link
+
+# Commanded rotation [deg] -> the RUN verb that performs it.
+PIVOT_VERB = {180: 4, -180: 5, 360: 2}
+
+
+# The CLI talks to whichever daemon these point at. The playfield
+# daemon runs on TCP 5280 here (mDNS discovery does not find it, and
+# the local unix socket belongs to a different instance).
+CAM_ENV = dict(os.environ, APRILCAM_DAEMON_HOST='127.0.0.1',
+               APRILCAM_DAEMON_PORT='5280')
+
+
+def cam_read(cam, tag=53, samples=5):
+    """Median (yaw_rad, x_cm, y_cm) for `tag` over a few frames, or None.
+
+    Position is world-calibrated, so this grounds BOTH rotation and
+    displacement -- unlike the uncalibrated first attempt, which could
+    only do rotation.
+    """
+    yaws, xs, ys = [], [], []
+    for _ in range(samples):
+        out = subprocess.run(['aprilcam', 'tool', 'get_tags',
+                              f'source_id={cam}'],
+                             capture_output=True, text=True, timeout=20,
+                             env=CAM_ENV)
+        try:
+            d = json.loads(out.stdout)
+        except json.JSONDecodeError:
+            continue
+        for t in d.get('tags', []):
+            if t['id'] == tag:
+                yaws.append(t['orientation_yaw'])
+                w = t.get('world_xy') or [None, None]
+                if w[0] is not None:
+                    xs.append(w[0])
+                    ys.append(w[1])
+        if samples > 1:
+            time.sleep(0.15)
+    if not yaws:
+        return None
+    med = lambda v: sorted(v)[len(v) // 2]
+    return (med(yaws), med(xs) if xs else float('nan'),
+            med(ys) if ys else float('nan'))
+
+
+def cam_yaw(cam, tag=53, samples=5):
+    r = cam_read(cam, tag, samples)
+    return None if r is None else r[0]
+
+
+def otos_fix(link):
+    """Live OTOS fix -> (x_mm, y_mm, heading_deg) or None."""
+    for s in link.send_until('RUN:10', 'OCAL:now', tries=2, wait=5.0,
+                             echo=False):
+        if s.startswith('OCAL:now'):
+            p = s.split(':')
+            return int(p[2]) / 10.0, int(p[3]) / 10.0, int(p[4]) / 100.0
+    return None
+
+
+def enc_heading(link, wait=2.0):
+    h = None
+    for s in link.lines(wait):
+        if s.startswith('TLM:'):
+            f = s[4:].split(':')
+            if len(f) >= 4:
+                try:
+                    h = int(f[3]) / 100.0
+                except ValueError:
+                    pass
+    return h
+
+
+def wrap(d):
+    while d <= -180.0:
+        d += 360.0
+    while d > 180.0:
+        d -= 360.0
+    return d
+
+
+def total_turn(before, after, commanded):
+    """Recover the full turn, using the commanded value to pick the
+    revolution and measuring only the remainder."""
+    revs = round(commanded / 360.0)
+    return revs * 360.0 + wrap(after - before - revs * 360.0)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--cam', default='arducam-ov9782-usb-camera')
+    ap.add_argument('--tag', type=int, default=53)
+    ap.add_argument('--pivots', type=float, nargs='+',
+                    default=[180.0, -180.0, 360.0])
+    a = ap.parse_args()
+
+    if cam_yaw(a.cam, a.tag) is None:
+        raise SystemExit(f'camera cannot see tag {a.tag} -- is the robot '
+                         'inside the field of view?')
+
+    link = open_link(radio=True)
+    print(f"{'commanded':>10} {'CAMERA':>9} {'gyro':>9} {'wheels':>9}"
+          f" {'cam/cmd':>8} {'gyro/cam':>9}")
+    rows = []
+    for commanded in a.pivots:
+        verb = PIVOT_VERB.get(int(commanded))
+        if verb is None:
+            print(f'  no RUN verb for {commanded} deg -- skipping')
+            continue
+
+        c0 = cam_yaw(a.cam, a.tag)
+        o0 = otos_fix(link)
+        e0 = enc_heading(link)
+        if c0 is None or o0 is None:
+            print('  lost a reading before the pivot -- skipping')
+            continue
+
+        # Sample the camera THROUGHOUT the pivot and unwrap
+        # incrementally. A single before/after pair cannot resolve a
+        # 180 deg turn at all -- it lands exactly on the wrap boundary,
+        # where +180 and -180 are the same reading. Consecutive samples
+        # are ~10 deg apart, so each step is unambiguous and the total
+        # is just their sum.
+        cam_total = [0.0]
+        stop = threading.Event()
+
+        def sampler(prev=math.degrees(c0)):
+            while not stop.is_set():
+                y = cam_yaw(a.cam, a.tag, samples=1)
+                if y is not None:
+                    now = math.degrees(y)
+                    cam_total[0] += wrap(now - prev)
+                    prev = now
+
+        th = threading.Thread(target=sampler, daemon=True)
+        th.start()
+        link.send_until(f'RUN:{verb}', 'GAP:', tries=1,
+                        wait=abs(commanded) / 45.0 + 12.0, echo=False)
+        time.sleep(2.0)
+        stop.set()
+        th.join(timeout=5.0)
+
+        o1 = otos_fix(link)
+        e1 = enc_heading(link)
+        if o1 is None:
+            print('  lost the robot reading after the pivot -- skipping')
+            continue
+
+        cam = cam_total[0]
+        gyro = total_turn(o0[2], o1[2], commanded)
+        wheels = (total_turn(e0, e1, commanded)
+                  if None not in (e0, e1) else float('nan'))
+        rows.append((commanded, cam, gyro))
+        print(f"{commanded:10.1f} {cam:9.1f} {gyro:9.1f} {wheels:9.1f}"
+              f" {cam / commanded:8.3f} {gyro / cam:9.3f}")
+
+    link.close()
+    if rows:
+        cc = sum(c / k for k, c, _ in rows) / len(rows)
+        gc = sum(g / c for _, c, g in rows) / len(rows)
+        print(f"\ncamera/commanded = {cc:.3f}  -> the ROBOT turns this "
+              f"fraction of what is asked")
+        print(f"gyro/camera      = {gc:.3f}  -> the SENSOR reports this "
+              f"fraction of the truth")
+        print("\nIf camera/commanded is ~1.0, the robot is fine and the "
+              "OTOS under-reads.")
+        print("If gyro/camera is ~1.0, the sensor is fine and the robot "
+              "really under-rotates.")
+
+
+if __name__ == '__main__':
+    main()

@@ -37,7 +37,9 @@ def main():
 
     pose, vel = [], []
     t0 = time.time()
-    link.send(f'RUN:{a.run}')
+    # The tour marks itself in the stream; resend only if that receipt
+    # never arrives (a duplicate RUN re-runs the whole tour).
+    link.send_until(f'RUN:{a.run}', 'TOUR:', tries=3, wait=6.0)
     last_diag = 0.0
     egl = gap = None
     last_pose_change = time.time()
@@ -48,7 +50,13 @@ def main():
                 and time.time() - t0 > 6.0:
             break  # motion over (fallback for a missed GAP line)
         now = time.time() - t0
-        if now - last_diag > 0.12:
+        # NEVER poll during a move over the wireless link: a
+        # request/reply round-trip inside a move is actively dangerous
+        # there -- measured upstream, polling telemetry mid-move cut a
+        # leg from 197.5 mm to 0.3 mm. TLM streams unprompted, so the
+        # pose track survives; wheel speeds are simply unavailable
+        # untethered, and the per-corner OCAL fixes carry the scoring.
+        if not a.radio and now - last_diag > 0.12:
             link.send('DIAG')
             last_diag = now
         line = p.readline()

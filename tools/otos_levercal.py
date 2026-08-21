@@ -71,6 +71,12 @@ def main():
                          'REQUIRED for real calibration -- on the bench '
                          'stand the wheels are off the ground, so the robot '
                          'never physically turns and every fix is identical.')
+    ap.add_argument('--verify', action='store_true',
+                    help='run RUN:14 instead: the same sweep with the '
+                         'MEASURED arm applied. A correct arm collapses '
+                         'the circle to a point, so the fitted arm here '
+                         'should come back near ZERO -- that is the '
+                         'residual error, not the arm.')
     ap.add_argument('--timeout', type=float, default=120.0)
     a = ap.parse_args()
 
@@ -78,9 +84,10 @@ def main():
     # OCAL:begin is the delivery receipt -- resend only if it never
     # arrives, never blindly (a duplicate RUN:8 runs the whole
     # calibration again).
-    started = link.send_until('RUN:8', 'OCAL:begin', tries=3, wait=6.0)
+    verb = 'RUN:14' if a.verify else 'RUN:8'
+    started = link.send_until(verb, 'OCAL:begin', tries=3, wait=6.0)
     if not any(s.startswith('OCAL:begin') for s in started):
-        raise SystemExit('robot never acknowledged RUN:8 -- is it awake '
+        raise SystemExit(f'robot never acknowledged {verb} -- is it awake '
                          'and on the right channel?')
 
     fixes = {}          # tag -> (x_mm, y_mm, h_rad)
@@ -155,6 +162,16 @@ def main():
             print(f'straight leg only {dist:.1f} mm -- yaw not estimated')
     else:
         print('no straight-leg fix -- mounting yaw not estimated')
+
+    if a.verify:
+        print()
+        print('VERIFY RUN: the arm was already applied, so the numbers '
+              'above are RESIDUAL error.')
+        print(f'  residual arm {math.hypot(ox, oy):.1f} mm '
+              f'(was 38.2 mm uncorrected)')
+        print('  reference project measured 42.7 mm when the arm was '
+              'double-corrected; near zero is correct.')
+        return
 
     print()
     print('bake into test.ts startup:')
