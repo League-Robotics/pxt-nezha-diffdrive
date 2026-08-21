@@ -1,5 +1,5 @@
 ---
-status: resolved
+status: done
 ---
 
 # First move after an idle gap runs at full duty (the lurch)
