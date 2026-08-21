@@ -88,6 +88,24 @@ bool OtosPort::begin() {
   writeReg8(kRegAngularScalar, 0);
   writePoseMm(kRegOffsetXl, 0.0f, 0.0f, 0.0f);
   writePoseMm(kRegPositionXl, 0.0f, 0.0f, 0.0f);
+
+  // WAIT for the IMU bias calibration to finish before returning.
+  // The chip silently DISCARDS position writes while it is calibrating
+  // (255 samples, ~612 ms), and then reports the origin -- so a seed
+  // issued straight after begin() vanishes and the sensor confidently
+  // claims the robot is at (0,0). Measured on vevov 2026-08-21: seeding
+  // (50, 30, 180) immediately read back as the bare lever arm, while
+  // the same seed a few seconds later read back 49.97, 29.97, 179.89.
+  //
+  // Silent discard is the dangerous part: a lost seed is invisible
+  // unless something reads it back, and every world-frame move planned
+  // afterwards would be referenced to the wrong origin.
+  for (int i = 0; i < 150; ++i) {          // ~1.5 s cap
+    uint8_t remaining = 0;
+    if (!readReg8(kRegImuCalibration, &remaining)) break;
+    if (remaining == 0) break;
+    fiber_sleep(10);
+  }
   return true;
 }
 

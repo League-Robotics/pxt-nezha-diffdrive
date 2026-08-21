@@ -210,7 +210,12 @@ function worldReady(): boolean {
 // shim's own, so the host tools never re-round what the device already
 // rounded.
 function logFix(tag: string) {
-    diffDrive.readWorld()
+    // readWorld()'s return value used to be discarded, so a FAILED read
+    // silently logged the previous (often zero) values -- indistiņguishable
+    // from a real fix at the origin.
+    if (!diffDrive.readWorld()) {
+        diffDrive.emitLine("OERR:read-failed:" + tag)
+    }
     diffDrive.emitLine("OCAL:" + tag
         + ":" + Math.round(diffDrive.worldX() * 100)
         + ":" + Math.round(diffDrive.worldY() * 100)
@@ -426,6 +431,19 @@ diffDrive.onRunCommand(function (n: number) {
     // applies and echoes them.
     else if (n == 13) applyArm()
     else if (n == 14) leverCal(true)      // verify the measured arm
+    // Seed/read round trip, no motion: seed the NE dot, wait, read back.
+    else if (n == 34) {
+        worldReady()
+        diffDrive.seedPose(START_X, START_Y, START_H)
+        diffDrive.emitLine("SEED:wrote:" + START_X + ":" + START_Y
+            + ":" + START_H)
+        basic.pause(300)
+        const ok = diffDrive.readWorld()
+        diffDrive.emitLine("SEED:read:" + (ok ? 1 : 0)
+            + ":" + Math.round(diffDrive.worldX() * 100)
+            + ":" + Math.round(diffDrive.worldY() * 100)
+            + ":" + Math.round(diffDrive.worldHeading() * 100))
+    }
     else if (n == 31) tourRobot()         // = button A
     else if (n == 32) worldTour(true)     // = button B
     else if (n == 33) tourWheels()        // = buttons A+B
