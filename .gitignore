@@ -16,6 +16,9 @@ pxt_modules/
 binary.asm
 binary.js
 
+# --- Python tooling ---
+__pycache__/
+
 # --- macOS / editor cruft ---
 .DS_Store
 ._*

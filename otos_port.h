@@ -44,17 +44,34 @@ class OtosPort {
 
   // One 12-byte position+velocity burst read into the cache. Returns
   // false (and leaves the cache untouched) on a bus error or if
-  // begin() never matched.
+  // begin() never matched. The cached pose is the ROBOT CENTRE's, with
+  // the lever arm applied (setOffset()).
   bool read();
 
-  float x() const { return x_; }              // [mm]
-  float y() const { return y_; }              // [mm]
-  float heading() const { return heading_; }  // [rad]
+  float x() const { return x_; }              // [mm] centre
+  float y() const { return y_; }              // [mm] centre
+  float heading() const { return heading_; }  // [rad] (no mount offset)
   float vx() const { return vx_; }            // [mm/s]
   float vy() const { return vy_; }            // [mm/s]
   float omega() const { return omega_; }      // [rad/s]
 
-  void zeroPose();                    // position registers := (0,0,0)
+  // Lever arm: where the SENSOR sits relative to the robot's centre of
+  // rotation, in the robot's body frame (x forward, y left), plus the
+  // sensor's own yaw mounting rotation. Applied in SOFTWARE on every
+  // read (sensorToCentre) and every seed (centreToSensor); the chip's
+  // own offset register is deliberately held at ZERO -- applying it in
+  // both places double-corrects (reference measured a pure pivot
+  // tracing a 42.7 mm circle instead of holding the centre still).
+  void setOffset(float x, float y, float yaw);  // [mm] [mm] [rad]
+  float offsetX() const { return offsetX_; }
+  float offsetY() const { return offsetY_; }
+  float offsetYaw() const { return offsetYaw_; }
+
+  // Seed the CENTRE pose: the chip's position registers are written
+  // with the corresponding sensor pose.
+  void setPose(float x, float y, float heading);  // [mm] [mm] [rad]
+
+  void zeroPose() { setPose(0.0f, 0.0f, 0.0f); }
   void resetTracking();               // Kalman reset; calibration kept
   void calibrateImu(uint8_t samples); // 0 = boot default (255 samples)
   uint8_t imuCalibrationSamplesRemaining();
@@ -87,6 +104,17 @@ class OtosPort {
   bool readReg8(uint8_t reg, uint8_t* val);
   bool writeXYH(uint8_t startReg, int16_t x, int16_t y, int16_t h);
   void writePoseMm(uint8_t startReg, float xF, float yF, float hF);
+
+  static void sensorToCentre(float sensorX, float sensorY, float heading,
+                             float offsetX, float offsetY,
+                             float& centreXOut, float& centreYOut);
+  static void centreToSensor(float centreX, float centreY, float heading,
+                             float offsetX, float offsetY,
+                             float& sensorXOut, float& sensorYOut);
+
+  float offsetX_ = 0.0f;    // [mm] body frame
+  float offsetY_ = 0.0f;    // [mm] body frame
+  float offsetYaw_ = 0.0f;  // [rad] sensor mounting rotation
 
   bool initialized_ = false;
   bool connected_ = false;

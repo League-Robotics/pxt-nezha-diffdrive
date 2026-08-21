@@ -111,18 +111,70 @@ bool OtosPort::read() {
   int16_t rvy = static_cast<int16_t>(raw[8] | (static_cast<uint16_t>(raw[9]) << 8));
   int16_t rvh = static_cast<int16_t>(raw[10] | (static_cast<uint16_t>(raw[11]) << 8));
 
-  x_ = static_cast<float>(rx) * kPosMmPerLsb;
-  y_ = static_cast<float>(ry) * kPosMmPerLsb;
-  heading_ = static_cast<float>(rh) * kHdgRadPerLsb;
-  vx_ = static_cast<float>(rvx) * kVelocityPerLsb;
-  vy_ = static_cast<float>(rvy) * kVelocityPerLsb;
+  float xF = static_cast<float>(rx) * kPosMmPerLsb;
+  float yF = static_cast<float>(ry) * kPosMmPerLsb;
+  const float hF = static_cast<float>(rh) * kHdgRadPerLsb;
+  float vxF = static_cast<float>(rvx) * kVelocityPerLsb;
+  float vyF = static_cast<float>(rvy) * kVelocityPerLsb;
+
+  // Undo the sensor's own yaw mounting rotation, then the lever arm.
+  const float ang = -offsetYaw_;
+  const float c = cosf(ang);
+  const float s = sinf(ang);
+  const float rotX = c * xF - s * yF;
+  const float rotY = s * xF + c * yF;
+  const float rotVx = c * vxF - s * vyF;
+  const float rotVy = s * vxF + c * vyF;
+
+  sensorToCentre(rotX, rotY, hF, offsetX_, offsetY_, x_, y_);
+  heading_ = hF;   // heading takes no mounting offset
+  vx_ = rotVx;
+  vy_ = rotVy;
   omega_ = static_cast<float>(rvh) * kOmegaPerLsb;
   return true;
 }
 
-void OtosPort::zeroPose() {
+// The lever arm rotates with the robot: at heading h the sensor sits
+// at centre + R(h) * offset, so recovering the centre subtracts that
+// same rotated offset.
+void OtosPort::sensorToCentre(float sensorX, float sensorY, float heading,
+                              float offsetX, float offsetY,
+                              float& centreXOut, float& centreYOut) {
+  const float c = cosf(heading);
+  const float s = sinf(heading);
+  centreXOut = sensorX - (c * offsetX - s * offsetY);
+  centreYOut = sensorY - (s * offsetX + c * offsetY);
+}
+
+void OtosPort::centreToSensor(float centreX, float centreY, float heading,
+                              float offsetX, float offsetY,
+                              float& sensorXOut, float& sensorYOut) {
+  const float c = cosf(heading);
+  const float s = sinf(heading);
+  sensorXOut = centreX + (c * offsetX - s * offsetY);
+  sensorYOut = centreY + (s * offsetX + c * offsetY);
+}
+
+void OtosPort::setOffset(float x, float y, float yaw) {
+  offsetX_ = x;
+  offsetY_ = y;
+  offsetYaw_ = yaw;
   if (!initialized_) return;
-  writePoseMm(kRegPositionXl, 0.0f, 0.0f, 0.0f);
+  // Keep the CHIP's own offset register at zero -- the arm is applied
+  // in software above.
+  writePoseMm(kRegOffsetXl, 0.0f, 0.0f, 0.0f);
+}
+
+void OtosPort::setPose(float x, float y, float heading) {
+  if (!initialized_) return;
+  float sensorX = 0.0f, sensorY = 0.0f;
+  centreToSensor(x, y, heading, offsetX_, offsetY_, sensorX, sensorY);
+  // Re-apply the sensor's own yaw mounting rotation (inverse of read()).
+  const float c = cosf(-offsetYaw_);
+  const float s = sinf(-offsetYaw_);
+  const float xF = c * sensorX + s * sensorY;
+  const float yF = -s * sensorX + c * sensorY;
+  writePoseMm(kRegPositionXl, xF, yF, heading);
 }
 
 void OtosPort::resetTracking() {

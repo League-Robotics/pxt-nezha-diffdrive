@@ -53,13 +53,22 @@ def main():
     vel_all = read_csv(a.vel_csv)            # t, vel_l_counts, vel_r_counts
     k = a.travel_calib / 100.0               # counts/s -> cm/s
 
-    # Pose CSV: either legacy 4-col (t, x, y, h) or device-timestamped
-    # 5-col (t_host, t_dev_ms, x, y, h). Prefer device time: host
-    # arrival carries serial-buffering jitter.
-    if pose_all and len(pose_all[0]) == 5:
+    # Pose CSV shapes: legacy 4-col (t, x, y, h), device-timestamped
+    # 5-col (t_host, t_dev_ms, x, y, h), or dual-pose 8-col with the
+    # OTOS world fix appended (ox, oy, oh). Prefer device time: host
+    # arrival carries serial-buffering jitter. Normalized here to
+    # [t, x, y, h] (+ [ox, oy, oh] when present).
+    otos_all = []
+    if pose_all and len(pose_all[0]) >= 5:
         t0d = next((r[1] for r in pose_all if r[1] >= 0), 0.0)
-        pose_all = [[(r[1] - t0d) / 1000.0 if r[1] >= 0 else r[0],
-                     r[2], r[3], r[4]] for r in pose_all]
+        wide = len(pose_all[0]) >= 8
+        rows = []
+        for r in pose_all:
+            t = (r[1] - t0d) / 1000.0 if r[1] >= 0 else r[0]
+            rows.append([t, r[2], r[3], r[4]])
+            if wide:
+                otos_all.append([t, r[5], r[6], r[7]])
+        pose_all = rows
 
     # Truncate at end of motion: after a move ends nothing ticks the
     # kernel, so wheel-speed DIAG polls repeat the last tick's values
@@ -74,6 +83,16 @@ def main():
 
     pose = [p for p in pose_all
             if abs(p[1]) < MAX_POSE_MM and abs(p[2]) < MAX_POSE_MM]
+    # The OTOS series is a step function: it only changes when the
+    # motion layer takes a boundary fix, so plot the DISTINCT fixes as
+    # markers rather than a line pretending to be a continuous track.
+    otos = [o for o in otos_all
+            if o[0] <= t_cut
+            and abs(o[1]) < MAX_POSE_MM and abs(o[2]) < MAX_POSE_MM]
+    fixes = []
+    for o in otos:
+        if not fixes or (o[1], o[2]) != (fixes[-1][1], fixes[-1][2]):
+            fixes.append(o)
     vel = [(t, l * k, r * k) for t, l, r in vel_all
            if abs(l * k) < MAX_SPEED_CM_S and abs(r * k) < MAX_SPEED_CM_S
            and t <= t_cut]
@@ -88,9 +107,14 @@ def main():
     s = a.side_mm
 
     fig = plt.figure(figsize=(12, 6.4), facecolor='#fcfcfb')
+    otos_note = ""
+    if len(fixes) >= 2:
+        oc = ((fixes[-1][1] - fixes[0][1]) ** 2
+              + (fixes[-1][2] - fixes[0][2]) ** 2) ** 0.5
+        otos_note = f",  OTOS closure {oc:.0f} mm"
     fig.suptitle(
         f"{a.title}   —   closure {closure:.0f} mm,  end heading "
-        f"{end_h:.1f}°"
+        f"{end_h:.1f}°" + otos_note
         + (f"   ({n_bad} corrupt samples excluded)" if n_bad else ""),
         color=INK, fontsize=13)
 
@@ -101,6 +125,10 @@ def main():
             color=MUTED, label='commanded square', zorder=1)
     ax.plot([p[1] for p in pose], [p[2] for p in pose], lw=1.8,
             color=S1, label='odometry path', zorder=2)
+    if fixes:
+        ax.plot([f[1] for f in fixes], [f[2] for f in fixes], 'D', ms=6,
+                color=S2, mec='white', mew=1.2, zorder=5,
+                label='OTOS boundary fixes')
     ax.plot([sx], [sy], 'o', ms=10, color=S1, mec='white', mew=1.5,
             zorder=4)
     ax.annotate('start', (sx, sy), textcoords='offset points',

@@ -111,6 +111,22 @@ def main():
             i += 1
             rig.send(41000 + int(cmds[i]))
             rig.drain(0.5)
+        elif c == 'armx':
+            i += 1
+            rig.send(50500 + int(cmds[i]))
+            rig.drain(0.5)
+        elif c == 'army':
+            i += 1
+            rig.send(52500 + int(cmds[i]))
+            rig.drain(0.5)
+        elif c == 'armyaw':
+            i += 1
+            rig.send(54180 + int(cmds[i]))
+            rig.drain(0.5)
+        elif c == 'raw':
+            i += 1
+            rig.send(int(cmds[i]))
+            rig.drain(0.5)
         elif c == 'streamon':
             rig.send(24)
         elif c == 'streamoff':

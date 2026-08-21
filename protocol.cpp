@@ -42,6 +42,13 @@ int poseHeading();
 // above.
 bool tickDrive();
 bool moving();
+// OTOS: the CACHED world fix (shims.cpp's otosGet). This fiber must
+// never touch the I2C bus -- an OTOS transaction interposed in the Nezha
+// encoder's select->read window destroys the encoder sample (Phase F,
+// radio-robot-elite docs/design/encoder-refresh-characterization.md).
+// The cache is refreshed by the motion layer's own boundary reads, on
+// the tick fiber.
+int otosGet(int what);
 
 // ---- CRC-16/CCITT-FALSE ----------------------------------------------
 
@@ -807,11 +814,17 @@ void Protocol::sendTelemetry() {
   // 2026-08-20): host arrival times carry serial-buffering jitter
   // (measured: bursty 0/120 ms gaps around the 50 ms cadence), so
   // trajectory analysis needs the emission time, not the arrival time.
-  char buf[64];  // "TLM:" + u32 ms + three int32 fields + separators
+  // Both pose sources ride every frame (protocol-v6-spec.md 6.3):
+  // seeded together by seedPose(), their divergence over a run IS the
+  // drift being measured, so reporting them at the same instant is the
+  // measurement. The OTOS half is the CACHED fix (see otosGet's
+  // forward declaration above -- no bus traffic from this fiber).
+  char buf[96];  // "TLM:" + u32 ms + six int32 fields + separators
   const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
-  const int n = snprintf(buf, sizeof(buf), "TLM:%lu:%d:%d:%d",
+  const int n = snprintf(buf, sizeof(buf), "TLM:%lu:%d:%d:%d:%d:%d:%d",
                          static_cast<unsigned long>(nowMs), poseX(),
-                         poseY(), poseHeading());
+                         poseY(), poseHeading(),
+                         otosGet(0) / 10, otosGet(1) / 10, otosGet(2));
   // sprint 002 ticket 006: mirror the identical formatted bytes onto
   // radio (SUC-004) -- same buf/n/bufCap, one source of truth for line
   // content, two sinks (sprint.md Solution).

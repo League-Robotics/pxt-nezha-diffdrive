@@ -894,4 +894,26 @@ void otosCalibrate(int samples) {
   otosRef().calibrateImu(static_cast<uint8_t>(samples));
 }
 
+//%
+void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]
+  otosRef().setOffset(static_cast<float>(x) * 0.1f,
+                      static_cast<float>(y) * 0.1f,
+                      static_cast<float>(yaw) * 0.01f * 3.14159265f / 180.0f);
+}
+
+// V6 SEED (protocol-v6-spec.md 5.5): declare the world pose from an
+// external fix. Writes BOTH pose sources -- the OTOS position register
+// (lever arm applied) and this file's encoder odometry -- so the two
+// start agreed and their later divergence IS the drift being measured.
+//%
+void seedPose(int x, int y, int heading) {  // [mm] [mm] [cdeg]
+  Rig& r = ensure();
+  odomUpdate(r);  // consume pending deltas before overwriting
+  const float h = static_cast<float>(heading) * 0.01f * 3.14159265f / 180.0f;
+  r.x = static_cast<float>(x);
+  r.y = static_cast<float>(y);
+  r.heading = h;
+  otosRef().setPose(static_cast<float>(x), static_cast<float>(y), h);
+}
+
 }  // namespace diffDrive

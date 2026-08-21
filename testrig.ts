@@ -21,6 +21,9 @@
 //   RUN:33001/33008 select servo pin P1 / P8
 //   RUN:41000+mmps  drum surface speed [mm/s], signed via offset
 //                   (41000 = stop, 41100 = +100 mm/s, 40900 = -100)
+//   RUN:50500+mm    lever arm offset_x   [mm], -500..500
+//   RUN:52500+mm    lever arm offset_y   [mm], -500..500
+//   RUN:54180+deg   lever arm offset_yaw [deg], -180..180
 //
 // Stream line: OTS:<ms>:<x 0.1mm>:<y 0.1mm>:<h cdeg>:<vx mm/s>:<vy>:<om cdeg/s>
 //
@@ -34,10 +37,24 @@ let rigServoPin = AnalogPin.P8
 let rigDrumMmps = 0
 let rigStreamUntil = 0
 let rigNextErrMs = 0
+let rigOffX = 0      // [mm] lever arm under test
+let rigOffY = 0      // [mm]
+let rigOffYaw = 0    // [deg]
 
 diffDrive.onRunCommand(function (n: number) {
     rigPending = n
 })
+
+// Lever-arm test hook. On this rig the servo rotates the sensor about
+// its OWN axis, so the sensor never translates: with a non-zero arm
+// configured, a rotation in place must make the reported CENTRE trace a
+// circle of exactly the arm's radius. That is the direct test of
+// sensorToCentre(), and the exact shape of the reference project's
+// measured double-correction bug.
+function rigApplyOffset() {
+    diffDrive.setWorldSensorOffset(rigOffX / 10, rigOffY / 10, rigOffYaw)
+    serial.writeLine("OFOK:" + rigOffX + ":" + rigOffY + ":" + rigOffYaw)
+}
 
 function rigExec(n: number) {
     if (n == 20) {
@@ -66,6 +83,15 @@ function rigExec(n: number) {
     } else if (n == 33008) {
         rigServoPin = AnalogPin.P8
         serial.writeLine("SPOK:8")
+    } else if (n >= 50000 && n <= 51000) {
+        rigOffX = n - 50500
+        rigApplyOffset()
+    } else if (n >= 52000 && n <= 53000) {
+        rigOffY = n - 52500
+        rigApplyOffset()
+    } else if (n >= 54000 && n <= 54360) {
+        rigOffYaw = n - 54180
+        rigApplyOffset()
     } else if (n >= 40000 && n <= 42000) {
         rigDrumMmps = n - 41000
         if (rigDrumMmps == 0) {

@@ -320,6 +320,198 @@ namespace diffDrive {
         _resetPose()
     }
 
+    // ================= world pose (OTOS) =============================
+    // The OTOS optical tracking sensor is the WORLD-POSE AUTHORITY, and
+    // it is consulted at MOVE BOUNDARIES ONLY (stakeholder doctrine,
+    // 2026-08-20): a move runs entirely on encoder odometry; the sensor
+    // says where the robot actually ended up, and the NEXT move is
+    // planned from that fix. It never steers a move in flight.
+    //
+    // Every read here is a live I2C burst, so these must be called from
+    // the same fiber that calls driveTick() -- never concurrently with
+    // one (an OTOS transaction landing inside the Nezha encoder's
+    // select->read window destroys that encoder sample).
+
+    /**
+     * Start the OTOS sensor. Returns true if it answered.
+     * Call once at program start, robot held still.
+     */
+    //% block="start world tracking"
+    //% group="World"
+    export function startWorldTracking(): boolean {
+        return otosBegin() == 0x5F
+    }
+
+    /**
+     * Is the world sensor present and answering?
+     */
+    //% block="world tracking ready?"
+    //% group="World"
+    export function worldTrackingReady(): boolean {
+        return otosGet(7) != 0
+    }
+
+    /**
+     * Declare where the robot is right now, in world coordinates.
+     * Sets BOTH pose sources -- the world sensor and the wheel
+     * odometry -- so they start agreed.
+     * @param x world x, eg: 0
+     * @param y world y, eg: 0
+     * @param heading world heading in degrees CCW, eg: 0
+     */
+    //% block="set world pose to x %x cm y %y cm heading %heading deg"
+    //% group="World"
+    export function seedPose(x: number, y: number,
+        heading: number): void {
+        _seedPose(Math.round(x * 10), Math.round(y * 10),
+            Math.round(heading * 100))
+    }
+
+    /**
+     * Take a fresh fix from the world sensor. Returns false if the
+     * sensor did not answer; the last good values are kept.
+     */
+    //% block="read world position"
+    //% group="World"
+    export function readWorld(): boolean {
+        return otosRead()
+    }
+
+    /**
+     * World x from the most recent fix, in cm.
+     */
+    //% block="world x (cm)"
+    //% group="World"
+    export function worldX(): number {
+        return otosGet(0) / 100
+    }
+
+    /**
+     * World y from the most recent fix, in cm.
+     */
+    //% block="world y (cm)"
+    //% group="World"
+    export function worldY(): number {
+        return otosGet(1) / 100
+    }
+
+    /**
+     * World heading from the most recent fix, in degrees CCW.
+     */
+    //% block="world heading (deg)"
+    //% group="World"
+    export function worldHeading(): number {
+        return otosGet(2) / 100
+    }
+
+    /**
+     * Recalibrate the sensor's gyro bias. The robot must be parked and
+     * completely still for about a second.
+     */
+    //% block="calibrate world sensor" advanced=true
+    //% group="World"
+    export function calibrateWorldSensor(): void {
+        otosCalibrate(0)
+        basic.pause(800)
+    }
+
+    /**
+     * Where the sensor sits relative to the robot's centre of rotation
+     * (x forward, y left, cm) and its own mounting rotation (degrees).
+     * Measured by the lever-arm calibration, then set once at startup.
+     */
+    //% block="set world sensor offset x %x cm y %y cm yaw %yaw deg"
+    //% group="World" advanced=true
+    export function setWorldSensorOffset(x: number, y: number,
+        yaw: number): void {
+        otosSetOffset(Math.round(x * 100), Math.round(y * 100),
+            Math.round(yaw * 100))
+    }
+
+    // ---- goToWorld ---------------------------------------------------
+    // Drive to a world point, planning from OTOS fixes taken BETWEEN
+    // moves. Shaped after the v6 GOTO verb (protocol-v6-spec.md 5.3:
+    // target, speed, arrival tolerance, required timeout) and after the
+    // reference firmware's navigator, with one deliberate difference
+    // the stakeholder specified: NO mid-move retargeting. Each move is
+    // planned from a fresh fix and then runs to completion on encoder
+    // odometry; a small bearing error is absorbed by yawing WHILE
+    // driving (the arc), not by steering corrections in flight.
+
+    let arriveTolCm = 1.0        // [cm] v6 GOTO `arrive`
+    let turnFirstDeg = 50.0      // pivot first beyond this bearing error
+    let maxNudges = 6            // bounded arrival retries
+
+    /**
+     * How close counts as "arrived", in cm.
+     * @param tol eg: 1
+     */
+    //% block="set arrival tolerance %tol cm" advanced=true
+    //% group="World"
+    export function setArrivalTolerance(tol: number): void {
+        arriveTolCm = Math.max(0.1, tol)
+    }
+
+    /**
+     * Drive to a point in WORLD coordinates, using the world sensor to
+     * decide where the robot is before each leg. Turns in place first
+     * only if the target is far off to the side; otherwise curves to it
+     * in one arc. Repeats until inside the arrival tolerance.
+     * @param x world x, eg: 60
+     * @param y world y, eg: 0
+     */
+    //% block="go to world x %x cm y %y cm"
+    //% group="World"
+    export function goToWorld(x: number, y: number): void {
+        for (let attempt = 0; attempt <= maxNudges; attempt++) {
+            // --- boundary fix: where are we, really? ---
+            readWorld()
+            const px = worldX()
+            const py = worldY()
+            const ph = worldHeading() * Math.PI / 180
+
+            const dx = x - px
+            const dy = y - py
+            const dist = Math.sqrt(dx * dx + dy * dy)
+            if (dist <= arriveTolCm) return       // arrived
+
+            // Target in the robot's own frame (x forward, y left).
+            const cos = Math.cos(ph)
+            const sin = Math.sin(ph)
+            const bx = cos * dx + sin * dy
+            const by = -sin * dx + cos * dy
+            const bearing = Math.atan2(by, bx)    // [rad] signed
+
+            // --- turn-first: only when badly off-bearing ---
+            if (Math.abs(bearing) >= turnFirstDeg * Math.PI / 180) {
+                tickedMove(0, bearing * 180 / Math.PI)
+                continue    // re-fix, then plan the drive from it
+            }
+
+            // --- one constant-curvature arc to the target ---
+            // Tangent circle through the body-frame point (bx, by):
+            // turn angle theta = 2*atan2(by, bx), radius
+            // R = (bx^2+by^2)/(2*by), arc length s = R*theta.
+            const theta = 2 * bearing
+            let s: number
+            if (Math.abs(by) < 0.01) {
+                s = bx                            // straight
+            } else {
+                s = (bx * bx + by * by) / (2 * by) * theta
+            }
+            tickedMove(s, theta * 180 / Math.PI)
+        }
+    }
+
+    // Shared runner for goToWorld's legs: start the move, then tick it
+    // to completion on THIS fiber (the same fiber that reads the OTOS,
+    // so the two can never interleave on the I2C bus).
+    function tickedMove(distance: number, yaw: number): void {
+        if (distance == 0 && yaw == 0) return
+        startMove(distance, yaw)
+        while (_tickDrive());
+    }
+
     // ================= stopping ======================================
 
     /**
@@ -651,4 +843,15 @@ namespace diffDrive {
 
     //% shim=diffDrive::otosCalibrate
     export function otosCalibrate(samples: int32): void { }
+
+    //% shim=diffDrive::otosSetOffset
+    export function otosSetOffset(x: int32, y: int32, yaw: int32): void { }
+
+    //% shim=diffDrive::seedPose
+    function _seedPose(x: int32, y: int32, heading: int32): void {
+        simIntegrate()
+        simX = x
+        simY = y
+        simHeading = heading / 100 * Math.PI / 180
+    }
 }

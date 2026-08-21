@@ -51,14 +51,17 @@ def main():
         if s.startswith('TLM:'):
             parts = s[4:].split(':')
             try:
-                if len(parts) == 4:      # device-timestamped format
+                ox = oy = oh = 0
+                if len(parts) == 7:      # dual-pose: encoder + OTOS
+                    t_dev, x, y, h, ox, oy, oh = (int(v) for v in parts)
+                elif len(parts) == 4:    # device-timestamped, encoder only
                     t_dev, x, y, h = (int(v) for v in parts)
                 elif len(parts) == 3:    # legacy, host time only
                     t_dev = -1
                     x, y, h = (int(v) for v in parts)
                 else:
                     continue
-                pose.append((round(now, 3), t_dev, x, y, h))
+                pose.append((round(now, 3), t_dev, x, y, h, ox, oy, oh))
                 if (x, y, h) != last_pose_vals:
                     last_pose_vals = (x, y, h)
                     last_pose_change = time.time()
@@ -83,7 +86,8 @@ def main():
 
     with open(a.out_prefix + '_pose.csv', 'w') as f:
         w = csv.writer(f)
-        w.writerow(['t_host', 't_dev_ms', 'x_mm', 'y_mm', 'h_cdeg'])
+        w.writerow(['t_host', 't_dev_ms', 'x_mm', 'y_mm', 'h_cdeg',
+                    'ox_mm', 'oy_mm', 'oh_cdeg'])
         w.writerows(pose)
     with open(a.out_prefix + '_vel.csv', 'w') as f:
         w = csv.writer(f)
