@@ -824,6 +824,14 @@ namespace diffDrive {
     // window destroys the encoder sample. Sim fallbacks report a
     // sensor that is absent.
 
+    /**
+     * Read one diagnostic value. See diagValue() in shims.cpp for the
+     * index list: 10/11 encoder positions, 12/13 applied duty x100,
+     * 14/15 velocities, 6/7 wedge suspicion.
+     */
+    //% shim=diffDrive::probe
+    export function probe(what: int32): number { return 0 }
+
     //% shim=diffDrive::otosBegin
     export function otosBegin(): number { return 0 }
 

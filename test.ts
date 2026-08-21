@@ -58,6 +58,49 @@ function runSeg(d: number, y: number, reps: number) {
     touring = false
 }
 
+// ---- instrumented pivot (positive-pivot fault) ----------------------
+// Records the drive's own state EVERY TICK during one pivot, then dumps
+// it after the move. Sampling on-device rather than polling from the
+// host is not a style choice: a request/reply round-trip inside a move
+// over the wireless link is measured to be actively dangerous (a
+// 197.5 mm leg collapsed to 0.3 mm), and the host cannot see per-tick
+// state any other way.
+//
+// This distinguishes the three candidate explanations for a pivot that
+// produces ZERO encoder counts:
+//   duty stays 0        -> nothing was ever commanded (move engine)
+//   duty non-zero, pos flat -> commanded but the wheels did not turn,
+//                              or the encoders are frozen (check wsus)
+//   pos moves            -> the wheels did turn and something else lied
+function probedPivot(yaw: number) {
+    if (touring) return
+    touring = true
+    diffDrive.setDefaultSpeed(15)
+    diffDrive.setDefaultYawRate(45)
+    const dl: number[] = [], dr: number[] = []
+    const pl: number[] = [], pr: number[] = [], ws: number[] = []
+    diffDrive.startMove(0, yaw)
+    let n = 0
+    while (diffDrive.driveTick()) {
+        if (n < 200) {
+            dl.push(diffDrive.probe(12))   // applied duty x100
+            dr.push(diffDrive.probe(13))
+            pl.push(diffDrive.probe(10))   // encoder position
+            pr.push(diffDrive.probe(11))
+            ws.push(diffDrive.probe(6) + 2 * diffDrive.probe(7))
+            n++
+        }
+    }
+    diffDrive.emitLine("PRB:begin:" + yaw + ":" + n)
+    for (let i = 0; i < n; i++) {
+        diffDrive.emitLine("PRB:" + i + ":" + dl[i] + ":" + dr[i]
+            + ":" + pl[i] + ":" + pr[i] + ":" + ws[i])
+    }
+    diffDrive.emitLine("PRB:end")
+    basic.showString("P")
+    touring = false
+}
+
 // ---- encoder-only tour (the control case) --------------------------
 // Navigates entirely on wheel odometry: four fixed 60 cm legs and four
 // fixed 90 deg turns, with NOTHING consulted in between. The world
@@ -281,6 +324,8 @@ diffDrive.onRunCommand(function (n: number) {
     // applies and echoes them.
     else if (n == 13) applyArm()
     else if (n == 14) leverCal(true)      // verify the measured arm
+    else if (n == 15) probedPivot(180)    // instrumented +180 (fails)
+    else if (n == 16) probedPivot(-180)   // instrumented -180 (works)
     else if (n >= 50000 && n <= 51000) armX = (n - 50500) / 10
     else if (n >= 52000 && n <= 53000) armY = (n - 52500) / 10
     else if (n >= 54000 && n <= 54360) armYaw = n - 54180

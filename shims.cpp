@@ -873,6 +873,16 @@ static OtosPort& otosRef() {
   return *gOtos;
 }
 
+// Expose diagValue() to the TS layer for on-device instrumentation.
+// The values it carries (applied duty, encoder positions, wedge
+// suspicion) are exactly what a failing move needs recorded PER TICK,
+// and they cannot be polled from the host during a move: a
+// request/reply round-trip inside a move over the relay is measured to
+// be actively dangerous (a 197.5 mm leg collapsed to 0.3 mm). A test
+// program samples into arrays and dumps afterwards instead.
+//%
+int probe(int what) { return diagValue(what); }
+
 //%
 int otosBegin() {  // -> product id probed (0x5F == present)
   OtosPort& o = otosRef();
