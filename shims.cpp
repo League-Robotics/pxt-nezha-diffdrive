@@ -894,6 +894,27 @@ void otosCalibrate(int samples) {
   otosRef().calibrateImu(static_cast<uint8_t>(samples));
 }
 
+// Emit a test-result line on BOTH transports. TypeScript's
+// serial.writeLine reaches the USB cable only, and the USB cable only
+// reaches the bench stand -- where the wheels are off the ground, so
+// nothing that needs real motion can be measured there. Test programs
+// use this instead, and their results come back over the radio when the
+// robot is on the playfield.
+//
+// Reached by same-package forward declaration rather than by including
+// protocol.h: that header pulls in radio_transport.h, and PXT's
+// per-file dependency scan then decides this file needs the `radio`
+// package and fails the build. Same convention protocol.cpp already
+// uses to reach into this file.
+void protocolEmitLine(const char* text);
+
+//%
+void emitLine(String text) {
+  if (text == nullptr) return;
+  ManagedString ms = MSTR(text);
+  protocolEmitLine(ms.toCharArray());
+}
+
 //%
 void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]
   otosRef().setOffset(static_cast<float>(x) * 0.1f,

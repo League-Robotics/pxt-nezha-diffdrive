@@ -202,6 +202,21 @@ class Protocol {
   // DifferentialDrive::start()'s own idempotent guard.
   void start();
 
+  // Emit one caller-supplied text line on BOTH transports, the same way
+  // sendTelemetry() mirrors TLM. Exists because the test programs'
+  // result lines (tour fixes, calibration data, timings) were written
+  // with TypeScript's `serial.writeLine`, which reaches the USB cable
+  // only -- and the USB cable only reaches the bench stand, where the
+  // wheels are off the ground. Every test that needs the robot to
+  // actually move therefore runs untethered, and its results have to
+  // come back over the radio.
+  //
+  // Called from the TS layer (shims.cpp's emitLine), NOT from this
+  // object's own fiber; SerialTransport::writeLine blocks the caller
+  // until the bytes are out, and RadioTransport::sendLine is a single
+  // datagram, so a caller between moves pays a bounded cost.
+  void emitLine(const char* text);
+
  private:
   static void fiberEntry(void* self);
   void run();

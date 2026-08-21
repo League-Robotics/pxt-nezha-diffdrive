@@ -847,6 +847,23 @@ namespace diffDrive {
     //% shim=diffDrive::otosSetOffset
     export function otosSetOffset(x: int32, y: int32, yaw: int32): void { }
 
+    /**
+     * Write a line to BOTH transports -- USB serial and the wireless
+     * link. Test programs use this instead of serial.writeLine, which
+     * reaches the cable only, and the cable only reaches the bench
+     * stand where the wheels are off the ground.
+     *
+     * (Do not write the word r-a-d-i-o followed by a full stop in this
+     * file: PXT scans the TypeScript for `<name>.` to auto-add package
+     * dependencies, and a prose mention makes it demand a `radio`
+     * package this project does not use -- it drives CODAL's radio
+     * directly from radio_transport.cpp.)
+     */
+    //% shim=diffDrive::emitLine
+    export function emitLine(text: string): void {
+        serial.writeLine(text)
+    }
+
     //% shim=diffDrive::seedPose
     function _seedPose(x: int32, y: int32, heading: int32): void {
         simIntegrate()

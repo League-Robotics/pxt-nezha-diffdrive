@@ -11,26 +11,33 @@ Usage:
 """
 import argparse
 import csv
+import sys
 import time
 
-import serial
+sys.path.insert(0, __file__.rsplit('/', 1)[0])
+from robotlink import open_link
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('port')
+    ap.add_argument('port', nargs='?', default=None,
+                    help='serial port; omit with --radio for zavaz')
+    ap.add_argument('--radio', action='store_true',
+                    help='capture over the zavaz relay (robot on the '
+                         'playfield). The bench stand holds the wheels off '
+                         'the ground, so any OTOS column is meaningless '
+                         'there.')
     ap.add_argument('--run', type=int, default=1)
     ap.add_argument('--timeout', type=float, default=60.0)
     ap.add_argument('--out-prefix', default='.tmp/tour')
     a = ap.parse_args()
 
-    p = serial.Serial(a.port, 115200, timeout=0.05)
-    time.sleep(1.5)
-    p.reset_input_buffer()
+    link = open_link(a.port, radio=a.radio)
+    p = link.p
 
     pose, vel = [], []
     t0 = time.time()
-    p.write(f'RUN:{a.run}\n'.encode())
+    link.send(f'RUN:{a.run}')
     last_diag = 0.0
     egl = gap = None
     last_pose_change = time.time()
@@ -42,12 +49,14 @@ def main():
             break  # motion over (fallback for a missed GAP line)
         now = time.time() - t0
         if now - last_diag > 0.12:
-            p.write(b'DIAG\n')
+            link.send('DIAG')
             last_diag = now
         line = p.readline()
         if not line:
             continue
         s = line.decode('ascii', errors='replace').strip()
+        if s.startswith('< '):
+            s = s[2:]          # relay control-plane prefix
         if s.startswith('TLM:'):
             parts = s[4:].split(':')
             try:
@@ -82,7 +91,7 @@ def main():
             gap = s
             if time.time() < end - 3:
                 end = time.time() + 1.5   # test done; short tail
-    p.close()
+    link.close()
 
     with open(a.out_prefix + '_pose.csv', 'w') as f:
         w = csv.writer(f)

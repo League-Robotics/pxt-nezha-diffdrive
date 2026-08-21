@@ -1036,6 +1036,21 @@ void Protocol::run() {
   }
 }
 
+void Protocol::emitLine(const char* text) {
+  if (text == nullptr) return;
+  size_t len = 0;
+  while (text[len] != '\0' && len < 200) ++len;
+  if (len == 0) return;
+  transport_.writeLine(reinterpret_cast<const uint8_t*>(text), len);
+  radioTransport_.sendLine(reinterpret_cast<const uint8_t*>(text), len);
+}
+
+// Free-function entry point for shims.cpp's emitLine shim. Lives here,
+// on the protocol side of the boundary, so shims.cpp never has to
+// include protocol.h (and with it radio_transport.h, which makes PXT's
+// dependency scan demand the `radio` package for that file).
+void protocolEmitLine(const char* text) { protocol().emitLine(text); }
+
 namespace {
 Protocol* gProtocol = nullptr;
 }  // namespace

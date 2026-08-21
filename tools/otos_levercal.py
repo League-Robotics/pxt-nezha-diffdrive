@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """OTOS lever-arm calibration -- drives test.ts RUN:8 and fits the arm.
 
+RUN THIS OVER RADIO, WITH THE ROBOT ON THE FLOOR (--radio). The USB
+cable only reaches the bench stand, where the wheels spin in the air:
+the body never rotates, the gyro correctly reports nothing, and the fit
+degenerates to a zero-length arm from nine identical fixes.
+
 With the sensor offsets zeroed, a pure in-place pivot sweeps the SENSOR
 around the robot's centre of rotation, so the sensor's reported track is
 a circle: centre = the robot's centre, radius = the lever arm. Each fix
@@ -19,13 +24,15 @@ reported displacement direction minus the heading it reported while
 driving it.
 
 Usage:
-  python3 tools/otos_levercal.py PORT [--timeout 120]
+  python3 tools/otos_levercal.py --radio [--timeout 150]
+  python3 tools/otos_levercal.py PORT [--timeout 150]      (USB)
 """
 import argparse
 import math
-import time
+import sys
 
-import serial
+sys.path.insert(0, __file__.rsplit('/', 1)[0])
+from robotlink import open_link
 
 
 def solve_lstsq(rows, rhs):
@@ -57,39 +64,37 @@ def solve_lstsq(rows, rhs):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('port')
+    ap.add_argument('port', nargs='?', default=None,
+                    help='serial port; omit with --radio for the zavaz default')
+    ap.add_argument('--radio', action='store_true',
+                    help='drive the robot over the zavaz relay (playfield). '
+                         'REQUIRED for real calibration -- on the bench '
+                         'stand the wheels are off the ground, so the robot '
+                         'never physically turns and every fix is identical.')
     ap.add_argument('--timeout', type=float, default=120.0)
     a = ap.parse_args()
 
-    p = serial.Serial(a.port, 115200, timeout=0.1)
-    time.sleep(1.5)
-    p.reset_input_buffer()
-    p.write(b'RUN:8\n')
+    link = open_link(a.port, radio=a.radio)
+    link.send('RUN:8')
 
     fixes = {}          # tag -> (x_mm, y_mm, h_rad)
-    end = time.time() + a.timeout
-    done = False
-    while time.time() < end and not done:
-        line = p.readline()
-        if not line:
-            continue
-        s = line.decode('ascii', errors='replace').strip()
+    for s in link.lines(a.timeout, until='OCAL:end'):
         if not s.startswith('OCAL:'):
             continue
         print(s)
         body = s[5:]
         if body == 'end':
-            done = True
             continue
         parts = body.split(':')
         if len(parts) != 4:
             continue
         try:
-            tag, x01, y01, hcd = parts[0], *(int(v) for v in parts[1:])
+            tag = parts[0]
+            x01, y01, hcd = (int(v) for v in parts[1:])
         except ValueError:
             continue
         fixes[tag] = (x01 / 10.0, y01 / 10.0, math.radians(hcd / 100.0))
-    p.close()
+    link.close()
 
     pivots = [fixes[k] for k in sorted(fixes) if k.startswith('p')]
     if len(pivots) < 4:
