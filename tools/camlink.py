@@ -23,6 +23,10 @@ HOST, PORT = '127.0.0.1', 5280
 CAM = 'arducam-ov9782-usb-camera'
 
 
+class CamDown(RuntimeError):
+    """The daemon is gone -- distinct from a tag simply not being seen."""
+
+
 class Cam:
     """Tag reader. `read` returns (yaw_deg, x_cm, y_cm) or None."""
 
@@ -31,12 +35,21 @@ class Cam:
         self.dc = DaemonControl(host=host, port=port).connect()
 
     def read(self, tag_id=53):
+        """(yaw_deg, x_cm, y_cm), or None when the tag is not visible.
+
+        Raises CamDown if the DAEMON is unreachable. These must never
+        collapse into one answer: on 2026-08-20 a peer stopped the
+        daemon mid-measurement and, because both returned None, a
+        stationary camera looked exactly like a robot that had driven
+        out of frame -- which produced a confident, wrong report of
+        pivots turning zero degrees.
+        """
         try:
             rec = self.dc.get_tags(self.cam).by_id(tag_id)
-        except Exception:
-            return None
+        except Exception as e:
+            raise CamDown(f'aprilcam daemon unreachable: {e}') from e
         if rec is None:
-            return None
+            return None          # daemon fine, tag genuinely not seen
         w = getattr(rec, 'world_xy', None)
         # The gRPC model calls it `yaw`; the MCP/JSON shape calls the
         # same quantity `orientation_yaw`. Accept either.
@@ -67,8 +80,16 @@ def _stream(tag_id, hz):
     cam = Cam()
     period = 1.0 / hz
     while True:
-        r = cam.read(tag_id)
-        if r is not None:
+        try:
+            r = cam.read(tag_id)
+        except CamDown as e:
+            # Say so loudly on stdout: a consumer that only sees silence
+            # cannot tell a dead daemon from a motionless robot.
+            print(f'ERR {e}', flush=True)
+            return
+        if r is None:
+            print('NOTAG', flush=True)
+        else:
             print(f'{r[0]:.3f} {r[1]:.3f} {r[2]:.3f}', flush=True)
         time.sleep(period)
 
