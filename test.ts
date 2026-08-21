@@ -101,47 +101,60 @@ function probedPivot(yaw: number) {
     touring = false
 }
 
-// ---- encoder-only tour (the control case) --------------------------
-// Navigates entirely on wheel odometry: four fixed 60 cm legs and four
-// fixed 90 deg turns, with NOTHING consulted in between. The world
-// sensor is read at each corner but ONLY to record where the robot
-// really ended up -- that reading never reaches the controller. This
-// is the baseline the OTOS-guided tour is measured against, and both
-// tours are scored the same way, by the same sensor.
-function encoderTour() {
+// ---- turn accuracy-vs-speed sweep ----------------------------------
+// A parameterised pivot, so the host can sweep angle against yaw rate.
+// The rate is set first (RUN:57000+rate) and then the angle commanded
+// (RUN:58360+deg), because one RUN value cannot carry both.
+//
+// Each turn reports its own view -- encoder differential, tick count,
+// peak duty -- alongside whatever the overhead camera measured, so a
+// disagreement between the two is visible rather than assumed. Peak
+// duty is the saturation warning: once it pins at 10000 the commanded
+// rate is beyond what the drivetrain can deliver and the result says
+// more about the motors than about the controller.
+let sweepRate = 45      // [deg/s]
+
+function sweepTurn(deg: number) {
     if (touring) return
-    if (!worldReady()) return
     touring = true
-    diffDrive.setDefaultSpeed(25)
-    diffDrive.setDefaultYawRate(45)
-    maxGapMs = 0
-    diffDrive.resetPose()
-    diffDrive.seedPose(0, 0, 0)
-    diffDrive.emitLine("TOUR:encoder")
-    logFix("c0")
-    for (let i = 1; i <= 4; i++) {
-        basic.showNumber(i)
-        tickedMove(60, 0)
-        tickedMove(0, 90)
-        logFix("c" + i)     // measurement only -- never used to steer
+    diffDrive.setDefaultSpeed(15)
+    diffDrive.setDefaultYawRate(sweepRate)
+    const p0L = diffDrive.probe(10)
+    const p0R = diffDrive.probe(11)
+    let peak = 0
+    let n = 0
+    const t0 = control.millis()
+    diffDrive.startMove(0, deg)
+    while (diffDrive.driveTick()) {
+        const dl = Math.abs(diffDrive.probe(12))
+        const dr = Math.abs(diffDrive.probe(13))
+        if (dl > peak) peak = dl
+        if (dr > peak) peak = dr
+        n++
     }
-    diffDrive.emitLine("GAP:" + maxGapMs)
-    diffDrive.emitLine("TOUR:end")
-    basic.showString("OK")
+    const ms = control.millis() - t0
+    const dL = diffDrive.probe(10) - p0L
+    const dR = diffDrive.probe(11) - p0R
+    // TRN:<commanded deg>:<rate deg/s>:<encoder diff counts>:<ticks>
+    //     :<ms>:<peak duty x100>:<wrong-way aborts>
+    diffDrive.emitLine("TRN:" + deg + ":" + sweepRate
+        + ":" + Math.round((dR - dL) / 2) + ":" + n + ":" + ms
+        + ":" + peak + ":" + diffDrive.probe(25))
     touring = false
 }
 
 let pivotCCW = true
 
+// A = robot-relative tour, B = world tour, A+B = wheels tour.
+// All three start on the NE orange dot facing west.
 input.onButtonPressed(Button.A, function () {
-    runSeg(80, 0, 1)
+    tourRobot()
 })
 input.onButtonPressed(Button.B, function () {
-    runSeg(0, pivotCCW ? 360 : -360, 1)
-    pivotCCW = !pivotCCW
+    worldTour(true)
 })
 input.onButtonPressed(Button.AB, function () {
-    encoderTour()
+    tourWheels()
 })
 
 // ---- world-frame tours (OTOS) --------------------------------------
@@ -151,8 +164,19 @@ input.onButtonPressed(Button.AB, function () {
 // issued as a single move() -- the contrast case. RUN:8 collects the
 // lever-arm calibration data.
 
-const CORNERS_X = [60, 60, 0, 0]
-const CORNERS_Y = [0, 60, 60, 0]
+// ---- the playfield's four orange dots -------------------------------
+// From the AprilCam playfield map (main-playfield, A1-centred, +x east
+// +y north): a 100 x 60 cm rectangle.
+//   NW (-50, 30)   NE ( 50, 30)
+//   SW (-50,-30)   SE ( 50,-30)
+//
+// Every tour STARTS ON THE NORTHEAST DOT FACING WEST and runs
+// counter-clockwise, so each leg after the first turns LEFT:
+//   NE -> NW (100 cm) -> SW (60) -> SE (100) -> NE (60)
+const START_X = 50, START_Y = 30, START_H = 180   // [cm, cm, deg] west
+const CORNERS_X = [-50, -50, 50, 50]
+const CORNERS_Y = [30, -30, -30, 30]
+const LEG_CM = [100, 60, 100, 60]
 
 // vevov's lever arm, MEASURED on the playfield 2026-08-20 by RUN:8 +
 // tools/otos_levercal.py: eight 45 deg pivots swept the sensor around
@@ -193,6 +217,84 @@ function logFix(tag: string) {
         + ":" + Math.round(diffDrive.worldHeading() * 100))
 }
 
+// ---- tour 1 (button A): ROBOT-RELATIVE -----------------------------
+// Each corner is named in the robot's OWN frame -- x forward, y left --
+// so the tour never consults a world position at all. Encoder odometry
+// only; the world sensor is read at each corner for SCORING.
+//
+// Turn-first is what makes "entirely to its left" a rectangle rather
+// than a semicircle: a target at 90 deg bearing would otherwise be
+// reached by a constant-curvature arc bulging 30 cm OUTSIDE the
+// rectangle -- off the west edge of this playfield. Beyond 50 deg of
+// bearing error the robot turns in place first, then drives straight.
+function goToRobot(fwd: number, left: number) {
+    const bearing = Math.atan2(left, fwd)          // [rad]
+    if (Math.abs(bearing) >= 50 * Math.PI / 180) {
+        tickedMove(0, bearing * 180 / Math.PI)     // turn in place
+        tickedMove(Math.sqrt(fwd * fwd + left * left), 0)
+        return
+    }
+    const theta = 2 * bearing
+    if (Math.abs(left) < 0.01) {
+        tickedMove(fwd, 0)                          // straight
+    } else {
+        tickedMove((fwd * fwd + left * left) / (2 * left) * theta,
+            theta * 180 / Math.PI)
+    }
+}
+
+function tourRobot() {
+    if (touring) return
+    if (!worldReady()) return
+    touring = true
+    diffDrive.setDefaultSpeed(25)
+    diffDrive.setDefaultYawRate(90)
+    maxGapMs = 0
+    diffDrive.resetPose()
+    diffDrive.seedPose(START_X, START_Y, START_H)
+    diffDrive.emitLine("DBG:tour=robot")
+    logFix("c0")
+    // Straight ahead first, then each next corner is entirely to the left.
+    goToRobot(LEG_CM[0], 0)
+    logFix("c1")
+    for (let i = 1; i < 4; i++) {
+        basic.showNumber(i + 1)
+        goToRobot(0, LEG_CM[i])
+        logFix("c" + (i + 1))
+    }
+    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("TOUR:end")
+    basic.showString("A")
+    touring = false
+}
+
+// ---- tour 3 (buttons A+B): WHEELS ----------------------------------
+// The plain open-loop square: drive a leg, turn left 90, repeat.
+// Nothing is consulted between moves; the world sensor is logged at
+// each corner for SCORING only.
+function tourWheels() {
+    if (touring) return
+    if (!worldReady()) return
+    touring = true
+    diffDrive.setDefaultSpeed(25)
+    diffDrive.setDefaultYawRate(90)
+    maxGapMs = 0
+    diffDrive.resetPose()
+    diffDrive.seedPose(START_X, START_Y, START_H)
+    diffDrive.emitLine("DBG:tour=wheels")
+    logFix("c0")
+    for (let i = 0; i < 4; i++) {
+        basic.showNumber(i + 1)
+        tickedMove(LEG_CM[i], 0)    // straight leg
+        tickedMove(0, 90)           // then LEFT
+        logFix("c" + (i + 1))
+    }
+    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("TOUR:end")
+    basic.showString("W")
+    touring = false
+}
+
 // ---- OTOS-guided tour ----------------------------------------------
 // The same square, but the sensor is consulted BEFORE EVERY MOVE: each
 // leg is planned from where the robot actually is, not from where the
@@ -208,11 +310,11 @@ function worldTour(useGoTo: boolean) {
     if (!worldReady()) return
     touring = true
     diffDrive.setDefaultSpeed(25)
-    diffDrive.setDefaultYawRate(45)
+    diffDrive.setDefaultYawRate(90)
     maxGapMs = 0
     diffDrive.resetPose()
-    diffDrive.seedPose(0, 0, 0)
-    diffDrive.emitLine("TOUR:" + (useGoTo ? "goto" : "move"))
+    diffDrive.seedPose(START_X, START_Y, START_H)
+    diffDrive.emitLine("DBG:tour=" + (useGoTo ? "world" : "worldarc"))
     logFix("c0")
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
@@ -298,7 +400,7 @@ function leverCal(verify: boolean = false) {
 }
 
 diffDrive.onRunCommand(function (n: number) {
-    if (n == 1) encoderTour()
+    if (n == 1) tourWheels()      // superseded encoderTour
     else if (n == 2) runSeg(0, 360, 1)
     else if (n == 3) runSeg(80, 0, 1)
     else if (n == 4) runSeg(0, 180, 1)
@@ -324,8 +426,14 @@ diffDrive.onRunCommand(function (n: number) {
     // applies and echoes them.
     else if (n == 13) applyArm()
     else if (n == 14) leverCal(true)      // verify the measured arm
+    else if (n == 31) tourRobot()         // = button A
+    else if (n == 32) worldTour(true)     // = button B
+    else if (n == 33) tourWheels()        // = buttons A+B
     else if (n == 15) probedPivot(180)    // instrumented +180 (fails)
     else if (n == 16) probedPivot(-180)   // instrumented -180 (works)
+    // Sweep control: set rate, then command an angle.
+    else if (n >= 57001 && n <= 57600) sweepRate = n - 57000
+    else if (n >= 58000 && n <= 58720) sweepTurn(n - 58360)
     else if (n >= 50000 && n <= 51000) armX = (n - 50500) / 10
     else if (n >= 52000 && n <= 53000) armY = (n - 52500) / 10
     else if (n >= 54000 && n <= 54360) armYaw = n - 54180
