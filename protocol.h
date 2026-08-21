@@ -217,6 +217,13 @@ class Protocol {
   // datagram, so a caller between moves pays a bounded cost.
   void emitLine(const char* text);
 
+  // Text of the RUN command that raised MessageBus event value `slot`
+  // (1..kRunSlots) -- the whole payload after `RUN:`, e.g.
+  // "pivot:180". Returns "" for an out-of-range or never-written slot.
+  // Called from the TS layer (shims.cpp's runCommandText), on the event
+  // handler's fiber rather than this object's own.
+  const char* runText(int slot) const;
+
  private:
   static void fiberEntry(void* self);
   void run();
@@ -246,16 +253,30 @@ class Protocol {
   void handleDiag();        // DIAG -> kernel Output flags/counters (debug)
   int formatDiag(char* buf, size_t cap);  // shared formatter: DIAG verb
                             // reply (serial) + 1 Hz radio DIAG mirror
-  void handleRun(const uint8_t* data, size_t dataLen);  // RUN:<n> ->
-                            // raises a MessageBus event so TS-side test
-                            // functions registered via
-                            // diffDrive.onRunCommand() run remotely
+  void handleRun(const uint8_t* data, size_t dataLen);  // RUN:<name>
+                            // [:<arg>...] -> parks the text in a slot and
+                            // raises a MessageBus event carrying the slot,
+                            // so TS-side test functions registered via
+                            // diffDrive.onRun()/onRunCommand() run remotely
+
+  // RUN payload storage. The event value is a uint16 and cannot carry
+  // text, so the payload is parked here and the event carries only the
+  // slot it landed in (1-based; 0 is MICROBIT_EVT_ANY). A RING of slots,
+  // not one buffer: MessageBus events queue and a test handler can run
+  // for a minute, so a second RUN arriving mid-test would otherwise
+  // overwrite the text the queued handler has not read yet. Four slots
+  // covers any burst a host can plausibly send inside one handler.
+  static constexpr size_t kRunTextBytes = 48;  // name + args + NUL
+  static constexpr int kRunSlots = 4;
+  char runSlots_[kRunSlots][kRunTextBytes] = {};
+  int nextRunSlot_ = 0;      // round-robin write cursor, 0-based
 
   // RUN repeat suppression -- see handleRun's own comment. Hosts repeat
   // commands to survive the single-slot inbound buffer, and without
-  // this a repeated RUN runs the test once per copy.
+  // this a repeated RUN runs the test once per copy. Compared on the
+  // whole payload, so RUN:pivot:180 does not suppress RUN:pivot:-180.
   static constexpr int32_t kRunDedupeMs = 3000;
-  int lastRunValue_ = 0;
+  char lastRunText_[kRunTextBytes] = {};
   uint32_t lastRunMs_ = 0;   // [ms] arrival time of the last accepted RUN
 
   // ---- ticket 003: binary motion verb handlers -----------------------

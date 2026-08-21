@@ -116,27 +116,102 @@ namespace diffDrive {
 
     // ================= remote test trigger (RUN verb) =================
 
-    // MessageBus source id for the wire protocol's RUN:<n> verb -- must
-    // match kRunEventSource in protocol.cpp. The C++ handler raises an
-    // event with the test number as the event value; handlers
-    // registered here dispatch on it.
+    // MessageBus source id for the wire protocol's RUN verb -- must
+    // match kRunEventSource in protocol.cpp. An event value cannot
+    // carry text, so the C++ handler parks the command's payload in a
+    // slot and sends the SLOT as the event value; the dispatcher below
+    // reads the text back through runCommandText() and routes it by
+    // NAME. The wire therefore reads as what it does -- RUN:pivot:180,
+    // not RUN:4 -- and arguments ride along as text instead of being
+    // encoded into numeric offsets the way the old numbered vocabulary
+    // had to (RUN:30000+us for a servo pulse, and so on).
     const RUN_EVENT_SOURCE = 0x2001
 
+    // Parts of the RUN command currently being dispatched: [0] is the
+    // name, [1..] its arguments. Safe as shared state because
+    // MessageBus delivers these events one at a time, each after the
+    // previous handler returns.
+    let runParts: string[] = []
+    let runNames: string[] = []
+    let runHandlers: ((arg: number) => void)[] = []
+    let runAnyHandlers: ((name: string, arg: number) => void)[] = []
+    let runWired = false
+
+    function wireRunDispatch(): void {
+        if (runWired) return
+        runWired = true
+        control.onEvent(RUN_EVENT_SOURCE, 0, function () {
+            const text = runCommandText(control.eventValue())
+            if (text.length == 0) return
+            runParts = text.split(":")
+            const name = runParts[0]
+            for (let i = 0; i < runNames.length; i++) {
+                if (runNames[i] == name) runHandlers[i](runArg(0))
+            }
+            for (let i = 0; i < runAnyHandlers.length; i++) {
+                runAnyHandlers[i](name, runArg(0))
+            }
+        })
+    }
+
     /**
-     * Run code when a RUN:<n> command arrives over the wire protocol
-     * (USB serial). Register your test functions against numbers so
-     * the bench host can trigger them remotely -- the same functions a
-     * button handler can call. The handler receives the test number n.
-     * Handlers run on their own fiber, so a long test (a full tour)
-     * doesn't block the protocol.
+     * Run code when the named command arrives over the wire protocol --
+     * `RUN:<name>` or `RUN:<name>:<arg>`, e.g. RUN:pivot:180. Bind your
+     * test functions to names so the bench host can trigger them
+     * remotely, the same functions a button handler calls. The handler
+     * receives the first argument as a number (0 when there is none);
+     * further arguments are available from runArg(). Handlers run on
+     * their own fiber, so a long test (a full tour) doesn't block the
+     * protocol. Names are matched exactly, so keep them lower case.
+     * @param name the command name to answer to, eg: "tour"
      */
-    //% block="on run command $n"
+    //% block="on run %name $arg"
     //% draggableParameters="reporter"
     //% group="Move"
-    export function onRunCommand(handler: (n: number) => void): void {
-        control.onEvent(RUN_EVENT_SOURCE, 0, function () {
-            handler(control.eventValue())
-        })
+    export function onRun(name: string, handler: (arg: number) => void): void {
+        wireRunDispatch()
+        runNames.push(name)
+        runHandlers.push(handler)
+    }
+
+    /**
+     * Run code when ANY run command arrives, name-bound or not. Runs
+     * after every matching onRun() handler, so it can log or reject
+     * unknown names.
+     */
+    //% block="on run command $name $arg"
+    //% draggableParameters="reporter"
+    //% group="Move"
+    export function onRunCommand(
+        handler: (name: string, arg: number) => void): void {
+        wireRunDispatch()
+        runAnyHandlers.push(handler)
+    }
+
+    /**
+     * The i-th argument of the run command being handled, as a number.
+     * 0 when there is no such argument, or it isn't a number.
+     * @param i argument index, 0 being the first after the name, eg: 0
+     */
+    //% blockHidden=true
+    export function runArg(i: number): number {
+        const text = runArgText(i)
+        if (text.length == 0) return 0
+        const value = parseFloat(text)
+        return isNaN(value) ? 0 : value
+    }
+
+    /** The i-th argument of the run command, as text ("" if absent). */
+    //% blockHidden=true
+    export function runArgText(i: number): string {
+        if (i < 0 || i + 1 >= runParts.length) return ""
+        return runParts[i + 1]
+    }
+
+    /** How many arguments the run command being handled carries. */
+    //% blockHidden=true
+    export function runArgCount(): number {
+        return runParts.length - 1
     }
 
     // ================= position-mode moves: blocking =================
@@ -832,6 +907,20 @@ namespace diffDrive {
     //% shim=diffDrive::probe
     export function probe(what: int32): number { return 0 }
 
+    /**
+     * End-of-move shaping. Bigger tapers and lower floors trade time
+     * for accuracy; a closed-loop caller that takes a fresh fix before
+     * every move should spend far less time on it. 0 leaves unchanged.
+     */
+    //% shim=diffDrive::setTaperWindows
+    export function setTaperWindows(distCounts: int32, yawCounts: int32): void { }
+
+    //% shim=diffDrive::setTaperFloors
+    export function setTaperFloors(distPct: int32, turnPct: int32): void { }
+
+    //% shim=diffDrive::setRampMs
+    export function setRampMs(ms: int32): void { }
+
     //% shim=diffDrive::otosBegin
     export function otosBegin(): number { return 0 }
 
@@ -870,6 +959,14 @@ namespace diffDrive {
     //% shim=diffDrive::emitLine
     export function emitLine(text: string): void {
         serial.writeLine(text)
+    }
+
+    // Text of the RUN command a run event refers to (the event value is
+    // the slot protocol.cpp parked it in). The simulator has no wire, so
+    // no run event ever fires there and this body is never reached.
+    //% shim=diffDrive::runCommandText
+    function runCommandText(slot: int32): string {
+        return ""
     }
 
     //% shim=diffDrive::seedPose

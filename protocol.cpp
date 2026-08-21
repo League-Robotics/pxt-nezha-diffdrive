@@ -221,11 +221,11 @@ const VerbEntry kVerbRegistry[] = {
     {"ID", false},
     {"VER", false},
     {"DIAG", false},
-    // RUN:<n> -- cleartext with a decimal test number as data. Raises a
+    // RUN:<name>[:<arg>...] -- cleartext, e.g. "RUN:pivot:180". Raises a
     // MessageBus event (see handleRun) so a TS-side handler registered
-    // via diffDrive.onRunCommand() dispatches the matching test
-    // function. Lets the bench host trigger test.ts programs over the
-    // wire instead of a physical button press.
+    // via diffDrive.onRun() dispatches the test function bound to that
+    // name. Lets the bench host trigger test.ts programs over the wire
+    // instead of a physical button press.
     {"RUN", false},
     // Cleartext, robot->host (with data):
     {"DEVICE", false},
@@ -394,13 +394,16 @@ void Protocol::handleDiag() {
 }
 
 // ---- RUN: remote test trigger ----------------------------------------
-// RUN:<n> (cleartext, decimal test number as data) raises a MessageBus
-// event carrying <n> as the event value. main.ts's onRunCommand()
-// registers a TS handler against the same source id, so test.ts can
-// bind its test functions to wire commands as well as buttons. The
-// event fires handlers on their own fiber (MessageBus default), so a
-// long-running test (a full square tour ticking the kernel) does not
-// block this protocol fiber.
+// RUN:<name>[:<arg>...] (cleartext, e.g. "RUN:pivot:180") parks the
+// payload text in a slot and raises a MessageBus event carrying that
+// slot as the event value. main.ts's run dispatcher registers a TS
+// handler against the same source id, reads the text back through the
+// runCommandText shim, and calls whichever handler test.ts bound to
+// that NAME -- so a wire command reads as the test it runs, not as a
+// magic number, and its arguments ride along as text instead of being
+// encoded into numeric offsets. The event fires handlers on their own
+// fiber (MessageBus default), so a long-running test (a full square
+// tour ticking the kernel) does not block this protocol fiber.
 namespace {
 // Custom MessageBus source id -- must match RUN_EVENT_SOURCE in
 // main.ts. Chosen well above the MICROBIT_ID_* range.
@@ -409,21 +412,23 @@ constexpr int kRunEventSource = 0x2001;
 
 void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
   if (data == nullptr || dataLen == 0) return;
-  // Parse an unsigned decimal test number; strip one trailing '\r'
-  // (raw-terminal artifact, same tolerance parseLine() gives colon-less
-  // lines). Any other non-digit byte -> malformed, drop silently (wire
-  // spec S7.4 convention, same as the binary verbs).
-  int value = 0;
+  // Strip one trailing '\r' (raw-terminal artifact, same tolerance
+  // parseLine() gives colon-less lines), then copy the payload
+  // verbatim. Anything outside printable ASCII -- or too long for a
+  // slot -- is malformed: drop silently (wire spec S7.4 convention,
+  // same as the binary verbs). The name/argument split is NOT done
+  // here: this layer stays a transport for the text, and the TS layer
+  // owns the vocabulary.
+  if (data[dataLen - 1] == '\r') --dataLen;
+  if (dataLen == 0 || dataLen >= kRunTextBytes) return;
+  char text[kRunTextBytes];
   for (size_t i = 0; i < dataLen; ++i) {
     const uint8_t c = data[i];
-    if (c == '\r' && i == dataLen - 1) break;
-    if (c < '0' || c > '9') return;
-    value = value * 10 + (c - '0');
-    if (value > 65535) return;  // event-value ceiling (uint16); the
-                                // zeguz rig vocabulary (testrig.ts)
-                                // encodes arguments up to 42000
+    if (c < 0x20 || c > 0x7E) return;
+    text[i] = static_cast<char>(c);
   }
-  if (value == 0) return;  // 0 is MICROBIT_EVT_ANY -- never a test id
+  text[dataLen] = '\0';
+  if (text[0] == ':') return;   // empty name -- nothing to dispatch on
 
   // Dedupe repeats of the SAME command. The robot's inbound wireless
   // path is a single-slot buffer, so hosts repeat commands to survive
@@ -433,19 +438,30 @@ void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
   // (which has already cleared by then): measured on vevov, one
   // 3x-repeated RUN:4 ran three consecutive 180 deg pivots.
   //
-  // Suppression is by (value, arrival time) here at the point of
+  // Suppression is by (text, arrival time) here at the point of
   // arrival, NOT at handling time, which is what makes it immune to
-  // that queueing. A deliberate re-run of the same test just needs to
-  // be spaced past the window.
+  // that queueing. Two commands that differ only in their arguments
+  // are different text, so they are not each other's repeats. A
+  // deliberate re-run of the same command just needs to be spaced past
+  // the window.
   const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
-  if (lastRunValue_ == value &&
+  if (std::strcmp(lastRunText_, text) == 0 &&
       static_cast<int32_t>(nowMs - lastRunMs_) < kRunDedupeMs) {
     lastRunMs_ = nowMs;   // extend across a burst of repeats
     return;
   }
-  lastRunValue_ = value;
+  std::memcpy(lastRunText_, text, dataLen + 1);
   lastRunMs_ = nowMs;
-  MicroBitEvent(kRunEventSource, static_cast<uint16_t>(value));
+
+  const int slot = nextRunSlot_;
+  nextRunSlot_ = (nextRunSlot_ + 1) % kRunSlots;
+  std::memcpy(runSlots_[slot], text, dataLen + 1);
+  MicroBitEvent(kRunEventSource, static_cast<uint16_t>(slot + 1));
+}
+
+const char* Protocol::runText(int slot) const {
+  if (slot < 1 || slot > kRunSlots) return "";
+  return runSlots_[slot - 1];
 }
 
 // ---- Binary motion verb payload shapes (ticket 003) --------------------
@@ -1071,6 +1087,10 @@ void Protocol::emitLine(const char* text) {
 // include protocol.h (and with it radio_transport.h, which makes PXT's
 // dependency scan demand the `radio` package for that file).
 void protocolEmitLine(const char* text) { protocol().emitLine(text); }
+
+// Same boundary, opposite direction: shims.cpp's runCommandText shim
+// reads back the RUN payload a MessageBus event value refers to.
+const char* protocolRunText(int slot) { return protocol().runText(slot); }
 
 namespace {
 Protocol* gProtocol = nullptr;

@@ -138,6 +138,27 @@ struct Rig {
   float odomPosLeft = 0.0f, odomPosRight = 0.0f;  // [counts]
   bool odomPrimed = false;
 
+  // Moves aborted because the robot was rotating AWAY from the
+  // commanded direction (serviceMove). Cumulative since boot.
+  uint32_t wrongWayCount = 0;
+
+  // End-of-move shaping. The defaults are the accuracy-tuned values --
+  // they took turn overshoot from several degrees to under one, which
+  // an OPEN-LOOP tour needs because its errors accumulate forever.
+  //
+  // They are also the dominant cost in a tour's wall clock. On a 100 cm
+  // leg at 25 cm/s the last 32 mm takes 3.1 s tapered against 1.3 s
+  // untapered; a 90 deg turn's ideal 1.0 s becomes ~1.9 s.
+  //
+  // A CLOSED-LOOP caller can afford far less: goToWorld takes a fresh
+  // fix before every leg, so a move only has to land close and let the
+  // next fix correct it. Hence settable per tour, not global.
+  float distTaper = 400.0f;      // [counts] ~32 mm window
+  float yawTaper = 180.0f;       // [counts] ~15 deg window
+  float distFloor = 0.25f;       // [1] slowest fraction of commanded
+  float turnFloor = 0.12f;       // [1] pure turns crawl slower
+  float rampMs = 400.0f;         // [ms] acceleration ramp
+
   // move engine
   bool moveActive = false;
   float movePosLeft0 = 0.0f, movePosRight0 = 0.0f;  // [counts]
@@ -394,9 +415,9 @@ static bool serviceMove(Rig& r) {
       (r.moveYawTarget != 0.0f && r.moveDistTarget == 0.0f);
   const float distMargin = 10.0f;      // [counts]
   const float yawMargin = pureTurn ? 4.0f : 10.0f;
-  const float kDistTaper = 400.0f;  // [counts] ~32 mm taper window
-  const float kYawTaper = 180.0f;   // [counts] ~15 deg taper window
-  const float kTaperFloor = pureTurn ? 0.12f : 0.25f;
+  const float kDistTaper = r.distTaper;
+  const float kYawTaper = r.yawTaper;
+  const float kTaperFloor = pureTurn ? r.turnFloor : r.distFloor;
   float scale = 1.0f;
   bool distDone = true;
   if (r.moveDistTarget != 0.0f) {
@@ -407,10 +428,21 @@ static bool serviceMove(Rig& r) {
     if (axisScale < scale) scale = axisScale;
   }
   bool yawDone = true;
+  bool wrongWay = false;
   if (r.moveYawTarget != 0.0f) {
-    const float remain = std::fabs(r.moveYawTarget) -
-                         std::fabs(diffProgress);
+    // SIGNED progress toward the target, not |progress|. Comparing
+    // magnitudes credits rotation in the WRONG DIRECTION as progress,
+    // so a pivot that turns the wrong way satisfies its own completion
+    // test and reports success. Measured on vevov: a commanded +180
+    // that physically turned -97 deg (camera) ended normally and
+    // reported nothing wrong.
+    const float toward = r.moveYawTarget > 0.0f ? diffProgress
+                                                : -diffProgress;
+    const float remain = std::fabs(r.moveYawTarget) - toward;
     yawDone = remain <= yawMargin;
+    // Turning AWAY from the target, well past sensor noise, is a fault
+    // rather than something to keep driving into.
+    if (toward < -3.0f * yawMargin) wrongWay = true;
     const float axisScale = remain / kYawTaper;
     if (axisScale < scale) scale = axisScale;
   }
@@ -418,7 +450,7 @@ static bool serviceMove(Rig& r) {
   // Acceleration ramp: time-based rise from the floor to full rate
   // over kRampMs, min-combined with the end taper (a very short move
   // may go straight from ramp to taper without ever reaching full).
-  const float kRampMs = 400.0f;
+  const float kRampMs = r.rampMs;
   const uint32_t nowMsRamp =
       static_cast<uint32_t>(r.clock.nowMicros() / 1000ull);
   float ramp = static_cast<float>(nowMsRamp - r.moveStartMs) / kRampMs;
@@ -440,7 +472,8 @@ static bool serviceMove(Rig& r) {
       static_cast<uint32_t>(r.clock.nowMicros() / 1000ull);
   const bool expired = static_cast<int32_t>(nowMs - r.moveDeadline) >= 0;
 
-  if ((distDone && yawDone) || expired || out.stallHalted) {
+  if ((distDone && yawDone) || expired || out.stallHalted || wrongWay) {
+    if (wrongWay) ++r.wrongWayCount;
     r.kernel.neutral();
     r.moveActive = false;
     return false;
@@ -735,6 +768,7 @@ int diagValue(int what) {
     case 21: return static_cast<int>(ensure().left.maxDrivenStreak_);
     case 22: return static_cast<int>(ensure().right.maxDrivenStreak_);
     // 23/24: rejected implausible encoder reads (glitch armor)
+    case 25: return static_cast<int>(ensure().wrongWayCount);
     case 23: return static_cast<int>(ensure().left.glitchCount_);
     case 24: return static_cast<int>(ensure().right.glitchCount_);
     default: return 0;
@@ -880,6 +914,34 @@ static OtosPort& otosRef() {
 // request/reply round-trip inside a move over the relay is measured to
 // be actively dangerous (a 197.5 mm leg collapsed to 0.3 mm). A test
 // program samples into arrays and dumps afterwards instead.
+// Set end-of-move shaping. Larger tapers and lower floors buy accuracy
+// with time; a closed-loop caller that re-fixes between moves should
+// spend far less of it. Zero or negative leaves a field unchanged.
+// NOTE: kept to TWO arguments each. A single five-argument shim made
+// the PXT compiler fail with "TS9200: Assertion failed" -- reported
+// against main.ts(1,1), nowhere near the real cause. The `//%` marker
+// must also sit IMMEDIATELY above the signature; a comment between
+// them makes the scanner miss the function entirely.
+//%
+void setTaperWindows(int distCounts, int yawCounts) {
+  Rig& r = ensure();
+  if (distCounts > 0) r.distTaper = static_cast<float>(distCounts);
+  if (yawCounts > 0) r.yawTaper = static_cast<float>(yawCounts);
+}
+
+//%
+void setTaperFloors(int distPct, int turnPct) {
+  Rig& r = ensure();
+  if (distPct > 0) r.distFloor = static_cast<float>(distPct) * 0.01f;
+  if (turnPct > 0) r.turnFloor = static_cast<float>(turnPct) * 0.01f;
+}
+
+//%
+void setRampMs(int ms) {
+  Rig& r = ensure();
+  if (ms > 0) r.rampMs = static_cast<float>(ms);
+}
+
 //%
 int probe(int what) { return diagValue(what); }
 
@@ -938,6 +1000,20 @@ void emitLine(String text) {
   if (text == nullptr) return;
   ManagedString ms = MSTR(text);
   protocolEmitLine(ms.toCharArray());
+}
+
+// Read back the text of the RUN command a run event refers to (`slot`
+// is the event value; protocol.cpp parks the payload and sends only the
+// slot, because an event value is a uint16 and cannot carry a name).
+// Same forward-declaration convention as protocolEmitLine above.
+const char* protocolRunText(int slot);
+
+//%
+String runCommandText(int slot) {
+  const char* text = protocolRunText(slot);
+  size_t len = 0;
+  while (text[len] != '\0') ++len;
+  return mkString(text, static_cast<int>(len));
 }
 
 //%
