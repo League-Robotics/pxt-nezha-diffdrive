@@ -57,6 +57,32 @@ namespace diffDrive {
     // underlying Protocol object guards itself), and a no-op in the
     // simulator (see the shim body below) -- there's no serial link or
     // fiber scheduler to start there.
+    // Parts of the RUN command currently being dispatched: [0] is the
+    // name, [1..] its arguments. Safe as shared state because
+    // MessageBus delivers these events one at a time, each after the
+    // previous handler returns.
+    // Declared with NO INITIALISER, created on first use. This file's
+    // namespace initialisers run AFTER a test file's top-level code, so
+    // an initialiser here is doubly wrong: `runNames.push(...)` from a
+    // top-level onRun() hits a null array and throws (on hardware a
+    // SILENT boot death -- panic 980, unhandled exception, with no
+    // serial output at all because the protocol fiber never gets
+    // scheduled to print one), and any initialiser that DID run would
+    // then wipe the handlers that were just registered. Measured both
+    // ways on vevov 2026-08-21.
+    let runParts: string[]
+    let runNames: string[]
+    let runHandlers: ((arg: number) => void)[]
+    let runAnyHandlers: ((name: string, arg: number) => void)[]
+    let runWired: boolean
+
+    function ensureRunState(): void {
+        if (!runParts) runParts = []
+        if (!runNames) runNames = []
+        if (!runHandlers) runHandlers = []
+        if (!runAnyHandlers) runAnyHandlers = []
+    }
+
     _startProtocol()
 
     // ================= public API: velocity commands =================
@@ -127,15 +153,6 @@ namespace diffDrive {
     // had to (RUN:30000+us for a servo pulse, and so on).
     const RUN_EVENT_SOURCE = 0x2001
 
-    // Parts of the RUN command currently being dispatched: [0] is the
-    // name, [1..] its arguments. Safe as shared state because
-    // MessageBus delivers these events one at a time, each after the
-    // previous handler returns.
-    let runParts: string[] = []
-    let runNames: string[] = []
-    let runHandlers: ((arg: number) => void)[] = []
-    let runAnyHandlers: ((name: string, arg: number) => void)[] = []
-    let runWired = false
 
     function wireRunDispatch(): void {
         if (runWired) return
@@ -143,6 +160,7 @@ namespace diffDrive {
         control.onEvent(RUN_EVENT_SOURCE, 0, function () {
             const text = runCommandText(control.eventValue())
             if (text.length == 0) return
+            ensureRunState()
             runParts = text.split(":")
             const name = runParts[0]
             for (let i = 0; i < runNames.length; i++) {
@@ -169,6 +187,7 @@ namespace diffDrive {
     //% draggableParameters="reporter"
     //% group="Move"
     export function onRun(name: string, handler: (arg: number) => void): void {
+        ensureRunState()
         wireRunDispatch()
         runNames.push(name)
         runHandlers.push(handler)
@@ -184,6 +203,7 @@ namespace diffDrive {
     //% group="Move"
     export function onRunCommand(
         handler: (name: string, arg: number) => void): void {
+        ensureRunState()
         wireRunDispatch()
         runAnyHandlers.push(handler)
     }
@@ -204,7 +224,7 @@ namespace diffDrive {
     /** The i-th argument of the run command, as text ("" if absent). */
     //% blockHidden=true
     export function runArgText(i: number): string {
-        if (i < 0 || i + 1 >= runParts.length) return ""
+        if (!runParts || i < 0 || i + 1 >= runParts.length) return ""
         return runParts[i + 1]
     }
 
