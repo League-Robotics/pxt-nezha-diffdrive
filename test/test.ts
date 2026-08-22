@@ -181,6 +181,35 @@ function tourWheels() {
     touring = false
 }
 
+// ---- straight-line test ---------------------------------------------
+// WHEELS ONLY. No OTOS, no world frame, no heading correction: this
+// deliberately does not call worldReady(), seedPose() or logFix(), and
+// it does not steer. startMove(d, 0) runs on the encoders alone, so
+// whatever the robot does here is what the drivetrain does -- consult
+// the sensor and you are testing the sensor instead.
+//
+// Reports the ENCODER pose at the end: x is forward travel, y is how
+// far it drifted sideways. y is the interesting number, because a
+// perfectly straight run has y = 0 and nothing in this path is
+// correcting it.
+function straightRun(cm: number) {
+    if (touring) return
+    touring = true
+    openLoopProfile()
+    maxGapMs = 0
+    diffDrive.resetPose()
+    diffDrive.emitLine("DBG:straight=" + cm)
+    tickedMove(cm, 0)
+    diffDrive.emitLine("GAP:" + maxGapMs)
+    // cm x100, so a 1 mm drift is still visible as an integer.
+    diffDrive.emitLine("STRAIGHT:end:"
+        + Math.round(diffDrive.poseX() * 100) + ":"
+        + Math.round(diffDrive.poseY() * 100) + ":"
+        + Math.round(diffDrive.heading() * 100))
+    basic.showString("S")
+    touring = false
+}
+
 // ---- tour B: world --------------------------------------------------
 // The sensor is consulted BEFORE EVERY MOVE, so each leg is planned
 // from where the robot actually is. The move itself still runs on
@@ -262,8 +291,10 @@ function leverCal(verify: boolean) {
 }
 
 // ---- buttons --------------------------------------------------------
+// Button A is the straight-line test, not tour A. tourRobot() is still
+// reachable over the radio as RUN:tour:robot.
 input.onButtonPressed(Button.A, function () {
-    tourRobot()
+    straightRun(100)
 })
 input.onButtonPressed(Button.B, function () {
     tourWorld()
@@ -278,6 +309,13 @@ diffDrive.onRun("tour", function (arg: number) {
     if (which == "robot") tourRobot()
     else if (which == "world") tourWorld()
     else tourWheels()
+})
+
+// RUN:straight[:cm] -- the same test over the radio, so it can be run
+// without reaching onto the field and nudging the robot. Defaults to
+// the 100 cm that button A does.
+diffDrive.onRun("straight", function (arg: number) {
+    straightRun(diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 100)
 })
 
 diffDrive.onRun("cal", function (arg: number) {
