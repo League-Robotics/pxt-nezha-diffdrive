@@ -125,19 +125,17 @@ def main():
         ax.plot([c[1] for c in cam], [c[2] for c in cam], lw=2.0,
                 color=S2, zorder=4, label='camera (truth)')
         ax.plot([cam[0][1]], [cam[0][2]], 'o', ms=10, color=S2,
-                mec='white', mew=1.5, zorder=6)
+                mec='white', mew=1.5, zorder=6, label='start')
         ax.plot([cam[-1][1]], [cam[-1][2]], 's', ms=10, color=S2,
-                mec='white', mew=1.5, zorder=6)
+                mec='white', mew=1.5, zorder=6,
+                label=(f'end — closure {sc["closure"]:.1f} cm'
+                       if sc else 'end'))
     if pose:
         ax.plot([p[4] for p in pose], [p[5] for p in pose], lw=1.5,
                 color=S1, zorder=3, label='robot-reported (OTOS)')
-    if sc:
-        # Inside the rectangle, which is the one reliably empty region
-        # of this plot. Anchored to the start dot it ran off the right
-        # edge, and the corner labels sit on the perimeter.
-        ax.text(0.5, 0.42, f'closure {sc["closure"]:.1f} cm',
-                transform=ax.transAxes, ha='center', color=INK,
-                fontsize=10)
+    # Closure rides the 'end' legend entry rather than a floating label:
+    # it names the marker it describes, and the title already carries
+    # the number, so a third copy was only there to collide with things.
     ax.set_xlabel('x [cm]  (+east)', color=INK2)
     ax.set_ylabel('y [cm]  (+north)', color=INK2)
     ax.set_aspect('equal', adjustable='datalim')
