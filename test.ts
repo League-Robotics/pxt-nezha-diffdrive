@@ -85,31 +85,53 @@ function openLoopProfile() {
     diffDrive.setTaperWindows(400, 180)
     diffDrive.setTaperFloors(25, 12)
     diffDrive.setRampMs(400)
-    diffDrive.setDefaultSpeed(40)
+    diffDrive.setDefaultSpeed(20)
     diffDrive.setDefaultYawRate(90)
 }
 
 // ---- tour A: robot-relative -----------------------------------------
-// Each corner is named in the robot's OWN frame -- x forward, y left --
-// so this tour never consults a world position. Encoder odometry only.
+// "Robot-relative" means the tour never needs a WORLD position -- the
+// rectangle is expressed in a frame anchored where the robot started,
+// where its own position begins at (0,0). It does NOT mean flying
+// blind: heading comes from the IMU every leg, because a gyro heading
+// is far better than one differenced out of wheel encoders, and a
+// heading error is what rotates an entire rectangle.
 //
-// Turn-first is what makes "entirely to its left" a rectangle rather
-// than a semicircle: a target at 90 deg bearing reached by a constant
-// curvature arc bulges 30 cm OUTSIDE the rectangle, which on this
-// playfield is past the west edge.
-function goToRobot(fwd: number, left: number) {
-    const bearing = Math.atan2(left, fwd)
-    if (Math.abs(bearing) >= 50 * Math.PI / 180) {
-        tickedMove(0, bearing * 180 / Math.PI)
-        tickedMove(Math.sqrt(fwd * fwd + left * left), 0)
+// Every leg is planned as ONE body twist from the CURRENT pose and the
+// CURRENT measured heading. A few degrees of residual after a turn is
+// never corrected with another turn -- it is absorbed by curving to
+// the destination, which costs nothing and avoids the settle time and
+// overshoot of a second pivot.
+const RTX = [100, 100, 0, 0]     // [cm] corners in the start frame
+const RTY = [0, 60, 60, 0]       // x forward, y left
+
+function legToward(tx: number, ty: number) {
+    // Plan from where we ACTUALLY are: encoder position for the
+    // translation, IMU heading for the rotation.
+    for (let attempt = 0; attempt < 3; attempt++) {
+        diffDrive.readWorld()
+        const h = diffDrive.worldHeading() * Math.PI / 180
+        const dx = tx - diffDrive.poseX()
+        const dy = ty - diffDrive.poseY()
+        if (Math.sqrt(dx * dx + dy * dy) < 2) return      // arrived
+        const bx = Math.cos(h) * dx + Math.sin(h) * dy
+        const by = -Math.sin(h) * dx + Math.cos(h) * dy
+        const bearing = Math.atan2(by, bx)
+        // Only a genuinely large bearing gets a pivot -- an arc to a
+        // point 90 deg abeam is a semicircle bulging off the field.
+        // Small residuals fall through to the curve below.
+        if (Math.abs(bearing) >= 50 * Math.PI / 180) {
+            tickedMove(0, bearing * 180 / Math.PI)
+            continue        // re-measure, then curve out whatever is left
+        }
+        const theta = 2 * bearing
+        if (Math.abs(by) < 0.01) {
+            tickedMove(bx, 0)
+        } else {
+            tickedMove((bx * bx + by * by) / (2 * by) * theta,
+                theta * 180 / Math.PI)
+        }
         return
-    }
-    const theta = 2 * bearing
-    if (Math.abs(left) < 0.01) {
-        tickedMove(fwd, 0)
-    } else {
-        tickedMove((fwd * fwd + left * left) / (2 * left) * theta,
-            theta * 180 / Math.PI)
     }
 }
 
@@ -119,15 +141,15 @@ function tourRobot() {
     touring = true
     openLoopProfile()
     maxGapMs = 0
+    // Anchor BOTH sources at the start: encoder pose is the local
+    // frame's origin, and the IMU heading is zeroed to it.
     diffDrive.resetPose()
-    diffDrive.seedPose(START_X, START_Y, START_H)
+    diffDrive.seedPose(0, 0, 0)
     diffDrive.emitLine("DBG:tour=robot")
     logFix("c0")
-    goToRobot(LEG_CM[0], 0)          // straight ahead first
-    logFix("c1")
-    for (let i = 1; i < 4; i++) {
+    for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
-        goToRobot(0, LEG_CM[i])      // then entirely to the left
+        legToward(RTX[i], RTY[i])
         logFix("c" + (i + 1))
     }
     diffDrive.emitLine("GAP:" + maxGapMs)
@@ -165,19 +187,36 @@ function tourWheels() {
 // encoder odometry; the sensor never steers it in flight.
 function tourWorld() {
     if (touring) return
-    if (!worldReady()) return
+    // Deliberately NOT worldReady(): that re-inits the sensor when it
+    // looks unready, and begin() zeroes the position registers -- which
+    // would throw away the pose the host just seeded and send the robot
+    // off from a phantom origin.
+    if (!diffDrive.worldTrackingReady()) {
+        diffDrive.emitLine("OERR:not-seeded")
+        basic.showString("NO")
+        return
+    }
     touring = true
-    // FAST profile. This tour re-fixes before every leg, so a move only
-    // has to land close and the next fix corrects it -- the shaping the
-    // open-loop tours need buys this one nothing but seconds.
-    diffDrive.setTaperWindows(120, 80)
-    diffDrive.setTaperFloors(45, 35)
-    diffDrive.setRampMs(180)
-    diffDrive.setDefaultSpeed(60)
-    diffDrive.setDefaultYawRate(150)
+    // 200 mm/s (stakeholder). 60 cm/s was near the drivetrain ceiling
+    // and produced unusable runs; this is the working pace.
+    // This speed is now actually ACHIEVED. It previously was not: every
+    // leg goToWorld planned as an arc was pinned at the 25% floor by
+    // the yaw taper (see serviceMove in shims.cpp), so the tour crawled
+    // at 5 cm/s and ran its legs out of deadline at a third of the
+    // distance. That was misread as "the taper profile is too slow",
+    // and this block briefly carried the goto verb's faster windows to
+    // compensate. It was masking a bug with a higher floor -- the
+    // accuracy-tuned shaping is what these open-loop legs want, so it
+    // is restored now that arcs reach commanded speed on their own.
+    diffDrive.setTaperWindows(400, 180)
+    diffDrive.setTaperFloors(25, 12)
+    diffDrive.setRampMs(400)
+    diffDrive.setDefaultSpeed(20)
+    diffDrive.setDefaultYawRate(90)
     maxGapMs = 0
-    diffDrive.resetPose()
-    diffDrive.seedPose(START_X, START_Y, START_H)
+    // NO seed here: the host has already seeded the true world pose
+    // from the overhead camera (RUN:seedxy), so the robot can start
+    // anywhere on the field and simply drive to the first dot.
     diffDrive.emitLine("DBG:tour=world")
     logFix("c0")
     for (let i = 0; i < 4; i++) {
@@ -272,3 +311,58 @@ diffDrive.onRun("seed", function (arg: number) {
         + ":" + Math.round(diffDrive.worldY() * 100)
         + ":" + Math.round(diffDrive.worldHeading() * 100))
 })
+
+// Seed the world pose from an EXTERNAL fix -- the overhead camera.
+// RUN:seedxy:<x>:<y>:<h> in cm/cm/deg. This is the bench stand-in for
+// the v6 SEED verb; without it the tours can only assume they start on
+// the NE dot, and a robot placed anywhere else silently runs its whole
+// tour in a shifted frame.
+diffDrive.onRun("seedxy", function (arg: number) {
+    if (!worldReady()) return
+    diffDrive.seedPose(diffDrive.runArg(0), diffDrive.runArg(1),
+        diffDrive.runArg(2))
+    logFix("seeded")
+})
+
+// Drive to a world point: RUN:goto:<x>:<y> in cm. Used to reposition
+// onto the start dot between tours.
+diffDrive.onRun("goto", function (arg: number) {
+    if (touring) return
+    if (!worldReady()) return
+    touring = true
+    diffDrive.setTaperWindows(120, 80)
+    diffDrive.setTaperFloors(45, 35)
+    diffDrive.setRampMs(180)
+    diffDrive.setDefaultSpeed(40)
+    diffDrive.setDefaultYawRate(120)
+    diffDrive.goToWorld(diffDrive.runArg(0), diffDrive.runArg(1))
+    logFix("arrived")
+    diffDrive.emitLine("GOTO:end")
+    touring = false
+})
+
+// Turn in place to an absolute world heading: RUN:face:<deg>. The
+// tours start facing west, and goToWorld only controls POSITION.
+diffDrive.onRun("face", function (arg: number) {
+    if (touring) return
+    if (!worldReady()) return
+    touring = true
+    diffDrive.setDefaultYawRate(90)
+    // Close the loop HERE, on the robot, against its own IMU heading.
+    // Bouncing "measure, turn, measure" over the wireless link made the
+    // host hunt: every round trip added latency and a fresh chance for
+    // a lost command, so it oscillated instead of converging. On-device
+    // it settles in one or two passes with no radio in the loop.
+    for (let i = 0; i < 4; i++) {
+        diffDrive.readWorld()
+        let err = arg - diffDrive.worldHeading()
+        while (err > 180) err -= 360
+        while (err <= -180) err += 360
+        if (Math.abs(err) <= 2) break
+        tickedMove(0, err)
+    }
+    logFix("faced")
+    diffDrive.emitLine("FACE:end")
+    touring = false
+})
+

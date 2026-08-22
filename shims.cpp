@@ -443,8 +443,27 @@ static bool serviceMove(Rig& r) {
     // Turning AWAY from the target, well past sensor noise, is a fault
     // rather than something to keep driving into.
     if (toward < -3.0f * yawMargin) wrongWay = true;
-    const float axisScale = remain / kYawTaper;
-    if (axisScale < scale) scale = axisScale;
+    // Only a PURE TURN tapers on yaw. In an arc the twist and the
+    // velocity are locked by the curvature, so the distance taper
+    // already scales yaw by the same factor and both axes finish
+    // together -- a second, independent yaw taper double-counts.
+    //
+    // Worse, it double-counts catastrophically, because the window is
+    // a FIXED 180 counts (~15 deg) while a gentle arc's whole yaw
+    // target is a degree or two. remain/kYawTaper therefore starts
+    // BELOW the floor and stays there: the move begins inside its own
+    // taper and never leaves it. Measured on vevov 2026-08-22, world
+    // tour: three legs ran at 5.0/5.3/5.1 cm/s against a commanded 20
+    // -- exactly the 25% distFloor -- while the one leg whose bearing
+    // error fell under goToWorld's 0.01 rad straight-line threshold
+    // skipped this branch entirely and ran the full 20.4 cm/s, landing
+    // on its dot. A 0.57 deg difference in bearing was worth 4x in
+    // speed; that cliff was the whole "tour never reaches its corners"
+    // symptom.
+    if (pureTurn) {
+      const float axisScale = remain / kYawTaper;
+      if (axisScale < scale) scale = axisScale;
+    }
   }
   if (scale < kTaperFloor) scale = kTaperFloor;
   // Acceleration ramp: time-based rise from the floor to full rate
@@ -940,6 +959,16 @@ void setTaperFloors(int distPct, int turnPct) {
 void setRampMs(int ms) {
   Rig& r = ensure();
   if (ms > 0) r.rampMs = static_cast<float>(ms);
+}
+
+// Measured wheel speed [mm/s] straight from the kernel's per-tick
+// encoder measurement. 1 count = 0.1 deg of shaft, so counts/s * the
+// travel calibration / 10 gives mm/s.
+int wheelSpeed(int which) {
+  Rig& r = ensure();
+  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
+  const float counts = (which == 0) ? out.velocityLeft : out.velocityRight;
+  return static_cast<int>(std::lround(counts * r.travelCalib * 0.1f));
 }
 
 //%
