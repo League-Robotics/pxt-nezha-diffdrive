@@ -52,6 +52,9 @@ def wheel_speeds(pose, hdr):
     if 'vl_cms' in hdr:
         a, b = hdr.index('vl_cms'), hdr.index('vr_cms')
         return [(p[0], p[a], p[b]) for p in pose]
+    if 'vl_mms' in hdr:      # tour_run.py records mm/s; plot in cm/s
+        a, b = hdr.index('vl_mms'), hdr.index('vr_mms')
+        return [(p[0], p[a] / 10.0, p[b] / 10.0) for p in pose]
     out = []
     for a, b in zip(pose, pose[1:]):
         dt = b[0] - a[0]
@@ -129,9 +132,12 @@ def main():
         ax.plot([p[4] for p in pose], [p[5] for p in pose], lw=1.5,
                 color=S1, zorder=3, label='robot-reported (OTOS)')
     if sc:
-        ax.annotate(f'closure {sc["closure"]:.1f} cm',
-                    (cam[0][1], cam[0][2]), textcoords='offset points',
-                    xytext=(8, -18), color=INK, fontsize=10)
+        # Inside the rectangle, which is the one reliably empty region
+        # of this plot. Anchored to the start dot it ran off the right
+        # edge, and the corner labels sit on the perimeter.
+        ax.text(0.5, 0.42, f'closure {sc["closure"]:.1f} cm',
+                transform=ax.transAxes, ha='center', color=INK,
+                fontsize=10)
     ax.set_xlabel('x [cm]  (+east)', color=INK2)
     ax.set_ylabel('y [cm]  (+north)', color=INK2)
     ax.set_aspect('equal', adjustable='datalim')
@@ -140,7 +146,9 @@ def main():
     ax.tick_params(colors=INK2)
     for sp in ax.spines.values():
         sp.set_color(MUTED)
-    ax.legend(loc='upper left', frameon=False, fontsize=9, labelcolor=INK2)
+    # Centred, not upper-left: the path hugs the perimeter and the
+    # corner labels live there, so a corner legend covers the NW dot.
+    ax.legend(loc='center', frameon=False, fontsize=9, labelcolor=INK2)
     ax.set_title('Path', color=INK, fontsize=11, loc='left')
 
     ax2 = fig.add_subplot(1, 2, 2)
