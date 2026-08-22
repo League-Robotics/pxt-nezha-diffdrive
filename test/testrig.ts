@@ -41,7 +41,10 @@ let rigOffX = 0      // [mm] lever arm under test
 let rigOffY = 0      // [mm]
 let rigOffYaw = 0    // [deg]
 
-diffDrive.onRunCommand(function (n: number) {
+// onRunCommand answers EVERY run command and so takes the verb name as
+// well as the argument. This rig predates the named-verb dispatch and
+// still wants only the number.
+diffDrive.onRunCommand(function (name: string, n: number) {
     rigPending = n
 })
 

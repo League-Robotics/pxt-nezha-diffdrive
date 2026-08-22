@@ -9,25 +9,25 @@
     },
     "files": [
         "README.md",
-        "diffdrive.h",
-        "diffdrive.cpp",
-        "platform_ports.h",
-        "nezha_port.h",
-        "nezha_port.cpp",
-        "otos_port.h",
-        "otos_port.cpp",
-        "serial_transport.h",
-        "serial_transport.cpp",
-        "radio_transport.h",
-        "radio_transport.cpp",
-        "protocol.h",
-        "protocol.cpp",
-        "shims.cpp",
-        "main.ts"
+        "src/diffdrive.h",
+        "src/diffdrive.cpp",
+        "src/platform_ports.h",
+        "src/nezha_port.h",
+        "src/nezha_port.cpp",
+        "src/otos_port.h",
+        "src/otos_port.cpp",
+        "src/serial_transport.h",
+        "src/serial_transport.cpp",
+        "src/radio_transport.h",
+        "src/radio_transport.cpp",
+        "src/protocol.h",
+        "src/protocol.cpp",
+        "src/shims.cpp",
+        "src/main.ts"
     ],
     "testFiles": [
-        "test.ts",
-        "testrig.ts"
+        "test/test.ts",
+        "test/testrig.ts"
     ],
     "supportedTargets": [
         "microbit"

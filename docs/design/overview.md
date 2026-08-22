@@ -60,7 +60,7 @@ Three layers, cleanly separated:
    I2C and for the CODAL runtime underneath MakeCode/micro:bit,
    including an anti-latch write-shaping pipeline that guards several
    measured hardware failure modes of the brick.
-3. **Shim + blocks** (`shims.cpp`, `main.ts`) — composes the kernel and
+3. **Shim + blocks** (`src/shims.cpp`, `src/main.ts`) — composes the kernel and
    ports into a lazily-initialized rig, adds odometry (dead-reckoning
    from encoder counts, since the kernel itself has no chassis
    geometry) and a position-mode move engine, and exposes it all as

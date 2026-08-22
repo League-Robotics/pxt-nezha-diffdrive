@@ -89,7 +89,7 @@ within about 150 ms. It's a safety net, not an emergency stop: it
 doesn't latch, and there's nothing to clear — a fresh `move()` or
 `driveTick()` loop resumes driving right away.
 
-See `test.ts` for a worked example: button A drives a square with the
+See `test/test.ts` for a worked example: button A drives a square with the
 blocking `move()` block; button B drives the same square with
 `startMove()` + `while (diffDrive.driveTick())` per leg, plus a live
 LED readout in the loop body.
@@ -98,7 +98,7 @@ LED readout in the loop body.
 
 Left wheel on M2 (mirrored), right wheel on M1 — the standard two-motor
 chassis. The motor ports and directions are compile-time defaults in
-`shims.cpp`.
+`src/shims.cpp`.
 
 ## Provenance
 

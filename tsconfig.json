@@ -16,8 +16,9 @@
     "pxt_modules/core/basic.ts",
     "pxt_modules/core/control.ts",
     "pxt_modules/core/input.ts",
-    "main.ts",
-    "test.ts"
+    "src/main.ts",
+    "test/test.ts",
+    "test/testrig.ts"
   ],
   "exclude": [
     "node_modules"

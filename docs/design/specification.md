@@ -31,8 +31,8 @@ From `pxt.json`:
 | description | "Closed-loop differential drive for the Nezha brick: encoder-servoed wheel speeds, twist and distance moves, curved go-to, and pose from odometry. The wheel controller runs in its own fiber." |
 | license | MIT |
 | dependencies | `core: *` |
-| files | README.md, diffdrive.h, diffdrive.cpp, platform_ports.h, nezha_port.h, nezha_port.cpp, shims.cpp, main.ts |
-| testFiles | test.ts |
+| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, platform_ports.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, shims.cpp, main.ts |
+| testFiles | test/test.ts, test/testrig.ts |
 | supportedTargets | microbit |
 | preferredEditor | tsprj |
 
