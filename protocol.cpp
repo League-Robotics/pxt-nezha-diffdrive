@@ -49,6 +49,10 @@ bool moving();
 // The cache is refreshed by the motion layer's own boundary reads, on
 // the tick fiber.
 int otosGet(int what);
+// Measured wheel speed [mm/s], 0 = left, 1 = right. Per-tick encoder
+// measurement from the kernel -- the only honest speed at this frame
+// rate (see sendTelemetry).
+int wheelSpeed(int which);
 
 // ---- CRC-16/CCITT-FALSE ----------------------------------------------
 
@@ -856,12 +860,23 @@ void Protocol::sendTelemetry() {
   // drift being measured, so reporting them at the same instant is the
   // measurement. The OTOS half is the CACHED fix (see otosGet's
   // forward declaration above -- no bus traffic from this fiber).
-  char buf[96];  // "TLM:" + u32 ms + six int32 fields + separators
+  //
+  // WHEEL VELOCITIES ride the frame too, and they are not a
+  // convenience: differencing the POSE to recover speed does not work
+  // at this cadence. Odometry advances only on a control tick (24 ms)
+  // while telemetry goes out every ~56 ms, which is 2.33 ticks -- so
+  // each frame captures 2 or 3 ticks of travel in a repeating 2-2-3
+  // pattern, and dividing that by a constant 56 ms manufactures a
+  // +-25% sawtooth on a perfectly steady leg. Measured on vevov: a
+  // steady 44 cm/s cruise read as 55/55/84 cm/s. The kernel already
+  // measures each wheel per tick from its own encoder; report that.
+  char buf[112];  // "TLM:" + u32 ms + eight int32 fields + separators
   const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
-  const int n = snprintf(buf, sizeof(buf), "TLM:%lu:%d:%d:%d:%d:%d:%d",
+  const int n = snprintf(buf, sizeof(buf), "TLM:%lu:%d:%d:%d:%d:%d:%d:%d:%d",
                          static_cast<unsigned long>(nowMs), poseX(),
                          poseY(), poseHeading(),
-                         otosGet(0) / 10, otosGet(1) / 10, otosGet(2));
+                         otosGet(0) / 10, otosGet(1) / 10, otosGet(2),
+                         wheelSpeed(0), wheelSpeed(1));
   // sprint 002 ticket 006: mirror the identical formatted bytes onto
   // radio (SUC-004) -- same buf/n/bufCap, one source of truth for line
   // content, two sinks (sprint.md Solution).

@@ -534,7 +534,15 @@ namespace diffDrive {
     // driving (the arc), not by steering corrections in flight.
 
     let arriveTolCm = 1.0        // [cm] v6 GOTO `arrive`
-    let turnFirstDeg = 50.0      // pivot first beyond this bearing error
+    // Pivot first beyond this bearing error. 12 deg, NOT the 50 this
+    // started at: a capped arc physically cannot reach a target that is
+    // meaningfully off-bearing -- it drives a bounded curve and lands
+    // short, which left the tour stopping partway to three of four
+    // corners. Pointing at the target first makes every drive nearly
+    // straight, and that is what actually hit the dots (0.7-12.7 cm
+    // when it was done host-side; this moves it onto the robot).
+    // Anything under 12 deg is left to curve out over the leg.
+    let turnFirstDeg = 12.0
     let maxNudges = 6            // bounded arrival retries
 
     /**
@@ -558,43 +566,70 @@ namespace diffDrive {
     //% block="go to world x %x cm y %y cm"
     //% group="World"
     export function goToWorld(x: number, y: number): void {
-        for (let attempt = 0; attempt <= maxNudges; attempt++) {
-            // --- boundary fix: where are we, really? ---
+        // ONE PASS. Drive at the point, get as close as the leg gets,
+        // stop. No arrival nudging, no creeping up on it, no squaring
+        // up -- iterating at the destination is what turned a tour into
+        // 44 s of lurch-and-sit, and it buys accuracy the next hop can
+        // absorb for free.
+        //
+        // Whatever error this leg ends with is INHERITED by the next
+        // one, which plans from wherever the robot actually is. Over a
+        // multi-hop route that converges; correcting in place does not,
+        // it just costs time and looks awful.
+        //
+        // The OTOS is read here, on the robot. That is not the camera:
+        // the overhead camera is a diagnostic and never drives a leg.
+        readWorld()
+        const px = worldX()
+        const py = worldY()
+        let ph = worldHeading() * Math.PI / 180
+
+        let dx = x - px
+        let dy = y - py
+        if (Math.sqrt(dx * dx + dy * dy) <= arriveTolCm) return
+
+        let bx = Math.cos(ph) * dx + Math.sin(ph) * dy
+        let by = -Math.sin(ph) * dx + Math.cos(ph) * dy
+        let bearing = Math.atan2(by, bx)
+
+        // A target well off the bow needs a pivot first -- an arc to a
+        // point abeam is a semicircle that leaves the field. This is
+        // the ONE re-measure in the pass, and only because the pivot
+        // itself changes the geometry the drive is planned from.
+        if (Math.abs(bearing) >= turnFirstDeg * Math.PI / 180) {
+            tickedMove(0, bearing * 180 / Math.PI)
             readWorld()
-            const px = worldX()
-            const py = worldY()
-            const ph = worldHeading() * Math.PI / 180
+            ph = worldHeading() * Math.PI / 180
+            dx = x - worldX()
+            dy = y - worldY()
+            bx = Math.cos(ph) * dx + Math.sin(ph) * dy
+            by = -Math.sin(ph) * dx + Math.cos(ph) * dy
+            bearing = Math.atan2(by, bx)
+        }
 
-            const dx = x - px
-            const dy = y - py
-            const dist = Math.sqrt(dx * dx + dy * dy)
-            if (dist <= arriveTolCm) return       // arrived
-
-            // Target in the robot's own frame (x forward, y left).
-            const cos = Math.cos(ph)
-            const sin = Math.sin(ph)
-            const bx = cos * dx + sin * dy
-            const by = -sin * dx + cos * dy
-            const bearing = Math.atan2(by, bx)    // [rad] signed
-
-            // --- turn-first: only when badly off-bearing ---
-            if (Math.abs(bearing) >= turnFirstDeg * Math.PI / 180) {
-                tickedMove(0, bearing * 180 / Math.PI)
-                continue    // re-fix, then plan the drive from it
-            }
-
-            // --- one constant-curvature arc to the target ---
-            // Tangent circle through the body-frame point (bx, by):
-            // turn angle theta = 2*atan2(by, bx), radius
-            // R = (bx^2+by^2)/(2*by), arc length s = R*theta.
-            const theta = 2 * bearing
-            let s: number
-            if (Math.abs(by) < 0.01) {
-                s = bx                            // straight
-            } else {
-                s = (bx * bx + by * by) / (2 * by) * theta
-            }
-            tickedMove(s, theta * 180 / Math.PI)
+        // Curve out the residual bearing -- but CAP THE CURVATURE.
+        //
+        // theta = 2*bearing, so a bearing still large after the pivot
+        // becomes a half-circle: measured on vevov, a leg with 55 deg
+        // of residual drove a 110 deg arc and finished 23 cm from where
+        // it started while the target was 60 cm away. Legs that began
+        // nearly on-bearing were fine, which is exactly this signature.
+        //
+        // Capping keeps the leg a gentle curve that covers the straight
+        // line distance to the target. Any bearing beyond the cap is
+        // simply left for the next hop to absorb, which is the same
+        // principle as not pivoting twice.
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        const kMaxArc = 25 * Math.PI / 180
+        let b = bearing
+        if (b > kMaxArc) b = kMaxArc
+        if (b < -kMaxArc) b = -kMaxArc
+        if (Math.abs(b) < 0.01) {
+            tickedMove(dist, 0)
+        } else {
+            // Chord `dist` subtending 2b: R = dist / (2 sin b), arc = R*2b
+            const radius = dist / (2 * Math.sin(b))
+            tickedMove(radius * 2 * b, 2 * b * 180 / Math.PI)
         }
     }
 
