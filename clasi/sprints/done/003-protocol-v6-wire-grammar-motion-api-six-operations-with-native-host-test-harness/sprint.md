@@ -2,7 +2,7 @@
 id: '003'
 title: Protocol v6 wire grammar + Motion API six operations, with native host test
   harness
-status: executing
+status: done
 branch: sprint/003-protocol-v6-wire-grammar-motion-api-six-operations-with-native-host-test-harness
 use-cases: []
 issues:
