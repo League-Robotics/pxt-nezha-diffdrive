@@ -2,7 +2,7 @@
 id: '002'
 title: 'Wire grammar core: line reassembly, tokenizing, case-direction, grammar edge
   cases'
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on:
