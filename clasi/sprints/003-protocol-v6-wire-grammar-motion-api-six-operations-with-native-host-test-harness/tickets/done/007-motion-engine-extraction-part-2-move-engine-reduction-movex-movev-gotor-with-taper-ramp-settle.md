@@ -2,7 +2,7 @@
 id: '007'
 title: 'Motion engine extraction, part 2: move-engine reduction (moveX, moveV, goToR)
   with taper/ramp/settle'
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 - SUC-004
