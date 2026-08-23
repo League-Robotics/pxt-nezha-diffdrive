@@ -222,7 +222,10 @@ def main():
         print(f'\n=== {a.tour} tour, run {run} ===')
         if a.reposition:
             print('  repositioning onto the NE dot (setup, not the tour)')
-            if not place(link, cam, 50.0, 30.0, 180.0):
+            # 1.5 deg, not 4: an open-loop tour turns start heading
+            # error straight into corner error (leg x sin theta), so
+            # 4 deg on a 100 cm leg is already 7 cm.
+            if not place(link, cam, 50.0, 30.0, 180.0, tol_deg=1.5):
                 break
         # --- camera use #1 of 2: seed the world pose, once ---
         p = cam.fix()

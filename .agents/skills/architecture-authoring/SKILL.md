@@ -15,8 +15,10 @@ architecture from scratch or a sprint update.
 Design the system architecture from scratch when no architecture document
 exists yet.
 
-Given `.clasi/design/overview.md` and `.clasi/design/usecases.md`, produce
-the first architecture document following steps 1-7 below.
+Given `overview.md` and `usecases.md` in the project's configured
+design directory (`paths.design` in `.clasi/config.yaml`, default
+`docs/design/`), produce the first architecture document following
+steps 1-7 below.
 
 This mode is superseded, for a project that has opted into the persistent
 per-subsystem design-doc set (`Project.design_docs_opt_in` is `True`), by

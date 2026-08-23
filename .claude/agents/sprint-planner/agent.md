@@ -32,7 +32,9 @@ From team-lead (via Agent tool prompt):
 - **High-level goals** describing what the sprint should accomplish
 - **TODO file references** (paths or filenames) identifying the items
   to address — read these yourself to understand the details
-- **`.clasi/design/overview.md`** for project context
+- **`overview.md`** (in the project's configured design directory —
+  `paths.design` in `.clasi/config.yaml`, default `docs/design/`) for
+  project context
 - The latest architecture version for structural context
 - Sprint ID and directory path
 
@@ -382,6 +384,21 @@ Domain components have no outward dependencies. Infrastructure is a plugin.
   `create-tickets` skill.
 - For merging architecture documents across sprints, see the
   `consolidate-architecture` skill.
+
+## Guard Blocks
+
+If a CLASI guard (role-guard, mcp-guard) blocks a write, stop and report
+it to the dispatcher — do not route around it with a Bash heredoc,
+`sed -i`, a shell redirection, `git apply`, or any other tool or
+mechanism that reaches the file without going through the blocked call.
+The full stop/report/wait rule, the one legitimate exception (a
+deliberately invoked, reported `clasi oop on --reason '...'`), and the
+explicit note that this does not close role-guard's own matcher gap all
+live in one place — call `get_instruction("software-engineering")` and
+read "Error Recovery" -> "Guard blocks (stop, report, wait)" if unsure
+of the steps. **Reporting a block is a successful outcome of a
+dispatch, not a failure** — an agent that stops and reports has done
+its job correctly.
 
 ## Exception Protocol
 
