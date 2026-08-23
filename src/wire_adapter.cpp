@@ -47,6 +47,28 @@ void engineMoveX(float distance, float rotationRad, float cruise,
                  uint32_t timeoutMs);
 float engineDefaultCruiseMmS();
 
+// ---- shims.cpp entry points (sprint 003 ticket 012) --------------------
+// MOVE_V/GO_TO_R/GO_TO_W's own route onto motion_engine.h's MotionEngine,
+// completing the six-verb motion surface -- same forward-declaration
+// convention as engineWheelsX()/engineMoveX()/engineDefaultCruiseMmS()
+// above. `omegaRad` arrives at engineMoveV() ALREADY converted from the
+// wire's milliradian integer, same seam as engineMoveX()'s `rotationRad`
+// (mradToRad() below). `speed`'s <0/==0 handling for engineGoToR()/
+// engineGoToW() is resolved by onGoToR()/onGoToW() below, via
+// engineDefaultCruiseMmS(), BEFORE either is ever called -- identical
+// convention to `cruise` above. engineGoToW() additionally reports back,
+// via its bool return, whether a live PoseSource was actually available
+// to dispatch onto MotionEngine::goToW() -- false means "no OTOS
+// fitted/connected" (motion-api.md S3.6, ticket 010's own out-of-scope
+// encoder-odometry fallback), not a decode or dispatch failure of its
+// own; onGoToW() below turns that into an honest refusal rather than
+// ever calling MotionEngine::goToW() with a bogus pose.
+void engineMoveV(float vx, float omegaRad, uint32_t durationMs);
+void engineGoToR(float x, float y, float speed, float arrive,
+                 uint32_t timeoutMs);
+bool engineGoToW(float x, float y, float speed, float arrive,
+                 uint32_t timeoutMs);
+
 namespace {
 
 // The 15 `ConfigField` enum entries (main.ts) mapped onto
@@ -136,16 +158,18 @@ const char* tlmModeWireName(Wire::TlmMode mode) {
 
 // motion-api.md S9.1: "Angles are degrees at the API and milliradian
 // integers on the wire ... The conversion lives in the binding, in one
-// place." This is that one place: MOVE_X's wire `rotation` field
-// arrives here as a milliradian INTEGER, already decoded into this
-// float by wire_handler.cpp; MotionEngine::moveX() (motion_engine.h)
-// wants RADIANS, its own native unit, with no wire-unit awareness of
-// its own. 1 mrad == 0.001 rad, exact for any value this field can
-// carry -- see test_wire_motion_verbs.py's own dedicated round-trip
-// tests (both signs): an off-by-1000 here is invisible in a green build
-// (everything still compiles and dispatches) and catastrophic on the
-// robot (a 90 deg turn either barely twitches or spins wildly past a
-// full revolution, depending on which way the factor is missed).
+// place." This is that one place: MOVE_X's wire `rotation` field and
+// MOVE_V's wire `omega` field (sprint 003 ticket 012) both arrive here
+// as a milliradian INTEGER, already decoded into this float by
+// wire_handler.cpp; MotionEngine::moveX()/moveV() (motion_engine.h) both
+// want RADIANS (or radians-per-second, for `omega`), their own native
+// unit, with no wire-unit awareness of their own. 1 mrad == 0.001 rad,
+// exact for any value either field can carry -- see
+// test_wire_motion_verbs.py's own dedicated round-trip tests (both
+// signs, both fields): an off-by-1000 here is invisible in a green
+// build (everything still compiles and dispatches) and catastrophic on
+// the robot (a 90 deg turn either barely twitches or spins wildly past
+// a full revolution, depending on which way the factor is missed).
 float mradToRad(float milliradians) { return milliradians * 0.001f; }
 
 }  // namespace
@@ -242,6 +266,18 @@ Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
       cruise == 0.0f ? engineDefaultCruiseMmS() : cruise;
   if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
   engineWheelsX(left, right, resolvedCruise, timeout);
+  // sprint 003 ticket 012: arm the SAME motion-obligation tracking
+  // onWheelsV() above always has -- see wire_adapter.h's own header
+  // comment for the bug this fixes (ticket 011 dispatched real effect
+  // here without arming it, so protocol.cpp's fiber never ticked the
+  // kernel for this verb on hardware). `timeout` is a backstop, not
+  // this move's real duration, so this is a conservative deadline: the
+  // fiber may keep ticking a little past actual completion, which is
+  // harmless.
+  if (nowMs_ != nullptr) {
+    motionObligationActive_ = true;
+    motionObligationDeadlineMs_ = nowMs_() + timeout;
+  }
   return Wire::Result::kOk;
 }
 
@@ -257,24 +293,77 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
   // The wire's ONE milliradian->radian conversion seam (motion-api.md
   // S9.1) -- see mradToRad()'s own comment above.
   engineMoveX(distance, mradToRad(rotation), resolvedCruise, timeout);
+  // sprint 003 ticket 012: see onWheelsX()'s identical comment above.
+  if (nowMs_ != nullptr) {
+    motionObligationActive_ = true;
+    motionObligationDeadlineMs_ = nowMs_() + timeout;
+  }
   return Wire::Result::kOk;
 }
 
-Wire::Result WireAdapter::onMoveV(float /*v_x*/, float /*omega*/,
-                                  uint32_t /*duration*/, uint32_t /*id*/) {
-  return Wire::Result::kUnknown;
+Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
+                                  uint32_t id) {
+  (void)id;
+  // Shares WHEELS_V's own ceiling and "duration is the lease" rationale
+  // -- see kWheelsVDurationCeiling's own doc comment (wire_adapter.h).
+  if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
+  // The wire's OTHER milliradian->radian conversion seam (motion-api.md
+  // S9.1) -- `omega` is angle-shaped exactly like MOVE_X's `rotation`;
+  // see mradToRad()'s own comment above.
+  engineMoveV(v_x, mradToRad(omega), duration);
+  // sprint 003 ticket 012: see onWheelsX()'s identical comment above --
+  // here `duration` IS the lease already, same as onWheelsV().
+  if (nowMs_ != nullptr) {
+    motionObligationActive_ = true;
+    motionObligationDeadlineMs_ = nowMs_() + duration;
+  }
+  return Wire::Result::kOk;
 }
 
-Wire::Result WireAdapter::onGoToR(float /*x*/, float /*y*/, float /*speed*/,
-                                  float /*arrive*/, uint32_t /*timeout*/,
-                                  uint32_t /*id*/) {
-  return Wire::Result::kUnknown;
+Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
+                                  uint32_t timeout, uint32_t id) {
+  (void)id;
+  // `speed`'s <0/==0 handling mirrors onWheelsX()/onMoveX() above -- see
+  // this method's own doc comment (wire_adapter.h) for why (`speed`
+  // plays `cruise`'s role for the underlying moveX() call).
+  if (speed < 0.0f) return Wire::Result::kRange;
+  const float resolvedSpeed =
+      speed == 0.0f ? engineDefaultCruiseMmS() : speed;
+  if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
+  engineGoToR(x, y, resolvedSpeed, arrive, timeout);
+  // sprint 003 ticket 012: see onWheelsX()'s identical comment above.
+  if (nowMs_ != nullptr) {
+    motionObligationActive_ = true;
+    motionObligationDeadlineMs_ = nowMs_() + timeout;
+  }
+  return Wire::Result::kOk;
 }
 
-Wire::Result WireAdapter::onGoToW(float /*x*/, float /*y*/, float /*speed*/,
-                                  float /*arrive*/, uint32_t /*timeout*/,
-                                  uint32_t /*id*/) {
-  return Wire::Result::kUnknown;
+Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
+                                  uint32_t timeout, uint32_t id) {
+  (void)id;
+  // Same speed <0/==0 handling as onGoToR() above.
+  if (speed < 0.0f) return Wire::Result::kRange;
+  const float resolvedSpeed =
+      speed == 0.0f ? engineDefaultCruiseMmS() : speed;
+  if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
+  // motion-api.md S3.6 / ticket 010's own Description: the
+  // encoder-odometry fallback is explicitly out of scope and not built,
+  // so "no OTOS fitted, or fitted but never begun/connected" is a real
+  // reachable state on this fleet, not theoretical -- see this method's
+  // own doc comment (wire_adapter.h) for why kUnimplemented is the
+  // refusal this class answers rather than driving toward a
+  // garbage/zeroed pose.
+  if (!engineGoToW(x, y, resolvedSpeed, arrive, timeout)) {
+    return Wire::Result::kUnimplemented;
+  }
+  // sprint 003 ticket 012: see onWheelsX()'s identical comment above --
+  // only armed on the path that actually dispatched a move.
+  if (nowMs_ != nullptr) {
+    motionObligationActive_ = true;
+    motionObligationDeadlineMs_ = nowMs_() + timeout;
+  }
+  return Wire::Result::kOk;
 }
 
 void WireAdapter::onEstop() {

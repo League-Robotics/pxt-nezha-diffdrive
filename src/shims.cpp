@@ -42,6 +42,15 @@
 // primitives" section below. See wire_adapter.cpp's own forward-
 // declaration block for the up-to-date list it must keep signature-
 // compatible with.
+//
+// Fourth caller (ticket 012): WireAdapter's MOVE_V/GO_TO_R/GO_TO_W
+// handlers reach this file the same way -- three more forward
+// declarations (engineMoveV, engineGoToR, engineGoToW), completing the
+// six-verb motion surface. Defined in the "wire motion-engine
+// primitives, part 2" section further down (after the OTOS section,
+// since engineGoToW() needs otosRef()). See wire_adapter.cpp's own
+// forward-declaration block for the up-to-date list it must keep
+// signature-compatible with.
 #include "pxt.h"
 #include "diffdrive.h"
 #include "motion_engine.h"
@@ -817,6 +826,54 @@ static OtosPort* gOtos = nullptr;
 static OtosPort& otosRef() {
   if (gOtos == nullptr) gOtos = new OtosPort();
   return *gOtos;
+}
+
+// ---- wire motion-engine primitives, part 2 (sprint 003 ticket 012:
+// WireAdapter's MOVE_V/GO_TO_R/GO_TO_W handlers) -----------------------
+// Same forward-declaration convention as engineWheelsX()/engineMoveX()/
+// engineDefaultCruiseMmS() above -- WireAdapter has no reference of its
+// own to this Rig's `engine`, so these three thin, wire-shaped forwards
+// are the seam. `omegaRad` arrives at engineMoveV() ALREADY converted
+// from the wire's milliradian integer (wire_adapter.cpp's mradToRad()).
+// `speed`'s <0/==0 "configured default" substitution (motion-api.md
+// S1.1) is resolved by onGoToR()/onGoToW() in wire_adapter.cpp BEFORE
+// either of these two is ever called, via engineDefaultCruiseMmS()
+// above -- identical convention to `cruise` for engineWheelsX()/
+// engineMoveX(). Placed after otosRef() (just above), not with
+// engineWheelsX()/engineMoveX() further up this file, because
+// engineGoToW() needs it.
+void engineMoveV(float vx, float omegaRad, uint32_t durationMs) {
+  Rig& r = ensure();
+  r.engine.moveV(vx, omegaRad, durationMs);
+}
+
+void engineGoToR(float x, float y, float speed, float arrive,
+                 uint32_t timeoutMs) {
+  Rig& r = ensure();
+  r.engine.goToR(x, y, speed, arrive, timeoutMs);
+}
+
+// GO_TO_W's own PoseSource (motion_engine.h, ticket 010; motion-api.md
+// S3.6): this file's `gOtos`/otosRef() lazy singleton, just above, is
+// the only pose source this robot's wiring has -- the encoder-odometry
+// fallback motion-api.md S3.6 also describes ("OTOS when fitted,
+// encoder odometry otherwise") is explicitly out of scope (ticket 010's
+// own Description) and is not built here. A robot with no OTOS fitted
+// at all (motion-api.md S3.6's own `gopiv` example), or one whose OTOS
+// was never begun (no otosBegin() call this session, or begin() never
+// matched the expected product id), has connected() == false -- this
+// returns false rather than ever calling MotionEngine::goToW() with a
+// pose read off a sensor that has never actually talked to this robot,
+// so wire_adapter.cpp can refuse the call honestly instead of silently
+// driving toward a garbage/zeroed pose. Returns true iff the call was
+// actually dispatched onto MotionEngine::goToW().
+bool engineGoToW(float x, float y, float speed, float arrive,
+                uint32_t timeoutMs) {
+  OtosPort& otos = otosRef();
+  if (!otos.connected()) return false;
+  Rig& r = ensure();
+  r.engine.goToW(otos, x, y, speed, arrive, timeoutMs);
+  return true;
 }
 
 // Expose diagValue() to the TS layer for on-device instrumentation.

@@ -1,7 +1,7 @@
-"""tests/host/test_wire_motion_verbs.py -- sprint 003 tickets 004/011: the
-six motion verbs' wire decode/dispatch (WHEELS_X, WHEELS_V, MOVE_X, MOVE_V,
-GO_TO_R, GO_TO_W), src/wire_adapter.h's WireAdapter, and STOP's `now`
-token.
+"""tests/host/test_wire_motion_verbs.py -- sprint 003 tickets 004/011/012:
+the six motion verbs' wire decode/dispatch (WHEELS_X, WHEELS_V, MOVE_X,
+MOVE_V, GO_TO_R, GO_TO_W), src/wire_adapter.h's WireAdapter, and STOP's
+`now` token.
 
 Canonical spec (read-only, a different repo -- this project conforms to
 its grammar, it does not vendor its C++):
@@ -10,9 +10,11 @@ radio-robot-lib/docs/design/protocol.md S4 (the Adapter interface), S5
 verb table, outcome codes), S9.10 item 1 (why kUnknown, not
 kUnimplemented).
 radio-robot-lib/docs/design/motion-api.md S1 (arguments/units), S1.1
-(cruise == 0 means "the configured default"), S9.1 (the wire mapping
-table, including the ONE mrad<->rad conversion seam MOVE_X's `rotation`
-needs).
+(cruise == 0 means "the configured default"), S2 (move_v/go_to_r/go_to_w
+as reductions onto wheels_v/move_x), S3.4 (move_v's duration IS the
+lease, exactly like wheels_v), S3.6 (go_to_w's pluggable pose source),
+S9.1 (the wire mapping table, including the mrad<->rad conversion seam
+MOVE_X's `rotation` AND MOVE_V's `omega` both need).
 
 Two fixtures, two different concerns (see wire_motion_verb_shim.cpp's
 own header comment for the full rationale):
@@ -22,14 +24,18 @@ own header comment for the full rationale):
   numeric field) for all six verbs, plus proof that a MERITS rejection
   (`err 1`, ERR_UNKNOWN) is never a decode failure (nack + err).
 - `wa` -- WireHandler + the REAL WireAdapter + a REAL DiffDrive kernel
-  AND MotionEngine over FakeMotor: WHEELS_V's/WHEELS_X's/MOVE_X's real
-  effect (sprint 003 tickets 004/011 -- commanded left/right, or
-  distance/rotation, map to the correct velocity/twist/lease or
-  move-engine segment), the cruise==0 "configured default" substitution
-  and the cruise<0 range refusal (motion-api.md S1.1), MOVE_X's
-  mrad->rad conversion tested in both turn directions, WireAdapter's own
-  GET/SET field-name table, and STOP/ESTOP's real effect on the kernel.
-  MOVE_V/GO_TO_R/GO_TO_W are still not-yet-wired (ticket 012).
+  AND MotionEngine over FakeMotor: real effect for all SIX motion verbs
+  (sprint 003 tickets 004/011/012 -- commanded left/right, distance/
+  rotation, v_x/omega, or x/y/speed all map to the correct velocity/
+  twist/lease or move-engine segment), the cruise/speed==0 "configured
+  default" substitution and the cruise/speed<0 range refusal
+  (motion-api.md S1.1), MOVE_X's/MOVE_V's mrad->rad conversion tested in
+  both turn directions, GO_TO_W's real effect via a FakePoseSource and
+  its honest refusal (ERR_UNIMPLEMENTED) with none available,
+  WireAdapter's own GET/SET field-name table, STOP/ESTOP's real effect
+  on the kernel, and the motion-obligation flag (ticket 012's own
+  arm-from-every-verb bug fix, wire_adapter.h's own header comment) via
+  a real nowMs wired in through waSetNowMs()/waHasLiveMotionObligation().
 
 Run with::
 
@@ -37,6 +43,7 @@ Run with::
 """
 
 import ctypes
+import math
 import pathlib
 
 import pytest
@@ -172,6 +179,19 @@ def _bind(lib):
     lib.waStep.restype = None
     lib.waMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.waMotorLastStagedDuty.restype = ctypes.c_float
+
+    # ---- sprint 003 ticket 012: real nowMs + motion-obligation, and
+    # GO_TO_W's FakePoseSource ----
+    lib.waSetNowMs.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    lib.waSetNowMs.restype = None
+    lib.waHasLiveMotionObligation.argtypes = [ctypes.c_void_p]
+    lib.waHasLiveMotionObligation.restype = ctypes.c_int
+    lib.waSetPose.argtypes = [
+        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
+    ]
+    lib.waSetPose.restype = None
+    lib.waSetPoseSourceAvailable.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.waSetPoseSourceAvailable.restype = None
 
     return lib
 
@@ -389,6 +409,20 @@ class WireAdapterHandle:
     def motor_last_staged_duty(self, side):
         return self._lib.waMotorLastStagedDuty(self._handle, side)
 
+    # ---- sprint 003 ticket 012: real nowMs + motion-obligation, and
+    # GO_TO_W's FakePoseSource ----
+    def set_now_ms(self, ms):
+        self._lib.waSetNowMs(self._handle, ms)
+
+    def has_live_motion_obligation(self):
+        return bool(self._lib.waHasLiveMotionObligation(self._handle))
+
+    def set_pose(self, x, y, heading):
+        self._lib.waSetPose(self._handle, x, y, heading)
+
+    def set_pose_source_available(self, available):
+        self._lib.waSetPoseSourceAvailable(self._handle, 1 if available else 0)
+
 
 @pytest.fixture
 def wa(motion_verb_lib):
@@ -545,9 +579,15 @@ def test_go_to_w_decode_failures_nack(wv, line):
 
 
 # ---------------------------------------------------------------------------
-# The five not-yet-wired verbs: `ack <id> ...` followed by `err 1 #<id>`
-# (ERR_UNKNOWN) -- a MERITS rejection, NOT a decode failure, since the
-# line itself decoded fine.
+# Generic proof, via the configurable WireMockAdapter (`wv`, independent
+# of whatever the REAL WireAdapter does with any of these verbs -- see
+# the real-effect sections further below for that): a MERITS rejection
+# is `ack <id> ...` followed by `err <code> #<id>`, NOT a decode failure,
+# since the line itself decoded fine. Illustrated here with a canned
+# ERR_UNKNOWN; the real WireAdapter's own merits rejections use
+# different codes (ERR_RANGE, ERR_UNIMPLEMENTED) for its own reasons --
+# this test is about the ack-then-err SHAPE, not about which verbs are
+# wired.
 # ---------------------------------------------------------------------------
 
 
@@ -558,7 +598,7 @@ def test_go_to_w_decode_failures_nack(wv, line):
     ("go_to_r", b"GO_TO_R 300 400 250 20 5000 #1\n"),
     ("go_to_w", b"GO_TO_W 300 400 250 20 5000 #1\n"),
 ])
-def test_unwired_motion_verbs_ack_then_err_unknown(wv, verb, line):
+def test_merits_rejection_is_ack_then_err_not_nack(wv, verb, line):
     setter = getattr(wv, f"set_{verb}_result")
     setter(RESULT_UNKNOWN)
     wv.feed(line)
@@ -1049,24 +1089,443 @@ def test_get_set_unknown_field_name_is_unknown(wa):
 
 
 # ---------------------------------------------------------------------------
-# The REAL WireAdapter (not WireMockAdapter) still answers kUnknown for its
-# three remaining not-yet-wired motion verbs -- WHEELS_X/MOVE_X are real as
-# of ticket 011 (see their own real-effect sections above); ticket 004's
-# own acceptance criterion for the rest, stated for WireAdapter
-# specifically, not merely for "some Adapter implementation" (already
-# shown generically above via `wv`).
+# MOVE_V's real effect (sprint 003 ticket 012): the plain wheelsV
+# reduction -- move_v(v_x, omega) == wheels_v(v_x - omega*b/2,
+# v_x + omega*b/2) (motion-api.md S2) -- dispatched onto
+# MotionEngine::moveV() via WireAdapter::onMoveV(). Verified the same way
+# WHEELS_X's own real-effect tests above are: FakeMotor's LAST STAGED
+# DUTY after exactly one step(), computed through this handle's REAL
+# countsPerMm()/effectiveTrackWidth() (unlike WHEELS_V's own dedicated
+# real-effect tests further above, whose test-double setWheelsTimed()
+# fixes countsPerLength at 1.0 -- MOVE_V goes through the REAL
+# MotionEngine, same as WHEELS_X/MOVE_X, so its own real cpm scaling
+# applies here too). No ramp/taper scaling either -- wheelsV() is a
+# PRIMITIVE, not a move-engine segment.
+# ---------------------------------------------------------------------------
+
+# Same rationale as _WHEELS_X_FULL_DUTY_VELOCITY above: large enough that
+# every commanded speed below stays well under the maxDuty=100% rail once
+# real cpm scaling (not a fixed 1.0) is applied, and with no ramp scaling
+# to soften a first tick the way MOVE_X's 0.25 floor does.
+_MOVE_V_FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
+
+
+def _expected_move_v_duty_pair(vx, omega_rad, cpm, b, fdv):
+    """Mirrors MotionEngine::moveV()'s own reduction (motion_engine.cpp):
+    twist = omega*0.5*b [mm/s] CCW+, then wheels_v(vx-twist, vx+twist) --
+    wheelsV()'s own velocity/twist reconstruction (mean/half-diff) gives
+    back exactly (vx-twist)*cpm, (vx+twist)*cpm as each wheel's target
+    [counts/s]; duty is that target over fullDutyVelocity (feedforward
+    only, kp=0, same convention every other real-effect test in this
+    file uses)."""
+    twist = omega_rad * 0.5 * b
+    return (vx - twist) * cpm / fdv, (vx + twist) * cpm / fdv
+
+
+def test_move_v_real_effect_pure_forward_no_omega(wa):
+    """omega == 0: no twist -- move_v(v_x, 0) == wheels_v(v_x, v_x), both
+    wheels stage the identical duty."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    wa.feed(b"MOVE_V 200 0 500 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_v_duty_pair(
+        200.0, 0.0, cpm, b, _MOVE_V_FULL_DUTY_VELOCITY)
+    assert expected_left == pytest.approx(expected_right)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+
+
+def test_move_v_mrad_to_rad_conversion_positive_omega_turns_left(wa):
+    """The wire's OTHER mrad->rad conversion seam (motion-api.md S9.1),
+    checked physically like MOVE_X's own equivalent test above: a
+    POSITIVE wire `omega` must turn LEFT -- the right wheel faster, the
+    left wheel slower (CCW-positive) -- via move_v's own twist = omega*
+    b/2 reduction. An off-by-1000 or a flipped sign here fails this test
+    instead of shipping."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    omega_mrad = 300  # -> 0.300 rad/s if the conversion is exact
+    wa.feed(b"MOVE_V 0 300 500 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_v_duty_pair(
+        0.0, omega_mrad / 1000.0, cpm, b, _MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) > wa.motor_last_staged_duty(LEFT)
+
+
+def test_move_v_mrad_to_rad_conversion_negative_omega_turns_right(wa):
+    """Mirror of the above in the OTHER direction: a NEGATIVE wire
+    `omega` turns RIGHT -- the left wheel is the faster one."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    omega_mrad = -300
+    wa.feed(b"MOVE_V 0 -300 500 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_v_duty_pair(
+        0.0, omega_mrad / 1000.0, cpm, b, _MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+    assert wa.motor_last_staged_duty(LEFT) > wa.motor_last_staged_duty(RIGHT)
+
+
+def test_move_v_omega_slaved_to_vx_single_ratio(wa):
+    """motion-api.md S1.1: 'omega is slaved to v_x -- the two are one
+    ratio, held through the ramp.' Exercised here with BOTH v_x and
+    omega nonzero at once, proving the reduction combines them by plain
+    superposition (vx +/- twist) -- there is no separate profile/ceiling
+    on omega that could bend that ratio."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    wa.feed(b"MOVE_V 150 200 500 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_v_duty_pair(
+        150.0, 0.200, cpm, b, _MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_move_v_duration_over_ceiling_is_range_error(wa):
+    """Shares WHEELS_V's own ceiling (wire_adapter.h's
+    kWheelsVDurationCeiling doc comment) -- the identical "duration IS
+    the lease" V-form rationale (motion-api.md S3.4)."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"MOVE_V 100 0 5001 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_move_v_duration_at_ceiling_is_accepted(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    wa.feed(b"MOVE_V 100 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, _ = _expected_move_v_duty_pair(
+        100.0, 0.0, cpm, b, _MOVE_V_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+
+
+# ---------------------------------------------------------------------------
+# GO_TO_R's real effect (sprint 003 ticket 012): the PLAIN spec reduction
+# onto moveX (motion-api.md S3.5: turn angle phi = 2*atan2(y,x), arc
+# length s), dispatched onto MotionEngine::goToR() via
+# WireAdapter::onGoToR(). goToR()'s own arc-solve branches are already
+# tested exhaustively at the engine level (test_motion_engine_reductions.py,
+# ticket 007) -- this proves the WIRE dispatch feeds x/y/speed/arrive/
+# timeout through correctly, the same "don't re-exercise an
+# already-tested reduction's own branches" posture
+# test_motion_engine_gotow.py takes for goToW() (ticket 010).
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("line", [
-    b"MOVE_V 200 0 1500 #1\n",
-    b"GO_TO_R 300 400 250 20 5000 #1\n",
-    b"GO_TO_W 300 400 250 20 5000 #1\n",
+def _go_to_r_theta_s(x, y):
+    """Mirrors MotionEngine::goToR()'s own arc solve (motion-api.md
+    S3.5), including the near-zero-y straight-line special case --
+    an independently-implemented mirror, NOT a call into the C++ under
+    test, same convention test_motion_engine_gotow.py's own identical
+    copy uses."""
+    theta = 2.0 * math.atan2(y, x)
+    if abs(y) < 0.1:
+        s = x
+    else:
+        radius = (x * x + y * y) / (2.0 * y)
+        s = radius * theta
+    return theta, s
+
+
+def test_go_to_r_real_effect_arc_solve(wa):
+    """A representative (x, y) target chosen to stay off moveX()'s
+    pivot-first split (turn angle well under 50 deg) -- proves x/y/speed
+    reach MotionEngine::goToR()'s own arc-solve and then moveX()'s
+    first-tick segment (0.25 ramp scale), via the SAME hand-computed
+    formula test_move_x_real_effect_straight_line uses above."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    wa.feed(b"GO_TO_R 200 50 150 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    theta, s = _go_to_r_theta_s(200.0, 50.0)
+    assert abs(theta) < math.radians(50.0)
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        s, theta, 150.0, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_go_to_r_negative_speed_is_range_error(wa):
+    """`speed` plays `cruise`'s role for the underlying moveX() call
+    (wire_adapter.h's own onGoToR() doc comment) -- same <0 refusal."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"GO_TO_R 200 50 -150 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_go_to_r_speed_zero_uses_configured_default(wa):
+    """motion-api.md S1.1's "configured default" substitution, exercised
+    through GO_TO_R's own path -- same substitution onWheelsX()/onMoveX()
+    already use."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+    default_speed = 1000.0 / cpm
+
+    wa.feed(b"GO_TO_R 200 50 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    theta, s = _go_to_r_theta_s(200.0, 50.0)
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        s, theta, default_speed, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_go_to_r_speed_zero_without_configured_default_is_range_error(wa):
+    wa.set_max_duty(100.0)
+    # full_duty_velocity deliberately left unset (default 0).
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"GO_TO_R 200 50 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# GO_TO_W's real effect (sprint 003 ticket 012): the world-frame
+# counterpart -- read pose -> world-to-body -> go_to_r (motion-api.md
+# S2/S3.6) -- dispatched onto MotionEngine::goToW() via
+# WireAdapter::onGoToW(), reading this handle's own FakePoseSource
+# (wa.set_pose()) through engineGoToW()'s bridge. The world-to-body
+# transform and goToR()'s own arc solve are already tested exhaustively
+# at the engine level (test_motion_engine_gotow.py, ticket 010) -- this
+# proves the WIRE dispatch bridges to a REAL PoseSource correctly, plus
+# this class's own "no pose source" refusal, ticket 012's own required,
+# explicit decision (ERR_UNIMPLEMENTED -- see wire_adapter.h's own
+# onGoToW() doc comment for why).
+# ---------------------------------------------------------------------------
+
+
+def _world_to_body(dx, dy, heading):
+    """Mirrors MotionEngine::goToW()'s own rotation -- an
+    independently-implemented copy, NOT a call into the C++ under test,
+    identical to test_motion_engine_gotow.py's own copy."""
+    cos_h = math.cos(heading)
+    sin_h = math.sin(heading)
+    body_x = dx * cos_h + dy * sin_h
+    body_y = -dx * sin_h + dy * cos_h
+    return body_x, body_y
+
+
+def test_go_to_w_identity_pose_matches_go_to_r(wa):
+    """pose == (0, 0, 0): the world-frame delta IS the body-frame delta
+    -- GO_TO_W(x, y, ...) must match GO_TO_R(x, y, ...)'s own real-effect
+    test above exactly."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    wa.set_pose(0.0, 0.0, 0.0)
+    wa.feed(b"GO_TO_W 200 50 150 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    theta, s = _go_to_r_theta_s(200.0, 50.0)
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        s, theta, 150.0, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_go_to_w_real_effect_nonzero_pose_and_heading(wa):
+    """The case ticket 010's own tests call out explicitly: a nonzero
+    heading combined with a nonzero position is where sign and
+    rotation-direction errors hide -- same pose/target/speed values
+    test_motion_engine_gotow.py's own
+    test_go_to_w_world_to_body_transform_nonzero_pose_and_heading
+    already proved sane at the engine level; this proves the WIRE path
+    reaches the same real effect."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    pose_x, pose_y, heading = 100.0, -50.0, math.radians(30.0)
+    target_x, target_y = 500.0, 200.0
+    wa.set_pose(pose_x, pose_y, heading)
+
+    wa.feed(b"GO_TO_W 500 200 120 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    body_x, body_y = _world_to_body(target_x - pose_x, target_y - pose_y,
+                                    heading)
+    theta, s = _go_to_r_theta_s(body_x, body_y)
+    assert abs(theta) < math.radians(50.0)
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        s, theta, 120.0, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_go_to_w_negative_speed_is_range_error(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_pose(0.0, 0.0, 0.0)
+
+    wa.feed(b"GO_TO_W 200 50 -150 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_go_to_w_no_pose_source_is_unimplemented(wa):
+    """motion-api.md S3.6 / ticket 010's own explicitly out-of-scope
+    encoder-odometry fallback: with no OTOS fitted/connected, this class
+    must refuse honestly rather than drive toward a garbage pose --
+    wire_adapter.h's own documented DECISION is ERR_UNIMPLEMENTED (wire
+    code 6: "recognized, not wired on this build"), not ERR_RANGE/
+    ERR_UNKNOWN/ERR_NOT_CONFIGURED (see that file's own onGoToW() doc
+    comment for why)."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_pose_source_available(False)
+
+    wa.feed(b"GO_TO_W 200 50 150 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(6, 1)  # ERR_UNIMPLEMENTED
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# Motion-obligation arming (sprint 003 ticket 012's own bug fix --
+# wire_adapter.h's own header comment): EVERY accepted motion verb now
+# arms hasLiveMotionObligation(), not just WHEELS_V -- ticket 011 left
+# WHEELS_X/MOVE_X dispatching real effect WITHOUT arming it, so
+# protocol.cpp's fiber never ticked the kernel for them on hardware (the
+# move aborted almost immediately via the starvation watchdog instead of
+# actually running for its intended distance/time). Proven here with a
+# REAL nowMs wired into the WireAdapter (waSetNowMs()) -- every OTHER
+# test in this file leaves nowMs unset (nullptr), under which this flag
+# can never answer anything but false.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("line,window_ms", [
+    (b"WHEELS_V 100 100 2000 #1\n", 2000),
+    (b"WHEELS_X 100 100 150 3000 #1\n", 3000),
+    (b"MOVE_X 200 0 150 4000 #1\n", 4000),
+    (b"MOVE_V 100 0 1500 #1\n", 1500),
+    (b"GO_TO_R 200 50 150 0 5000 #1\n", 5000),
+    (b"GO_TO_W 200 50 150 0 5000 #1\n", 5000),
 ])
-def test_real_wire_adapter_answers_unknown_for_unwired_motion_verbs(wa, line):
+def test_every_motion_verb_arms_motion_obligation(wa, line, window_ms):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_pose(0.0, 0.0, 0.0)  # only read by GO_TO_W; harmless otherwise
+    wa.set_now_ms(1_000_000)
+    assert not wa.has_live_motion_obligation()
+
     wa.feed(line)
-    assert wa.take_sink() == _ack(1) + _err(1, 1)
-    assert wa.malformed_count == 0
+    assert wa.has_live_motion_obligation()
+
+    # Still armed just before the window elapses...
+    wa.set_now_ms(1_000_000 + window_ms - 1)
+    assert wa.has_live_motion_obligation()
+
+    # ...and clear once it has.
+    wa.set_now_ms(1_000_000 + window_ms)
+    assert not wa.has_live_motion_obligation()
+
+
+def test_go_to_w_no_pose_source_does_not_arm_motion_obligation(wa):
+    """The refused path (no pose source) must NOT arm the obligation --
+    there is no move for protocol.cpp's fiber to keep ticking."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_pose_source_available(False)
+    wa.set_now_ms(1_000_000)
+
+    wa.feed(b"GO_TO_W 200 50 150 0 5000 #1\n")
+    assert not wa.has_live_motion_obligation()
 
 
 def test_get_bare_dumps_all_fifteen_fields_no_wheels_entry(wa):
