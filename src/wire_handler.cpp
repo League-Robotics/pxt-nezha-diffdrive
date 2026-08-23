@@ -7,7 +7,19 @@
 
 #include <cerrno>
 #include <cmath>
-#include <cstdio>
+#include <cstdio>   // plain snprintf, not std::snprintf -- this ARM cross
+                    // compiler's newlib-nano <cstdio> declares snprintf
+                    // globally but never actually puts it in namespace
+                    // std (sprint 003 ticket 005, discovered the first
+                    // time this file was built for the microbit target
+                    // rather than only host-tested; protocol.cpp already
+                    // documented and worked around the identical gotcha
+                    // for the v5 wire codec this file replaces). Same
+                    // story for strtof() below -- every OTHER std::
+                    // function this file uses (strtol/strtoul/isnan/
+                    // isinf/strcmp/strlen/memcpy) genuinely is in
+                    // namespace std on this toolchain; only these two
+                    // are not.
 #include <cstdlib>
 #include <cstring>
 
@@ -123,7 +135,7 @@ bool parseFloatField(const char* field, float& out) {
   }
   char* endPtr = nullptr;
   errno = 0;
-  float value = std::strtof(field, &endPtr);
+  float value = strtof(field, &endPtr);
   if (endPtr == field || *endPtr != '\0') return false;
   if (std::isnan(value) || std::isinf(value)) return false;
   out = value;
@@ -174,7 +186,7 @@ void formatConfigValue(float value, char* out, size_t cap) {
   const uint32_t scaledInt = static_cast<uint32_t>(scaled);
   const uint32_t wholePart = scaledInt / kDivisor;
   const uint32_t fracPart = scaledInt % kDivisor;
-  std::snprintf(out, cap, "%s%lu.%06lu", negative ? "-" : "",
+  snprintf(out, cap, "%s%lu.%06lu", negative ? "-" : "",
                 static_cast<unsigned long>(wholePart),
                 static_cast<unsigned long>(fracPart));
 }
@@ -461,7 +473,7 @@ void WireHandler::handleDecodeFailure(uint32_t id, uint8_t code) {
 
 void WireHandler::replyAck(uint32_t ackedId) {
   char buf[56];
-  std::snprintf(buf, sizeof(buf), "ack %lu %lu %s\n",
+  snprintf(buf, sizeof(buf), "ack %lu %lu %s\n",
                 static_cast<unsigned long>(ackedId),
                 static_cast<unsigned long>(adapter_.lastDone()),
                 doneReasonWireName(adapter_.lastDoneReason()));
@@ -470,7 +482,7 @@ void WireHandler::replyAck(uint32_t ackedId) {
 
 void WireHandler::replyNack(uint32_t nextId) {
   char buf[56];
-  std::snprintf(buf, sizeof(buf), "nack %lu %lu %s\n",
+  snprintf(buf, sizeof(buf), "nack %lu %lu %s\n",
                 static_cast<unsigned long>(nextId),
                 static_cast<unsigned long>(adapter_.lastDone()),
                 doneReasonWireName(adapter_.lastDoneReason()));
@@ -481,7 +493,7 @@ void WireHandler::replyErr(uint32_t id, uint8_t code) {
   // Field order: code THEN #id -- the id is always the LAST token of
   // ANY line under this grammar, replies included (protocol.md S8.6).
   char buf[32];
-  std::snprintf(buf, sizeof(buf), "err %u #%lu\n", static_cast<unsigned>(code),
+  snprintf(buf, sizeof(buf), "err %u #%lu\n", static_cast<unsigned>(code),
                 static_cast<unsigned long>(id));
   writeLine(buf);
 }
@@ -538,7 +550,7 @@ void WireHandler::handlePing() {
   // at the PING branch): ANY line whose verb is PING replies `pong`,
   // regardless of what -- if anything -- follows it.
   char buf[32];
-  std::snprintf(buf, sizeof(buf), "pong %lu\n",
+  snprintf(buf, sizeof(buf), "pong %lu\n",
                 static_cast<unsigned long>(adapter_.now()));
   writeLine(buf);
 }
@@ -590,7 +602,7 @@ void WireHandler::execId(char** fields, size_t fieldCount, uint32_t id,
   Identity identity;
   adapter_.identity(identity);
   char buf[96];
-  std::snprintf(buf, sizeof(buf), "id %s %s %s\n", identity.drivetrain,
+  snprintf(buf, sizeof(buf), "id %s %s %s\n", identity.drivetrain,
                 identity.profile, identity.version);
   writeLine(buf);
 }
@@ -604,7 +616,7 @@ void WireHandler::execVer(char** fields, size_t fieldCount, uint32_t id,
   Identity identity;
   adapter_.identity(identity);
   char buf[64];
-  std::snprintf(buf, sizeof(buf), "ver %s\n", identity.version);
+  snprintf(buf, sizeof(buf), "ver %s\n", identity.version);
   writeLine(buf);
 }
 
@@ -617,7 +629,7 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
   StatusFields status;
   adapter_.status(status);
   char buf[176];
-  std::snprintf(buf, sizeof(buf),
+  snprintf(buf, sizeof(buf),
                 "status ready=%d active=%d connL=%d connR=%d otos=%d "
                 "wedge=%d flags=%x tlm=%s next=%lu\n",
                 status.ready ? 1 : 0, status.active ? 1 : 0,
@@ -674,7 +686,7 @@ void WireHandler::execGet(char** fields, size_t fieldCount, uint32_t id,
       float value = 0.0f;
       if (!adapter_.onGet(name, value)) continue;
       formatConfigValue(value, formatted, sizeof(formatted));
-      std::snprintf(buf, sizeof(buf), "get %s %s\n", name, formatted);
+      snprintf(buf, sizeof(buf), "get %s %s\n", name, formatted);
       writeLine(buf);
     }
     return;
@@ -687,7 +699,7 @@ void WireHandler::execGet(char** fields, size_t fieldCount, uint32_t id,
   // error, and not counted malformed.
   if (!adapter_.onGet(name, value)) return;
   formatConfigValue(value, formatted, sizeof(formatted));
-  std::snprintf(buf, sizeof(buf), "get %s %s\n", name, formatted);
+  snprintf(buf, sizeof(buf), "get %s %s\n", name, formatted);
   writeLine(buf);
 }
 
@@ -946,7 +958,7 @@ void WireHandler::execRun(char** fields, size_t fieldCount, uint32_t id,
   // the last byte (here, the trailing '\n' itself) to make room for the
   // NUL it always writes.
   char buf[kMaxLineBytes + 1];
-  std::snprintf(buf, sizeof(buf), "ret %s #%lu\n", sanitized,
+  snprintf(buf, sizeof(buf), "ret %s #%lu\n", sanitized,
                 static_cast<unsigned long>(id));
   writeLine(buf);
 }
@@ -957,7 +969,7 @@ void WireHandler::sendBanner() {
   Identity identity;
   adapter_.identity(identity);
   char buf[96];
-  std::snprintf(buf, sizeof(buf), "device NEZHA2 robot %s %s\n", identity.name,
+  snprintf(buf, sizeof(buf), "device NEZHA2 robot %s %s\n", identity.name,
                 identity.serial);
   writeLine(buf);
 }

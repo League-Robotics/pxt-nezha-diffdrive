@@ -115,17 +115,22 @@ const char* tlmModeWireName(Wire::TlmMode mode) {
 
 }  // namespace
 
-WireAdapter::WireAdapter(const Wire::Identity& identity)
-    : identity_(identity) {}
+WireAdapter::WireAdapter(const Wire::Identity& identity, NowMsFn nowMs)
+    : identity_(identity), nowMs_(nowMs) {}
 
 void WireAdapter::identity(Wire::Identity& out) const { out = identity_; }
 
+void WireAdapter::setIdentity(const Wire::Identity& identity) {
+  identity_ = identity;
+}
+
 uint32_t WireAdapter::now() const {
-  // See this file's own header comment: no forward-declared clock read
-  // exists in shims.cpp yet. 0 is an honest, functionally inert default
-  // -- PING's own liveness contract only needs a reply to exist, not a
-  // wall-clock-accurate value.
-  return 0;
+  // See this file's own header comment: nowMs_ is supplied at
+  // composition time by a CODAL-facing caller (protocol.cpp); every
+  // host test leaves it nullptr, so this stays the same honest 0
+  // default it always was -- PING's own liveness contract only needs a
+  // reply to exist, not a wall-clock-accurate value.
+  return nowMs_ != nullptr ? nowMs_() : 0;
 }
 
 void WireAdapter::status(Wire::StatusFields& out) const {
@@ -174,6 +179,14 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
   // signed-integer fields, wire_handler.cpp) -- a plain narrowing cast
   // is exact, no rounding needed.
   setWheelsTimed(static_cast<int>(left), static_cast<int>(right), duration);
+  // sprint 003 ticket 005: record the resulting deadline so
+  // hasLiveMotionObligation() can tell protocol.cpp's fiber loop to keep
+  // ticking the kernel until it elapses -- see this file's header
+  // comment. A no-op (never "active") with no clock wired.
+  if (nowMs_ != nullptr) {
+    motionObligationActive_ = true;
+    motionObligationDeadlineMs_ = nowMs_() + duration;
+  }
   return Wire::Result::kOk;
 }
 
@@ -214,6 +227,12 @@ void WireAdapter::onEstop() {
   // wire_handler.h's own Adapter::onEstop() contract) -- it replies
   // `estop` unconditionally after calling this.
   estopAll();
+  // sprint 003 ticket 005: clear any live WHEELS_V obligation too -- an
+  // e-stop must revert protocol.cpp's fiber loop to its idle poll
+  // immediately, not keep ticking until a now-meaningless deadline
+  // elapses (same rationale sprint 002's original obligation-clearing
+  // handleEstop() documented).
+  motionObligationActive_ = false;
 }
 
 Wire::Result WireAdapter::onStop(bool /*immediate*/, uint32_t /*id*/) {
@@ -225,7 +244,17 @@ Wire::Result WireAdapter::onStop(bool /*immediate*/, uint32_t /*id*/) {
   // documents for its own onStop() override (protocol.md S5.1: "both are
   // immediate at the kernel level").
   stopAll();
+  // sprint 003 ticket 005: see onEstop()'s identical comment above.
+  motionObligationActive_ = false;
   return Wire::Result::kOk;
+}
+
+bool WireAdapter::hasLiveMotionObligation() const {
+  if (!motionObligationActive_ || nowMs_ == nullptr) return false;
+  const uint32_t nowMs = nowMs_();
+  // Wraparound-safe elapsed check (signed-difference idiom), same one
+  // sprint 002's original obligation tracking used in protocol.cpp.
+  return static_cast<int32_t>(nowMs - motionObligationDeadlineMs_) < 0;
 }
 
 bool WireAdapter::onGet(const char* name, float& out) const {

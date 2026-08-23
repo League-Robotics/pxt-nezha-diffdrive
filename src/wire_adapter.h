@@ -12,6 +12,12 @@
 // 011/012 give WHEELS_X/MOVE_X and MOVE_V/GO_TO_R/GO_TO_W real effect
 // once motion_engine (ticket 006/007) exists to route them onto.
 //
+// Sprint 003 ticket 005 (the hardware transport-seam cutover) extends
+// this class with a real clock (see now()'s own comment below) and the
+// WHEELS_V motion-obligation tracking that clock makes possible
+// (hasLiveMotionObligation()) -- no wire-visible behavior changes; both
+// are for protocol.cpp's fiber loop to consume.
+//
 // STOP/ESTOP/GET/SET call straight through to shims.cpp's EXISTING
 // hardware-facing primitives (stopAll/estopAll/setKernelValue/
 // getConfigValue/diagValue) via the same same-package C++
@@ -39,13 +45,33 @@
 // rather than reading microbit_friendly_name()/microbit_serial_number()
 // directly, which are CODAL globals this class must never touch.
 //
-// now() has no forward-declared clock read to call: shims.cpp has never
-// needed one (PING is this project's only consumer of Wire::Adapter::
-// now(), and its own liveness contract only needs a reply to exist, not
-// a wall-clock-accurate value) -- returns 0 until a later ticket adds
-// one, the same "honest, functionally inert default" posture lastDone()/
-// lastDoneReason() below already take deliberately, for the identical
-// reason (no planner/clock hook exists yet to make the value live).
+// now(): sprint 003 ticket 005 (the hardware transport-seam cutover)
+// wires a REAL clock read in, supplied at COMPOSITION TIME as a plain
+// function pointer (`NowMsFn` below) -- a CODAL-facing composition root
+// (protocol.cpp) passes one backed by a real clock; a caller with
+// nothing to offer (every existing host test) passes nothing at all and
+// gets the default nullptr, so now() keeps returning the same honest 0
+// it always has. This is a plain C function pointer, not a CODAL type,
+// so this file's own "no pxt.h, no CODAL type" contract holds -- see
+// wire_adapter.cpp's now()/hasLiveMotionObligation() for how it's used.
+//
+// The same clock backs this ticket's other new piece of state: with the
+// kernel's own background fiber long gone (shims.cpp, sprint 002 ticket
+// 001), WHEELS_V's duration-bound drive command (setWheelsTimed(),
+// dispatched from onWheelsV() below) is never actually stepped unless
+// something keeps calling tickDrive() while it's outstanding -- exactly
+// the problem sprint 002's protocol.cpp already solved once for the old
+// binary WHEELS verb (see that file's own "motion-obligation tracking"
+// history). This class is the one place that sees every ACCEPTED
+// WHEELS_V call, with its real duration, so it tracks the resulting
+// deadline here (hasLiveMotionObligation(), private
+// motionObligationDeadlineMs_) and exposes it for protocol.cpp's fiber
+// loop to poll -- that loop still owns the actual tickDrive() call, a
+// CODAL-fiber concern this host-portable class must never touch. With
+// no clock wired (nowMs_ == nullptr, every existing host test),
+// hasLiveMotionObligation() always answers false -- honest, since there
+// is no way to know an elapsed-time answer without one, and no host
+// test drives a tick loop that would need it to answer anything else.
 #pragma once
 
 #include <cstddef>
@@ -65,16 +91,39 @@ class WireAdapter : public Wire::Adapter {
   // this adapter.
   static constexpr uint32_t kWheelsVDurationCeiling = 5000;  // [ms]
 
+  // Plain C function pointer, deliberately not std::function -- this
+  // file must stay free of anything that could drag in CODAL or
+  // heap-allocating machinery. Returns milliseconds on whatever clock
+  // the composition root chose; this class only ever computes
+  // DIFFERENCES against it (see hasLiveMotionObligation()), so its
+  // epoch is unspecified and irrelevant.
+  using NowMsFn = uint32_t (*)();
+
   // `identity`'s own pointer fields are borrowed (Wire::Identity's own
   // doc comment, wire_handler.h): the CALLER's identity strings must
   // outlive this adapter. Copied by value here (copies the pointers,
-  // not the strings they point to).
-  explicit WireAdapter(const Wire::Identity& identity);
+  // not the strings they point to). `nowMs`, if supplied, must remain
+  // valid for this adapter's whole lifetime -- in practice a free
+  // function or a static member function, never a capturing closure
+  // (the type above cannot express one). Defaults to nullptr for every
+  // caller with no real clock to offer (every existing host test).
+  explicit WireAdapter(const Wire::Identity& identity,
+                       NowMsFn nowMs = nullptr);
 
   // ---- Wire::Adapter: session ----
   void identity(Wire::Identity& out) const override;
   uint32_t now() const override;
   void status(Wire::StatusFields& out) const override;
+
+  // Sprint 003 ticket 005: lets a composition root supply a PLACEHOLDER
+  // Wire::Identity() at construction time (safe -- every field defaults
+  // to "", no caller-owned storage borrowed yet) and fill in the real
+  // one later, once it is actually safe to read (protocol.cpp calls
+  // this from its own fiber body, not from this adapter's own
+  // constructor, precisely so a CODAL identity read never happens
+  // before uBit.init() has run -- see protocol.cpp's run() for why that
+  // timing matters). Same borrowed-pointer contract as the constructor.
+  void setIdentity(const Wire::Identity& identity);
 
   // ---- Wire::Adapter: motion ----
 
@@ -128,6 +177,13 @@ class WireAdapter : public Wire::Adapter {
   // ---- Wire::Adapter: telemetry ----
   Wire::Result onTlm(Wire::TlmMode mode) override;
 
+  // ---- sprint 003 ticket 005: motion-obligation tracking, NOT part of
+  // Wire::Adapter's own interface -- see this file's header comment for
+  // the full rationale. true iff a WHEELS_V accepted by onWheelsV() is
+  // still within its commanded duration, per the clock supplied at
+  // construction; always false with no clock wired (nowMs == nullptr).
+  bool hasLiveMotionObligation() const;
+
   // No motion queue and no completion event on this adapter yet (ticket
   // 006/007 introduce a planner) -- WHEELS_V has no stop condition of
   // its own; it just holds a velocity for `duration` and lets the lease
@@ -151,6 +207,11 @@ class WireAdapter : public Wire::Adapter {
  private:
   Wire::Identity identity_;
   Wire::TlmMode mode_ = Wire::TlmMode::kOff;
+
+  // ---- sprint 003 ticket 005: real clock + motion-obligation state ----
+  NowMsFn nowMs_ = nullptr;
+  bool motionObligationActive_ = false;
+  uint32_t motionObligationDeadlineMs_ = 0;  // [ms], nowMs_'s own scale
 };
 
 }  // namespace diffDrive
