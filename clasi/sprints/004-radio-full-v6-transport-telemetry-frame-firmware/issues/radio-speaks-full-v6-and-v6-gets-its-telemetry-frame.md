@@ -1,5 +1,14 @@
 ---
-status: pending
+status: in-progress
+split_into:
+- retrofit-bench-tooling-onto-the-v6-telemetry-stream.md
+sprint: '004'
+tickets:
+- 004-001
+- 004-002
+- 004-003
+- 004-004
+- 004-005
 ---
 
 # Radio speaks full v6, and v6 gets its telemetry frame
@@ -176,30 +185,10 @@ before any tooling is written against an unconfirmed format.
 
 ### Phase D — tooling
 
-New `tools/tlm.py`, the single place any scale factor is written:
-
-```python
-class TlmStream:
-    def feed(self, line) -> dict | None    # 't' -> {name: int}
-    columns; frames; orphan_frames; malformed; dropped; loss_pct
-    def pose_cm(row); def otos_cm(row); def wheels_mms(row)
-```
-
-Tracks `thdr` (an identical re-read is a no-op — the 1 Hz refresh); a `t` before
-any header counts orphan; a `t` whose arity ≠ header count counts malformed (the
-defense against a radio-truncated line); **`seq` gaps give `dropped`/`loss_pct`**
-— new capability, the tools have never been able to say how much the radio
-dropped.
-
-Fail loud, three layers:
-1. `require_stream(link, timeout=3.0)` subscribes and aborts *before* triggering
-   a run if no `t` arrives — a dead instrument must not cost a run.
-2. `write_tlm_csv()` raises on zero rows. **Never write a header-only CSV.** An
-   absent file is unambiguous; an empty one produces wrong conclusions.
-3. A `<stem>_tlm.meta.json` sidecar with frames/dropped/loss_pct; the chart tools
-   refuse to plot a run with `frames == 0`.
-
-Then retrofit the six consumers onto it.
+Split out into
+[[retrofit-bench-tooling-onto-the-v6-telemetry-stream]], so it can be planned
+against a wire format a robot has actually confirmed. It must not start until
+this issue's Phase C bench checkpoint has passed.
 
 ## Verification
 

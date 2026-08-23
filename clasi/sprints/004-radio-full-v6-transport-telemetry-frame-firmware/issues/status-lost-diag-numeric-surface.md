@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '004'
+tickets:
+- 004-004
 ---
 
 # STATUS reproduces DIAG's flags but lost its numeric surface, including the I2C fault counter
