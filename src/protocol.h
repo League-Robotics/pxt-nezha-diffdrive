@@ -43,6 +43,22 @@
 // function shims.cpp's test-result reporting already uses -- still
 // writes to both transports unchanged, so an untethered bench run's
 // results still reach the radio exactly as before.
+//
+// Sprint 003 ticket 013 (final integration) note: this project's OWN
+// automatic cleartext telemetry -- the old v5 loop's periodic
+// "TLM:<ms>:<x>:<y>:<h>:<ox>:<oy>:<oh>:<vl>:<vr>" line -- is retired
+// along with the rest of v5 and has NO v6 replacement yet:
+// wire_handler.h's emitTelemetry() sends only ack/nack keepalives (see
+// its own doc comment), not a data-bearing frame. `tools/tour_run.py`,
+// `tools/tour_capture.py`, `tools/tour_watch.py`, and this repo's other
+// bench scripts that parse a `TLM:` prefix will see that branch simply
+// never fire on this firmware -- not a crash, but a silent loss of the
+// wheel-speed/pose diagnostic those tools log and chart. A future
+// ticket implementing real telemetry projection (thdr/t frames per
+// `radio-robot-lib/docs/design/protocol.md` S5.2) is what restores
+// this; until then, anyone running those tools against this build
+// should be told, not left to discover an empty telemetry column on a
+// live run.
 #pragma once
 
 #include <cstddef>

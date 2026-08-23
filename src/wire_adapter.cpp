@@ -192,6 +192,23 @@ uint32_t WireAdapter::now() const {
   return nowMs_ != nullptr ? nowMs_() : 0;
 }
 
+// Sprint 003 ticket 013 (final integration) confirms this is a
+// DELIBERATE narrowing, not an oversight: the v6 verb catalog
+// (sprint.md's Scope) has no DIAG verb at all, and the `flags` field
+// below carries only the eight BOOLEAN diagValue() reads
+// (ready/estopped/stall/lease/conn x2/wedge x2). None of the old
+// cleartext DIAG line's NUMERIC bench-diagnosis fields -- the I2C fault
+// counter, per-wheel position/duty/velocity, cycle count, saturation,
+// deficit/overrun/error counters, line/verb dispatch counters (see the
+// retired formatDiag(), protocol.h's file comment) -- has any v6
+// wire-reachable equivalent; GET/SET's kFields table above does not
+// carry them either (it addresses tunable config, not live telemetry).
+// So the "wedged I2C bus" / "unpowered Nezha brick" bench workflow DIAG
+// used to serve has NO v6 wire replacement: STATUS answers "is
+// something wrong" (ready/estopped/wedge/conn) but not "which I2C reads
+// are failing and how many." Flagged here for whoever picks this up
+// next -- adding a new verb for it is out of this sprint's fixed
+// catalog, not this ticket's job.
 void WireAdapter::status(Wire::StatusFields& out) const {
   out.ready = diagValue(kDiagReady) != 0;
   const bool estopped = diagValue(kDiagEstopped) != 0;

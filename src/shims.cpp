@@ -498,6 +498,25 @@ bool tickDrive() {
     }
     odomUpdate(r);  // coast counts -> pose before the final TLM
   }
+  // Sprint 003 ticket 013 (final integration) note, carried over from
+  // ticket 009's own report: this settle loop is NOT host-testable and
+  // stays that way after assessment, not by oversight. Its own body
+  // (kernel.step()/kernel.output()) is portable, but the loop exists
+  // here, bolted onto tickDrive() rather than living inside
+  // motion_engine.cpp's serviceMove(), because its whole point is
+  // folding coast counts into odomUpdate() -- Rig-local x/y/heading
+  // state (see this file's "-- odometry --" section above) -- before
+  // the final telemetry read. Extracting it cleanly would mean moving
+  // odometry ownership into motion_engine too, which is a real
+  // architectural change (Step 5 of sprint.md's own architecture
+  // gestures at exactly this: "and odometry, extracted... to
+  // motion_engine", not fully done), not a mechanical one, and not
+  // something to take on unreviewed on the last ticket before a
+  // hardware session. Ticket 009's regression test already mirrors this
+  // loop's SHAPE (bounded iteration, break-on-rest) against
+  // motion_engine's own portable kernel access and is host-tested; the
+  // loop's actual body here, wired to odomUpdate(), is exercised only
+  // by flashing and driving the real robot. Known, accepted gap.
   r.stepBusy = false;
 
   // Absolute-deadline self-pacing, lifted from DifferentialDrive::run()
