@@ -36,6 +36,7 @@
 // with.
 #include "pxt.h"
 #include "diffdrive.h"
+#include "motion_engine.h"
 #include "nezha_port.h"
 #include "otos_port.h"
 #include "platform_ports.h"
@@ -56,49 +57,15 @@ static void watchdogEntry(void* context);
 // ---- composition ----------------------------------------------------
 
 struct Rig {
-  // vevov-measured travel calibration (2026-08-19 bench: commanded
-  // 80 cm, odometry believed 798 mm, tape measured 825 mm ->
-  // 0.7837 * 825/798 = 0.8102). trackWidth still the tovez default --
-  // calibrate it from a measured pivot the same way. Generic kits
-  // adjust via setGeometry().
-  float travelCalib = 0.8102f;   // [mm/deg] wheel travel per shaft degree
-  float trackWidth = 114.2f;     // [mm] MEASURED track (stakeholder
-                                  // tape, 2026-08-19). This is the
-                                  // robot's geometry; it is never
-                                  // "corrected" -- turning slip is
-                                  // modeled separately by
-                                  // rotationScrub below.
-  float rotationScrub = 0.952f;  // [1] physical/odometric rotation
-                                  // ratio (wheel-contact scrub).
-                                  // CAMERA-MEASURED 2026-08-20 on the
-                                  // playfield, overhead AprilCam vs
-                                  // commanded: six steady-state 180 deg
-                                  // pivots turned 164-166 deg physical,
-                                  // ratio 0.915. effectiveTrack must
-                                  // therefore be 109.8/0.915 = 120.0 mm,
-                                  // so scrub = 114.2/120.0 = 0.952.
-                                  //
-                                  // REPLACES 1.040, which came from a
-                                  // single camera pivot on 2026-08-19
-                                  // and had the sign of the effect
-                                  // BACKWARDS (it said the robot
-                                  // over-rotated; it under-rotates).
-                                  // The OTOS agreed with the camera to
-                                  // 1.005 across ten pivots, so the
-                                  // sensor was never the problem --
-                                  // this constant was.
-                                  //
-                                  // Excludes the first one or two
-                                  // pivots of a session, which
-                                  // over-rotate grossly (262 and 233
-                                  // deg commanded 180, reproduced twice)
-                                  // -- a separate defect, see
-                                  // clasi/issues/.
-  float countsPerMm() const { return 10.0f / travelCalib; }
-  // Effective width for odometry and twist conversion: measured track
-  // reduced by the scrub factor. All rotation math uses THIS, never
-  // the raw measured trackWidth.
-  float effectiveTrack() const { return trackWidth / rotationScrub; }
+  // Excludes the first one or two pivots of a session, which over-rotate
+  // grossly (262 and 233 deg commanded 180, reproduced twice) -- a
+  // separate defect, see clasi/issues/. (Geometry fields/methods
+  // formerly here -- travelCalib, trackWidth, rotationScrub,
+  // countsPerMm(), effectiveTrack() -- moved to MotionEngine, sprint 003
+  // ticket 006: see engine's own field comments for the measurements
+  // behind each. `engine` below is constructed over `kernel`, declared
+  // next, so it must stay declared AFTER it -- member init order follows
+  // declaration order, not the initializer list.)
 
   // vevov wiring. History: the tovez defaults left{2,-1}/right{1,+1}
   // drove vevov backward, so on 2026-08-19 both fwdSigns were flipped to
@@ -132,6 +99,11 @@ struct Rig {
   CodalFiberLauncher launcher;
   DiffDrive::DifferentialDrive kernel{left, right, clock, sleeper,
                                       launcher};
+  // Geometry + the two wheel primitives (sprint 003 ticket 006),
+  // constructed over `kernel` above -- must stay declared after it,
+  // since members initialize in DECLARATION order regardless of this
+  // struct's own (implicit) member-initializer order.
+  MotionEngine engine{kernel};
 
   // odometry [mm, rad], updated lazily from kernel Output
   float x = 0.0f, y = 0.0f, heading = 0.0f;
@@ -252,13 +224,14 @@ static void odomUpdate(Rig& r) {
     r.odomPrimed = true;
     return;
   }
-  const float cpm = r.countsPerMm();
+  const float cpm = r.engine.countsPerMm();
   const float dLeft = (out.positionLeft - r.odomPosLeft) / cpm;    // [mm]
   const float dRight = (out.positionRight - r.odomPosRight) / cpm; // [mm]
   r.odomPosLeft = out.positionLeft;
   r.odomPosRight = out.positionRight;
   const float dCenter = 0.5f * (dLeft + dRight);          // [mm]
-  const float dHeading = (dRight - dLeft) / r.effectiveTrack(); // [rad]
+  const float dHeading =
+      (dRight - dLeft) / r.engine.effectiveTrackWidth();  // [rad]
   const float midHeading = r.heading + 0.5f * dHeading;
   r.x += dCenter * std::cos(midHeading);
   r.y += dCenter * std::sin(midHeading);
@@ -267,25 +240,31 @@ static void odomUpdate(Rig& r) {
 
 // ---- velocity commands ----------------------------------------------
 
+// setWheels()/driveTwist() and their two timed variants below are now
+// thin forwards into MotionEngine::wheelsV() (sprint 003 ticket 006) --
+// the math is unchanged (setWheels/setWheelsTimed pass their per-wheel
+// mm/s straight through; driveTwist/driveTwistTimed convert body
+// speed+yawRate to per-wheel mm/s first, via the same
+// move_v == wheels_v(v_x - omega*b/2, v_x + omega*b/2) reduction
+// motion-api.md S2 states), so observable block behavior is unchanged --
+// see wheelsV()'s own doc comment for the shared implementation.
+
 //%
 void setWheels(int left, int right) {  // [mm/s] [mm/s]
   Rig& r = ensure();
-  const float cpm = r.countsPerMm();
-  const float velocity = 0.5f * static_cast<float>(left + right) * cpm;
-  const float twist = 0.5f * static_cast<float>(right - left) * cpm;
-  r.kernel.drive(velocity, twist,
-                 DiffDrive::DifferentialDrive::kLeaseMax);
+  r.engine.wheelsV(static_cast<float>(left), static_cast<float>(right),
+                   DiffDrive::DifferentialDrive::kLeaseMax);
 }
 
 //%
 void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   Rig& r = ensure();
-  const float cpm = r.countsPerMm();
   const float yawRad =
       static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
-  const float twist = yawRad * 0.5f * r.effectiveTrack() * cpm;  // [counts/s]
-  r.kernel.drive(static_cast<float>(speed) * cpm, twist,
-                 DiffDrive::DifferentialDrive::kLeaseMax);
+  const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
+  const float speedMmS = static_cast<float>(speed);
+  r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS,
+                   DiffDrive::DifferentialDrive::kLeaseMax);
 }
 
 // ---- duration-bound direct drive (ticket 003: Protocol's WHEELS and
@@ -308,21 +287,19 @@ void setWheelsTimed(int left, int right,
                     uint32_t durationMs) {  // [mm/s] [mm/s] [ms]
   Rig& r = ensure();
   r.moveActive = false;  // WHEELS supersedes any in-flight move-engine move
-  const float cpm = r.countsPerMm();
-  const float velocity = 0.5f * static_cast<float>(left + right) * cpm;
-  const float twist = 0.5f * static_cast<float>(right - left) * cpm;
-  r.kernel.drive(velocity, twist, durationMs);
+  r.engine.wheelsV(static_cast<float>(left), static_cast<float>(right),
+                   durationMs);
 }
 
 void driveTwistTimed(int speed, int yawRate,
                      uint32_t durationMs) {  // [mm/s] [cdeg/s] [ms]
   Rig& r = ensure();
   r.moveActive = false;  // supersedes any in-flight move-engine move
-  const float cpm = r.countsPerMm();
   const float yawRad =
       static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
-  const float twist = yawRad * 0.5f * r.effectiveTrack() * cpm;  // [counts/s]
-  r.kernel.drive(static_cast<float>(speed) * cpm, twist, durationMs);
+  const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
+  const float speedMmS = static_cast<float>(speed);
+  r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS, durationMs);
 }
 
 // ---- move engine ----------------------------------------------------
@@ -332,21 +309,23 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // [mm] [cdeg] [mm/s] [cdeg/s]
   Rig& r = ensure();
   odomUpdate(r);
-  const float cpm = r.countsPerMm();
+  const float cpm = r.engine.countsPerMm();
   const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
   r.movePosLeft0 = out.positionLeft;
   r.movePosRight0 = out.positionRight;
   r.moveDistTarget = static_cast<float>(distance) * cpm;  // [counts]
   const float yawRad =
       static_cast<float>(yaw) * 0.01f * 3.14159265f / 180.0f;
-  r.moveYawTarget = yawRad * 0.5f * r.effectiveTrack() * cpm;   // [counts]
+  r.moveYawTarget =
+      yawRad * 0.5f * r.engine.effectiveTrackWidth() * cpm;  // [counts]
 
   const float speedCounts =
       static_cast<float>(speed > 0 ? speed : 1) * cpm;    // [counts/s]
   const float yawRadPerS =
       static_cast<float>(yawRate > 0 ? yawRate : 1) * 0.01f *
       3.14159265f / 180.0f;
-  const float twistCounts = yawRadPerS * 0.5f * r.effectiveTrack() * cpm;
+  const float twistCounts =
+      yawRadPerS * 0.5f * r.engine.effectiveTrackWidth() * cpm;
 
   // One duration covers both axes -> simultaneous arc completion.
   float duration = 0.0f;  // [s]
@@ -832,8 +811,9 @@ void resetPose() {
 //%
 void setGeometry(int trackWidth, int calib) {  // [0.1 mm] [1e-4 mm/deg]
   Rig& r = ensure();
-  if (trackWidth > 0) r.trackWidth = static_cast<float>(trackWidth) * 0.1f;
-  if (calib > 0) r.travelCalib = static_cast<float>(calib) * 1e-4f;
+  if (trackWidth > 0)
+    r.engine.setTrackWidth(static_cast<float>(trackWidth) * 0.1f);
+  if (calib > 0) r.engine.setTravelCalib(static_cast<float>(calib) * 1e-4f);
 }
 
 //%
@@ -968,7 +948,7 @@ int wheelSpeed(int which) {
   Rig& r = ensure();
   const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
   const float counts = (which == 0) ? out.velocityLeft : out.velocityRight;
-  return static_cast<int>(std::lround(counts * r.travelCalib * 0.1f));
+  return static_cast<int>(std::lround(counts * r.engine.travelCalib() * 0.1f));
 }
 
 //%
