@@ -1,5 +1,15 @@
 ---
-status: pending
+status: done
+sprint: '003'
+tickets:
+- 003-001
+- 003-002
+- 003-003
+- 003-004
+- 003-005
+- 003-011
+- 003-012
+- 003-013
 ---
 
 # Implement protocol v6: wire grammar, verb catalog, and the reliability layer
