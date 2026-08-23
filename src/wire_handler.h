@@ -67,12 +67,19 @@
 // lastDone()/lastDoneReason() -- that state is Adapter-owned and a
 // handler-level reset has no business reaching into it (S8.8).
 //
-// Deliberately out of scope for this file (sprint 003 ticket 004 adds
-// it): the six motion verbs (WHEELS_X, WHEELS_V, MOVE_X, MOVE_V,
-// GO_TO_R, GO_TO_W). An otherwise well-formed line naming one of them
-// today is simply an unrecognized verb to this file's own kCommandTable
-// -- with a well-formed in-order id it is a decode failure (nack + err
-// 1) exactly like any other unrecognized verb, per S8.9.
+// Sprint 003 ticket 004 adds the six motion verbs (WHEELS_X, WHEELS_V,
+// MOVE_X, MOVE_V, GO_TO_R, GO_TO_W) to Adapter and kCommandTable,
+// inserted between TLM and STOP per protocol.md S6's own canonical
+// ordering (WHEELS is RENAMED WHEELS_V -- there is no bare WHEELS verb
+// in this table). Angles (rotation, omega) are milliradian integers on
+// the wire (motion-api.md S9.1) -- decoded here with the ordinary
+// signed-integer field parser, same as any other field; the
+// degrees-at-the-API conversion is a LANGUAGE BINDING's job, not this
+// file's. src/wire_adapter.{h,cpp} (also ticket 004) is the concrete
+// Adapter behind this handler for this robot: WHEELS_V gets real effect
+// there; the other five answer Result::kUnknown, a deliberate,
+// documented "no planner yet" (protocol.md S9.10 item 1's own
+// precedent), not a stub left unfinished.
 //
 // Host-portable by construction: no pxt.h, no CODAL type, anywhere in
 // this file or wire_handler.cpp. See tests/host/wire_grammar_shim.cpp
@@ -179,15 +186,16 @@ enum class DoneReason : uint8_t {
 // invoke-by-name, and the reliability layer's completion channel
 // (lastDone()/lastDoneReason(), polled fresh on every ack/nack, S8.8).
 //
-// This is NOT sprint.md's own src/wire_adapter.{h,cpp} module (a later
-// ticket's production deliverable, backed by this robot's real identity/
-// config/motion engine) -- it is this file's OWN seam, satisfied in
-// tests by tests/host/wire_mock_adapter.h's WireMockAdapter (a recording
-// test double, never linked into production code). Ticket 004 widens
-// this interface with the six motion methods (onWheelsX/onWheelsV/
-// onMoveX/onMoveV/onGoToR/onGoToW) radio-robot-lib's own Adapter
-// (adapter.h) already declares; deliberately absent here since this
-// ticket dispatches no motion verb.
+// This is NOT sprint.md's own src/wire_adapter.{h,cpp} module (this file
+// only declares the CONTRACT; src/wire_adapter.h's WireAdapter, ticket
+// 004, is the production implementation, backed by this robot's real
+// identity/config/shims.cpp surface) -- it is this file's OWN seam,
+// satisfied in tests by tests/host/wire_mock_adapter.h's WireMockAdapter
+// (a recording test double, never linked into production code). Ticket
+// 004 widened this interface with the six motion methods (onWheelsV/
+// onWheelsX/onMoveX/onMoveV/onGoToR/onGoToW) radio-robot-lib's own
+// Adapter (adapter.h) already declares -- see each method's own doc
+// comment below for its exact wire units.
 class Adapter {
  public:
   virtual ~Adapter() = default;
@@ -196,6 +204,29 @@ class Adapter {
   virtual void identity(Identity& out) const = 0;
   virtual uint32_t now() const = 0;  // [ms], for PING's `pong <now>`
   virtual void status(StatusFields& out) const = 0;
+
+  // ---- motion: the six verbs (motion-api.md S9.1, sprint 003 ticket
+  // 004). Angles (rotation, omega) arrive already decoded from the
+  // wire's milliradian integers into float milliradians -- degrees-at-
+  // the-API is a LANGUAGE BINDING's conversion, not this seam's. ----
+  virtual Result onWheelsV(float left, float right,  // [mm/s] [mm/s]
+                           uint32_t duration,          // [ms]
+                           uint32_t id) = 0;
+  virtual Result onWheelsX(float left, float right,  // [mm] [mm]
+                           float cruise,               // [mm/s]
+                           uint32_t timeout,            // [ms]
+                           uint32_t id) = 0;
+  virtual Result onMoveX(float distance, float rotation,  // [mm] [mrad]
+                        float cruise, uint32_t timeout,    // [mm/s] [ms]
+                        uint32_t id) = 0;
+  virtual Result onMoveV(float v_x, float omega,        // [mm/s] [mrad/s]
+                        uint32_t duration, uint32_t id) = 0;  // [ms]
+  virtual Result onGoToR(float x, float y, float speed,   // [mm] [mm] [mm/s]
+                        float arrive, uint32_t timeout,    // [mm] [ms]
+                        uint32_t id) = 0;
+  virtual Result onGoToW(float x, float y, float speed,
+                        float arrive, uint32_t timeout,
+                        uint32_t id) = 0;
 
   // ---- safety ----
   virtual void onEstop() = 0;
@@ -395,18 +426,19 @@ class WireHandler {
   // at (protocol.md S8.3). They are still present here purely so HELP's
   // generated listing (execHelp()) walks ONE table for every verb name
   // this file knows about and cannot drift from the dispatcher. Ticket
-  // 004 inserts the six motion verbs between TLM and STOP, matching
+  // 004 inserted the six motion verbs between TLM and STOP, matching
   // protocol.md S6's own canonical ordering.
-  static const VerbEntry kCommandTable[12];
+  static const VerbEntry kCommandTable[18];
 
   // Field-token storage cap for one line, verb-exclusive (id excluded --
   // it is resolved separately, see dispatch()'s own comment). Every
-  // fixed-arity verb this ticket wires up has at most 2 data fields
-  // (SET's name/value) -- comfortably inside this cap. RUN is the one
-  // exception: its arity is open-ended, so this cap doubles as RUN's own
-  // hard ceiling on how many raw DATA tokens it will trust fields[] to
-  // hold pointers for at all -- decodeRun() checks its own fieldCount
-  // against this constant BEFORE indexing fields[].
+  // fixed-arity verb this file wires up has at most 5 data fields
+  // (GO_TO_R/GO_TO_W's x/y/speed/arrive/timeout) -- comfortably inside
+  // this cap. RUN is the one exception: its arity is open-ended, so this
+  // cap doubles as RUN's own hard ceiling on how many raw DATA tokens it
+  // will trust fields[] to hold pointers for at all -- decodeRun()
+  // checks its own fieldCount against this constant BEFORE indexing
+  // fields[].
   static constexpr size_t kMaxFieldTokens = 20;
 
   // RUN's own ceiling on how many ARGUMENTS (excluding the function
@@ -446,6 +478,42 @@ class WireHandler {
   bool decodeTlm(char** fields, size_t fieldCount);
   void execTlm(char** fields, size_t fieldCount, uint32_t id,
               uint8_t& errCode);
+
+  // ---- motion: WHEELS_X / WHEELS_V / MOVE_X / MOVE_V / GO_TO_R /
+  // GO_TO_W (motion-api.md S9.1's wire mapping, sprint 003 ticket 004).
+  // Every decode function here is a plain arity + signed/unsigned-
+  // integer-field-parseability check, same DecodeFn contract as every
+  // other verb; every exec function re-parses the same fields (decode
+  // already proved they succeed) and forwards them to the Adapter as
+  // floats, the same "wire integer -> float for arithmetic convenience"
+  // pattern WHEELS_V's own left/right fields already used before
+  // motion-api.md's other five verbs existed on this wire. ----
+  bool decodeWheelsX(char** fields, size_t fieldCount);
+  void execWheelsX(char** fields, size_t fieldCount, uint32_t id,
+                   uint8_t& errCode);
+
+  bool decodeWheelsV(char** fields, size_t fieldCount);
+  void execWheelsV(char** fields, size_t fieldCount, uint32_t id,
+                   uint8_t& errCode);
+
+  bool decodeMoveX(char** fields, size_t fieldCount);
+  void execMoveX(char** fields, size_t fieldCount, uint32_t id,
+                uint8_t& errCode);
+
+  bool decodeMoveV(char** fields, size_t fieldCount);
+  void execMoveV(char** fields, size_t fieldCount, uint32_t id,
+                uint8_t& errCode);
+
+  bool decodeGoToR(char** fields, size_t fieldCount);
+  void execGoToR(char** fields, size_t fieldCount, uint32_t id,
+                uint8_t& errCode);
+
+  // Identical field shape to GO_TO_R (motion-api.md S9.1) -- decodeGoToW
+  // simply delegates to decodeGoToR; execGoToW is its own function only
+  // because it must call onGoToW(), not onGoToR().
+  bool decodeGoToW(char** fields, size_t fieldCount);
+  void execGoToW(char** fields, size_t fieldCount, uint32_t id,
+                uint8_t& errCode);
 
   bool decodeStop(char** fields, size_t fieldCount);
   void execStop(char** fields, size_t fieldCount, uint32_t id,

@@ -60,12 +60,55 @@ const char* findLastFieldToken(const char* line) {
   return p == line ? nullptr : p;
 }
 
-// Config values are the one place floats appear on the wire (SET). "No
-// exponents, no NaN, no inf" -- nothing in this project ever needs a
-// robot to accept "1e10" or "nan" as a gain.
+// Config values (SET) and the six motion verbs' own fields (motion-
+// api.md S9.1) are the places non-id numeric fields appear on the wire.
+// "No exponents, no NaN, no inf" -- nothing in this project ever needs a
+// robot to accept "1e10" or "nan" as a gain; tokenizing on ' ' still
+// leaves '\t'/'\v'/'\f'/'\r' as LEGAL, ordinary field bytes that
+// strtol/strtoul/strtof would otherwise silently skip as leading
+// whitespace (a C-standard behavior, not a project choice).
 bool isWireSpace(char c) {
   return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' ||
          c == '\r';
+}
+
+// The six motion verbs' own fields are base-10 integers, optionally
+// signed for left/right/distance/rotation/v_x/omega/x/y/speed/arrive,
+// unsigned for timeout/duration. "Strict" means the WHOLE field must be
+// consumed by strtol/strtoul -- a trailing letter or stray interior byte
+// makes the field unparseable ("wrong arity is a rejection, not a
+// best-effort parse" extended to field content).
+bool parseInt32(const char* field, int32_t& out) {
+  if (field == nullptr || field[0] == '\0' || isWireSpace(field[0])) {
+    return false;
+  }
+  char* endPtr = nullptr;
+  errno = 0;
+  long value = std::strtol(field, &endPtr, 10);
+  if (endPtr == field || *endPtr != '\0') return false;
+  if (errno == ERANGE || value < INT32_MIN || value > INT32_MAX) return false;
+  out = static_cast<int32_t>(value);
+  return true;
+}
+
+// strtoul silently accepts a leading '-' and wraps around, which would
+// turn "-5" into a huge unsigned value instead of failing -- reject it
+// up front. Deliberately NOT as strict as parseIdDigits() above (which
+// also bars a leading '+'): the id's own grammar is `#[0-9]+` exactly,
+// but timeout/duration are ordinary signed-integer-family wire fields
+// with no such narrower rule of their own.
+bool parseUint32(const char* field, uint32_t& out) {
+  if (field == nullptr || field[0] == '\0' || field[0] == '-' ||
+      isWireSpace(field[0])) {
+    return false;
+  }
+  char* endPtr = nullptr;
+  errno = 0;
+  unsigned long value = std::strtoul(field, &endPtr, 10);
+  if (endPtr == field || *endPtr != '\0') return false;
+  if (errno == ERANGE || value > UINT32_MAX) return false;
+  out = static_cast<uint32_t>(value);
+  return true;
 }
 
 bool parseFloatField(const char* field, float& out) {
@@ -156,7 +199,7 @@ size_t sanitizeLineText(const char* text, char* out, size_t outCap) {
 
 }  // namespace
 
-const WireHandler::VerbEntry WireHandler::kCommandTable[12] = {
+const WireHandler::VerbEntry WireHandler::kCommandTable[18] = {
     {"HELLO", &WireHandler::decodeAlwaysTrue, &WireHandler::execNoop},
     {"PING", &WireHandler::decodeAlwaysTrue, &WireHandler::execNoop},
     {"ID", &WireHandler::decodeNoFields, &WireHandler::execId},
@@ -166,6 +209,12 @@ const WireHandler::VerbEntry WireHandler::kCommandTable[12] = {
     {"GET", &WireHandler::decodeGet, &WireHandler::execGet},
     {"SET", &WireHandler::decodeSet, &WireHandler::execSet},
     {"TLM", &WireHandler::decodeTlm, &WireHandler::execTlm},
+    {"WHEELS_X", &WireHandler::decodeWheelsX, &WireHandler::execWheelsX},
+    {"WHEELS_V", &WireHandler::decodeWheelsV, &WireHandler::execWheelsV},
+    {"MOVE_X", &WireHandler::decodeMoveX, &WireHandler::execMoveX},
+    {"MOVE_V", &WireHandler::decodeMoveV, &WireHandler::execMoveV},
+    {"GO_TO_R", &WireHandler::decodeGoToR, &WireHandler::execGoToR},
+    {"GO_TO_W", &WireHandler::decodeGoToW, &WireHandler::execGoToW},
     {"STOP", &WireHandler::decodeStop, &WireHandler::execStop},
     {"ESTOP", &WireHandler::decodeAlwaysTrue, &WireHandler::execNoop},
     {"RUN", &WireHandler::decodeRun, &WireHandler::execRun},
@@ -675,6 +724,151 @@ void WireHandler::execTlm(char** fields, size_t fieldCount, uint32_t id,
   TlmMode mode;
   parseTlmMode(fields[0], mode);  // decodeTlm() already proved this succeeds
   (void)adapter_.onTlm(mode);
+}
+
+// ---- motion: WHEELS_X / WHEELS_V / MOVE_X / MOVE_V / GO_TO_R / GO_TO_W ----
+// motion-api.md S9.1's wire mapping (sprint 003 ticket 004). Angles
+// (rotation, omega) are milliradian integers on the wire (S9.1:
+// "degrees at the API, milliradian integers on the wire ... the
+// conversion lives in the binding, in one place" -- NOT this file's
+// job), decoded here with the ordinary signed-integer field parser and
+// handed to the Adapter as float milliradians, the same "wire integer ->
+// float for arithmetic convenience" pattern WHEELS_V's own left/right
+// fields already used before this ticket.
+
+bool WireHandler::decodeWheelsX(char** fields, size_t fieldCount) {
+  if (fieldCount != 4) return false;
+  int32_t discard32 = 0;
+  uint32_t discardU = 0;
+  return parseInt32(fields[0], discard32) && parseInt32(fields[1], discard32) &&
+         parseInt32(fields[2], discard32) && parseUint32(fields[3], discardU);
+}
+
+void WireHandler::execWheelsX(char** fields, size_t fieldCount, uint32_t id,
+                              uint8_t& errCode) {
+  (void)fieldCount;
+  int32_t left = 0, right = 0, cruise = 0;
+  uint32_t timeout = 0;
+  parseInt32(fields[0], left);
+  parseInt32(fields[1], right);
+  parseInt32(fields[2], cruise);
+  parseUint32(fields[3], timeout);
+  Result result =
+      adapter_.onWheelsX(static_cast<float>(left), static_cast<float>(right),
+                         static_cast<float>(cruise), timeout, id);
+  errCode = resultCode(result);
+}
+
+bool WireHandler::decodeWheelsV(char** fields, size_t fieldCount) {
+  if (fieldCount != 3) return false;
+  int32_t discard32 = 0;
+  uint32_t discardU = 0;
+  return parseInt32(fields[0], discard32) && parseInt32(fields[1], discard32) &&
+         parseUint32(fields[2], discardU);
+}
+
+void WireHandler::execWheelsV(char** fields, size_t fieldCount, uint32_t id,
+                              uint8_t& errCode) {
+  (void)fieldCount;
+  int32_t left = 0, right = 0;
+  uint32_t duration = 0;
+  parseInt32(fields[0], left);
+  parseInt32(fields[1], right);
+  parseUint32(fields[2], duration);
+  Result result = adapter_.onWheelsV(static_cast<float>(left),
+                                     static_cast<float>(right), duration, id);
+  errCode = resultCode(result);
+}
+
+bool WireHandler::decodeMoveX(char** fields, size_t fieldCount) {
+  if (fieldCount != 4) return false;
+  int32_t discard32 = 0;
+  uint32_t discardU = 0;
+  return parseInt32(fields[0], discard32) && parseInt32(fields[1], discard32) &&
+         parseInt32(fields[2], discard32) && parseUint32(fields[3], discardU);
+}
+
+void WireHandler::execMoveX(char** fields, size_t fieldCount, uint32_t id,
+                            uint8_t& errCode) {
+  (void)fieldCount;
+  int32_t distance = 0, rotation = 0, cruise = 0;
+  uint32_t timeout = 0;
+  parseInt32(fields[0], distance);
+  parseInt32(fields[1], rotation);
+  parseInt32(fields[2], cruise);
+  parseUint32(fields[3], timeout);
+  Result result = adapter_.onMoveX(static_cast<float>(distance),
+                                   static_cast<float>(rotation),
+                                   static_cast<float>(cruise), timeout, id);
+  errCode = resultCode(result);
+}
+
+bool WireHandler::decodeMoveV(char** fields, size_t fieldCount) {
+  if (fieldCount != 3) return false;
+  int32_t discard32 = 0;
+  uint32_t discardU = 0;
+  return parseInt32(fields[0], discard32) && parseInt32(fields[1], discard32) &&
+         parseUint32(fields[2], discardU);
+}
+
+void WireHandler::execMoveV(char** fields, size_t fieldCount, uint32_t id,
+                            uint8_t& errCode) {
+  (void)fieldCount;
+  int32_t v_x = 0, omega = 0;
+  uint32_t duration = 0;
+  parseInt32(fields[0], v_x);
+  parseInt32(fields[1], omega);
+  parseUint32(fields[2], duration);
+  Result result = adapter_.onMoveV(static_cast<float>(v_x),
+                                   static_cast<float>(omega), duration, id);
+  errCode = resultCode(result);
+}
+
+bool WireHandler::decodeGoToR(char** fields, size_t fieldCount) {
+  if (fieldCount != 5) return false;
+  int32_t discard32 = 0;
+  uint32_t discardU = 0;
+  return parseInt32(fields[0], discard32) && parseInt32(fields[1], discard32) &&
+         parseInt32(fields[2], discard32) && parseInt32(fields[3], discard32) &&
+         parseUint32(fields[4], discardU);
+}
+
+void WireHandler::execGoToR(char** fields, size_t fieldCount, uint32_t id,
+                            uint8_t& errCode) {
+  (void)fieldCount;
+  int32_t x = 0, y = 0, speed = 0, arrive = 0;
+  uint32_t timeout = 0;
+  parseInt32(fields[0], x);
+  parseInt32(fields[1], y);
+  parseInt32(fields[2], speed);
+  parseInt32(fields[3], arrive);
+  parseUint32(fields[4], timeout);
+  Result result =
+      adapter_.onGoToR(static_cast<float>(x), static_cast<float>(y),
+                       static_cast<float>(speed), static_cast<float>(arrive),
+                       timeout, id);
+  errCode = resultCode(result);
+}
+
+bool WireHandler::decodeGoToW(char** fields, size_t fieldCount) {
+  return decodeGoToR(fields, fieldCount);  // identical field shape
+}
+
+void WireHandler::execGoToW(char** fields, size_t fieldCount, uint32_t id,
+                            uint8_t& errCode) {
+  (void)fieldCount;
+  int32_t x = 0, y = 0, speed = 0, arrive = 0;
+  uint32_t timeout = 0;
+  parseInt32(fields[0], x);
+  parseInt32(fields[1], y);
+  parseInt32(fields[2], speed);
+  parseInt32(fields[3], arrive);
+  parseUint32(fields[4], timeout);
+  Result result =
+      adapter_.onGoToW(static_cast<float>(x), static_cast<float>(y),
+                       static_cast<float>(speed), static_cast<float>(arrive),
+                       timeout, id);
+  errCode = resultCode(result);
 }
 
 // ---- STOP: `STOP [now] #<id>` ---------------------------------------------

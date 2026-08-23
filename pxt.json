@@ -24,6 +24,8 @@
         "src/protocol.cpp",
         "src/wire_handler.h",
         "src/wire_handler.cpp",
+        "src/wire_adapter.h",
+        "src/wire_adapter.cpp",
         "src/shims.cpp",
         "src/main.ts"
     ],

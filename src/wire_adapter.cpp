@@ -1,0 +1,273 @@
+// wire_adapter.cpp -- see wire_adapter.h for the class contract and the
+// documented scope decisions (why five motion verbs answer kUnknown, why
+// now()/onRun() are inert on this adapter, the borrowed-Identity
+// contract).
+#include "wire_adapter.h"
+
+#include <cmath>
+#include <cstring>
+
+namespace diffDrive {
+
+// ---- shims.cpp entry points (sprint 003 ticket 004) --------------------
+// shims.cpp has no header of its own (see its own file comment) and
+// main.ts's `//% shim=diffDrive::...` mechanism is the TS-facing binding,
+// not a C++ one -- these are plain same-namespace C++ forward
+// declarations, exactly like protocol.cpp's own block reaching the same
+// file. Must stay signature-compatible with shims.cpp's real
+// definitions; every one of these already existed before this ticket --
+// this file adds no new entry point to shims.cpp, keeping ticket
+// 006/007's motion_engine extraction free to replace every one of these
+// call sites later without this file's own public interface changing.
+void stopAll();
+void estopAll();
+void setWheelsTimed(int left, int right, uint32_t durationMs);
+void setKernelValue(int field, int value);
+int getConfigValue(int field);
+int diagValue(int what);
+
+namespace {
+
+// The 15 `ConfigField` enum entries (main.ts) mapped onto
+// setKernelValue()/getConfigValue()'s existing field ordinals
+// (shims.cpp) -- one wire NAME per field, replacing the old binary
+// CONFIG/SET_FIELD/GET_CONFIG verbs' bare ordinal one-for-one (sprint.md
+// Migration Concerns: "GET/SET address the same DifferentialDrive::
+// Config/Rig fields that exist today, under new wire names, with
+// nothing to convert"). Declaration order matches ConfigField's own
+// declaration order so a bare GET's dump reads in the same order a
+// human reading main.ts would expect.
+struct FieldEntry {
+  const char* name;  // wire key
+  int ordinal;        // shims.cpp's setKernelValue()/getConfigValue() field
+};
+
+constexpr FieldEntry kFields[] = {
+    {"max_duty", 0},           // ConfigField.MaxDuty
+    {"full_duty_velocity", 1}, // ConfigField.FullDutyVelocity
+    {"pid_kp", 2},             // ConfigField.Kp
+    {"pid_ki", 3},             // ConfigField.Ki
+    {"pid_i_max", 4},          // ConfigField.IMax
+    {"accel_kaff", 5},         // ConfigField.Kaff
+    {"pid_max", 6},            // ConfigField.PidMax
+    {"twist_hold_gain", 7},    // ConfigField.TwistHoldGain
+    {"speed_floor", 8},        // ConfigField.SpeedFloor
+    {"pos_err_max", 9},        // ConfigField.PosErrMax
+    {"stall_speed", 10},       // ConfigField.StallSpeed
+    {"stall_demand", 11},      // ConfigField.StallDemand
+    {"stall_window", 12},      // ConfigField.StallWindow
+    {"lambda_enabled", 13},    // ConfigField.LambdaEnabled
+    {"crawl_pulse", 14},       // ConfigField.CrawlPulse
+};
+constexpr size_t kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
+
+const FieldEntry* findField(const char* name) {
+  for (const auto& entry : kFields) {
+    if (std::strcmp(name, entry.name) == 0) return &entry;
+  }
+  return nullptr;
+}
+
+// LOCAL flags layout, mirroring radio-robot-lib's own DiffDriveAdapter
+// posture (diffdrive_adapter.cpp's computeFlags()): these bit numbers
+// are NOT any externally-numbered scheme -- they exist only so STATUS's
+// `flags=<hex>` packs the same handful of diagValue() booleans a bench
+// operator already reads off the DIAG verb into one word.
+constexpr uint32_t kFlagReady = 1u << 0;
+constexpr uint32_t kFlagEstopped = 1u << 1;
+constexpr uint32_t kFlagStallHalted = 1u << 2;
+constexpr uint32_t kFlagLeaseExpired = 1u << 3;
+constexpr uint32_t kFlagConnLeft = 1u << 4;
+constexpr uint32_t kFlagConnRight = 1u << 5;
+constexpr uint32_t kFlagWedgeLeft = 1u << 6;
+constexpr uint32_t kFlagWedgeRight = 1u << 7;
+
+// diagValue()'s own field-ordinal contract (shims.cpp) this file reads
+// from -- named here so status() below reads as prose, not magic
+// numbers. Only the subset status() actually needs; shims.cpp's DIAG
+// verb reads many more (protocol.cpp's formatDiag()).
+constexpr int kDiagReady = 0;
+constexpr int kDiagEstopped = 1;
+constexpr int kDiagStallHalted = 2;
+constexpr int kDiagLeaseExpired = 3;
+constexpr int kDiagConnLeft = 4;
+constexpr int kDiagConnRight = 5;
+constexpr int kDiagWedgeLeft = 6;
+constexpr int kDiagWedgeRight = 7;
+constexpr int kDiagVelocityLeft = 14;
+constexpr int kDiagVelocityRight = 15;
+
+const char* tlmModeWireName(Wire::TlmMode mode) {
+  switch (mode) {
+    case Wire::TlmMode::kOff: return "off";
+    case Wire::TlmMode::kPose: return "pose";
+    case Wire::TlmMode::kFull: return "full";
+    case Wire::TlmMode::kAuto: return "auto";
+    case Wire::TlmMode::kBuffer: return "buffer";
+    // kNow is a one-shot request in the CURRENT mode's own shape
+    // (protocol.md S6.1) -- never stored into mode_ (see onTlm() below),
+    // kept here only so this switch stays exhaustive against a future
+    // TlmMode enumerator.
+    case Wire::TlmMode::kNow: return "pose";
+  }
+  return "off";  // unreachable with every enumerator handled above
+}
+
+}  // namespace
+
+WireAdapter::WireAdapter(const Wire::Identity& identity)
+    : identity_(identity) {}
+
+void WireAdapter::identity(Wire::Identity& out) const { out = identity_; }
+
+uint32_t WireAdapter::now() const {
+  // See this file's own header comment: no forward-declared clock read
+  // exists in shims.cpp yet. 0 is an honest, functionally inert default
+  // -- PING's own liveness contract only needs a reply to exist, not a
+  // wall-clock-accurate value.
+  return 0;
+}
+
+void WireAdapter::status(Wire::StatusFields& out) const {
+  out.ready = diagValue(kDiagReady) != 0;
+  const bool estopped = diagValue(kDiagEstopped) != 0;
+  const bool stallHalted = diagValue(kDiagStallHalted) != 0;
+  const bool leaseExpired = diagValue(kDiagLeaseExpired) != 0;
+  const bool wedgeLeft = diagValue(kDiagWedgeLeft) != 0;
+  const bool wedgeRight = diagValue(kDiagWedgeRight) != 0;
+
+  out.connLeft = diagValue(kDiagConnLeft) != 0;
+  out.connRight = diagValue(kDiagConnRight) != 0;
+  // No OTOS in this project's wire-reachable surface yet (poseX/Y/
+  // heading are cached-OTOS-fused odometry, not a boolean presence
+  // flag) -- documented default, the same "no OTOS in this library"
+  // choice DiffDriveAdapter makes for the identical reason.
+  out.otos = false;
+  out.wedge = wedgeLeft || wedgeRight;
+  // "active" here means "a motion command is currently in effect" -- the
+  // closest reading of this robot's WHEELS_V-only, planner-free command
+  // surface can produce (mirrors DiffDriveAdapter::status()'s own
+  // reasoning).
+  out.active = out.ready && !estopped && !leaseExpired && !stallHalted &&
+               (diagValue(kDiagVelocityLeft) != 0 ||
+                diagValue(kDiagVelocityRight) != 0);
+
+  uint32_t flags = 0;
+  if (out.ready) flags |= kFlagReady;
+  if (estopped) flags |= kFlagEstopped;
+  if (stallHalted) flags |= kFlagStallHalted;
+  if (leaseExpired) flags |= kFlagLeaseExpired;
+  if (out.connLeft) flags |= kFlagConnLeft;
+  if (out.connRight) flags |= kFlagConnRight;
+  if (wedgeLeft) flags |= kFlagWedgeLeft;
+  if (wedgeRight) flags |= kFlagWedgeRight;
+  out.flags = flags;
+
+  out.tlm = tlmModeWireName(mode_);
+}
+
+Wire::Result WireAdapter::onWheelsV(float left, float right,
+                                    uint32_t duration, uint32_t id) {
+  (void)id;
+  if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
+  // left/right arrive as exact integral values (decoded from the wire's
+  // signed-integer fields, wire_handler.cpp) -- a plain narrowing cast
+  // is exact, no rounding needed.
+  setWheelsTimed(static_cast<int>(left), static_cast<int>(right), duration);
+  return Wire::Result::kOk;
+}
+
+Wire::Result WireAdapter::onWheelsX(float /*left*/, float /*right*/,
+                                    float /*cruise*/, uint32_t /*timeout*/,
+                                    uint32_t /*id*/) {
+  // No planner -- see wire_adapter.h's own doc comment on this override
+  // for why kUnknown (not kUnimplemented) is the deliberate choice here.
+  return Wire::Result::kUnknown;
+}
+
+Wire::Result WireAdapter::onMoveX(float /*distance*/, float /*rotation*/,
+                                  float /*cruise*/, uint32_t /*timeout*/,
+                                  uint32_t /*id*/) {
+  return Wire::Result::kUnknown;
+}
+
+Wire::Result WireAdapter::onMoveV(float /*v_x*/, float /*omega*/,
+                                  uint32_t /*duration*/, uint32_t /*id*/) {
+  return Wire::Result::kUnknown;
+}
+
+Wire::Result WireAdapter::onGoToR(float /*x*/, float /*y*/, float /*speed*/,
+                                  float /*arrive*/, uint32_t /*timeout*/,
+                                  uint32_t /*id*/) {
+  return Wire::Result::kUnknown;
+}
+
+Wire::Result WireAdapter::onGoToW(float /*x*/, float /*y*/, float /*speed*/,
+                                  float /*arrive*/, uint32_t /*timeout*/,
+                                  uint32_t /*id*/) {
+  return Wire::Result::kUnknown;
+}
+
+void WireAdapter::onEstop() {
+  // ESTOP -> estopAll() -> kernel.estop() + emergencyStopMotors(): the
+  // handler itself never inspects this method's return (void, per
+  // wire_handler.h's own Adapter::onEstop() contract) -- it replies
+  // `estop` unconditionally after calling this.
+  estopAll();
+}
+
+Wire::Result WireAdapter::onStop(bool /*immediate*/, uint32_t /*id*/) {
+  // STOP [now] -> stopAll() -> kernel.neutral(): stopAll() has no
+  // refusal path of its own (matches kernel.neutral()'s own unconditional
+  // acceptance), so this always acks kOk. `immediate` (STOP's optional
+  // `now` token) has no effect here -- this project's stopAll() has
+  // always been immediate regardless, same posture DiffDriveAdapter
+  // documents for its own onStop() override (protocol.md S5.1: "both are
+  // immediate at the kernel level").
+  stopAll();
+  return Wire::Result::kOk;
+}
+
+bool WireAdapter::onGet(const char* name, float& out) const {
+  const FieldEntry* entry = findField(name);
+  if (entry == nullptr) return false;
+  out = static_cast<float>(getConfigValue(entry->ordinal)) * 0.001f;
+  return true;
+}
+
+Wire::Result WireAdapter::onSet(const char* name, float value, uint32_t id) {
+  (void)id;
+  const FieldEntry* entry = findField(name);
+  if (entry == nullptr) return Wire::Result::kUnknown;
+  setKernelValue(entry->ordinal,
+                static_cast<int>(std::lround(value * 1000.0f)));
+  return Wire::Result::kOk;
+}
+
+size_t WireAdapter::fieldCount() const { return kFieldCount; }
+
+const char* WireAdapter::fieldName(size_t index) const {
+  return index < kFieldCount ? kFields[index].name : "";
+}
+
+Wire::Result WireAdapter::onTlm(Wire::TlmMode mode) {
+  // TLM NOW is a one-shot request in the CURRENT subscription's shape,
+  // not a new subscription (protocol.md S6.1: "does not change mode") --
+  // so it is deliberately never stored into mode_. Everything else
+  // becomes the persisted mode.
+  if (mode != Wire::TlmMode::kNow) mode_ = mode;
+  return Wire::Result::kOk;
+}
+
+Wire::Result WireAdapter::onRun(const char* /*name*/,
+                                const char* const* /*argv*/,
+                                size_t /*argc*/, char* /*result*/,
+                                size_t /*resultCapacity*/, bool& hasResult) {
+  // No registration table -- see wire_adapter.h's own doc comment on
+  // this override. Every RUN is ERR_UNKNOWN, the same wire outcome as
+  // any name a real registration table would not recognize.
+  hasResult = false;
+  return Wire::Result::kUnknown;
+}
+
+}  // namespace diffDrive
