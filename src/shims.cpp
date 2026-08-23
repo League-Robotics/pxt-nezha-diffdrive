@@ -34,6 +34,14 @@
 // shim boundary main.ts uses. See protocol.cpp's own forward-declaration
 // block for the up-to-date list this file must keep signature-compatible
 // with.
+//
+// Third caller (ticket 011): WireAdapter's WHEELS_X/MOVE_X handlers
+// (wire_adapter.cpp) reach this file's `engine` the same way -- three
+// more wire-shaped forward declarations (engineWheelsX, engineMoveX,
+// engineDefaultCruiseMmS), defined in the "wire motion-engine
+// primitives" section below. See wire_adapter.cpp's own forward-
+// declaration block for the up-to-date list it must keep signature-
+// compatible with.
 #include "pxt.h"
 #include "diffdrive.h"
 #include "motion_engine.h"
@@ -277,6 +285,55 @@ void driveTwistTimed(int speed, int yawRate,
   const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
   const float speedMmS = static_cast<float>(speed);
   r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS, durationMs);
+}
+
+// ---- wire motion-engine primitives (sprint 003 ticket 011: WireAdapter's
+// WHEELS_X/MOVE_X handlers) -----------------------------------------------
+// Same same-package forward-declaration convention as setWheelsTimed()/
+// driveTwistTimed() above -- WireAdapter (wire_adapter.cpp) has no
+// reference of its own to this Rig's `engine` (sprint.md's lazy-
+// singleton composition lives here, not there), so it forwards through
+// these thin, wire-shaped calls instead. Wire-shaped units all the way
+// through (mm, mm/s, ms); `rotationRad` arrives at engineMoveX() ALREADY
+// converted from the wire's milliradian integer to radians --
+// wire_adapter.cpp performs that one conversion (motion-api.md S9.1:
+// "the conversion lives in the binding, in one place"), this function
+// performs none of its own. `cruise` <= 0 here is MotionEngine's own
+// existing "nothing to command" no-op (motion_engine.h) -- a caller
+// wanting the wire's "0 means the configured default" substitution
+// (motion-api.md S1.1) must resolve it BEFORE calling these, via
+// engineDefaultCruiseMmS() below; neither of these two ever sees the
+// sentinel itself. Deliberately NOT `//%`-annotated, same rationale as
+// setWheelsTimed(): the block API's own startMove() (above) already has
+// a call shape of its own and never needed this wire-shaped one.
+void engineWheelsX(float left, float right, float cruise,
+                   uint32_t timeoutMs) {  // [mm] [mm] [mm/s] [ms]
+  Rig& r = ensure();
+  r.engine.wheelsX(left, right, cruise, timeoutMs);
+}
+
+void engineMoveX(float distance, float rotationRad, float cruise,
+                 uint32_t timeoutMs) {  // [mm] [rad] [mm/s] [ms]
+  Rig& r = ensure();
+  r.engine.moveX(distance, rotationRad, cruise, timeoutMs);
+}
+
+// The wire's "cruise == 0 means the configured default" substitution
+// (motion-api.md S1.1: "an X-form's commanded value is a displacement
+// ... pass 0 for the configured default"): this robot's own configured
+// full-duty velocity -- the same ceiling GET full_duty_velocity already
+// reports -- converted from the kernel's native counts/s into wheelsX()/
+// moveX()'s own mm/s ceiling. Returns 0 if unconfigured (fullDutyVelocity
+// <= 0, or a zero/negative travelCalib leaves countsPerMm() <= 0) -- an
+// honest "no default available" rather than a fabricated number or a
+// divide-by-zero; wire_adapter.cpp treats that as a range refusal, not a
+// silently-accepted zero-speed command.
+float engineDefaultCruiseMmS() {
+  Rig& r = ensure();
+  const float cpm = r.engine.countsPerMm();
+  const float fullDutyCountsPerS = r.kernel.config().fullDutyVelocity;
+  if (fullDutyCountsPerS <= 0.0f || cpm <= 0.0f) return 0.0f;
+  return fullDutyCountsPerS / cpm;
 }
 
 // ---- move engine ----------------------------------------------------

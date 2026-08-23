@@ -48,6 +48,7 @@
 
 #include "diffdrive.h"
 #include "fake_ports.h"
+#include "motion_engine.h"
 #include "wire_adapter.h"
 #include "wire_handler.h"
 #include "wire_mock_adapter.h"
@@ -91,12 +92,22 @@ struct WaHandle {
   FakeSleeper sleeper;
   FakeFiberLauncher launcher;
   DiffDrive::DifferentialDrive kernel;
+  // sprint 003 ticket 011: the same MotionEngine WHEELS_X/MOVE_X's real
+  // dispatch needs, constructed over `kernel`/`clock` above exactly like
+  // shims.cpp's own Rig::engine (see engineWheelsX()/engineMoveX()/
+  // engineDefaultCruiseMmS() below, the test-double mirrors of the
+  // production forward-declared functions wire_adapter.cpp calls for
+  // these two verbs). Declared AFTER kernel/clock: member init order
+  // follows declaration order, not the initializer list below -- same
+  // rule shims.cpp's own Rig documents for its `engine` member.
+  diffDrive::MotionEngine engine;
   diffDrive::WireAdapter adapter;
   RecordingSink sink;
   Wire::WireHandler handler;
 
   explicit WaHandle(const Wire::Identity& identity)
       : kernel(motorLeft, motorRight, clock, sleeper, launcher),
+        engine(kernel, clock),
         adapter(identity),
         handler(adapter, sink) {}
 };
@@ -197,6 +208,35 @@ int getConfigValue(int field) {
     default: break;
   }
   return static_cast<int>(v * 1000.0f);
+}
+
+// Mirrors shims.cpp's real engineWheelsX()/engineMoveX()/
+// engineDefaultCruiseMmS() exactly (sprint 003 ticket 011) -- these are
+// what WHEELS_X's/MOVE_X's real dispatch (WireAdapter::onWheelsX()/
+// onMoveX(), wire_adapter.cpp) forward-declares and calls; `engine`
+// here is the SAME real MotionEngine class production code uses, wired
+// to this handle's own real kernel/FakeMotor pair (this file's own
+// header comment). `rotationRad` arrives already converted from the
+// wire's milliradian integer -- see wire_adapter.cpp's mradToRad().
+void engineWheelsX(float left, float right, float cruise,
+                   uint32_t timeoutMs) {
+  if (g_activeWaHandle == nullptr) return;
+  g_activeWaHandle->engine.wheelsX(left, right, cruise, timeoutMs);
+}
+
+void engineMoveX(float distance, float rotationRad, float cruise,
+                 uint32_t timeoutMs) {
+  if (g_activeWaHandle == nullptr) return;
+  g_activeWaHandle->engine.moveX(distance, rotationRad, cruise, timeoutMs);
+}
+
+float engineDefaultCruiseMmS() {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  const float cpm = g_activeWaHandle->engine.countsPerMm();
+  const float fullDutyCountsPerS =
+      g_activeWaHandle->kernel.config().fullDutyVelocity;
+  if (fullDutyCountsPerS <= 0.0f || cpm <= 0.0f) return 0.0f;
+  return fullDutyCountsPerS / cpm;
 }
 
 // Mirrors the subset of shims.cpp's real diagValue() switch
@@ -432,6 +472,21 @@ void waSetMaxDuty(void* handle, float v) {
 void waSetFullDutyVelocity(void* handle, float v) {
   static_cast<WaHandle*>(handle)->kernel.setFullDutyVelocity(v);
 }
+
+// ---- MotionEngine geometry readback (sprint 003 ticket 011): lets a
+// WHEELS_X/MOVE_X test compute its own hand-computed expected duty from
+// this handle's REAL countsPerMm()/effectiveTrackWidth() instead of
+// hard-coding MotionEngine's default geometry constants -- same
+// "read it back, don't hard-code it" pattern motion_engine_shim.cpp's
+// own meCountsPerMm()/meEffectiveTrackWidth() already establish. -------
+
+float waCountsPerMm(void* handle) {
+  return static_cast<WaHandle*>(handle)->engine.countsPerMm();
+}
+float waEffectiveTrackWidth(void* handle) {
+  return static_cast<WaHandle*>(handle)->engine.effectiveTrackWidth();
+}
+
 int waBegin(void* handle) {
   return static_cast<int>(static_cast<WaHandle*>(handle)->kernel.begin());
 }

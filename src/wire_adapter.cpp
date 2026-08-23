@@ -26,6 +26,27 @@ void setKernelValue(int field, int value);
 int getConfigValue(int field);
 int diagValue(int what);
 
+// ---- shims.cpp entry points (sprint 003 ticket 011) --------------------
+// WHEELS_X/MOVE_X's own route onto motion_engine.h's MotionEngine.
+// wire_adapter.cpp has no reference of its own to the Rig-owned `engine`
+// singleton -- sprint.md's Design Rationale keeps that composition
+// inside shims.cpp, reached from here only through forward-declared free
+// functions, same convention as the six declarations above -- so these
+// three thin, wire-shaped forwards are the seam. `rotationRad` arrives
+// at engineMoveX() ALREADY converted from the wire's milliradian
+// integer -- see mradToRad() below, this file's ONE such conversion
+// (motion-api.md S9.1). `cruise` <= 0 passed to engineWheelsX()/
+// engineMoveX() is MotionEngine's own existing "nothing to command"
+// no-op (motion_engine.h); the wire's "0 means the configured default"
+// substitution (motion-api.md S1.1) is resolved by onWheelsX()/onMoveX()
+// below, via engineDefaultCruiseMmS(), BEFORE either of these is ever
+// called -- neither one ever sees the sentinel itself.
+void engineWheelsX(float left, float right, float cruise,
+                   uint32_t timeoutMs);
+void engineMoveX(float distance, float rotationRad, float cruise,
+                 uint32_t timeoutMs);
+float engineDefaultCruiseMmS();
+
 namespace {
 
 // The 15 `ConfigField` enum entries (main.ts) mapped onto
@@ -113,6 +134,20 @@ const char* tlmModeWireName(Wire::TlmMode mode) {
   return "off";  // unreachable with every enumerator handled above
 }
 
+// motion-api.md S9.1: "Angles are degrees at the API and milliradian
+// integers on the wire ... The conversion lives in the binding, in one
+// place." This is that one place: MOVE_X's wire `rotation` field
+// arrives here as a milliradian INTEGER, already decoded into this
+// float by wire_handler.cpp; MotionEngine::moveX() (motion_engine.h)
+// wants RADIANS, its own native unit, with no wire-unit awareness of
+// its own. 1 mrad == 0.001 rad, exact for any value this field can
+// carry -- see test_wire_motion_verbs.py's own dedicated round-trip
+// tests (both signs): an off-by-1000 here is invisible in a green build
+// (everything still compiles and dispatches) and catastrophic on the
+// robot (a 90 deg turn either barely twitches or spins wildly past a
+// full revolution, depending on which way the factor is missed).
+float mradToRad(float milliradians) { return milliradians * 0.001f; }
+
 }  // namespace
 
 WireAdapter::WireAdapter(const Wire::Identity& identity, NowMsFn nowMs)
@@ -190,18 +225,39 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
   return Wire::Result::kOk;
 }
 
-Wire::Result WireAdapter::onWheelsX(float /*left*/, float /*right*/,
-                                    float /*cruise*/, uint32_t /*timeout*/,
-                                    uint32_t /*id*/) {
-  // No planner -- see wire_adapter.h's own doc comment on this override
-  // for why kUnknown (not kUnimplemented) is the deliberate choice here.
-  return Wire::Result::kUnknown;
+Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
+                                    uint32_t timeout, uint32_t id) {
+  (void)id;
+  // A speed ceiling has no sign -- refuse outright rather than take its
+  // magnitude, or fall into wheelsX()'s own non-positive-cruise no-op
+  // (motion_engine.h), which would silently accept this as "nothing to
+  // command."
+  if (cruise < 0.0f) return Wire::Result::kRange;
+  // motion-api.md S1.1: "An X-form's commanded value is a displacement
+  // ... so cruise is its own argument. Pass 0 for the configured
+  // default." engineDefaultCruiseMmS() itself resolves to 0 if this
+  // robot has never had one configured either -- refused below, not
+  // silently accepted as a zero-speed command.
+  const float resolvedCruise =
+      cruise == 0.0f ? engineDefaultCruiseMmS() : cruise;
+  if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
+  engineWheelsX(left, right, resolvedCruise, timeout);
+  return Wire::Result::kOk;
 }
 
-Wire::Result WireAdapter::onMoveX(float /*distance*/, float /*rotation*/,
-                                  float /*cruise*/, uint32_t /*timeout*/,
-                                  uint32_t /*id*/) {
-  return Wire::Result::kUnknown;
+Wire::Result WireAdapter::onMoveX(float distance, float rotation,
+                                  float cruise, uint32_t timeout,
+                                  uint32_t id) {
+  (void)id;
+  // Same cruise <0/==0 handling as onWheelsX() above.
+  if (cruise < 0.0f) return Wire::Result::kRange;
+  const float resolvedCruise =
+      cruise == 0.0f ? engineDefaultCruiseMmS() : cruise;
+  if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
+  // The wire's ONE milliradian->radian conversion seam (motion-api.md
+  // S9.1) -- see mradToRad()'s own comment above.
+  engineMoveX(distance, mradToRad(rotation), resolvedCruise, timeout);
+  return Wire::Result::kOk;
 }
 
 Wire::Result WireAdapter::onMoveV(float /*v_x*/, float /*omega*/,

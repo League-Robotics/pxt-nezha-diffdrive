@@ -3,14 +3,17 @@
 // project's analogue of radio-robot-lib's Protocol::DiffDriveAdapter
 // (radio-robot-lib/docs/design/protocol.md S5). Sprint 003 ticket 004
 // scope: WHEELS_V gets real effect (the only motion verb this robot's
-// current shims.cpp/Rig surface can already execute without a planner);
-// WHEELS_X/MOVE_X/MOVE_V/GO_TO_R/GO_TO_W all answer Result::kUnknown --
-// an honest, DELIBERATE "this adapter has no planner yet" result, not a
-// stub left unfinished (protocol.md S9.10 item 1's own precedent: an
+// current shims.cpp/Rig surface could already execute without a
+// planner). Ticket 011 (this file, now) adds WHEELS_X/MOVE_X, routed
+// onto motion_engine.h's MotionEngine (tickets 006/007) via shims.cpp's
+// engineWheelsX()/engineMoveX() forward declarations (wire_adapter.cpp).
+// MOVE_V/GO_TO_R/GO_TO_W still answer Result::kUnknown -- an honest,
+// DELIBERATE "this adapter has no route for this verb yet" result, not
+// a stub left unfinished (protocol.md S9.10 item 1's own precedent: an
 // adapter with no registration table answers kUnknown for exactly this
-// reason, matching this class's own onRun() posture below). Tickets
-// 011/012 give WHEELS_X/MOVE_X and MOVE_V/GO_TO_R/GO_TO_W real effect
-// once motion_engine (ticket 006/007) exists to route them onto.
+// reason, matching this class's own onRun() posture below). Ticket 012
+// gives MOVE_V/GO_TO_R/GO_TO_W real effect (GO_TO_R/GO_TO_W additionally
+// need ticket 010's PoseSource wiring for the world-frame form).
 //
 // Sprint 003 ticket 005 (the hardware transport-seam cutover) extends
 // this class with a real clock (see now()'s own comment below) and the
@@ -140,17 +143,46 @@ class WireAdapter : public Wire::Adapter {
   Wire::Result onWheelsV(float left, float right, uint32_t duration,
                          uint32_t id) override;
 
-  // The other five motion verbs (motion-api.md S9.1) all need a planner
-  // this robot does not have yet (ticket 006/007's motion_engine
-  // extraction) -- every one of them answers kUnknown, the SAME wire
-  // outcome onRun() below already answers for any name (protocol.md
-  // S9.10 item 1's own precedent: "an Adapter with no registration
-  // table ... has an empty allowlist"). This is honest, not a stub left
-  // unfinished: this adapter has no planner to wire these onto yet.
+  // WHEELS_X: real effect (sprint 003 ticket 011) -- forwards onto
+  // motion_engine.h's MotionEngine::wheelsX(left, right, cruise,
+  // timeoutMs) via shims.cpp's engineWheelsX() (same same-package
+  // forward-declaration convention as setWheelsTimed() above). No unit
+  // conversion needed here: WHEELS_X's wire fields are already
+  // mm/mm/mm-per-s/ms, MotionEngine's own native units -- motion-api.md
+  // S9.1's mrad<->rad conversion applies only to MOVE_X's `rotation`,
+  // below. `cruise` < 0 is refused outright (kRange): a speed ceiling
+  // has no sign. `cruise` == 0 is motion-api.md S1.1's documented "pass
+  // 0 for the configured default" sentinel, resolved via shims.cpp's
+  // engineDefaultCruiseMmS() (this robot's own configured full-duty
+  // velocity, converted to mm/s); if that is ALSO unconfigured (a fresh
+  // robot that has never had one set), the resolved cruise is still
+  // <= 0 and this refuses with kRange too, rather than silently
+  // commanding a zero-speed "move" nobody asked for.
   Wire::Result onWheelsX(float left, float right, float cruise,
                          uint32_t timeout, uint32_t id) override;
+
+  // MOVE_X: real effect (sprint 003 ticket 011) -- forwards onto
+  // MotionEngine::moveX(distance, rotationRad, cruise, timeoutMs) via
+  // shims.cpp's engineMoveX(). `cruise`'s <0/==0 handling is identical
+  // to onWheelsX() above. `rotation` is the ONE place in this codebase
+  // where the wire's milliradian-integer angle becomes MotionEngine's
+  // native radians (motion-api.md S9.1: "degrees at the API and
+  // milliradian integers on the wire ... the conversion lives in the
+  // binding, in one place") -- see wire_adapter.cpp's mradToRad() and
+  // that file's own comment on why this one multiply gets a dedicated
+  // test.
   Wire::Result onMoveX(float distance, float rotation, float cruise,
                        uint32_t timeout, uint32_t id) override;
+
+  // MOVE_V/GO_TO_R/GO_TO_W (motion-api.md S9.1) still need a route this
+  // adapter does not have yet (ticket 012: MOVE_V is a plain wheelsV
+  // reduction already available via MotionEngine::moveV(); GO_TO_R/
+  // GO_TO_W additionally need ticket 010's PoseSource wiring for the
+  // world-frame form) -- every one of them answers kUnknown, the SAME
+  // wire outcome onRun() below already answers for any name (protocol.md
+  // S9.10 item 1's own precedent: "an Adapter with no registration
+  // table ... has an empty allowlist"). This is honest, not a stub left
+  // unfinished: this adapter has no route to wire these onto yet.
   Wire::Result onMoveV(float v_x, float omega, uint32_t duration,
                        uint32_t id) override;
   Wire::Result onGoToR(float x, float y, float speed, float arrive,

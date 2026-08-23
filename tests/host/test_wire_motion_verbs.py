@@ -1,5 +1,5 @@
-"""tests/host/test_wire_motion_verbs.py -- sprint 003 ticket 004: the six
-motion verbs' wire decode/dispatch (WHEELS_X, WHEELS_V, MOVE_X, MOVE_V,
+"""tests/host/test_wire_motion_verbs.py -- sprint 003 tickets 004/011: the
+six motion verbs' wire decode/dispatch (WHEELS_X, WHEELS_V, MOVE_X, MOVE_V,
 GO_TO_R, GO_TO_W), src/wire_adapter.h's WireAdapter, and STOP's `now`
 token.
 
@@ -9,21 +9,27 @@ radio-robot-lib/docs/design/protocol.md S4 (the Adapter interface), S5
 (the DiffDrive adapter -- WHEELS_V real, five kUnknown), S6/S6.1 (the
 verb table, outcome codes), S9.10 item 1 (why kUnknown, not
 kUnimplemented).
-radio-robot-lib/docs/design/motion-api.md S1 (arguments/units), S9.1
-(the wire mapping table).
+radio-robot-lib/docs/design/motion-api.md S1 (arguments/units), S1.1
+(cruise == 0 means "the configured default"), S9.1 (the wire mapping
+table, including the ONE mrad<->rad conversion seam MOVE_X's `rotation`
+needs).
 
 Two fixtures, two different concerns (see wire_motion_verb_shim.cpp's
 own header comment for the full rationale):
 
 - `wv` -- WireHandler + WireMockAdapter: decode arity (golden vectors)
   and degenerate/malformed input (wrong field count, an unparseable
-  numeric field) for all six verbs, plus proof that the five
-  not-yet-wired verbs' own `err 1` (ERR_UNKNOWN) is a MERITS rejection
-  (ack + err), never a decode failure (nack + err).
+  numeric field) for all six verbs, plus proof that a MERITS rejection
+  (`err 1`, ERR_UNKNOWN) is never a decode failure (nack + err).
 - `wa` -- WireHandler + the REAL WireAdapter + a REAL DiffDrive kernel
-  over FakeMotor: WHEELS_V's real effect (commanded left/right map to
-  the correct velocity/twist and lease), WireAdapter's own GET/SET
-  field-name table, and STOP/ESTOP's real effect on the kernel.
+  AND MotionEngine over FakeMotor: WHEELS_V's/WHEELS_X's/MOVE_X's real
+  effect (sprint 003 tickets 004/011 -- commanded left/right, or
+  distance/rotation, map to the correct velocity/twist/lease or
+  move-engine segment), the cruise==0 "configured default" substitution
+  and the cruise<0 range refusal (motion-api.md S1.1), MOVE_X's
+  mrad->rad conversion tested in both turn directions, WireAdapter's own
+  GET/SET field-name table, and STOP/ESTOP's real effect on the kernel.
+  MOVE_V/GO_TO_R/GO_TO_W are still not-yet-wired (ticket 012).
 
 Run with::
 
@@ -42,6 +48,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 
 _SHIM_SOURCES = [
     _SRC_DIR / "diffdrive.cpp",
+    _SRC_DIR / "motion_engine.cpp",
     _SRC_DIR / "wire_handler.cpp",
     _SRC_DIR / "wire_adapter.cpp",
     _TEST_DIR / "wire_motion_verb_shim.cpp",
@@ -155,6 +162,10 @@ def _bind(lib):
     lib.waSetMaxDuty.restype = None
     lib.waSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.waSetFullDutyVelocity.restype = None
+    lib.waCountsPerMm.argtypes = [ctypes.c_void_p]
+    lib.waCountsPerMm.restype = ctypes.c_float
+    lib.waEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
+    lib.waEffectiveTrackWidth.restype = ctypes.c_float
     lib.waBegin.argtypes = [ctypes.c_void_p]
     lib.waBegin.restype = ctypes.c_int
     lib.waStep.argtypes = [ctypes.c_void_p]
@@ -362,6 +373,12 @@ class WireAdapterHandle:
 
     def set_full_duty_velocity(self, v):
         self._lib.waSetFullDutyVelocity(self._handle, v)
+
+    def counts_per_mm(self):
+        return self._lib.waCountsPerMm(self._handle)
+
+    def effective_track_width(self):
+        return self._lib.waEffectiveTrackWidth(self._handle)
 
     def begin(self):
         return self._lib.waBegin(self._handle)
@@ -687,6 +704,318 @@ def test_estop_real_effect_refuses_further_drive(wa):
 
 
 # ---------------------------------------------------------------------------
+# WHEELS_X's real effect (sprint 003 ticket 011): a ratio-locked per-wheel
+# distance command dispatched onto MotionEngine::wheelsX(). Verified the
+# same way test_motion_engine_primitives.py verifies wheelsX() directly --
+# FakeMotor's own LAST STAGED DUTY after exactly one step(), with the
+# kernel configured so duty is pure feedforward (only maxDuty/
+# fullDutyVelocity set, motion-api.md S3.1). wheelsX() is a PRIMITIVE, not
+# the move engine -- there is no acceleration-ramp scaling on its first
+# tick the way there is for MOVE_X below.
+# ---------------------------------------------------------------------------
+
+
+def _expected_wheels_x_duty_pair(left, right, cruise, cpm, fdv):
+    """Mirrors MotionEngine::wheelsX()'s own ratio math (motion_engine.cpp):
+    the DOMINANT wheel (larger magnitude) reaches exactly `cruise`; the
+    other follows the same ratio."""
+    dominant = max(abs(left), abs(right))
+    left_speed = (left / dominant) * cruise    # [mm/s]
+    right_speed = (right / dominant) * cruise  # [mm/s]
+    return left_speed * cpm / fdv, right_speed * cpm / fdv
+
+
+# Chosen large enough that every commanded speed below (through
+# MotionEngine's real countsPerMm(), unlike WHEELS_V's own test double
+# above which fixes countsPerLength at 1.0) stays well under the
+# maxDuty=100% rail -- mirrors test_motion_engine_primitives.py's own
+# identical choice and rationale: no assertion here is secretly checking
+# a clamped value in disguise.
+_WHEELS_X_FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
+
+
+def test_wheels_x_real_effect_straight_line(wa):
+    """wheels_x(d, d) is a straight line -- both wheels at ratio 1, so
+    both run at exactly `cruise` (motion-api.md S2.1's own degenerate
+    case)."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+
+    wa.feed(b"WHEELS_X 200 200 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_wheels_x_duty_pair(
+        200.0, 200.0, 150.0, cpm, _WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+
+
+def test_wheels_x_real_effect_ratio_locked_dominant_wheel(wa):
+    """A non-degenerate case: the DOMINANT wheel (larger magnitude, here
+    left at 200mm vs right's 100mm) is the one that reaches `cruise`; the
+    other follows the same ratio (motion-api.md S3.1: "both wheels finish
+    together")."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+
+    wa.feed(b"WHEELS_X 200 100 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_wheels_x_duty_pair(
+        200.0, 100.0, 150.0, cpm, _WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+    assert wa.motor_last_staged_duty(LEFT) > wa.motor_last_staged_duty(RIGHT)
+
+
+def test_wheels_x_real_effect_sign_convention_both_directions(wa):
+    """CCW-positive (motion-api.md S2.1): wheels_x(+d, -d) is a pivot,
+    each wheel commanded the full cruise ceiling in its OWN direction --
+    written explicitly, in both signs, so a future cable-order "fix"
+    fails this test instead of shipping (this project has shipped that
+    exact bug and patched it four times downstream)."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    fdv = _WHEELS_X_FULL_DUTY_VELOCITY
+
+    wa.feed(b"WHEELS_X 150 -150 100 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(100.0 * cpm / fdv)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        -100.0 * cpm / fdv)
+
+    wa.feed(b"WHEELS_X -150 150 100 5000 #2\n")
+    assert wa.take_sink() == _ack(2)
+    wa.step()
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        -100.0 * cpm / fdv)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(100.0 * cpm / fdv)
+
+
+def test_wheels_x_negative_cruise_is_range_error(wa):
+    """A speed ceiling has no sign -- refused outright (kRange), not
+    silently taken as a magnitude or as wheelsX()'s own non-positive-
+    cruise no-op."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"WHEELS_X 100 100 -50 3000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_wheels_x_cruise_zero_uses_configured_default(wa):
+    """motion-api.md S1.1: "Pass 0 for the configured default" -- this
+    robot's own configured full_duty_velocity (the same ceiling GET
+    full_duty_velocity reports), converted to mm/s."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    default_cruise = 1000.0 / cpm  # fullDutyVelocity [counts/s] -> [mm/s]
+
+    wa.feed(b"WHEELS_X 200 200 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_wheels_x_duty_pair(
+        200.0, 200.0, default_cruise, cpm, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+    # A straight line commanded at exactly the configured ceiling should
+    # stage exactly full duty -- an independent sanity check that the
+    # substitution landed on the right number, not merely a nonzero one.
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(1.0)
+
+
+def test_wheels_x_cruise_zero_without_configured_default_is_range_error(wa):
+    """A fresh robot whose full_duty_velocity was never SET (still its
+    zero/off default, diffdrive.h) has no configured default cruise to
+    fall back to -- refused (kRange), not silently commanded to drive at
+    zero speed forever."""
+    wa.set_max_duty(100.0)
+    # full_duty_velocity deliberately left unset (default 0).
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"WHEELS_X 200 200 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# MOVE_X's real effect (sprint 003 ticket 011): dispatched onto
+# MotionEngine::moveX(), whose FIRST tick is scaled by the acceleration
+# ramp's 0.25 floor (motion_engine.cpp's own `cmdScale = 0.25f` at segment
+# start, mirrored from test_motion_engine_reductions.py's own identical
+# convention) -- every hand-computed expectation below bakes that scale in
+# explicitly rather than hiding it in a helper default.
+# ---------------------------------------------------------------------------
+
+
+def _move_x_segment(distance_mm, rotation_rad, cpm, b):
+    """Mirrors MotionEngine::startSegment()'s own targets (motion-api.md
+    S2's wheels_x reduction, restated as mean + half-differential)."""
+    dist_target = distance_mm * cpm
+    yaw_target = rotation_rad * 0.5 * b * cpm
+    left = dist_target - yaw_target
+    right = dist_target + yaw_target
+    return left, right, max(abs(left), abs(right))
+
+
+def _expected_move_x_duty_pair(distance_mm, rotation_rad, cruise, cpm, b,
+                               fdv, scale=0.25):
+    left, right, dominant = _move_x_segment(distance_mm, rotation_rad, cpm, b)
+    cruise_counts = cruise * cpm
+    raw_left = (left / dominant) * cruise_counts * scale
+    raw_right = (right / dominant) * cruise_counts * scale
+    return raw_left / fdv, raw_right / fdv
+
+
+def test_move_x_real_effect_straight_line(wa):
+    """move_x(d, 0) is a straight line -- both wheels at the same ratio
+    (1:1), scaled by the initial 0.25 ramp floor on this, the move's
+    first tick."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    wa.feed(b"MOVE_X 200 0 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        200.0, 0.0, 150.0, cpm, b, 1000.0)
+    assert expected_left == pytest.approx(expected_right, rel=1e-4)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_move_x_mrad_to_rad_conversion_positive_turns_left(wa):
+    """The wire's ONE mrad->rad conversion seam (motion-api.md S9.1),
+    checked with an actual physical assertion, not just a numeric one: a
+    POSITIVE wire `rotation` must turn LEFT -- the right wheel faster,
+    the left wheel slower (CCW-positive, motion-api.md S2.1) -- the same
+    direction a positive block-API degree value already produces via
+    shims.cpp's startMove(). The hand-computed expectation performs the
+    CORRECT /1000 conversion independently in Python: if the binding
+    used the wrong scale (e.g. treating milliradians as already radians,
+    or as degrees) or the wrong sign, this would no longer match the
+    measured duty -- an off-by-1000 fails a test instead of shipping."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    rotation_mrad = 300  # -> 0.300 rad if the conversion is exact
+    wa.feed(b"MOVE_X 0 300 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        0.0, rotation_mrad / 1000.0, 150.0, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+    # CCW-positive: a positive rotation turns LEFT -- the right wheel is
+    # the faster one, the left wheel the slower one.
+    assert wa.motor_last_staged_duty(RIGHT) > wa.motor_last_staged_duty(LEFT)
+
+
+def test_move_x_mrad_to_rad_conversion_negative_turns_right(wa):
+    """The mirror of the above, in the OTHER direction: a NEGATIVE wire
+    `rotation` turns RIGHT -- the left wheel is the faster one."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    rotation_mrad = -300
+    wa.feed(b"MOVE_X 0 -300 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        0.0, rotation_mrad / 1000.0, 150.0, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+    assert wa.motor_last_staged_duty(LEFT) > wa.motor_last_staged_duty(RIGHT)
+
+
+def test_move_x_negative_cruise_is_range_error(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"MOVE_X 200 0 -50 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_move_x_cruise_zero_uses_configured_default(wa):
+    """motion-api.md S1.1's "configured default" substitution, exercised
+    through MOVE_X's own move-engine path (not just WHEELS_X's plain
+    primitive)."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+    default_cruise = 1000.0 / cpm
+
+    wa.feed(b"MOVE_X 200 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        200.0, 0.0, default_cruise, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_move_x_cruise_zero_without_configured_default_is_range_error(wa):
+    wa.set_max_duty(100.0)
+    # full_duty_velocity deliberately left unset (default 0).
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"MOVE_X 200 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
 # WireAdapter's own GET/SET field-name table: addresses the same
 # Rig/Config fields the old ConfigField enum named, one field per SET
 # line (ticket 004's own acceptance criterion).
@@ -720,16 +1049,16 @@ def test_get_set_unknown_field_name_is_unknown(wa):
 
 
 # ---------------------------------------------------------------------------
-# The REAL WireAdapter (not WireMockAdapter) answers kUnknown for its own
-# five not-yet-wired motion verbs -- ticket 004's own acceptance
-# criterion, stated for WireAdapter specifically, not merely for "some
-# Adapter implementation" (already shown generically above via `wv`).
+# The REAL WireAdapter (not WireMockAdapter) still answers kUnknown for its
+# three remaining not-yet-wired motion verbs -- WHEELS_X/MOVE_X are real as
+# of ticket 011 (see their own real-effect sections above); ticket 004's
+# own acceptance criterion for the rest, stated for WireAdapter
+# specifically, not merely for "some Adapter implementation" (already
+# shown generically above via `wv`).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("line", [
-    b"WHEELS_X 100 100 200 3000 #1\n",
-    b"MOVE_X 500 0 300 4000 #1\n",
     b"MOVE_V 200 0 1500 #1\n",
     b"GO_TO_R 300 400 250 20 5000 #1\n",
     b"GO_TO_W 300 400 250 20 5000 #1\n",
