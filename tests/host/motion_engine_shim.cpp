@@ -70,6 +70,22 @@ int meOutLeaseExpired(void* handle) {
   return static_cast<Handle*>(handle)->kernel.output().leaseExpired ? 1 : 0;
 }
 
+// Ticket 009 (regression: post-move neutral delivery, commit 3e919e5):
+// exposes the kernel's own MEASURED velocity (diffdrive.h Output.
+// velocityLeft/Right -- computed from encoder position deltas across
+// two collects, refreshSample(), NOT the commanded duty) so a host test
+// can prove that delivering a zero DUTY to the FakeMotor (meMotorLastStagedDuty)
+// is a distinct event from the reported velocity actually reading at
+// rest -- shims.cpp's own settle-tick loop (Rig::tickDrive()) exists
+// precisely because these two can diverge for several ticks after a
+// move ends.
+float meOutVelocityLeft(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().velocityLeft;
+}
+float meOutVelocityRight(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().velocityRight;
+}
+
 // ---- FakeClock -- lets a test place the lease-expiry boundary exactly
 // (kernel.drive() reads the clock at CALL time to compute
 // validUntil = now + lease, so a test that wants to probe a computed

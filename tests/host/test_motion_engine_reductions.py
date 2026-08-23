@@ -94,6 +94,15 @@ def _bind(lib):
     ]
     lib.meMotorArmPosition.restype = None
 
+    # Ticket 009: the kernel's own MEASURED velocity (Output.
+    # velocityLeft/Right) -- distinct from meMotorLastStagedDuty's
+    # COMMANDED duty, see motion_engine_shim.cpp's own comment on these
+    # two exports.
+    lib.meOutVelocityLeft.argtypes = [ctypes.c_void_p]
+    lib.meOutVelocityLeft.restype = ctypes.c_float
+    lib.meOutVelocityRight.argtypes = [ctypes.c_void_p]
+    lib.meOutVelocityRight.restype = ctypes.c_float
+
     lib.meCountsPerMm.argtypes = [ctypes.c_void_p]
     lib.meCountsPerMm.restype = ctypes.c_float
     lib.meEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
@@ -202,6 +211,27 @@ class Engine:
         self._lib.meMotorArmPosition(
             self._handle, side, position_counts,
             self._fresh_sample_time_us())
+
+    def arm_motor_position_at(self, side, position_counts, sample_time_us):
+        # Same as arm_motor_position(), but the caller supplies the
+        # sample time explicitly instead of the auto-incrementing
+        # (~1 us/call) clock above -- needed whenever a test wants a
+        # REALISTIC interval between two samples so the kernel's
+        # computed Output.velocityLeft/Right (position delta / interval,
+        # diffdrive.cpp refreshSample()) comes out to a chosen value
+        # instead of an astronomically large one (ticket 009's own
+        # settle-tick regression test uses this to stage a specific
+        # "still coasting" velocity reading at move completion).
+        self._lib.meMotorArmPosition(
+            self._handle, side, position_counts, sample_time_us)
+
+    def motor_velocity(self, side):
+        # Output.velocityLeft/Right: MEASURED (from encoder deltas), NOT
+        # the commanded duty -- see motor_last_staged_duty()'s own
+        # contrasting comment and motion_engine_shim.cpp's.
+        if side == LEFT:
+            return self._lib.meOutVelocityLeft(self._handle)
+        return self._lib.meOutVelocityRight(self._handle)
 
     # ---- geometry ----
     def counts_per_mm(self):
