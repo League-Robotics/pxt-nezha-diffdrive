@@ -17,12 +17,19 @@
 
 namespace diffDrive {
 
-// Suggested shared buffer size for one wire line's content, excluding
-// the trailing 0x0A this module owns and strips/appends. Sized with
-// headroom over this project's own (deliberately small, locally-defined
-// -- see sprint.md Design Rationale) binary payloads; not a hard
-// protocol limit, just what callers should size their line buffers to.
-constexpr size_t kMaxLineBytes = 200;
+// Shared buffer size for one wire line's content, excluding the trailing
+// 0x0A this module owns and strips/appends. Sprint 003 ticket 005
+// (the hardware transport-seam cutover) raised this from 200 to 240 to
+// match Wire::WireHandler::kMaxLineBytes (wire_handler.h) exactly --
+// protocol.md's own "max line: 240 bytes including the terminator" is
+// WireHandler's ceiling, but a legal 201-239-byte v6 line (a verbose
+// RUN with several arguments, say) would have been silently truncated
+// by THIS buffer before WireHandler ever saw it, one layer below the
+// tested "discard the whole overlong line, never truncate into a
+// still-parseable prefix" guarantee WireHandler itself implements. Not
+// a hard protocol limit of this module's own; just kept equal to the
+// one layer above it so this transport is never the tighter cap.
+constexpr size_t kMaxLineBytes = 240;
 
 class SerialTransport {
  public:

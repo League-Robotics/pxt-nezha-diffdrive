@@ -34,8 +34,26 @@
 // shim boundary main.ts uses. See protocol.cpp's own forward-declaration
 // block for the up-to-date list this file must keep signature-compatible
 // with.
+//
+// Third caller (ticket 011): WireAdapter's WHEELS_X/MOVE_X handlers
+// (wire_adapter.cpp) reach this file's `engine` the same way -- three
+// more wire-shaped forward declarations (engineWheelsX, engineMoveX,
+// engineDefaultCruiseMmS), defined in the "wire motion-engine
+// primitives" section below. See wire_adapter.cpp's own forward-
+// declaration block for the up-to-date list it must keep signature-
+// compatible with.
+//
+// Fourth caller (ticket 012): WireAdapter's MOVE_V/GO_TO_R/GO_TO_W
+// handlers reach this file the same way -- three more forward
+// declarations (engineMoveV, engineGoToR, engineGoToW), completing the
+// six-verb motion surface. Defined in the "wire motion-engine
+// primitives, part 2" section further down (after the OTOS section,
+// since engineGoToW() needs otosRef()). See wire_adapter.cpp's own
+// forward-declaration block for the up-to-date list it must keep
+// signature-compatible with.
 #include "pxt.h"
 #include "diffdrive.h"
+#include "motion_engine.h"
 #include "nezha_port.h"
 #include "otos_port.h"
 #include "platform_ports.h"
@@ -56,49 +74,15 @@ static void watchdogEntry(void* context);
 // ---- composition ----------------------------------------------------
 
 struct Rig {
-  // vevov-measured travel calibration (2026-08-19 bench: commanded
-  // 80 cm, odometry believed 798 mm, tape measured 825 mm ->
-  // 0.7837 * 825/798 = 0.8102). trackWidth still the tovez default --
-  // calibrate it from a measured pivot the same way. Generic kits
-  // adjust via setGeometry().
-  float travelCalib = 0.8102f;   // [mm/deg] wheel travel per shaft degree
-  float trackWidth = 114.2f;     // [mm] MEASURED track (stakeholder
-                                  // tape, 2026-08-19). This is the
-                                  // robot's geometry; it is never
-                                  // "corrected" -- turning slip is
-                                  // modeled separately by
-                                  // rotationScrub below.
-  float rotationScrub = 0.952f;  // [1] physical/odometric rotation
-                                  // ratio (wheel-contact scrub).
-                                  // CAMERA-MEASURED 2026-08-20 on the
-                                  // playfield, overhead AprilCam vs
-                                  // commanded: six steady-state 180 deg
-                                  // pivots turned 164-166 deg physical,
-                                  // ratio 0.915. effectiveTrack must
-                                  // therefore be 109.8/0.915 = 120.0 mm,
-                                  // so scrub = 114.2/120.0 = 0.952.
-                                  //
-                                  // REPLACES 1.040, which came from a
-                                  // single camera pivot on 2026-08-19
-                                  // and had the sign of the effect
-                                  // BACKWARDS (it said the robot
-                                  // over-rotated; it under-rotates).
-                                  // The OTOS agreed with the camera to
-                                  // 1.005 across ten pivots, so the
-                                  // sensor was never the problem --
-                                  // this constant was.
-                                  //
-                                  // Excludes the first one or two
-                                  // pivots of a session, which
-                                  // over-rotate grossly (262 and 233
-                                  // deg commanded 180, reproduced twice)
-                                  // -- a separate defect, see
-                                  // clasi/issues/.
-  float countsPerMm() const { return 10.0f / travelCalib; }
-  // Effective width for odometry and twist conversion: measured track
-  // reduced by the scrub factor. All rotation math uses THIS, never
-  // the raw measured trackWidth.
-  float effectiveTrack() const { return trackWidth / rotationScrub; }
+  // Excludes the first one or two pivots of a session, which over-rotate
+  // grossly (262 and 233 deg commanded 180, reproduced twice) -- a
+  // separate defect, see clasi/issues/. (Geometry fields/methods
+  // formerly here -- travelCalib, trackWidth, rotationScrub,
+  // countsPerMm(), effectiveTrack() -- moved to MotionEngine, sprint 003
+  // ticket 006: see engine's own field comments for the measurements
+  // behind each. `engine` below is constructed over `kernel`, declared
+  // next, so it must stay declared AFTER it -- member init order follows
+  // declaration order, not the initializer list.)
 
   // vevov wiring. History: the tovez defaults left{2,-1}/right{1,+1}
   // drove vevov backward, so on 2026-08-19 both fwdSigns were flipped to
@@ -132,43 +116,25 @@ struct Rig {
   CodalFiberLauncher launcher;
   DiffDrive::DifferentialDrive kernel{left, right, clock, sleeper,
                                       launcher};
+  // Geometry, the two wheel primitives (sprint 003 ticket 006), and the
+  // move engine (ticket 007), constructed over `kernel`/`clock` above --
+  // must stay declared after both, since members initialize in
+  // DECLARATION order regardless of this struct's own (implicit)
+  // member-initializer order.
+  MotionEngine engine{kernel, clock};
 
   // odometry [mm, rad], updated lazily from kernel Output
   float x = 0.0f, y = 0.0f, heading = 0.0f;
   float odomPosLeft = 0.0f, odomPosRight = 0.0f;  // [counts]
   bool odomPrimed = false;
 
-  // Moves aborted because the robot was rotating AWAY from the
-  // commanded direction (serviceMove). Cumulative since boot.
-  uint32_t wrongWayCount = 0;
-
-  // End-of-move shaping. The defaults are the accuracy-tuned values --
-  // they took turn overshoot from several degrees to under one, which
-  // an OPEN-LOOP tour needs because its errors accumulate forever.
-  //
-  // They are also the dominant cost in a tour's wall clock. On a 100 cm
-  // leg at 25 cm/s the last 32 mm takes 3.1 s tapered against 1.3 s
-  // untapered; a 90 deg turn's ideal 1.0 s becomes ~1.9 s.
-  //
-  // A CLOSED-LOOP caller can afford far less: goToWorld takes a fresh
-  // fix before every leg, so a move only has to land close and let the
-  // next fix correct it. Hence settable per tour, not global.
-  float distTaper = 400.0f;      // [counts] ~32 mm window
-  float yawTaper = 180.0f;       // [counts] ~15 deg window
-  float distFloor = 0.25f;       // [1] slowest fraction of commanded
-  float turnFloor = 0.12f;       // [1] pure turns crawl slower
-  float rampMs = 400.0f;         // [ms] acceleration ramp
-
-  // move engine
-  bool moveActive = false;
-  float movePosLeft0 = 0.0f, movePosRight0 = 0.0f;  // [counts]
-  float moveDistTarget = 0.0f;   // [counts] mean-axis target (signed)
-  float moveYawTarget = 0.0f;    // [counts] half-differential target
-  float moveVelCmd = 0.0f;       // [counts/s] full-rate velocity command
-  float moveTwistCmd = 0.0f;     // [counts/s] full-rate twist command
-  uint32_t moveStartMs = 0;      // [ms] for the acceleration ramp
-  float moveCmdScale = 1.0f;     // last commanded rate scale (ramp/taper)
-  uint32_t moveDeadline = 0;     // [ms] lease-aligned backstop
+  // Move-engine state (moveActive, the taper/ramp/floor knobs,
+  // wrongWayCount, ...) moved into `engine` itself, sprint 003 ticket
+  // 007 -- see motion_engine.h's own field comments for the measurement
+  // behind each. `startMove`/`serviceMove`/`updateMove`/`tickDrive`/
+  // `endMove`/`progress`/`setTaperWindows`/`setTaperFloors`/`setRampMs`
+  // below are now thin forwards onto `engine.moveX`/`serviceMove`/
+  // `isMoveActive`/`endMove`/`progress`/the taper setters.
 
   // tick engine (sprint 002): caller-driven stepping replaces the
   // kernel's own now-unwired fiber pacer -- see ensure(), tickDrive(),
@@ -252,13 +218,14 @@ static void odomUpdate(Rig& r) {
     r.odomPrimed = true;
     return;
   }
-  const float cpm = r.countsPerMm();
+  const float cpm = r.engine.countsPerMm();
   const float dLeft = (out.positionLeft - r.odomPosLeft) / cpm;    // [mm]
   const float dRight = (out.positionRight - r.odomPosRight) / cpm; // [mm]
   r.odomPosLeft = out.positionLeft;
   r.odomPosRight = out.positionRight;
   const float dCenter = 0.5f * (dLeft + dRight);          // [mm]
-  const float dHeading = (dRight - dLeft) / r.effectiveTrack(); // [rad]
+  const float dHeading =
+      (dRight - dLeft) / r.engine.effectiveTrackWidth();  // [rad]
   const float midHeading = r.heading + 0.5f * dHeading;
   r.x += dCenter * std::cos(midHeading);
   r.y += dCenter * std::sin(midHeading);
@@ -267,25 +234,31 @@ static void odomUpdate(Rig& r) {
 
 // ---- velocity commands ----------------------------------------------
 
+// setWheels()/driveTwist() and their two timed variants below are now
+// thin forwards into MotionEngine::wheelsV() (sprint 003 ticket 006) --
+// the math is unchanged (setWheels/setWheelsTimed pass their per-wheel
+// mm/s straight through; driveTwist/driveTwistTimed convert body
+// speed+yawRate to per-wheel mm/s first, via the same
+// move_v == wheels_v(v_x - omega*b/2, v_x + omega*b/2) reduction
+// motion-api.md S2 states), so observable block behavior is unchanged --
+// see wheelsV()'s own doc comment for the shared implementation.
+
 //%
 void setWheels(int left, int right) {  // [mm/s] [mm/s]
   Rig& r = ensure();
-  const float cpm = r.countsPerMm();
-  const float velocity = 0.5f * static_cast<float>(left + right) * cpm;
-  const float twist = 0.5f * static_cast<float>(right - left) * cpm;
-  r.kernel.drive(velocity, twist,
-                 DiffDrive::DifferentialDrive::kLeaseMax);
+  r.engine.wheelsV(static_cast<float>(left), static_cast<float>(right),
+                   DiffDrive::DifferentialDrive::kLeaseMax);
 }
 
 //%
 void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   Rig& r = ensure();
-  const float cpm = r.countsPerMm();
   const float yawRad =
       static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
-  const float twist = yawRad * 0.5f * r.effectiveTrack() * cpm;  // [counts/s]
-  r.kernel.drive(static_cast<float>(speed) * cpm, twist,
-                 DiffDrive::DifferentialDrive::kLeaseMax);
+  const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
+  const float speedMmS = static_cast<float>(speed);
+  r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS,
+                   DiffDrive::DifferentialDrive::kLeaseMax);
 }
 
 // ---- duration-bound direct drive (ticket 003: Protocol's WHEELS and
@@ -297,32 +270,79 @@ void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
 // subsequent step() -- see that file's `if (leaseExpired) effective =
 // kModeNeutral;` -- so no separate timer/callback is needed here: the
 // kernel's own real-time fiber auto-neutralizes at the deadline, the
-// same backstop mechanism the move engine's own `moveDeadline` already
-// leans on). Deliberately NOT `//%`-annotated: the block API never
-// needed a duration-bound direct-drive primitive (every block-facing use
-// case is already served by setWheels/driveTwist or the move engine), so
-// these stay C++-internal to avoid exposing a new, un-asked-for block
+// same backstop mechanism the move engine's own deadline already leans
+// on). Deliberately NOT `//%`-annotated: the block API never needed a
+// duration-bound direct-drive primitive (every block-facing use case is
+// already served by setWheels/driveTwist or the move engine), so these
+// stay C++-internal to avoid exposing a new, un-asked-for block
 // (sprint.md Architecture, Impact). Protocol (protocol.cpp) is their only
 // caller, via its own same-package forward declarations.
 void setWheelsTimed(int left, int right,
                     uint32_t durationMs) {  // [mm/s] [mm/s] [ms]
   Rig& r = ensure();
-  r.moveActive = false;  // WHEELS supersedes any in-flight move-engine move
-  const float cpm = r.countsPerMm();
-  const float velocity = 0.5f * static_cast<float>(left + right) * cpm;
-  const float twist = 0.5f * static_cast<float>(right - left) * cpm;
-  r.kernel.drive(velocity, twist, durationMs);
+  // WHEELS supersedes any in-flight move-engine move -- wheelsV() itself
+  // clears it (motion-api.md S6, motion_engine.h).
+  r.engine.wheelsV(static_cast<float>(left), static_cast<float>(right),
+                   durationMs);
 }
 
 void driveTwistTimed(int speed, int yawRate,
                      uint32_t durationMs) {  // [mm/s] [cdeg/s] [ms]
   Rig& r = ensure();
-  r.moveActive = false;  // supersedes any in-flight move-engine move
-  const float cpm = r.countsPerMm();
   const float yawRad =
       static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
-  const float twist = yawRad * 0.5f * r.effectiveTrack() * cpm;  // [counts/s]
-  r.kernel.drive(static_cast<float>(speed) * cpm, twist, durationMs);
+  const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
+  const float speedMmS = static_cast<float>(speed);
+  r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS, durationMs);
+}
+
+// ---- wire motion-engine primitives (sprint 003 ticket 011: WireAdapter's
+// WHEELS_X/MOVE_X handlers) -----------------------------------------------
+// Same same-package forward-declaration convention as setWheelsTimed()/
+// driveTwistTimed() above -- WireAdapter (wire_adapter.cpp) has no
+// reference of its own to this Rig's `engine` (sprint.md's lazy-
+// singleton composition lives here, not there), so it forwards through
+// these thin, wire-shaped calls instead. Wire-shaped units all the way
+// through (mm, mm/s, ms); `rotationRad` arrives at engineMoveX() ALREADY
+// converted from the wire's milliradian integer to radians --
+// wire_adapter.cpp performs that one conversion (motion-api.md S9.1:
+// "the conversion lives in the binding, in one place"), this function
+// performs none of its own. `cruise` <= 0 here is MotionEngine's own
+// existing "nothing to command" no-op (motion_engine.h) -- a caller
+// wanting the wire's "0 means the configured default" substitution
+// (motion-api.md S1.1) must resolve it BEFORE calling these, via
+// engineDefaultCruiseMmS() below; neither of these two ever sees the
+// sentinel itself. Deliberately NOT `//%`-annotated, same rationale as
+// setWheelsTimed(): the block API's own startMove() (above) already has
+// a call shape of its own and never needed this wire-shaped one.
+void engineWheelsX(float left, float right, float cruise,
+                   uint32_t timeoutMs) {  // [mm] [mm] [mm/s] [ms]
+  Rig& r = ensure();
+  r.engine.wheelsX(left, right, cruise, timeoutMs);
+}
+
+void engineMoveX(float distance, float rotationRad, float cruise,
+                 uint32_t timeoutMs) {  // [mm] [rad] [mm/s] [ms]
+  Rig& r = ensure();
+  r.engine.moveX(distance, rotationRad, cruise, timeoutMs);
+}
+
+// The wire's "cruise == 0 means the configured default" substitution
+// (motion-api.md S1.1: "an X-form's commanded value is a displacement
+// ... pass 0 for the configured default"): this robot's own configured
+// full-duty velocity -- the same ceiling GET full_duty_velocity already
+// reports -- converted from the kernel's native counts/s into wheelsX()/
+// moveX()'s own mm/s ceiling. Returns 0 if unconfigured (fullDutyVelocity
+// <= 0, or a zero/negative travelCalib leaves countsPerMm() <= 0) -- an
+// honest "no default available" rather than a fabricated number or a
+// divide-by-zero; wire_adapter.cpp treats that as a range refusal, not a
+// silently-accepted zero-speed command.
+float engineDefaultCruiseMmS() {
+  Rig& r = ensure();
+  const float cpm = r.engine.countsPerMm();
+  const float fullDutyCountsPerS = r.kernel.config().fullDutyVelocity;
+  if (fullDutyCountsPerS <= 0.0f || cpm <= 0.0f) return 0.0f;
+  return fullDutyCountsPerS / cpm;
 }
 
 // ---- move engine ----------------------------------------------------
@@ -332,178 +352,76 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // [mm] [cdeg] [mm/s] [cdeg/s]
   Rig& r = ensure();
   odomUpdate(r);
-  const float cpm = r.countsPerMm();
-  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
-  r.movePosLeft0 = out.positionLeft;
-  r.movePosRight0 = out.positionRight;
-  r.moveDistTarget = static_cast<float>(distance) * cpm;  // [counts]
-  const float yawRad =
+  const float distanceMm = static_cast<float>(distance);
+  const float rotationRad =
       static_cast<float>(yaw) * 0.01f * 3.14159265f / 180.0f;
-  r.moveYawTarget = yawRad * 0.5f * r.effectiveTrack() * cpm;   // [counts]
 
+  // This shim predates MotionEngine::moveX()'s single-`cruise` wire-
+  // shaped signature (motion-api.md S2: move_x(distance,rot) ==
+  // wheels_x(distance-rot*b/2, distance+rot*b/2)) -- main.ts's block API
+  // still passes two INDEPENDENT rate ceilings (speed for the distance
+  // axis, yawRate for the yaw axis), picking whichever axis takes
+  // LONGER at its own ceiling as the move's shared duration. Reconciled
+  // here, not by favoring one of the two legacy rates: derive the
+  // single cruise that reproduces the EXACT SAME commanded
+  // velocity/twist this dual-rate math has always produced, so
+  // move()/whileMoving()'s observable behavior is unchanged.
+  //
+  // Algebra: moveX()'s own wheels_x-style reduction commands
+  // velocity = distTarget/dominant*cruiseCounts (dominant =
+  // max(|left|,|right|), in counts). Setting cruiseCounts =
+  // dominant/duration -- `duration` computed the OLD way below --
+  // makes that velocity equal distTarget/duration exactly, the legacy
+  // formula, for ANY distance/yaw/speed/yawRate combination, not only
+  // the degenerate straight/pivot cases.
+  const float cpm = r.engine.countsPerMm();
+  const float b = r.engine.effectiveTrackWidth();
+  const float distTargetCounts = distanceMm * cpm;              // [counts]
+  const float yawTargetCounts = rotationRad * 0.5f * b * cpm;   // [counts]
   const float speedCounts =
       static_cast<float>(speed > 0 ? speed : 1) * cpm;    // [counts/s]
   const float yawRadPerS =
       static_cast<float>(yawRate > 0 ? yawRate : 1) * 0.01f *
       3.14159265f / 180.0f;
-  const float twistCounts = yawRadPerS * 0.5f * r.effectiveTrack() * cpm;
+  const float twistCounts = yawRadPerS * 0.5f * b * cpm;  // [counts/s]
 
   // One duration covers both axes -> simultaneous arc completion.
   float duration = 0.0f;  // [s]
-  if (r.moveDistTarget != 0.0f)
-    duration = std::fabs(r.moveDistTarget) / speedCounts;
-  if (r.moveYawTarget != 0.0f) {
-    const float yawDuration = std::fabs(r.moveYawTarget) / twistCounts;
+  if (distTargetCounts != 0.0f)
+    duration = std::fabs(distTargetCounts) / speedCounts;
+  if (yawTargetCounts != 0.0f) {
+    const float yawDuration = std::fabs(yawTargetCounts) / twistCounts;
     if (yawDuration > duration) duration = yawDuration;
   }
   if (duration <= 0.0f) return;  // nothing to do
 
-  const float velocity = r.moveDistTarget / duration;  // [counts/s]
-  const float twist = r.moveYawTarget / duration;      // [counts/s]
-  r.moveVelCmd = velocity;
-  r.moveTwistCmd = twist;
+  const float leftCounts = distTargetCounts - yawTargetCounts;
+  const float rightCounts = distTargetCounts + yawTargetCounts;
+  const float absLeft = std::fabs(leftCounts);
+  const float absRight = std::fabs(rightCounts);
+  const float dominantCounts = absLeft > absRight ? absLeft : absRight;
+  const float cruiseMmS = (dominantCounts / duration) / cpm;  // [mm/s]
   // Backstop allows for the end-of-move taper (serviceMove): the last
-  // ~15 deg / ~40 mm run at reduced rate, adding up to ~1 s.
-  const uint32_t lease =
-      static_cast<uint32_t>(duration * 1000.0f) + 1500u;  // [ms] backstop
-  // Acceleration ramp (stakeholder, 2026-08-20): start at the floor
-  // rate, not a full-rate step -- serviceMove() raises the scale over
-  // kRampMs. Mirrors the end-of-move taper; effective accel ~= full
-  // rate / 0.4 s (~375 mm/s^2 at 15 cm/s), reference-shaper-like.
-  r.moveStartMs = static_cast<uint32_t>(r.clock.nowMicros() / 1000ull);
-  r.moveCmdScale = 0.25f;
-  r.kernel.drive(velocity * 0.25f, twist * 0.25f, lease);
-  r.moveActive = true;
-  r.moveDeadline = static_cast<uint32_t>(
-      r.clock.nowMicros() / 1000ull) + lease;
-}
+  // ~15 deg / ~40 mm run at reduced rate, adding up to ~1 s. This is
+  // moveX()'s own `timeout` -- a REAL backstop the wire's own MOVE_X
+  // carries as a required field, not an internally re-derived one.
+  const uint32_t timeoutMs =
+      static_cast<uint32_t>(duration * 1000.0f) + 1500u;
 
-// serviceMove(): odometry update + progress/deadline/stall check +
-// kernel.neutral() on done -- the body previously inline in
-// updateMove(), pulled out so both the old poll path (updateMove(),
-// below) and the new tick path (tickDrive(), in the tick engine section
-// below) share one implementation. INVARIANT: no fiber_sleep/yield
-// anywhere in this function or anything it calls -- that is what keeps
-// one Rig read-modify-write atomic across whichever fiber happens to be
-// calling in (a student's TS loop, the wire protocol, tickDrive()
-// itself). Returns the post-check moveActive state.
-static bool serviceMove(Rig& r) {
-  if (!r.moveActive) return false;
-  odomUpdate(r);
-  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
-  const float dLeft = out.positionLeft - r.movePosLeft0;    // [counts]
-  const float dRight = out.positionRight - r.movePosRight0; // [counts]
-  const float meanProgress = 0.5f * (dLeft + dRight);
-  const float diffProgress = 0.5f * (dRight - dLeft);
-
-  // End-of-move taper (2026-08-20, exact-turns work): approach the
-  // target at a decreasing rate so the post-stop coast -- measured at
-  // +4-6 deg per turn at full rate -- shrinks to noise. One shared
-  // scale keeps an arc's velocity/twist ratio (curvature) intact; the
-  // floor keeps the binding axis above the kernel's own speed floor so
-  // the crawl still moves. With the taper in place the termination
-  // margin drops from 25 counts (~2 deg allowance for a full-rate
-  // coast) to 10 (~0.8).
-  // Turn exactness (2026-08-20): a pure turn gets a tighter margin and
-  // a slower final crawl than distance moves -- bench-measured +2 deg
-  // systematic per-turn overshoot (0.8 deg margin + ~1 deg crawl
-  // coast) rotated the whole square, scaling linearly with side
-  // length. At floor 0.12 the turn arrives at ~5 deg/s; coast < 0.3
-  // deg. Straights/arcs keep the wider values (quantization at very
-  // low forward crawl is not worth the trade there).
-  const bool pureTurn =
-      (r.moveYawTarget != 0.0f && r.moveDistTarget == 0.0f);
-  const float distMargin = 10.0f;      // [counts]
-  const float yawMargin = pureTurn ? 4.0f : 10.0f;
-  const float kDistTaper = r.distTaper;
-  const float kYawTaper = r.yawTaper;
-  const float kTaperFloor = pureTurn ? r.turnFloor : r.distFloor;
-  float scale = 1.0f;
-  bool distDone = true;
-  if (r.moveDistTarget != 0.0f) {
-    const float remain = std::fabs(r.moveDistTarget) -
-                         std::fabs(meanProgress);
-    distDone = remain <= distMargin;
-    const float axisScale = remain / kDistTaper;
-    if (axisScale < scale) scale = axisScale;
-  }
-  bool yawDone = true;
-  bool wrongWay = false;
-  if (r.moveYawTarget != 0.0f) {
-    // SIGNED progress toward the target, not |progress|. Comparing
-    // magnitudes credits rotation in the WRONG DIRECTION as progress,
-    // so a pivot that turns the wrong way satisfies its own completion
-    // test and reports success. Measured on vevov: a commanded +180
-    // that physically turned -97 deg (camera) ended normally and
-    // reported nothing wrong.
-    const float toward = r.moveYawTarget > 0.0f ? diffProgress
-                                                : -diffProgress;
-    const float remain = std::fabs(r.moveYawTarget) - toward;
-    yawDone = remain <= yawMargin;
-    // Turning AWAY from the target, well past sensor noise, is a fault
-    // rather than something to keep driving into.
-    if (toward < -3.0f * yawMargin) wrongWay = true;
-    // Only a PURE TURN tapers on yaw. In an arc the twist and the
-    // velocity are locked by the curvature, so the distance taper
-    // already scales yaw by the same factor and both axes finish
-    // together -- a second, independent yaw taper double-counts.
-    //
-    // Worse, it double-counts catastrophically, because the window is
-    // a FIXED 180 counts (~15 deg) while a gentle arc's whole yaw
-    // target is a degree or two. remain/kYawTaper therefore starts
-    // BELOW the floor and stays there: the move begins inside its own
-    // taper and never leaves it. Measured on vevov 2026-08-22, world
-    // tour: three legs ran at 5.0/5.3/5.1 cm/s against a commanded 20
-    // -- exactly the 25% distFloor -- while the one leg whose bearing
-    // error fell under goToWorld's 0.01 rad straight-line threshold
-    // skipped this branch entirely and ran the full 20.4 cm/s, landing
-    // on its dot. A 0.57 deg difference in bearing was worth 4x in
-    // speed; that cliff was the whole "tour never reaches its corners"
-    // symptom.
-    if (pureTurn) {
-      const float axisScale = remain / kYawTaper;
-      if (axisScale < scale) scale = axisScale;
-    }
-  }
-  if (scale < kTaperFloor) scale = kTaperFloor;
-  // Acceleration ramp: time-based rise from the floor to full rate
-  // over kRampMs, min-combined with the end taper (a very short move
-  // may go straight from ramp to taper without ever reaching full).
-  const float kRampMs = r.rampMs;
-  const uint32_t nowMsRamp =
-      static_cast<uint32_t>(r.clock.nowMicros() / 1000ull);
-  float ramp = static_cast<float>(nowMsRamp - r.moveStartMs) / kRampMs;
-  if (ramp < kTaperFloor) ramp = kTaperFloor;
-  if (ramp < scale) scale = ramp;
-  if (scale > 1.0f) scale = 1.0f;
-  // Reissue EVERY tick while the move is active, at the current scale
-  // with a rolling 500 ms lease. Cheap (drive() just stages vars), and
-  // the only form that is lease-safe: gating reissues on scale CHANGE
-  // would let the lease expire during any steady phase (floor crawl,
-  // or full rate after the ramp completes) and neutral the kernel
-  // mid-move. The kernel's lease backstop still covers an abandoned
-  // move within 500 ms.
-  if (!(distDone && yawDone)) {
-    r.moveCmdScale = scale;
-    r.kernel.drive(r.moveVelCmd * scale, r.moveTwistCmd * scale, 500u);
-  }
-  const uint32_t nowMs =
-      static_cast<uint32_t>(r.clock.nowMicros() / 1000ull);
-  const bool expired = static_cast<int32_t>(nowMs - r.moveDeadline) >= 0;
-
-  if ((distDone && yawDone) || expired || out.stallHalted || wrongWay) {
-    if (wrongWay) ++r.wrongWayCount;
-    r.kernel.neutral();
-    r.moveActive = false;
-    return false;
-  }
-  return true;
+  r.engine.moveX(distanceMm, rotationRad, cruiseMmS, timeoutMs);
 }
 
 //%
 bool updateMove() {
   if (rig == nullptr) return false;
-  return serviceMove(*rig);
+  Rig& r = *rig;
+  // odomUpdate() only while a move is (was) actually active, matching
+  // the pre-extraction free-function serviceMove()'s own early-return
+  // gate -- pose stays lazily updated (poseX()/Y()/heading() on demand)
+  // otherwise.
+  const bool wasActive = r.engine.isMoveActive();
+  if (wasActive) odomUpdate(r);
+  return r.engine.serviceMove();
 }
 
 // ---- tick engine (sprint 002) -----------------------------------------
@@ -545,8 +463,11 @@ bool tickDrive() {
   r.stepBusy = true;
   r.kernel.step();
 
-  const bool wasActive = r.moveActive;
-  const bool moveActive = serviceMove(r);
+  const bool wasActive = r.engine.isMoveActive();
+  // odomUpdate() only while a move is (was) actually active -- see
+  // updateMove()'s own matching comment above.
+  if (wasActive) odomUpdate(r);
+  const bool moveActive = r.engine.serviceMove();
 
   // Move-completion stop delivery (bench root-cause, 2026-08-20): when
   // serviceMove() ends the move it posts kernel.neutral(), but the
@@ -577,6 +498,25 @@ bool tickDrive() {
     }
     odomUpdate(r);  // coast counts -> pose before the final TLM
   }
+  // Sprint 003 ticket 013 (final integration) note, carried over from
+  // ticket 009's own report: this settle loop is NOT host-testable and
+  // stays that way after assessment, not by oversight. Its own body
+  // (kernel.step()/kernel.output()) is portable, but the loop exists
+  // here, bolted onto tickDrive() rather than living inside
+  // motion_engine.cpp's serviceMove(), because its whole point is
+  // folding coast counts into odomUpdate() -- Rig-local x/y/heading
+  // state (see this file's "-- odometry --" section above) -- before
+  // the final telemetry read. Extracting it cleanly would mean moving
+  // odometry ownership into motion_engine too, which is a real
+  // architectural change (Step 5 of sprint.md's own architecture
+  // gestures at exactly this: "and odometry, extracted... to
+  // motion_engine", not fully done), not a mechanical one, and not
+  // something to take on unreviewed on the last ticket before a
+  // hardware session. Ticket 009's regression test already mirrors this
+  // loop's SHAPE (bounded iteration, break-on-rest) against
+  // motion_engine's own portable kernel access and is host-tested; the
+  // loop's actual body here, wired to odomUpdate(), is exercised only
+  // by flashing and driving the real robot. Known, accepted gap.
   r.stepBusy = false;
 
   // Absolute-deadline self-pacing, lifted from DifferentialDrive::run()
@@ -676,7 +616,7 @@ static constexpr uint64_t kWatchdogTimeoutUs = 100000ull;  // [us] ~4 periods
 // continuous-drive (setWheels/driveTwist and their timed variants) and
 // move-engine abandonment.
 static bool commandLooksActive(const Rig& r) {
-  if (r.moveActive) return true;
+  if (r.engine.isMoveActive()) return true;
   const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
   return out.appliedDutyLeft != 0.0f || out.appliedDutyRight != 0.0f;
 }
@@ -690,45 +630,25 @@ static void watchdogEntry(void* context) {
     if (sinceLastTickUs <= kWatchdogTimeoutUs) continue;
     if (!commandLooksActive(r)) continue;
     r.kernel.neutral();      // commands neutral for whenever step() next runs
-    r.moveActive = false;
+    r.engine.endMove();      // clears the move-engine's own in-flight state
     r.left.emergencyStop();  // port-level zero write, NOW, tick-independent
     r.right.emergencyStop();
   }
 }
 
 //%
-bool moving() { return rig != nullptr && rig->moveActive; }
+bool moving() { return rig != nullptr && rig->engine.isMoveActive(); }
 
 //%
 int progress() {  // [0..1000]
-  if (rig == nullptr || !rig->moveActive) return 1000;
-  Rig& r = *rig;
-  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
-  const float dLeft = out.positionLeft - r.movePosLeft0;
-  const float dRight = out.positionRight - r.movePosRight0;
-  float fraction = 1.0f;
-  if (r.moveDistTarget != 0.0f) {
-    const float f = std::fabs(0.5f * (dLeft + dRight)) /
-                    std::fabs(r.moveDistTarget);
-    if (f < fraction) fraction = f;
-  }
-  if (r.moveYawTarget != 0.0f) {
-    const float f = std::fabs(0.5f * (dRight - dLeft)) /
-                    std::fabs(r.moveYawTarget);
-    if (f < fraction) fraction = f;
-  }
-  if (fraction < 0.0f) fraction = 0.0f;
-  if (fraction > 1.0f) fraction = 1.0f;
-  return static_cast<int>(fraction * 1000.0f);
+  if (rig == nullptr) return 1000;
+  return rig->engine.progress();
 }
 
 //%
 void endMove() {
   if (rig == nullptr) return;
-  if (rig->moveActive) {
-    rig->kernel.neutral();
-    rig->moveActive = false;
-  }
+  rig->engine.endMove();
 }
 
 // ---- stopping -------------------------------------------------------
@@ -736,14 +656,14 @@ void endMove() {
 //%
 void stopAll() {
   Rig& r = ensure();
-  r.moveActive = false;
+  r.engine.endMove();
   r.kernel.neutral();
 }
 
 //%
 void estopAll() {
   Rig& r = ensure();
-  r.moveActive = false;
+  r.engine.endMove();
   r.kernel.estop();
   r.kernel.emergencyStopMotors();
 }
@@ -787,7 +707,7 @@ int diagValue(int what) {
     case 21: return static_cast<int>(ensure().left.maxDrivenStreak_);
     case 22: return static_cast<int>(ensure().right.maxDrivenStreak_);
     // 23/24: rejected implausible encoder reads (glitch armor)
-    case 25: return static_cast<int>(ensure().wrongWayCount);
+    case 25: return static_cast<int>(ensure().engine.wrongWayCount());
     case 23: return static_cast<int>(ensure().left.glitchCount_);
     case 24: return static_cast<int>(ensure().right.glitchCount_);
     default: return 0;
@@ -832,8 +752,9 @@ void resetPose() {
 //%
 void setGeometry(int trackWidth, int calib) {  // [0.1 mm] [1e-4 mm/deg]
   Rig& r = ensure();
-  if (trackWidth > 0) r.trackWidth = static_cast<float>(trackWidth) * 0.1f;
-  if (calib > 0) r.travelCalib = static_cast<float>(calib) * 1e-4f;
+  if (trackWidth > 0)
+    r.engine.setTrackWidth(static_cast<float>(trackWidth) * 0.1f);
+  if (calib > 0) r.engine.setTravelCalib(static_cast<float>(calib) * 1e-4f);
 }
 
 //%
@@ -926,6 +847,54 @@ static OtosPort& otosRef() {
   return *gOtos;
 }
 
+// ---- wire motion-engine primitives, part 2 (sprint 003 ticket 012:
+// WireAdapter's MOVE_V/GO_TO_R/GO_TO_W handlers) -----------------------
+// Same forward-declaration convention as engineWheelsX()/engineMoveX()/
+// engineDefaultCruiseMmS() above -- WireAdapter has no reference of its
+// own to this Rig's `engine`, so these three thin, wire-shaped forwards
+// are the seam. `omegaRad` arrives at engineMoveV() ALREADY converted
+// from the wire's milliradian integer (wire_adapter.cpp's mradToRad()).
+// `speed`'s <0/==0 "configured default" substitution (motion-api.md
+// S1.1) is resolved by onGoToR()/onGoToW() in wire_adapter.cpp BEFORE
+// either of these two is ever called, via engineDefaultCruiseMmS()
+// above -- identical convention to `cruise` for engineWheelsX()/
+// engineMoveX(). Placed after otosRef() (just above), not with
+// engineWheelsX()/engineMoveX() further up this file, because
+// engineGoToW() needs it.
+void engineMoveV(float vx, float omegaRad, uint32_t durationMs) {
+  Rig& r = ensure();
+  r.engine.moveV(vx, omegaRad, durationMs);
+}
+
+void engineGoToR(float x, float y, float speed, float arrive,
+                 uint32_t timeoutMs) {
+  Rig& r = ensure();
+  r.engine.goToR(x, y, speed, arrive, timeoutMs);
+}
+
+// GO_TO_W's own PoseSource (motion_engine.h, ticket 010; motion-api.md
+// S3.6): this file's `gOtos`/otosRef() lazy singleton, just above, is
+// the only pose source this robot's wiring has -- the encoder-odometry
+// fallback motion-api.md S3.6 also describes ("OTOS when fitted,
+// encoder odometry otherwise") is explicitly out of scope (ticket 010's
+// own Description) and is not built here. A robot with no OTOS fitted
+// at all (motion-api.md S3.6's own `gopiv` example), or one whose OTOS
+// was never begun (no otosBegin() call this session, or begin() never
+// matched the expected product id), has connected() == false -- this
+// returns false rather than ever calling MotionEngine::goToW() with a
+// pose read off a sensor that has never actually talked to this robot,
+// so wire_adapter.cpp can refuse the call honestly instead of silently
+// driving toward a garbage/zeroed pose. Returns true iff the call was
+// actually dispatched onto MotionEngine::goToW().
+bool engineGoToW(float x, float y, float speed, float arrive,
+                uint32_t timeoutMs) {
+  OtosPort& otos = otosRef();
+  if (!otos.connected()) return false;
+  Rig& r = ensure();
+  r.engine.goToW(otos, x, y, speed, arrive, timeoutMs);
+  return true;
+}
+
 // Expose diagValue() to the TS layer for on-device instrumentation.
 // The values it carries (applied duty, encoder positions, wedge
 // suspicion) are exactly what a failing move needs recorded PER TICK,
@@ -944,21 +913,23 @@ static OtosPort& otosRef() {
 //%
 void setTaperWindows(int distCounts, int yawCounts) {
   Rig& r = ensure();
-  if (distCounts > 0) r.distTaper = static_cast<float>(distCounts);
-  if (yawCounts > 0) r.yawTaper = static_cast<float>(yawCounts);
+  if (distCounts > 0) r.engine.setDistTaper(static_cast<float>(distCounts));
+  if (yawCounts > 0) r.engine.setYawTaper(static_cast<float>(yawCounts));
 }
 
 //%
 void setTaperFloors(int distPct, int turnPct) {
   Rig& r = ensure();
-  if (distPct > 0) r.distFloor = static_cast<float>(distPct) * 0.01f;
-  if (turnPct > 0) r.turnFloor = static_cast<float>(turnPct) * 0.01f;
+  if (distPct > 0)
+    r.engine.setDistFloor(static_cast<float>(distPct) * 0.01f);
+  if (turnPct > 0)
+    r.engine.setTurnFloor(static_cast<float>(turnPct) * 0.01f);
 }
 
 //%
 void setRampMs(int ms) {
   Rig& r = ensure();
-  if (ms > 0) r.rampMs = static_cast<float>(ms);
+  if (ms > 0) r.engine.setRampMs(static_cast<float>(ms));
 }
 
 // Measured wheel speed [mm/s] straight from the kernel's per-tick
@@ -968,7 +939,7 @@ int wheelSpeed(int which) {
   Rig& r = ensure();
   const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
   const float counts = (which == 0) ? out.velocityLeft : out.velocityRight;
-  return static_cast<int>(std::lround(counts * r.travelCalib * 0.1f));
+  return static_cast<int>(std::lround(counts * r.engine.travelCalib() * 0.1f));
 }
 
 //%

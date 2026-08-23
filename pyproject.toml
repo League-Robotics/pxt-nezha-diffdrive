@@ -1,0 +1,18 @@
+[project]
+name = "pxt-nezha-diffdrive-host-tests"
+version = "0.20260823.1"
+description = "Native host test harness for this extension's portable C++ (DiffDrive kernel, and the sprint 003 wire/motion modules it grows into). No Python package of its own -- every module under test is C++, compiled on demand into a throwaway shared library and driven through ctypes; see tests/host/README.md."
+requires-python = ">=3.10"
+dependencies = [
+    "pytest>=8.0",
+]
+
+# This project has no installable Python package -- src/ is C++/TypeScript
+# (a MakeCode/PXT extension), not a Python source tree. `uv run pytest`
+# only needs pytest itself available in a synced venv; there is nothing
+# here for uv to build or install, so it must not try.
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

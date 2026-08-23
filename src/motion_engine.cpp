@@ -1,0 +1,321 @@
+// motion_engine.cpp -- see motion_engine.h for the class contract, the
+// two-primitive design (motion-api.md S2), the geometry rationale
+// (S2.1), and the move engine (S3.3-S3.5). Host-portable: this file
+// includes nothing but <cmath> and its own header -- no pxt.h, no CODAL
+// type.
+#include "motion_engine.h"
+
+#include <cmath>
+
+namespace diffDrive {
+
+MotionEngine::MotionEngine(DiffDrive::DifferentialDrive& kernel,
+                           const DiffDrive::Clock& clock)
+    : kernel_(kernel), clock_(clock) {}
+
+uint32_t MotionEngine::nowMs() const {
+  return static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
+}
+
+void MotionEngine::wheelsV(float left, float right, uint32_t durationMs) {
+  cancelMove();  // motion-api.md S6: wheels_* clears the planner
+  const float cpm = countsPerMm();
+  const float velocity = 0.5f * (left + right) * cpm;  // [counts/s]
+  const float twist = 0.5f * (right - left) * cpm;     // [counts/s] CCW+
+  kernel_.drive(velocity, twist, durationMs);
+}
+
+void MotionEngine::wheelsX(float left, float right, float cruise,
+                           uint32_t timeoutMs) {
+  cancelMove();  // motion-api.md S6: wheels_* clears the planner
+  const float absLeft = std::fabs(left);
+  const float absRight = std::fabs(right);
+  const float dominant = absLeft > absRight ? absLeft : absRight;
+  if (dominant <= 0.0f || cruise <= 0.0f) return;  // nothing to command
+
+  // Normalize so the dominant wheel's own ratio is exactly +-1
+  // (motion-api.md S4's control block: "uLeft, uRight normalized so
+  // max(|uLeft|, |uRight|) == 1"), then scale by cruise -- the DOMINANT
+  // wheel's own ceiling (S3.1) -- to get each wheel's commanded speed.
+  const float uLeft = left / dominant;
+  const float uRight = right / dominant;
+  const float leftSpeed = uLeft * cruise;    // [mm/s]
+  const float rightSpeed = uRight * cruise;  // [mm/s]
+
+  const float cpm = countsPerMm();
+  const float velocity = 0.5f * (leftSpeed + rightSpeed) * cpm;  // [counts/s]
+  const float twist = 0.5f * (rightSpeed - leftSpeed) * cpm;     // [counts/s]
+
+  // Dead-reckoned lease: how long the dominant wheel takes to cover its
+  // own commanded distance at the ratio-locked cruise ceiling, capped by
+  // the required timeout backstop (motion-api.md S3.1: "timeout is a
+  // required backstop, not the stop condition" -- the live
+  // encoder-progress check that makes this genuinely closed-loop is
+  // moveX()'s own shaping layer, not this primitive).
+  const float computedMs = (dominant / cruise) * 1000.0f;
+  uint32_t lease = static_cast<uint32_t>(std::lround(computedMs));
+  if (timeoutMs > 0 && timeoutMs < lease) lease = timeoutMs;
+
+  kernel_.drive(velocity, twist, lease);
+}
+
+// ---- move engine (motion-api.md S3.3-S3.5), sprint 003 ticket 007 -------
+
+void MotionEngine::cancelMove() {
+  move_.active = false;
+  move_.hasPending = false;
+}
+
+void MotionEngine::endMove() {
+  if (move_.active) kernel_.neutral();
+  cancelMove();
+}
+
+void MotionEngine::startSegment(float distance, float rotation,
+                                float cruise) {
+  const float cpm = countsPerMm();
+  const DiffDrive::DifferentialDrive::Output out = kernel_.output();
+  move_.posLeft0 = out.positionLeft;
+  move_.posRight0 = out.positionRight;
+  move_.distTarget = distance * cpm;                              // [counts]
+  move_.yawTarget = rotation * 0.5f * effectiveTrackWidth() * cpm;  // [counts]
+
+  // wheels_x's own reduction (motion-api.md S2): left = distance -
+  // rotation*b/2, right = distance + rotation*b/2 -- restated here in
+  // counts as mean +- half-differential, which is exactly distTarget/
+  // yawTarget above (mean(left,right) == distance, halfDiff(right,left)
+  // == rotation*b/2).
+  const float left = move_.distTarget - move_.yawTarget;
+  const float right = move_.distTarget + move_.yawTarget;
+  const float absLeft = std::fabs(left);
+  const float absRight = std::fabs(right);
+  const float dominant = absLeft > absRight ? absLeft : absRight;
+  if (dominant <= 0.0f || cruise <= 0.0f) {
+    move_.active = false;  // nothing to command -- same contract as wheelsX
+    return;
+  }
+
+  const float cruiseCounts = cruise * cpm;  // [counts/s]
+  move_.velCmd = move_.distTarget / dominant * cruiseCounts;
+  move_.twistCmd = move_.yawTarget / dominant * cruiseCounts;
+
+  // Acceleration ramp (stakeholder, 2026-08-20): start at the floor
+  // rate, not a full-rate step -- serviceMove() raises the scale over
+  // rampMs_. Mirrors the end-of-move taper; effective accel ~= full
+  // rate / 0.4 s (~375 mm/s^2 at 15 cm/s), reference-shaper-like.
+  move_.startMs = nowMs();
+  move_.cmdScale = 0.25f;
+  const uint32_t now = move_.startMs;
+  const uint32_t remainingMs =
+      static_cast<int32_t>(move_.deadline - now) > 0
+          ? (move_.deadline - now)
+          : 0u;
+  kernel_.drive(move_.velCmd * 0.25f, move_.twistCmd * 0.25f, remainingMs);
+  move_.active = true;
+}
+
+void MotionEngine::moveX(float distance, float rotation, float cruise,
+                         uint32_t timeoutMs) {
+  // One deadline for the WHOLE call (both phases, if the pivot-first
+  // split below fires) -- the wire's own single `timeout` field, a REAL
+  // backstop distinct from any internally-computed lease (see
+  // startSegment()'s own comment on the initial kernel_.drive() lease).
+  move_.deadline = nowMs() + timeoutMs;
+  move_.hasPending = false;
+
+  // motion-api.md S3.3's measured table: a rotation this large combined
+  // with an actual translation is NOT one blended segment -- pivot to
+  // the new heading first (distance == 0 here), then travel the
+  // remainder straight (rotation == 0 there). A pure pivot (distance ==
+  // 0 already) or a rotation under the threshold stays one segment --
+  // the degenerate cases motion-api.md S2.1 calls out (move_x(d,0)
+  // straight, move_x(0,theta) pivot) are both single-segment already.
+  if (distance != 0.0f && std::fabs(rotation) >= kTurnFirstAngleRad) {
+    move_.hasPending = true;
+    move_.pendingDistance = distance;
+    move_.pendingCruise = cruise;
+    startSegment(0.0f, rotation, cruise);
+  } else {
+    startSegment(distance, rotation, cruise);
+  }
+}
+
+void MotionEngine::moveV(float vx, float omega, uint32_t durationMs) {
+  // motion-api.md S2: move_v(v_x, omega) == wheels_v(v_x - omega*b/2,
+  // v_x + omega*b/2). wheelsV() itself clears any in-flight moveX().
+  const float twist = omega * 0.5f * effectiveTrackWidth();  // [mm/s] CCW+
+  wheelsV(vx - twist, vx + twist, durationMs);
+}
+
+void MotionEngine::goToR(float x, float y, float speed, float arrive,
+                         uint32_t timeoutMs) {
+  (void)arrive;  // single-shot reduction: no supervisory re-solve/arrival
+                 // check here -- see this file's header comment and
+                 // motion-api.md S3.5 ("go_to_r is supervisory"); a
+                 // caller that wants that re-issues goToR() itself.
+  if (x == 0.0f && y == 0.0f) return;  // nothing to drive to
+
+  // motion-api.md S3.5's plain reduction: turn angle phi = 2*atan2(y,x);
+  // arc length s = c*phi/(2*sin(phi/2)) -> c (== x) as phi -> 0, restated
+  // (matching this project's prior main.ts startGoTo()) via the signed
+  // circle radius R = (x^2+y^2)/(2y), s = R*phi, which is the same
+  // formula algebraically and avoids a sin() near phi == 0.
+  const float theta = 2.0f * std::atan2(y, x);  // [rad] signed
+  float s;                                       // [mm] signed arc length
+  if (std::fabs(y) < 0.1f) {                     // ~0.01 cm: call it straight
+    s = x;
+  } else {
+    const float radius = (x * x + y * y) / (2.0f * y);  // [mm] signed
+    s = radius * theta;
+  }
+  moveX(s, theta, speed, timeoutMs);
+}
+
+void MotionEngine::goToW(const PoseSource& pose, float x, float y,
+                         float speed, float arrive, uint32_t timeoutMs) {
+  // motion-api.md S2/S3.6: "go_to_w(x, y) == read pose -> world-to-body
+  // -> go_to_r". Read the pose ONCE, here, at call time -- goToW() takes
+  // no supervisory re-solve any more than goToR() does (see that
+  // method's own comment).
+  const float dx = x - pose.x();
+  const float dy = y - pose.y();
+  const float heading = pose.heading();
+  const float cosH = std::cos(heading);
+  const float sinH = std::sin(heading);
+
+  // World-to-body rotation by -heading, matching this file's CCW-
+  // positive convention (header comment): body x (forward) is the world
+  // delta projected onto the heading direction; body y (left) is the
+  // world delta projected onto the direction 90 deg CCW from heading.
+  // Sign/rotation-direction errors hide exactly here when heading is
+  // both nonzero AND the position offset is nonzero -- see this file's
+  // own test coverage (tests/host/test_motion_engine_gotow.py).
+  const float bodyX = dx * cosH + dy * sinH;
+  const float bodyY = -dx * sinH + dy * cosH;
+
+  goToR(bodyX, bodyY, speed, arrive, timeoutMs);
+}
+
+bool MotionEngine::serviceMove() {
+  if (!move_.active) return false;
+  const DiffDrive::DifferentialDrive::Output out = kernel_.output();
+  const float dLeft = out.positionLeft - move_.posLeft0;    // [counts]
+  const float dRight = out.positionRight - move_.posRight0;  // [counts]
+  const float meanProgress = 0.5f * (dLeft + dRight);
+  const float diffProgress = 0.5f * (dRight - dLeft);
+
+  // End-of-move taper (2026-08-20, exact-turns work): approach the
+  // target at a decreasing rate so the post-stop coast shrinks to noise.
+  // One shared scale keeps an arc's velocity/twist ratio (curvature)
+  // intact; the floor keeps the binding axis above the kernel's own
+  // speed floor so the crawl still moves.
+  const bool pureTurn =
+      (move_.yawTarget != 0.0f && move_.distTarget == 0.0f);
+  const float distMargin = 10.0f;                     // [counts]
+  const float yawMargin = pureTurn ? 4.0f : 10.0f;     // [counts]
+  const float kTaperFloor = pureTurn ? turnFloor_ : distFloor_;
+
+  float scale = 1.0f;
+  bool distDone = true;
+  if (move_.distTarget != 0.0f) {
+    const float remain =
+        std::fabs(move_.distTarget) - std::fabs(meanProgress);
+    distDone = remain <= distMargin;
+    const float axisScale = remain / distTaper_;
+    if (axisScale < scale) scale = axisScale;
+  }
+  bool yawDone = true;
+  bool wrongWay = false;
+  if (move_.yawTarget != 0.0f) {
+    // SIGNED progress toward the target, not |progress| -- comparing
+    // magnitudes credits rotation in the WRONG DIRECTION as progress.
+    const float toward =
+        move_.yawTarget > 0.0f ? diffProgress : -diffProgress;
+    const float remain = std::fabs(move_.yawTarget) - toward;
+    yawDone = remain <= yawMargin;
+    if (toward < -3.0f * yawMargin) wrongWay = true;
+    // Only a PURE TURN tapers on yaw -- in an arc the twist and the
+    // velocity are locked by curvature, so the distance taper already
+    // scales yaw by the same factor; a second, independent yaw taper
+    // double-counts (see motion_engine.h/shims.cpp history: measured
+    // vevov 2026-08-22, three legs pinned at the 25% distFloor by this
+    // exact double-count while the one leg under goToWorld's straight-
+    // line threshold skipped this branch and ran full speed).
+    if (pureTurn) {
+      const float axisScale = remain / yawTaper_;
+      if (axisScale < scale) scale = axisScale;
+    }
+  }
+  if (scale < kTaperFloor) scale = kTaperFloor;
+
+  // Acceleration ramp: time-based rise from the floor to full rate over
+  // rampMs_, min-combined with the end taper (a very short move may go
+  // straight from ramp to taper without ever reaching full).
+  const uint32_t nowMsRamp = nowMs();
+  float ramp =
+      static_cast<float>(nowMsRamp - move_.startMs) / rampMs_;
+  if (ramp < kTaperFloor) ramp = kTaperFloor;
+  if (ramp < scale) scale = ramp;
+  if (scale > 1.0f) scale = 1.0f;
+
+  // Reissue EVERY tick while the move is active, at the current scale
+  // with a rolling 500 ms lease -- the only form that is lease-safe:
+  // gating reissues on scale CHANGE would let the lease expire during
+  // any steady phase (floor crawl, or full rate after the ramp
+  // completes). The kernel's lease backstop still covers an abandoned
+  // move within 500 ms; the REAL timeout backstop is move_.deadline,
+  // checked below, independent of this rolling lease.
+  if (!(distDone && yawDone)) {
+    move_.cmdScale = scale;
+    kernel_.drive(move_.velCmd * scale, move_.twistCmd * scale, 500u);
+  }
+
+  const uint32_t now = nowMs();
+  const bool expired = static_cast<int32_t>(now - move_.deadline) >= 0;
+
+  // Phase 1 (pivot) finished CLEANLY -- motion-api.md S3.3's pivot-then-
+  // travel split (moveX()) queued a second (straight) phase. Timeout/
+  // stall/wrong-way abort the WHOLE moveX() call instead of advancing --
+  // a blocked or misbehaving pivot should not be followed by a straight
+  // leg run blind.
+  if (distDone && yawDone && !expired && !out.stallHalted && !wrongWay &&
+      move_.hasPending) {
+    const float pendingDistance = move_.pendingDistance;
+    const float pendingCruise = move_.pendingCruise;
+    move_.hasPending = false;
+    startSegment(pendingDistance, 0.0f, pendingCruise);
+    return move_.active;
+  }
+
+  if ((distDone && yawDone) || expired || out.stallHalted || wrongWay) {
+    if (wrongWay) ++wrongWayCount_;
+    kernel_.neutral();
+    move_.active = false;
+    move_.hasPending = false;
+    return false;
+  }
+  return true;
+}
+
+int MotionEngine::progress() const {
+  if (!move_.active) return 1000;
+  const DiffDrive::DifferentialDrive::Output out = kernel_.output();
+  const float dLeft = out.positionLeft - move_.posLeft0;
+  const float dRight = out.positionRight - move_.posRight0;
+  float fraction = 1.0f;
+  if (move_.distTarget != 0.0f) {
+    const float f = std::fabs(0.5f * (dLeft + dRight)) /
+                    std::fabs(move_.distTarget);
+    if (f < fraction) fraction = f;
+  }
+  if (move_.yawTarget != 0.0f) {
+    const float f = std::fabs(0.5f * (dRight - dLeft)) /
+                    std::fabs(move_.yawTarget);
+    if (f < fraction) fraction = f;
+  }
+  if (fraction < 0.0f) fraction = 0.0f;
+  if (fraction > 1.0f) fraction = 1.0f;
+  return static_cast<int>(fraction * 1000.0f);
+}
+
+}  // namespace diffDrive

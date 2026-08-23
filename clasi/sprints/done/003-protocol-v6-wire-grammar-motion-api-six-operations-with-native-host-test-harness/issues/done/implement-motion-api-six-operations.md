@@ -1,5 +1,17 @@
 ---
-status: pending
+status: done
+sprint: '003'
+tickets:
+- 003-001
+- 003-004
+- 003-006
+- 003-007
+- 003-008
+- 003-009
+- 003-010
+- 003-011
+- 003-012
+- 003-013
 ---
 
 # Implement the Motion API — six operations, on two primitives
