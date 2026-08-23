@@ -28,7 +28,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
 
-VENV = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
+VENV = '/Volumes/Cache/User-Eric/.local/pipx/venvs/aprilcam/bin/python'
 CAMLINK = os.path.dirname(os.path.abspath(__file__)) + '/camlink.py'
 DOTS = {'NW': (-50.0, 30.0), 'SW': (-50.0, -30.0),
         'SE': (50.0, -30.0), 'NE': (50.0, 30.0)}
