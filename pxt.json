@@ -22,6 +22,8 @@
         "src/radio_transport.cpp",
         "src/protocol.h",
         "src/protocol.cpp",
+        "src/wire_handler.h",
+        "src/wire_handler.cpp",
         "src/shims.cpp",
         "src/main.ts"
     ],
