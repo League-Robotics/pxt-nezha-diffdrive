@@ -1,0 +1,379 @@
+"""tests/host/test_wire_reliability.py -- protocol v6's reliability
+layer for src/wire_handler.{h,cpp} (sprint 003 ticket 003): the
+mandatory, trailing, digits-only `#<n>` sequence id; handler state
+limited to exactly `expectedNext_`/`gapOutstanding_` (no clock, no
+timer); the three-way classification of every inbound id; and
+decode-failure-is-NAK, distinguished sharply from a merits rejection.
+
+This file does NOT re-test wire grammar mechanics (line reassembly,
+tokenizing, case-as-direction) or the nine verbs' own golden vectors --
+both live in test_wire_grammar.py, whose `wire_lib` fixture, `wg`
+fixture, `WireGrammar` wrapper, and RESULT_*/DONE_*/TLM_* constants this
+file reuses directly (one compiled shared library, one binding table,
+per radio-robot-lib/tests/protocol's own "one shim, several pytest
+files" pattern -- see wire_grammar_shim.cpp's own file header).
+
+Canonical spec (read-only, a different repo -- this project conforms to
+its grammar, it does not vendor its C++):
+radio-robot-lib/docs/design/protocol.md S8.1 (the three-way table --
+the core of this file), S8.3 (the unsequenced exemption set and HELLO's
+own reset), S8.5 (periodic emission piggybacked on telemetry, still no
+timer), S8.6 (err's field order), S8.8 (lastDone/lastDoneReason moved to
+the Adapter), S8.9 (decode failure is a NAK -- the central 2026-08-22
+change, and the reason this file exists).
+
+Run with::
+
+    uv run pytest tests/host/test_wire_reliability.py
+"""
+
+import pytest
+
+from test_wire_grammar import (  # noqa: F401 -- wg/wire_lib re-exported as fixtures
+    DONE_ABORTED,
+    DONE_ESTOP,
+    DONE_STOP,
+    DONE_TIMEOUT,
+    RESULT_OK,
+    RESULT_RANGE,
+    _ack,
+    _nack,
+    wg,
+    wire_lib,
+)
+
+# ---------------------------------------------------------------------------
+# Mandatory id: missing or malformed -- cannot be sequence-classified at
+# all, so there is no reply of any kind (protocol.md S8.4 items 1-2).
+# The id grammar is digits-only and unsigned -- stricter than the
+# general signed-integer field parser (S2.2) -- so a dedicated parser is
+# required, not the general one.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"STATUS\n",  # no trailing field at all
+        b"STATUS #\n",  # bare hash, no digits
+        b"STATUS #+5\n",  # signed -- '+' is not a digit
+        b"STATUS #-5\n",  # signed -- '-' is not a digit
+        b"STATUS # 5\n",  # the space splits this into two tokens; the
+                           # real last token is "5", which doesn't even
+                           # start with '#'
+        b"STATUS #5a\n",  # trailing non-digit content
+    ],
+)
+def test_malformed_or_missing_id_on_sequenced_verb_is_silently_malformed(wg, line):
+    wg.feed(line)
+    assert wg.take_sink() == b""
+    assert wg.malformed_count == 1
+    assert wg.status_calls == 0
+
+
+def test_well_formed_id_with_many_digits_is_accepted(wg):
+    """The digits-only parser accepts an ordinary multi-digit id -- this
+    is the well-formed baseline the malformed-shapes test above is
+    contrasted against."""
+    wg.feed(b"STATUS #1\n")
+    assert wg.take_sink() == _ack(1) + (
+        b"status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 "
+        b"flags=0 tlm=off next=2\n"
+    )
+    assert wg.malformed_count == 0
+
+
+# ---------------------------------------------------------------------------
+# The three-way classification (protocol.md S8.1). The middle row is the
+# one this ticket calls out by name: a resent command whose ack was lost
+# must NOT re-invoke the adapter.
+# ---------------------------------------------------------------------------
+
+
+def test_in_order_id_decodes_dispatches_and_advances(wg):
+    wg.set_set_result(RESULT_OK)
+    wg.feed(b"SET group.alpha 3.5 #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.set_calls == 1
+    # The sequence genuinely advanced: #2 is now in-order.
+    wg.feed(b"SET group.alpha 4.5 #2\n")
+    assert wg.take_sink() == _ack(2)
+    assert wg.set_calls == 2
+
+
+def test_stale_retransmit_reacks_already_accepted_id_and_does_not_reexecute(wg):
+    """The core test this ticket calls out by name: a resent command
+    whose ack was lost must NOT drive the adapter a second time. Reply
+    echoes the ALREADY-accepted id (expectedNext_ - 1), not the resent
+    one."""
+    wg.set_set_result(RESULT_OK)
+    wg.feed(b"SET group.alpha 3.5 #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.set_calls == 1
+
+    # The host never saw that ack and resends the SAME line, same id.
+    wg.feed(b"SET group.alpha 3.5 #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.set_calls == 1, "a stale retransmit must not re-invoke the adapter"
+    assert wg.malformed_count == 0
+
+
+def test_hash_zero_is_a_stale_retransmit_not_specially_handled(wg):
+    """protocol.md S2.2: `#0` is NOT special-cased anywhere -- ids start
+    at 1, so expectedNext_ is always >= 1, and an inbound `#0` therefore
+    always falls into the ordinary `< expectedNext_` bucket with zero
+    extra code. Verified behaviorally: it is acked (not nacked), never
+    executes, and is not counted malformed."""
+    wg.set_set_result(RESULT_OK)
+    wg.feed(b"SET group.alpha 3.5 #0\n")
+    assert wg.take_sink() == _ack(0)
+    assert wg.set_calls == 0
+    assert wg.malformed_count == 0
+
+
+def test_numeric_gap_nacks_and_does_not_execute(wg):
+    wg.set_set_result(RESULT_OK)
+    wg.feed(b"SET group.alpha 3.5 #5\n")
+    assert wg.take_sink() == _nack(1)
+    assert wg.set_calls == 0
+
+
+def test_numeric_gap_does_not_increment_malformed_count(wg):
+    """A numeric gap is a normal, expected occurrence on a lossy/
+    reordering transport, not a protocol violation -- its content is
+    never even inspected, so it must never count malformed."""
+    wg.feed(b"SET group.alpha 3.5 #5\n")
+    assert wg.malformed_count == 0
+    wg.feed(b"TOTALLY_BOGUS_VERB #99\n")
+    assert wg.malformed_count == 0, (
+        "an out-of-order line's content, verb included, is never inspected")
+
+
+# ---------------------------------------------------------------------------
+# Decode-failure-is-NAK (protocol.md S8.9), distinguished sharply from a
+# merits rejection. Both emit `err`; only the merits case advances.
+# ---------------------------------------------------------------------------
+
+
+def test_unrecognized_verb_in_order_is_a_decode_failure_nacks_same_id(wg):
+    wg.feed(b"TOTALLY_BOGUS_VERB #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 1 #1\n"
+    assert wg.malformed_count == 1
+
+
+def test_wrong_arity_known_verb_in_order_is_a_decode_failure(wg):
+    """STATUS takes zero data fields -- an extra one is wrong arity, a
+    decode failure (err 2 ERR_BADARG), not a best-effort parse."""
+    wg.feed(b"STATUS extra #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 2 #1\n"
+    assert wg.malformed_count == 1
+    assert wg.status_calls == 0
+
+
+def test_unparseable_field_is_a_decode_failure(wg):
+    """SET's value field must parse as a float -- "notanumber" does
+    not, so this NACKs rather than reaching the adapter at all."""
+    wg.feed(b"SET group.alpha notanumber #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 2 #1\n"
+    assert wg.set_calls == 0
+
+
+def test_unrecognized_tlm_mode_is_a_decode_failure(wg):
+    wg.feed(b"TLM BOGUS #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 2 #1\n"
+    assert wg.tlm_calls == 0
+
+
+def test_stop_trailing_token_other_than_now_is_a_decode_failure(wg):
+    wg.feed(b"STOP later #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 2 #1\n"
+    assert wg.stop_calls == 0
+
+
+def test_run_with_only_the_id_and_no_function_name_is_a_decode_failure(wg):
+    """Resolves an internal inconsistency in protocol.md: S6.3's own RUN
+    table still reads "RUN #7 -- still ack + err 2", but S8.9 explicitly
+    lists "a bare RUN with no function name" among its OWN decode-failure
+    examples, and the reference implementation (protocol_handler.cpp)
+    nacks this case, not acks. S8.9 is the later, central, explicitly-
+    authoritative section (2026-08-22) -- implemented here to match it
+    and the reference behavior, not S6.3's stale table row."""
+    wg.feed(b"RUN #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 2 #1\n"
+    assert wg.run_calls == 0
+
+
+def test_decode_failure_holds_the_sequence_until_a_well_formed_line_arrives(wg):
+    """A decode failure on an in-order id holds the stream exactly like
+    a numeric gap: it keeps re-nacking the SAME id until a well-formed
+    line finally supplies it -- proving the state truly did not move."""
+    wg.feed(b"SET group.alpha notanumber #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 2 #1\n"
+    assert wg.malformed_count == 1
+
+    # Still #1 -- a second, different malformed line at the same id
+    # nacks identically.
+    wg.feed(b"TLM BOGUS #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 2 #1\n"
+    assert wg.malformed_count == 2
+
+    # Finally, a well-formed line carrying the SAME id advances it.
+    wg.set_set_result(RESULT_OK)
+    wg.feed(b"SET group.alpha 1.0 #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.set_calls == 1
+
+
+def test_merits_rejection_acks_and_advances_unlike_a_decode_failure(wg):
+    """A merits rejection -- decoded fine, refused by the ADAPTER on its
+    own terms -- is the opposite of a decode failure: it ACKS (the
+    sequence advances) and is paired with err on top of that ack."""
+    wg.set_set_result(RESULT_RANGE)
+    wg.feed(b"SET group.alpha 99999 #1\n")
+    assert wg.take_sink() == _ack(1) + b"err 3 #1\n"
+    assert wg.set_calls == 1, "a merits rejection still reaches the adapter"
+
+    # The sequence genuinely advanced -- #1 is now stale, and resending
+    # it re-acks WITHOUT invoking the adapter a second time (resending a
+    # merits-rejected line would just be refused again, identically, so
+    # this case advances and moves on rather than holding the stream).
+    wg.feed(b"SET group.alpha 99999 #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.set_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# Gap stalling and self-healing (protocol.md S8.5): once a gap opens,
+# every subsequent well-formed command is nacked identically until the
+# missing id arrives; a lost nack self-heals via emitTelemetry() alone,
+# with NO new command and NO timer.
+# ---------------------------------------------------------------------------
+
+
+def test_gap_stalls_every_subsequent_command_identically(wg):
+    wg.feed(b"SET group.alpha 1.0 #5\n")
+    assert wg.take_sink() == _nack(1)
+
+    # A DIFFERENT, otherwise-well-formed command, still out of order,
+    # nacks identically -- the missing id, not the command just sent.
+    wg.feed(b"STATUS #6\n")
+    assert wg.take_sink() == _nack(1)
+    assert wg.set_calls == 0
+    assert wg.status_calls == 0
+    assert wg.malformed_count == 0
+
+
+def test_missing_id_finally_arriving_resumes_the_sequence(wg):
+    wg.feed(b"SET group.alpha 1.0 #5\n")
+    wg.take_sink()
+
+    wg.feed(b"STATUS #1\n")
+    assert wg.take_sink() == _ack(1) + (
+        b"status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 "
+        b"flags=0 tlm=off next=2\n"
+    )
+    wg.set_set_result(RESULT_OK)
+    wg.feed(b"SET group.alpha 1.0 #2\n")
+    assert wg.take_sink() == _ack(2)
+    assert wg.set_calls == 1
+
+
+def test_lost_nack_self_heals_via_emit_telemetry_with_no_new_command(wg):
+    """The scheme's own self-healing guarantee: a lost nack is recovered
+    by emitTelemetry() ALONE, riding whatever cadence the application
+    already drives -- no new command, and (load-bearing) no timer of
+    this class's own."""
+    wg.feed(b"SET group.alpha 1.0 #5\n")
+    wg.take_sink()  # the original nack is "lost" -- simply discarded
+
+    wg.emit_telemetry()
+    assert wg.take_sink() == _nack(1)
+
+    # It keeps happening on every subsequent call, not just once.
+    wg.emit_telemetry()
+    assert wg.take_sink() == _nack(1)
+
+
+def test_emit_telemetry_reacks_highest_accepted_id_when_no_gap_is_open(wg):
+    """A quiet host that sent its last command and went silent still
+    eventually learns it landed, via this same periodic call."""
+    wg.feed(b"STATUS #1\n")
+    wg.take_sink()
+
+    wg.emit_telemetry()
+    assert wg.take_sink() == _ack(1)
+
+
+# ---------------------------------------------------------------------------
+# HELLO resets the sequence (protocol.md S8.3) but does NOT touch the
+# Adapter's own lastDone()/lastDoneReason() (S8.8).
+# ---------------------------------------------------------------------------
+
+
+def test_hello_resets_expected_next_after_a_gap(wg):
+    wg.feed(b"SET group.alpha 1.0 #5\n")  # opens a gap; expectedNext_ stays 1
+    wg.take_sink()
+
+    wg.feed(b"HELLO\n")
+    wg.take_sink()  # the banner; not under test here
+
+    # expectedNext_ is back to 1 -- #1 is in-order again, and the gap is
+    # cleared (no more nacking).
+    wg.feed(b"STATUS #1\n")
+    text = wg.take_sink()
+    assert text.startswith(_ack(1))
+    assert b"next=2" in text
+
+
+def test_hello_does_not_touch_adapters_last_done(wg):
+    wg.set_last_done(7, DONE_STOP)
+    wg.feed(b"HELLO\n")
+    wg.take_sink()
+
+    wg.feed(b"STATUS #1\n")
+    assert wg.take_sink().startswith(_ack(1, 7, DONE_STOP))
+
+
+# ---------------------------------------------------------------------------
+# lastDone/reason piggyback fresh onto every ack/nack (protocol.md S8.8)
+# -- polled off the Adapter each time, never cached on the handler.
+# ---------------------------------------------------------------------------
+
+
+def test_ack_carries_the_adapters_current_last_done_and_reason(wg):
+    wg.set_last_done(3, DONE_TIMEOUT)
+    wg.feed(b"STATUS #1\n")
+    assert wg.take_sink().startswith(_ack(1, 3, DONE_TIMEOUT))
+
+
+def test_nack_carries_the_adapters_current_last_done_and_reason(wg):
+    wg.set_last_done(9, DONE_ESTOP)
+    wg.feed(b"SET group.alpha 1.0 #5\n")  # a numeric gap
+    assert wg.take_sink() == _nack(1, 9, DONE_ESTOP)
+
+
+def test_last_done_is_read_fresh_not_cached_across_calls(wg):
+    """Changing the adapter's own lastDone() between two calls changes
+    what the NEXT ack reports -- proving there is no cached copy
+    anywhere on WireHandler."""
+    wg.set_last_done(1, DONE_STOP)
+    wg.feed(b"STATUS #1\n")
+    assert wg.take_sink().startswith(_ack(1, 1, DONE_STOP))
+
+    wg.set_last_done(2, DONE_ABORTED)
+    wg.feed(b"STATUS #2\n")
+    assert wg.take_sink().startswith(_ack(2, 2, DONE_ABORTED))
+
+
+# ---------------------------------------------------------------------------
+# err's field order (protocol.md S8.6): code first, id last -- not the
+# other way around.
+# ---------------------------------------------------------------------------
+
+
+def test_err_field_order_is_code_then_hash_id(wg):
+    wg.set_set_result(RESULT_RANGE)
+    wg.feed(b"SET group.alpha 99999 #1\n")
+    sink = wg.take_sink()
+    assert b"err 3 #1\n" in sink
+    assert b"err #1 3\n" not in sink

@@ -1,20 +1,23 @@
 """tests/host/test_wire_grammar.py -- protocol v6 wire grammar mechanics
-for src/wire_handler.{h,cpp} (sprint 003 ticket 002): line reassembly,
-tokenizing, case-as-direction, and the grammar edge cases (240-byte
-line cap, lone '\\r' stripping, blank-line handling) -- plus golden wire
-vectors and the adversarial input set for the three verbs this ticket
-wires up (HELLO, PING, ESTOP). This ticket deliberately does NOT
-implement the mandatory-#id/ack/nack reliability layer (sprint 003
-ticket 003) or any sequenced verb; an otherwise well-formed uppercase
-verb this file does not recognize (ID, WHEELS_V, ...) is simply
-malformed here, with no reply, since there is no id yet to nack
-against -- see wire_handler.h's own file header.
+for src/wire_handler.{h,cpp}: line reassembly, tokenizing,
+case-as-direction, and the grammar edge cases (240-byte line cap, lone
+'\\r' stripping, blank-line handling) -- ticket 002's own scope -- PLUS
+(sprint 003 ticket 003) golden wire vectors, both directions, for the
+nine non-motion sequenced verbs this ticket wires up: ID, VER, STATUS,
+HELP, GET, SET, TLM, STOP, RUN. HELLO/PING/ESTOP stay unsequenced
+(protocol.md S8.3) and are exercised here exactly as ticket 002 left
+them. The reliability layer's OWN state machine (the three-way id
+classification, decode-failure-is-NAK, gap stalling/self-healing) is
+tested separately in test_wire_reliability.py, which reuses this file's
+`wire_lib` fixture and `WireGrammar` wrapper rather than duplicating the
+ctypes binding table.
 
 Canonical spec (read-only, a different repo -- this project conforms to
 its grammar, it does not vendor its C++):
 radio-robot-lib/docs/design/protocol.md S2 (the grammar), S2.1 (case is
 direction), S3.1 (feed() must survive being handed anything), S3.2
-(parsing is split-in-place, no allocation).
+(parsing is split-in-place, no allocation), S6/S6.1 (the verb catalog
+and outcome/error-code vocabulary), S8/S8.9 (the reliability layer).
 
 Reuses ticket 001's compile_shared_lib() (test_kernel_harness.py)
 against this ticket's own source list (wire_handler.cpp +
@@ -40,13 +43,58 @@ _SHIM_SOURCES = [
     _TEST_DIR / "wire_grammar_shim.cpp",
 ]
 
+# Wire::Result's DECLARATION-ORDER ordinal (wire_handler.h) -- NOT the
+# wire error code resultCode() maps it to (see RESULT_UNIMPLEMENTED=5
+# here vs. wire code 6, etc.). Mirrors radio-robot-lib/tests/protocol/
+# test_protocol_harness.py's own RESULT_* constants.
+RESULT_OK = 0
+RESULT_UNKNOWN = 1
+RESULT_BADARG = 2
+RESULT_RANGE = 3
+RESULT_FULL = 4
+RESULT_UNIMPLEMENTED = 5
+RESULT_NOTREADY = 6
+RESULT_BUSY = 7
+
+# Wire::DoneReason's DECLARATION-ORDER ordinal.
+DONE_NONE = 0
+DONE_STOP = 1
+DONE_TIMEOUT = 2
+DONE_ESTOP = 3
+DONE_ABORTED = 4
+
+_DONE_REASON_NAME = {
+    DONE_NONE: "none",
+    DONE_STOP: "stop",
+    DONE_TIMEOUT: "timeout",
+    DONE_ESTOP: "estop",
+    DONE_ABORTED: "aborted",
+}
+
+# Wire::TlmMode's DECLARATION-ORDER ordinal.
+TLM_OFF = 0
+TLM_POSE = 1
+TLM_FULL = 2
+TLM_NOW = 3
+TLM_AUTO = 4
+TLM_BUFFER = 5
+
+
+def _ack(n, last_done=0, reason=DONE_NONE):
+    return f"ack {n} {last_done} {_DONE_REASON_NAME[reason]}\n".encode()
+
+
+def _nack(n, last_done=0, reason=DONE_NONE):
+    return f"nack {n} {last_done} {_DONE_REASON_NAME[reason]}\n".encode()
+
 
 def _bind(lib):
     """Attach ctypes argtypes/restype for every wire_grammar_shim.cpp
     export. Mirrors radio-robot-lib/tests/protocol/
     test_protocol_harness.py's own binding conventions (phFeed/
-    phSinkLength/phSinkRead's argtypes shape) adapted to this ticket's
-    much smaller wgXxx surface."""
+    phSinkLength/phSinkRead's argtypes shape), widened (ticket 003) past
+    ticket 002's original three-verb surface to the full WireMockAdapter
+    surface both this file and test_wire_reliability.py share."""
     lib.wgCreate.argtypes = []
     lib.wgCreate.restype = ctypes.c_void_p
     lib.wgDestroy.argtypes = [ctypes.c_void_p]
@@ -57,18 +105,11 @@ def _bind(lib):
 
     lib.wgSendBanner.argtypes = [ctypes.c_void_p]
     lib.wgSendBanner.restype = None
+    lib.wgEmitTelemetry.argtypes = [ctypes.c_void_p]
+    lib.wgEmitTelemetry.restype = None
 
     lib.wgMalformedCount.argtypes = [ctypes.c_void_p]
     lib.wgMalformedCount.restype = ctypes.c_uint32
-
-    lib.wgSetIdentity.argtypes = [
-        ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p,
-    ]
-    lib.wgSetIdentity.restype = None
-    lib.wgSetNow.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-    lib.wgSetNow.restype = None
-    lib.wgEstopCalls.argtypes = [ctypes.c_void_p]
-    lib.wgEstopCalls.restype = ctypes.c_int
 
     lib.wgSinkLength.argtypes = [ctypes.c_void_p]
     lib.wgSinkLength.restype = ctypes.c_int
@@ -76,6 +117,81 @@ def _bind(lib):
     lib.wgSinkRead.restype = ctypes.c_int
     lib.wgSinkClear.argtypes = [ctypes.c_void_p]
     lib.wgSinkClear.restype = None
+
+    # ---- WireMockAdapter canned-response setup ----
+    lib.wgSetIdentity.argtypes = [
+        ctypes.c_void_p, ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
+        ctypes.c_char_p, ctypes.c_char_p,
+    ]
+    lib.wgSetIdentity.restype = None
+    lib.wgSetNow.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    lib.wgSetNow.restype = None
+    lib.wgSetStatus.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint32,
+        ctypes.c_char_p,
+    ]
+    lib.wgSetStatus.restype = None
+    lib.wgSetGetOverride.argtypes = [
+        ctypes.c_void_p, ctypes.c_char_p, ctypes.c_float,
+    ]
+    lib.wgSetGetOverride.restype = None
+    lib.wgSetStopResult.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.wgSetStopResult.restype = None
+    lib.wgSetSetResult.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.wgSetSetResult.restype = None
+    lib.wgSetTlmResult.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.wgSetTlmResult.restype = None
+    lib.wgSetRunResult.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.wgSetRunResult.restype = None
+    lib.wgSetRunHasResult.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.wgSetRunHasResult.restype = None
+    lib.wgSetRunResultText.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    lib.wgSetRunResultText.restype = None
+    lib.wgSetLastDone.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    lib.wgSetLastDone.restype = None
+    lib.wgSetLastDoneReason.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.wgSetLastDoneReason.restype = None
+
+    # ---- WireMockAdapter call-log readback ----
+    lib.wgEstopCalls.argtypes = [ctypes.c_void_p]
+    lib.wgEstopCalls.restype = ctypes.c_int
+    lib.wgStopCalls.argtypes = [ctypes.c_void_p]
+    lib.wgStopCalls.restype = ctypes.c_int
+    lib.wgLastStopId.argtypes = [ctypes.c_void_p]
+    lib.wgLastStopId.restype = ctypes.c_uint32
+    lib.wgLastStopImmediate.argtypes = [ctypes.c_void_p]
+    lib.wgLastStopImmediate.restype = ctypes.c_int
+    lib.wgGetCalls.argtypes = [ctypes.c_void_p]
+    lib.wgGetCalls.restype = ctypes.c_int
+    lib.wgSetCalls.argtypes = [ctypes.c_void_p]
+    lib.wgSetCalls.restype = ctypes.c_int
+    lib.wgLastSetValue.argtypes = [ctypes.c_void_p]
+    lib.wgLastSetValue.restype = ctypes.c_float
+    lib.wgLastSetId.argtypes = [ctypes.c_void_p]
+    lib.wgLastSetId.restype = ctypes.c_uint32
+    lib.wgLastSetNameMatches.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    lib.wgLastSetNameMatches.restype = ctypes.c_int
+    lib.wgTlmCalls.argtypes = [ctypes.c_void_p]
+    lib.wgTlmCalls.restype = ctypes.c_int
+    lib.wgLastTlmMode.argtypes = [ctypes.c_void_p]
+    lib.wgLastTlmMode.restype = ctypes.c_int
+    lib.wgRunCalls.argtypes = [ctypes.c_void_p]
+    lib.wgRunCalls.restype = ctypes.c_int
+    lib.wgLastRunNameMatches.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    lib.wgLastRunNameMatches.restype = ctypes.c_int
+    lib.wgLastRunArgc.argtypes = [ctypes.c_void_p]
+    lib.wgLastRunArgc.restype = ctypes.c_int
+    lib.wgLastRunArgMatches.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p,
+    ]
+    lib.wgLastRunArgMatches.restype = ctypes.c_int
+    lib.wgIdentityCalls.argtypes = [ctypes.c_void_p]
+    lib.wgIdentityCalls.restype = ctypes.c_int
+    lib.wgNowCalls.argtypes = [ctypes.c_void_p]
+    lib.wgNowCalls.restype = ctypes.c_int
+    lib.wgStatusCalls.argtypes = [ctypes.c_void_p]
+    lib.wgStatusCalls.restype = ctypes.c_int
 
     return lib
 
@@ -118,19 +234,125 @@ class WireGrammar:
     def send_banner(self):
         self._lib.wgSendBanner(self._handle)
 
+    def emit_telemetry(self):
+        """The reliability layer's own periodic emission (protocol.md
+        S8.5) -- calling this with NO intervening feed() is exactly how
+        a lost ack/nack is proven to self-heal with no timer of this
+        class's own (see test_wire_reliability.py)."""
+        self._lib.wgEmitTelemetry(self._handle)
+
     @property
     def malformed_count(self):
         return self._lib.wgMalformedCount(self._handle)
 
-    def set_identity(self, name: bytes, serial: bytes):
-        self._lib.wgSetIdentity(self._handle, name, serial)
+    def set_identity(self, name: bytes, serial: bytes, drivetrain: bytes = b"",
+                      profile: bytes = b"", version: bytes = b""):
+        self._lib.wgSetIdentity(self._handle, name, serial, drivetrain,
+                                 profile, version)
 
     def set_now(self, now: int):
         self._lib.wgSetNow(self._handle, now)
 
+    def set_status(self, ready=False, active=False, conn_left=False,
+                    conn_right=False, otos=False, wedge=False, flags=0,
+                    tlm: bytes = b"off"):
+        self._lib.wgSetStatus(self._handle, int(ready), int(active),
+                               int(conn_left), int(conn_right), int(otos),
+                               int(wedge), flags, tlm)
+
+    def set_get_override(self, name: bytes, value: float):
+        self._lib.wgSetGetOverride(self._handle, name, value)
+
+    def set_stop_result(self, result: int):
+        self._lib.wgSetStopResult(self._handle, result)
+
+    def set_set_result(self, result: int):
+        self._lib.wgSetSetResult(self._handle, result)
+
+    def set_tlm_result(self, result: int):
+        self._lib.wgSetTlmResult(self._handle, result)
+
+    def set_run_result(self, result: int):
+        self._lib.wgSetRunResult(self._handle, result)
+
+    def set_run_has_result(self, has_result: bool):
+        self._lib.wgSetRunHasResult(self._handle, int(has_result))
+
+    def set_run_result_text(self, text: bytes):
+        self._lib.wgSetRunResultText(self._handle, text)
+
+    def set_last_done(self, last_done: int, reason: int = DONE_NONE):
+        self._lib.wgSetLastDone(self._handle, last_done)
+        self._lib.wgSetLastDoneReason(self._handle, reason)
+
     @property
     def estop_calls(self):
         return self._lib.wgEstopCalls(self._handle)
+
+    @property
+    def stop_calls(self):
+        return self._lib.wgStopCalls(self._handle)
+
+    @property
+    def last_stop_id(self):
+        return self._lib.wgLastStopId(self._handle)
+
+    @property
+    def last_stop_immediate(self):
+        return bool(self._lib.wgLastStopImmediate(self._handle))
+
+    @property
+    def get_calls(self):
+        return self._lib.wgGetCalls(self._handle)
+
+    @property
+    def set_calls(self):
+        return self._lib.wgSetCalls(self._handle)
+
+    @property
+    def last_set_value(self):
+        return self._lib.wgLastSetValue(self._handle)
+
+    @property
+    def last_set_id(self):
+        return self._lib.wgLastSetId(self._handle)
+
+    def last_set_name_matches(self, name: bytes) -> bool:
+        return bool(self._lib.wgLastSetNameMatches(self._handle, name))
+
+    @property
+    def tlm_calls(self):
+        return self._lib.wgTlmCalls(self._handle)
+
+    @property
+    def last_tlm_mode(self):
+        return self._lib.wgLastTlmMode(self._handle)
+
+    @property
+    def run_calls(self):
+        return self._lib.wgRunCalls(self._handle)
+
+    def last_run_name_matches(self, name: bytes) -> bool:
+        return bool(self._lib.wgLastRunNameMatches(self._handle, name))
+
+    @property
+    def last_run_argc(self):
+        return self._lib.wgLastRunArgc(self._handle)
+
+    def last_run_arg_matches(self, index: int, value: bytes) -> bool:
+        return bool(self._lib.wgLastRunArgMatches(self._handle, index, value))
+
+    @property
+    def identity_calls(self):
+        return self._lib.wgIdentityCalls(self._handle)
+
+    @property
+    def now_calls(self):
+        return self._lib.wgNowCalls(self._handle)
+
+    @property
+    def status_calls(self):
+        return self._lib.wgStatusCalls(self._handle)
 
     def take_sink(self) -> bytes:
         """Everything the sink has captured since the last call, as raw
@@ -496,20 +718,150 @@ def test_binary_garbage_never_crashes_the_handler(wg):
 
 
 # ---------------------------------------------------------------------------
-# Sequenced verbs are not wired up yet (ticket 003) -- an otherwise
-# well-formed uppercase verb this ticket does not recognize is simply
-# malformed, with no reply, since there is no id yet to nack against.
+# Sequenced verbs with NO id at all cannot be sequence-classified, so
+# they are still simply malformed with no reply (protocol.md S8.4 items
+# 1-2) -- unchanged by ticket 003's reliability layer. A well-formed id
+# on an unrecognized verb (e.g. a motion verb -- ticket 004's own scope,
+# not yet wired here) is a different case entirely: a DECODE FAILURE
+# that nacks and errs (protocol.md S8.9) -- see
+# test_wire_reliability.py's own decode-failure section for that
+# behavior; it is not "silently malformed" any more.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "line",
-    [b"ID #1\n", b"WHEELS_V 100 100 500 #1\n", b"STATUS #1\n", b"NOTAVERB\n"],
-)
-def test_unrecognized_or_not_yet_wired_uppercase_verb_is_malformed(wg, line):
+@pytest.mark.parametrize("line", [b"ID\n", b"STATUS\n", b"NOTAVERB\n"])
+def test_sequenced_verb_with_no_id_at_all_is_malformed_no_reply(wg, line):
     wg.feed(line)
     assert wg.take_sink() == b""
     assert wg.malformed_count == 1
+
+
+def test_motion_verb_not_yet_wired_is_a_decode_failure_not_silent(wg):
+    """ticket 004's own scope (WHEELS_V et al.) is not wired into
+    kCommandTable yet -- WITH a well-formed in-order id it is an
+    unrecognized verb, which is a decode failure (nack + err 1), not the
+    silent malformed-with-no-reply ticket 002 left behind."""
+    wg.feed(b"WHEELS_V 100 100 500 #1\n")
+    assert wg.take_sink() == _nack(1) + b"err 1 #1\n"
+    assert wg.malformed_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Golden wire vectors, both directions, for the nine non-motion sequenced
+# verbs this ticket wires up: ID, VER, STATUS, HELP, GET, SET, TLM,
+# STOP, RUN. Each includes its mandatory #<id> per protocol.md S8.
+# ---------------------------------------------------------------------------
+
+
+def test_id_golden_vector(wg):
+    wg.set_identity(b"testbot", b"SN001", b"diffdrive", b"nezha2", b"6.0.0")
+    wg.feed(b"ID #1\n")
+    assert wg.take_sink() == _ack(1) + b"id diffdrive nezha2 6.0.0\n"
+    assert wg.malformed_count == 0
+
+
+def test_ver_golden_vector(wg):
+    wg.set_identity(b"testbot", b"SN001", b"diffdrive", b"nezha2", b"6.0.0")
+    wg.feed(b"VER #1\n")
+    assert wg.take_sink() == _ack(1) + b"ver 6.0.0\n"
+
+
+def test_status_golden_vector(wg):
+    wg.set_status(ready=True, active=False, conn_left=True, conn_right=True,
+                  otos=False, wedge=False, flags=0xA, tlm=b"pose")
+    wg.feed(b"STATUS #1\n")
+    assert wg.take_sink() == (
+        _ack(1) +
+        b"status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 "
+        b"flags=a tlm=pose next=2\n"
+    )
+
+
+def test_help_golden_vector(wg):
+    """Generated by walking kCommandTable, so it cannot drift from the
+    dispatcher -- this exact 12-verb listing is this ticket's own
+    catalog (HELLO/PING/ESTOP unsequenced, ID/VER/STATUS/HELP/GET/SET/
+    TLM/STOP/RUN sequenced); ticket 004 inserts the six motion verbs
+    between TLM and STOP."""
+    wg.feed(b"HELP #1\n")
+    assert wg.take_sink() == (
+        _ack(1) +
+        b"help HELLO PING ID VER STATUS HELP GET SET TLM STOP ESTOP RUN\n"
+    )
+
+
+def test_get_bare_golden_vector_dumps_every_field(wg):
+    """WireMockAdapter's default field table (wire_mock_adapter.h)."""
+    wg.feed(b"GET #1\n")
+    assert wg.take_sink() == (
+        _ack(1) +
+        b"get group.alpha 1.500000\n"
+        b"get group.beta -2.250000\n"
+        b"get group.gamma 0.000000\n"
+        b"get group.delta 100.000000\n"
+    )
+    assert wg.get_calls == 4
+
+
+def test_get_named_golden_vector(wg):
+    wg.feed(b"GET group.beta #1\n")
+    assert wg.take_sink() == _ack(1) + b"get group.beta -2.250000\n"
+
+
+def test_get_unknown_name_acks_with_no_get_line(wg):
+    wg.feed(b"GET nosuch.field #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.malformed_count == 0
+
+
+def test_set_golden_vector(wg):
+    wg.set_set_result(RESULT_OK)
+    wg.feed(b"SET group.beta 3.5 #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.set_calls == 1
+    assert wg.last_set_name_matches(b"group.beta")
+    assert wg.last_set_value == pytest.approx(3.5)
+    assert wg.last_set_id == 1
+
+
+def test_tlm_golden_vector(wg):
+    wg.feed(b"TLM POSE #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.tlm_calls == 1
+    assert wg.last_tlm_mode == TLM_POSE
+
+
+def test_stop_bare_golden_vector(wg):
+    wg.set_stop_result(RESULT_OK)
+    wg.feed(b"STOP #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.stop_calls == 1
+    assert wg.last_stop_id == 1
+    assert wg.last_stop_immediate is False
+
+
+def test_stop_now_golden_vector(wg):
+    wg.set_stop_result(RESULT_OK)
+    wg.feed(b"STOP now #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.last_stop_immediate is True
+
+
+def test_run_void_golden_vector(wg):
+    wg.set_run_has_result(False)
+    wg.feed(b"RUN blink 3 #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.run_calls == 1
+    assert wg.last_run_name_matches(b"blink")
+    assert wg.last_run_argc == 1
+    assert wg.last_run_arg_matches(0, b"3")
+
+
+def test_run_with_return_value_golden_vector(wg):
+    wg.set_run_has_result(True)
+    wg.set_run_result_text(b"42")
+    wg.feed(b"RUN getX #1\n")
+    assert wg.take_sink() == _ack(1) + b"ret 42 #1\n"
 
 
 # ---------------------------------------------------------------------------

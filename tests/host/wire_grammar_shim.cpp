@@ -1,21 +1,22 @@
-// wire_grammar_shim.cpp -- extern "C" ctypes surface for the wire
-// grammar host test harness (ticket 002). Test scaffolding only:
-// nothing under src/ knows this file exists, and it is compiled only
-// into this test's own throwaway shared library (see
-// test_wire_grammar.py, which reuses ticket 001's
-// test_kernel_harness.compile_shared_lib() against this file's own
-// source list instead of inventing new build plumbing).
+// wire_grammar_shim.cpp -- extern "C" ctypes surface for the wire host
+// test harness (ticket 002, widened by ticket 003). Test scaffolding
+// only: nothing under src/ knows this file exists, and it is compiled
+// only into this test's own throwaway shared library -- reused by BOTH
+// test_wire_grammar.py (grammar mechanics + the nine non-motion verbs'
+// golden vectors) and test_wire_reliability.py (the reliability layer),
+// mirroring radio-robot-lib/tests/protocol/protocol_shim.cpp's own
+// pattern of one shim, several pytest files.
 //
 // ctypes cannot call C++ methods directly, so this file is the thin
 // translation layer: one opaque handle bundling the handler under test
-// with its own private StubAdapter and RecordingSink, plus free
-// functions Python can bind by name. Mirrors radio-robot-lib/tests/
-// protocol/protocol_shim.cpp's own shape exactly.
+// with its own private WireMockAdapter and RecordingSink, plus free
+// functions Python can bind by name.
 #include <cstdint>
 #include <cstring>
 #include <string>
 
 #include "wire_handler.h"
+#include "wire_mock_adapter.h"
 
 namespace {
 
@@ -36,31 +37,8 @@ class RecordingSink : public Wire::Sink {
   std::string buffer_;
 };
 
-// StubAdapter -- the trivial "identity + now() + onEstop() counter"
-// double this ticket's own Wire::Adapter seam needs, per the ticket's
-// own Implementation Plan ("a trivial stub adapter (now()/identity
-// only) -- enough for HELLO/PING"). A test sets identityName_/
-// identitySerial_/nowValue_ directly before feed()ing a line, and reads
-// estopCalls back afterward -- same "plain public canned-response
-// fields, plus call counters" shape as radio-robot-lib's own
-// MockAdapter.
-class StubAdapter : public Wire::Adapter {
- public:
-  void identity(Wire::Identity& out) const override {
-    out.name = name;
-    out.serial = serial;
-  }
-  uint32_t now() const override { return nowValue; }
-  void onEstop() override { ++estopCalls; }
-
-  const char* name = "testbot";
-  const char* serial = "SN001";
-  uint32_t nowValue = 0;
-  int estopCalls = 0;
-};
-
 struct Handle {
-  StubAdapter adapter;
+  WireMockAdapter adapter;
   RecordingSink sink;
   Wire::WireHandler handler;
   Handle() : handler(adapter, sink) {}
@@ -69,6 +47,8 @@ struct Handle {
 }  // namespace
 
 extern "C" {
+
+// ---- lifecycle -------------------------------------------------------
 
 void* wgCreate() { return new Handle(); }
 void wgDestroy(void* handle) { delete static_cast<Handle*>(handle); }
@@ -82,26 +62,15 @@ void wgSendBanner(void* handle) {
   static_cast<Handle*>(handle)->handler.sendBanner();
 }
 
+void wgEmitTelemetry(void* handle) {
+  static_cast<Handle*>(handle)->handler.emitTelemetry();
+}
+
 uint32_t wgMalformedCount(void* handle) {
   return static_cast<Handle*>(handle)->handler.malformedCount();
 }
 
-// ---- StubAdapter control/readback --------------------------------------
-
-void wgSetIdentity(void* handle, const char* name, const char* serial) {
-  static_cast<Handle*>(handle)->adapter.name = name;
-  static_cast<Handle*>(handle)->adapter.serial = serial;
-}
-
-void wgSetNow(void* handle, uint32_t now) {
-  static_cast<Handle*>(handle)->adapter.nowValue = now;
-}
-
-int wgEstopCalls(void* handle) {
-  return static_cast<Handle*>(handle)->adapter.estopCalls;
-}
-
-// ---- sink readback -------------------------------------------------------
+// ---- sink readback -----------------------------------------------------
 
 int wgSinkLength(void* handle) {
   return static_cast<int>(static_cast<Handle*>(handle)->sink.buffer().size());
@@ -120,5 +89,164 @@ int wgSinkRead(void* handle, char* out, int cap) {
 }
 
 void wgSinkClear(void* handle) { static_cast<Handle*>(handle)->sink.clear(); }
+
+// ---- WireMockAdapter canned-response setup ------------------------------
+// NOTE: every const char* passed in must outlive its use -- the mock
+// stores the pointer, not a copy (mirroring Wire::Identity's own
+// borrowed-pointer contract). Callers keep the Python bytes objects
+// alive for the ctypes call's duration; the mock reads them again on
+// every identity()/status() call after that, so the TEST must keep them
+// alive for as long as the handle lives.
+
+void wgSetIdentity(void* handle, const char* name, const char* serial,
+                    const char* drivetrain, const char* profile,
+                    const char* version) {
+  Wire::Identity& id = static_cast<Handle*>(handle)->adapter.identityToReturn;
+  id.name = name;
+  id.serial = serial;
+  id.drivetrain = drivetrain;
+  id.profile = profile;
+  id.version = version;
+}
+
+void wgSetNow(void* handle, uint32_t now) {
+  static_cast<Handle*>(handle)->adapter.nowToReturn = now;
+}
+
+void wgSetStatus(void* handle, int ready, int active, int connL, int connR,
+                  int otos, int wedge, uint32_t flags, const char* tlm) {
+  Wire::StatusFields& s = static_cast<Handle*>(handle)->adapter.statusToReturn;
+  s.ready = ready != 0;
+  s.active = active != 0;
+  s.connLeft = connL != 0;
+  s.connRight = connR != 0;
+  s.otos = otos != 0;
+  s.wedge = wedge != 0;
+  s.flags = flags;
+  s.tlm = tlm;
+}
+
+// `name` must outlive its use, same borrowed-pointer contract as
+// wgSetIdentity above.
+void wgSetGetOverride(void* handle, const char* name, float value) {
+  WireMockAdapter& a = static_cast<Handle*>(handle)->adapter;
+  a.overrideName = name;
+  a.overrideValue = value;
+}
+
+// `result` is Wire::Result's DECLARATION-ORDER ordinal
+// (wire_handler.h), NOT a wire error code -- see test_wire_grammar.py's
+// RESULT_* constants, which mirror that same order.
+void wgSetStopResult(void* handle, int result) {
+  static_cast<Handle*>(handle)->adapter.stopResult =
+      static_cast<Wire::Result>(result);
+}
+void wgSetSetResult(void* handle, int result) {
+  static_cast<Handle*>(handle)->adapter.setResult =
+      static_cast<Wire::Result>(result);
+}
+void wgSetTlmResult(void* handle, int result) {
+  static_cast<Handle*>(handle)->adapter.tlmResult =
+      static_cast<Wire::Result>(result);
+}
+void wgSetRunResult(void* handle, int result) {
+  static_cast<Handle*>(handle)->adapter.runResult =
+      static_cast<Wire::Result>(result);
+}
+void wgSetRunHasResult(void* handle, int hasResult) {
+  static_cast<Handle*>(handle)->adapter.runHasResult = hasResult != 0;
+}
+// `text` must outlive its use -- same borrowed-pointer contract as
+// wgSetGetOverride above.
+void wgSetRunResultText(void* handle, const char* text) {
+  static_cast<Handle*>(handle)->adapter.runResultText = text;
+}
+
+// `reason` is Wire::DoneReason's DECLARATION-ORDER ordinal -- see
+// test_wire_grammar.py's DONE_* constants.
+void wgSetLastDone(void* handle, uint32_t lastDone) {
+  static_cast<Handle*>(handle)->adapter.lastDoneToReturn = lastDone;
+}
+void wgSetLastDoneReason(void* handle, int reason) {
+  static_cast<Handle*>(handle)->adapter.lastDoneReasonToReturn =
+      static_cast<Wire::DoneReason>(reason);
+}
+
+// ---- WireMockAdapter call-log readback -----------------------------------
+
+int wgEstopCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.estopCalls;
+}
+
+int wgStopCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.stopCalls;
+}
+uint32_t wgLastStopId(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.lastStopId;
+}
+int wgLastStopImmediate(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.lastStopImmediate ? 1 : 0;
+}
+
+int wgGetCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.getCalls;
+}
+
+int wgSetCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.setCalls;
+}
+float wgLastSetValue(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.lastSetValue;
+}
+uint32_t wgLastSetId(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.lastSetId;
+}
+int wgLastSetNameMatches(void* handle, const char* name) {
+  return std::strcmp(static_cast<Handle*>(handle)->adapter.lastSetName,
+                      name) == 0
+             ? 1
+             : 0;
+}
+
+int wgTlmCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.tlmCalls;
+}
+int wgLastTlmMode(void* handle) {
+  return static_cast<int>(static_cast<Handle*>(handle)->adapter.lastTlmMode);
+}
+
+int wgRunCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.runCalls;
+}
+int wgLastRunNameMatches(void* handle, const char* name) {
+  return std::strcmp(static_cast<Handle*>(handle)->adapter.lastRunName,
+                      name) == 0
+             ? 1
+             : 0;
+}
+int wgLastRunArgc(void* handle) {
+  return static_cast<int>(static_cast<Handle*>(handle)->adapter.lastRunArgc);
+}
+// Returns 1 if argv[index] from the last onRun() call equals `value`, 0
+// if it does not match OR index is out of the recorded range -- so a
+// test cannot mistake "out of range" for "matched an empty string".
+int wgLastRunArgMatches(void* handle, int index, const char* value) {
+  WireMockAdapter& a = static_cast<Handle*>(handle)->adapter;
+  if (index < 0 || static_cast<size_t>(index) >= a.lastRunArgc) return 0;
+  if (static_cast<size_t>(index) >= WireMockAdapter::kMaxRecordedRunArgs) {
+    return 0;
+  }
+  return std::strcmp(a.lastRunArgs[index], value) == 0 ? 1 : 0;
+}
+
+int wgIdentityCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.identityCalls;
+}
+int wgNowCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.nowCalls;
+}
+int wgStatusCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.statusCalls;
+}
 
 }  // extern "C"
