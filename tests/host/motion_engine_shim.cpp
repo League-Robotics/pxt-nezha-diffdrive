@@ -19,6 +19,7 @@
 
 #include "diffdrive.h"
 #include "fake_ports.h"
+#include "fake_pose_source.h"
 #include "motion_engine.h"
 
 namespace {
@@ -31,6 +32,11 @@ struct Handle {
   FakeFiberLauncher launcher;
   DiffDrive::DifferentialDrive kernel;
   diffDrive::MotionEngine engine;
+  // Sprint 003 ticket 010: the goToW() PoseSource these tests arm via
+  // mePoseSourceSetPose() -- NOT constructed over `engine` (PoseSource is
+  // passed per-call, not stored; see motion_engine.h's own comment), so
+  // its declaration order relative to `engine` above does not matter.
+  FakePoseSource pose;
 
   Handle()
       : kernel(left, right, clock, sleeper, launcher),
@@ -152,6 +158,19 @@ void meMoveV(void* handle, float vx, float omega, uint32_t durationMs) {
 void meGoToR(void* handle, float x, float y, float speed, float arrive,
             uint32_t timeoutMs) {
   static_cast<Handle*>(handle)->engine.goToR(x, y, speed, arrive, timeoutMs);
+}
+
+// ---- MotionEngine: goToW (motion-api.md S3.6, sprint 003 ticket 010) --
+
+// Arms the FakePoseSource a following meGoToW() call reads. [mm] [mm]
+// [rad] -- see fake_pose_source.h.
+void mePoseSourceSetPose(void* handle, float x, float y, float heading) {
+  static_cast<Handle*>(handle)->pose.setPose(x, y, heading);
+}
+void meGoToW(void* handle, float x, float y, float speed, float arrive,
+            uint32_t timeoutMs) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.goToW(h->pose, x, y, speed, arrive, timeoutMs);
 }
 int meServiceMove(void* handle) {
   return static_cast<Handle*>(handle)->engine.serviceMove() ? 1 : 0;

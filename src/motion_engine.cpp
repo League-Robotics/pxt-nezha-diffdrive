@@ -171,6 +171,31 @@ void MotionEngine::goToR(float x, float y, float speed, float arrive,
   moveX(s, theta, speed, timeoutMs);
 }
 
+void MotionEngine::goToW(const PoseSource& pose, float x, float y,
+                         float speed, float arrive, uint32_t timeoutMs) {
+  // motion-api.md S2/S3.6: "go_to_w(x, y) == read pose -> world-to-body
+  // -> go_to_r". Read the pose ONCE, here, at call time -- goToW() takes
+  // no supervisory re-solve any more than goToR() does (see that
+  // method's own comment).
+  const float dx = x - pose.x();
+  const float dy = y - pose.y();
+  const float heading = pose.heading();
+  const float cosH = std::cos(heading);
+  const float sinH = std::sin(heading);
+
+  // World-to-body rotation by -heading, matching this file's CCW-
+  // positive convention (header comment): body x (forward) is the world
+  // delta projected onto the heading direction; body y (left) is the
+  // world delta projected onto the direction 90 deg CCW from heading.
+  // Sign/rotation-direction errors hide exactly here when heading is
+  // both nonzero AND the position offset is nonzero -- see this file's
+  // own test coverage (tests/host/test_motion_engine_gotow.py).
+  const float bodyX = dx * cosH + dy * sinH;
+  const float bodyY = -dx * sinH + dy * cosH;
+
+  goToR(bodyX, bodyY, speed, arrive, timeoutMs);
+}
+
 bool MotionEngine::serviceMove() {
   if (!move_.active) return false;
   const DiffDrive::DifferentialDrive::Output out = kernel_.output();

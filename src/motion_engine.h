@@ -64,6 +64,20 @@
 //     parity but unused here -- this is a single-shot reduction, not the
 //     supervisory re-solving loop motion-api.md S3.5 describes; a caller
 //     that wants that re-issues goToR itself.
+//   goToW(pose, x, y, speed, arrive, timeout) -- sprint 003 ticket 010,
+//     the WORLD-frame counterpart: motion-api.md S3.6, "go_to_w(x, y) ==
+//     read pose -> world-to-body -> go_to_r". Reads `pose`'s current
+//     (x, y, heading), rotates the world-frame delta into the body frame,
+//     and delegates to goToR() above -- same single-shot, no-
+//     supervisory-re-solve posture, same separateness from goToWorld()'s
+//     own TS-level heuristic. `pose` is a PoseSource reference supplied
+//     PER CALL (see the PoseSource class below) -- motion-api.md S9.3
+//     item 3: "go_to_w's pose source is pluggable rather than assuming
+//     an OTOS is fitted", because the fleet is not uniform (S3.6's own
+//     `gopiv` example has no OTOS at all). MotionEngine holds no
+//     PoseSource of its own; the caller (a wire adapter, a shim) chooses
+//     which one to pass, which is what makes this class host-testable
+//     with a fake pose with no OTOS anywhere in the link.
 //
 // serviceMove() is the per-tick advance: callers (shims.cpp's
 // updateMove()/tickDrive(), formerly Rig::serviceMove()'s only callers)
@@ -104,6 +118,26 @@
 #include "diffdrive.h"
 
 namespace diffDrive {
+
+// PoseSource -- a minimal world-pose read port for goToW() (motion-api.md
+// S3.6, S9.3 item 3: "the pose source is pluggable... OTOS when fitted,
+// encoder odometry otherwise"). Three reads, nothing else -- alongside
+// DiffDrive::Motor/Clock/Sleeper in spirit (a small port a caller
+// implements against its own platform), no CODAL/PXT dependency, so a
+// future robot with no OTOS at all (motion-api.md S3.6's own `gopiv`
+// example) can supply a trivial always-stale implementation without
+// breaking the interface, and the host test harness can supply a fake
+// with no OTOS anywhere in the link. `OtosPort` (src/otos_port.h)
+// implements this for hardware; `FakePoseSource`
+// (tests/host/fake_pose_source.h) implements it for tests.
+class PoseSource {
+ public:
+  virtual ~PoseSource() = default;
+
+  virtual float x() const = 0;        // [mm] world frame
+  virtual float y() const = 0;        // [mm] world frame
+  virtual float heading() const = 0;  // [rad] world frame, CCW+ (unwrapped)
+};
 
 class MotionEngine {
  public:
@@ -197,6 +231,16 @@ class MotionEngine {
   // call's cruise. A (0, 0) target is a no-op -- nothing is driven.
   void goToR(float x, float y, float speed, float arrive,
              uint32_t timeoutMs);
+
+  // go_to_w(x, y, speed, arrive, timeout): see header comment. `x`, `y`
+  // are WORLD-frame [mm]; `pose` supplies the current world pose this
+  // call reads ONCE, at call time -- not stored. Rotates the world-frame
+  // delta (x - pose.x(), y - pose.y()) into the body frame by
+  // -pose.heading() (this file's CCW-positive convention) and delegates
+  // to goToR() above. A target equal to the current pose reduces to a
+  // (0, 0) body-frame delta, which goToR() already treats as a no-op.
+  void goToW(const PoseSource& pose, float x, float y, float speed,
+             float arrive, uint32_t timeoutMs);
 
   // Advance the current move by one control cycle. See header comment
   // for the full contract (taper/ramp/deadline/wrong-way, one reissue

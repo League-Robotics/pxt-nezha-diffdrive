@@ -23,13 +23,23 @@
 // an OTOS transaction interposed in the Nezha encoder's select->read
 // settle window destroys the encoder sample (Phase F,
 // radio-robot-elite docs/design/encoder-refresh-characterization.md).
+//
+// Sprint 003 ticket 010: implements motion_engine.h's PoseSource port
+// (x()/y()/heading(), unchanged signatures below, now with `override`)
+// so MotionEngine::goToW() can read this sensor as its world-pose
+// authority when fitted (motion-api.md S3.6) -- additive only, no
+// behavioral change to this class. motion_engine.h itself has no
+// CODAL/PXT dependency; this file keeps its own pxt.h include for the
+// I2C/hardware methods below, unaffected by the added base class.
 #pragma once
 
 #include "pxt.h"
 
+#include "motion_engine.h"
+
 namespace diffDrive {
 
-class OtosPort {
+class OtosPort : public PoseSource {
  public:
   // Probe the product id and, on a match, run the full init sequence
   // (signal-process config, tracking reset, IMU bias calibration
@@ -48,9 +58,12 @@ class OtosPort {
   // the lever arm applied (setOffset()).
   bool read();
 
-  float x() const { return x_; }              // [mm] centre
-  float y() const { return y_; }              // [mm] centre
-  float heading() const { return heading_; }  // [rad] (no mount offset)
+  // PoseSource overrides (motion_engine.h) -- world/centre pose, with
+  // the lever arm already applied (setOffset()). "no mount offset" below
+  // refers to the sensor's own YAW mounting rotation only, not position.
+  float x() const override { return x_; }              // [mm] centre
+  float y() const override { return y_; }              // [mm] centre
+  float heading() const override { return heading_; }  // [rad] (no mount offset)
   float vx() const { return vx_; }            // [mm/s]
   float vy() const { return vy_; }            // [mm/s]
   float omega() const { return omega_; }      // [rad/s]
