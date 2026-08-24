@@ -297,4 +297,66 @@ void meMotorArmPosition(void* handle, int side, float positionCounts,
   motor.nextSampleTimeUs = sampleTimeUs;
 }
 
+// ---- settle-tick decision (sprint 008 ticket 004) ----------------------
+// MotionEngine::settleToRest() itself, plus its own onSleep-driven test
+// script -- closes settle-tick-loop-is-not-host-testable.md: before this
+// ticket, the bounded-iteration/break-on-rest DECISION lived only in
+// shims.cpp::tickDrive() (pxt.h, uncompilable here); it is now a real
+// MotionEngine method this file already links.
+
+// Calls the real settleToRest() once and returns how many kernel.step()
+// calls it made internally, via Output.cycleCount's own before/after
+// delta -- cycleCount increments unconditionally on every step()
+// regardless of caller (src/diffdrive.cpp), so this needs no new
+// production-code counter.
+uint32_t meSettleToRest(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  const uint32_t before = h->kernel.output().cycleCount;
+  h->engine.settleToRest();
+  const uint32_t after = h->kernel.output().cycleCount;
+  return after - before;
+}
+
+// Arms a step-indexed encoder position/sample-time SCRIPT that
+// FakeSleeper::onSleep (fake_ports.h, sprint 006 ticket 002) plays back
+// automatically while a FOLLOWING meSettleToRest() call's own internal
+// kernel.step() loop runs -- the only way to feed a decaying (or
+// held-high) coast-down velocity profile across settleToRest()'s OWN
+// internal steps, which happen inside one C++ call and are not
+// otherwise individually steppable from Python (a statically-armed
+// FakeMotor position, left un-rearmed, reads back FROZEN after its
+// first tick() -- DifferentialDrive::refreshSample() only accepts a
+// sample whose Motor::sampleTime() actually changed, fake_ports.h's own
+// note). Captures the CURRENT sleeper.sleepCalls count as `baseline` at
+// arm time, so the schedule is relative to whenever this is called, not
+// to process start -- mirrors FakeSleeper's own comment on call-count
+// parity: step() calls sleepMillis() exactly twice per step (once per
+// wheel's select->settle->read split), so onSleep's call count maps to
+// step index (callNumber - baseline - 1) / 2, landing just before THAT
+// wheel's tick() commits positions[stepIndex]/sampleTimesUs[stepIndex]
+// -- armed identically for both wheels (this test surface has no need
+// to script a left/right skew). A callNumber outside [baseline+1,
+// baseline+2*count] is a no-op, leaving the FakeMotor's last-armed
+// values in place. `positions`/`sampleTimesUs` are captured BY POINTER,
+// not copied -- the caller must keep the backing arrays alive for the
+// duration of the following meSettleToRest() call.
+void meArmSettleProfile(void* handle, const float* positions,
+                        const uint64_t* sampleTimesUs, int count) {
+  Handle* h = static_cast<Handle*>(handle);
+  const int baseline = h->sleeper.sleepCalls;
+  h->sleeper.onSleep = [h, positions, sampleTimesUs, count,
+                        baseline](int callNumber) {
+    const int stepIndex = (callNumber - baseline - 1) / 2;
+    if (stepIndex < 0 || stepIndex >= count) return;
+    h->left.nextPositionValue = positions[stepIndex];
+    h->left.nextSampleTimeUs = sampleTimesUs[stepIndex];
+    h->right.nextPositionValue = positions[stepIndex];
+    h->right.nextSampleTimeUs = sampleTimesUs[stepIndex];
+  };
+}
+
+void meDisarmSettleProfile(void* handle) {
+  static_cast<Handle*>(handle)->sleeper.onSleep = nullptr;
+}
+
 }  // extern "C"

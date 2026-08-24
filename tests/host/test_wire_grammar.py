@@ -900,6 +900,25 @@ def test_tlm_golden_vector(wg):
     assert wg.last_tlm_mode == TLM_POSE
 
 
+def test_tlm_merits_rejection_acks_then_errs(wg):
+    """Sprint 008 ticket 005: execTlm() now surfaces the adapter's own
+    Result on the wire (ack unconditionally, then `err <code> #<id>` on
+    top -- the same merits-rejection shape every other verb already
+    follows), where it used to hardcode errCode = 0 regardless of what
+    onTlm() returned. This is the wire_handler.cpp MECHANISM under test
+    (via WireMockAdapter's settable tlmResult), independent of what the
+    real WireAdapter decides for any particular mode -- see
+    test_wire_telemetry_projection.py's own TLM AUTO/BUFFER tests for
+    that. RESULT_UNIMPLEMENTED (5, Wire::Result's declaration-order
+    ordinal) maps to wire code 6 -- the exact code WireAdapter::onTlm()
+    now returns for TLM BUFFER."""
+    wg.set_tlm_result(RESULT_UNIMPLEMENTED)
+    wg.feed(b"TLM BUFFER #1\n")
+    assert wg.take_sink() == _ack(1) + b"err 6 #1\n"
+    assert wg.tlm_calls == 1
+    assert wg.last_tlm_mode == TLM_BUFFER
+
+
 def test_stop_bare_golden_vector(wg):
     wg.set_stop_result(RESULT_OK)
     wg.feed(b"STOP #1\n")

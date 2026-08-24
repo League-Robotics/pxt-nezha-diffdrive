@@ -612,43 +612,28 @@ bool tickDrive() {
   // former co-ticking sometimes delivered this step by accident.) Run
   // one extra step here so the stop lands before we report "done".
   if (wasActive && !moveActive) {
-    // Settle ticks (2026-08-20): keep stepping until the wheels are
-    // MEASURED at rest (or a small cap). One extra step delivers the
-    // stop but its encoder read lands mid-spin-down, freezing Output
-    // -- and every post-move DIAG -- at a nonzero velocity forever
-    // (bench chart artifact: wheels "ending" at +4/-2.5 cm/s). These
-    // ticks witness the actual stop and fold the coast counts into
-    // odometry before the final telemetry.
-    for (int i = 0; i < 12; ++i) {
-      r.kernel.step();
-      const DiffDrive::DifferentialDrive::Output o = r.kernel.output();
-      const float kRest = 25.0f;  // [counts/s] ~2 mm/s
-      if (o.velocityLeft < kRest && o.velocityLeft > -kRest &&
-          o.velocityRight < kRest && o.velocityRight > -kRest) {
-        break;
-      }
-    }
+    // Settle-tick decision (sprint 008 ticket 004): extracted into
+    // MotionEngine::settleToRest() -- see that method's own comment
+    // (motion_engine.h) for the full bench history (commit 3e919e5,
+    // 2026-08-20) this guards: kernel_.neutral() only STAGES a zero
+    // command, and one extra step's own encoder read can land
+    // mid-spin-down, freezing Output -- and every post-move DIAG -- at
+    // a nonzero velocity forever (bench chart artifact: wheels "ending"
+    // at +4/-2.5 cm/s). settleToRest() keeps stepping (bounded, break
+    // on measured rest) until both wheels witness the actual stop.
+    // Odometry ownership is UNCHANGED by this extraction: settleToRest()
+    // never touches Rig-local x/y/heading (it does not even know they
+    // exist) -- odomUpdate(r) below is still this file's own call,
+    // immediately after, exactly as before. A sprint-003-era comment on
+    // the old inline loop argued extraction "would mean moving odometry
+    // ownership into motion_engine too" -- that objection is about
+    // extracting the whole settle-then-integrate behavior as ONE unit;
+    // it does not apply to this narrower cut, which keeps the two calls
+    // separate (see motion_engine.h's own comment on settleToRest() for
+    // the same reasoning stated from that side).
+    r.engine.settleToRest();
     odomUpdate(r);  // coast counts -> pose before the final TLM
   }
-  // Sprint 003 ticket 013 (final integration) note, carried over from
-  // ticket 009's own report: this settle loop is NOT host-testable and
-  // stays that way after assessment, not by oversight. Its own body
-  // (kernel.step()/kernel.output()) is portable, but the loop exists
-  // here, bolted onto tickDrive() rather than living inside
-  // motion_engine.cpp's serviceMove(), because its whole point is
-  // folding coast counts into odomUpdate() -- Rig-local x/y/heading
-  // state (see this file's "-- odometry --" section above) -- before
-  // the final telemetry read. Extracting it cleanly would mean moving
-  // odometry ownership into motion_engine too, which is a real
-  // architectural change (Step 5 of sprint.md's own architecture
-  // gestures at exactly this: "and odometry, extracted... to
-  // motion_engine", not fully done), not a mechanical one, and not
-  // something to take on unreviewed on the last ticket before a
-  // hardware session. Ticket 009's regression test already mirrors this
-  // loop's SHAPE (bounded iteration, break-on-rest) against
-  // motion_engine's own portable kernel access and is host-tested; the
-  // loop's actual body here, wired to odomUpdate(), is exercised only
-  // by flashing and driving the real robot. Known, accepted gap.
   r.stepBusy = false;
 
   // Absolute-deadline self-pacing, lifted from DifferentialDrive::run()

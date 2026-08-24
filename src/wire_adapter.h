@@ -339,6 +339,27 @@ class WireAdapter : public Wire::Adapter {
   const char* fieldName(size_t index) const override;
 
   // ---- Wire::Adapter: telemetry ----
+
+  // TLM <mode> #<id>: sets the persisted subscription mode_ (protocol.md
+  // S6.1), with two decisions pinned by sprint 008 ticket 005 (closing
+  // tlm-auto-buffer-column-set-undefined.md -- previously kAuto/kBuffer
+  // silently fell through to POSE's column set with no decision recorded
+  // anywhere):
+  //   - TlmMode::kAuto is a documented ALIAS for TlmMode::kPose -- same
+  //     12 columns, same cadence, matching the pre-existing de facto
+  //     behavior exactly (a zero-risk documentation-and-test fix, not a
+  //     new feature).
+  //   - TlmMode::kBuffer REFUSES (kUnimplemented, wire err 6) at this
+  //     verb, before mode_ is ever touched -- no buffering mechanism
+  //     exists anywhere in this codebase to give "buffer" real, narrower
+  //     semantics yet, and answering err is more honest than emitting a
+  //     column set nobody specified. A MERITS rejection (decodeTlm()
+  //     already accepts "BUFFER" as well-formed), not a decode failure --
+  //     same "state left unchanged on refusal" convention
+  //     wire_handler.cpp's clampMotionTimeout()-based refusals already
+  //     established for the six motion verbs (sprint 008 ticket 001).
+  // TlmMode::kNow remains the pre-existing one-shot exception (never
+  // stored into mode_) -- see wire_adapter.cpp's own onTlm() comment.
   Wire::Result onTlm(Wire::TlmMode mode) override;
 
   // ---- sprint 004 ticket 004: telemetry projection -- NOT part of
@@ -353,9 +374,14 @@ class WireAdapter : public Wire::Adapter {
   // prints whatever this method hands it. POSE's 12 columns (`seq now
   // flags x y h ox oy oh vl vr i2cf`) are always present; FULL's 8 more
   // (`cyc posl posr dutl dutr lexc wrng cycovr`) are added only when
-  // `mode_ == Wire::TlmMode::kFull` -- every other non-off mode
-  // (currently just kPose; kAuto/kBuffer have no distinct column-set
-  // behavior implemented on this adapter) gets POSE's 12. Returns a
+  // `mode_ == Wire::TlmMode::kFull`. Every other mode this adapter can
+  // actually be subscribed in when this is called gets POSE's 12 and
+  // stops there: kPose itself, and kAuto -- a documented ALIAS for
+  // kPose (sprint 008 ticket 005: same 12 columns, same cadence, no
+  // decision left unrecorded). kOff never reaches this call at all
+  // (telemetryEnabled() gates it). kBuffer can never reach mode_ in the
+  // first place -- onTlm() refuses it (kUnimplemented) before
+  // assignment, so no telemetry frame is ever built for it. Returns a
   // reference into a MEMBER (`snapshot_`/`columns_`), not a temporary --
   // valid only until the next buildSnapshot() call, matching
   // Wire::Snapshot's own "borrowed for one emitTelemetry() call" doc

@@ -598,7 +598,20 @@ class WireHandler {
   // already proved they succeed) and forwards them to the Adapter as
   // floats, the same "wire integer -> float for arithmetic convenience"
   // pattern WHEELS_V's own left/right fields already used before
-  // motion-api.md's other five verbs existed on this wire. ----
+  // motion-api.md's other five verbs existed on this wire.
+  //
+  // Sprint 008 (wire-timeout-hardening.md, R-06 + R-18): every one of
+  // these six exec functions now runs its own `timeout`/`duration`
+  // field through wire_handler.cpp's shared clampMotionTimeout() helper
+  // BEFORE calling the Adapter -- 0 is refused (Result::kRange, matching
+  // the existing `cruise <= 0` refusal precedent) and any value above
+  // 2^31-1 is silently clamped down to it. This is deliberately in the
+  // exec (not decode) phase: value-range refusal is a MERITS rejection
+  // (ack + err), not a decode failure (nack) -- the line itself parses
+  // fine; only its meaning is out of range, same class as the
+  // cruise/speed <0/==0 handling WireAdapter::onWheelsX() et al. already
+  // do. See wire_handler.cpp's kMaxMotionTimeoutMs/clampMotionTimeout()
+  // for the full rationale. ----
   bool decodeWheelsX(char** fields, size_t fieldCount);
   void execWheelsX(char** fields, size_t fieldCount, uint32_t id,
                    uint8_t& errCode);

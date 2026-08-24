@@ -171,6 +171,11 @@ def _bind(lib):
     for name in (
         "wvLastWheelsVDuration", "wvLastWheelsVId", "wvLastWheelsXTimeout",
         "wvLastMoveXTimeout", "wvLastMoveVDuration", "wvLastGoToRTimeout",
+        # Sprint 008 (wire-timeout-hardening.md): GO_TO_W's own timeout
+        # accessor -- previously missing, the only one of the six motion
+        # verbs with no exported timeout/duration getter on WvHandle (see
+        # wvLastGoToWTimeout's own doc comment, wire_motion_verb_shim.cpp).
+        "wvLastGoToWTimeout",
     ):
         fn = getattr(lib, name)
         fn.argtypes = [ctypes.c_void_p]
@@ -213,6 +218,18 @@ def _bind(lib):
     lib.waStep.restype = None
     lib.waMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.waMotorLastStagedDuty.restype = ctypes.c_float
+
+    # ---- sprint 008 ticket 003 (host-harness-double-drift.md/R-25):
+    # FakeMotor wedge/wedgeSuspect setters, and MotionEngine's own
+    # isMoveActive() readback (the observable proof cancelMove() ran) ----
+    lib.waSetMotorWedged.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+    lib.waSetMotorWedged.restype = None
+    lib.waSetMotorWedgeSuspect.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
+    ]
+    lib.waSetMotorWedgeSuspect.restype = None
+    lib.waEngineMoveActive.argtypes = [ctypes.c_void_p]
+    lib.waEngineMoveActive.restype = ctypes.c_int
 
     # ---- sprint 003 ticket 012: real nowMs + motion-obligation, and
     # GO_TO_W's FakePoseSource ----
@@ -403,6 +420,12 @@ class WireVerbMock:
         return (
             self._lib.wvLastGoToWX(self._handle),
             self._lib.wvLastGoToWY(self._handle),
+            # Sprint 008: previously missing (see wvLastGoToWTimeout's own
+            # doc comment, wire_motion_verb_shim.cpp) -- appended, not
+            # inserted, so this tuple's first two positions stay backward
+            # compatible with test_go_to_w_golden_vector's existing
+            # pytest.approx((300.0, -400.0)) assertion above.
+            self._lib.wvLastGoToWTimeout(self._handle),
         )
 
 
@@ -484,6 +507,30 @@ class WireAdapterHandle:
 
     def motor_last_staged_duty(self, side):
         return self._lib.waMotorLastStagedDuty(self._handle, side)
+
+    # ---- sprint 008 ticket 003 (host-harness-double-drift.md/R-25) ----
+    def set_motor_wedged(self, side, wedged):
+        """FakeMotor's LATCHED wedge signal (fake_ports.h's own
+        wedgedValue) -- independent of set_motor_wedge_suspect() below,
+        the same way diffdrive.h declares wedgeLeft/Right and
+        wedgeSuspectLeft/Right as two genuinely different Output
+        fields."""
+        self._lib.waSetMotorWedged(self._handle, side, 1 if wedged else 0)
+
+    def set_motor_wedge_suspect(self, side, suspect):
+        """FakeMotor's SUSPECT wedge signal (wedgeSuspectValue) -- the
+        pair production's real diagValue() (shims.cpp) actually reads
+        for ordinals 6/7, per this ticket's own fix."""
+        self._lib.waSetMotorWedgeSuspect(
+            self._handle, side, 1 if suspect else 0)
+
+    def engine_move_active(self):
+        """MotionEngine::isMoveActive() -- the real, public observable
+        proof a move-engine move (MOVE_X/MOVE_V/GO_TO_R/GO_TO_W) is
+        currently in flight, and the only external hook available to
+        prove the PRIVATE cancelMove() ran (see setWheelsTimed()'s own
+        comment, wire_motion_verb_shim.cpp)."""
+        return bool(self._lib.waEngineMoveActive(self._handle))
 
     # ---- sprint 003 ticket 012: real nowMs + motion-obligation, and
     # GO_TO_W's FakePoseSource ----
@@ -645,7 +692,10 @@ def test_go_to_w_golden_vector(wv):
     wv.feed(b"GO_TO_W 300 -400 250 20 5000 #1\n")
     assert wv.take_sink() == _ack(1) + _err(1, 1)
     assert wv.go_to_w_calls == 1
-    assert wv.last_go_to_w == pytest.approx((300.0, -400.0))
+    # Sprint 008: last_go_to_w grew a third element (timeout) -- see
+    # wvLastGoToWTimeout's own doc comment, wire_motion_verb_shim.cpp.
+    assert wv.last_go_to_w[:2] == pytest.approx((300.0, -400.0))
+    assert wv.last_go_to_w[2] == 5000
 
 
 # ---------------------------------------------------------------------------
@@ -799,7 +849,35 @@ def test_stop_now_uppercase_is_decode_failure(wv):
 # DiffDrive kernel + FakeMotor): commanded left/right map to the correct
 # velocity/twist and lease. This is ticket 004's own required proof --
 # every other verb's dispatch shape is covered above via WireMockAdapter.
+#
+# Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25, PY-03
+# item 2): setWheelsTimed() now calls the REAL MotionEngine::wheelsV()
+# (same as production's shims.cpp), so it applies the REAL countsPerMm()
+# scaling like WHEELS_X's own tests already account for (see
+# _expected_wheels_x_duty_pair's own comment) -- there is no more
+# "countsPerLength fixed at 1.0" shortcut for THIS verb either. The duty
+# numbers below were quietly WRONG relative to production before this
+# fix: they modeled an uncalibrated 1:1 mm/s->counts/s robot that does
+# not exist (travelCalib_'s real default is 0.8102 mm/deg, i.e.
+# countsPerMm() != 1.0) -- these tests were passing while describing a
+# robot production could never produce. `full_duty_velocity` is bumped
+# to `_WHEELS_V_FULL_DUTY_VELOCITY` (matching _WHEELS_X_FULL_DUTY_VELOCITY's
+# own choice/rationale) so the larger, cpm-scaled demand stays well
+# clear of the maxDuty=100% rail -- an unsaturated feedforward reading,
+# not a clamped one wearing an unsaturated one's numbers.
 # ---------------------------------------------------------------------------
+
+_WHEELS_V_FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
+
+
+def _expected_wheels_v_duty(left_mm_s, right_mm_s, cpm, fdv):
+    """Mirrors MotionEngine::wheelsV()'s own math (motion_engine.cpp): a
+    direct per-wheel VELOCITY hold, no ratio-lock/dominant-wheel
+    normalization the way wheelsX() has -- target_left/target_right
+    reconstruct the ORIGINAL commanded left/right exactly (velocity=
+    mean, twist=half-diff, then kernel_.drive()'s own velocity-+-twist
+    split undoes it), each then scaled by cpm and normalized by fdv."""
+    return left_mm_s * cpm / fdv, right_mm_s * cpm / fdv
 
 
 def test_wheels_v_real_effect_pure_forward(wa):
@@ -807,15 +885,18 @@ def test_wheels_v_real_effect_pure_forward(wa):
     velocity/fullDutyVelocity implies (zero-kp feedforward-only path,
     same as test_kernel_harness.py's own smoke test)."""
     wa.set_max_duty(100.0)
-    wa.set_full_duty_velocity(1000.0)
+    wa.set_full_duty_velocity(_WHEELS_V_FULL_DUTY_VELOCITY)
     assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
 
     wa.feed(b"WHEELS_V 200 200 500 #1\n")
     assert wa.take_sink() == _ack(1)
     wa.step()
 
-    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.2)
-    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.2)
+    expected_left, expected_right = _expected_wheels_v_duty(
+        200.0, 200.0, cpm, _WHEELS_V_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
 
 
 def test_wheels_v_real_effect_differential_reconstructs_left_right(wa):
@@ -828,15 +909,18 @@ def test_wheels_v_real_effect_differential_reconstructs_left_right(wa):
     gets which duty, and this test would then fail with the two duties
     swapped rather than merely being "off" by a common factor."""
     wa.set_max_duty(100.0)
-    wa.set_full_duty_velocity(1000.0)
+    wa.set_full_duty_velocity(_WHEELS_V_FULL_DUTY_VELOCITY)
     assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
 
     wa.feed(b"WHEELS_V 100 300 500 #1\n")
     assert wa.take_sink() == _ack(1)
     wa.step()
 
-    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.1)
-    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.3)
+    expected_left, expected_right = _expected_wheels_v_duty(
+        100.0, 300.0, cpm, _WHEELS_V_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
 
 
 def test_wheels_v_duration_over_ceiling_is_range_error(wa):
@@ -859,14 +943,17 @@ def test_wheels_v_duration_over_ceiling_is_range_error(wa):
 
 def test_wheels_v_duration_at_ceiling_is_accepted(wa):
     wa.set_max_duty(100.0)
-    wa.set_full_duty_velocity(1000.0)
+    wa.set_full_duty_velocity(_WHEELS_V_FULL_DUTY_VELOCITY)
     assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
 
     wa.feed(b"WHEELS_V 100 100 5000 #1\n")
     assert wa.take_sink() == _ack(1)
     wa.step()
 
-    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.1)
+    expected_left, _ = _expected_wheels_v_duty(
+        100.0, 100.0, cpm, _WHEELS_V_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
 
 
 # ---------------------------------------------------------------------------
@@ -936,12 +1023,15 @@ def test_wheels_v_extreme_negative_value_is_range_refused(wa):
 
 def test_stop_real_effect_returns_duty_to_zero(wa):
     wa.set_max_duty(100.0)
-    wa.set_full_duty_velocity(1000.0)
+    wa.set_full_duty_velocity(_WHEELS_V_FULL_DUTY_VELOCITY)
     assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
 
     wa.feed(b"WHEELS_V 200 200 5000 #1\n")
     wa.step()
-    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.2)
+    expected_left, _ = _expected_wheels_v_duty(
+        200.0, 200.0, cpm, _WHEELS_V_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
 
     wa.take_sink()
     wa.feed(b"STOP #2\n")
@@ -996,11 +1086,12 @@ def _expected_wheels_x_duty_pair(left, right, cruise, cpm, fdv):
 
 
 # Chosen large enough that every commanded speed below (through
-# MotionEngine's real countsPerMm(), unlike WHEELS_V's own test double
-# above which fixes countsPerLength at 1.0) stays well under the
-# maxDuty=100% rail -- mirrors test_motion_engine_primitives.py's own
-# identical choice and rationale: no assertion here is secretly checking
-# a clamped value in disguise.
+# MotionEngine's real countsPerMm() -- sprint 008 ticket 003 put
+# WHEELS_V's own real-effect tests, above, on the SAME real cpm too;
+# neither verb's double fixes countsPerLength at 1.0 any more) stays
+# well under the maxDuty=100% rail -- mirrors test_motion_engine_primitives.py's
+# own identical choice and rationale: no assertion here is secretly
+# checking a clamped value in disguise.
 _WHEELS_X_FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
 
 
@@ -1397,12 +1488,13 @@ def test_set_value_large_but_sane_is_still_accepted(wa):
 # MotionEngine::moveV() via WireAdapter::onMoveV(). Verified the same way
 # WHEELS_X's own real-effect tests above are: FakeMotor's LAST STAGED
 # DUTY after exactly one step(), computed through this handle's REAL
-# countsPerMm()/effectiveTrackWidth() (unlike WHEELS_V's own dedicated
-# real-effect tests further above, whose test-double setWheelsTimed()
-# fixes countsPerLength at 1.0 -- MOVE_V goes through the REAL
-# MotionEngine, same as WHEELS_X/MOVE_X, so its own real cpm scaling
-# applies here too). No ramp/taper scaling either -- wheelsV() is a
-# PRIMITIVE, not a move-engine segment.
+# countsPerMm()/effectiveTrackWidth() -- same real cpm scaling WHEELS_V's
+# own dedicated real-effect tests further above now also use (sprint 008
+# ticket 003: setWheelsTimed()'s test double calls the REAL
+# MotionEngine::wheelsV(), the same class MOVE_V/WHEELS_X/MOVE_X already
+# go through, so there is no more "fixed at 1.0" double anywhere in this
+# file). No ramp/taper scaling either -- wheelsV() is a PRIMITIVE, not a
+# move-engine segment.
 # ---------------------------------------------------------------------------
 
 # Same rationale as _WHEELS_X_FULL_DUTY_VELOCITY above: large enough that
@@ -1885,6 +1977,265 @@ def test_every_motion_verb_arms_motion_obligation(wa, line, window_ms):
     assert not wa.has_live_motion_obligation()
 
 
+# ---------------------------------------------------------------------------
+# Sprint 008 (wire-timeout-hardening.md, R-06 + R-18, code review
+# 2026-08-23): timeout/duration boundary hardening. One shared decode-time
+# clamp (wire_handler.cpp's clampMotionTimeout()) now runs ahead of every
+# one of the six motion verbs' own Adapter dispatch, replacing what used to
+# be two disagreeing, untested behaviors for `timeout`/`duration == 0`
+# (WHEELS_X's stale ~10s kernel lease left armed with no live obligation
+# tracking it -- R-06; MOVE_X's/GO_TO_R's/GO_TO_W's instant silent no-op)
+# and an unreachable-by-any-prior-test starvation-kill class for any value
+# above 2^31-1 (R-18: WireAdapter's own
+# `motionObligationDeadlineMs_ = nowMs_() + timeout` wraps negative, the
+# ticket-011 pattern resurrected). `0` is now refused outright
+# (Result::kRange, err 3, matching the existing `cruise <= 0` refusal
+# precedent); a value above 2^31-1 is silently clamped down to it.
+#
+# The existing boundary-value coverage above (WHEELS_V's own
+# kWheelsVDurationCeiling tests, maxing at 5000/5001 ms) is UNCHANGED --
+# neither of those two values is anywhere near 2^31-1, so this ticket's own
+# clamp never touches them; the sections below are new, adjacent coverage
+# rather than edits to that existing parametrize (0's "rejected outright,
+# no dispatch at all" shape and the ~24.8-day clamp ceiling do not fit
+# test_every_motion_verb_arms_motion_obligation's own "armed, then expires
+# within `window_ms`" body without breaking its own single-purpose shape).
+# ---------------------------------------------------------------------------
+
+# (verb id, wire line template with a `{t}` timeout/duration placeholder,
+# whether this verb ALSO enforces WireAdapter's own separate
+# kWheelsVDurationCeiling (5000 ms) downstream of the shared clamp above --
+# WHEELS_V/MOVE_V's own "duration IS the lease, a dead host cannot mean a
+# runaway" ceiling, unrelated to and unchanged by this ticket, but relevant
+# here because it means neither verb can ever reach the accepted side of
+# the NEW 2^31-1 ceiling: both ceilings apply, and 5000 is the tighter one;
+# and the timeout/duration field's own INDEX into that verb's `last_<verb>`
+# tuple above -- NOT always the last element: last_wheels_v's own tuple
+# ends with `id`, not `duration`, so `last[-1]` would silently check the
+# wrong field for that one verb).
+_MOTION_VERB_TIMEOUT_CASES = [
+    ("wheels_x", "WHEELS_X 100 100 150 {t} #1\n", False, 3),
+    ("wheels_v", "WHEELS_V 100 100 {t} #1\n", True, 2),
+    ("move_x", "MOVE_X 200 0 150 {t} #1\n", False, 3),
+    ("move_v", "MOVE_V 100 0 {t} #1\n", True, 2),
+    ("go_to_r", "GO_TO_R 200 50 150 0 {t} #1\n", False, 4),
+    ("go_to_w", "GO_TO_W 200 50 150 0 {t} #1\n", False, 2),
+]
+
+# wire_handler.cpp's own kMaxMotionTimeoutMs (2^31 - 1) -- restated here,
+# not imported: this suite hardcodes its own wire-level literals throughout
+# (e.g. WHEELS_V's 5000 ms ceiling above), matching that existing
+# convention rather than introducing a new cross-language constant-sharing
+# mechanism for one test file.
+_MAX_MOTION_TIMEOUT_MS = 2147483647  # 2^31 - 1
+
+
+@pytest.mark.parametrize("verb,line_template,has_duration_ceiling,timeout_index",
+                          _MOTION_VERB_TIMEOUT_CASES)
+def test_motion_verb_timeout_zero_is_rejected_not_dispatched(
+        wv, verb, line_template, has_duration_ceiling, timeout_index):
+    """R-06, generalized to all six verbs via the mock adapter (`wv`):
+    timeout/duration == 0 is now a MERITS rejection (ack + err 3) at the
+    shared wire_handler.cpp clamp, BEFORE the Adapter is ever called --
+    `*_calls` stays 0, proving this is a single choke point every verb goes
+    through identically, not six independently-agreeing Adapter checks."""
+    del has_duration_ceiling, timeout_index  # decode/dispatch-only check
+    setter = getattr(wv, f"set_{verb}_result")
+    setter(RESULT_UNKNOWN)  # would be visible in the reply if reached
+    wv.feed(line_template.format(t=0).encode())
+    assert wv.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE, not ERR_UNKNOWN
+    assert getattr(wv, f"{verb}_calls") == 0
+    assert wv.malformed_count == 0  # a merits rejection, not a decode failure
+
+
+@pytest.mark.parametrize("timeout_value", [
+    2**31,      # one past the ceiling -- clamps
+    2**32 - 1,  # uint32-max -- clamps to the same ceiling
+])
+@pytest.mark.parametrize("verb,line_template,has_duration_ceiling,timeout_index",
+                          _MOTION_VERB_TIMEOUT_CASES)
+def test_motion_verb_timeout_above_ceiling_clamps_before_dispatch(
+        wv, verb, line_template, has_duration_ceiling, timeout_index,
+        timeout_value):
+    """R-18, generalized via the mock adapter: a timeout/duration above
+    2^31-1 is silently clamped DOWN to it before the Adapter ever sees it --
+    proven by reading back the exact value the mock adapter recorded
+    (last_<verb>'s own timeout/duration field, at its own index -- see
+    _MOTION_VERB_TIMEOUT_CASES's own comment on why that index is not
+    always -1), not merely by the wire-level outcome (which
+    kWheelsVDurationCeiling alone could also explain for WHEELS_V/MOVE_V)."""
+    del has_duration_ceiling
+    setter = getattr(wv, f"set_{verb}_result")
+    setter(RESULT_UNKNOWN)
+    wv.feed(line_template.format(t=timeout_value).encode())
+    assert wv.take_sink() == _ack(1) + _err(1, 1)  # ERR_UNKNOWN: dispatched
+    assert getattr(wv, f"{verb}_calls") == 1
+    last = getattr(wv, f"last_{verb}")
+    assert last[timeout_index] == _MAX_MOTION_TIMEOUT_MS  # clamped, not raw
+
+
+@pytest.mark.parametrize("verb,line_template,has_duration_ceiling,timeout_index",
+                          _MOTION_VERB_TIMEOUT_CASES)
+def test_motion_verb_timeout_at_ceiling_is_unchanged(
+        wv, verb, line_template, has_duration_ceiling, timeout_index):
+    """2^31-1 itself is the inclusive top of the accepted range -- passes
+    through byte-for-byte, unclamped: this ticket's own "values in the
+    previously-tested range are unchanged" contract, extended to the new
+    ceiling's own boundary rather than only the old 1..5000 ms range."""
+    del has_duration_ceiling
+    setter = getattr(wv, f"set_{verb}_result")
+    setter(RESULT_UNKNOWN)
+    wv.feed(line_template.format(t=_MAX_MOTION_TIMEOUT_MS).encode())
+    assert wv.take_sink() == _ack(1) + _err(1, 1)
+    assert getattr(wv, f"{verb}_calls") == 1
+    last = getattr(wv, f"last_{verb}")
+    assert last[timeout_index] == _MAX_MOTION_TIMEOUT_MS
+
+
+@pytest.mark.parametrize("timeout_value", [
+    0, _MAX_MOTION_TIMEOUT_MS, 2**31, 2**32 - 1,
+])
+@pytest.mark.parametrize("verb,line_template,has_duration_ceiling,timeout_index",
+                          _MOTION_VERB_TIMEOUT_CASES)
+def test_motion_verb_timeout_boundary_values_real_adapter_obligation(
+        wa, verb, line_template, has_duration_ceiling, timeout_index,
+        timeout_value):
+    """The same four boundary values, this time through the REAL
+    WireAdapter + a real clock (`wa`), asserting the motion-obligation
+    flag protocol.cpp's fiber loop actually polls -- the acceptance
+    criterion's own "asserting the documented reject/clamp/unchanged
+    behavior for each" verb, at each boundary value, via
+    hasLiveMotionObligation() rather than only the mock adapter's recorded
+    argument. For the two duration-ceiling verbs (WHEELS_V/MOVE_V), every
+    one of these four values is refused (0 by the new clamp; the other
+    three by the pre-existing, unchanged 5000 ms ceiling, since clamping
+    down to 2^31-1 still leaves them far above it) -- so those two verbs
+    never reach the "obligation armed" branch at all, which is itself the
+    proof that ceiling and clamp compose correctly rather than the new
+    clamp accidentally bypassing the old ceiling."""
+    del timeout_index  # this test reads the obligation flag, not last_<verb>
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_pose(0.0, 0.0, 0.0)  # only read by GO_TO_W; harmless otherwise
+
+    base_ms = 1_000_000
+    wa.set_now_ms(base_ms)
+    assert not wa.has_live_motion_obligation()
+
+    wa.feed(line_template.format(t=timeout_value).encode())
+
+    if timeout_value == 0 or has_duration_ceiling:
+        # 0: rejected for every verb (R-06). Otherwise: the clamped value
+        # (<=2^31-1) still exceeds WHEELS_V/MOVE_V's own 5000 ms ceiling.
+        assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+        assert not wa.has_live_motion_obligation()
+        return
+
+    # Accepted -- armed immediately (R-18's own bug would show FALSE here,
+    # from the wrapped-negative deadline computed at arm time).
+    assert wa.take_sink() == _ack(1)
+    assert wa.has_live_motion_obligation()
+
+    # ...and still armed a good deal past the ~150 ms starvation-watchdog
+    # window R-18's bug would have missed entirely (this ticket's own
+    # acceptance criterion: "the move keeps running past ~150 ms").
+    wa.set_now_ms(base_ms + 200)
+    assert wa.has_live_motion_obligation()
+
+
+# ---------------------------------------------------------------------------
+# R-06's own named sequence (issue text, wire-timeout-hardening.md): WHEELS_X
+# specifically, since it is the ONE verb (of the six) whose own lease
+# computation (MotionEngine::wheelsX()'s dead-reckoned
+# `lease = dominant/cruise*1000`) silently substituted a LONGER lease than
+# `timeoutMs` when `timeoutMs == 0` -- `if (timeoutMs > 0 && timeoutMs <
+# lease) lease = timeoutMs;` never fires at 0, so the kernel used to stay
+# armed with a multi-second command while WireAdapter's own obligation
+# window read `now + 0 == now` (already expired). This is a stronger proof
+# than the flag-only check above: it proves the KERNEL itself was never
+# even commanded, by observing the motor never receives a nonzero duty
+# across several subsequent, unrelated ticks -- exactly the "a subsequent
+# unrelated tick does not resume a stale move" acceptance criterion.
+# ---------------------------------------------------------------------------
+
+
+def test_wheels_x_timeout_zero_leaves_no_stale_kernel_lease_armed(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    wa.set_now_ms(1_000_000)
+
+    wa.feed(b"WHEELS_X 200 200 150 0 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    assert not wa.has_live_motion_obligation()
+
+    # Pre-fix, MotionEngine::wheelsX() would still have been called with
+    # timeoutMs == 0 and armed the kernel with its own multi-second
+    # dead-reckoned lease -- these "unrelated" ticks (protocol.cpp's fiber
+    # loop resuming for some other reason entirely; here, simply advancing
+    # time and stepping) would then have resumed that stale command. Post-
+    # fix, engineWheelsX() is never even called for a refused timeout, so
+    # the motor never receives a nonzero duty at all.
+    for elapsed_ms in (10, 1000, 8000):
+        wa.set_now_ms(1_000_000 + elapsed_ms)
+        wa.step()
+        assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+        assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+        assert not wa.has_live_motion_obligation()
+
+
+# ---------------------------------------------------------------------------
+# R-18's own named sequence (issue text, wire-timeout-hardening.md; the
+# code-review annex's own extra-derivation note, verify-wire.md's "WIRE-02
+# -- extra derivation detail"): WHEELS_X with a timeout STRICTLY greater
+# than 2^31 -- the annex's own re-derivation of the wraparound arithmetic
+# found the pre-fix break threshold is exact and easy to get one-off wrong:
+# `(int32_t)(now - (now + t))` is INT32_MIN (still "< 0", i.e. still
+# reported live) at t == 2^31 EXACTLY, and only flips to "dead on arrival"
+# for t > 2^31 -- so a test at exactly 2^31 would NOT have been red
+# pre-fix, and is not used here for that reason (the boundary-value
+# parametrize above still covers t == 2^31 for the POST-fix "clamped and
+# accepted" contract, which holds regardless of this pre-fix coincidence).
+# uint32-max (4294967295) sits unambiguously past the threshold on both
+# sides of that off-by-one, matching the value the annex's own derivation
+# table uses to illustrate "dead on arrival".
+# ---------------------------------------------------------------------------
+
+
+def test_wheels_x_timeout_above_2_31_survives_starvation_window(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    wa.set_now_ms(1_000_000)
+
+    # 4294967295 (uint32-max): pre-fix, `now + 4294967295` wraps to
+    # `now - 1`, so hasLiveMotionObligation() reads FALSE from the very
+    # first poll (verify-wire.md's own derivation: t = 4294967295 -> 1,
+    # "dead on arrival") -- protocol.cpp's fiber never ticks, and the
+    # ~100-150 ms starvation watchdog port-stops the motors despite the
+    # move having just been acked. Post-fix, the shared clamp reduces this
+    # to kMaxMotionTimeoutMs (2^31-1) before WireAdapter ever computes a
+    # deadline, so the wrap never happens.
+    wa.feed(b"WHEELS_X 200 200 150 4294967295 #1\n")
+    assert wa.take_sink() == _ack(1)  # accepted, not refused
+    assert wa.has_live_motion_obligation()
+
+    wa.step()
+    expected_left, expected_right = _expected_wheels_x_duty_pair(
+        200.0, 200.0, 150.0, wa.counts_per_mm(), _WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+
+    # Past the ~150 ms starvation-watchdog window the pre-fix wrap would
+    # have left this move stranded inside -- still armed, still driving.
+    wa.set_now_ms(1_000_000 + 200)
+    assert wa.has_live_motion_obligation()
+    wa.step()
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+
+
 def test_go_to_w_no_pose_source_does_not_arm_motion_obligation(wa):
     """The refused path (no pose source) must NOT arm the obligation --
     there is no move for protocol.cpp's fiber to keep ticking."""
@@ -2097,3 +2448,146 @@ def test_stall_clear_wire_field_clears_latch_and_reads_back(wa):
     prefix = _ack(8) + b"get stall_clear "
     assert reply.startswith(prefix)
     assert float(reply[len(prefix):]) == pytest.approx(0.0, abs=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25, code
+# review 2026-08-23, PY-03 CONFIRMED all three): the WaHandle test double
+# claimed to mirror shims.cpp "field-for-field" in three places it
+# actually did not -- see this ticket's own Description for the full
+# citation trail (shims.cpp:850/1021/345 vs the pre-fix
+# wire_motion_verb_shim.cpp). Each test below was verified RED against
+# the PRE-fix double (temporarily reverting just that one fix, one at a
+# time) and GREEN again once restored -- see this ticket's own notes.
+#
+# What these tests mechanically detect vs. merely regression-check:
+#   - The wedge pair and command-supersession tests are TRUE drift
+#     tests: they exercise the double's OWN field/call choice against an
+#     independently-reasoned expectation (which Motor signal a given
+#     ordinal reads; whether a REAL, observable side effect -- move
+#     cancellation -- occurred). Either one would fail again if a future
+#     edit reintroduced the wrong field or bypassed the engine, with no
+#     production change required to trip them.
+#   - The config-rounding test is NARROWER: it is a regression test for
+#     ONE verified-by-direct-probe divergent input (v=0.251f), not a
+#     structural check that the double calls std::lround() specifically
+#     (there is no observable way to distinguish "rounds correctly by
+#     construction" from "rounds correctly by coincidence at every OTHER
+#     input" from outside the shim). It reliably catches a REVERT back
+#     to the truncating float32 path (proven below), but would not catch
+#     a different, non-truncating rounding bug that still agreed with
+#     production at v=0.251. This is the honest limit of a black-box
+#     test against a private arithmetic choice.
+# ---------------------------------------------------------------------------
+
+
+def test_wheels_v_supersedes_in_flight_move_x_via_cancel_move(wa):
+    """R-25/PY-03 item 2: production's real setWheelsTimed() (shims.cpp)
+    calls `r.engine.wheelsV(...)`, whose FIRST act is cancelMove()
+    (motion_engine.cpp, motion-api.md S6: "wheels_* clears the
+    planner") -- WHEELS supersedes any in-flight move-engine move. The
+    pre-fix double called `kernel.drive()` directly, bypassing
+    MotionEngine (and cancelMove()) entirely, so an in-flight MOVE_X
+    would have kept running underneath a WHEELS_V that should have
+    superseded it -- untested and untestable as wired. cancelMove()
+    itself is PRIVATE on MotionEngine, so isMoveActive() (public) is the
+    only external hook available to prove it ran: MOVE_X arms it,
+    WHEELS_V must clear it.
+
+    Demonstrated red pre-fix: temporarily reverting setWheelsTimed() to
+    call `kernel.drive()` directly (this ticket's own pre-fix body)
+    while keeping this test made `wa.engine_move_active()` read True
+    after the WHEELS_V feed below -- the assertion failed as expected.
+    Restoring the engine.wheelsV() call made it pass again."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"MOVE_X 500 0 100 4000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.engine_move_active()
+
+    wa.feed(b"WHEELS_V 100 100 500 #2\n")
+    assert wa.take_sink() == _ack(2)
+    assert not wa.engine_move_active()
+
+
+def test_status_wedge_reports_suspect_not_latched(wa):
+    """R-25/PY-03 item 1: production's real diagValue() (shims.cpp)
+    reads wedgeSuspectLeft/Right for ordinals 6/7, which STATUS's own
+    `wedge` field folds together (wire_adapter.cpp's status()). Both
+    wedgeLeft/Right (LATCHED, wedged()) and wedgeSuspectLeft/Right
+    (wedgeSuspect()) exist independently on diffdrive.h's Output struct
+    and on FakeMotor -- this is not a compile-time impossibility, it is
+    reading the wrong one of two real signals. Set SUSPECT true but
+    LATCHED false: the correct double must still report wedge=1.
+
+    Demonstrated red pre-fix: temporarily reverting diagValue()'s case
+    6/7 to read wedgeLeft/wedgeRight (this ticket's own pre-fix body)
+    made this test's STATUS reply come back `wedge=0` -- assertion
+    failed as expected. Restoring the wedgeSuspectLeft/Right read made
+    it pass again."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.set_motor_wedge_suspect(LEFT, True)
+    wa.set_motor_wedged(LEFT, False)
+    wa.step()
+
+    wa.feed(b"STATUS #1\n")
+    reply = wa.take_sink().decode()
+    assert " wedge=1 " in reply
+
+
+def test_status_wedge_ignores_latched_when_suspect_clear(wa):
+    """The mirror image of test_status_wedge_reports_suspect_not_latched
+    above: LATCHED true but SUSPECT false. The correct double must
+    report wedge=0 -- if it were still reading the (wrong) latched pair,
+    this would instead read wedge=1. Together the two tests discriminate
+    in BOTH directions, not just one."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.set_motor_wedged(LEFT, True)
+    wa.set_motor_wedge_suspect(LEFT, False)
+    wa.step()
+
+    wa.feed(b"STATUS #1\n")
+    reply = wa.take_sink().decode()
+    assert " wedge=0 " in reply
+
+
+def test_config_rounding_matches_double_precision_lround(wa):
+    """R-25/PY-03 item 3: production's real getConfigValue() (shims.cpp)
+    returns `static_cast<int>(std::lround(v * 1000.0))` -- a
+    DOUBLE-precision product, round-to-nearest. The pre-fix double
+    returned `static_cast<int>(v * 1000.0f)` -- SINGLE-precision,
+    truncating. v=0.251f is a verified divergence point, found by a
+    direct exhaustive probe over 3-decimal-digit values (NOT the code
+    review's own illustrative v=2.3f example, which this ticket's
+    execution found does NOT actually diverge under either path --
+    2.3f*1000.0f itself rounds to exactly 2300.0f in float32, matching
+    lround's result; see this ticket's own notes):
+    static_cast<int>(0.251f * 1000.0f) == 250 (truncating float32 path)
+    vs. static_cast<int>(std::lround((double)0.251f * 1000.0)) == 251
+    (production's double path). Reached through the REAL wire GET verb
+    (default_cruise, ordinal 15, WaHandle::defaultCruiseMmS set directly
+    via waSetDefaultCruise() so the exact float32 bit pattern survives
+    into getConfigValue() unshaped by SET's own x1000 round trip), not a
+    raw accessor -- this proves the fix end to end through the same path
+    a bench GET command uses.
+
+    Demonstrated red pre-fix: temporarily reverting getConfigValue()'s
+    return to `static_cast<int>(v * 1000.0f)` (this ticket's own pre-fix
+    body) made this test's GET reply come back `0.250000` -- assertion
+    failed as expected. Restoring the std::lround(v * 1000.0) double
+    path made it pass again."""
+    wa.set_default_cruise(0.251)
+
+    wa.feed(b"GET default_cruise #1\n")
+    reply = wa.take_sink()
+    prefix = _ack(1) + b"get default_cruise "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(0.251, abs=1e-4)

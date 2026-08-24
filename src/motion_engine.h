@@ -319,6 +319,42 @@ class MotionEngine {
 
   uint32_t wrongWayCount() const { return wrongWayCount_; }
 
+  // ---- settle-tick decision (sprint 008 ticket 004) ----
+  // Extracted verbatim from shims.cpp::tickDrive()'s former inline loop
+  // -- see that call site's own comment, carried forward here, for the
+  // full bench history this guards against (commit 3e919e5,
+  // 2026-08-20): kernel_.neutral() only STAGES a zero command; delivery
+  // to the motors happens on the kernel's NEXT step(), and that one
+  // extra step's own encoder read can land mid-spin-down, freezing
+  // Output.velocityLeft/Right at a nonzero value forever unless the
+  // kernel keeps stepping until both wheels are MEASURED at rest.
+  // Steps the kernel up to kSettleMaxSteps times, breaking as soon as
+  // BOTH wheels' measured velocity (Output.velocityLeft/Right) reads
+  // within kSettleRestCountsPerS of zero -- byte-for-byte the same
+  // bounded-iteration/break-on-rest decision the loop it replaces made,
+  // just relocated here.
+  //
+  // Deliberately does NOT fold anything into odometry, and knows
+  // nothing about Rig-local x/y/heading -- odometry ownership stays
+  // with the CALLER (shims.cpp's tickDrive()), which must call its own
+  // odomUpdate()-equivalent itself, once, immediately after this
+  // returns, exactly as the loop it replaces did. This is a narrower
+  // cut than a sprint-003-era comment on the old loop anticipated
+  // ("extracting cleanly would mean moving odometry ownership into
+  // motion_engine too") -- that objection is about extracting the
+  // whole settle-then-integrate behavior as ONE unit; it does not apply
+  // once the settle DECISION and the odometry fold stay two separate
+  // calls, which is what this method's contract preserves.
+  //
+  // Never issues a new kernel_.drive()/neutral() command of its own --
+  // it only steps the kernel and reads Output back, so a settled (or
+  // already-neutral) input produces no additional nonzero duty. Callers
+  // must invoke this from their own single ticker only (tickDrive() is
+  // this codebase's one caller) -- this method starts no fiber and
+  // creates no new caller of its own, so the "exactly one fiber ticks a
+  // move" invariant is unaffected by this extraction.
+  void settleToRest();
+
   // ---- end-of-move shaping knobs (settable per tour) -- shims.cpp's
   // setTaperWindows()/setTaperFloors()/setRampMs() forward to these. See
   // this class's own field comments (below) for what each trades off. --
@@ -333,6 +369,13 @@ class MotionEngine {
   // new heading first, then travel straight (motion-api.md S3.3,
   // `navigator.cpp:237-240`'s measured `turn_first_angle`). 50 deg.
   static constexpr float kTurnFirstAngleRad = 0.8726646f;
+
+  // settleToRest()'s own bound/threshold (sprint 008 ticket 004
+  // extraction) -- byte-for-byte shims.cpp's former loop cap and its
+  // former local `kRest`, just relocated and named. [steps] / [counts/s,
+  // ~2 mm/s].
+  static constexpr int kSettleMaxSteps = 12;
+  static constexpr float kSettleRestCountsPerS = 25.0f;
 
   // One move-engine segment's targets/commands, shared by moveX()'s
   // single-segment and pivot-then-straight forms. `deadline` is fixed

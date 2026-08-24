@@ -48,12 +48,25 @@ from test_wire_motion_verbs import (  # noqa: F401 -- wa/motion_verb_lib re-expo
     DIAG_WEDGE_LEFT,
     DIAG_WEDGE_RIGHT,
     DIAG_WRONG_WAY_COUNT,
+    TLM_AUTO,
+    TLM_BUFFER,
     TLM_FULL,
+    TLM_POSE,
+    WireAdapterHandle,
     motion_verb_lib,
     wa,
 )
 
 _SRC_DIR = pathlib.Path(__file__).resolve().parent.parent.parent / "src"
+
+# Wire::Result's DECLARATION-ORDER ordinal (wire_handler.h) -- NOT the wire
+# error code resultCode() maps it to (kUnimplemented -> wire code 6). Not
+# imported from test_wire_motion_verbs.py: that file only defines
+# RESULT_OK..RESULT_RANGE (0..3) today, and this file's own convention
+# (TLM_*/DIAG_* above) is already re-declaring these small ordinal tables
+# per file rather than growing a shared import surface for a couple of
+# constants.
+RESULT_UNIMPLEMENTED = 5
 
 
 def _column_map(snapshot):
@@ -320,3 +333,106 @@ def test_golden_pose_frame_matches_shared_fixture(wa):
     assert thdr_line == golden.EXPECTED_THDR_LINE
     assert t_line == golden.EXPECTED_T_LINE
     assert reliability_line == golden.EXPECTED_RELIABILITY_LINE
+
+
+# ---------------------------------------------------------------------------
+# TLM AUTO/BUFFER column-set semantics (sprint 008 ticket 005, closing
+# tlm-auto-buffer-column-set-undefined.md): before this ticket, kAuto and
+# kBuffer both silently fell through to POSE's 12-column set with no
+# decision recorded anywhere. The decision made here: kAuto is a
+# documented ALIAS for kPose (same columns, same cadence); kBuffer
+# REFUSES (kUnimplemented, wire err 6) at the TLM verb itself, before
+# mode_ is ever touched -- no buffering mechanism exists anywhere in this
+# codebase to give "buffer" real, narrower semantics yet. Sprint 004's own
+# note is that the `thdr` line is what a host actually binds to, so that
+# is what gets pinned below, not just an internal mode_ flag.
+# ---------------------------------------------------------------------------
+
+
+def test_tlm_auto_thdr_byte_identical_to_pose(motion_verb_lib):
+    """Two INDEPENDENT handles, each getting its own first-ever thdr.
+    Switching a SINGLE handle from POSE to AUTO would never re-emit
+    thdr at all (identical column names/count/hex-ness -- headerChanged()
+    would see no change), which would prove nothing about what AUTO's
+    thdr looks like on its own; two fresh handles avoid that trap."""
+    with WireAdapterHandle(motion_verb_lib) as pose_handle, \
+            WireAdapterHandle(motion_verb_lib) as auto_handle:
+        assert pose_handle.on_tlm(TLM_POSE) == 0  # Wire::Result::kOk
+        assert auto_handle.on_tlm(TLM_AUTO) == 0  # Wire::Result::kOk
+
+        pose_handle.emit_telemetry(pose_handle.build_snapshot())
+        auto_handle.emit_telemetry(auto_handle.build_snapshot())
+
+        pose_thdr = pose_handle.take_sink().split(b"\n", 1)[0] + b"\n"
+        auto_thdr = auto_handle.take_sink().split(b"\n", 1)[0] + b"\n"
+
+        assert pose_thdr.startswith(b"thdr ")
+        assert auto_thdr == pose_thdr
+
+
+def test_tlm_auto_snapshot_is_poses_12_columns(wa):
+    """AUTO's own buildSnapshot() output -- 12 columns, same names in the
+    same order POSE uses (wire_adapter.cpp's own column list) -- not just
+    the thdr line derived from it."""
+    wa.on_tlm(TLM_AUTO)
+    snapshot = wa.build_snapshot()
+    assert snapshot.count == 12
+    names = [snapshot.name(i) for i in range(snapshot.count)]
+    assert names == [
+        "seq", "now", "flags", "x", "y", "h", "ox", "oy", "oh", "vl", "vr",
+        "i2cf",
+    ]
+
+
+def test_tlm_buffer_refused_via_direct_on_tlm(wa):
+    """WireAdapter::onTlm() called directly (bypasses the wire grammar,
+    same convention as this project's other on_tlm() tests) -- returns
+    kUnimplemented's own declaration-order ordinal (5), which resultCode()
+    maps to wire code 6."""
+    assert wa.on_tlm(TLM_BUFFER) == RESULT_UNIMPLEMENTED
+
+
+def test_tlm_buffer_refused_leaves_a_prior_mode_untouched(wa):
+    """A BUFFER refusal must not silently switch mode_ away from
+    whatever was already active -- 'merits rejections don't change
+    state', the same convention sprint 008 ticket 001 already
+    established for the six motion verbs' timeout refusals. Proven on
+    the LIVE surface a host would actually observe (still subscribed,
+    still POSE's 12 columns), not just an internal flag."""
+    assert wa.on_tlm(TLM_POSE) == 0  # Wire::Result::kOk
+    assert wa.has_live_telemetry()
+
+    assert wa.on_tlm(TLM_BUFFER) == RESULT_UNIMPLEMENTED
+
+    assert wa.has_live_telemetry()  # still subscribed -- BUFFER had no effect
+    snapshot = wa.build_snapshot()
+    assert snapshot.count == 12  # still POSE's columns, unchanged
+
+
+def test_tlm_buffer_refused_over_the_wire_acks_then_err_6(wa):
+    """The full wire path (protocol.md S8.2's own 'ack unconditionally,
+    then err on top of a merits refusal' shape) -- err 6 is
+    ERR_UNIMPLEMENTED (wire_handler.h's Result::kUnimplemented ->
+    resultCode() -> 6). Before this ticket's wire_handler.cpp fix,
+    execTlm() hardcoded errCode = 0 and this could never appear on the
+    wire for ANY TLM outcome, real or mocked."""
+    wa.feed(b"TLM BUFFER #1\n")
+    assert wa.take_sink() == b"ack 1 0 none\nerr 6 #1\n"
+
+
+def test_tlm_buffer_never_emits_a_thdr_or_t_frame(wa):
+    """TLM BUFFER's own wire reply carries no thdr/t line -- only
+    ack+err (asserted byte-exact above) -- and telemetryEnabled()
+    (has_live_telemetry()) stays false with no prior mode already
+    active, the SAME flag protocol.cpp's real fiber loop gates
+    buildSnapshot()/emitTelemetry() on every tick (see
+    telemetryEnabled()'s own doc comment, wire_adapter.h). A driver
+    honoring that gate therefore never builds or emits a frame for this
+    refused request at all."""
+    wa.feed(b"TLM BUFFER #1\n")
+    reply = wa.take_sink()
+    assert b"thdr" not in reply
+    assert b"\nt " not in reply
+    assert not reply.startswith(b"t ")
+
+    assert not wa.has_live_telemetry()
