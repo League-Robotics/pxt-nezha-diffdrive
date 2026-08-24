@@ -2,7 +2,7 @@
 id: '003'
 title: 'Telemetry frame formatting: Column/Snapshot, thdr/t, header memo, emitTelemetry/emitReliability
   split'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-003
