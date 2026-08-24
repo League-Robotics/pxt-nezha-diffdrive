@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: Radio full v6 transport + telemetry frame (firmware)
-status: executing
+status: done
 branch: sprint/004-radio-full-v6-transport-telemetry-frame-firmware
 use-cases:
 - SUC-001
