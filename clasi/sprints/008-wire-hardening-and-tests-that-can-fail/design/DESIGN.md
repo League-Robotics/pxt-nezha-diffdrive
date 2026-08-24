@@ -729,12 +729,18 @@ Pieces the kernel deliberately does not contain:
   settle-then-integrate behavior as one unit; it does not apply once the
   settle decision and the odometry fold are kept as two separate calls,
   which is what this sprint does. The extracted helper is now
-  **host-tested directly** (a new `tests/host/` shim exercises it via
-  `kernel_shim.cpp`/`fake_ports.h`, reusing the `FakeSleeper::onSleep`
-  hook sprint 006 added) — closing the gap sprint 003's own regression
-  test could only argue for by proxy. No new fiber or ticker is
-  introduced; the one-fiber-ticks-a-move constraint (§4/§8) is
-  unaffected — `tickDrive()` is still the loop's only caller.
+  **host-tested directly** (exercised via `motion_engine_shim.cpp`
+  extended with `meSettleToRest`/`meArmSettleProfile`, plus
+  `fake_ports.h`'s `FakeSleeper::onSleep` hook sprint 006 added, reused
+  here to script a decaying velocity profile across the helper's own
+  internal step loop — `kernel_shim.cpp` has no `MotionEngine` instance
+  to call the method on, so this ticket extended the existing
+  `motion_engine_shim.cpp` instead, per its own header comment: "extend
+  this file's function list, don't invent a second shim") — closing the
+  gap sprint 003's own regression test could only argue for by proxy. No
+  new fiber or ticker is introduced; the one-fiber-ticks-a-move
+  constraint (§4/§8) is unaffected — `tickDrive()` is still the loop's
+  only caller.
   **Sprint 007**: `tickDrive()`'s
   return value changes from raw post-`serviceMove()` move-engine state
   to `commandLooksActive(r)` (the same helper the starvation watchdog
@@ -1359,7 +1365,7 @@ for detail):**
   verbs; a `kVersion`/`pxt.json` drift test; an `emitLine`/transport
   line-cap test; a `RUN_EVENT_SOURCE` drift test; the `WaHandle` wedge/
   `setWheelsTimed`/config-rounding re-sync plus a demonstrated drift
-  test; a new settle-helper shim (`kernel_shim.cpp`/`fake_ports.h`
+  test; a new settle-helper shim (`motion_engine_shim.cpp`/`fake_ports.h`
   extension, reusing `FakeSleeper::onSleep`) and its host test; `TLM
   AUTO`/`BUFFER` `thdr`/`err` pinning tests.
 

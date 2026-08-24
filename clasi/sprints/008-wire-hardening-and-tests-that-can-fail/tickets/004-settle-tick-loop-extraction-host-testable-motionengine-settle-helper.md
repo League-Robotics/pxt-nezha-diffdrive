@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: 'Settle-tick loop extraction: host-testable MotionEngine settle helper'
-status: open
+status: in-progress
 use-cases:
 - SUC-004
 depends-on: []
@@ -59,19 +59,19 @@ gate registration (see below).
 
 ## Acceptance Criteria
 
-- [ ] A new `MotionEngine` method (defined in `motion_engine.cpp`)
+- [x] A new `MotionEngine` method (defined in `motion_engine.cpp`)
       encapsulates the settle decision: steps the kernel up to the same
       bound the inline loop used (12), breaking early once both wheels'
       measured velocity is within the same rest threshold (25.0
       counts/s) — behavior identical to the loop it replaces, not
       merely similar.
-- [ ] `shims.cpp::tickDrive()`'s `if (wasActive && !moveActive)` branch
+- [x] `shims.cpp::tickDrive()`'s `if (wasActive && !moveActive)` branch
       calls the new method, then calls `odomUpdate(r)` itself
       immediately after (odometry ownership unchanged) — no
       settle-decision logic left inline in `tickDrive()`.
-- [ ] `tests/host/test_regression_post_move_neutral.py` stays green,
+- [x] `tests/host/test_regression_post_move_neutral.py` stays green,
       unchanged — it remains the "why this matters" test.
-- [ ] A new host test (new shim surface on `kernel_shim.cpp` or
+- [x] A new host test (new shim surface on `kernel_shim.cpp` or
       `motion_engine_shim.cpp`, whichever proves the better fit —
       reusing `FakeSleeper::onSleep` from `fake_ports.h` where useful
       to observe iteration count) exercises the extracted method
@@ -80,19 +80,130 @@ gate registration (see below).
       velocity is at/below the rest threshold, without over-stepping;
       (c) it never re-energizes the motors (a settled/at-rest input
       produces no additional nonzero commanded duty).
-- [ ] A host test proves the iteration cap is enforced: wheels held
+- [x] A host test proves the iteration cap is enforced: wheels held
       artificially above the rest threshold for longer than 12
       simulated steps — the method returns after the cap, not
       indefinitely.
-- [ ] No new fiber or ticker is introduced; `tickDrive()` remains the
+- [x] No new fiber or ticker is introduced; `tickDrive()` remains the
       new method's only caller.
-- [ ] Bench note (no robot required to satisfy this ticket's own
+- [x] Bench note (no robot required to satisfy this ticket's own
       acceptance criteria — real hardware exercise of the physical
       settle behavior remains this sprint's build-checkpoint ticket's
       and any future bench session's concern, not this ticket's): state
       in this ticket's own notes that the extraction is logic-identical
       to the loop it replaces, for whoever next flashes a robot to
       verify.
+
+## Notes (implementation report)
+
+- **Extracted method**: `void diffDrive::MotionEngine::settleToRest()`
+  (declared `src/motion_engine.h`, defined `src/motion_engine.cpp`), no
+  arguments, no return value. Two new private constants carry the old
+  loop's magic numbers forward with names instead of a local `kRest`:
+  `static constexpr int kSettleMaxSteps = 12;` and
+  `static constexpr float kSettleRestCountsPerS = 25.0f;`. The method
+  body is the old `shims.cpp` loop moved verbatim (same bound, same
+  `<`/`>` comparison against `+-kSettleRestCountsPerS` on both
+  `velocityLeft`/`velocityRight`, same break condition) — **logic-
+  identical to the loop it replaces**, confirmed both by inspection and
+  by the red/green proof below. Whoever next flashes a robot to verify
+  the physical settle behavior should expect no change from
+  pre-extraction behavior — this was a pure relocation, not a rewrite.
+- **`tickDrive()` call site** (`src/shims.cpp`): the
+  `if (wasActive && !moveActive)` branch now reads
+  `r.engine.settleToRest(); odomUpdate(r);` — two calls, in that order,
+  exactly mirroring the old loop-then-`odomUpdate(r)` shape. Odometry
+  ownership is unchanged: `settleToRest()` has no knowledge of Rig-local
+  `x/y/heading` and calls no odometry function of its own.
+- **Sprint-003-era objection, re-examined**: read in full (it was still
+  present in `shims.cpp` before this ticket's edit). Its exact claim is
+  that extracting the loop "would mean moving odometry ownership into
+  motion_engine too" — but the passage's own reasoning ties that only to
+  extracting the *whole settle-then-integrate* behavior as one unit
+  (the loop's "whole point," per that comment, was "folding coast counts
+  into `odomUpdate()` ... before the final telemetry read"). It never
+  argues that relocating the settle *decision* alone, while leaving
+  `odomUpdate(r)` as a second, separate, caller-owned call immediately
+  after, has the same problem — and by construction it does not:
+  `settleToRest()` never touches odometry state or calls anything
+  odometry-related. The planner's reading holds; the objection is not
+  broader than that. No exception thrown.
+- **Invariants preserved**: (1) one ticker per move —
+  `tickDrive()` remains `settleToRest()`'s only caller (grep confirms);
+  no new fiber, thread, or launcher call was added anywhere in this
+  change. (2) neutral delivery on completion — `settleToRest()`'s first
+  internal `kernel.step()` is what delivers the previously-staged
+  `kernel_.neutral()` to the motors, exactly as the old loop's first
+  iteration did; proven by
+  `test_settle_to_rest_stops_early_once_at_rest_and_never_reenergizes`.
+  (3) `deliverStopNow(Rig&)` (sprint 006 ticket 002) is untouched — this
+  ticket never touches `stopAll()`, `endMove()`, or `updateMove()`'s
+  cross-fiber stop path, all of which still call the motor ports
+  directly and never `kernel.emergencyStopMotors()`.
+- **Red/green proof** (the acceptance test that matters): temporarily
+  replaced `MotionEngine::settleToRest()`'s body with an empty no-op and
+  ran `tests/host/test_motion_engine_settle.py` —
+  `test_settle_to_rest_stops_early_once_at_rest_and_never_reenergizes`
+  and `test_settle_to_rest_enforces_the_iteration_cap` both **FAILED**
+  (`steps_taken == 0` in both cases, versus the expected 4 and 12).
+  Restored the real implementation from a pre-change backup; all 42
+  scoped tests (`test_motion_engine_settle.py`,
+  `test_regression_post_move_neutral.py`,
+  `test_motion_engine_reductions.py`, `test_kernel_harness.py`,
+  `test_cxx11_syntax_gate.py`) passed green again, and the full suite
+  passed 404/404 (402 baseline + 2 new).
+- **`FakeSleeper::onSleep` reuse**: yes, directly — `motion_engine_shim.
+  cpp`'s new `meArmSettleProfile()` arms `onSleep` to script a
+  step-indexed encoder position/sample-time playback (both wheels, same
+  values per step) while `settleToRest()`'s internal loop runs, the only
+  way to feed a decaying velocity profile across steps that all happen
+  inside one C++ call. Captures `sleeper.sleepCalls` as a `baseline` at
+  arm time so the schedule is relative to when it's armed, not to
+  process start (`step() -> sleepMillis()` twice per step, `stepIndex =
+  (callNumber - baseline - 1) / 2`, matching `FakeSleeper`'s own header
+  comment on call-count parity).
+- **Shim file choice**: extended `motion_engine_shim.cpp` (new exports
+  `meSettleToRest`, `meArmSettleProfile`, `meDisarmSettleProfile`), not
+  `kernel_shim.cpp` — `kernel_shim.cpp`'s `Handle` has no `MotionEngine`
+  instance to call `settleToRest()` on, while `motion_engine_shim.cpp`'s
+  `Handle` already composes `kernel` + `engine` together exactly like
+  production `Rig`. This also matches `motion_engine_shim.cpp`'s own
+  header comment: "Extend this file's function list -- don't invent a
+  second shim." The sprint's `design/DESIGN.md` §9/§14 overlay named
+  `kernel_shim.cpp` for this; corrected both mentions to
+  `motion_engine_shim.cpp` (reported to team-lead — overlay edit, needs
+  `.diff.md` regeneration).
+- **New host test file**: `tests/host/test_motion_engine_settle.py` (own
+  `_bind()`/`Engine`/`motion_lib` fixture, own compiled `.so`, matching
+  this repo's established one-file-per-concern convention for
+  `motion_engine_shim.cpp`-based tests) — 2 tests, both passing.
+- **C++11 gate**: ran `test_cxx11_syntax_gate.py` after the change —
+  passed with **no new registration**, confirming the ticket's claim
+  (`motion_engine.cpp` was already in `_CXX11_PORTABLE_SOURCES`).
+- **Annex material**: this ticket's plan referenced `design/DESIGN.md`
+  §9 ("Shim + blocks") and §14 ("Sprint 008 — architecture diagram and
+  change summary") directly by section number, both already present at
+  those locations in the overlay — no separate `R-NN`-to-annex lookup
+  was needed for this ticket (unlike tickets 001/003, which mapped
+  `review.md`-style `R-NN` IDs into per-topic annex files).
+- **PXT build evidence**: ran `uv run python tools/make_deploy.py`
+  (scratch build, no `--flash`) twice. Attempt 1 hit the documented
+  V1-legacy `srec_cat` hex-merge failure followed by a packaging abort
+  (`TS9043`, after a pxt-core cache-write `TypeError`) — no hex.
+  Attempt 2 hit the same V1-legacy `srec_cat` failure (harmless,
+  V1-only) plus `TS9200` on `test.ts`, but still produced the real V2
+  hex: `.tmp/deploy-head/built/mbcodal-binary.hex` (1,394,666 bytes,
+  fresh mtime). **Both attempts compiled every `.cpp` cleanly, including
+  `motion_engine.cpp` and `shims.cpp`'s new call site** — zero compile
+  errors in either attempt; only the documented-benign packaging/
+  hex-merge steps failed on attempt 1. No robot flash was performed
+  (not required by this ticket's acceptance criteria).
+- **Nothing found contradicting the sprint's architecture** — the
+  overlay's own §9/§14 prose already described this exact extraction
+  prospectively (narrower cut than the sprint-003 objection, `settle
+  ToRest()` name, `motion_engine_shim.cpp`/`fake_ports.h` reuse) and
+  matched what was implemented, aside from the `kernel_shim.cpp` vs
+  `motion_engine_shim.cpp` correction noted above.
 
 ## C++11 Gate Coverage
 

@@ -367,6 +367,25 @@ bool MotionEngine::serviceMove() {
   return true;
 }
 
+void MotionEngine::settleToRest() {
+  // Sprint 008 ticket 004: extracted verbatim from shims.cpp::
+  // tickDrive()'s former inline loop -- see motion_engine.h's own
+  // comment on this method for the full contract and the bench history
+  // (commit 3e919e5) it guards. Behavior is identical to the loop it
+  // replaces, not merely similar: same bound, same threshold, same
+  // break condition, no new command ever issued.
+  for (int i = 0; i < kSettleMaxSteps; ++i) {
+    kernel_.step();
+    const DiffDrive::DifferentialDrive::Output o = kernel_.output();
+    if (o.velocityLeft < kSettleRestCountsPerS &&
+        o.velocityLeft > -kSettleRestCountsPerS &&
+        o.velocityRight < kSettleRestCountsPerS &&
+        o.velocityRight > -kSettleRestCountsPerS) {
+      break;
+    }
+  }
+}
+
 int MotionEngine::progress() const {
   if (!move_.active) return 1000;
   const DiffDrive::DifferentialDrive::Output out = kernel_.output();
