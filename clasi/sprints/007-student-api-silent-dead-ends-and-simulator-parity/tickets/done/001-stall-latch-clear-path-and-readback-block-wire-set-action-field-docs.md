@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: 'Stall latch: clear path and readback (block, wire SET-action field, docs)'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on: []

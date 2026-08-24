@@ -64,6 +64,37 @@ compiles `src/` for the target: every prior ticket's "tests pass" signal
 was true and meaningless for target viability. The next NSDMI, `auto`
 return type, generic lambda, or `if constexpr` reintroduces it silently.
 
+## Third instance, and it defeats the gate this issue's stopgap added (2026-08-24)
+
+Sprint 006 merged three new headers — `src/heading_wrap.h`,
+`src/encoder_glitch_armor.h`, `src/encoder_pose_source.h` — **without adding
+them to `pxt.json`'s `files` manifest.** PXT copies only manifest-listed files
+into the build, so after sprint 006 closed, `master` could not produce a hex at
+all. All 324 host tests passed. Found on 2026-08-24 by sprint 007 ticket 001,
+the first ticket after 006 that happened to run a real build.
+
+**The `-std=c++11 -fsyntax-only` gate ticket 007 added cannot catch this
+class.** The gate invokes the compiler directly on named translation units; it
+never reads `pxt.json`. So a file can be gate-covered, host-tested, and
+syntactically perfect at both standards while still being invisible to the
+actual product build. The gate closes the *language-standard* hole and nothing
+more — worth stating plainly, because its existence could otherwise be mistaken
+for "target viability is covered now."
+
+This is now three distinct target-only defects, none catchable by the host
+suite, each found only because some ticket happened to run `make_deploy.py`:
+
+| # | Defect | Found by | Would the C++11 gate catch it? |
+|---|---|---|---|
+| 1 | `Wire::Column` NSDMI → non-aggregate under C++11 | sprint 004 ticket 005 | Yes (that's why it exists) |
+| 2 | `setRxBufferSize(uint8_t)` — 480 truncated to 224 | sprint 004 ticket 005 (`-Woverflow`) | No — needs the real toolchain's headers |
+| 3 | Three headers absent from `pxt.json` `files` | sprint 007 ticket 001 | **No — the gate never reads `pxt.json`** |
+
+The common factor is not the C++ standard. It is that **nothing in the
+per-ticket or per-sprint flow requires a real build.** Sprint 006 closed
+without any ticket invoking `make_deploy.py`, and `close_sprint` runs only
+`uv run pytest`.
+
 ## What to do
 
 Options, roughly in increasing cost:
@@ -78,8 +109,17 @@ Options, roughly in increasing cost:
    unit as a test. Catches the whole class without touching existing test
    code. Note the limit: it checks the *portable* subset only, since the
    CODAL-bound files need `pxt.h`.
-3. **Build the hex in CI / at sprint close**, so "it compiles for the robot"
-   is verified once per sprint rather than once per accident.
+3. **Build the hex at sprint close** — on the evidence above, this is the
+   option that actually addresses the class, and the other two do not. "It
+   builds for the robot" is currently verified once per *accident*, not once
+   per sprint. A single `make_deploy.py` run wired into `close_sprint` (or a
+   mandatory build-checkpoint ticket per sprint, the shape sprint 004's ticket
+   005 already had) would have caught all three defects above. Note the two
+   known-benign build outcomes it must tolerate without failing: the legacy V1
+   `bbc-microbit-classic-gcc` variant's hex-merge failure, and the
+   nondeterministic packaging abort (`TS9283`, and at least one `TS9043`
+   variant) that succeeds on retry — triage on "did any `.cpp` fail to
+   compile?", not on the error code.
 
 Whichever is chosen, the acceptance test is the same: reintroduce a
 C++14-only construct into `src/` and confirm something fails *before* a
