@@ -2,7 +2,7 @@
 id: '005'
 title: 'rotationalSlip setter: MotionEngine + ConfigField/wire field, derivation comment
   intact'
-status: in-progress
+status: done
 use-cases:
 - SUC-005
 depends-on: []
