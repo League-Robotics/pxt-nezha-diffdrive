@@ -488,6 +488,14 @@ bool updateMove() {
   return moveActive;
 }
 
+// Forward declaration: commandLooksActive() is defined further down, in
+// its own clearly delineated section right before the starvation
+// watchdog (it was written there first, for the watchdog's own use) --
+// tickDrive() below needs it too now, for its return value (sprint 007
+// ticket 002, closes R-10/API-01: see that function's own comment for
+// what it checks, and tickDrive()'s own comment below for why).
+static bool commandLooksActive(const Rig& r);
+
 // ---- tick engine (sprint 002) -----------------------------------------
 // tickDrive(): the caller-driven replacement for the kernel's own
 // now-unwired fiber. Runs exactly one kernel.step() + serviceMove() on
@@ -505,10 +513,32 @@ bool updateMove() {
 // command in force -- see sprint.md's Design Rationale: a
 // while (_tickDrive()) loop driving setWheelSpeeds()/driveTwist() must
 // step the kernel on every call, or continuous-mode driving would never
-// progress. The returned bool reports moveActive AFTER this call's
-// serviceMove() ran, so a position-mode move's final tick still returns
-// false, ending a while (_tickDrive()) loop on the same call that
-// finishes the move (no extra idle tick).
+// progress. The returned bool reports commandLooksActive(r) (sprint 007
+// ticket 002, closes R-10/API-01) -- "is anything still commanding the
+// wheels" -- computed AFTER this call's serviceMove() ran: a
+// move-engine move still in flight, OR nonzero applied duty. This used
+// to report raw post-serviceMove() moveActive, which meant the
+// documented continuous-mode idiom (setWheelSpeeds()/driveTwist()
+// followed by `while (diffDrive.driveTick())`, per the README, spec
+// §4.2, and usecases.md UC-002 step 4) exited on its very first
+// iteration: wheelsV()/wheelsX() (motion_engine.cpp) clear the move
+// planner before tickDrive() is ever called, so raw moveActive read
+// false immediately, and the starvation watchdog stopped the robot
+// ~150 ms later (code review 2026-08-23, R-10/API-01;
+// clasi/issues/drivetick-contract-broken-idiom.md).
+// commandLooksActive()'s existing "or nonzero applied duty" clause is
+// exactly what a continuous-mode command needs. For a position-mode
+// move's final tick, the settle loop just below already drives
+// appliedDutyLeft/Right to zero before this function returns, so the
+// original "a move's final tick still returns false, ending a
+// while (_tickDrive()) loop on the same call that finishes the move"
+// behavior is unchanged -- see
+// tests/host/test_continuous_drive_command_looks_active.py (the
+// shape-mirror regression test that pins the CONDITION this return
+// value now depends on; it cannot call tickDrive()/commandLooksActive()
+// themselves -- see that test's own module docstring) and
+// tests/host/test_regression_post_move_neutral.py (unchanged, pins the
+// settle loop itself).
 //%
 bool tickDrive() {
   Rig& r = ensure();
@@ -622,7 +652,7 @@ bool tickDrive() {
     r.sleeper.yield();
   }
 
-  return moveActive;
+  return commandLooksActive(r);
 }
 
 // cycleStat(): read-only tick/cycle diagnostics for desk verification

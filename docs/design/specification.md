@@ -105,7 +105,10 @@ nothing ticks, the starvation watchdog stops the robot within about
 150 ms; a fresh command or resumed tick loop resumes immediately, no
 clear-emergency-stop needed. (Position-mode blocks like `move` tick
 internally, so this only matters for
-`setWheelSpeeds`/`driveTwist`.)
+`setWheelSpeeds`/`driveTwist`.) `driveTick()` reports this condition
+via `commandLooksActive()` (sprint 007 ticket 002, closing R-10/API-01);
+`tests/host/test_continuous_drive_command_looks_active.py` pins it
+against silent regression.
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|

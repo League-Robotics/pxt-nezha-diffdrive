@@ -876,12 +876,30 @@ namespace diffDrive {
     // on `while (_tickDrive())` behave the same way in the browser as
     // on hardware. Always steps (simIntegrate()), even with no move
     // active, matching the hardware contract that continuous-mode
-    // driving depends on. Returns post-step move-active state.
+    // driving depends on.
+    //
+    // Returns `simMoveActive || simVel != 0 || simYawRate != 0` (sprint
+    // 007 ticket 002, closes R-10/API-01) -- the simulator-state mirror
+    // of shims.cpp's `commandLooksActive(r)`, not raw `simMoveActive`.
+    // simIntegrate() (just above) already zeroed simVel/simYawRate
+    // synchronously, in this same call, if a position-mode move
+    // completed on this step -- there is no motor coast-down to model
+    // in the browser, so no settle-loop equivalent is needed the way
+    // shims.cpp's tickDrive() needs one on hardware -- so a move's final
+    // tick still returns false here, same as before. A continuous-mode
+    // command (setWheelSpeeds()/driveTwist(), which leave
+    // simMoveActive == false but simVel/simYawRate nonzero) now keeps
+    // this true instead of returning false on the very first tick, the
+    // same fix as shims.cpp's own. See
+    // tests/host/test_continuous_drive_command_looks_active.py for the
+    // host-side proof of the equivalent hardware condition (this
+    // simulator body itself is not host-testable -- no automated check
+    // reaches main.ts; see this ticket's C++11 Gate Coverage).
     //% shim=diffDrive::tickDrive
     function _tickDrive(): boolean {
         simIntegrate()
         simCycleCount += 1
-        const moveActive = simMoveActive
+        const stillCommanded = simMoveActive || simVel != 0 || simYawRate != 0
 
         const now = control.millis()
         const consecutive = simTickDeadlineMs != 0 &&
@@ -896,7 +914,7 @@ namespace diffDrive {
         } else {
             simTickOverrunCount += 1
         }
-        return moveActive
+        return stillCommanded
     }
 
     // Minimal simulator stand-in for cycleStat() -- there is no real

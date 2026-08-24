@@ -56,7 +56,10 @@ or simulator).
 4. The user runs a `while (diffDrive.driveTick())` loop — under the
    tick model the robot only moves **while something keeps ticking
    the control loop**. The command then holds until superseded by
-   another Drive/Move command or a stop.
+   another Drive/Move command or a stop. `driveTick()`'s return value
+   for this step is pinned against silent regression by
+   `tests/host/test_continuous_drive_command_looks_active.py` (sprint
+   007 ticket 002, closing R-10/API-01).
 
 **Postconditions**: Kernel is in velocity mode with the last-commanded
 values; wheels continue at that command as long as the tick loop runs
