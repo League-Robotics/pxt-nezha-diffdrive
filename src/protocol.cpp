@@ -311,19 +311,31 @@ void Protocol::run() {
     // on either transport is re-nacked no less often than before this
     // ticket added the second handler.
     //
-    // Ticket 003 (this ticket) calls emitReliability() unconditionally
-    // on BOTH handlers, exactly as the old argument-less emitTelemetry()
-    // used to -- WireAdapter::telemetryEnabled()/buildSnapshot() do not
-    // exist yet (ticket 004), so there is no real Snapshot to build and
-    // no `t` frame goes out in production from this ticket alone. This
-    // keeps the sprint bisectable: production behavior here is
-    // UNCHANGED even though WireHandler now has real formatting for a
-    // telemetry frame no caller in this file constructs yet.
+    // Ticket 004 (this ticket) wires up the REAL conditional: when
+    // wireAdapter_.telemetryEnabled() (mode_ != TlmMode::kOff),
+    // buildSnapshot() is called ONCE per tick and the SAME Snapshot
+    // reference is handed to BOTH handlers' emitTelemetry() -- not once
+    // per handler (sprint.md's own Design Rationale: buildSnapshot()
+    // mutates odometry and advances seq_, so building it twice would
+    // double both for no benefit, and would report different seq/now
+    // values to serial vs radio for what should read as "the same
+    // instant"). Each handler still independently decides its own
+    // thdr-due state from its own header memo, even though the
+    // underlying values are shared. With telemetry off (the boot
+    // default), this falls back to ticket 003's own
+    // emitReliability()-on-both behavior -- no Snapshot is ever built
+    // for a session with no subscriber.
     const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
     if (static_cast<int32_t>(nowMs - lastEmitMs) >=
         static_cast<int32_t>(kReliabilityEmitPeriodMs)) {
-      wireHandler_.emitReliability();
-      wireHandlerRadio_.emitReliability();
+      if (wireAdapter_.telemetryEnabled()) {
+        const Wire::Snapshot& snapshot = wireAdapter_.buildSnapshot();
+        wireHandler_.emitTelemetry(snapshot);
+        wireHandlerRadio_.emitTelemetry(snapshot);
+      } else {
+        wireHandler_.emitReliability();
+        wireHandlerRadio_.emitReliability();
+      }
       lastEmitMs = nowMs;
     }
 

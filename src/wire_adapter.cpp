@@ -69,6 +69,39 @@ void engineGoToR(float x, float y, float speed, float arrive,
 bool engineGoToW(float x, float y, float speed, float arrive,
                  uint32_t timeoutMs);
 
+// ---- shims.cpp entry points (sprint 004 ticket 004) ---------------------
+// buildSnapshot()'s own five reads, reaching live pose/OTOS/wheel-speed
+// state -- every one of these already exists in shims.cpp today (this
+// ticket adds ZERO new entry points there), same same-package
+// forward-declaration convention as every block above.
+//
+// THREE HAZARDS, each with real debugging history on this project:
+//
+//   1. poseX()/poseY()/poseHeading() each call odomUpdate() internally
+//      and therefore MUTATE odometry -- this is LOAD-BEARING, not an
+//      accident to "optimize" into one cached read: between moves,
+//      nothing else advances odometry, so the 50 ms telemetry tick is
+//      what keeps pose current while the robot sits idle. Collapsing
+//      three calls into one would silently stop that.
+//   2. otosGet(0)/otosGet(1) are 0.1 mm (divide by 10 for ox/oy);
+//      otosGet(2) is ALREADY centidegrees (oh) -- do not also divide it.
+//   3. otosGet() reads a CACHE. The protocol fiber must NEVER trigger a
+//      fresh sensor sample (this project's own OtosPort blocking-read
+//      primitive, a DIFFERENT, deliberately-not-named-here entry point
+//      from this ordinal-based cache accessor) -- an I2C transaction
+//      interposed in the Nezha encoder's select->read window destroys
+//      the sample (Phase F). See
+//      tests/host/test_wire_telemetry_projection.py's own source-text
+//      check for the enforcement: that blocking-read entry point's own
+//      name must appear NOWHERE in this file, comments included -- a
+//      one-careless-line-away, catastrophic, SILENT failure mode.
+int poseX();          // [mm] MUTATES odometry -- see hazard 1 above
+int poseY();          // [mm] MUTATES odometry -- see hazard 1 above
+int poseHeading();    // [cdeg] MUTATES odometry -- see hazard 1 above
+int otosGet(int what);  // CACHE ONLY -- see hazard 3 above; never the
+                         // blocking-read entry point
+int wheelSpeed(int which);  // [mm/s]; which: 0 = left, 1 = right
+
 namespace {
 
 // The 15 `ConfigField` enum entries (main.ts) mapped onto
@@ -140,6 +173,40 @@ constexpr int kDiagWedgeRight = 7;
 constexpr int kDiagVelocityLeft = 14;
 constexpr int kDiagVelocityRight = 15;
 
+// Sprint 004 ticket 004 additions -- otosGet(7)'s connected/disconnected
+// boolean (R-22/WIRE-06's fix for status()'s own out.otos, below) and
+// diagValue()'s numeric FULL-column ordinals (sprint.md Phase B / the
+// issue's own column table; shims.cpp's diagValue() switch is the
+// authority for these numbers).
+constexpr int kOtosConnected = 7;      // otosGet(int), NOT diagValue()
+constexpr int kDiagI2cFault = 8;       // -> STATUS `i2cf=` and the `i2cf` column
+constexpr int kDiagLeaseExpiryCount = 9;   // -> `lexc`
+constexpr int kDiagPositionLeft = 10;      // -> `posl`
+constexpr int kDiagPositionRight = 11;     // -> `posr`
+constexpr int kDiagAppliedDutyLeft = 12;   // -> `dutl`
+constexpr int kDiagAppliedDutyRight = 13;  // -> `dutr`
+constexpr int kDiagCycleCount = 16;        // -> `cyc`
+constexpr int kDiagCycleOverrunCount = 19; // -> `cycovr`
+constexpr int kDiagWrongWayCount = 25;     // -> `wrng`
+
+// LOCAL flags layout's own free function, extracted (unchanged bit
+// layout) so STATUS's `flags=` and the telemetry `flags` column read
+// the SAME computation instead of two independently-editable copies
+// (sprint.md's own Design Rationale; status-lost-diag-numeric-surface.md).
+// Called from both status() and buildSnapshot() below.
+uint32_t computeFlags() {
+  uint32_t flags = 0;
+  if (diagValue(kDiagReady) != 0) flags |= kFlagReady;
+  if (diagValue(kDiagEstopped) != 0) flags |= kFlagEstopped;
+  if (diagValue(kDiagStallHalted) != 0) flags |= kFlagStallHalted;
+  if (diagValue(kDiagLeaseExpired) != 0) flags |= kFlagLeaseExpired;
+  if (diagValue(kDiagConnLeft) != 0) flags |= kFlagConnLeft;
+  if (diagValue(kDiagConnRight) != 0) flags |= kFlagConnRight;
+  if (diagValue(kDiagWedgeLeft) != 0) flags |= kFlagWedgeLeft;
+  if (diagValue(kDiagWedgeRight) != 0) flags |= kFlagWedgeRight;
+  return flags;
+}
+
 const char* tlmModeWireName(Wire::TlmMode mode) {
   switch (mode) {
     case Wire::TlmMode::kOff: return "off";
@@ -192,39 +259,34 @@ uint32_t WireAdapter::now() const {
   return nowMs_ != nullptr ? nowMs_() : 0;
 }
 
-// Sprint 003 ticket 013 (final integration) confirms this is a
-// DELIBERATE narrowing, not an oversight: the v6 verb catalog
-// (sprint.md's Scope) has no DIAG verb at all, and the `flags` field
-// below carries only the eight BOOLEAN diagValue() reads
-// (ready/estopped/stall/lease/conn x2/wedge x2). None of the old
-// cleartext DIAG line's NUMERIC bench-diagnosis fields -- the I2C fault
-// counter, per-wheel position/duty/velocity, cycle count, saturation,
-// deficit/overrun/error counters, line/verb dispatch counters (see the
-// retired formatDiag(), protocol.h's file comment) -- has any v6
-// wire-reachable equivalent; GET/SET's kFields table above does not
-// carry them either (it addresses tunable config, not live telemetry).
-// So the "wedged I2C bus" / "unpowered Nezha brick" bench workflow DIAG
-// used to serve has NO v6 wire replacement: STATUS answers "is
-// something wrong" (ready/estopped/wedge/conn) but not "which I2C reads
-// are failing and how many." Flagged here for whoever picks this up
-// next -- adding a new verb for it is out of this sprint's fixed
-// catalog, not this ticket's job.
+// Sprint 004 ticket 004 closes the numeric half of the gap the comment
+// below used to describe (status-lost-diag-numeric-surface.md):
+// `i2cf=<n>` now rides STATUS via the SAME diagValue(kDiagI2cFault) call
+// the telemetry `i2cf` column reads, so the two can never disagree.
+// FULL's other seven numeric columns (posl/posr/dutl/dutr/lexc/wrng/
+// cycovr) still have no STATUS-level equivalent -- they are telemetry,
+// not status, per the issue's own resolution of that split (see
+// buildSnapshot() below); only `i2cf` was judged genuinely status-shaped
+// (SUC-005). R-22/WIRE-06 (code review 2026-08-23) also fixed here:
+// `out.otos` used to hardcode false with a comment claiming no OTOS was
+// wire-reachable -- false even at the time it was written, since
+// otosGet(7) already existed and engineGoToW() already gated on it.
 void WireAdapter::status(Wire::StatusFields& out) const {
   out.ready = diagValue(kDiagReady) != 0;
   const bool estopped = diagValue(kDiagEstopped) != 0;
   const bool stallHalted = diagValue(kDiagStallHalted) != 0;
   const bool leaseExpired = diagValue(kDiagLeaseExpired) != 0;
-  const bool wedgeLeft = diagValue(kDiagWedgeLeft) != 0;
-  const bool wedgeRight = diagValue(kDiagWedgeRight) != 0;
 
   out.connLeft = diagValue(kDiagConnLeft) != 0;
   out.connRight = diagValue(kDiagConnRight) != 0;
-  // No OTOS in this project's wire-reachable surface yet (poseX/Y/
-  // heading are cached-OTOS-fused odometry, not a boolean presence
-  // flag) -- documented default, the same "no OTOS in this library"
-  // choice DiffDriveAdapter makes for the identical reason.
-  out.otos = false;
-  out.wedge = wedgeLeft || wedgeRight;
+  // R-22/WIRE-06 fix: otosGet(7) is the SAME connected/disconnected
+  // boolean engineGoToW() (shims.cpp) already gates its own dispatch on
+  // -- STATUS can no longer claim "no OTOS" while a GO_TO_W move is
+  // actively using one. otosGet() reads a cache; this is not a
+  // fresh-sample blocking read (see this file's own forward-declaration
+  // block for why that distinction is load-bearing).
+  out.otos = otosGet(kOtosConnected) != 0;
+  out.wedge = diagValue(kDiagWedgeLeft) != 0 || diagValue(kDiagWedgeRight) != 0;
   // "active" here means "a motion command is currently in effect" -- the
   // closest reading of this robot's WHEELS_V-only, planner-free command
   // surface can produce (mirrors DiffDriveAdapter::status()'s own
@@ -233,16 +295,8 @@ void WireAdapter::status(Wire::StatusFields& out) const {
                (diagValue(kDiagVelocityLeft) != 0 ||
                 diagValue(kDiagVelocityRight) != 0);
 
-  uint32_t flags = 0;
-  if (out.ready) flags |= kFlagReady;
-  if (estopped) flags |= kFlagEstopped;
-  if (stallHalted) flags |= kFlagStallHalted;
-  if (leaseExpired) flags |= kFlagLeaseExpired;
-  if (out.connLeft) flags |= kFlagConnLeft;
-  if (out.connRight) flags |= kFlagConnRight;
-  if (wedgeLeft) flags |= kFlagWedgeLeft;
-  if (wedgeRight) flags |= kFlagWedgeRight;
-  out.flags = flags;
+  out.flags = computeFlags();
+  out.i2cf = diagValue(kDiagI2cFault);
 
   out.tlm = tlmModeWireName(mode_);
 }
@@ -448,6 +502,86 @@ Wire::Result WireAdapter::onTlm(Wire::TlmMode mode) {
   // becomes the persisted mode.
   if (mode != Wire::TlmMode::kNow) mode_ = mode;
   return Wire::Result::kOk;
+}
+
+bool WireAdapter::telemetryEnabled() const {
+  return mode_ != Wire::TlmMode::kOff;
+}
+
+const Wire::Snapshot& WireAdapter::buildSnapshot() {
+  // protocol.md S6.2: seq wraps 0..127 -- THIS method's responsibility,
+  // not WireHandler's (the handler only prints whatever value it is
+  // given). Advanced BEFORE building the frame, so the very first frame
+  // this adapter ever emits reports seq 1, not 0.
+  seq_ = static_cast<uint8_t>((seq_ + 1) & 0x7F);
+
+  // Read every source exactly ONCE per call -- poseX()/poseY()/
+  // poseHeading() each mutate odometry (this file's own
+  // forward-declaration block), so calling any of them twice per tick
+  // would double-advance it for no reason.
+  const int32_t x = static_cast<int32_t>(poseX());
+  const int32_t y = static_cast<int32_t>(poseY());
+  const int32_t h = static_cast<int32_t>(poseHeading());
+  // otosGet(0)/(1) are 0.1 mm -- divide by 10 for ox/oy (plain integer
+  // division, truncating toward zero: the issue's own "OTOS 0.1mm->mm"
+  // scale test pins -5678 -> -567, not the round-half -568 a
+  // std::lround-style conversion would give). otosGet(2) is ALREADY
+  // centidegrees -- do NOT also divide it.
+  const int32_t ox = otosGet(0) / 10;
+  const int32_t oy = otosGet(1) / 10;
+  const int32_t oh = static_cast<int32_t>(otosGet(2));
+  const int32_t vl = static_cast<int32_t>(wheelSpeed(0));
+  const int32_t vr = static_cast<int32_t>(wheelSpeed(1));
+  const int32_t i2cf = static_cast<int32_t>(diagValue(kDiagI2cFault));
+  const uint32_t flags = computeFlags();
+
+  size_t i = 0;
+  columns_[i++] = {"seq", static_cast<int32_t>(seq_), false};
+  columns_[i++] = {"now", static_cast<int32_t>(now()), false};
+  columns_[i++] = {"flags", static_cast<int32_t>(flags), true};
+  columns_[i++] = {"x", x, false};
+  columns_[i++] = {"y", y, false};
+  columns_[i++] = {"h", h, false};
+  columns_[i++] = {"ox", ox, false};
+  columns_[i++] = {"oy", oy, false};
+  columns_[i++] = {"oh", oh, false};
+  columns_[i++] = {"vl", vl, false};
+  columns_[i++] = {"vr", vr, false};
+  columns_[i++] = {"i2cf", i2cf, false};
+
+  // FULL adds these 8; every other non-off mode (currently just kPose;
+  // kAuto/kBuffer have no distinct column-set behavior implemented on
+  // this adapter -- see this file's own buildSnapshot() doc comment,
+  // wire_adapter.h) gets POSE's 12 above and stops here.
+  if (mode_ == Wire::TlmMode::kFull) {
+    columns_[i++] = {"cyc", static_cast<int32_t>(diagValue(kDiagCycleCount)),
+                     false};
+    columns_[i++] = {"posl",
+                     static_cast<int32_t>(diagValue(kDiagPositionLeft)),
+                     false};
+    columns_[i++] = {"posr",
+                     static_cast<int32_t>(diagValue(kDiagPositionRight)),
+                     false};
+    columns_[i++] = {"dutl",
+                     static_cast<int32_t>(diagValue(kDiagAppliedDutyLeft)),
+                     false};
+    columns_[i++] = {"dutr",
+                     static_cast<int32_t>(diagValue(kDiagAppliedDutyRight)),
+                     false};
+    columns_[i++] = {"lexc",
+                     static_cast<int32_t>(diagValue(kDiagLeaseExpiryCount)),
+                     false};
+    columns_[i++] = {"wrng",
+                     static_cast<int32_t>(diagValue(kDiagWrongWayCount)),
+                     false};
+    columns_[i++] = {"cycovr",
+                     static_cast<int32_t>(diagValue(kDiagCycleOverrunCount)),
+                     false};
+  }
+
+  snapshot_.columns = columns_;
+  snapshot_.count = i;
+  return snapshot_;
 }
 
 Wire::Result WireAdapter::onRun(const char* /*name*/,

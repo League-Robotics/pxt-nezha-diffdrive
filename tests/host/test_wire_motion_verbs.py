@@ -79,6 +79,35 @@ STATUS_OK = 0
 LEFT = 0
 RIGHT = 1
 
+# Wire::TlmMode's DECLARATION-ORDER ordinal (wire_handler.h) -- sprint
+# 004 ticket 004's own telemetry projection tests.
+TLM_OFF = 0
+TLM_POSE = 1
+TLM_FULL = 2
+TLM_NOW = 3
+TLM_AUTO = 4
+TLM_BUFFER = 5
+
+# diagValue()'s own field-ordinal contract (shims.cpp / wire_adapter.cpp's
+# kDiag* constants) -- sprint 004 ticket 004's own diag-override tests.
+DIAG_READY = 0
+DIAG_ESTOPPED = 1
+DIAG_STALL_HALTED = 2
+DIAG_LEASE_EXPIRED = 3
+DIAG_CONN_LEFT = 4
+DIAG_CONN_RIGHT = 5
+DIAG_WEDGE_LEFT = 6
+DIAG_WEDGE_RIGHT = 7
+DIAG_I2C_FAULT = 8
+DIAG_LEASE_EXPIRY_COUNT = 9
+DIAG_POSITION_LEFT = 10
+DIAG_POSITION_RIGHT = 11
+DIAG_APPLIED_DUTY_LEFT = 12
+DIAG_APPLIED_DUTY_RIGHT = 13
+DIAG_CYCLE_COUNT = 16
+DIAG_CYCLE_OVERRUN_COUNT = 19
+DIAG_WRONG_WAY_COUNT = 25
+
 
 def _ack(n, last_done=0, reason=DONE_NONE):
     return f"ack {n} {last_done} {_DONE_REASON_NAME[reason]}\n".encode()
@@ -192,6 +221,42 @@ def _bind(lib):
     lib.waSetPose.restype = None
     lib.waSetPoseSourceAvailable.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.waSetPoseSourceAvailable.restype = None
+
+    # ---- sprint 004 ticket 004: telemetry projection (buildSnapshot(),
+    # the five new raw setters, diagValue() overrides, TLM mode, and
+    # emitTelemetry() readback) ----
+    lib.waSetPoseRaw.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+    ]
+    lib.waSetPoseRaw.restype = None
+    lib.waSetOtosRaw.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+    ]
+    lib.waSetOtosRaw.restype = None
+    lib.waSetOtosConnected.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.waSetOtosConnected.restype = None
+    lib.waSetWheelSpeed.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+    lib.waSetWheelSpeed.restype = None
+    lib.waSetDiagOverride.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
+    ]
+    lib.waSetDiagOverride.restype = None
+    lib.waBuildSnapshot.argtypes = [ctypes.c_void_p]
+    lib.waBuildSnapshot.restype = ctypes.c_void_p
+    lib.waSnapshotCount.argtypes = [ctypes.c_void_p]
+    lib.waSnapshotCount.restype = ctypes.c_int
+    lib.waSnapshotColumnName.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.waSnapshotColumnName.restype = ctypes.c_char_p
+    lib.waSnapshotColumnValue.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.waSnapshotColumnValue.restype = ctypes.c_int32
+    lib.waSnapshotColumnHex.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.waSnapshotColumnHex.restype = ctypes.c_int
+    lib.waEmitTelemetry.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    lib.waEmitTelemetry.restype = None
+    lib.waOnTlm.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.waOnTlm.restype = ctypes.c_int
+    lib.waHasLiveTelemetry.argtypes = [ctypes.c_void_p]
+    lib.waHasLiveTelemetry.restype = ctypes.c_int
 
     return lib
 
@@ -422,6 +487,95 @@ class WireAdapterHandle:
 
     def set_pose_source_available(self, available):
         self._lib.waSetPoseSourceAvailable(self._handle, 1 if available else 0)
+
+    # ---- sprint 004 ticket 004: telemetry projection ----------------
+
+    def set_pose_raw(self, x_mm, y_mm, heading_cdeg):
+        """poseX()/poseY()/poseHeading()'s raw settable state -- plain
+        integers, no rad/float conversion in the way (see
+        wire_motion_verb_shim.cpp's own header comment on why this is
+        SEPARATE from set_pose(), which backs GO_TO_W's own OTOS-shaped
+        PoseSource instead)."""
+        self._lib.waSetPoseRaw(self._handle, x_mm, y_mm, heading_cdeg)
+
+    def set_otos_raw(self, x_01mm, y_01mm, heading_cdeg):
+        """otosGet(0)/(1)/(2)'s raw settable state -- 0.1 mm for x/y
+        (buildSnapshot() itself divides by 10), already-cdeg for
+        heading."""
+        self._lib.waSetOtosRaw(self._handle, x_01mm, y_01mm, heading_cdeg)
+
+    def set_otos_connected(self, connected):
+        """otosGet(7)'s raw settable state -- independent of
+        set_otos_raw()'s x/y/heading, since a disconnected OTOS can
+        still report a stale cached pose (this ticket's own R-22 test
+        requirement)."""
+        self._lib.waSetOtosConnected(self._handle, 1 if connected else 0)
+
+    def set_wheel_speed(self, left_mms, right_mms):
+        """wheelSpeed(0)/(1)'s raw settable state -- mm/s, unscaled."""
+        self._lib.waSetWheelSpeed(self._handle, left_mms, right_mms)
+
+    def set_diag_override(self, what, value):
+        """Arms an exact diagValue(`what`) return value -- lets a scale
+        test pin i2cf/lexc/posl/posr/dutl/dutr/cyc/cycovr/wrng (ordinals
+        8/9/10/11/12/13/16/19/25) or any of the eight boolean flags
+        ordinals (0-7) without driving real kernel/engine state there."""
+        self._lib.waSetDiagOverride(self._handle, what, value)
+
+    def build_snapshot(self):
+        """Calls the REAL WireAdapter::buildSnapshot() and returns a
+        thin Python wrapper over the resulting Wire::Snapshot -- valid
+        only until the next build_snapshot() call, same "member, not a
+        temporary" contract the C++ method itself documents."""
+        ptr = self._lib.waBuildSnapshot(self._handle)
+        return Snapshot(self._lib, ptr)
+
+    def emit_telemetry(self, snapshot):
+        """Calls the REAL WireHandler::emitTelemetry(snapshot) -- writes
+        thdr (if due), t, then the reliability keepalive into this
+        handle's own sink, exactly as protocol.cpp's periodic-emission
+        block does in production."""
+        self._lib.waEmitTelemetry(self._handle, snapshot.ptr)
+
+    def on_tlm(self, mode):
+        """Calls WireAdapter::onTlm(mode) directly -- bypasses the wire
+        grammar entirely (that dispatch path is test_wire_grammar.py's
+        own scope); this ticket only needs mode_ SET, not decoded."""
+        return self._lib.waOnTlm(self._handle, mode)
+
+    def has_live_telemetry(self):
+        return bool(self._lib.waHasLiveTelemetry(self._handle))
+
+
+class Snapshot:
+    """Thin Python wrapper over a `const Wire::Snapshot*` returned by
+    WireAdapterHandle.build_snapshot() -- read-only, valid only until the
+    next build_snapshot() call on the SAME handle (borrowed, per
+    Wire::Snapshot's own doc comment, wire_handler.h)."""
+
+    def __init__(self, lib, ptr):
+        self._lib = lib
+        self.ptr = ptr
+
+    @property
+    def count(self):
+        return self._lib.waSnapshotCount(self.ptr)
+
+    def name(self, index):
+        return self._lib.waSnapshotColumnName(self.ptr, index).decode()
+
+    def value(self, index):
+        return self._lib.waSnapshotColumnValue(self.ptr, index)
+
+    def hex(self, index):
+        return bool(self._lib.waSnapshotColumnHex(self.ptr, index))
+
+    def columns(self):
+        """[(name, value, hex), ...] for every column, in order."""
+        return [
+            (self.name(i), self.value(i), self.hex(i))
+            for i in range(self.count)
+        ]
 
 
 @pytest.fixture

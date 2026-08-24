@@ -133,6 +133,16 @@ struct StatusFields {
   bool otos = false;
   bool wedge = false;
   uint32_t flags = 0;
+  // Sprint 004 ticket 004: the I2C fault counter, closing
+  // status-lost-diag-numeric-surface.md -- the retired DIAG verb's own
+  // most-important numeric field (a wedged/unpowered Nezha brick shows
+  // up here as a climbing count, not just a boolean "wedge" flag).
+  // Sourced by WireAdapter::status() from the SAME diagValue(8) call
+  // the telemetry `i2cf` column also reads, so the two can never
+  // disagree (sprint.md's own Design Rationale). Decimal on the wire
+  // (execStatus()'s `i2cf=%ld`), unlike `flags`' hex -- a raw fault
+  // count has no bitfield meaning to pack.
+  int32_t i2cf = 0;
   const char* tlm = "off";
 };
 

@@ -78,7 +78,7 @@ def test_well_formed_id_with_many_digits_is_accepted(wg):
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == _ack(1) + (
         b"status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 "
-        b"flags=0 tlm=off next=2\n"
+        b"flags=0 i2cf=0 tlm=off next=2\n"
     )
     assert wg.malformed_count == 0
 
@@ -273,7 +273,7 @@ def test_missing_id_finally_arriving_resumes_the_sequence(wg):
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == _ack(1) + (
         b"status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 "
-        b"flags=0 tlm=off next=2\n"
+        b"flags=0 i2cf=0 tlm=off next=2\n"
     )
     wg.set_set_result(RESULT_OK)
     wg.feed(b"SET group.alpha 1.0 #2\n")

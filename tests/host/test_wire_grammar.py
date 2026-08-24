@@ -147,7 +147,7 @@ def _bind(lib):
     lib.wgSetStatus.argtypes = [
         ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
         ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint32,
-        ctypes.c_char_p,
+        ctypes.c_int32, ctypes.c_char_p,
     ]
     lib.wgSetStatus.restype = None
     lib.wgSetGetOverride.argtypes = [
@@ -289,10 +289,10 @@ class WireGrammar:
 
     def set_status(self, ready=False, active=False, conn_left=False,
                     conn_right=False, otos=False, wedge=False, flags=0,
-                    tlm: bytes = b"off"):
+                    i2cf=0, tlm: bytes = b"off"):
         self._lib.wgSetStatus(self._handle, int(ready), int(active),
                                int(conn_left), int(conn_right), int(otos),
-                               int(wedge), flags, tlm)
+                               int(wedge), flags, i2cf, tlm)
 
     def set_get_override(self, name: bytes, value: float):
         self._lib.wgSetGetOverride(self._handle, name, value)
@@ -830,13 +830,15 @@ def test_ver_golden_vector(wg):
 
 
 def test_status_golden_vector(wg):
+    # sprint 004 ticket 004: i2cf=26 pinned as DECIMAL, not hex (a
+    # copy-pasted `hex` bit would silently print "1a" here instead).
     wg.set_status(ready=True, active=False, conn_left=True, conn_right=True,
-                  otos=False, wedge=False, flags=0xA, tlm=b"pose")
+                  otos=False, wedge=False, flags=0xA, i2cf=26, tlm=b"pose")
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == (
         _ack(1) +
         b"status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 "
-        b"flags=a tlm=pose next=2\n"
+        b"flags=a i2cf=26 tlm=pose next=2\n"
     )
 
 

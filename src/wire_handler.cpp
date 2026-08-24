@@ -628,14 +628,22 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
   errCode = 0;
   StatusFields status;
   adapter_.status(status);
-  char buf[176];
+  // Sprint 004 ticket 004: `i2cf=%ld` joins `flags=%x` -- decimal, not
+  // hex (SUC-005's own AC: a copy-pasted hex bit would silently turn
+  // i2cf=26 into i2cf=1a). Buffer size bumped from 176 to 200 to keep
+  // headroom now that a signed 32-bit field (`i2cf`, up to 11 chars
+  // incl. sign) joined the line -- 176 already had margin (the
+  // previous worst case measures under 100 bytes), this just keeps
+  // that margin honest rather than trimming it to the wire.
+  char buf[200];
   snprintf(buf, sizeof(buf),
                 "status ready=%d active=%d connL=%d connR=%d otos=%d "
-                "wedge=%d flags=%x tlm=%s next=%lu\n",
+                "wedge=%d flags=%x i2cf=%ld tlm=%s next=%lu\n",
                 status.ready ? 1 : 0, status.active ? 1 : 0,
                 status.connLeft ? 1 : 0, status.connRight ? 1 : 0,
                 status.otos ? 1 : 0, status.wedge ? 1 : 0,
-                static_cast<unsigned int>(status.flags), status.tlm,
+                static_cast<unsigned int>(status.flags),
+                static_cast<long>(status.i2cf), status.tlm,
                 static_cast<unsigned long>(expectedNext_));
   writeLine(buf);
 }

@@ -177,7 +177,8 @@ void wgSetNow(void* handle, uint32_t now) {
 }
 
 void wgSetStatus(void* handle, int ready, int active, int connL, int connR,
-                  int otos, int wedge, uint32_t flags, const char* tlm) {
+                  int otos, int wedge, uint32_t flags, int32_t i2cf,
+                  const char* tlm) {
   Wire::StatusFields& s = static_cast<Handle*>(handle)->adapter.statusToReturn;
   s.ready = ready != 0;
   s.active = active != 0;
@@ -186,6 +187,7 @@ void wgSetStatus(void* handle, int ready, int active, int connL, int connR,
   s.otos = otos != 0;
   s.wedge = wedge != 0;
   s.flags = flags;
+  s.i2cf = i2cf;  // sprint 004 ticket 004
   s.tlm = tlm;
 }
 
