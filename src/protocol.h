@@ -10,10 +10,11 @@
 // SerialTransport/RadioTransport and the new v6 wire stack
 // (src/wire_handler.{h,cpp}, src/wire_adapter.{h,cpp}, tickets
 // 002-004): this file feeds raw bytes in, writes reply bytes back out
-// via a small Sink over the same serial transport, and otherwise knows
-// nothing about the v6 grammar, the reliability layer, or any verb's
-// own behavior -- all of that lives behind wire_handler_/wireAdapter_
-// now, exactly as sprint.md's own module table draws the boundary.
+// via a small Sink over each transport, and otherwise knows nothing
+// about the v6 grammar, the reliability layer, or any verb's own
+// behavior -- all of that lives behind wireHandler_/wireHandlerRadio_/
+// wireAdapter_ now, exactly as sprint.md's own module table draws the
+// boundary.
 //
 // One exception, preserved deliberately: the OLD cleartext
 // "RUN:<name>[:<arg>...]" MessageBus bridge (handleRun()/runText()/the
@@ -32,17 +33,25 @@
 // touch); test.ts's own bench tooling keeps speaking the old
 // colon-separated form unchanged.
 //
-// The radio transport keeps its existing, narrower carve-out
-// unchanged (sprint.md Open Question 4): its receive side accepts ONLY
-// the old-style cleartext RUN, never the v6 grammar or any motion verb
-// -- see run()'s own radio-polling block. Outbound, this ticket does
-// NOT mirror v6 wire replies onto radio the way the old code mirrored
-// its DEVICE banner and cleartext TLM: nothing can reach the v6 stack
-// over radio to begin with (RX stays RUN-only), so mirroring its own
-// replies there had no host to address. `emitLine()` below -- the free
-// function shims.cpp's test-result reporting already uses -- still
-// writes to both transports unchanged, so an untethered bench run's
-// results still reach the radio exactly as before.
+// The radio transport now speaks the full v6 grammar too (this
+// ticket, closing sprint 003's own Open Question 4, whose stated
+// rationale -- "RX stays RUN-only because nothing could reach the v6
+// stack over the radio link, which was true only because RX stayed
+// RUN-only" -- was circular): a second WireHandler instance
+// (wireHandlerRadio_, below) is fed every line the radio's own poll
+// receives, with the SAME old-style-cleartext-RUN carve-out serial
+// already has preserved as a fallback, unchanged -- see run()'s own
+// radio-polling block. Per wifi-link.md:373 ("a separate
+// ProtocolHandler per transport over one shared adapter"), that second
+// handler is composed over the SAME wireAdapter_ instance the serial
+// handler already uses, not a second adapter: two hosts sharing one
+// handler's expectedNext_/gapOutstanding_ would let a sequence gap on
+// one transport nack the OTHER transport's next command, which is
+// exactly the corruption the second-handler structure exists to
+// prevent. `emitLine()` below -- the free function shims.cpp's
+// test-result reporting already uses -- still writes to both
+// transports unchanged, so an untethered bench run's results still
+// reach a listening host exactly as before.
 //
 // Sprint 003 ticket 013 (final integration) note: this project's OWN
 // automatic cleartext telemetry -- the old v5 loop's periodic
@@ -65,7 +74,7 @@
 #include <cstdint>
 
 #include "platform_ports.h"  // CodalFiberLauncher, CodalClock (reused, not reimplemented)
-#include "radio_transport.h"  // the old-style RUN-only radio carve-out (unchanged)
+#include "radio_transport.h"  // radio transport -- now a full v6 sink too
 #include "serial_transport.h"
 #include "wire_adapter.h"
 #include "wire_handler.h"
@@ -196,6 +205,24 @@ class Protocol {
     SerialTransport& transport_;
   };
 
+  // The Sink wireHandlerRadio_ writes every v6 reply line through --
+  // mirrors SerialSink exactly, including WHY the trailing '\n' is
+  // stripped here: RadioTransport::sendLine() appends its own trailing
+  // delimiter, same convention SerialTransport::writeLine() follows,
+  // so passing both through would double it.
+  class RadioSink : public Wire::Sink {
+   public:
+    explicit RadioSink(RadioTransport& transport) : transport_(transport) {}
+    void write(const char* data, size_t length) override {
+      const size_t contentLen = length > 0 ? length - 1 : 0;
+      transport_.sendLine(reinterpret_cast<const uint8_t*>(data),
+                          contentLen);
+    }
+
+   private:
+    RadioTransport& transport_;
+  };
+
   RadioTransport radioTransport_;
   SerialTransport transport_;
   CodalFiberLauncher launcher_;
@@ -206,21 +233,34 @@ class Protocol {
 
   // NSDMI, not a hand-written constructor: each of these depends only on
   // members declared textually above it (transport_ for serialSink_;
-  // wireNowMs() -- callable before its own later textual declaration,
-  // same as any other member function -- for wireAdapter_; wireAdapter_
-  // and serialSink_ for wireHandler_), so plain in-class initializers,
+  // radioTransport_ for radioSink_; wireNowMs() -- callable before its
+  // own later textual declaration, same as any other member function
+  // -- for wireAdapter_; wireAdapter_ and serialSink_/radioSink_ for
+  // wireHandler_/wireHandlerRadio_), so plain in-class initializers,
   // evaluated in declaration order, are enough -- no constructor body
   // needed to sequence them by hand. wireAdapter_ starts with a
   // placeholder Wire::Identity() (every field ""); run() replaces it
   // with the real one via setIdentity() once it is safe to read (see
   // buildIdentity()'s own comment above for why that is deferred).
+  //
+  // wireHandlerRadio_ is composed over the SAME wireAdapter_ instance
+  // wireHandler_ already uses -- NOT a second WireAdapter -- per
+  // wifi-link.md:373's "one ProtocolHandler per transport over one
+  // shared adapter" (see this file's own top-of-file comment). Each
+  // handler still keeps its OWN expectedNext_/gapOutstanding_ (they
+  // are plain WireHandler instance members), which is the whole point:
+  // two independent hosts, one shared robot.
   SerialSink serialSink_{transport_};
+  RadioSink radioSink_{radioTransport_};
   WireAdapter wireAdapter_{Wire::Identity(), &Protocol::wireNowMs};
   Wire::WireHandler wireHandler_{wireAdapter_, serialSink_};
+  Wire::WireHandler wireHandlerRadio_{wireAdapter_, radioSink_};
 
-  // Radio RX scratch (the old-style RUN-only carve-out only -- see this
-  // file's top-of-file comment); reused every poll, serial branch is
-  // done with its own buffer by the time this runs each iteration.
+  // Radio RX scratch -- every line the radio's own poll receives lands
+  // here first, whether it turns out to be the old-style cleartext RUN
+  // carve-out or a v6 line handed to wireHandlerRadio_ (see run()'s own
+  // radio-polling block); reused every poll, serial branch is done with
+  // its own buffer by the time this runs each iteration.
   uint8_t rxLineBuf_[64];
 };
 

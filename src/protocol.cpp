@@ -248,24 +248,44 @@ void Protocol::run() {
       }
     }
 
-    // Radio command plane (single-fragment RX), gated to RUN only:
-    // motion/config/every other v6 verb stays wired-only until the
-    // fire-and-forget-over-lossy-link safety question is settled (see
-    // clasi/issues/radio-rx-command-plane-run-over-bridge.md) --
-    // existing carve-out, unchanged (sprint.md Open Question 4). This
-    // call also lazily brings the radio up on its first invocation
+    // Radio command plane (single-fragment RX): mirrors the serial
+    // branch's own dual-path logic above exactly, closing sprint 003's
+    // own Open Question 4 -- radio now speaks the full v6 grammar
+    // (ack/nack, TLM, STATUS, the motion verbs, etc.) through its OWN
+    // WireHandler (wireHandlerRadio_), with the old-style literal
+    // "RUN:" prefix preserved as a fallback, unchanged, exactly as
+    // protocol.h's own top-of-file comment describes. This call also
+    // lazily brings the radio up on its first invocation
     // (RadioTransport::tryReceiveLine() calls ensureRadioReady()
     // internally) -- the same "unconditionally from this fiber's boot
     // path" cost the old banner/TLM radio mirror used to pay, just via
     // the receive side now that there is no v6 reply mirror to pay it
-    // instead.
+    // instead. Radio's RX path stays a single 64-byte fragment slot
+    // with no multi-fragment reassembly -- unchanged by this ticket
+    // (sprint.md's Out of Scope entry, code review R-27): a v6 line
+    // whose encoding does not fit one fragment is not this ticket's
+    // concern to fix.
     size_t radioLen = 0;
     if (radioTransport_.tryReceiveLine(rxLineBuf_, sizeof(rxLineBuf_),
                                        &radioLen)) {
       if (radioLen >= kOldRunPrefixLen &&
           std::memcmp(rxLineBuf_, kOldRunPrefix, kOldRunPrefixLen) == 0) {
+        // Old-style cleartext RUN, preserved unchanged as a fallback --
+        // see protocol.h's own top-of-file comment for why it's
+        // detected here by literal prefix rather than through the v6
+        // grammar's own verb lookup.
         handleRun(rxLineBuf_ + kOldRunPrefixLen,
                  radioLen - kOldRunPrefixLen);
+      } else {
+        // Every other line -- including the v6 grammar's own
+        // space-separated "RUN <name> ... #<id>" verb -- goes to
+        // radio's own v6 wire stack. wireHandlerRadio_ keeps its own
+        // independent expectedNext_/gapOutstanding_ (wifi-link.md:373),
+        // so a gap on this transport can never nack wireHandler_'s
+        // (serial's) next command, or vice versa.
+        wireHandlerRadio_.feed(reinterpret_cast<const char*>(rxLineBuf_),
+                               radioLen);
+        wireHandlerRadio_.feed("\n", 1);
       }
     }
 
@@ -274,10 +294,15 @@ void Protocol::run() {
     // re-states the highest accepted id (or re-nacks a stalled gap) on
     // this fiber's own cadence, since WireHandler adds no timer of its
     // own. Rides the same cadence the retired cleartext TLM loop used.
+    // Both handlers are driven on this ONE shared cadence -- neither
+    // gets its own timer -- so a stalled gap on either transport is
+    // re-nacked no less often than before this ticket added the second
+    // handler.
     const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
     if (static_cast<int32_t>(nowMs - lastEmitMs) >=
         static_cast<int32_t>(kReliabilityEmitPeriodMs)) {
       wireHandler_.emitTelemetry();
+      wireHandlerRadio_.emitTelemetry();
       lastEmitMs = nowMs;
     }
 

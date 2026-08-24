@@ -1,8 +1,10 @@
 ---
 id: '001'
 title: 'Radio becomes a second v6 transport: second WireHandler + RadioSink + RX routing'
-status: open
-use-cases: [SUC-001, SUC-002]
+status: in-progress
+use-cases:
+- SUC-001
+- SUC-002
 depends-on: []
 github-issue: ''
 issue: radio-speaks-full-v6-and-v6-gets-its-telemetry-frame.md
@@ -38,37 +40,37 @@ gets its own periodic emission call on the existing 50 ms cadence.
 
 ## Acceptance Criteria
 
-- [ ] `src/protocol.h` gains a `RadioSink : Wire::Sink` (mirroring the
+- [x] `src/protocol.h` gains a `RadioSink : Wire::Sink` (mirroring the
       existing `SerialSink` exactly: strips the trailing `'\n'`
       `WireHandler::writeLine()` always supplies, since
       `RadioTransport::sendLine()` appends its own) and a second
       `Wire::WireHandler wireHandlerRadio_` member, composed over the
       SAME `wireAdapter_` instance the serial handler already uses (NOT
       a second `WireAdapter`).
-- [ ] `Protocol::run()`'s radio RX branch is extended to mirror the
+- [x] `Protocol::run()`'s radio RX branch is extended to mirror the
       serial branch's existing dual-path logic exactly: a line whose
       first `kOldRunPrefixLen` (4) bytes equal the literal `"RUN:"`
       still goes to `handleRun()` unchanged; every other line
       (including the v6 grammar's own `RUN <name> ... #<id>` verb) goes
       to `wireHandlerRadio_.feed()`. The existing serial branch is
       unchanged.
-- [ ] The periodic-emission block in `run()` calls
+- [x] The periodic-emission block in `run()` calls
       `wireHandlerRadio_.emitTelemetry()` (today's no-arg,
       ack/nack-only signature — unchanged this ticket) alongside the
       existing `wireHandler_.emitTelemetry()` call, on the same 50 ms
       cadence.
-- [ ] A host test proves per-transport reliability isolation: two
+- [x] A host test proves per-transport reliability isolation: two
       independent `Wire::WireHandler` instances (constructible today via
       `wire_grammar_shim.cpp`'s existing `wgCreate()` — no shim change
       needed for this specific property, since `expectedNext_`/
       `gapOutstanding_` are already plain instance members), fed a
       sequence gap on ONE, leave the OTHER's `expectedNext_`/ack stream
       and `malformedCount()` completely unaffected.
-- [ ] A `RUN:pivot:180`-style line fed to `wireHandlerRadio_`'s
+- [x] A `RUN:pivot:180`-style line fed to `wireHandlerRadio_`'s
       composition path (via `Protocol::run()`, or a targeted unit-level
       check of the prefix branch) still dispatches through the
       unchanged `handleRun()`/MessageBus bridge, not the v6 grammar.
-- [ ] `test.ts`'s existing bench tooling (which speaks the old
+- [x] `test.ts`'s existing bench tooling (which speaks the old
       colon-separated `RUN:` form) is unaffected — no `test/test.ts`
       changes required by this ticket.
 

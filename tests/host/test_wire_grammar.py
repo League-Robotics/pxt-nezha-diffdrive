@@ -872,6 +872,34 @@ def test_run_with_return_value_golden_vector(wg):
 
 
 # ---------------------------------------------------------------------------
+# Sprint 004 ticket 001's own RX-routing acceptance criterion: a
+# `RUN:pivot:180`-style line (the OLD colon-separated cleartext form,
+# now carved out on radio too, alongside serial) still dispatches
+# through the unchanged handleRun()/MessageBus bridge, never the v6
+# grammar. Protocol::run() -- where the literal-prefix branch that
+# makes this routing decision actually lives -- is CODAL-bound and has
+# no host shim (protocol.h pulls in pxt.h transitively), so that
+# routing decision itself is verified by code review, per the ticket's
+# own testing plan (a direct structural mirror of serial's own,
+# already-tested branch). What IS host-testable, and is checked here,
+# is the other half of why that routing decision matters: this old
+# form is not itself valid v6 grammar, so if a caller's routing ever
+# skipped the prefix check, this line would NOT reach RUN's real
+# onRun() effect the way the routing's target (handleRun()) does --
+# unlike the space-separated `RUN <name> ... #<id>` form the golden
+# vectors above exercise, it carries no mandatory trailing `#<id>` at
+# all, so the reliability layer cannot even classify it.
+# ---------------------------------------------------------------------------
+
+
+def test_colon_form_legacy_run_is_not_v6_grammar(wg):
+    wg.feed(b"RUN:pivot:180\n")
+    assert wg.take_sink() == b""
+    assert wg.run_calls == 0
+    assert wg.malformed_count == 1
+
+
+# ---------------------------------------------------------------------------
 # Regression guard for ticket 001's own harness (per the ticket's
 # Testing plan: "confirms this ticket did not break it").
 # ---------------------------------------------------------------------------
