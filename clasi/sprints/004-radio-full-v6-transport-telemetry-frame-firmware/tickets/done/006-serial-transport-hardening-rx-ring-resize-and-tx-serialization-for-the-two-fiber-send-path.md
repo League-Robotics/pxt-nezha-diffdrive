@@ -2,7 +2,7 @@
 id: '006'
 title: 'Serial transport hardening: RX ring resize and TX serialization for the two-fiber
   send path'
-status: in-progress
+status: done
 use-cases:
 - SUC-007
 depends-on:
