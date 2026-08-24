@@ -771,6 +771,19 @@ namespace diffDrive {
     let simMoveRemainRad = 0
     let simMoveActive = false
 
+    // E-stop latch (sprint 007 ticket 004, closes R-13/BLK-07): mirrors
+    // hardware's estopLatch_ (diffdrive.h/.cpp). Set by _estopAll(),
+    // cleared only by _estopClear(); gates _setWheels()/_driveTwist()/
+    // _startMove() at INTAKE, mirroring checkCommandable()'s
+    // Status::kRefusedEstopped gate -- not a per-tick override like
+    // step()'s own `effective = kModeNeutral` (diffdrive.cpp), because
+    // nothing else in this simulator can introduce velocity between
+    // calls, so intake refusal alone is sufficient. _stopAll() (plain
+    // "stop") deliberately never touches this latch, the same
+    // stop-vs-latch distinction shims.cpp's deliverStopNow() documents
+    // for hardware.
+    let simEstopped = false
+
     // Tick-engine sim state (sprint 002): _tickDrive()'s simulator body
     // mirrors shims.cpp's absolute-deadline pacing (tickDrive(), 24 ms
     // cadence) so a simulator-run program is timing-observable the same
@@ -834,14 +847,28 @@ namespace diffDrive {
     //% shim=diffDrive::setWheels
     function _setWheels(left: int32, right: int32): void {
         simIntegrate()
+        if (simEstopped) return
         simVel = (left + right) / 2
-        simYawRate = ((right - left) / 10) / 115  // [rad/s] over track
+        // Differential-drive kinematics: omega [rad/s] = (v_right -
+        // v_left) [mm/s] / trackWidth [mm] -- the same relation
+        // _driveTwist() below applies in reverse (its hardware shim
+        // computes `twistMmS = yawRad * 0.5 * effectiveTrackWidth()`,
+        // shims.cpp), and the divisor hardware itself uses via
+        // effectiveTrackWidth() (motion_engine.h). 115 here is this
+        // simulator's fixed stand-in for the caliper-measured
+        // trackWidth_ (114.2 mm, motion_engine.h) -- setGeometry() is
+        // a no-op in the simulator (see _setGeometry below), so there
+        // is no live value to read. (Previously divided by 10 first
+        // as well, an erroneous effective 1150 mm track that turned
+        // 10x too slowly -- R-12/BLK-06.)
+        simYawRate = (right - left) / 115  // [rad/s]
         simMoveActive = false
     }
 
     //% shim=diffDrive::driveTwist
     function _driveTwist(speed: int32, yawRate: int32): void {
         simIntegrate()
+        if (simEstopped) return
         simVel = speed
         simYawRate = (yawRate / 100) * Math.PI / 180
         simMoveActive = false
@@ -851,6 +878,7 @@ namespace diffDrive {
     function _startMove(distance: int32, yaw: int32, speed: int32,
         yawRate: int32): void {
         simIntegrate()
+        if (simEstopped) return
         simMoveRemainMm = Math.abs(distance)
         simMoveRemainRad = Math.abs(yaw / 100) * Math.PI / 180
         let duration = 0
@@ -960,10 +988,13 @@ namespace diffDrive {
     //% shim=diffDrive::estopAll
     function _estopAll(): void {
         _stopAll()
+        simEstopped = true
     }
 
     //% shim=diffDrive::estopClear
-    function _estopClear(): void { }
+    function _estopClear(): void {
+        simEstopped = false
+    }
 
     // Stall latch clear/readback (sprint 007 ticket 001): no-ops in the
     // simulator -- there is no stall model in the browser, matching

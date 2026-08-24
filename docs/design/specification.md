@@ -270,6 +270,17 @@ reproduction of the closed-loop control law:
 - `updateMove`/`progress`/`endMove`/`stopAll` mirror the hardware
   shim's move-engine contract (§9) against the simulated state instead
   of the kernel's real output.
+- `emergencyStop`/`clearEmergencyStop`: `emergencyStop` performs the
+  same reset as `stopAll` and additionally sets a `simEstopped` latch;
+  `clearEmergencyStop` clears it. While latched, `setWheelSpeeds`/
+  `driveTwist`/`startMove` are refused at intake — mirroring
+  hardware's `estopLatch_` (§6.4), checked by `checkCommandable()` —
+  and leave `simVel`/`simYawRate`/`simMoveActive` untouched; there is
+  no per-tick equivalent of the kernel's own `effective = kModeNeutral`
+  override (§6.3) because nothing else in the simulator can introduce
+  velocity between calls, so an intake-time refusal is sufficient.
+  `stopAll` never sets or clears this latch, matching hardware's
+  stop-vs-latch distinction (§9's `deliverStopNow()`).
 - `poseX`/`poseY`/`poseHeading`/`resetPose` read/reset the simulated
   pose.
 - `setGeometry`/`setKernelValue` are no-ops in the simulator — track

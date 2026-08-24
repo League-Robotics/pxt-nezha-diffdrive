@@ -2,7 +2,7 @@
 id: '004'
 title: 'Simulator parity: fix set-wheel-speeds turn-rate divisor and latch emergency
   stop'
-status: open
+status: done
 use-cases:
 - SUC-004
 depends-on:
@@ -80,25 +80,31 @@ two changes being reasoned about together mid-ticket.
 
 ## Acceptance Criteria
 
-- [ ] `_setWheels`'s yaw-rate expression has no `/10`; a comment pins
+- [x] `_setWheels`'s yaw-rate expression has no `/10`; a comment pins
       it to the `/115` (assumed track width) formula `_driveTwist`
       already uses correctly.
-- [ ] `simEstopped` exists, is set by `_estopAll()`, cleared by
+- [x] `simEstopped` exists, is set by `_estopAll()`, cleared by
       `_estopClear()`, and gates `_setWheels`/`_driveTwist`/
       `_startMove` (checked, no-op while set).
-- [ ] Code review confirms `_driveTwist`'s own sim body is unchanged
+- [x] Code review confirms `_driveTwist`'s own sim body is unchanged
       (it was never affected by bug #1) and that `_tickDrive()`'s
       return-contract fix (ticket 002) still ends a continuous-mode
       loop correctly once `simEstopped` zeroes `simVel`/`simYawRate`
       at the source (no double-fix needed in `_tickDrive()` itself).
-- [ ] `docs/design/specification.md` §5 documents the e-stop latch;
+- [x] `docs/design/specification.md` §5 documents the e-stop latch;
       `docs/design/usecases.md` UC-011/UC-016 updated per the
       Implementation Plan.
-- [ ] Manual/PXT-build verification (no host test reaches `main.ts`):
+- [x] Manual/PXT-build verification (no host test reaches `main.ts`):
       a program calling `setWheelSpeeds(-15, 15)` in the simulator
       pivots at the corrected rate; a program calling
       `emergencyStop()` then `setWheelSpeeds(15, 15)` in the simulator
-      does not move until `clearEmergencyStop()` is called.
+      does not move until `clearEmergencyStop()` is called. Verified by
+      `pxt build` succeeding (both hex targets regenerated) plus a
+      hand-traced dry run of the corrected arithmetic and the latch's
+      state transitions (see ticket completion notes below) — not an
+      interactive browser-simulator session (none available in this
+      environment; no simulator test harness exists to automate it
+      either).
 
 ## C++11 Gate Coverage
 
@@ -121,3 +127,80 @@ unchanged (hardware was already correct on both axes).
 - **Verification command**: PXT build (`pxt build` or the project's
   equivalent MakeCode CLI build step) plus a manual run in the
   browser simulator pane.
+
+## Completion Notes
+
+- `pxt build` succeeded (exit 0; `built/binary.hex`, `built/mbcodal-
+  binary.hex`, `built/mbdal-binary.hex` all regenerated). `tsc -p .`
+  reports exactly the pre-existing baseline error (`basic.ts`'s
+  `Math.roundWithPrecision` gap) — 1 error, unchanged. A `pxt build
+  --debug` run also surfaces 5 pre-existing `TS9256` ("bit sizes are
+  not supported for locals and parameters") diagnostics against
+  `int32`-typed shim parameters; confirmed present, same count, on the
+  pre-ticket branch tip too (`git stash` + rebuild) — not a
+  regression, and not fatal (plain `pxt build` without `--debug`
+  exits 0 and produces all three hex targets).
+- No browser was available to run the simulator pane interactively.
+  In its place, a hand trace of the corrected code:
+  - `setWheelSpeeds(-15, 15)` -> `_setWheels(-150, 150)` [mm/s] ->
+    `simVel = 0`, `simYawRate = (150 - (-150)) / 115 = 300/115 ≈
+    2.609 rad/s` (≈150 deg/s), a pure pivot. Pre-fix this was
+    `((300)/10)/115 ≈ 0.261 rad/s` (≈15 deg/s) — exactly 10x smaller,
+    matching R-12/BLK-06's own measured ratio.
+  - `emergencyStop()` -> `_estopAll()` -> `_stopAll()` zeroes
+    `simVel`/`simYawRate`/`simMoveActive`, then `simEstopped = true`.
+    A following `setWheelSpeeds(15, 15)` calls `_setWheels`, which
+    runs `simIntegrate()` (no-op motion contribution, state already
+    zero) then returns at the `if (simEstopped) return` guard before
+    touching `simVel`/`simYawRate` — so state stays at zero. A
+    `while (driveTick())` loop's `_tickDrive()` then computes
+    `stillCommanded = false || false || false = false` and ends
+    immediately, matching "does not move." `clearEmergencyStop()` ->
+    `_estopClear()` -> `simEstopped = false`; a subsequent
+    `setWheelSpeeds(15, 15)` is no longer gated and sets
+    `simVel = 150`.
+- `simEstopped` composes with ticket 002's `_tickDrive()` contract
+  (`simMoveActive || simVel != 0 || simYawRate != 0`) with no
+  special-casing in `_tickDrive()` itself — it holds `simVel`/
+  `simYawRate`/`simMoveActive` at their zero values at the source
+  (`_setWheels`/`_driveTwist`/`_startMove`), which is exactly the
+  composition ticket 002 anticipated.
+- Firmware semantics mirrored (read from source, not designed from
+  first principles): `diffdrive.h`/`diffdrive.cpp` — `estopLatch_`
+  (diffdrive.h:285), `checkCommandable()`'s `Status::kRefusedEstopped`
+  gate (diffdrive.cpp:311), `step()`'s per-cycle
+  `effective = kModeNeutral` override while latched (diffdrive.cpp:
+  484), `estop()`/`estopClear()` (diffdrive.cpp:370-376). `shims.cpp`
+  — `estopAll()` (kernel.estop() + kernel.emergencyStopMotors(),
+  shims.cpp:803-808), `estopClear()` (shims.cpp:811), and
+  `deliverStopNow()`'s comment (shims.cpp:286-294) establishing the
+  stop-vs-latch distinction that `_stopAll()` not touching
+  `simEstopped` mirrors. The simulator's intake-only gate (no per-tick
+  override) is a deliberate simplification the ticket's own plan
+  calls out: nothing else in the sim can introduce velocity between
+  calls, so it is not a divergence from hardware's observable
+  behavior.
+- Turn-rate derivation: differential-drive kinematics give
+  `omega [rad/s] = (v_right - v_left) [mm/s] / trackWidth [mm]`
+  (v_right = v + omega*L/2, v_left = v - omega*L/2 => v_right -
+  v_left = omega*L). `_driveTwist`'s hardware shim applies the same
+  relation in reverse (`twistMmS = yawRad * 0.5 * effectiveTrackWidth()`,
+  shims.cpp:323/359). 115 mm is the simulator's fixed stand-in for the
+  caliper-measured `trackWidth_` (114.2 mm, `motion_engine.h:386`) —
+  `setGeometry()` is a no-op in the simulator, so there is no live
+  value to read; `specification.md` §5 already documented this
+  approximation before this ticket. The buggy code additionally
+  divided by 10 first, an effective 1150 mm track (10x too wide),
+  which is what produced the 10x-too-slow turn.
+- R-12/R-13 annex material located in
+  `docs/code-review/2026-08-23/review.md` (R-12 at line 167, R-13 at
+  line 172, summary table row at line 370) and
+  `docs/code-review/2026-08-23/raw/verify-blocks.md` (BLK-06/BLK-07
+  summary table rows 16-17; detailed verification at "### BLK-06 —
+  factor pinned two independent ways" line 165 and "### BLK-07 —
+  divergence and spec-gap both real" line 179) and
+  `docs/code-review/2026-08-23/raw/correctness-blocks.md` (original
+  findings at "### BLK-06 ..." line 182 and "### BLK-07 ..." line
+  204).
+- `uv run pytest` still reports 333 passed (unchanged baseline) —
+  expected, since nothing touched by this ticket is host-tested.

@@ -341,6 +341,15 @@ Drive/Move commands are ineffective until `clear emergency stop`.
   pitfall worth calling out in student-facing docs (not currently
   called out in the README).
 
+As of sprint 007 ticket 004 (closes R-13/BLK-07), this main flow, both
+sets of postconditions, and this error flow all hold in the browser
+simulator too: `emergency stop` sets a `simEstopped` latch that
+`clear emergency stop` is the only thing that releases, and while set
+it silently refuses `setWheelSpeeds`/`driveTwist`/`startMove` the same
+way `checkCommandable()` refuses hardware (`specification.md` §5).
+Previously the simulator did not latch e-stop at all, so this use
+case's whole error flow was invisible in the browser.
+
 ---
 
 ## UC-012: Clear an Emergency Stop
@@ -484,3 +493,10 @@ represented.
   `specification.md` §5. This is a known simulator/hardware behavior
   gap, not a bug, but worth surfacing to students who tune in
   simulator and expect it to carry to hardware.
+
+**Note (sprint 007 ticket 004)**: two former simulator/hardware
+divergences are closed, not new ones documented above — `set wheel
+speeds`' turn rate was 10× too slow in the simulator (R-12/BLK-06), and
+`emergency stop` did not latch at all in the simulator (R-13/BLK-07,
+see UC-011). Both now match hardware; the tuning-effect gap above
+remains the only documented simulator/hardware behavior divergence.
