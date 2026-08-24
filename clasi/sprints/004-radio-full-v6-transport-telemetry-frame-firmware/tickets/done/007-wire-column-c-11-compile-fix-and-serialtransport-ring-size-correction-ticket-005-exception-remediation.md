@@ -2,7 +2,7 @@
 id: '007'
 title: Wire::Column C++11 compile fix and SerialTransport ring-size correction (ticket
   005 exception remediation)
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 - SUC-005

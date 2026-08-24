@@ -793,6 +793,64 @@ compatibility break for existing `STATUS` consumers.
    a regression from a previously-working state (the underlying R-19/
    R-20 defects were already present, just previously undocumented).
 
+### Revision (ticket 005 exception, remediated by ticket 007)
+
+Ticket 005's bench checkpoint threw an exception instead of producing a
+flashable hex, and the diagnosis surfaces a real architectural gap in
+this project's **test strategy** — not just a one-off bug in ticket
+004's code — that this Architecture section and the Test Strategy
+section above both implicitly assumed away. Recorded here so the next
+sprint planner inherits it rather than rediscovering it the same way.
+
+**What was found**: this project's host test suite
+(`tests/host/`) compiles the firmware's portable C++ at
+`-std=c++20` (`tests/host/test_kernel_harness.py:72`), while BOTH real
+embedded build targets (legacy mbed-classic/yotta
+`bbc-microbit-classic-gcc` and codal-microbit-v2) compile at
+`-std=c++11`, baked into the pxt-microbit target's own yotta/CMake
+toolchain files and not overridable from this project's `pxt.json`. The
+gap is nine language-standard versions wide. `Wire::Column`'s default
+member initializers (`src/wire_handler.h:157-161`, ticket 004) are legal
+C++20 but disqualify the struct from being a C++11 aggregate, so the
+~20 `columns_[i++] = {...}` brace-assignment sites in
+`WireAdapter::buildSnapshot()` compiled clean against 253 passing host
+tests while being **uncompilable for the actual robot** — this Test
+Strategy section's own framing ("Host-testable, no hardware required for
+this sprint's completion") is only true for behavior; it says nothing
+about target-language-standard conformance, and this sprint's own
+architecture text did not flag that gap before it cost most of a bench
+checkpoint to surface. Separately (same root cause class, different
+mechanism): `SerialTransport::begin()`'s `kRingBytes` truncated
+silently on assignment to the real `uint8_t` `setRxBufferSize()`/
+`setTxBufferSize()` parameter — a class of defect (a real embedded API
+constraint invisible to a host-only build) related to but distinct from
+the language-standard gap.
+
+**Disposition**: the language-standard gap is filed as its own issue,
+`host-tests-compile-newer-standard-than-target.md`, claimed by sprint
+008 — that issue owns the systemic fix (candidates: compile the host
+suite at `-std=c++11`; add a permanent `-std=c++11 -fsyntax-only` gate
+over the host-portable subset of `src/`; or gate a real build into CI/
+sprint-close). This sprint does not attempt that systemic fix. Ticket
+007 (added post-exception) fixes only the two confirmed instances —
+`Wire::Column` gets an explicit defaulted default constructor plus a
+3-argument converting constructor (keeping its NSDMIs, requiring zero
+call-site changes); `SerialTransport::kRingBytes` becomes
+`constexpr uint8_t kRingBytes{255}` (the real hard ceiling, brace-
+initialized so a future over-255 value is a compile error, not a
+repeat of this silent truncation) — and, if it stays cheap, adds a
+narrowly-scoped four-file `-std=c++11 -fsyntax-only` check as a partial,
+non-systemic down payment on the filed issue's option 2. Ticket 005 is
+then recovered and re-attempted against the fixed code.
+
+**No change to this section's module boundaries, responsibilities, or
+diagrams above** — the revision is confined to one struct's constructor
+set and one constant's type/value inside two already-touched modules
+(`src/wire_handler.{h,cpp}`, `src/serial_transport.{h,cpp}`); it does not
+add a module, a cross-module dependency, or a data-model change, so it
+does not itself reopen the compact-vs-substantial sizing decision this
+sprint already made.
+
 ## Use Cases
 
 None of `docs/design/usecases.md`'s UC-001..UC-016 cover wire-protocol
@@ -1032,8 +1090,15 @@ Before tickets can be created, all of the following must be true:
 | 003 | Telemetry frame formatting: Column/Snapshot, thdr/t, header memo, emitTelemetry/emitReliability split | 001 |
 | 004 | WireAdapter telemetry projection: buildSnapshot, shared computeFlags, POSE/FULL columns, STATUS i2cf=, STATUS otos= (R-22) | 003 |
 | 005 | Phase C bench checkpoint: flashable hex and stakeholder handoff notes | 002, 004, 006 |
+| 007 | Wire::Column C++11 compile fix and SerialTransport ring-size correction (ticket 005 exception remediation) | — |
 
-Tickets execute serially in the order listed. Phase A (001-002) and
+Tickets execute serially in the order listed, **except 007**: added
+after ticket 005 threw an exception (see this section's Architecture
+Revision note above), 007 has no dependencies (every other ticket is
+already `done`) but must land, with the full suite and a real
+`make_deploy.py` build both green, before ticket 005 is recovered and
+re-attempted — 007 is what makes 005's own acceptance criteria
+satisfiable at all. Phase A (001-002) and
 Phase B (003-004) are each internally ordered by real dependency (002
 needs 001's second handler to exist before its guard matters; 004 needs
 003's split `emitTelemetry(snapshot)` signature to call); 003 does not

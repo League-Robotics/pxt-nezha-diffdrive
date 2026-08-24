@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: 'Phase C bench checkpoint: flashable hex and stakeholder handoff notes'
-status: exception
+status: open
 use-cases:
 - SUC-006
 depends-on:
