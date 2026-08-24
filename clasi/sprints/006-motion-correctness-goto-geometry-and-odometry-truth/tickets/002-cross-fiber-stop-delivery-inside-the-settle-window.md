@@ -1,8 +1,9 @@
 ---
 id: '002'
 title: Cross-fiber stop delivery inside the settle window
-status: open
-use-cases: [SUC-002]
+status: in-progress
+use-cases:
+- SUC-002
 depends-on: []
 github-issue: ''
 issue: cross-fiber-stop-settle-window-race.md
@@ -72,31 +73,48 @@ target-build evidence for this ticket's changes.
 
 ## Acceptance Criteria
 
-- [ ] A host test scripts a stop call (via `stopAll`'s or `endMove`'s
+- [x] A host test scripts a stop call (via `stopAll`'s or `endMove`'s
       C++ entry point, or the `updateMove()` completion path) landing
       inside the settle window, using the existing
       `FakeMotor`/`FakeSleeper`/`FakeClock` harness pattern to control
       when the "other fiber" call happens relative to `step()`'s
       sleeps, and asserts the motor's commanded duty reads zero within
       that same tick — not after an additional watchdog-scale delay.
-- [ ] No new fiber or ticker is introduced; `tickDrive()`'s existing
+      Verified by test: `tests/host/test_cross_fiber_stop_settle_window.py::
+      test_cross_fiber_stop_during_settle_window_zeros_duty_within_the_same_tick`
+      (parametrized over both of `step()`'s two settle sleeps), exercising
+      the kernel-level primitive (`Motor::emergencyStop()`, via a new
+      `FakeSleeper.onSleep` hook) `deliverStopNow()` is built on — not
+      `shims.cpp` itself, which is not host-linkable (see report).
+- [x] No new fiber or ticker is introduced; `tickDrive()`'s existing
       settle-loop (the 12-iteration post-move loop) is left
       structurally unchanged — this ticket's fix is placed in
       `stopAll()`/`endMove()`/`updateMove()`, not inside that loop, so
       it does not collide with `settle-tick-loop-is-not-host-testable`
       (sprint 008)'s planned extraction of that loop's logic.
-- [ ] The fix does not set `estopLatch_` — a fresh `tickDrive()` call
+      Verified by code review of the diff (not host-testable): `tickDrive()`
+      in `src/shims.cpp` is byte-for-byte unchanged; the fix is a single
+      `static void deliverStopNow(Rig&)` helper called synchronously from
+      `stopAll()`/`endMove()`/`updateMove()` only.
+- [x] The fix does not set `estopLatch_` — a fresh `tickDrive()` call
       after the stop resumes motion with no `clearEmergencyStop()`
       needed. Assert this directly (kernel accepts a new `drive()` call
       without refusal after the fix fires).
-- [ ] A host test confirms a corrupted collect landing during this
+      Verified by test: the same test above additionally asserts
+      `kernel.output().estopped == 0` and that a subsequent `drive()`
+      call returns `STATUS_OK` after the stop fires.
+- [x] A host test confirms a corrupted collect landing during this
       exact window (scripted via the fake motor's collect-failure path)
       increments `i2cFaultCount_` / holds the last-good sample, rather
       than being silently accepted as a valid new reading (closes the
       known risk noted above).
-- [ ] Existing `tests/host/test_regression_post_move_neutral.py` and
+      Verified by test: `tests/host/test_cross_fiber_stop_settle_window.py::
+      test_cross_fiber_stop_with_corrupted_collect_holds_last_good_sample`.
+- [x] Existing `tests/host/test_regression_post_move_neutral.py` and
       any other tests exercising `stopAll`/`endMove`/`updateMove`
       still pass unchanged.
+      Verified: full host suite run, 268 passed (265 baseline + 3 new),
+      no failures or changed behavior in any existing test.
 
 ## Implementation Plan
 

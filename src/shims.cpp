@@ -232,6 +232,44 @@ static void odomUpdate(Rig& r) {
   r.heading += dHeading;
 }
 
+// ---- cross-fiber stop delivery (sprint 006 ticket 002) -----------------
+// Closes R-08/BLK-01 (code review 2026-08-23, independently re-derived in
+// verify-blocks.md): kernel.neutral() only STAGES a zero command
+// (diffdrive.cpp) -- delivery to the motors happens solely on a LATER
+// kernel.step(), and step()'s own duty write happens BEFORE its two
+// ~4 ms-per-wheel encoder settle sleeps. A stop or move-completion issued
+// from a fiber other than the one currently inside step()'s settle
+// window therefore stages a neutral that is not delivered until that
+// step() returns AND another step() runs -- which, if the very call that
+// staged it is what ended a `while (tickDrive())` loop (the common
+// case), never happens until the ~100-150 ms starvation watchdog fires:
+// the same class of bug commit 3e919e5 fixed for the in-fiber
+// (move-completion) case, reopened here for the cross-fiber case.
+//
+// This helper pushes an immediate, PORT-LEVEL zero write to both
+// motors -- the exact primitive the starvation watchdog below already
+// uses (NezhaMotorPort::emergencyStop(), proven tick-independent by its
+// exact-zero short-circuit in writeShapedDuty()) -- alongside the
+// pre-existing staged kernel.neutral()/engine.endMove() at each call
+// site. That delivers the stop within the SAME tick regardless of where
+// in the settle window the race lands, adds no new fiber/ticker (a
+// synchronous call on whichever fiber is already running -- the
+// one-ticker-per-move invariant is unaffected), and never touches the
+// vendored kernel (diffdrive.{h,cpp} stay byte-unchanged).
+//
+// Deliberately calls the MOTOR ports directly, exactly as the watchdog
+// does, and never kernel.emergencyStopMotors() -- that kernel-level
+// method also latches estopLatch_ as an (undocumented) side effect
+// (diffdrive.cpp), which would turn this resumable soft stop into a
+// hard e-stop requiring clearEmergencyStop(). Calling the ports directly
+// stays in the same resumable "soft stop" family stopAll()/the watchdog
+// already established: a fresh drive()/tickDrive() call resumes motion
+// with no clear step needed.
+static void deliverStopNow(Rig& r) {
+  r.left.emergencyStop();
+  r.right.emergencyStop();
+}
+
 // ---- velocity commands ----------------------------------------------
 
 // setWheels()/driveTwist() and their two timed variants below are now
@@ -421,7 +459,19 @@ bool updateMove() {
   // otherwise.
   const bool wasActive = r.engine.isMoveActive();
   if (wasActive) odomUpdate(r);
-  return r.engine.serviceMove();
+  const bool moveActive = r.engine.serviceMove();
+  // Cross-fiber stop delivery (sprint 006 ticket 002, BLK-01(b)): this
+  // poller's own call path -- isMoving() (moveProgress() is read-only;
+  // see verify-blocks.md's BLK-12 spot check, which confirmed
+  // isMoving()'s "checks state only" doc is false but REFUTED that same
+  // claim for moveProgress()) -- can end a move at its deadline backstop
+  // without tickDrive() ever running. Mirrors tickDrive()'s own
+  // wasActive && !moveActive gate, but delivers the port write HERE
+  // instead of relying on a settle-loop re-step this call path never
+  // runs. See deliverStopNow()'s own comment above for the full
+  // write-up.
+  if (wasActive && !moveActive) deliverStopNow(r);
+  return moveActive;
 }
 
 // ---- tick engine (sprint 002) -----------------------------------------
@@ -649,6 +699,9 @@ int progress() {  // [0..1000]
 void endMove() {
   if (rig == nullptr) return;
   rig->engine.endMove();
+  // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop move"
+  // block's own entry point -- see deliverStopNow()'s comment above.
+  deliverStopNow(*rig);
 }
 
 // ---- stopping -------------------------------------------------------
@@ -658,6 +711,10 @@ void stopAll() {
   Rig& r = ensure();
   r.engine.endMove();
   r.kernel.neutral();
+  // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop" block
+  // and the wire's STOP verb both land here -- see deliverStopNow()'s
+  // comment above.
+  deliverStopNow(r);
 }
 
 //%
