@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '007'
+tickets:
+- 007-004
 ---
 
 # Simulator parity: setWheelSpeeds turns 10× too slowly; e-stop never latches

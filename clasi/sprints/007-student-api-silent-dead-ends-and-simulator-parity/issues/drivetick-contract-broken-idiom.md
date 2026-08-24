@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '007'
+tickets:
+- 007-002
 ---
 
 # The documented `while (driveTick())` idiom stops the robot in ~150 ms

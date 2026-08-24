@@ -1,9 +1,15 @@
 ---
 id: '007'
 title: 'Student API: silent dead-ends and simulator parity'
-status: roadmap
+status: ticketing
 branch: sprint/007-student-api-silent-dead-ends-and-simulator-parity
-use-cases: []
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+- SUC-005
+- SUC-006
 issues:
 - stall-latch-invisible-dead-end.md
 - drivetick-contract-broken-idiom.md
@@ -148,47 +154,299 @@ conversion it's meant to mirror, not by a new test harness.)
 
 ## Architecture
 
-N/A — roadmap phase. Architecture is written and sized (trivial /
-compact / substantial, per issue) during Detail Mode planning.
+**Sizing: Substantial.** Five modules are touched with real behavioral
+effect (`main.ts`, `shims.cpp`, `motion_engine.h`, `wire_adapter.cpp/h`,
+`wire_handler.h/cpp`), plus a genuine wire-protocol data-model change:
+three new named fields join the `ConfigField`/`kFields` table
+(`default_cruise`, `rotational_slip`, `stall_clear`), each independently
+GET/SET-able and each individually host-tested. That crosses the
+compact tier's "no data-model change" line on its own.
 
-### Architecture Overview
+This project has opted into the persistent per-subsystem design-doc
+overlay model (`design_docs: enabled`), so the full architecture
+write-up — the 7-step methodology, module table, Design Rationale,
+Migration Concerns, and Open Questions — lives in this sprint's
+`design/` overlay, not here: see
+[`design/DESIGN.md`](design/DESIGN.md) §13 "Sprint 007 — architecture
+diagram and change summary" (the edited copy; inline `Sprint 007:`
+annotations also land in §3, §4, §5, §9, and §10 where the changed
+modules already have sections). `docs/design/design.md` (the system
+doc) was evaluated and **not** seeded — the Geometry doctrine section
+it already states (`rotationalSlip` is where all rotational correction
+lives, never `trackWidth`) is unchanged by this sprint; this sprint
+makes that already-correct doctrine's field reachable, it does not
+revise the doctrine.
 
-(Deferred to Detail Mode.)
+**Correction found during self-review:** `specification.md` and
+`usecases.md` were initially seeded into this overlay alongside
+`DESIGN.md`, but `validate_design` correctly rejected both —
+`sources:` in `.clasi/config.yaml` is `[src, tools, tests, test]`, and
+the canonical doc set this project's overlay/apply machinery
+recognizes is `docs/design/design.md` plus one `DESIGN.md` per
+declared source root; `specification.md`/`usecases.md` (and
+`overview.md`) are pre-opt-in legacy docs at `docs/design/` that
+`validate_design` explicitly flags as "not a known canonical design
+doc" when seeded. They have been removed from this overlay
+(`design/_sources.json` now lists only `DESIGN.md`). The edits this
+sprint needs there (specification.md §2/§4.2/§4.8/§5; usecases.md
+UC-002/UC-011/UC-012/UC-013/UC-015/UC-016) are instead written directly
+into the relevant tickets' Implementation Plans below, to be applied by
+the programmer agent during normal ticket execution on the sprint
+branch — the same treatment this sprint already gives `README.md`,
+`tsconfig.json`, and `pxt.json`, none of which are canonical-doc-set
+members either.
 
-### Design Rationale
+**Known tooling gap, not a content defect:** `validate_design` also
+reports `design/DESIGN.md has no corresponding diff file` — this
+project's installed CLASI build exposes no `generate_diffs` MCP tool
+or CLI subcommand (`clasi design validate`, `clasi tool`, `clasi
+sprint`, and the `clasi.design.overlay` module were all checked; none
+exposes it). The overlay's actual *content* — what `close_sprint`
+applies verbatim — is complete; only the reviewer-convenience
+`.diff.md` sibling `architecture-review` normally reads could not be
+generated. This review instead diffed `design/DESIGN.md` directly
+against its seed commit (`git diff <seed-commit>`) as a substitute —
+the same mechanism the stakeholder's own review path already uses.
+Flagging for the team-lead/stakeholder: either add the missing tool,
+or treat `git diff` against the seed commit as the standing substitute
+for `.diff.md` generation project-wide.
 
-(Deferred to Detail Mode.)
+**Summary for readers of this file alone** (see the overlay for full
+detail): the stall latch (already correctly detected and readable
+inside the kernel's `Output`) gets its first caller for
+`clearStallLatch()` — a dedicated block plus a SET-able `stall_clear`
+wire field — and a named, documented readback (`isStalled()` block;
+`probe(2)`'s doc comment gains its ordinal's name). `tickDrive()`
+(`shims.cpp`) and its simulator mirror `_tickDrive()` (`main.ts`) start
+returning "does anything still look commanded" — reusing
+`commandLooksActive()`, a helper sprint 006 already proved correct in
+production for the starvation watchdog — instead of raw move-engine
+state, which is what makes the documented `while (driveTick())`
+continuous-drive idiom (README ×2, spec §4.2, UC-002) actually work;
+no doc-site prose needs rewriting, only a cross-reference to the new
+regression test that now pins the contract. The wire's `cruise == 0`
+"configured default" sentinel stops deriving from `fullDutyVelocity`
+(the kernel's unrelated "0 = uncalibrated, refuse" sentinel) and reads
+a new, independently configured `default_cruise` field instead (seeded
+150 mm/s, matching the block layer's own `defaultSpeed`) — the four
+motion verbs' existing refusal-on-`<=0` logic is untouched. The browser
+simulator's `set wheel speeds` drops a stray `/10` (10× too slow) and
+gains a `simEstopped` latch so `emergency stop` now refuses further
+motion in the browser exactly as it does on hardware (UC-011's "forgot
+to clear" trap is no longer invisible where students develop).
+`MotionEngine::setRotationalSlip()` joins the two existing geometry
+setters, reachable through the existing generic `set config` block plus
+a new `rotational_slip` wire field. Six independent, low-risk hygiene
+items round out the sprint: a null-guard for `runArgCount()`, a
+derived-size `kCommandTable` (closing an under-initialization hazard),
+a reordered `diagValue()` switch case, two clamped wire-boundary casts,
+a dead-code/JSDoc/build-config cleanup batch, and a documented (not
+deleted) rationale for the `microphone` `pxt.json` dependency. The
+vendored kernel (`diffdrive.{h,cpp}`) is untouched throughout — every
+kernel primitive this sprint needs already existed and was already
+correct; this is a missing-caller and wrong-field-reused problem above
+the kernel, not a kernel change.
 
-### Migration Concerns
-
-(Deferred to Detail Mode.)
+**Known behavior change, not a risk:** a bench host or Python tool that
+has learned to send `cruise 0` *because* it wants full-duty speed will
+get ~150 mm/s instead once ticket 003 lands — the entire point of issue
+3. No in-tree tool does this today (not checked exhaustively — flagged
+in the overlay's Migration Concerns for whoever executes that ticket to
+grep `tools/` before merging).
 
 ## Use Cases
 
-N/A — roadmap phase. Use cases (new or updated UC-002, UC-011, UC-013)
-are written during Detail Mode planning.
+Sized to the substantial tier: full narrative treatment for the two
+use cases students most directly feel (SUC-001, SUC-002), proportional
+treatment for the rest. All six map onto existing project use cases
+(`docs/design/usecases.md`), updating them in place rather than adding
+new UC numbers — none of this sprint's work is a new capability the
+use-case doc doesn't already describe (or misdescribe); it corrects
+existing UCs' error flows and postconditions to match fixed behavior.
+
+### SUC-001: Student discovers a stall latch and clears it without a power cycle
+
+**Actor**: Student/Teacher. **Maps to**: UC-002 (error flow), UC-012
+(sibling clear operation).
+
+**Main flow**: A student's robot pushes into an obstacle for over
+500 ms while a Drive/Move command is in effect. The kernel's existing
+stall detector latches (`stallHalted_ = true`, unchanged kernel
+behavior). The student's program keeps running — no exception, no
+crash — but the robot no longer responds to any Drive/Move block.
+The student checks `is stalled` (new block): it reports `true`. The
+student (or a recovery routine in their own program) places
+`clear stall latch` (new block, advanced group). The latch clears; the
+very next Drive/Move command takes effect normally.
+
+**Postconditions**: The robot is no longer latched; STATUS flags bit 2,
+DIAG ordinal 2, and the new `stall_clear` wire field's GET all agree the
+latch is clear.
+
+**Error flows**: Calling `clear stall latch` when nothing is latched:
+no-op (mirrors `clearEmergencyStop()`'s own precedent). Calling
+`is stalled` in the simulator: always reports `false` — the simulator
+has no stall model (documented, not a defect).
+
+**Updates**: UC-002's error flows bullet on motor stall changes from
+"kernel self-halts... until `clearStallLatch` (not currently exposed as
+a block — see gap noted in the report to team-lead)" to describe the
+new block + wire field. UC-012 gains a sentence pointing at the now-
+available, separate stall-latch clear path instead of only noting the
+gap.
+
+### SUC-002: The documented continuous-drive idiom actually keeps the robot moving
+
+**Actor**: Student/Teacher. **Maps to**: UC-002 (main flow, step 4).
+
+**Main flow**: A student places `set wheel speeds`/`drive ... turning
+...` followed by `while (driveTick())`, exactly as the README, spec
+§4.2, and UC-002 already instruct. Under the fixed contract, each
+`driveTick()` call returns `true` for as long as the wheels are
+actually being commanded (move-engine active, or nonzero applied duty)
+— so the loop body keeps running once per ~24 ms cycle, matching every
+doc site's existing prose. The robot keeps driving until the student's
+own loop body calls `stop()`/`emergencyStop()`, or nothing ticks the
+loop for ~150 ms (starvation watchdog, unchanged, non-latching).
+
+**Postconditions**: identical to UC-002's existing postconditions —
+this SUC changes what is *true*, not what is *documented*.
+
+**Error flows**: A position-mode move (`move()`/`goTo()`, which also
+loop on `while (_tickDrive())` internally) still ends the loop on the
+same tick the move completes — `commandLooksActive()` reads
+`appliedDuty == 0` by then because the settle loop (sprint 006,
+unchanged) already drove it there. No behavior change for blocking
+moves; this SUC is exclusively about the continuous-mode case.
+
+**Updates**: No doc-site content changes (README ×2, spec §4.2, UC-002
+step 4 already describe this correctly) — each gains a one-line
+cross-reference to the new regression test that now pins the contract,
+per the sprint's requirement that all four sites "move together."
+
+### SUC-003: A wire host's `cruise 0` produces a safe, documented speed
+
+**Actor**: A bench host or Python tool issuing raw wire commands (not
+a student's blocks — the block layer has its own independent
+`defaultSpeed` and never emits a literal wire `0`).
+
+**Main flow**: A host sends `WHEELS_X 500 500 0 5000#7` (or the
+equivalent on `MOVE_X`/`GO_TO_R`/`GO_TO_W`). The adapter resolves `0`
+to the new `default_cruise` field (seeded 150 mm/s) instead of
+`fullDutyVelocity`'s ~875 mm/s. A host that wants a different default
+can `SET default_cruise <value>` first.
+
+**Postconditions**: the commanded move runs at the configured default,
+not the duty ceiling. `GET default_cruise` reports the configured
+value on any of the four verbs' behalf.
+
+**Error flows**: `default_cruise` set to `0` (or never configured):
+the existing refusal-on-`<=0` logic in all four verb handlers
+(unchanged) refuses with `kRange`, exactly as it does today when
+`fullDutyVelocity` was the unconfigured source — no new refusal path
+was written, the existing one just now guards a different field.
+
+### SUC-004: Simulator turn rate and e-stop behavior match hardware
+
+**Actor**: Student/Teacher developing in the browser simulator
+(UC-016's actor).
+
+**Main flow**: A student tunes `set wheel speeds` in the simulator; the
+resulting turn rate now matches the `/115` mm-track formula
+`_driveTwist`'s sim body already used correctly, instead of being 10×
+too slow. Separately, a student calls `emergency stop` in the
+simulator; a subsequent `set wheel speeds`/`drive`/`start move` call is
+now silently refused (mirroring hardware's two-layer refusal) until
+`clear emergency stop` — the UC-011 "forgot to clear" trap is now
+reproducible in the browser, where students actually develop.
+
+**Postconditions**: simulator behavior for both axes matches the
+hardware conversion it is meant to mirror.
+
+**Updates**: `specification.md` §5 gains the e-stop-latch bullet it
+currently omits, and its `/115` formula description is unchanged
+(it was already correct — only the code was wrong).
+
+### SUC-005: A non-reference chassis's turn slip is calibratable without recompiling
+
+**Actor**: Teacher/builder setting up a non-reference kit (UC-013's
+actor).
+
+**Main flow**: A teacher measures rotational slip against camera truth
+for their chassis (the doctrine `docs/design/design.md`'s Geometry
+doctrine already describes) and places
+`set config rotational slip to <value>` (generic escape hatch, `>0`
+validated, silently ignored otherwise — matching `setGeometry()`'s own
+error-flow precedent).
+
+**Postconditions**: `MotionEngine::effectiveTrackWidth()` reflects the
+new slip value on every subsequent move/turn.
+
+**Updates**: UC-013 gains a third calibration step (rotational slip)
+alongside the existing track-width/wheel-calibration steps, with the
+same "value <= 0 silently ignored" error flow.
+
+### SUC-006: Boot-safety guard and shim/build hygiene
+
+**Actor**: Any program calling `runArgCount()` before the first RUN
+event; maintainers reading the affected files.
+
+**Main flow**: `runArgCount()` mirrors `runArgText()`'s existing guard
+(`if (!runParts) return 0`) instead of dereferencing an uninitialized
+array. The seven batched Minors (dead `microphone` rationale
+documented, `tsconfig.json` gains `serial.ts`, dead `maxNudges`
+deleted, `goToWorld`'s JSDoc corrected, DIAG case-25 reordered, two
+wire-boundary casts clamped, `kCommandTable`'s size derived) are each
+independent, no-behavior-visible-to-students fixes.
+
+**Postconditions**: no observable change to any documented block/wire
+behavior; the boot-panic class of failure (measured on vevov,
+2026-08-21) is closed for `runArgCount()` specifically.
+
+**Updates**: none to `usecases.md` — none of these are use-case-level
+behavior; `specification.md` §2 gains the `microphone` rationale
+sentence (Design Rationale above).
 
 ## GitHub Issues
 
-(None linked yet — this is a roadmap-phase sprint.)
+None — this sprint claims six local CLASI issues (`clasi/issues/`,
+now moved to this sprint's `issues/` directory), sourced from the
+2026-08-23 code review. No GitHub issue is filed for this sprint.
 
 ## Definition of Ready
 
 Before tickets can be created, all of the following must be true:
 
-- [ ] Sprint planning document is complete (sprint.md, including its
+- [x] Sprint planning document is complete (sprint.md, including its
       Architecture and Use Cases sections)
-- [ ] Architecture review passed (or skipped, for changes with no
+- [x] Architecture review passed (or skipped, for changes with no
       architectural impact)
 - [ ] Stakeholder has approved the sprint plan
 
 ## Tickets
 
-| # | Title | Depends On |
-|---|-------|------------|
+| # | Title | Issue | Depends On |
+|---|-------|-------|------------|
+| 001 | Stall latch: clear path and readback (block, wire SET-action field, docs) | `stall-latch-invisible-dead-end.md` | — |
+| 002 | driveTick() continuous-drive contract: return commandLooksActive, pin with a regression test | `drivetick-contract-broken-idiom.md` | — |
+| 003 | Wire cruise==0 sentinel: split default_cruise from fullDutyVelocity (config field + test-double update) | `cruise-zero-sentinel-full-duty-lunge.md` | — |
+| 004 | Simulator parity: fix set-wheel-speeds turn-rate divisor and latch emergency stop | `simulator-parity-turn-rate-and-estop.md` | 002 |
+| 005 | rotationalSlip setter: MotionEngine + ConfigField/wire field, derivation comment intact | `rotational-slip-not-tunable.md` | — |
+| 006 | runArgCount null guard + main.ts/build-config Minors (dead code, JSDoc, tsconfig, pxt.json) | `runargcount-guard-and-shim-minors.md` | — |
+| 007 | Wire/shims Minors: DIAG case-25 reorder, wire-boundary cast clamps, derived-size kCommandTable | `runargcount-guard-and-shim-minors.md` | — |
+| 008 | Bench-handoff checklist: stall latch, driveTick idiom, cruise sentinel, simulator/hardware parity | (spans 001-004) | 001, 002, 003, 004 |
 
-Tickets execute serially in the order listed. (None yet — roadmap
-phase.)
+Tickets execute serially in the order listed. 004 depends on 002
+because both touch `main.ts`'s simulator state in the same handful of
+functions — landing 002's `_tickDrive()` contract fix first means 004's
+`simEstopped` gate composes against the already-fixed tick contract.
+006/007 split the same Minors issue by file cluster (TS-side vs.
+C++/wire-side) and testing-evidence profile, not by dependency — either
+could run first; they are listed adjacently for narrative continuity.
+008 is a hardware-only checklist that does not block `close_sprint`
+(see its own ticket) — listed last because it depends on 001-004's
+code landing first, not because the sprint's own completion waits on
+it.
 
 ## Issues Claimed
 

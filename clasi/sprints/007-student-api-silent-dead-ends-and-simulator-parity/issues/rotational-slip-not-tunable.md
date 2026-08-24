@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '007'
+tickets:
+- 007-005
 ---
 
 # rotationalSlip is tuned-but-untunable: hard-coded 0.952, no setter anywhere

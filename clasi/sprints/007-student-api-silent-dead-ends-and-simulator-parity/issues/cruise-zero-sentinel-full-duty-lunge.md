@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '007'
+tickets:
+- 007-003
 ---
 
 # Wire cruise==0 "configured default" resolves to a full-duty ~875 mm/s lunge

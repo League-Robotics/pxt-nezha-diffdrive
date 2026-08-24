@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '007'
+tickets:
+- 007-001
 ---
 
 # Stall latch: no clear path, no readback — robot silently dead until power cycle
