@@ -53,14 +53,28 @@ namespace {
 //   - kVersion (ID and VER's reply): this extension's own semver
 //     identity, i.e. pxt.json's "version" field. There is no
 //     build-time injection mechanism in this repo's C++ build (unlike
-//     the reference firmware's generated version_generated.h), so this
-//     constant is a manually-kept-in-sync mirror of pxt.json -- same
-//     manual convention specification.md S13 already documents for
-//     this project's versioning. Bump this alongside pxt.json's
-//     "version" whenever that changes.
+//     the reference firmware's generated version_generated.h) -- no
+//     codegen step, no preprocessor substitution, nothing in
+//     tools/make_deploy.py that patches this file before a build -- so
+//     this constant stays a manually-kept-in-sync mirror of pxt.json,
+//     same manual convention specification.md S13 already documents
+//     for this project's versioning. Bump this alongside pxt.json's
+//     "version" whenever that changes. Sprint 008 ticket 002
+//     (WIRE-01/MOD-01/BLK-09, R-17): the manual half of that convention
+//     had already failed silently once -- this literal drifted ten
+//     pxt.json version bumps behind (it read "1.0.0" while pxt.json was
+//     at "1.0.10"), so every ID/VER reply misreported the build and
+//     defeated the mbdeploy -> VER deploy-verification flow. Fixed here
+//     to match; going forward, tests/host/test_wire_constants_drift.py
+//     reads this literal and pxt.json's "version" field as text on
+//     every host test run and fails the moment they disagree, so a
+//     forgotten bump is now caught immediately instead of silently, the
+//     same "read both files as text" shape as this file's own
+//     kRunEventSource/RUN_EVENT_SOURCE pairing below.
 constexpr const char* kDrivetrain = "diffdrive";
 constexpr const char* kProfile = "tovez";
-constexpr const char* kVersion = "1.0.0";  // keep in sync with pxt.json
+constexpr const char* kVersion = "1.0.10";  // keep in sync with pxt.json --
+                                             // drift-tested, see above
 
 // The old-style cleartext RUN carve-out (see protocol.h's own top-of-file
 // comment): detected directly by its literal prefix now that the v5
@@ -81,7 +95,14 @@ constexpr uint32_t kPollIntervalMs = 5;
 
 // Custom MessageBus source id for the old-style RUN bridge -- must match
 // RUN_EVENT_SOURCE in main.ts. Chosen well above the MICROBIT_ID_* range.
-// Carried over unchanged from before this cutover.
+// Carried over unchanged from before this cutover. Sprint 008 ticket 002
+// (WIRE-01-adjacent minor, R-21/MOD-05): this literal and main.ts's own
+// RUN_EVENT_SOURCE are two independently hand-typed copies of the same
+// MessageBus event id, with nothing but this comment keeping them
+// aligned -- pinned by tests/host/test_wire_constants_drift.py, which
+// reads both source files as text and fails if the two literals
+// diverge (no shared-constant mechanism crosses the TS/C++ boundary in
+// this project today, so a drift test is the fix, not single-sourcing).
 constexpr int kRunEventSource = 0x2001;
 
 }  // namespace
@@ -89,7 +110,23 @@ constexpr int kRunEventSource = 0x2001;
 void Protocol::emitLine(const char* text) {
   if (text == nullptr) return;
   size_t len = 0;
-  while (text[len] != '\0' && len < 200) ++len;
+  // Sprint 008 ticket 002 (WIRE-05/R-21): this clip now names
+  // RadioTransport::kMaxPayloadBytes directly instead of re-declaring
+  // its own bare 200 literal. The bare literal had drifted from a
+  // parity claim into a silent defect: SerialTransport::kMaxLineBytes
+  // was raised to 240 (sprint 004 ticket 005), radio_transport.h's own
+  // doc comment kept claiming this cap "equals" that bound, and this
+  // clip stayed at 200 regardless -- so a 201-239 byte result line
+  // truncated silently on ANY transport, not only radio's. Naming the
+  // shared constant closes that gap: kMaxPayloadBytes is deliberately
+  // the TIGHTER of the two transports' caps (radio's real capacity, not
+  // serial's 240 -- see radio_transport.h's own updated comment), so a
+  // line this call clips never depends on which transport happens to
+  // carry it, and the two can never drift apart silently again.
+  // kMaxPayloadBytes moved from private to public on RadioTransport to
+  // make this reference possible (one-line access-specifier change, no
+  // encapsulation cost -- radio_transport.h).
+  while (text[len] != '\0' && len < RadioTransport::kMaxPayloadBytes) ++len;
   if (len == 0) return;
   transport_.writeLine(reinterpret_cast<const uint8_t*>(text), len);
   // RadioTransport::sendLine() now guards its shared scratch buffers

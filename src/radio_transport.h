@@ -93,6 +93,31 @@ class RadioTransport {
   // rxLine_ and sets rxReady_; tryReceiveLine() just consumes the flag.
   void onDatagram();
 
+  // Truncation bound for sendLine()'s `len` parameter, and this
+  // module's real radio-capacity ceiling. PUBLIC as of sprint 008
+  // ticket 002 (WIRE-05/R-21) -- was private, moved here (not simply
+  // relabeled in place) so no other private member below picks up
+  // public access as a side effect. Made public so protocol.cpp's
+  // Protocol::emitLine() can clip to this SAME constant by name instead
+  // of re-declaring its own bare 200 literal, which had silently
+  // drifted out of sync with what this constant actually means: once
+  // sprint 004 ticket 005 raised SerialTransport::kMaxLineBytes to 240,
+  // this constant -- and radio's real capacity -- stayed 200, and
+  // emitLine()'s own separate 200 literal was numerically right but
+  // disconnected from that fact, which is what let it read as merely
+  // stale rather than load-bearing. Deliberately the TIGHTER of the two
+  // transports' caps, not "equal" to SerialTransport's own bound (this
+  // header used to claim equality -- corrected here): chosen so a line
+  // emitLine() clips never depends on which transport happens to carry
+  // it. The *value* is unchanged by this ticket --
+  // still 200, still radio's real capacity ceiling -- this only
+  // single-sources the NAME; raising radio's actual capacity is sprint
+  // 010's scope (clasi/issues/radio-rx-capacity-fragmentation.md). No
+  // encapsulation cost: it stays a compile-time constant, still used
+  // in-class below to size payloadBuf_ -- the class still owns every
+  // byte of storage it sizes.
+  static constexpr size_t kMaxPayloadBytes = 200;
+
  private:
   void ensureRadioReady();
 
@@ -129,15 +154,12 @@ class RadioTransport {
   static constexpr int kChannel = 4;
   static constexpr int kTransmitPower = 7;
 
-  // Internal line-buffer capacity for sendLine()'s truncation bound --
-  // an implementation detail local to this module (not shared with
-  // SerialTransport's own kMaxLineBytes; the two transports are
-  // siblings under Protocol, not coupled to each other -- sprint.md's
-  // module diagram has no edge between them). Sized the same as
-  // SerialTransport's bound purely because both carry the same
-  // Protocol-formatted wire lines (TLM/DEVICE), not because of a shared
-  // dependency.
-  static constexpr size_t kMaxPayloadBytes = 200;
+  // kMaxPayloadBytes itself is declared PUBLIC, above (sprint 008
+  // ticket 002) -- moved out of this section rather than merely
+  // relabeled in place, so nothing below silently became public with
+  // it. payloadBuf_'s bound below resolves against that earlier, public
+  // declaration; C++ does not require a data member's array bound to be
+  // declared textually adjacent to it, only earlier in the class.
 
   // Send-path scratch buffers, deliberately MEMBERS not stack locals:
   // the protocol fiber's 2 KB stack cannot afford ~450 B of line+frame
