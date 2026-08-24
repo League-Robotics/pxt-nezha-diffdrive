@@ -1,7 +1,7 @@
 ---
 id: '007'
 title: 'Student API: silent dead-ends and simulator parity'
-status: executing
+status: done
 branch: sprint/007-student-api-silent-dead-ends-and-simulator-parity
 use-cases:
 - SUC-001
