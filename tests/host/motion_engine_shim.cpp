@@ -18,6 +18,7 @@
 #include <cstdint>
 
 #include "diffdrive.h"
+#include "encoder_pose_source.h"
 #include "fake_ports.h"
 #include "fake_pose_source.h"
 #include "motion_engine.h"
@@ -38,9 +39,22 @@ struct Handle {
   // its declaration order relative to `engine` above does not matter.
   FakePoseSource pose;
 
+  // Sprint 006 ticket 007: backing fields plus a REAL
+  // diffDrive::EncoderPoseSource bound to them by const reference --
+  // mirrors shims.cpp's own Rig::x/y/heading + Rig::encoderPose wiring
+  // exactly, so these tests exercise the production reference-binding
+  // shape rather than a stand-in. encoderPose binds to encX_/encY_/
+  // encHeading_ at CONSTRUCTION time -- it must therefore be declared
+  // AFTER them (members initialize in DECLARATION order regardless of
+  // the constructor's own initializer-list order, same rule
+  // encoder_pose_source.h's own header comment states).
+  float encX_ = 0.0f, encY_ = 0.0f, encHeading_ = 0.0f;
+  diffDrive::EncoderPoseSource encoderPose;
+
   Handle()
       : kernel(left, right, clock, sleeper, launcher),
-        engine(kernel, clock) {}
+        engine(kernel, clock),
+        encoderPose(encX_, encY_, encHeading_) {}
 };
 
 FakeMotor& motorFor(Handle* h, int side) {
@@ -171,6 +185,61 @@ void meGoToW(void* handle, float x, float y, float speed, float arrive,
             uint32_t timeoutMs) {
   Handle* h = static_cast<Handle*>(handle);
   h->engine.goToW(h->pose, x, y, speed, arrive, timeoutMs);
+}
+
+// ---- EncoderPoseSource (motion-api.md S3.6, sprint 006 ticket 007) -----
+// Same "arm then read/dispatch" shape as FakePoseSource/meGoToW() above,
+// but through the REAL diffDrive::EncoderPoseSource bound to this
+// Handle's own encX_/encY_/encHeading_ fields -- proving the production
+// reference-binding class itself, not a test double standing in for it.
+// No otos_port.h anywhere in this file or its includes.
+
+// Scripts the backing x/y/heading a following meEncoderPoseSourceX/Y/
+// Heading() read or meGoToWViaEncoder() dispatches with. [mm] [mm] [rad],
+// heading UNWRAPPED verbatim -- callers may pass values outside
+// (-pi, pi] on purpose (AC 2's own explicit no-wrap check).
+void meEncoderPoseSourceSetPose(void* handle, float x, float y,
+                                float heading) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->encX_ = x;
+  h->encY_ = y;
+  h->encHeading_ = heading;
+}
+
+// Direct passthrough reads of EncoderPoseSource's own x()/y()/heading() --
+// AC 2's own explicit check that heading() applies no wrap reads this
+// back against exactly the value armed above.
+float meEncoderPoseSourceX(void* handle) {
+  return static_cast<Handle*>(handle)->encoderPose.x();
+}
+float meEncoderPoseSourceY(void* handle) {
+  return static_cast<Handle*>(handle)->encoderPose.y();
+}
+float meEncoderPoseSourceHeading(void* handle) {
+  return static_cast<Handle*>(handle)->encoderPose.heading();
+}
+
+// goToW() dispatched with EncoderPoseSource as the `pose` argument --
+// AC 1: no OtosPort/otos_port.h anywhere in this link.
+void meGoToWViaEncoder(void* handle, float x, float y, float speed,
+                       float arrive, uint32_t timeoutMs) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.goToW(h->encoderPose, x, y, speed, arrive, timeoutMs);
+}
+
+// ---- selectPoseSource() (encoder_pose_source.h) -- the host-testable
+// stand-in for engineGoToW()'s own selection rule (shims.cpp), since
+// OtosPort::connected() itself has no host-testable seam. Uses `pose`
+// (armed via mePoseSourceSetPose()) and `encoderPose` (armed via
+// meEncoderPoseSourceSetPose() above) as the two arms -- a caller sets
+// each to a distinguishable x() beforehand, then reads back which one
+// selectPoseSource() actually returned via its x(). ------------------
+
+float meSelectPoseSourceX(void* handle, int primaryConnected) {
+  Handle* h = static_cast<Handle*>(handle);
+  return diffDrive::selectPoseSource(primaryConnected != 0, h->pose,
+                                     h->encoderPose)
+      .x();
 }
 int meServiceMove(void* handle) {
   return static_cast<Handle*>(handle)->engine.serviceMove() ? 1 : 0;

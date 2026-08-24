@@ -1,9 +1,12 @@
 ---
 id: '007'
 title: Encoder PoseSource fallback for GO_TO_W
-status: open
-use-cases: [SUC-006]
-depends-on: ['004', '005']
+status: done
+use-cases:
+- SUC-006
+depends-on:
+- '004'
+- '005'
 github-issue: ''
 issue: no-encoder-odometry-posesource-fallback.md
 completes_issue: true
@@ -79,31 +82,37 @@ either way.
 
 ## Acceptance Criteria
 
-- [ ] A host test calls `MotionEngine::goToW()` through
+- [x] A host test calls `MotionEngine::goToW()` through
       `EncoderPoseSource` with no OTOS anywhere in the link (mirroring
       `tests/host/test_motion_engine_gotow.py`'s existing
       `FakePoseSource` pattern) and asserts the move dispatches and
       reaches its target under scripted odometry.
-- [ ] `EncoderPoseSource::heading()` returns the unwrapped value
+- [x] `EncoderPoseSource::heading()` returns the unwrapped value
       verbatim (no wrap applied) — a host test confirms this
       explicitly, since it is easy to accidentally "fix" this to match
       `OtosPort`'s wrapped convention, which would violate
       motion-api.md §3.6's requirement for this specific
       implementation.
-- [ ] A host test asserts `engineGoToW()`'s selection rule picks
+- [x] A host test asserts `engineGoToW()`'s selection rule picks
       `EncoderPoseSource` when `OtosPort::connected()` is false, and
       `OtosPort` when true. (This likely needs a seam to control
       `OtosPort::connected()` from a host test, or to test the
       selection logic in isolation from `OtosPort`'s own
       non-host-testability — design this seam as part of the ticket,
       not as an afterthought.)
-- [ ] `wire_adapter.cpp`'s comment describing GO_TO_W's
+- [x] `wire_adapter.cpp`'s comment describing GO_TO_W's
       `kUnimplemented`-without-OTOS behavior is corrected (it currently
       reads "GO_TO_W with no connected OTOS answers `kUnimplemented`
-      (recognized, not wired on this build)").
-- [ ] `encoder_pose_source.h` is added to
+      (recognized, not wired on this build)"). NOTE: that exact quoted
+      string turned out to live in `src/DESIGN.md:229-231` (the
+      persistent design doc), not literally in `wire_adapter.cpp` --
+      see this ticket's implementation report for where it actually is
+      and why it is deliberately left untouched here. The real,
+      differently-worded comments in `wire_adapter.h`/`wire_adapter.cpp`
+      describing this same stale behavior are corrected.
+- [x] `encoder_pose_source.h` is added to
       `tests/host/test_cxx11_syntax_gate.py`'s covered-files list.
-- [ ] `EncoderPoseSource`'s construction/lifetime relative to `Rig` is
+- [x] `EncoderPoseSource`'s construction/lifetime relative to `Rig` is
       documented in a code comment (not just this ticket) — the next
       reader must not be able to construct a shorter-lived instance by
       accident without a comment warning them off it.

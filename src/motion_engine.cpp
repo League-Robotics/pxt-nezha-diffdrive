@@ -9,6 +9,30 @@
 
 namespace diffDrive {
 
+namespace {
+
+// [rad] -- literal, matching this project's existing convention (see
+// e.g. otos_port.h/shims.cpp) rather than relying on <cmath>'s
+// non-standard M_PI.
+constexpr float kPi = 3.14159265f;
+
+// Wrap an angle to the short arc, (-pi, pi] -- sprint 006, KERN-03.
+// goToR()'s arc-angle formula (`theta = 2*atan2(y, x)`) doubles atan2's
+// own principal value, so it can land up to just under +-2*pi even
+// though atan2(y,x) itself never exceeds +-pi -- that "long way around"
+// value reaches the same (x, y) on the same constant-curvature circle
+// as the short, wrapped angle (the circle is periodic), but only the
+// short one is a sane distance to actually drive. The input here is
+// always bounded to (-2*pi, 2*pi] (twice an atan2 result), so a single
+// conditional wrap suffices -- no loop, no fmod, needed.
+float wrapToPi(float angleRad) {
+  if (angleRad > kPi) return angleRad - 2.0f * kPi;
+  if (angleRad <= -kPi) return angleRad + 2.0f * kPi;
+  return angleRad;
+}
+
+}  // namespace
+
 MotionEngine::MotionEngine(DiffDrive::DifferentialDrive& kernel,
                            const DiffDrive::Clock& clock)
     : kernel_(kernel), clock_(clock) {}
@@ -114,6 +138,15 @@ void MotionEngine::startSegment(float distance, float rotation,
   move_.active = true;
 }
 
+void MotionEngine::queuePivotThenStraight(float pivotRotation,
+                                          float straightDistance,
+                                          float cruise) {
+  move_.hasPending = true;
+  move_.pendingDistance = straightDistance;
+  move_.pendingCruise = cruise;
+  startSegment(0.0f, pivotRotation, cruise);
+}
+
 void MotionEngine::moveX(float distance, float rotation, float cruise,
                          uint32_t timeoutMs) {
   // One deadline for the WHOLE call (both phases, if the pivot-first
@@ -131,10 +164,7 @@ void MotionEngine::moveX(float distance, float rotation, float cruise,
   // the degenerate cases motion-api.md S2.1 calls out (move_x(d,0)
   // straight, move_x(0,theta) pivot) are both single-segment already.
   if (distance != 0.0f && std::fabs(rotation) >= kTurnFirstAngleRad) {
-    move_.hasPending = true;
-    move_.pendingDistance = distance;
-    move_.pendingCruise = cruise;
-    startSegment(0.0f, rotation, cruise);
+    queuePivotThenStraight(rotation, distance, cruise);
   } else {
     startSegment(distance, rotation, cruise);
   }
@@ -149,26 +179,66 @@ void MotionEngine::moveV(float vx, float omega, uint32_t durationMs) {
 
 void MotionEngine::goToR(float x, float y, float speed, float arrive,
                          uint32_t timeoutMs) {
-  (void)arrive;  // single-shot reduction: no supervisory re-solve/arrival
-                 // check here -- see this file's header comment and
-                 // motion-api.md S3.5 ("go_to_r is supervisory"); a
-                 // caller that wants that re-issues goToR() itself.
-  if (x == 0.0f && y == 0.0f) return;  // nothing to drive to
+  // KERN-04: `arrive` is now a radial no-op gate, checked ahead of any
+  // split decision -- being within `arrive` [mm] of the target
+  // (including exactly at it, since hypot(0,0) == 0 for any arrive >=
+  // 0) issues no segment at all. This replaces the old exact-float-
+  // equality guard (`x == 0.0f && y == 0.0f`), which a measured pose
+  // (goToW() subtracts two live reads) could essentially never satisfy
+  // -- still single-shot, no supervisory re-solve: a caller wanting
+  // repeat-until-arrival re-issues goToR() itself (see header comment).
+  if (std::hypot(x, y) <= arrive) return;
 
-  // motion-api.md S3.5's plain reduction: turn angle phi = 2*atan2(y,x);
-  // arc length s = c*phi/(2*sin(phi/2)) -> c (== x) as phi -> 0, restated
-  // (matching this project's prior main.ts startGoTo()) via the signed
-  // circle radius R = (x^2+y^2)/(2y), s = R*phi, which is the same
-  // formula algebraically and avoids a sin() near phi == 0.
-  const float theta = 2.0f * std::atan2(y, x);  // [rad] signed
-  float s;                                       // [mm] signed arc length
-  if (std::fabs(y) < 0.1f) {                     // ~0.01 cm: call it straight
-    s = x;
+  // motion-api.md S3.5's arc-angle formula: bearingRaw = atan2(y,x) is
+  // the line-of-sight direction to the target, always already bounded
+  // to (-pi, pi]; thetaRaw = 2*bearingRaw is the constant-curvature
+  // arc's own turn angle, which is NOT similarly bounded -- doubling can
+  // land up to just under +-2*pi. Wrap it to the short arc, (-pi, pi],
+  // BEFORE deciding anything else (KERN-03): the wrapped and unwrapped
+  // values reach the same (x, y) on the same circle (it's periodic),
+  // but only the short one is a sane distance to drive, and only the
+  // short one may correctly decide the split below.
+  const float bearingRaw = std::atan2(y, x);  // [rad] signed, |.| <= pi
+  const float thetaRaw = 2.0f * bearingRaw;   // [rad] signed, |.| < 2*pi
+  const float theta = wrapToPi(thetaRaw);     // [rad] signed, |.| <= pi
+
+  if (std::fabs(theta) >= kTurnFirstAngleRad) {
+    // KERN-02: goToR owns this split instead of inheriting moveX()'s
+    // generic one. moveX()'s own pivot-first split would reissue
+    // theta/arc-length as pivot-then-straight, which lands at a
+    // DIFFERENT endpoint than the blended arc (arc length != chord
+    // length except in the limit) -- e.g. goToR(100, 100) would pivot
+    // 90 deg then drive the 157.1 mm ARC length straight, landing at
+    // (0, 157.1) instead of (100, 100), a 115 mm miss on a 141 mm hop.
+    // Pivoting to the line-of-sight bearing (already short-arc by
+    // construction -- atan2's own principal value) then driving the
+    // straight-line chord instead reaches (x, y) exactly, no matter how
+    // large the bearing is. One deadline for the WHOLE call (both
+    // phases), set directly here -- exactly what moveX() itself would
+    // do, but this call bypasses the public moveX() entirely so it can
+    // force this split regardless of whether |bearingRaw| alone would
+    // have crossed moveX()'s own threshold (see header comment).
+    move_.deadline = nowMs() + timeoutMs;
+    move_.hasPending = false;
+    const float chord = std::hypot(x, y);  // [mm] >= 0
+    queuePivotThenStraight(bearingRaw, chord, speed);
   } else {
-    const float radius = (x * x + y * y) / (2.0f * y);  // [mm] signed
-    s = radius * theta;
+    // Plain arc reduction (motion-api.md S3.5), unchanged below
+    // threshold except that `theta` here is the SHORT-ARC-normalized
+    // value (see above), not the raw 2*atan2(y, x) -- restated (matching
+    // this project's prior main.ts startGoTo()) via the signed circle
+    // radius R = (x^2+y^2)/(2y), s = R*theta, which is the same formula
+    // algebraically as arc length = radius*angle and avoids a sin() near
+    // theta == 0.
+    float s;                          // [mm] signed arc length
+    if (std::fabs(y) < 0.1f) {        // ~0.01 cm: call it straight
+      s = x;
+    } else {
+      const float radius = (x * x + y * y) / (2.0f * y);  // [mm] signed
+      s = radius * theta;
+    }
+    moveX(s, theta, speed, timeoutMs);
   }
-  moveX(s, theta, speed, timeoutMs);
 }
 
 void MotionEngine::goToW(const PoseSource& pose, float x, float y,

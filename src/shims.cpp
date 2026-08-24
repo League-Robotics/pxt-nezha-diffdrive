@@ -53,6 +53,7 @@
 // signature-compatible with.
 #include "pxt.h"
 #include "diffdrive.h"
+#include "encoder_pose_source.h"
 #include "motion_engine.h"
 #include "nezha_port.h"
 #include "otos_port.h"
@@ -127,6 +128,19 @@ struct Rig {
   float x = 0.0f, y = 0.0f, heading = 0.0f;
   float odomPosLeft = 0.0f, odomPosRight = 0.0f;  // [counts]
   bool odomPrimed = false;
+
+  // GO_TO_W's encoder-odometry fallback PoseSource (sprint 006 ticket
+  // 007, encoder_pose_source.h): binds to x/y/heading ABOVE by const
+  // reference, so it MUST be declared after them -- member references
+  // bind once, at construction, and members initialize in DECLARATION
+  // order regardless of this struct's own (implicit) member-initializer
+  // order, the same rule this file's header comment already states for
+  // `engine` above. Lives exactly as long as this Rig (a process-
+  // lifetime lazy singleton, see `rig`/`ensure()` below) -- see
+  // encoder_pose_source.h's own header comment for why a shorter-lived
+  // instance would dangle. engineGoToW() (below) is this project's one
+  // selection point between this and `otosRef()`'s OtosPort.
+  EncoderPoseSource encoderPose{x, y, heading};
 
   // Move-engine state (moveActive, the taper/ramp/floor knobs,
   // wrongWayCount, ...) moved into `engine` itself, sprint 003 ticket
@@ -230,6 +244,44 @@ static void odomUpdate(Rig& r) {
   r.x += dCenter * std::cos(midHeading);
   r.y += dCenter * std::sin(midHeading);
   r.heading += dHeading;
+}
+
+// ---- cross-fiber stop delivery (sprint 006 ticket 002) -----------------
+// Closes R-08/BLK-01 (code review 2026-08-23, independently re-derived in
+// verify-blocks.md): kernel.neutral() only STAGES a zero command
+// (diffdrive.cpp) -- delivery to the motors happens solely on a LATER
+// kernel.step(), and step()'s own duty write happens BEFORE its two
+// ~4 ms-per-wheel encoder settle sleeps. A stop or move-completion issued
+// from a fiber other than the one currently inside step()'s settle
+// window therefore stages a neutral that is not delivered until that
+// step() returns AND another step() runs -- which, if the very call that
+// staged it is what ended a `while (tickDrive())` loop (the common
+// case), never happens until the ~100-150 ms starvation watchdog fires:
+// the same class of bug commit 3e919e5 fixed for the in-fiber
+// (move-completion) case, reopened here for the cross-fiber case.
+//
+// This helper pushes an immediate, PORT-LEVEL zero write to both
+// motors -- the exact primitive the starvation watchdog below already
+// uses (NezhaMotorPort::emergencyStop(), proven tick-independent by its
+// exact-zero short-circuit in writeShapedDuty()) -- alongside the
+// pre-existing staged kernel.neutral()/engine.endMove() at each call
+// site. That delivers the stop within the SAME tick regardless of where
+// in the settle window the race lands, adds no new fiber/ticker (a
+// synchronous call on whichever fiber is already running -- the
+// one-ticker-per-move invariant is unaffected), and never touches the
+// vendored kernel (diffdrive.{h,cpp} stay byte-unchanged).
+//
+// Deliberately calls the MOTOR ports directly, exactly as the watchdog
+// does, and never kernel.emergencyStopMotors() -- that kernel-level
+// method also latches estopLatch_ as an (undocumented) side effect
+// (diffdrive.cpp), which would turn this resumable soft stop into a
+// hard e-stop requiring clearEmergencyStop(). Calling the ports directly
+// stays in the same resumable "soft stop" family stopAll()/the watchdog
+// already established: a fresh drive()/tickDrive() call resumes motion
+// with no clear step needed.
+static void deliverStopNow(Rig& r) {
+  r.left.emergencyStop();
+  r.right.emergencyStop();
 }
 
 // ---- velocity commands ----------------------------------------------
@@ -421,7 +473,19 @@ bool updateMove() {
   // otherwise.
   const bool wasActive = r.engine.isMoveActive();
   if (wasActive) odomUpdate(r);
-  return r.engine.serviceMove();
+  const bool moveActive = r.engine.serviceMove();
+  // Cross-fiber stop delivery (sprint 006 ticket 002, BLK-01(b)): this
+  // poller's own call path -- isMoving() (moveProgress() is read-only;
+  // see verify-blocks.md's BLK-12 spot check, which confirmed
+  // isMoving()'s "checks state only" doc is false but REFUTED that same
+  // claim for moveProgress()) -- can end a move at its deadline backstop
+  // without tickDrive() ever running. Mirrors tickDrive()'s own
+  // wasActive && !moveActive gate, but delivers the port write HERE
+  // instead of relying on a settle-loop re-step this call path never
+  // runs. See deliverStopNow()'s own comment above for the full
+  // write-up.
+  if (wasActive && !moveActive) deliverStopNow(r);
+  return moveActive;
 }
 
 // ---- tick engine (sprint 002) -----------------------------------------
@@ -464,9 +528,26 @@ bool tickDrive() {
   r.kernel.step();
 
   const bool wasActive = r.engine.isMoveActive();
-  // odomUpdate() only while a move is (was) actually active -- see
-  // updateMove()'s own matching comment above.
-  if (wasActive) odomUpdate(r);
+  // odomUpdate() now runs UNCONDITIONALLY, every tick (sprint 006 ticket
+  // 003, closes R-09/BLK-05, continuous-mode-odometry-chord-error.md):
+  // this used to read `if (wasActive) odomUpdate(r);`, matching
+  // updateMove()'s own gate just below -- so continuous-mode driving
+  // (setWheels()/driveTwist() under a `while (tickDrive())` loop, no
+  // move-engine move ever active) never called this at all, and the
+  // next pose read integrated the ENTIRE driven interval as one
+  // straight chord at one midpoint heading: wrong by the difference
+  // between an arc and its chord, exactly the whole path length for a
+  // closed loop (drive a full circle, pose reports ~the path length
+  // instead of ~0). odomUpdate() diffs against the last kernel Output
+  // it consumed and immediately re-stamps that value, so it is a no-op
+  // on a tick with no new encoder movement -- safe to call
+  // unconditionally. `wasActive` is still computed here and kept for
+  // the settle-loop gate below (`if (wasActive && !moveActive)`), which
+  // is a different concern (folding post-move coast counts into pose)
+  // and is unaffected by this change. updateMove()'s OWN odometry gate
+  // -- a different caller, serving the TypeScript layer's blocking-move
+  // poll -- is untouched; see its own comment.
+  odomUpdate(r);
   const bool moveActive = r.engine.serviceMove();
 
   // Move-completion stop delivery (bench root-cause, 2026-08-20): when
@@ -649,6 +730,9 @@ int progress() {  // [0..1000]
 void endMove() {
   if (rig == nullptr) return;
   rig->engine.endMove();
+  // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop move"
+  // block's own entry point -- see deliverStopNow()'s comment above.
+  deliverStopNow(*rig);
 }
 
 // ---- stopping -------------------------------------------------------
@@ -658,6 +742,10 @@ void stopAll() {
   Rig& r = ensure();
   r.engine.endMove();
   r.kernel.neutral();
+  // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop" block
+  // and the wire's STOP verb both land here -- see deliverStopNow()'s
+  // comment above.
+  deliverStopNow(r);
 }
 
 //%
@@ -724,6 +812,16 @@ int diagValue(int what) {
     // call itself failed. Bench operators read this via probe(26); it
     // should stay 0 during a normal run.
     case 26: return protocolSerialDropCount();
+    // 27: sum of both wheels' encoder rebaseline-on-discontinuity
+    // events (sprint 006 ticket 005, EncoderGlitchArmor's
+    // kAcceptAsRebaseline outcome -- see encoder_glitch_armor.h). A
+    // two-strike implausible-then-consistent jump treated as a counter
+    // restart (e.g. a brick MCU reset) instead of integrated as a
+    // multi-meter teleport. Should read 0 across a normal session with
+    // no discontinuities.
+    case 27:
+      return static_cast<int>(ensure().left.rebaselineCount_ +
+                              ensure().right.rebaselineCount_);
     default: return 0;
   }
 }
@@ -887,25 +985,37 @@ void engineGoToR(float x, float y, float speed, float arrive,
 }
 
 // GO_TO_W's own PoseSource (motion_engine.h, ticket 010; motion-api.md
-// S3.6): this file's `gOtos`/otosRef() lazy singleton, just above, is
-// the only pose source this robot's wiring has -- the encoder-odometry
-// fallback motion-api.md S3.6 also describes ("OTOS when fitted,
-// encoder odometry otherwise") is explicitly out of scope (ticket 010's
-// own Description) and is not built here. A robot with no OTOS fitted
-// at all (motion-api.md S3.6's own `gopiv` example), or one whose OTOS
-// was never begun (no otosBegin() call this session, or begin() never
-// matched the expected product id), has connected() == false -- this
-// returns false rather than ever calling MotionEngine::goToW() with a
-// pose read off a sensor that has never actually talked to this robot,
-// so wire_adapter.cpp can refuse the call honestly instead of silently
-// driving toward a garbage/zeroed pose. Returns true iff the call was
-// actually dispatched onto MotionEngine::goToW().
+// S3.6): SPRINT 006 TICKET 007 closes no-encoder-odometry-posesource-
+// fallback.md -- this is now the ONE place this project decides which
+// PoseSource serves a GO_TO_W call, via selectPoseSource()
+// (encoder_pose_source.h): this file's `gOtos`/otosRef() lazy singleton
+// when `connected()` (initialized AND actually talking to the chip), the
+// Rig-owned `encoderPose` (dead-reckoned, drifting, but always available)
+// otherwise. A robot with no OTOS fitted at all (motion-api.md S3.6's own
+// `gopiv` example), or one whose OTOS was never begun/never matched, now
+// drives on encoder odometry instead of refusing the call outright --
+// GO_TO_W is no longer a no-op on the fleet's OTOS-less robots (tovez,
+// gopiv, zeguz). This always dispatches onto MotionEngine::goToW() now,
+// so the bool return is unconditionally true; it is kept (rather than
+// changed to void) only because wire_adapter.cpp's own contract for this
+// entry point ("was a live pose actually available to dispatch with") is
+// otherwise unchanged, and a future PoseSource-less state is not
+// impossible to imagine. GO_TO_W's own return value still does NOT
+// distinguish "served by OTOS" (accurate) from "served by encoder
+// odometry" (drifts, no correction) -- a caller that needs to know reads
+// STATUS's `otos=` flag before calling (motion-api.md S3.6's own
+// documented caveat; building a real signal for this is a follow-on, not
+// done here). Mid-move OTOS disconnection is not a race this needs to
+// guard against: goToW() reads its PoseSource exactly ONCE, at call time
+// (motion_engine.h's own comment), before ever delegating to goToR() --
+// nothing re-reads or re-selects a pose source while a move is in
+// flight, so there is no live pose-frame switch to invent here.
 bool engineGoToW(float x, float y, float speed, float arrive,
                 uint32_t timeoutMs) {
   OtosPort& otos = otosRef();
-  if (!otos.connected()) return false;
   Rig& r = ensure();
-  r.engine.goToW(otos, x, y, speed, arrive, timeoutMs);
+  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.encoderPose);
+  r.engine.goToW(pose, x, y, speed, arrive, timeoutMs);
   return true;
 }
 

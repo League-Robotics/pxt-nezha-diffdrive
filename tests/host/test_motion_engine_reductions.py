@@ -550,8 +550,12 @@ def test_go_to_r_arc_hand_computed(motion_lib, y_sign):
         radius = (x * x + y * y) / (2.0 * y)
         s = radius * theta
         # This (x, y) pair must stay under the pivot-first threshold, or
-        # this test would be exercising moveX()'s pivot split instead of
-        # goToR's own plain arc reduction.
+        # this test would be exercising goToR()'s own above-threshold
+        # bearing-pivot-then-chord split (sprint 006, KERN-02) instead of
+        # its plain arc reduction -- see
+        # test_go_to_r_pivot_split_reaches_target_above_threshold and
+        # test_go_to_r_behind_robot_splits_into_bounded_pivot, below, for
+        # that above-threshold coverage.
         assert abs(theta) < math.radians(_TURN_FIRST_DEG)
 
         expected_left, expected_right = _expected_duty_pair(
@@ -570,6 +574,316 @@ def test_go_to_r_zero_target_is_a_no_op(motion_lib):
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
         assert not e.is_move_active()
+
+
+# ---- goToR: sprint 006 pivot-split fix, short-arc normalization, and -----
+# ---- arrive gate (code review R-02/R-03/R-04, KERN-02/03/04) -------------
+#
+# See clasi/sprints/006-.../issues/goto-geometry-pivot-split-miss.md and
+# docs/code-review/2026-08-23/raw/{correctness-kernel,verify-kernel}.md for
+# the full arithmetic these tests mirror. goToR() now makes its own
+# pivot-vs-blend split decision (bearing-pivot + chord above threshold,
+# reached via the same pending-phase queuing moveX()'s own split uses --
+# see test_move_x_pivot_then_straight_phase_transition, above, for that
+# same two-phase pattern) instead of inheriting moveX()'s generic one,
+# normalizes the arc angle to the short arc BEFORE deciding anything, and
+# honors `arrive` as a radial no-op gate.
+
+
+def _wrap_to_pi(angle_rad):
+    """Python mirror of MotionEngine::wrapToPi() (motion_engine.cpp,
+    anonymous namespace) -- the domain is always bounded to
+    (-2*pi, 2*pi] (twice an atan2 result), so a single conditional wrap
+    suffices, exactly as the C++ does."""
+    pi = math.pi
+    if angle_rad > pi:
+        return angle_rad - 2.0 * pi
+    if angle_rad <= -pi:
+        return angle_rad + 2.0 * pi
+    return angle_rad
+
+
+def test_go_to_r_pivot_split_reaches_target_above_threshold(motion_lib):
+    """KERN-02's own worked example: goToR(100, 100) is bearing 45 deg /
+    theta 90 deg -- above the 50 deg threshold. Pre-fix, moveX()'s generic
+    split reissued theta=90deg/arc-length s=157.1mm as pivot-then-
+    straight, landing at (0, 157.1) -- a 115 mm miss on a 141 mm hop.
+    goToR() now pivots to the line-of-sight BEARING (45 deg) then drives
+    the straight-line CHORD (141.421 mm), which reaches (100, 100)
+    exactly. Drives both phases to completion (mirroring
+    test_move_x_pivot_then_straight_phase_transition's pattern) and
+    kinematically integrates the issued (bearing, chord) pair to confirm
+    the endpoint, per the ticket's own testing plan."""
+    with Engine(motion_lib) as e:
+        fdv = _ready(e)
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        x, y, speed = 100.0, 100.0, 100.0
+
+        bearing = math.atan2(y, x)
+        chord = math.hypot(x, y)
+        theta_raw = 2.0 * bearing
+        assert abs(theta_raw) >= math.radians(_TURN_FIRST_DEG)  # sanity
+
+        e.go_to_r(x, y, speed, 0.0, 10_000)
+        e.step()  # phase 1's own initial (floor-scaled) duty
+
+        pivot_left, pivot_right = _expected_duty_pair(
+            0.0, bearing, speed, cpm, b, fdv, scale=0.25)
+        # NOTE: a pure pivot's first-tick duty ratio is +-1 regardless of
+        # the pivot's MAGNITUDE (only its sign) -- dominant == |yawTarget|
+        # by construction, so this tick's duty alone cannot distinguish
+        # "pivot to bearing (45 deg)" from "pivot to theta_raw (90 deg)",
+        # the old buggy composition's own first phase. The real
+        # discriminator is which ANGLE the pivot actually completes at --
+        # see the arm_motor_position() call below, using bearing's own
+        # yaw target: if the engine were still (wrongly) using theta_raw
+        # internally, that target would be reached at half progress, the
+        # pivot would NOT complete here, and the next tick's duty would
+        # still show a pivot signature instead of phase 2's chord.
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            pivot_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            pivot_right, rel=_DUTY_REL)
+
+        # Complete the pivot (mean progress stays 0 -- phase 1's distance
+        # target is 0) and confirm phase 2 (the chord) is queued.
+        yaw_target_counts = bearing * 0.5 * b * cpm
+        e.arm_motor_position(LEFT, -yaw_target_counts)
+        e.arm_motor_position(RIGHT, yaw_target_counts)
+        e.step()
+        assert e.service_move()  # still active: phase 2 queued
+        assert e.is_move_active()
+
+        e.step()  # phase 2's own initial (floor-scaled) duty
+        chord_left, chord_right = _expected_duty_pair(
+            chord, 0.0, speed, cpm, b, fdv, scale=0.25)
+        assert chord_left == pytest.approx(chord_right, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            chord_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            chord_right, rel=_DUTY_REL)
+
+        # Complete the chord leg and confirm the move ends outright (no
+        # further pending phase).
+        dist_target_counts = chord * cpm
+        e.arm_motor_position(LEFT, dist_target_counts)
+        e.arm_motor_position(RIGHT, dist_target_counts)
+        e.step()
+        assert not e.service_move()
+        assert not e.is_move_active()
+
+        # Kinematically integrate the issued (bearing, chord) pair
+        # (verify-kernel.md's KERN-02 arithmetic): pivot to `bearing`,
+        # then drive `chord` forward along the new heading.
+        endpoint = (chord * math.cos(bearing), chord * math.sin(bearing))
+        assert endpoint == pytest.approx((x, y), abs=1e-2)
+
+
+def test_go_to_r_behind_robot_splits_into_bounded_pivot(motion_lib):
+    """SUC-001's own acceptance language: a target behind the robot
+    issues a short-arc pivot (<= ~180 deg), not the long way around.
+    (-50, 100) is comfortably above the split threshold both before and
+    after short-arc normalization (bearing 116.57 deg, theta_raw 233.13
+    deg wraps to -126.87 deg -- both sides of the wrap agree the split
+    should fire, so this input is not near the wrap's own dead zone --
+    see test_go_to_r_behind_robot_near_axis_avoids_long_way_around_runaway
+    below for that case), and it is genuinely "behind" (x < 0) with a
+    genuinely large commanded pivot -- a substantive instance of the
+    bound, not just a technically-satisfied one."""
+    with Engine(motion_lib) as e:
+        fdv = _ready(e)
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        x, y, speed = -50.0, 100.0, 100.0
+
+        bearing = math.atan2(y, x)
+        chord = math.hypot(x, y)
+        # The bound this fix guarantees, and a check that this input
+        # actually exercises a SUBSTANTIAL pivot, not a trivial one.
+        assert abs(bearing) <= math.pi
+        assert abs(bearing) > math.radians(90.0)
+
+        e.go_to_r(x, y, speed, 0.0, 10_000)
+        e.step()
+
+        pivot_left, pivot_right = _expected_duty_pair(
+            0.0, bearing, speed, cpm, b, fdv, scale=0.25)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            pivot_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            pivot_right, rel=_DUTY_REL)
+
+        yaw_target_counts = bearing * 0.5 * b * cpm
+        e.arm_motor_position(LEFT, -yaw_target_counts)
+        e.arm_motor_position(RIGHT, yaw_target_counts)
+        e.step()
+        assert e.service_move()
+        assert e.is_move_active()
+
+        e.step()
+        chord_left, chord_right = _expected_duty_pair(
+            chord, 0.0, speed, cpm, b, fdv, scale=0.25)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            chord_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            chord_right, rel=_DUTY_REL)
+
+        endpoint = (chord * math.cos(bearing), chord * math.sin(bearing))
+        assert endpoint == pytest.approx((x, y), abs=1e-2)
+
+
+def test_go_to_r_behind_robot_near_axis_avoids_long_way_around_runaway(
+        motion_lib):
+    """KERN-03's own worked example: goToR(-100, 1). Pre-fix: theta_raw =
+    2*atan2(1,-100) = 358.85 deg, radius = 5000.5 mm, s = radius*theta_raw
+    = ~31,319 mm -- combined with the old pivot-first split, a ~359 deg
+    pivot plus a 31-METRE leg. Short-arc normalization wraps theta to
+    ~-1.146 deg BEFORE the split decision, which (a) falls back below the
+    50 deg split threshold -- so this is goToR's plain arc branch, not
+    the pivot+chord split -- and (b) recomputes `s` from the SAME radius
+    with the wrapped angle, landing at ~-100 mm: the robot backs straight
+    up onto the target instead of driving 31 metres around a huge circle.
+    Either way the resulting rotation is bounded well under the ~180 deg
+    the fix guarantees."""
+    with Engine(motion_lib) as e:
+        fdv = _ready(e)
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        x, y, speed = -100.0, 1.0, 100.0
+
+        theta_raw = 2.0 * math.atan2(y, x)
+        theta = _wrap_to_pi(theta_raw)
+        radius = (x * x + y * y) / (2.0 * y)
+        s = radius * theta
+        s_raw = radius * theta_raw
+
+        # The danger this fix removes: normalization must actually change
+        # the value used, and drastically shrink the commanded distance.
+        assert abs(theta) < math.radians(_TURN_FIRST_DEG)  # NOT split
+        assert abs(theta_raw) > math.radians(170.0)  # the raw value: huge
+        assert abs(s) < 500.0  # nowhere near the pre-fix ~31.3 m leg
+        assert abs(s_raw) > 30_000.0  # sanity: the old leg really was ~31 m
+        assert abs(theta) <= math.pi  # the "<= ~180 deg" bound, either way
+
+        e.go_to_r(x, y, speed, 0.0, 10_000)
+        e.step()
+
+        expected_left, expected_right = _expected_duty_pair(
+            s, theta, speed, cpm, b, fdv, scale=0.25)
+        # Sanity: this must NOT be a pure pivot (the old, buggy
+        # composition's own first-tick signature, since |theta_raw| >= 50
+        # deg would also have fired moveX()'s generic split on the RAW
+        # value) -- the fix's single blended segment mixes a nonzero `s`
+        # into both wheels' commanded speed.
+        assert expected_left != pytest.approx(-expected_right, rel=1e-2)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            expected_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            expected_right, rel=_DUTY_REL)
+
+        # Confirm this is genuinely ONE segment (no split at all): arming
+        # both wheels to the single segment's own combined target ends
+        # the move outright, not "still active, phase 2 queued."
+        dist_target_counts = s * cpm
+        yaw_target_counts = theta * 0.5 * b * cpm
+        e.arm_motor_position(LEFT, dist_target_counts - yaw_target_counts)
+        e.arm_motor_position(RIGHT, dist_target_counts + yaw_target_counts)
+        e.step()
+        assert not e.service_move()
+        assert not e.is_move_active()
+
+        # Kinematically integrate the blended arc (verify-kernel.md's own
+        # formula): endpoint = (R*sin(theta), R*(1 - cos(theta))).
+        endpoint = (radius * math.sin(theta), radius * (1.0 - math.cos(theta)))
+        assert endpoint == pytest.approx((x, y), abs=1e-2)
+
+
+def test_go_to_r_theta_normalized_independent_of_split_decision(motion_lib):
+    """Dedicated coverage for short-arc normalization ALONE, independent
+    of the split branch: goToR(-100, 0.05) hits goToR's own |y| < 0.1
+    straight-line special case, so `s == x == -100` regardless of
+    normalization -- isolating theta as the ONLY value that changes.
+    Pre-fix, theta_raw = 2*atan2(0.05,-100) = ~359.94 deg (the review's
+    own "wasteful, not dangerous" example: a full pivot before backing
+    up 100 mm); normalized, theta = ~-0.057 deg -- a below-threshold
+    target behind the robot that still takes the short turn, not the raw
+    2*atan2 value, exactly the case this ticket's own acceptance
+    criteria calls out."""
+    with Engine(motion_lib) as e:
+        fdv = _ready(e)
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        x, y, speed = -100.0, 0.05, 100.0
+
+        theta_raw = 2.0 * math.atan2(y, x)
+        theta = _wrap_to_pi(theta_raw)
+        s = x  # the |y| < 0.1 branch -- unaffected by normalization
+
+        assert abs(theta_raw) > math.radians(170.0)  # the raw value: huge
+        assert abs(theta) < math.radians(1.0)  # normalized: a tiny turn
+        assert abs(theta) < math.radians(_TURN_FIRST_DEG)  # NOT split
+
+        e.go_to_r(x, y, speed, 0.0, 5000)
+        e.step()
+
+        expected_left, expected_right = _expected_duty_pair(
+            s, theta, speed, cpm, b, fdv, scale=0.25)
+        # Sanity: the raw (un-normalized) value would have been a PURE
+        # PIVOT first-tick signature (moveX()'s own generic split firing
+        # on |theta_raw| >= 50 deg: distance == 0, rotation == theta_raw)
+        # -- equal-magnitude, OPPOSITE-sign wheel duties. This fix's
+        # actual first tick is instead a blended segment dominated by the
+        # (nonzero) distance, so both wheels read the SAME sign -- only
+        # the RIGHT wheel actually distinguishes the two shapes here (the
+        # LEFT wheel's ratio happens to be -1 either way: a pure pivot to
+        # a positive angle and "mostly straight, backward" both drive the
+        # left wheel in reverse).
+        raw_pivot_right = _expected_duty_pair(
+            0.0, theta_raw, speed, cpm, b, fdv, scale=0.25)[1]
+        assert e.motor_last_staged_duty(RIGHT) != pytest.approx(
+            raw_pivot_right, rel=1e-2)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            expected_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            expected_right, rel=_DUTY_REL)
+
+
+# ---- arrive: a radial no-op gate, not exact-float-equality (KERN-04) -----
+
+
+@pytest.mark.parametrize("x,y,arrive", [
+    (0.0, 0.0, 10.0),      # exact zero, well within a generous tolerance
+    (0.02, 0.05, 10.0),    # measured-pose noise offset (~0.054 mm) < 10 mm
+    (10.0, 0.0, 10.0),     # exactly AT the tolerance boundary (<=, inclusive)
+])
+def test_go_to_r_arrive_gate_is_a_no_op(motion_lib, x, y, arrive):
+    """KERN-04: `arrive` is a radial no-op gate (`hypot(x, y) <= arrive`),
+    not the old exact-float-equality guard a measured/noisy pose could
+    essentially never satisfy. Being at (or within noise of) the target
+    -- even off-axis noise like (0.02, 0.05) -- must issue no segment,
+    not the up-to-180 deg correcting pivot the old guard allowed."""
+    with Engine(motion_lib) as e:
+        _ready(e)
+        e.go_to_r(x, y, 100.0, arrive, 5000)
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+        assert not e.is_move_active()
+
+
+def test_go_to_r_arrive_gate_does_not_swallow_targets_beyond_tolerance(
+        motion_lib):
+    """The gate's other edge: a target just OUTSIDE `arrive` must still
+    issue a real segment -- `arrive` is a tolerance, not a way to
+    silently ignore every call."""
+    with Engine(motion_lib) as e:
+        _ready(e)
+        e.go_to_r(10.1, 0.0, 100.0, 10.0, 5000)
+        e.step()
+        assert e.is_move_active()
+        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
 
 
 # ---- timeout: a REAL backstop, distinct from any internal lease ----------

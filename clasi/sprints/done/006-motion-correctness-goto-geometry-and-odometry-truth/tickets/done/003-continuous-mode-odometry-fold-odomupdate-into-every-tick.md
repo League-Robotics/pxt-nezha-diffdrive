@@ -1,8 +1,9 @@
 ---
 id: '003'
 title: 'Continuous-mode odometry: fold odomUpdate() into every tick'
-status: open
-use-cases: [SUC-003]
+status: done
+use-cases:
+- SUC-003
 depends-on: []
 github-issue: ''
 issue: continuous-mode-odometry-chord-error.md
@@ -48,23 +49,23 @@ ticket's code compiles for either real embedded target.
 
 ## Acceptance Criteria
 
-- [ ] A host test drives a full circle under constant twist
+- [x] A host test drives a full circle under constant twist
       (`wheelsV`/`moveV`-equivalent continuous command) in an
       unconditional tick loop (mirroring `testrig.ts:118-120`'s
       pattern, not the documented-but-broken
       `while (driveTick())` idiom) and asserts pose reads back near
       the origin, not approximately the full path length.
-- [ ] `updateMove()`'s existing odometry gating (`if (wasActive)
+- [x] `updateMove()`'s existing odometry gating (`if (wasActive)
       odomUpdate(r);`) is unchanged — a host test confirms no
       regression to move-engine polling's existing odometry behavior.
-- [ ] No double-integration: a test confirms a single `tickDrive()`
+- [x] No double-integration: a test confirms a single `tickDrive()`
       call during an *active move* does not call `odomUpdate()` twice
       (once from the new unconditional fold, once from any
       move-active-gated path) — `tickDrive()`'s own existing
       `if (wasActive) odomUpdate(r);` call ahead of `serviceMove()`
       must be reconciled with the new unconditional call, not
       duplicated.
-- [ ] Existing move-engine odometry tests (any test asserting pose
+- [x] Existing move-engine odometry tests (any test asserting pose
       correctness immediately after a discrete `moveX`/`goToR` move)
       pass unchanged.
 

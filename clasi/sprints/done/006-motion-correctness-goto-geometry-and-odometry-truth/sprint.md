@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: 'Motion correctness: goTo geometry and odometry truth'
-status: ticketing
+status: done
 branch: sprint/006-motion-correctness-goto-geometry-and-odometry-truth
 use-cases:
 - SUC-001

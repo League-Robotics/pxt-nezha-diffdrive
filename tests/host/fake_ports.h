@@ -21,6 +21,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 
 #include "diffdrive.h"
 
@@ -62,9 +63,22 @@ class FakeMotor : public DiffDrive::Motor {
     lastStagedDuty = duty;
   }
 
+  // sprint 006 ticket 002: mirrors NezhaMotorPort::emergencyStop()'s real
+  // contract (nezha_port.cpp) -- an IMMEDIATE, tick-independent zero
+  // write, not merely a staged value the next tick() picks up. Both the
+  // staged and the already-applied duty go to zero synchronously, so a
+  // test can assert appliedDuty() (and, through it,
+  // DifferentialDrive::Output::appliedDutyLeft/Right) reads zero the
+  // instant this call returns, with no further tick() required. This is
+  // the exact invariant the starvation watchdog and the cross-fiber stop
+  // fix (src/shims.cpp's deliverStopNow()) both depend on: a stop
+  // delivered mid-settle-window must not wait for the wheel's next
+  // tick() to see it.
   void emergencyStop() override {
     ++emergencyStopCalls;
     emergencyStopped = true;
+    lastStagedDuty = 0.0f;
+    appliedDutyValue_ = 0.0f;
   }
 
   // "execute staged + collect": lands the most recently staged duty as
@@ -146,15 +160,28 @@ class FakeClock : public DiffDrive::Clock {
 // pay wall-clock cost for no reason.
 class FakeSleeper : public DiffDrive::Sleeper {
  public:
+  // sprint 006 ticket 002: a test hook fired AFTER this call's own
+  // bookkeeping, given the 1-based running sleepCalls count -- lets a
+  // test script "another fiber's" call to land at a specific point
+  // inside DifferentialDrive::step()'s two-per-step settle window
+  // (kSettle, diffdrive.cpp) without needing real concurrency: step()
+  // calls sleepMillis() exactly twice per step (once per wheel's
+  // select->settle->read split-phase sample), so arming onSleep for
+  // sleepCalls == (current total + 1) lands the callback between
+  // left_.requestSample() and left_.tick(), and == (current total + 2)
+  // lands it between right_.requestSample() and right_.tick() -- the
+  // two positions BLK-01's cross-fiber race can land in.
   void sleepMillis(uint32_t duration) override {
     ++sleepCalls;
     lastSleepMillis = duration;
+    if (onSleep) onSleep(sleepCalls);
   }
   void yield() override { ++yieldCalls; }
 
   int sleepCalls = 0;
   int yieldCalls = 0;
   uint32_t lastSleepMillis = 0;
+  std::function<void(int)> onSleep;
 };
 
 // ---------------------------------------------------------------------

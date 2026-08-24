@@ -30,6 +30,7 @@
 
 #include "pxt.h"
 #include "diffdrive.h"
+#include "encoder_glitch_armor.h"
 
 namespace diffDrive {
 
@@ -105,9 +106,20 @@ class NezhaMotorPort final : public DiffDrive::Motor {
   // streaks are ticks (~24 ms each), so 13 means ~300 ms frozen.
   uint32_t maxDrivenStreak_ = 0;
   uint32_t glitchCount_ = 0;       // rejected implausible encoder reads
+  // Rebaseline-on-discontinuity events (sprint 006 ticket 005,
+  // encoder_glitch_armor.h's kAcceptAsRebaseline outcome): a two-strike
+  // implausible-then-consistent jump treated as a counter restart
+  // (e.g. a brick MCU reset) rather than integrated as a ~4 m
+  // teleport. Should read 0 across a normal session with no
+  // discontinuities. Exposed via diagValue() ordinal 27.
+  uint32_t rebaselineCount_ = 0;
  private:
-  int32_t lastRejectedRaw_ = 0;    // two-strike acceptance state
-  bool rejectPending_ = false;
+  // Two-strike raw-counts plausibility gate, extracted to
+  // encoder_glitch_armor.h (host-portable, host-tested directly --
+  // see that header and tests/host/test_encoder_glitch_armor.py). Owns
+  // the lastGoodRaw_/lastRejectedRaw_/rejectPending_/primed_ state this
+  // member used to hold inline.
+  EncoderGlitchArmor glitchArmor_;
 
   float dutyCarry_ = 0.0f;         // [-1,1] sigma-delta remainder
   int8_t lastWrittenPct_ = kNeverWritten;
@@ -115,14 +127,12 @@ class NezhaMotorPort final : public DiffDrive::Motor {
 
   // encoder state
   int32_t encOffset_ = 0;          // [counts] software rebaseline
-  int32_t lastGoodRaw_ = 0;        // [counts] failure-hold
   float lastPosition_ = 0.0f;      // [counts]
   float velocity_ = 0.0f;          // [counts/s]
   uint64_t sampleTimeUs_ = 0;      // [us] last SUCCESSFUL collect
   uint64_t lastTickUs_ = 0;        // [us]
   bool hasLastTick_ = false;
   bool connected_ = false;
-  bool primed_ = false;
 
   // wedge detector (motor_armor.h's counter, folded in)
   float lastWedgeCheckPosition_ = 0.0f;  // [counts]

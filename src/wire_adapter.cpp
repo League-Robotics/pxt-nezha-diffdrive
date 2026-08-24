@@ -56,13 +56,12 @@ float engineDefaultCruiseMmS();
 // (mradToRad() below). `speed`'s <0/==0 handling for engineGoToR()/
 // engineGoToW() is resolved by onGoToR()/onGoToW() below, via
 // engineDefaultCruiseMmS(), BEFORE either is ever called -- identical
-// convention to `cruise` above. engineGoToW() additionally reports back,
-// via its bool return, whether a live PoseSource was actually available
-// to dispatch onto MotionEngine::goToW() -- false means "no OTOS
-// fitted/connected" (motion-api.md S3.6, ticket 010's own out-of-scope
-// encoder-odometry fallback), not a decode or dispatch failure of its
-// own; onGoToW() below turns that into an honest refusal rather than
-// ever calling MotionEngine::goToW() with a bogus pose.
+// convention to `cruise` above. SPRINT 006 TICKET 007: engineGoToW()
+// selects its own PoseSource internally (OtosPort when connected, the
+// encoder-odometry fallback otherwise -- motion-api.md S3.6) and now
+// always dispatches onto MotionEngine::goToW(); its bool return is
+// unconditionally true under the current implementation, kept only to
+// preserve the existing "was a live pose available" contract.
 void engineMoveV(float vx, float omegaRad, uint32_t durationMs);
 void engineGoToR(float x, float y, float speed, float arrive,
                  uint32_t timeoutMs);
@@ -418,13 +417,11 @@ Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
   const float resolvedSpeed =
       speed == 0.0f ? engineDefaultCruiseMmS() : speed;
   if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
-  // motion-api.md S3.6 / ticket 010's own Description: the
-  // encoder-odometry fallback is explicitly out of scope and not built,
-  // so "no OTOS fitted, or fitted but never begun/connected" is a real
-  // reachable state on this fleet, not theoretical -- see this method's
-  // own doc comment (wire_adapter.h) for why kUnimplemented is the
-  // refusal this class answers rather than driving toward a
-  // garbage/zeroed pose.
+  // Sprint 006 ticket 007: engineGoToW() now falls back to encoder
+  // odometry when no OTOS is connected (motion-api.md S3.6) rather than
+  // refusing, so this call always dispatches in the current
+  // implementation -- see this method's own doc comment (wire_adapter.h)
+  // for why the `!engineGoToW(...)` check below is nonetheless kept.
   if (!engineGoToW(x, y, resolvedSpeed, arrive, timeout)) {
     return Wire::Result::kUnimplemented;
   }

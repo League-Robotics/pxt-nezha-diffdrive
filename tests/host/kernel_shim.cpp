@@ -169,6 +169,9 @@ int kdOutConnectedRight(void* handle) {
 uint32_t kdOutCycleCount(void* handle) {
   return static_cast<Handle*>(handle)->kernel.output().cycleCount;
 }
+uint32_t kdOutI2cFaultCount(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().i2cFaultCount;
+}
 
 // ---- FakeMotor control/readback ---------------------------------------
 // `side`: 0 == left, 1 == right.
@@ -251,6 +254,28 @@ uint32_t kdSleeperLastSleepMillis(void* handle) {
 }
 int kdLauncherLaunchCalls(void* handle) {
   return static_cast<Handle*>(handle)->launcher.launchCalls;
+}
+
+// ---- cross-fiber stop settle-window test hook (sprint 006 ticket 002) --
+// Arms FakeSleeper::onSleep so that the Nth sleepMillis() call (1-based,
+// counting from process start -- see FakeSleeper's own comment) fires an
+// immediate stop on BOTH FakeMotors, replicating src/shims.cpp's
+// deliverStopNow() helper without linking shims.cpp itself (which
+// includes pxt.h and cannot be host-compiled -- see src/DESIGN.md §11).
+// This is how a test scripts "a different fiber calls stopAll()/
+// endMove()/updateMove()'s completion branch" landing inside
+// DifferentialDrive::step()'s encoder settle window.
+void kdArmCrossFiberStopOnSleepCall(void* handle, int sleepCallNumber) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->sleeper.onSleep = [h, sleepCallNumber](int callNumber) {
+    if (callNumber == sleepCallNumber) {
+      h->left.emergencyStop();
+      h->right.emergencyStop();
+    }
+  };
+}
+void kdDisarmCrossFiberStop(void* handle) {
+  static_cast<Handle*>(handle)->sleeper.onSleep = nullptr;
 }
 
 }  // extern "C"

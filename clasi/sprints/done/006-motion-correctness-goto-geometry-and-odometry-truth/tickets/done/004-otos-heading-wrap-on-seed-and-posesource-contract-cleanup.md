@@ -1,8 +1,9 @@
 ---
 id: '004'
 title: OTOS heading-wrap on seed and PoseSource contract cleanup
-status: open
-use-cases: [SUC-004]
+status: done
+use-cases:
+- SUC-004
 depends-on: []
 github-issue: ''
 issue: otos-seed-heading-clamp.md
@@ -73,24 +74,24 @@ math is correct and syntax-valid at C++11; it does **not** prove
 
 ## Acceptance Criteria
 
-- [ ] A host test drives `heading_wrap.h`'s wrap function directly at
+- [x] A host test drives `heading_wrap.h`'s wrap function directly at
       350°/−350°/720° (converted to radians) and asserts the result
       matches the correctly wrapped equivalent (e.g. 350° → −10°),
       including a round-trip through the same LSB quantization
       `writePoseMm()` uses, so the test proves what the real register
       write would produce.
-- [ ] `OtosPort::setPose()` calls `heading_wrap.h`'s function before
+- [x] `OtosPort::setPose()` calls `heading_wrap.h`'s function before
       handing heading to `writePoseMm()`; x/y are unaffected (still
       clamped, not wrapped) — a code-reading check, since `OtosPort`
       itself cannot be host-tested (see above).
-- [ ] `PoseSource::heading()`'s doc comment in `motion_engine.h` no
+- [x] `PoseSource::heading()`'s doc comment in `motion_engine.h` no
       longer asserts a single universal "(unwrapped)" contract; it
       states the wrap convention is implementation-defined and must be
       consumed only via cos/sin.
-- [ ] `OtosPort`'s own class-level or method-level comment documents
+- [x] `OtosPort`'s own class-level or method-level comment documents
       that it reports heading wrapped to (−π, π] (resolving KERN-08 by
       making the contract honest, not by changing behavior).
-- [ ] `heading_wrap.h` is added to `tests/host/test_cxx11_syntax_gate.py`'s
+- [x] `heading_wrap.h` is added to `tests/host/test_cxx11_syntax_gate.py`'s
       covered-files list via a small dedicated syntax-check translation
       unit.
 

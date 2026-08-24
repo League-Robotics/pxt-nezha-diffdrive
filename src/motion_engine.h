@@ -55,15 +55,33 @@
 //     spanning the whole call (both phases, if two).
 //   moveV(vx, omega, duration) -- the plain wheelsV reduction, no
 //     shaping (a velocity hold has no "end" to taper toward).
-//   goToR(x, y, speed, arrive, timeout) -- the PLAIN spec reduction onto
-//     moveX (turn angle 2*atan2(y,x), arc length motion-api.md S3.5) --
-//     no turn-first/capped-curvature heuristic. That heuristic is this
-//     project's own goToWorld() in main.ts, a separate, TS-level call
-//     path (sprint.md Design Rationale: two paths sharing one primitive,
-//     not one implementation). `arrive` is accepted for wire-shape
-//     parity but unused here -- this is a single-shot reduction, not the
+//   goToR(x, y, speed, arrive, timeout) -- the spec's arc reduction
+//     (turn angle theta = 2*atan2(y,x), arc length motion-api.md S3.5),
+//     but goToR OWNS its own pivot-vs-blend split decision rather than
+//     inheriting moveX()'s generic one (sprint 006, KERN-02): moveX()'s
+//     |rotation| >= 50 deg split reissues theta/arc-length as pivot-
+//     then-straight, which lands at a DIFFERENT endpoint than the
+//     blended arc whenever it fires (arc length != chord length except
+//     in the limit) -- goToR() instead pivots to the line-of-sight
+//     bearing (atan2(y,x)) then drives the straight-line chord
+//     (hypot(x,y)), which reaches (x, y) exactly, by construction.
+//     `theta` is normalized to the short arc, (-pi, pi], before this
+//     split decision (and before the plain-arc branch below threshold
+//     uses it) -- doubling atan2's own principal value can otherwise
+//     land up to just under +-2*pi, which is "the long way around" the
+//     same constant-curvature circle as the short, wrapped angle (both
+//     reach the same (x, y), but only the short one is a sane distance
+//     to drive); this is what keeps a target nearly directly behind the
+//     robot from being driven the long way around a huge circle
+//     (sprint 006, KERN-03). `arrive` is now honored as a radial no-op
+//     gate (sprint 006, KERN-04): `hypot(x, y) <= arrive` issues no
+//     segment at all -- still a single-shot reduction, not the
 //     supervisory re-solving loop motion-api.md S3.5 describes; a caller
-//     that wants that re-issues goToR itself.
+//     that wants that re-issues goToR itself. This heuristic-free
+//     reduction remains distinct from this project's own goToWorld() in
+//     main.ts, a separate, TS-level turn-first/capped-curvature call
+//     path (sprint.md Design Rationale: two paths sharing one primitive,
+//     not one implementation).
 //   goToW(pose, x, y, speed, arrive, timeout) -- sprint 003 ticket 010,
 //     the WORLD-frame counterpart: motion-api.md S3.6, "go_to_w(x, y) ==
 //     read pose -> world-to-body -> go_to_r". Reads `pose`'s current
@@ -134,9 +152,26 @@ class PoseSource {
  public:
   virtual ~PoseSource() = default;
 
-  virtual float x() const = 0;        // [mm] world frame
-  virtual float y() const = 0;        // [mm] world frame
-  virtual float heading() const = 0;  // [rad] world frame, CCW+ (unwrapped)
+  virtual float x() const = 0;  // [mm] world frame
+  virtual float y() const = 0;  // [mm] world frame
+
+  // [rad] world frame, CCW+. Wrap convention is IMPLEMENTATION-DEFINED
+  // -- this interface does NOT mandate wrapped or unwrapped, because
+  // this project's two hardware implementations legitimately disagree
+  // by construction: `OtosPort` (src/otos_port.h) reports heading
+  // WRAPPED to (-pi, pi] (the chip's own int16 register, full scale
+  // +/-pi); a Rig-odometry-backed source (motion-api.md S3.6's
+  // encoder fallback, `EncoderPoseSource`) is deliberately UNWRAPPED,
+  // matching `Rig`'s own odometry contract (`shims.cpp`'s `r.heading`
+  // accumulates without normalizing). Both are contractually valid
+  // because `MotionEngine::goToR()`/`goToW()` consume this value ONLY
+  // through cos()/sin() (wrap-invariant) -- resolves code review
+  // KERN-08, which found this comment's former unconditional
+  // "(unwrapped)" claim contradicted by `OtosPort`'s own construction.
+  // A caller that ever DIFFERENCES two heading() reads (rather than
+  // taking their cos/sin) must NOT assume a shared wrap convention
+  // across `PoseSource` implementations.
+  virtual float heading() const = 0;
 };
 
 class MotionEngine {
@@ -227,8 +262,14 @@ class MotionEngine {
   void moveV(float vx, float omega, uint32_t durationMs);
 
   // go_to_r(x, y, speed, arrive, timeout): see header comment. `x`
-  // forward, `y` left, both [mm]; `speed` is the resulting moveX()
-  // call's cruise. A (0, 0) target is a no-op -- nothing is driven.
+  // forward, `y` left, both [mm]; `speed` is the resulting segment's
+  // cruise. A target within `arrive` [mm] of the current position
+  // (radially: `hypot(x, y) <= arrive`; (0, 0) with any `arrive >= 0`
+  // is included) is a no-op -- nothing is driven (sprint 006, KERN-04).
+  // Otherwise this method makes its OWN pivot-vs-blend split decision
+  // (sprint 006, KERN-02/03) instead of inheriting moveX()'s generic
+  // one -- see header comment for why, and for the short-arc
+  // normalization applied to the arc angle before that decision.
   void goToR(float x, float y, float speed, float arrive,
              uint32_t timeoutMs);
 
@@ -312,6 +353,18 @@ class MotionEngine {
   // caller), so an abandoned move still self-neutrals at the real
   // timeout even if nothing ever calls serviceMove() again.
   void startSegment(float distance, float rotation, float cruise);
+
+  // Queue a pivot to `pivotRotation` now, then `straightDistance` [mm]
+  // straight once that pivot completes cleanly -- the shared tail of
+  // moveX()'s own pivot-first split (motion-api.md S3.3) and goToR()'s
+  // above-threshold bearing-pivot-then-chord split (sprint 006,
+  // KERN-02): both are "pivot then straight," differing only in which
+  // (rotation, distance) pair is queued. The caller must set
+  // `move_.deadline` (and clear `move_.hasPending`) first -- this
+  // leaves the deadline untouched, which is what keeps one `timeout`
+  // spanning both phases.
+  void queuePivotThenStraight(float pivotRotation, float straightDistance,
+                               float cruise);
 
   // Clears the move-engine's own state without touching the kernel --
   // the shared tail of endMove() and of wheelsX()/wheelsV()'s "clear the
