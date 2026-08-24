@@ -1,7 +1,7 @@
 ---
 id: '007'
 title: Encoder PoseSource fallback for GO_TO_W
-status: in-progress
+status: done
 use-cases:
 - SUC-006
 depends-on:
