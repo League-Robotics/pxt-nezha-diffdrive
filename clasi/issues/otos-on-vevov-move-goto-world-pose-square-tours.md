@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '011'
 ---
 
 # OTOS on vevov: move()/goTo() + world-pose square tours

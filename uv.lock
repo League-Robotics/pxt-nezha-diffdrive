@@ -52,7 +52,7 @@ wheels = [
 
 [[package]]
 name = "pxt-nezha-diffdrive-host-tests"
-version = "0.20260823.1"
+version = "0.20260823.2"
 source = { virtual = "." }
 dependencies = [
     { name = "pytest" },

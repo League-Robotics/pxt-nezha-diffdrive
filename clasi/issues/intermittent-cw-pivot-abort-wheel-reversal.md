@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '011'
 ---
 
 # Residual intermittent leg fault in square tours (successor issue)

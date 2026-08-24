@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '010'
 ---
 
 # Unpowered Nezha brick wedges the whole program at first I2C touch

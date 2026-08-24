@@ -10,6 +10,7 @@ issues:
 - continuous-mode-odometry-chord-error.md
 - otos-seed-heading-clamp.md
 - brick-reset-odometry-teleport.md
+- no-encoder-odometry-posesource-fallback.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
