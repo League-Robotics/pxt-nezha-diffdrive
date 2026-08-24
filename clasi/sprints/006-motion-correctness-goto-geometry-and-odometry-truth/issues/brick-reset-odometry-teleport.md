@@ -1,6 +1,9 @@
 ---
-status: pending
+status: in-progress
 sprint: '006'
+tickets:
+- 006-005
+- 006-006
 ---
 
 # Brick MCU reset mid-session teleports odometry ~4 m (bench check + rebaseline)

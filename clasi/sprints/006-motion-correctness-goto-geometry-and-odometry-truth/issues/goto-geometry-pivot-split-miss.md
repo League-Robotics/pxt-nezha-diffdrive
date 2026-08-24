@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '006'
+tickets:
+- 006-001
 ---
 
 # goTo geometry: pivot-split miss, long-way arcs, and a dead arrive tolerance

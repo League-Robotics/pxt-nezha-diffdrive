@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '006'
+tickets:
+- 006-003
 ---
 
 # Continuous-mode driving never updates odometry; next pose read integrates one chord

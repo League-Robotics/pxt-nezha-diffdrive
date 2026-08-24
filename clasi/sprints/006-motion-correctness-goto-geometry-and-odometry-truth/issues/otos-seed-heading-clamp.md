@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '006'
+tickets:
+- 006-004
 ---
 
 # OTOS pose seed clamps heading beyond ±180° instead of wrapping

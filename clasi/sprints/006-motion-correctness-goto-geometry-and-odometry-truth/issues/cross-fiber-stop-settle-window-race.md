@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '006'
+tickets:
+- 006-002
 ---
 
 # Cross-fiber stop lands in the kernel settle window ~⅓ of the time

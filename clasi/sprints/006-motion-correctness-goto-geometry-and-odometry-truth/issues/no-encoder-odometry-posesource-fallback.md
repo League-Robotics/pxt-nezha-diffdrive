@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '006'
+tickets:
+- 006-007
 ---
 
 # GO_TO_W has no encoder-odometry fallback, so it is unimplemented on any robot without an OTOS
