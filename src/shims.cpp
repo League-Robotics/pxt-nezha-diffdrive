@@ -878,9 +878,9 @@ int diagValue(int what) {
     case 21: return static_cast<int>(ensure().left.maxDrivenStreak_);
     case 22: return static_cast<int>(ensure().right.maxDrivenStreak_);
     // 23/24: rejected implausible encoder reads (glitch armor)
-    case 25: return static_cast<int>(ensure().engine.wrongWayCount());
     case 23: return static_cast<int>(ensure().left.glitchCount_);
     case 24: return static_cast<int>(ensure().right.glitchCount_);
+    case 25: return static_cast<int>(ensure().engine.wrongWayCount());
     // 26: SerialTransport::writeLine() drop count (ticket 006) -- the
     // two-writer guard's retry cap exhausted, or a uBit.serial.send()
     // call itself failed. Bench operators read this via probe(26); it

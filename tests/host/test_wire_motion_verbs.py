@@ -869,6 +869,71 @@ def test_wheels_v_duration_at_ceiling_is_accepted(wa):
     assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.1)
 
 
+# ---------------------------------------------------------------------------
+# WIRE-08 (code review 2026-08-23, sprint 007 ticket 007): unclamped
+# float->int casts at the wire boundary. `parseInt32` (wire_handler.cpp)
+# accepts the wire's full int32 grammar with no ceiling of its own, but
+# `static_cast<float>(left/right)` then `static_cast<int>(...)` back
+# (WireAdapter::onWheelsV() -> shims.cpp's setWheelsTimed()) is UB
+# whenever the intermediate float rounds outside int32's representable
+# range -- which happens BEFORE int32's own limit, since float's 24-bit
+# mantissa cannot represent every integer near 2^31:
+# `static_cast<float>(2147483647)` itself rounds UP to 2147483648.0f
+# (2^31, one past INT32_MAX). Casting that back used to saturate
+# (benign) on the Cortex-M target's VCVT but yield INT32_MIN on the x86
+# host's cvttss2si -- a max-FORWARD wire command reading back as a
+# full-speed REVERSE, host and target disagreeing in SIGN. The fix
+# refuses (kRange) before either cast ever runs, so host and target can
+# no longer disagree: neither one ever computes a duty for a value this
+# extreme.
+# ---------------------------------------------------------------------------
+
+
+def test_wheels_v_extreme_positive_value_is_range_refused_not_sign_flip(wa):
+    """`WHEELS_V 2147483647 0 1000 #1` sits exactly in WIRE-08's own
+    named danger zone ([2147483584, 2147483647]) -- decodes fine at the
+    grammar level, but is now refused (ERR_RANGE) by the adapter before
+    any cast runs. Before this fix, this host process's own
+    static_cast<int>(2147483648.0f) would have produced INT32_MIN, and
+    the motor would have staged a full-REVERSE duty for a
+    max-FORWARD-looking wire command -- the exact host/target sign
+    disagreement WIRE-08 found (benign saturation on the Cortex-M
+    target's VCVT, INT32_MIN on this host's cvttss2si)."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"WHEELS_V 2147483647 0 1000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    # Refused -- the kernel must never have been commanded in EITHER
+    # direction (this is exactly the sign-flip scenario WIRE-08 found:
+    # a max-forward-looking wire value producing a full-reverse duty).
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_wheels_v_extreme_negative_value_is_range_refused(wa):
+    """The clamp (kWireBoundaryCastCeiling, wire_adapter.h) is
+    symmetric -- a wire value far below the negative bound is refused
+    the same way, rather than the policy relying on the negative side
+    happening to avoid the exact rounding-past-range case the positive
+    side hits (it does, since -2^31 is itself exactly representable as
+    a float, but the refusal here does not depend on that fact holding
+    for every possible target/compiler)."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"WHEELS_V -2100000000 0 1000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
 def test_stop_real_effect_returns_duty_to_zero(wa):
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(1000.0)
@@ -1276,6 +1341,53 @@ def test_get_set_unknown_field_name_is_unknown(wa):
 
     wa.feed(b"GET nosuch_field #2\n")
     assert wa.take_sink() == _ack(2)  # no `get` line -- unknown name
+
+
+def test_set_value_times_1000_overflow_is_range_refused(wa):
+    """WIRE-08 (code review 2026-08-23, sprint 007 ticket 007):
+    `parseFloatField` (wire_handler.cpp) accepts any finite float with
+    no ceiling of its own, but `onSet()`'s x1000 scaling convention
+    (mirroring setKernelValue()'s own, shims.cpp) can turn an
+    absurd-but-legal field value into a product that overflows `long`'s
+    32-bit range before std::lround() ever runs. `SET pid_kp 3000000`
+    scales to 3e9 -- refused (ERR_RANGE) rather than landing an
+    unspecified/garbage gain in the kernel from an acked, in-grammar
+    line. Verified against `pid_kp` specifically because that is the
+    exact field WIRE-08 names, and because its kernel default (0.0,
+    DifferentialDrive::Config's own default) makes "unwritten" and
+    "written to something absurd" unambiguous to tell apart on
+    readback."""
+    wa.feed(b"SET pid_kp 3000000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+
+    # Refused -- the kernel's own pid_kp must still read back its
+    # unwritten, uncalibrated default, never the garbage product of an
+    # overflowed x1000 scale-then-round.
+    wa.feed(b"GET pid_kp #2\n")
+    reply = wa.take_sink()
+    prefix = _ack(2) + b"get pid_kp "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(0.0, abs=1e-3)
+
+
+def test_set_value_large_but_sane_is_still_accepted(wa):
+    """The new WIRE-08 clamp must not be so tight it starts refusing
+    ordinary (if unusually large) configured gains -- a value whose
+    x1000 product (2e6) sits comfortably inside the +-2e9 cast-safe
+    range must still be accepted and round-trip through GET, same
+    shape as test_get_set_field_name_table_round_trips above. (Chosen
+    small enough that GET's OWN, unrelated, pre-existing x1000 cast
+    -- getConfigValue()'s `static_cast<int>(c.kp * 1000.0f)`, not
+    touched by this ticket -- also stays comfortably in range, so this
+    test isolates the SET-side clamp this ticket adds.)"""
+    wa.feed(b"SET pid_kp 2000 #1\n")  # x1000 -> 2e6, well inside range
+    assert wa.take_sink() == _ack(1)
+
+    wa.feed(b"GET pid_kp #2\n")
+    reply = wa.take_sink()
+    prefix = _ack(2) + b"get pid_kp "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(2000.0, rel=1e-3)
 
 
 # ---------------------------------------------------------------------------

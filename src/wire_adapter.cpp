@@ -324,9 +324,20 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
                                     uint32_t duration, uint32_t id) {
   (void)id;
   if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
+  // WIRE-08 (code review 2026-08-23): refuse BEFORE the cast below runs
+  // at all -- see kWireBoundaryCastCeiling's own doc comment
+  // (wire_adapter.h) for why an unclamped static_cast<int> here is
+  // platform-dependent UB for a wire-legal but absurd value, and why
+  // this bound is what keeps the cast well-defined (and therefore
+  // identical) on both the C++20 host and the C++11 target.
+  if (left < -kWireBoundaryCastCeiling || left > kWireBoundaryCastCeiling ||
+      right < -kWireBoundaryCastCeiling || right > kWireBoundaryCastCeiling) {
+    return Wire::Result::kRange;
+  }
   // left/right arrive as exact integral values (decoded from the wire's
   // signed-integer fields, wire_handler.cpp) -- a plain narrowing cast
-  // is exact, no rounding needed.
+  // is exact, no rounding needed, now that the range check above rules
+  // out the one region where "exact" stops being true.
   setWheelsTimed(static_cast<int>(left), static_cast<int>(right), duration);
   // sprint 003 ticket 005: record the resulting deadline so
   // hasLiveMotionObligation() can tell protocol.cpp's fiber loop to keep
@@ -501,8 +512,19 @@ Wire::Result WireAdapter::onSet(const char* name, float value, uint32_t id) {
   (void)id;
   const FieldEntry* entry = findField(name);
   if (entry == nullptr) return Wire::Result::kUnknown;
-  setKernelValue(entry->ordinal,
-                static_cast<int>(std::lround(value * 1000.0f)));
+  // WIRE-08 (code review 2026-08-23): `value` arrives with no ceiling
+  // of its own (parseFloatField, wire_handler.cpp, accepts any finite
+  // float) -- setKernelValue()'s own x1000 scaling convention can turn
+  // an absurd-but-legal field value into a product that overflows
+  // `long`'s 32-bit range before std::lround() ever runs (e.g. `SET
+  // pid_kp 3000000` -> 3e9), which is unspecified on the target, not
+  // merely imprecise. Refuse BEFORE the round -- see
+  // kWireBoundaryCastCeiling's own doc comment (wire_adapter.h).
+  const float scaled = value * 1000.0f;
+  if (scaled < -kWireBoundaryCastCeiling || scaled > kWireBoundaryCastCeiling) {
+    return Wire::Result::kRange;
+  }
+  setKernelValue(entry->ordinal, static_cast<int>(std::lround(scaled)));
   return Wire::Result::kOk;
 }
 

@@ -522,7 +522,24 @@ class WireHandler {
   // this file knows about and cannot drift from the dispatcher. Ticket
   // 004 inserted the six motion verbs between TLM and STOP, matching
   // protocol.md S6's own canonical ordering.
-  static const VerbEntry kCommandTable[18];
+  //
+  // WIRE-09 (code review 2026-08-23): deliberately declared with NO
+  // explicit size -- the definition in wire_handler.cpp supplies the
+  // bound, deduced from its own initializer list. An explicit `[18]`
+  // here (the old spelling) meant the count was spelled twice, and
+  // *removing* a row from the .cpp's initializer (or missing one while
+  // renaming) compiled SILENTLY: the array zero-filled the vacated
+  // slot, that entry's `name` read back nullptr, and the first inbound
+  // sequenced verb that walked the table into it hit
+  // `strcmp(verb, nullptr)` -- UB, a hard fault in practice, on every
+  // subsequent unrecognized-verb line or HELP call (the two paths that
+  // walk the whole table; see verify-wire.md's own scope correction --
+  // NOT every command, only those two). Leaving the size to be deduced
+  // makes a row COUNT change of either sign visible from the deduced
+  // bound; the constructor's own static_assert (wire_handler.cpp) pins
+  // the expected count so a future accidental removal fails to
+  // COMPILE instead of silently shipping.
+  static const VerbEntry kCommandTable[];
 
   // Field-token storage cap for one line, verb-exclusive (id excluded --
   // it is resolved separately, see dispatch()'s own comment). Every

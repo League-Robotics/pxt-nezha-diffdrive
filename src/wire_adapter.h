@@ -151,6 +151,36 @@ class WireAdapter : public Wire::Adapter {
   // exactly as in wheels_v").
   static constexpr uint32_t kWheelsVDurationCeiling = 5000;  // [ms]
 
+  // WIRE-08 (code review 2026-08-23): the widest magnitude this class
+  // will cast from float to int at the wire boundary, in either
+  // direction. parseInt32()/parseFloatField() (wire_handler.cpp) admit
+  // the full wire grammar -- any int32, any finite float -- with no
+  // ceiling of their own, but `static_cast<float>(x)` then
+  // `static_cast<int>(...)` back is UB whenever the intermediate float
+  // rounds outside int32's representable range. That happens well
+  // *before* int32's own limit: float's 24-bit mantissa cannot hold
+  // every integer near 2^31, so `static_cast<float>(2147483647)`
+  // itself rounds UP to 2147483648.0f (2^31, one past INT32_MAX) --
+  // casting that back to int is UB, benign-saturating on the Cortex-M
+  // target's VCVT but INT32_MIN on the x86 host harness's cvttss2si
+  // (this project's own `tests/host/`), i.e. host and target disagree
+  // in SIGN for wire values in [2147483584, 2147483647]. This ceiling
+  // is chosen with ~147M of headroom below INT32_MAX specifically so
+  // that any float within [-kWireBoundaryCastCeiling,
+  // kWireBoundaryCastCeiling] truncates to an IN-RANGE int32 on any
+  // conforming compiler -- the C++ standard defines float->int
+  // truncation (toward zero) whenever the truncated value is
+  // representable, so a value that never approaches the boundary can
+  // never hit the platform-dependent UB, on either the C++20 host or
+  // the C++11 target. Used by onWheelsV() (left/right, [mm/s]) and
+  // onSet() (the field's own value * 1000.0f, before std::lround) --
+  // see each one's own comment (wire_adapter.cpp) for the exact
+  // refusal. Deliberately NOT a claim about sane physical units (no
+  // wheel needs to move at 2,000,000 m/s) -- that is sprint 008's own
+  // constant-unification scope; this constant exists purely to keep
+  // the cast itself well-defined and platform-identical.
+  static constexpr float kWireBoundaryCastCeiling = 2000000000.0f;
+
   // Plain C function pointer, deliberately not std::function -- this
   // file must stay free of anything that could drag in CODAL or
   // heap-allocating machinery. Returns milliseconds on whatever clock
@@ -196,7 +226,11 @@ class WireAdapter : public Wire::Adapter {
   // setWheelsTimed() returns void, so there is no adapter-observable
   // refusal path from the kernel side (kernel.drive()'s own Status is
   // already discarded by that existing function, unchanged by this
-  // ticket).
+  // ticket). WIRE-08 (code review 2026-08-23): `left`/`right` are also
+  // refused (kRange) outside +-kWireBoundaryCastCeiling before either
+  // ever reaches setWheelsTimed()'s own static_cast<int> -- see that
+  // constant's own doc comment above for the float-round-trip UB this
+  // closes.
   Wire::Result onWheelsV(float left, float right, uint32_t duration,
                          uint32_t id) override;
 
@@ -292,7 +326,13 @@ class WireAdapter : public Wire::Adapter {
   // old multi-pair CONFIG batch verb is not reintroduced"). See
   // wire_adapter.cpp's kFields table for the full name<->ordinal
   // mapping onto shims.cpp's existing setKernelValue()/getConfigValue()
-  // field numbers. ----
+  // field numbers. onSet() additionally refuses (kRange) when `value *
+  // 1000.0f` -- the exact product setKernelValue()'s own x1000
+  // convention passes to std::lround() -- falls outside
+  // +-kWireBoundaryCastCeiling (WIRE-08, code review 2026-08-23): an
+  // unclamped `SET pid_kp 3000000` produces a 3e9 product, overflowing
+  // `long`'s 32-bit range on the target before lround() ever runs (see
+  // kWireBoundaryCastCeiling's own doc comment above). ----
   bool onGet(const char* name, float& out) const override;
   Wire::Result onSet(const char* name, float value, uint32_t id) override;
   size_t fieldCount() const override;
