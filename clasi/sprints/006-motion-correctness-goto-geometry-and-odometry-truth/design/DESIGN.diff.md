@@ -1,6 +1,6 @@
 ---
 source_file: DESIGN.md
-source_hash: d67e1726421a7b8f39abfe82b7c7b1b482eacb5d864c082cda848beb44fa74a4
+source_hash: 89a3aa407623586fdcbbfcaf7f31110bc006f6b8b7de07e31d0bf7f48b85fe30
 ---
 # Diff: DESIGN.md
 
@@ -17,21 +17,22 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  `src/` is flat — no subdirectories — so this one document carries the
  logical subsystem breakdown as sections. Global conventions (units
-@@ -20,10 +20,12 @@
+@@ -20,10 +20,13 @@
  |---|---|---|
  | Kernel | `diffdrive.h/.cpp` | `<cstdint>`/`<cmath>`/`<algorithm>` only — **no I2C, no CODAL, no MakeCode, no geometry** |
  | Motion engine | `motion_engine.h/.cpp` | `diffdrive.h` + libc only — host-portable |
++| Heading wrap (sprint 006) | `heading_wrap.h` | libc only — host-portable, no project includes at all |
 +| Encoder glitch armor (sprint 006) | `encoder_glitch_armor.h` | libc only — host-portable, no project includes at all |
 +| Encoder pose source (sprint 006) | `encoder_pose_source.h` | `motion_engine.h` + libc only — host-portable |
  | Wire grammar | `wire_handler.h/.cpp` | libc only — host-portable, no project includes at all |
  | Wire adapter | `wire_adapter.h/.cpp` | `wire_handler.h` + libc — host-portable; reaches hardware only through forward-declared `shims.cpp` free functions |
  | Transports | `serial_transport.*`, `radio_transport.*` | CODAL (`pxt.h` in the .cpp) — know bytes and framing, **nothing** about verbs, grammar, or motion |
 -| Hardware ports | `nezha_port.*`, `otos_port.*`, `platform_ports.h` | `pxt.h` + the port interfaces they implement — know I2C/CODAL, nothing about blocks or the wire |
-+| Hardware ports | `nezha_port.*`, `otos_port.*`, `platform_ports.h` | `pxt.h` + the port interfaces they implement — know I2C/CODAL, nothing about blocks or the wire; `nezha_port.cpp` additionally calls into `encoder_glitch_armor.h` above (a dependency on a lower, host-portable layer, not membership in this one) |
++| Hardware ports | `nezha_port.*`, `otos_port.*`, `platform_ports.h` | `pxt.h` + the port interfaces they implement — know I2C/CODAL, nothing about blocks or the wire; `nezha_port.cpp` additionally calls into `encoder_glitch_armor.h` and `otos_port.cpp` into `heading_wrap.h`, both above (a dependency on a lower, host-portable layer, not membership in this one) |
  | Protocol composition | `protocol.h/.cpp` | everything above — the CODAL fiber that plumbs transports into the wire stack |
  | Shim + blocks | `shims.cpp`, `main.ts` | everything — the composition root and the student-facing API |
  
-@@ -96,10 +98,25 @@
+@@ -96,10 +99,25 @@
    |rotation| ≥ 50° with nonzero distance splits into pivot-then-
    straight, one caller-visible call, one shared deadline);
    `moveV(vx, omega, duration)`; `goToR(x, y, speed, arrive, timeout)`
@@ -61,7 +62,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  - Move servicing: `serviceMove()` — one advance per control cycle
    while active: rescales taper/ramp, re-issues `kernel_.drive()`
    **every tick** with a rolling 500 ms lease (gating on scale change
-@@ -114,10 +131,22 @@
+@@ -114,10 +132,22 @@
    `effectiveTrackWidth() = trackWidth / rotationalSlip`, a method,
    deliberately never cached.
  - `PoseSource` — the three-read world-pose port (`x()/y()/heading()`),
@@ -88,7 +89,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **Key state.** `MoveState` (segment targets in counts, ramp start,
  pending second phase, one `deadline` spanning both phases). Geometry
-@@ -226,9 +255,11 @@
+@@ -226,9 +256,11 @@
  `engineXxx()` forwards onto the `MotionEngine` singleton. `cruise`/
  `speed` handling is uniform: negative → `kRange`; zero → the
  configured default via `engineDefaultCruiseMmS()` (full-duty velocity
@@ -103,16 +104,16 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  here is the **single** place wire milliradians become radians.
  GET/SET map 15 snake_case wire names 1:1 onto the `ConfigField`
  ordinals (`kFields` table); STATUS packs diag booleans into a local
-@@ -344,7 +375,7 @@
+@@ -344,7 +376,7 @@
  no semantics. Siblings under Protocol, deliberately uncoupled from
  each other.
  
 -## 7. Hardware ports — `nezha_port.*`, `otos_port.*`, `platform_ports.h`
-+## 7. Hardware ports — `nezha_port.*`, `otos_port.*`, `encoder_glitch_armor.h`, `platform_ports.h`
++## 7. Hardware ports — `nezha_port.*`, `otos_port.*`, `heading_wrap.h`, `encoder_glitch_armor.h`, `platform_ports.h`
  
  **NezhaMotorPort** (`DiffDrive::Motor` over I2C 0x10). The
  write-shaping pipeline is not styling — each stage guards a measured
-@@ -356,9 +387,31 @@
+@@ -356,9 +388,31 @@
  discarded on zero so a stopped wheel cannot creep; min-write throttle
  + slew, both bypassed for stops. Encoder sampling is split-phase
  (select 0x46 → 4 ms settle → read), counts never device-reset —
@@ -147,7 +148,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **OtosPort** (SparkFun OTOS, I2C 0x17; implements `PoseSource`).
  Ported verbatim from the reference firmware: register map, distinct
-@@ -368,7 +421,40 @@
+@@ -368,7 +422,49 @@
  and silently inherits a previous session's values — measured 42.7 mm
  pivot circle from a stale arm). The lever arm is applied in
  **software** on every read/seed; the chip's own offset register is
@@ -162,7 +163,16 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 +`seedPose()`) now lands at the equivalent −10° instead of clamping to
 ++179.89°, keeping the OTOS and encoder pose sources agreed at seed
 +time — the disagreement `seedPose()`'s own drift-measurement contract
-+depends on not existing yet.
++depends on not existing yet. **Host-testability note**: `otos_port.h`
++includes `pxt.h` unconditionally (§1), so `OtosPort` itself cannot be
++compiled into any host test — there is no existing seam that exercises
++its I2C-bound methods host-side. The wrap math therefore needs the same
++treatment as `EncoderGlitchArmor` below: a tiny host-portable helper
++(`heading_wrap.h` — one pure function, no dependencies at all, smaller
++in scope than `encoder_glitch_armor.h`) that `setPose()` calls and that
++a host test exercises directly, proving the same LSB round-trip
++(350° → −10°) the real register write would produce without needing
++I2C in the link.
 +
 +**`EncoderPoseSource` (`encoder_pose_source.h`, sprint 006 — new
 +host-portable module).** A second `PoseSource` implementation over
@@ -189,7 +199,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **Bus discipline (system invariant).** The Nezha brick and the OTOS
  share one I2C bus. Every OTOS transaction must run on the same fiber
-@@ -473,9 +559,17 @@
+@@ -473,9 +569,17 @@
  - **Odometry** (`odomUpdate`): differential dead-reckoning from
    kernel `Output` positions using the engine's geometry
    (`countsPerMm`, `effectiveTrackWidth`), midpoint-heading
@@ -210,7 +220,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  - **Tick engine** (`tickDrive()`): one `kernel.step()` +
    `serviceMove()` on the caller's fiber, then absolute-deadline
    self-pacing to the kernel's configured 24 ms cadence (re-anchored
-@@ -486,13 +580,41 @@
+@@ -486,13 +590,41 @@
    neutral never reached the motors before the `while (tickDrive())`
    caller exited (measured: +9–13° per turn). This settle loop is
    **not host-testable** (bolted to Rig-local odometry) — a known,
@@ -254,7 +264,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  - **Wire bridges**: `setWheelsTimed`/`driveTwistTimed` (duration =
    lease), the six `engineXxx()` forwards, `engineDefaultCruiseMmS()`,
    `diagValue()` (the DIAG/STATUS ordinal table),
-@@ -501,9 +623,19 @@
+@@ -501,9 +633,19 @@
  - **OTOS surface**: a lazy singleton **separate from Rig** (usable
    without starting the drive), `otosBegin/otosRead/otosGet/otosZero/
    otosCalibrate/otosSetOffset`, `seedPose()` (writes **both** pose
@@ -277,7 +287,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **main.ts** owns the student units and the block API (groups Drive,
  Move, Pose, World, Setup), the browser-simulator fallback bodies (a
-@@ -547,11 +679,25 @@
+@@ -547,11 +689,25 @@
    telemetry frame (up to 239 bytes measured). Filed as
    `clasi/issues/radio-rx-capacity-fragmentation.md`, claimed by sprint
    010.
@@ -306,26 +316,32 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  ## 11. Host-vs-target language standard (a standing build-gate constraint)
  
-@@ -585,3 +731,116 @@
+@@ -585,3 +741,128 @@
  need `pxt.h` and are not covered by this gate at all, and a *linkable*
  target build — not merely syntax-valid C++11 — is only ever proven by
  the sprint checkpoint that actually builds a flashable hex.
 +
-+**Sprint 006** adds two new host-portable headers with no `pxt.h`
-+dependency of their own — `encoder_glitch_armor.h` and
-+`encoder_pose_source.h` (§7) — to this same gate, via a small dedicated
-+syntax-check translation unit each (neither has a natural `.cpp` of its
-+own the way `motion_engine.h` rides along with `motion_engine.cpp`).
-+This is the gate's coverage growing by the two files this sprint adds
-+that are eligible for it; it does **not** narrow the gap for the files
-+this sprint actually changes that remain ineligible — `shims.cpp` (stop
-+delivery, continuous-mode odometry fold, `EncoderPoseSource`/
-+`OtosPort` selection wiring) and `nezha_port.cpp`/`otos_port.cpp`
-+(the hardware-port callers of the two new headers) all still include
-+`pxt.h` and stay outside this gate, exactly as `src/DESIGN.md`'s
-+pre-sprint-006 text already said. A green host suite for this sprint's
-+`shims.cpp`/port changes is, as always, not evidence they compile for
-+the robot — only the sprint's own flashable-hex checkpoint proves that.
++**Sprint 006** adds three new host-portable headers with no `pxt.h`
++dependency of their own — `heading_wrap.h`, `encoder_glitch_armor.h`,
++and `encoder_pose_source.h` (§7) — to this same gate, via a small
++dedicated syntax-check translation unit each (none has a natural
++`.cpp` of its own the way `motion_engine.h` rides along with
++`motion_engine.cpp`). This is the gate's coverage growing by the three
++files this sprint adds that are eligible for it; it does **not**
++narrow the gap for the files this sprint actually changes that remain
++ineligible — `shims.cpp` (stop delivery, continuous-mode odometry
++fold, `EncoderPoseSource`/`OtosPort` selection wiring) and
++`nezha_port.cpp`/`otos_port.cpp` (the hardware-port callers of the
++three new headers) all still include `pxt.h` and stay outside this
++gate, exactly as `src/DESIGN.md`'s pre-sprint-006 text already said.
++`otos_port.cpp` is a sharper instance of this than the rest: with
++`heading_wrap.h`'s wrap math extracted and gate-covered, the entirety
++of `otos_port.cpp`'s OWN code (the I2C calls, the LSB quantization
++call site) is still completely untested outside a real chip — there is
++no host seam for `OtosPort` at all, extracted helper or not. A green
++host suite for this sprint's `shims.cpp`/port changes is, as always,
++not evidence they compile for the robot — only the sprint's own
++flashable-hex checkpoint proves that.
 +
 +## 12. Sprint 006 — architecture diagram and change summary
 +
@@ -333,10 +349,10 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 +for the sizing decision and rationale). Six issues from the 2026-08-23
 +code review's motion-correctness cluster, five CONFIRMED defects plus
 +one capability gap sharing the same `PoseSource`/heading-wrap seam.
-+Two new host-portable modules are introduced (`EncoderGlitchArmor`,
-+`EncoderPoseSource`); the kernel (`diffdrive.{h,cpp}`) stays
-+byte-unchanged throughout, so no cross-repo (radio-robot firmware)
-+resync is triggered by this sprint.
++Three new host-portable modules are introduced (`heading_wrap.h`,
++`EncoderGlitchArmor`, `EncoderPoseSource`); the kernel
++(`diffdrive.{h,cpp}`) stays byte-unchanged throughout, so no cross-repo
++(radio-robot firmware) resync is triggered by this sprint.
 +
 +**Sprint Changes (recap — module level; see §3/§7/§9 above for detail):**
 +
@@ -350,11 +366,15 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 +  port-level stop (cross-fiber settle-window fix); `engineGoToW()`
 +  selects `OtosPort` or `EncoderPoseSource` in one place instead of
 +  refusing without an OTOS.
-+- `otos_port.cpp` — `setPose()` wraps the heading channel before
-+  quantizing (seed-heading clamp fix).
++- `otos_port.cpp` — `setPose()` wraps the heading channel via
++  `heading_wrap.h` before quantizing (seed-heading clamp fix).
 +- `nezha_port.cpp` — `collect()`'s two-strike acceptance now routes
 +  through `EncoderGlitchArmor` and rebaselines on a detected
 +  discontinuity instead of integrating it as motion.
++- `heading_wrap.h` (new) — extracted, host-portable heading-wrap pure
++  function (the only host-testable surface for `otos_port.cpp`'s fix —
++  `OtosPort` itself includes `pxt.h` and cannot be host-compiled at
++  all).
 +- `encoder_glitch_armor.h` (new) — extracted, host-portable
 +  plausibility/rebaseline decision.
 +- `encoder_pose_source.h` (new) — `PoseSource` over existing Rig
@@ -373,6 +393,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 +    NEZHA -->|"NEW: delegates plausibility decision"| GLITCH[EncoderGlitchArmor<br/>encoder_glitch_armor.h — NEW]
 +    RIG -->|"NEW: wraps Rig x/y/heading as PoseSource"| ENCPOSE[EncoderPoseSource<br/>encoder_pose_source.h — NEW]
 +    RIG -->|"selects: OTOS if connected, else encoder"| OTOS[OtosPort<br/>otos_port.cpp]
++    OTOS -->|"NEW: delegates heading wrap"| HWRAP[heading_wrap.h — NEW]
 +    ME -->|"goToW() reads pose.x/y/heading()"| OTOS
 +    ME -->|"goToW() reads pose.x/y/heading()"| ENCPOSE
 +    RIG -->|"stopAll()/endMove()/updateMove():<br/>NEW immediate port-level stop"| NEZHA
@@ -382,10 +403,11 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 +this embedded package, and none of the six issues introduces one. No
 +separate dependency-direction graph beyond the diagram above: dependency
 +direction is unchanged (Presentation/wire → MotionEngine → Kernel/ports,
-+Kernel at the bottom); the two new modules sit at the bottom of the
++Kernel at the bottom); the three new modules sit at the bottom of the
 +stack (host-portable, zero outward dependencies) with exactly one
-+caller each (`NezhaMotorPort` for `EncoderGlitchArmor`, `Rig` for
-+`EncoderPoseSource`) — no cycle is introduced.
++caller each (`NezhaMotorPort` for `EncoderGlitchArmor`, `OtosPort` for
++`heading_wrap.h`, `Rig` for `EncoderPoseSource`) — no cycle is
++introduced.
 +
 +**Migration concerns.** None requiring data migration or a deployment
 +sequencing change. Two behavior changes are visible to an existing
