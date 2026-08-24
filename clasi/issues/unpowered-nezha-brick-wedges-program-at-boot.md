@@ -91,7 +91,34 @@ priming), it should also make this quieter variant observable:
   `stall-latch-invisible-dead-end.md` (sprint 007, closed), which fixed exactly
   this shape of silence for the stall latch.
 
-Root cause of the unreachable brick on this particular robot was not
-established in this session and may simply be a sleeping or unseated brick
-(this repo's notes record that the Nezha brick auto-sleeps). The value here is
-the *presentation*, which the issue text did not previously cover.
+### CORRECTION, same session: the brick was healthy the whole time
+
+The hardware was never at fault. After a stakeholder reseat and full power
+cycle changed nothing, a single block-path command (`RUN:straight:60`, which
+runs a real `while (tickDrive())` loop) brought everything up immediately:
+
+```
+cyc  0 -> 147     i2cf 0 -> 2
+posl 0 -> 7325    posr 0 -> 7513      <-- real encoder motion, wheels turned
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=2
+```
+
+So `ready=0 connL=0 connR=0 i2cf=0` was **not** a sign of an unreachable
+brick. It is the honest state of a robot **nothing has ever ticked**:
+`active_` is promoted from `staged_` only inside `step()` (`snapshotConfig()`,
+`diffdrive.cpp:406`), `out_.ready` reads `active_` (`:799`), and
+`connected_` is refreshed by the `collect()` path — all of which run only when
+some caller ticks the kernel.
+
+**This is the finding, and it is worse than a hardware fault**: a perfectly
+healthy robot and a genuinely dead brick report *the same* STATUS line, and
+both report `i2cf=0` — the healthy one because it has not attempted any I2C
+yet, the dead one because fault counting also lives in `collect()`. There is
+no way to tell them apart from the wire without commanding motion.
+
+That makes the remedy this issue lands more important, not less: whatever
+signal distinguishes "brick unreachable" must also distinguish "never
+ticked", or an operator diagnosing a silent robot will keep chasing the
+wrong one. The original wedge scenario in this issue's Description remains
+unreproduced and may still be real on a truly unpowered brick; it simply was
+not what happened here.

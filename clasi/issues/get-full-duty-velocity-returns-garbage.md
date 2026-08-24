@@ -91,3 +91,66 @@ fields honestly rather than emit a bit pattern.
 - Sprint 007 ticket 007 / WIRE-08 — the inbound cast clamps.
 - `vendored-kernel-upstream-rediff.md` (sprint 009) — restores the
   `0 = uncalibrated → VELOCITY refused` contract text this defect defeats.
+
+## RESOLVED AMBIGUITY — it is explanation 1, the outbound GET path (2026-08-24)
+
+The re-check this issue asked for has been done, on the same robot, once its
+kernel was healthy. **Explanation 2 (reading an unpromoted/uninitialised
+config) is ruled out. This is a real reporting defect.**
+
+Evidence:
+
+```
+# fresh boot, kernel never ticked
+get full_duty_velocity 4294.967040
+status ready=0 ... connL=0 connR=0
+
+# after RUN:straight ticks the kernel 147 cycles
+STRAIGHT:end:...
+get full_duty_velocity 4294.967040          <-- IDENTICAL
+status ready=1 active=0 connL=1 connR=1 flags=31 i2cf=6
+```
+
+The value is byte-identical before and after. And critically, `ready=1` is
+**itself proof that the internal value is correct**:
+
+```cpp
+out_.ready = begun_ && active_.fullDutyVelocity > 0.0f;   // diffdrive.cpp:799
+```
+
+`ready` cannot be true unless `active_.fullDutyVelocity > 0`. The kernel
+promoted `staged_` (which `ensure()` set to `10795.0f`) into `active_` and is
+driving the robot correctly with it — encoders moved, duty was applied, the
+straight leg completed. **So the firmware holds the right number and the wire
+reports a wrong one.**
+
+## Scope of the defect
+
+This is the **outbound/`GET` mirror** of WIRE-08, the finding sprint 007
+ticket 007 fixed for the inbound/`SET` direction with
+`kWireBoundaryCastCeiling = 2e9` (`wire_adapter.h`). That ticket bounded
+floats *arriving* from the wire; nothing bounds floats *leaving* by `GET`.
+
+`10795.0` is not an extreme value, which is what makes this alarming: the
+field is not near any plausible int32 edge at ×1000 scaling
+(`10,795,000` is well inside int32). A scaling factor larger than ×1000
+somewhere in the outbound path would overflow — `10795 × 10^6 ≈ 1.08e10`
+does exceed int32 — and the observed `4294967040` (`0xFFFFFF00`) is
+consistent with an overflow/UB artifact rather than a legitimate encoding.
+**Find the actual outbound scaling before fixing**; do not assume ×10^6.
+
+## Why it matters, restated with the new evidence
+
+The safety concern in this issue's original text stands and is now sharper: a
+host reading `GET full_duty_velocity` to decide whether the robot is
+calibrated gets `4294.967040` — a plausible-looking non-zero number — from a
+robot whose real value is `10795`. Any host-side logic keyed on the
+`0 = uncalibrated → VELOCITY refused` contract is reading fiction. The robot
+itself is fine; only what it *says* about itself is wrong.
+
+## Suggested check when fixing
+
+Sweep every `GET`-able field for the same defect rather than patching this one
+— the neighbouring fields that round-trip cleanly (`max_duty 100.000008`,
+`pid_ki 6.000001`, `default_cruise 150.0`) are all small; this is the largest
+value in the table and the only one observed wrong, which is itself a clue.
