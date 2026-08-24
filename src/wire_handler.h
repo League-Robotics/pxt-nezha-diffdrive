@@ -154,10 +154,32 @@ struct StatusFields {
 // column MEANS or how it was derived, only how it prints: `hex` picks
 // lowercase hex with no `0x` prefix (flags-shaped columns); everything
 // else prints signed base-10.
+// Sprint 004 ticket 007 (remediating ticket 005's thrown exception):
+// this struct's default member initializers below are legal C++20 but
+// disqualify it from being a C++11 aggregate -- and BOTH real embedded
+// build targets compile at -std=c++11 (baked into the pxt-microbit
+// target's own yotta/CMake toolchain files), while tests/host/ compiles
+// at -std=c++20 (test_kernel_harness.py), which is why 253 host tests
+// passed against `columns_[i++] = {"name", value, hex};` call sites
+// (WireAdapter::buildSnapshot(), src/wire_adapter.cpp) that could not
+// actually be compiled for the robot. Explicit `Column() = default;`
+// plus this 3-argument converting constructor fix that WITHOUT dropping
+// the NSDMIs (dropping them would leave every default-constructed
+// `Column columns_[kMaxSnapshotColumns]` -- wire_adapter.h -- holding
+// indeterminate values until every element is filled) and WITHOUT
+// touching any of the ~20 already-correct call sites (each already
+// passes exactly these 3 positional arguments, matching this
+// constructor's signature exactly). See
+// host-tests-compile-newer-standard-than-target.md (sprint 008) for the
+// systemic gap this is one confirmed instance of.
 struct Column {
   const char* name = "";
   int32_t value = 0;
   bool hex = false;
+
+  Column() = default;
+  Column(const char* name_, int32_t value_, bool hex_)
+      : name(name_), value(value_), hex(hex_) {}
 };
 
 // One telemetry frame's worth of columns (protocol.md S5.2). `columns`
@@ -168,6 +190,16 @@ struct Column {
 // kMaxHeaderNameBytes below) and formats the rest immediately, keeping
 // no borrowed pointer alive past that one call. Mirrors radio-robot-
 // lib's own Snapshot shape (adapter.h:113-139).
+//
+// Shares Column's exact NSDMI shape immediately above, and is therefore
+// ALSO not a C++11 aggregate for the identical reason (sprint 004
+// ticket 007) -- but unlike Column, no site anywhere in src/ or
+// tests/host/ ever brace-initializes a Snapshot (every site
+// default-constructs one, then assigns `.columns`/`.count`
+// field-by-field), so this is a latent structural twin of Column's
+// defect, not a live one. Deliberately left unfixed here: there is no
+// call site it would protect, and adding constructors it doesn't need
+// would be scope creep against this ticket's own two confirmed defects.
 struct Snapshot {
   const Column* columns = nullptr;
   size_t count = 0;

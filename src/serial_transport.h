@@ -32,18 +32,36 @@ namespace diffDrive {
 constexpr size_t kMaxLineBytes = 240;
 
 // RX/TX serial ring capacity used by begin() (sprint 004 ticket 006,
-// code review R-19/WIRE-03). v5 sized these at a flat 128 B, tuned for
-// a ~27-byte binary WHEELS frame -- that sizing driver is gone under
+// code review R-19/WIRE-03; corrected by ticket 007 -- remediating
+// ticket 005's thrown exception). v5 sized these at a flat 128 B, tuned
+// for a ~27-byte binary WHEELS frame -- that sizing driver is gone under
 // v6, where a single line can legally be kMaxLineBytes (240 B). The
 // protocol fiber only drains the ring once per ~24 ms motion-tick
 // window (shims.cpp's self-pacing tick), so a near-max-length line plus
 // anything else arriving in the same window (a keepalive ack, a
 // reliability-layer resend) can exceed one line's worth of bytes before
 // the next drain -- 128 B overflows on exactly that pattern, silently
-// (codal's ring drops the overflow with no signal). Sized to 2x
-// kMaxLineBytes so the ring can absorb a max-length line AND a second,
-// smaller one in the same window.
-constexpr size_t kRingBytes = 2 * kMaxLineBytes;
+// (codal's ring drops the overflow with no signal).
+//
+// CONFIRMED (ticket 007; was UNVERIFIED under ticket 006): codal-core's
+// real setRxBufferSize()/setTxBufferSize() (inc/driver-models/Serial.h)
+// take `uint8_t size`, capping at 255. Ticket 006's original
+// `2 * kMaxLineBytes` (480) silently truncated to 224 on assignment --
+// BELOW kMaxLineBytes (240) itself, defeating the resize entirely with
+// nothing but an easy-to-miss `-Woverflow` build warning as the signal;
+// this is what ticket 005's bench checkpoint caught. This is the hard
+// ceiling, not the 2x-kMaxLineBytes margin ticket 006 intended: 255
+// leaves only ~15 bytes of headroom above one full 240-byte line --
+// enough for one maximal line plus a little slack, NOT enough to hold
+// two full lines concurrently. If a second maximal-length line arrives
+// before the first is drained, overflow is still possible -- a known,
+// documented residual limitation of the codal-core uint8_t API ceiling,
+// not something engineered further around here (see ticket 007's own
+// notes). Brace-initialized (not `=`) so any future edit that pushes
+// this past 255 is a HARD COMPILE ERROR (narrowing conversion in a
+// constant expression) instead of a repeat of this exact silent
+// truncation.
+constexpr uint8_t kRingBytes{255};
 
 class SerialTransport {
  public:
