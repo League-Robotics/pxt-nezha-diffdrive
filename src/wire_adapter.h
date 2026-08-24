@@ -265,25 +265,20 @@ class WireAdapter : public Wire::Adapter {
   // GO_TO_W: real effect (sprint 003 ticket 012) -- the world-frame
   // counterpart, forwarded onto MotionEngine::goToW() via shims.cpp's
   // engineGoToW(). Same `speed` <0/==0 handling as onGoToR() above.
-  // GO_TO_W additionally needs a live PoseSource (motion_engine.h,
-  // ticket 010) -- engineGoToW() bridges to shims.cpp's own OTOS lazy
-  // singleton and reports back (via its bool return) whether one was
-  // actually available. motion-api.md S3.6 describes an
-  // encoder-odometry fallback for a robot with no OTOS fitted at all;
-  // ticket 010's own Description states that fallback is explicitly out
-  // of scope and not built, so "no OTOS fitted, or fitted but never
-  // begun/connected" is a REAL reachable state on this fleet, not a
-  // theoretical one. DECISION (this ticket's own acceptance criteria
-  // require one, made explicitly): this method answers
-  // Wire::Result::kUnimplemented in that case -- protocol.md S6.1's own
-  // documented meaning for that code, "recognized, not wired on this
-  // build," is exactly this situation (GO_TO_W is a real, decoded verb;
-  // THIS robot/build simply has no OTOS wired in to service it) --
-  // rather than kRange (nothing about the ARGUMENTS is out of range) or
-  // kNotReady (protocol.md's own "refused pre-ready" is a robot-wide
-  // startup gate, not a per-verb missing-hardware condition). Refusing
-  // this way is what keeps this method from silently driving toward a
-  // garbage/zeroed pose when no sensor backs it.
+  // SPRINT 006 TICKET 007: engineGoToW() now SELECTS its own PoseSource
+  // (OtosPort when connected(), the encoder-odometry EncoderPoseSource
+  // fallback otherwise -- motion-api.md S3.6, closing
+  // no-encoder-odometry-posesource-fallback.md) and always dispatches
+  // onto MotionEngine::goToW(), so its bool return is now
+  // unconditionally true. The `!engineGoToW(...)` refusal below is
+  // therefore dead code under the current implementation -- kept only
+  // because the bool CONTRACT itself ("was a live pose actually
+  // available to dispatch with") is unchanged, not because
+  // kUnimplemented is still reachable. GO_TO_W's own return value still
+  // does not distinguish "served by OTOS" from "served by drifting
+  // encoder odometry" -- a caller that needs to know reads STATUS's
+  // `otos=` flag before calling (motion-api.md S3.6's own documented
+  // caveat).
   Wire::Result onGoToW(float x, float y, float speed, float arrive,
                        uint32_t timeout, uint32_t id) override;
 

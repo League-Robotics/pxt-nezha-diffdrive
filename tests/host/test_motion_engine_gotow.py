@@ -3,6 +3,12 @@ src/motion_engine.h/.cpp's world-frame reduction, goToW(), and the
 PoseSource port it reads (a minimal x()/y()/heading() interface,
 implemented for tests by FakePoseSource -- tests/host/fake_pose_source.h).
 
+Sprint 006 ticket 007 extends this file with the production
+EncoderPoseSource implementation (src/encoder_pose_source.h) and
+selectPoseSource(), the host-testable stand-in for engineGoToW()'s own
+OtosPort-vs-EncoderPoseSource selection rule (shims.cpp) -- see the
+"sprint 006 ticket 007" section near the end of this file.
+
 Canonical spec (read-only, a different repo -- this project conforms to
 its grammar, it does not vendor its C++): radio-robot-lib/docs/design/
 motion-api.md S2 ("go_to_w(x, y) == read pose -> world-to-body ->
@@ -95,6 +101,8 @@ def _bind(lib):
 
     lib.meIsMoveActive.argtypes = [ctypes.c_void_p]
     lib.meIsMoveActive.restype = ctypes.c_int
+    lib.meServiceMove.argtypes = [ctypes.c_void_p]
+    lib.meServiceMove.restype = ctypes.c_int
 
     lib.mePoseSourceSetPose.argtypes = [
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
@@ -105,6 +113,30 @@ def _bind(lib):
         ctypes.c_float, ctypes.c_uint32,
     ]
     lib.meGoToW.restype = None
+
+    lib.meMotorArmPosition.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_uint64,
+    ]
+    lib.meMotorArmPosition.restype = None
+
+    # ---- sprint 006 ticket 007: EncoderPoseSource / selectPoseSource ----
+    lib.meEncoderPoseSourceSetPose.argtypes = [
+        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
+    ]
+    lib.meEncoderPoseSourceSetPose.restype = None
+    lib.meEncoderPoseSourceX.argtypes = [ctypes.c_void_p]
+    lib.meEncoderPoseSourceX.restype = ctypes.c_float
+    lib.meEncoderPoseSourceY.argtypes = [ctypes.c_void_p]
+    lib.meEncoderPoseSourceY.restype = ctypes.c_float
+    lib.meEncoderPoseSourceHeading.argtypes = [ctypes.c_void_p]
+    lib.meEncoderPoseSourceHeading.restype = ctypes.c_float
+    lib.meGoToWViaEncoder.argtypes = [
+        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
+        ctypes.c_float, ctypes.c_uint32,
+    ]
+    lib.meGoToWViaEncoder.restype = None
+    lib.meSelectPoseSourceX.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meSelectPoseSourceX.restype = ctypes.c_float
 
     return lib
 
@@ -163,12 +195,40 @@ class Engine:
     def is_move_active(self):
         return bool(self._lib.meIsMoveActive(self._handle))
 
+    def service_move(self):
+        return bool(self._lib.meServiceMove(self._handle))
+
     # ---- goToW / PoseSource ----
     def set_pose(self, x, y, heading):
         self._lib.mePoseSourceSetPose(self._handle, x, y, heading)
 
     def go_to_w(self, x, y, speed, arrive, timeout_ms):
         self._lib.meGoToW(self._handle, x, y, speed, arrive, timeout_ms)
+
+    def arm_motor_position(self, side, position_counts, sample_time_us):
+        self._lib.meMotorArmPosition(
+            self._handle, side, position_counts, sample_time_us)
+
+    # ---- EncoderPoseSource / selectPoseSource (sprint 006 ticket 007) ----
+    def set_encoder_pose(self, x, y, heading):
+        self._lib.meEncoderPoseSourceSetPose(self._handle, x, y, heading)
+
+    def encoder_pose_x(self):
+        return self._lib.meEncoderPoseSourceX(self._handle)
+
+    def encoder_pose_y(self):
+        return self._lib.meEncoderPoseSourceY(self._handle)
+
+    def encoder_pose_heading(self):
+        return self._lib.meEncoderPoseSourceHeading(self._handle)
+
+    def go_to_w_via_encoder(self, x, y, speed, arrive, timeout_ms):
+        self._lib.meGoToWViaEncoder(
+            self._handle, x, y, speed, arrive, timeout_ms)
+
+    def select_pose_source_x(self, primary_connected):
+        return self._lib.meSelectPoseSourceX(
+            self._handle, 1 if primary_connected else 0)
 
 
 def _ready(engine):
@@ -395,4 +455,135 @@ def test_go_to_w_target_equal_to_pose_is_a_no_op(motion_lib, heading_deg):
 
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+        assert not e.is_move_active()
+
+
+# ---------------------------------------------------------------------------
+# sprint 006 ticket 007: EncoderPoseSource -- the encoder-odometry
+# PoseSource fallback for GO_TO_W on robots with no OTOS fitted (most of
+# the fleet -- motion-api.md S3.6: "OTOS when fitted, encoder odometry
+# otherwise"). encoder_pose_source.h's own header comment carries the
+# full design write-up; these tests exercise the REAL
+# diffDrive::EncoderPoseSource class (bound to Handle's own encX_/encY_/
+# encHeading_ fields, mirroring shims.cpp's Rig::x/y/heading +
+# Rig::encoderPose wiring), and selectPoseSource() -- the host-testable
+# stand-in for engineGoToW()'s own one-place selection rule (shims.cpp),
+# since OtosPort::connected() has no host-testable seam of its own
+# (otos_port.h includes pxt.h unconditionally).
+# ---------------------------------------------------------------------------
+
+
+def test_encoder_pose_source_reports_x_y_verbatim(motion_lib):
+    """x()/y() are a bare passthrough of the bound fields -- no transform,
+    no scaling, matching OtosPort's own x()/y() (only heading() differs in
+    wrap convention -- see the parametrized test below)."""
+    with Engine(motion_lib) as e:
+        e.set_encoder_pose(123.5, -67.25, 0.0)
+        assert e.encoder_pose_x() == pytest.approx(123.5)
+        assert e.encoder_pose_y() == pytest.approx(-67.25)
+
+
+@pytest.mark.parametrize("heading_rad", [
+    0.0,
+    math.radians(200.0),   # > +pi -- OtosPort's (-pi, pi] wrap would alter this
+    math.radians(-250.0),  # < -pi -- same, on the negative side
+    4.0 * math.pi,         # two full turns -- nowhere near +-pi either
+])
+def test_encoder_pose_source_heading_is_unwrapped_verbatim(
+        motion_lib, heading_rad):
+    """AC 2 (this ticket's own acceptance criteria): EncoderPoseSource::
+    heading() returns the bound value EXACTLY, with no wrap applied --
+    easy to accidentally "fix" to match OtosPort's (-pi, pi] convention,
+    which would violate motion-api.md S3.6's explicit requirement for
+    this specific implementation (encoder_pose_source.h's own header
+    comment, and motion_engine.h's PoseSource comment on the two
+    contractually-valid-but-different wrap conventions). Every case here
+    is chosen to be a magnitude an OtosPort-style wrap would visibly
+    change, so a regression to "wrap it like OtosPort" fails loudly."""
+    with Engine(motion_lib) as e:
+        e.set_encoder_pose(0.0, 0.0, heading_rad)
+        assert e.encoder_pose_heading() == pytest.approx(
+            heading_rad, rel=1e-6, abs=1e-6)
+
+
+# ---- selectPoseSource(): the one-place selection rule engineGoToW() -------
+# ---- (shims.cpp) applies -- OtosPort when connected, EncoderPoseSource ----
+# ---- otherwise (AC 3) ------------------------------------------------------
+
+
+def test_select_pose_source_picks_primary_when_connected(motion_lib):
+    """`pose` (FakePoseSource) stands in for OtosPort here, `encoderPose`
+    for the fallback -- selectPoseSource() itself has no OtosPort
+    dependency at all (encoder_pose_source.h), so this proves the RULE in
+    isolation from OtosPort's own non-host-testability."""
+    with Engine(motion_lib) as e:
+        e.set_pose(111.0, 0.0, 0.0)           # "OTOS-like" arm
+        e.set_encoder_pose(222.0, 0.0, 0.0)   # "encoder-like" arm
+
+        assert e.select_pose_source_x(True) == pytest.approx(111.0)
+
+
+def test_select_pose_source_picks_fallback_when_not_connected(motion_lib):
+    with Engine(motion_lib) as e:
+        e.set_pose(111.0, 0.0, 0.0)
+        e.set_encoder_pose(222.0, 0.0, 0.0)
+
+        assert e.select_pose_source_x(False) == pytest.approx(222.0)
+
+
+# ---- goToW() dispatched THROUGH EncoderPoseSource, no OtosPort anywhere ---
+# ---- in this test file's link (AC 1) ---------------------------------------
+
+
+def test_go_to_w_through_encoder_pose_source_reaches_target(motion_lib):
+    """The move dispatches and reaches its target when goToW() is called
+    with a REAL diffDrive::EncoderPoseSource as its `pose` argument (not
+    FakePoseSource) and no otos_port.h anywhere in this file's own include
+    chain -- i.e. GO_TO_W works with no OTOS anywhere in the link. First
+    checks the dispatched first-tick duty against the same independently-
+    computed world-to-body + arc-solve expectation
+    test_go_to_w_world_to_body_transform_nonzero_pose_and_heading uses,
+    then drives the single below-threshold segment straight to its target
+    (mirroring test_motion_engine_reductions.py's own
+    test_go_to_r_pivot_split_reaches_target_above_threshold completion
+    pattern) and confirms the move actually ends there."""
+    with Engine(motion_lib) as e:
+        fdv = _ready(e)
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        pose_x, pose_y, heading = 100.0, -50.0, math.radians(30.0)
+        target_x, target_y = 500.0, 200.0
+        speed = 120.0
+
+        e.set_encoder_pose(pose_x, pose_y, heading)
+        e.go_to_w_via_encoder(target_x, target_y, speed, 0.0, 5000)
+        assert e.is_move_active()
+        e.step()
+
+        dx = target_x - pose_x
+        dy = target_y - pose_y
+        body_x, body_y = _world_to_body(dx, dy, heading)
+        theta, s = _go_to_r_theta_s(body_x, body_y)
+        # Sanity: stay on goToR's plain arc-solve branch (one segment, not
+        # moveX()'s generic pivot-first split) -- same guard this file's
+        # other goToW tests use.
+        assert abs(theta) < math.radians(_TURN_FIRST_DEG)
+
+        expected_left, expected_right = _expected_duty_pair(
+            s, theta, speed, cpm, b, fdv, scale=0.25)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            expected_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            expected_right, rel=_DUTY_REL)
+
+        # Drive the segment straight to its target and confirm the move
+        # actually ends there (remain <= margin on both axes at exactly
+        # the target is trivially true -- motion_engine.cpp's own
+        # serviceMove()).
+        dist_target_counts = s * cpm
+        yaw_target_counts = theta * 0.5 * b * cpm
+        e.arm_motor_position(LEFT, dist_target_counts - yaw_target_counts, 1)
+        e.arm_motor_position(RIGHT, dist_target_counts + yaw_target_counts, 2)
+        e.step()
+        assert not e.service_move()
         assert not e.is_move_active()

@@ -87,6 +87,12 @@ _CXX11_PORTABLE_SOURCES = [
     # natural .cpp of its own, so this dedicated translation unit
     # exists solely to give this gate something to compile.
     _TEST_DIR / "encoder_glitch_armor_syntax_check.cpp",
+    # Sprint 006 ticket 007: encoder_pose_source.h has no pxt.h
+    # dependency (it depends only on motion_engine.h, itself already
+    # covered above via motion_engine.cpp) but no natural .cpp of its
+    # own, so this dedicated translation unit exists solely to give
+    # this gate something to compile.
+    _TEST_DIR / "encoder_pose_source_syntax_check.cpp",
 ]
 
 

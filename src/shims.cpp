@@ -53,6 +53,7 @@
 // signature-compatible with.
 #include "pxt.h"
 #include "diffdrive.h"
+#include "encoder_pose_source.h"
 #include "motion_engine.h"
 #include "nezha_port.h"
 #include "otos_port.h"
@@ -127,6 +128,19 @@ struct Rig {
   float x = 0.0f, y = 0.0f, heading = 0.0f;
   float odomPosLeft = 0.0f, odomPosRight = 0.0f;  // [counts]
   bool odomPrimed = false;
+
+  // GO_TO_W's encoder-odometry fallback PoseSource (sprint 006 ticket
+  // 007, encoder_pose_source.h): binds to x/y/heading ABOVE by const
+  // reference, so it MUST be declared after them -- member references
+  // bind once, at construction, and members initialize in DECLARATION
+  // order regardless of this struct's own (implicit) member-initializer
+  // order, the same rule this file's header comment already states for
+  // `engine` above. Lives exactly as long as this Rig (a process-
+  // lifetime lazy singleton, see `rig`/`ensure()` below) -- see
+  // encoder_pose_source.h's own header comment for why a shorter-lived
+  // instance would dangle. engineGoToW() (below) is this project's one
+  // selection point between this and `otosRef()`'s OtosPort.
+  EncoderPoseSource encoderPose{x, y, heading};
 
   // Move-engine state (moveActive, the taper/ramp/floor knobs,
   // wrongWayCount, ...) moved into `engine` itself, sprint 003 ticket
@@ -971,25 +985,37 @@ void engineGoToR(float x, float y, float speed, float arrive,
 }
 
 // GO_TO_W's own PoseSource (motion_engine.h, ticket 010; motion-api.md
-// S3.6): this file's `gOtos`/otosRef() lazy singleton, just above, is
-// the only pose source this robot's wiring has -- the encoder-odometry
-// fallback motion-api.md S3.6 also describes ("OTOS when fitted,
-// encoder odometry otherwise") is explicitly out of scope (ticket 010's
-// own Description) and is not built here. A robot with no OTOS fitted
-// at all (motion-api.md S3.6's own `gopiv` example), or one whose OTOS
-// was never begun (no otosBegin() call this session, or begin() never
-// matched the expected product id), has connected() == false -- this
-// returns false rather than ever calling MotionEngine::goToW() with a
-// pose read off a sensor that has never actually talked to this robot,
-// so wire_adapter.cpp can refuse the call honestly instead of silently
-// driving toward a garbage/zeroed pose. Returns true iff the call was
-// actually dispatched onto MotionEngine::goToW().
+// S3.6): SPRINT 006 TICKET 007 closes no-encoder-odometry-posesource-
+// fallback.md -- this is now the ONE place this project decides which
+// PoseSource serves a GO_TO_W call, via selectPoseSource()
+// (encoder_pose_source.h): this file's `gOtos`/otosRef() lazy singleton
+// when `connected()` (initialized AND actually talking to the chip), the
+// Rig-owned `encoderPose` (dead-reckoned, drifting, but always available)
+// otherwise. A robot with no OTOS fitted at all (motion-api.md S3.6's own
+// `gopiv` example), or one whose OTOS was never begun/never matched, now
+// drives on encoder odometry instead of refusing the call outright --
+// GO_TO_W is no longer a no-op on the fleet's OTOS-less robots (tovez,
+// gopiv, zeguz). This always dispatches onto MotionEngine::goToW() now,
+// so the bool return is unconditionally true; it is kept (rather than
+// changed to void) only because wire_adapter.cpp's own contract for this
+// entry point ("was a live pose actually available to dispatch with") is
+// otherwise unchanged, and a future PoseSource-less state is not
+// impossible to imagine. GO_TO_W's own return value still does NOT
+// distinguish "served by OTOS" (accurate) from "served by encoder
+// odometry" (drifts, no correction) -- a caller that needs to know reads
+// STATUS's `otos=` flag before calling (motion-api.md S3.6's own
+// documented caveat; building a real signal for this is a follow-on, not
+// done here). Mid-move OTOS disconnection is not a race this needs to
+// guard against: goToW() reads its PoseSource exactly ONCE, at call time
+// (motion_engine.h's own comment), before ever delegating to goToR() --
+// nothing re-reads or re-selects a pose source while a move is in
+// flight, so there is no live pose-frame switch to invent here.
 bool engineGoToW(float x, float y, float speed, float arrive,
                 uint32_t timeoutMs) {
   OtosPort& otos = otosRef();
-  if (!otos.connected()) return false;
   Rig& r = ensure();
-  r.engine.goToW(otos, x, y, speed, arrive, timeoutMs);
+  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.encoderPose);
+  r.engine.goToW(pose, x, y, speed, arrive, timeoutMs);
   return true;
 }
 
