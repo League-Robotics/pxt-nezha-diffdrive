@@ -60,9 +60,15 @@
 // diagValue() bodies below intentionally mirror shims.cpp's real
 // implementations field-for-field (same math, same field ordinals) so a
 // test exercising WireAdapter through this shim is exercising the exact
-// translation production code performs -- with countsPerLength fixed at
-// 1.0 (mm/s IS counts/s in this test double) so assertions read directly
-// in mm/s without needing to know a real robot's calibration.
+// translation production code performs. Sprint 008 ticket 003 (closing
+// host-harness-double-drift.md/R-25, PY-03): setWheelsTimed() now calls
+// the SAME real MotionEngine::wheelsV() engineWheelsX()/engineMoveX()
+// already use below -- there is no "countsPerLength fixed at 1.0"
+// shortcut left for ANY verb that reaches the kernel through `engine`.
+// A test computing an expected duty for WHEELS_V must read this
+// handle's own REAL waCountsPerMm(), exactly the way the WHEELS_X/
+// MOVE_X real-effect tests already do (test_wire_motion_verbs.py).
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -240,13 +246,22 @@ namespace diffDrive {
 
 void setWheelsTimed(int left, int right, uint32_t durationMs) {
   if (g_activeWaHandle == nullptr) return;
-  // Mirrors shims.cpp's real setWheelsTimed() exactly (velocity =
-  // (left+right)/2, twist = (right-left)/2, half-differential,
-  // CCW-positive) with countsPerLength fixed at 1.0 -- see this file's
-  // own header comment.
-  const float velocity = 0.5f * static_cast<float>(left + right);
-  const float twist = 0.5f * static_cast<float>(right - left);
-  g_activeWaHandle->kernel.drive(velocity, twist, durationMs);
+  // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,
+  // PY-03 item 2): mirrors shims.cpp's real setWheelsTimed() EXACTLY --
+  // `r.engine.wheelsV(static_cast<float>(left), static_cast<float>(right),
+  // durationMs)` -- not just its velocity/twist math. The prior version
+  // computed the same split by hand and called `kernel.drive()`
+  // directly, which bypassed MotionEngine::wheelsV() entirely and, with
+  // it, wheelsV()'s own FIRST act, cancelMove() (motion_engine.cpp,
+  // motion-api.md S6: "wheels_* clears the planner") -- WHEELS_V's
+  // command-supersession of an in-flight MOVE_X/GO_TO_R/GO_TO_W was
+  // untested and untestable through this double. Routing through the
+  // REAL engine also means this now applies the REAL countsPerMm()
+  // scaling (no more implicit "countsPerLength fixed at 1.0"), the same
+  // way engineWheelsX()/engineMoveX() below already do -- see this
+  // file's own header comment.
+  g_activeWaHandle->engine.wheelsV(static_cast<float>(left),
+                                   static_cast<float>(right), durationMs);
 }
 
 void stopAll() {
@@ -349,7 +364,13 @@ int getConfigValue(int field) {
       break;
     default: break;
   }
-  return static_cast<int>(v * 1000.0f);
+  // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,
+  // PY-03 item 3): matches shims.cpp's real getConfigValue() exactly --
+  // `std::lround(v * 1000.0)`, a DOUBLE-precision product (`v` promotes
+  // to double against the `1000.0` double literal, same as production),
+  // round-to-nearest -- not `static_cast<int>(v * 1000.0f)` (SINGLE-
+  // precision, truncating), which is what this line used to read.
+  return static_cast<int>(std::lround(v * 1000.0));
 }
 
 // Mirrors shims.cpp's real engineWheelsX()/engineMoveX()/
@@ -441,8 +462,14 @@ int diagValue(int what) {
     case 3: return out.leaseExpired ? 1 : 0;
     case 4: return out.connectedLeft ? 1 : 0;
     case 5: return out.connectedRight ? 1 : 0;
-    case 6: return out.wedgeLeft ? 1 : 0;
-    case 7: return out.wedgeRight ? 1 : 0;
+    // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,
+    // PY-03 item 1): matches shims.cpp's real diagValue() exactly --
+    // the SUSPECT pair, not the LATCHED wedgeLeft/wedgeRight pair
+    // (diffdrive.h declares both -- genuinely different signals,
+    // wedged() vs wedgeSuspect() on the Motor port). This line used to
+    // read wedgeLeft/wedgeRight.
+    case 6: return out.wedgeSuspectLeft ? 1 : 0;
+    case 7: return out.wedgeSuspectRight ? 1 : 0;
     case 8: return static_cast<int>(out.i2cFaultCount);
     case 9: return static_cast<int>(out.leaseExpiryCount);
     case 10: return static_cast<int>(out.positionLeft);
@@ -750,6 +777,36 @@ void waStep(void* handle) { static_cast<WaHandle*>(handle)->kernel.step(); }
 float waMotorLastStagedDuty(void* handle, int side) {
   WaHandle* h = static_cast<WaHandle*>(handle);
   return (side == 0 ? h->motorLeft : h->motorRight).lastStagedDuty;
+}
+
+// Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,
+// PY-03 item 1): drives the two INDEPENDENT FakeMotor wedge signals
+// (fake_ports.h's own wedgedValue/wedgeSuspectValue) through a real
+// kernel.step() cycle -- lets a test discriminate diagValue()'s
+// ordinals 6/7 (which read the SUSPECT pair, this ticket's own fix)
+// from the different LATCHED wedgeLeft/wedgeRight pair, something no
+// WaHandle test could previously do at all. `side`: 0 == left,
+// 1 == right, same convention as waMotorLastStagedDuty() above.
+void waSetMotorWedged(void* handle, int side, int wedged) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  (side == 0 ? h->motorLeft : h->motorRight).wedgedValue = wedged != 0;
+}
+void waSetMotorWedgeSuspect(void* handle, int side, int suspect) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  (side == 0 ? h->motorLeft : h->motorRight).wedgeSuspectValue =
+      suspect != 0;
+}
+
+// Sprint 008 ticket 003: the real, public MotionEngine::isMoveActive()
+// -- the observable proof that setWheelsTimed()'s now-real
+// engine.wheelsV() call supersedes an in-flight MOVE_X/GO_TO_R/GO_TO_W
+// move via cancelMove() (motion_engine.cpp, motion-api.md S6), the same
+// way engine.wheelsX() already does. cancelMove() itself is PRIVATE on
+// MotionEngine (by design -- callers reach it only through a primitive
+// or the move engine's own lifecycle), so this is the only external
+// hook a host test has to prove it ran.
+int waEngineMoveActive(void* handle) {
+  return static_cast<WaHandle*>(handle)->engine.isMoveActive() ? 1 : 0;
 }
 
 // ---- sprint 003 ticket 012: the real nowMs + motion-obligation
