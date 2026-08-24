@@ -54,6 +54,12 @@ diffDrive.stop()
 diffDrive.emergencyStop()
 ```
 
+The continuous-mode example above (`setWheelSpeeds`/`driveTwist` +
+`while (diffDrive.driveTick())`) is pinned against silent regression by
+`tests/host/test_continuous_drive_command_looks_active.py`, which
+proves the condition `driveTick()`'s return value depends on to keep
+that loop running instead of exiting on its first iteration.
+
 Defaults are tuned for the standard Nezha kit; adjust with the Setup
 blocks (`set track width`, `set wheel calibration`, `set default
 speed`, and the advanced `set config` escape hatch).
@@ -78,6 +84,12 @@ while (diffDrive.driveTick()) {
     if (input.buttonIsPressed(Button.A)) diffDrive.stop()
 }
 ```
+
+This exact idiom is pinned against regression the same way:
+`tests/host/test_continuous_drive_command_looks_active.py` proves the
+`appliedDuty`/move-active condition `driveTick()` reports holds true
+here (and reads false once a stop actually lands), so docs and code
+cannot silently diverge on this contract again.
 
 This is a breaking change from earlier versions of this extension,
 where a background fiber ticked the drive for you regardless of what

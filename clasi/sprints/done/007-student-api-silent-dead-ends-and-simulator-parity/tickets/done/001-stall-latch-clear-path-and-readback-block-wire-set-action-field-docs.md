@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: 'Stall latch: clear path and readback (block, wire SET-action field, docs)'
-status: open
+status: done
 use-cases:
 - SUC-001
 depends-on: []
@@ -114,10 +114,10 @@ that only speak GET/SET.
 
 ## Acceptance Criteria
 
-- [ ] `DifferentialDrive::clearStallLatch()`/`Output.stallHalted` are
+- [x] `DifferentialDrive::clearStallLatch()`/`Output.stallHalted` are
       confirmed unchanged (no edits to `diffdrive.h`/`diffdrive.cpp`
       in this ticket's diff).
-- [ ] A host test drives the kernel into the stall-latched state
+- [x] A host test drives the kernel into the stall-latched state
       (sustained demanded duty + near-zero encoder velocity past
       `stallWindow`, using the existing `FakeMotor`/kernel harness
       pattern from `tests/host/test_kernel_harness.py`), confirms
@@ -126,14 +126,14 @@ that only speak GET/SET.
       NOT change), calls `clearStallLatch()`, steps the kernel once,
       and confirms `Output.stallHalted` reads `false` and a subsequent
       `drive()` call actually commands nonzero duty again.
-- [ ] A host test exercises the wire path: `SET stall_clear 1`
+- [x] A host test exercises the wire path: `SET stall_clear 1`
       against a stalled `WireAdapter`+kernel fixture
       (`tests/host/wire_motion_verb_shim.cpp`/
       `test_wire_motion_verbs.py` pattern) acks and clears the latch;
       `GET stall_clear` before/after reads `1`/`0`.
-- [ ] `main.ts`'s `probe()` JSDoc comment is updated to name ordinal 2
+- [x] `main.ts`'s `probe()` JSDoc comment is updated to name ordinal 2
       (`stallHalted`) instead of leaving it out of the documented list.
-- [ ] `docs/design/usecases.md` UC-002's stall error-flow bullet is
+- [x] `docs/design/usecases.md` UC-002's stall error-flow bullet is
       rewritten from "not currently exposed as a block — see gap noted
       in the report to team-lead" to describe `is stalled`/
       `clear stall latch`, and gains the "separate from e-stop" note.
@@ -142,15 +142,15 @@ that only speak GET/SET.
       direct edits on the sprint branch — `usecases.md` is not part of
       this project's canonical design-doc-overlay set; see `sprint.md`'s
       Architecture section for why.)
-- [ ] `docs/design/specification.md` §4.2's block table gains rows for
+- [x] `docs/design/specification.md` §4.2's block table gains rows for
       `is stalled`/`clear stall latch`; §4.8's `ConfigField` table
       gains the `StallClear`/17 row with its non-standard "Backing
       store" (a kernel action, not a `Config` field). Same
       direct-edit note as above.
-- [ ] Full existing host suite still passes (no regressions to
+- [x] Full existing host suite still passes (no regressions to
       `checkCommandable()`, `diagValue()`, or any existing `kFields`
       entry's behavior).
-- [ ] `main.ts` changes (the two new blocks, the `ConfigField` entry)
+- [x] `main.ts` changes (the two new blocks, the `ConfigField` entry)
       are verified by a PXT build succeeding and a manual block-palette
       check — **not** by a host test; `main.ts` is outside the C++11
       host-test gate (see C++11 Gate Coverage below).

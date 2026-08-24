@@ -32,7 +32,7 @@ From `pxt.json`:
 | description | "Closed-loop differential drive for the Nezha brick: encoder-servoed wheel speeds, twist and distance moves, curved go-to, and pose from odometry. The wheel controller runs in its own fiber." |
 | license | MIT |
 | dependencies | `core: *`, `microphone: *` |
-| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, motion_engine.h, motion_engine.cpp, platform_ports.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, wire_handler.h, wire_handler.cpp, wire_adapter.h, wire_adapter.cpp, shims.cpp, main.ts |
+| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, motion_engine.h, motion_engine.cpp, platform_ports.h, heading_wrap.h, encoder_glitch_armor.h, encoder_pose_source.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, wire_handler.h, wire_handler.cpp, wire_adapter.h, wire_adapter.cpp, shims.cpp, main.ts |
 | testFiles | test/test.ts, test/testrig.ts |
 | supportedTargets | microbit |
 | preferredEditor | tsprj |
@@ -41,6 +41,19 @@ From `pxt.json`:
 
 Supported targets, per README: "for PXT/microbit". (The README notes
 this metadata line "is needed for package cataloging.")
+
+**`microphone` dependency (sprint 007):** its true purpose is genuinely
+unknown. Two independent code-review passes found no reference to
+`microphone` anywhere in `src/` or `test/` and disagreed with each
+other on what that means — one read it as dead weight to delete or
+justify, the other assumed it is deliberate micro:bit V2 gating,
+alongside `disablesVariants: ["mbdal"]`. It is documented here, not
+deleted: removing a shipped extension's declared dependency on the
+strength of a source grep, with no confirmed understanding of PXT's
+editor/variant-gating behavior, risks a silent breakage a source-only
+review cannot see, for a Low-priority hygiene item. Flagged in case the
+stakeholder has out-of-band knowledge this review process cannot see
+from source alone.
 
 ## 3. Installation
 
@@ -92,7 +105,10 @@ nothing ticks, the starvation watchdog stops the robot within about
 150 ms; a fresh command or resumed tick loop resumes immediately, no
 clear-emergency-stop needed. (Position-mode blocks like `move` tick
 internally, so this only matters for
-`setWheelSpeeds`/`driveTwist`.)
+`setWheelSpeeds`/`driveTwist`.) `driveTick()` reports this condition
+via `commandLooksActive()` (sprint 007 ticket 002, closing R-10/API-01);
+`tests/host/test_continuous_drive_command_looks_active.py` pins it
+against silent regression.
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|
@@ -101,6 +117,8 @@ internally, so this only matters for
 | `stop` | `stop()` | — | Normal stop: commands the kernel to neutral (`_stopAll`). Motors ramp to zero through the kernel's normal stop path (see §6.3/§7.2); not a hardware-level emergency stop. |
 | `emergency stop` | `emergencyStop()` | — | Emergency stop: latches the kernel's e-stop and calls the motor ports' `emergencyStop()` directly (`_estopAll`), bypassing normal shaping. Stays latched until `clearEmergencyStop()`. |
 | `clear emergency stop` *(advanced)* | `clearEmergencyStop()` | — | Clears the e-stop latch (`_estopClear`) so driving can resume. |
+| `is stalled` | `isStalled()` | — | Reports whether the kernel's stall latch has tripped (demanded duty with near-zero encoder motion sustained past `stallWindow`) — the same bit as STATUS flags bit 2 / DIAG ordinal 2 (`_isStalled`). Always `false` in the simulator (no stall model). Not advanced — this is the discoverability half of the stall-latch fix, so it stays in the default palette. |
+| `clear stall latch` *(advanced)* | `clearStallLatch()` | — | Clears the stall latch so Drive/Move commands take effect again (`_clearStallLatch`). **Separate from `clearEmergencyStop()`** — the stall latch and the e-stop latch are independent fault states; clearing one never clears the other. No-op if nothing is latched. No-op in the simulator. |
 
 ### 4.3 Move group — position-mode moves (blocking)
 
@@ -187,6 +205,54 @@ integer values used by the shim's `setKernelValue` switch, §9):
 | 12 | `StallWindow` | "stall window ms" | `stallWindow` |
 | 13 | `LambdaEnabled` | "lambda enabled" | `lambdaEnabled` |
 | 14 | `CrawlPulse` | "crawl pulse" | `crawlPulse` |
+| 15 | `DefaultCruise` | "default cruise speed" | *(none — see below)* |
+| 16 | `RotationalSlip` | "rotational slip" | *(none — see below)* |
+| 17 | `StallClear` | "clear stall latch" | *(none — see below)* |
+
+Ordinal 15's "Kernel `Config` field" column is also non-standard:
+`DefaultCruise` is not a `DifferentialDrive::Config` field at all — it
+is the wire/shim layer's own `Rig::defaultCruiseMmS_` (`shims.cpp`),
+seeded to 150 mm/s (matching the block layer's own `defaultSpeed`).
+This is the sprint 007 ticket 003 fix for a code-review finding
+(R-11/BLK-03/API-03): the wire's "cruise/speed == 0 means the
+configured default" sentinel used to resolve through
+`fullDutyVelocity` — the kernel's own 100%-duty ceiling, ~875 mm/s,
+*and* the field whose `0` means "uncalibrated, refuse VELOCITY
+commands" at the kernel layer. Those were two unrelated meanings of
+zero collapsed onto one field; `DefaultCruise` gives the wire layer's
+convenience sentinel its own, independent field, leaving
+`fullDutyVelocity`'s calibration-refusal meaning untouched.
+
+Ordinal 16's "Kernel `Config` field" column is also non-standard:
+`RotationalSlip` is not a `DifferentialDrive::Config` field either — it
+is `MotionEngine`'s own `rotationalSlip_` (`motion_engine.h`), the
+camera-measured wheel-contact-scrub ratio that `effectiveTrackWidth`
+(`= trackWidth / rotationalSlip`) is built from. This is the sprint 007
+ticket 005 fix for a code-review finding (R-14/API-06): `rotationalSlip`
+was getter-only, so the only palette knob that changed turn geometry at
+all was `set track width` — which this file's own geometry doctrine
+(§2.1 in the canonical motion-api spec this project conforms to)
+forbids using for that purpose, since `trackWidth` is the
+caliper-measured physical dimension and is never "corrected" to make a
+turn land. `setConfigValue`'s new setter applies the same
+"`>0`, else silently keep the prior value" validation
+`setTrackWidth`/`setTravelCalib` already use (via `setGeometry`,
+§9) — invalid values are silently ignored, not clamped or rejected.
+No dedicated block was added for this ordinal (unlike `trackWidth`/
+`travelCalib`, which each have one): `RotationalSlip` is a one-time
+chassis-calibration constant, reachable through the existing generic
+`set config` block at the same tier as the other kernel fields above
+it.
+
+Ordinal 17's "Kernel `Config` field" column is deliberately non-standard: `Set
+config` with `StallClear` does not write a stored `Config` field at
+all — it is a write-triggered **action** wearing a config-field's
+clothes, reaching `DifferentialDrive::clearStallLatch()` directly
+(nonzero `value` clears the latch; magnitude is ignored). Its GET side
+is a convenience readback of `Output.stallHalted`, not a stored value —
+reading it back never returns whatever was last "set." This mirrors
+the dedicated `clear stall latch`/`is stalled` blocks (§4.2) exactly;
+both routes reach the same kernel call.
 
 **Not exposed anywhere in the block API or the `ConfigField` enum** (a
 source-derived observation, not in the README): the kernel's per-wheel
@@ -224,6 +290,17 @@ reproduction of the closed-loop control law:
 - `updateMove`/`progress`/`endMove`/`stopAll` mirror the hardware
   shim's move-engine contract (§9) against the simulated state instead
   of the kernel's real output.
+- `emergencyStop`/`clearEmergencyStop`: `emergencyStop` performs the
+  same reset as `stopAll` and additionally sets a `simEstopped` latch;
+  `clearEmergencyStop` clears it. While latched, `setWheelSpeeds`/
+  `driveTwist`/`startMove` are refused at intake — mirroring
+  hardware's `estopLatch_` (§6.4), checked by `checkCommandable()` —
+  and leave `simVel`/`simYawRate`/`simMoveActive` untouched; there is
+  no per-tick equivalent of the kernel's own `effective = kModeNeutral`
+  override (§6.3) because nothing else in the simulator can introduce
+  velocity between calls, so an intake-time refusal is sufficient.
+  `stopAll` never sets or clears this latch, matching hardware's
+  stop-vs-latch distinction (§9's `deliverStopNow()`).
 - `poseX`/`poseY`/`poseHeading`/`resetPose` read/reset the simulated
   pose.
 - `setGeometry`/`setKernelValue` are no-ops in the simulator — track

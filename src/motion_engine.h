@@ -207,10 +207,26 @@ class MotionEngine {
 
   // [1] physical/odometric rotation ratio (wheel-contact scrub),
   // camera-measured against ground truth. This is where ALL rotational
-  // correction lives -- never trackWidth. Read-only for now: no caller
-  // in this codebase has ever needed to set it at runtime (mirrors the
-  // Rig field this is extracted from, which had no setter either).
+  // correction lives -- never trackWidth. See rotationalSlip_'s own
+  // field comment (below, next to its default) for the full camera
+  // measurement and the derivation chain from that measurement to the
+  // constant -- read that comment in full before setting a new value;
+  // it names exactly the shortcut that would produce a plausible-looking
+  // wrong number.
   float rotationalSlip() const { return rotationalSlip_; }
+
+  // Sprint 007 ticket 005 (closes R-14/API-06): the setter this field
+  // never had -- UC-013 (calibrating a non-reference chassis) had no
+  // knob to reach `rotationalSlip_` except `set track width`, which the
+  // doctrine above forbids using for this. Same ">0, else silently keep
+  // the prior value" validation style setGeometry() already applies to
+  // trackWidth/travelCalib (shims.cpp) -- inlined directly on the setter
+  // here rather than at a shims.cpp call site, since rotationalSlip has
+  // no dedicated wire-shaped wrapper the way trackWidth/travelCalib
+  // share setGeometry().
+  void setRotationalSlip(float slip) {
+    if (slip > 0.0f) rotationalSlip_ = slip;
+  }
 
   // [counts/mm] 1 count == 0.1 shaft degree.
   float countsPerMm() const { return 10.0f / travelCalib_; }
@@ -388,8 +404,27 @@ class MotionEngine {
   // [1] physical/odometric rotation ratio (wheel-contact scrub).
   // CAMERA-MEASURED 2026-08-20 on the playfield, overhead AprilCam vs
   // commanded: six steady-state 180 deg pivots turned 164-166 deg
-  // physical, ratio 0.915. effectiveTrackWidth must therefore be
-  // 109.8/0.915 = 120.0 mm, so slip = 114.2/120.0 = 0.952.
+  // physical, ratio 0.915.
+  //
+  // 0.915 is NOT the slip -- do not set rotationalSlip_ to 0.915 (or to
+  // any number reproduced by re-running this same experiment and
+  // stopping at the ratio). It is the ratio between the ACTUAL physical
+  // rotation and the rotation the firmware commanded that day, and what
+  // the firmware commanded was itself computed through the STALE
+  // effectiveTrackWidth in effect at the time it ran: trackWidth_
+  // (114.2, already tape-measured 2026-08-19, unchanged since) divided
+  // by the 1.040 rotationalSlip_ this entry replaces, i.e.
+  // 114.2/1.040 = 109.8 mm. Since the robot under-rotated (164-166 <
+  // 180), the TRUE effectiveTrackWidth must be LARGER than that 109.8 --
+  // specifically 109.8/0.915 = 120.0 mm (dividing, not multiplying, by
+  // the ratio -- effectiveTrackWidth and commanded-vs-actual rotation
+  // move in opposite directions in motion_engine.cpp's kinematics: a
+  // bigger b means the SAME wheel travel yields LESS rotation, matching
+  // this measurement). Only then: slip = trackWidth_/effectiveTrackWidth
+  // = 114.2/120.0 = 0.952. Reproducing 164-166/180 = 0.915 from the same
+  // experiment and "fixing" 0.952 to match is exactly the bridge this
+  // comment exists to block -- the dropped middle step (109.8 -> 120.0)
+  // is what separates the two numbers.
   //
   // REPLACES 1.040, which came from a single camera pivot on 2026-08-19
   // and had the sign of the effect BACKWARDS (it said the robot

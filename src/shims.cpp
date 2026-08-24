@@ -168,6 +168,19 @@ struct Rig {
                                   // Distinct from the kernel's own
                                   // cycleOverrunCount_, which only its
                                   // unused run() ever increments.
+
+  // Sprint 007 ticket 003 (closing R-11/BLK-03/API-03,
+  // cruise-zero-sentinel-full-duty-lunge.md): the wire's OWN "0 = use
+  // the configured default" convenience field, deliberately SEPARATE
+  // from kernel.config().fullDutyVelocity. Those are two unrelated
+  // meanings of zero that used to be collapsed onto one field: the
+  // wire layer's sentinel (this) vs. the kernel's own "0 = uncalibrated,
+  // refuse VELOCITY" gate (DifferentialDrive::checkCommandable()). See
+  // engineDefaultCruiseMmS() below, the wire-layer section, for the
+  // consumer. Seeded to 150.0f to match the block layer's own
+  // `defaultSpeed` (15 cm/s, main.ts) -- NOT derived from any kernel
+  // constant, and NOT the duty ceiling.
+  float defaultCruiseMmS_ = 150.0f;  // [mm/s]
 };
 
 static Rig* rig = nullptr;
@@ -381,20 +394,28 @@ void engineMoveX(float distance, float rotationRad, float cruise,
 
 // The wire's "cruise == 0 means the configured default" substitution
 // (motion-api.md S1.1: "an X-form's commanded value is a displacement
-// ... pass 0 for the configured default"): this robot's own configured
-// full-duty velocity -- the same ceiling GET full_duty_velocity already
-// reports -- converted from the kernel's native counts/s into wheelsX()/
-// moveX()'s own mm/s ceiling. Returns 0 if unconfigured (fullDutyVelocity
-// <= 0, or a zero/negative travelCalib leaves countsPerMm() <= 0) -- an
-// honest "no default available" rather than a fabricated number or a
-// divide-by-zero; wire_adapter.cpp treats that as a range refusal, not a
-// silently-accepted zero-speed command.
+// ... pass 0 for the configured default"). Sprint 007 ticket 003
+// (closing R-11/BLK-03/API-03): this used to derive the substituted
+// value from kernel.config().fullDutyVelocity -- this robot's 100%-duty
+// ceiling, ~875 mm/s -- so a spec-following host sending `cruise 0`
+// got the fastest, least-controlled move the robot can make, ~1.5x the
+// speed the project's own bench notes call unusable. fullDutyVelocity
+// is the wrong field for this: at the kernel layer, `0` there means
+// "uncalibrated, refuse VELOCITY commands entirely"
+// (DifferentialDrive::checkCommandable()) -- an unrelated meaning of
+// zero that happened to share a variable with this substitution. Now
+// returns the Rig's own, independently configured defaultCruiseMmS_
+// (seeded 150 mm/s above, settable/gettable via the `default_cruise`
+// wire field, ordinal 15 -- setKernelValue()/getConfigValue() below).
+// fullDutyVelocity remains the duty CEILING elsewhere in this file and
+// the kernel; it is no longer read here. Returns 0 if defaultCruiseMmS_
+// itself is non-positive (an operator can still force "no default
+// available" via `SET default_cruise 0`) -- wire_adapter.cpp's four
+// verb handlers already treat that as a range refusal, not a
+// silently-accepted zero-speed command; that refusal logic is
+// unchanged by this ticket.
 float engineDefaultCruiseMmS() {
-  Rig& r = ensure();
-  const float cpm = r.engine.countsPerMm();
-  const float fullDutyCountsPerS = r.kernel.config().fullDutyVelocity;
-  if (fullDutyCountsPerS <= 0.0f || cpm <= 0.0f) return 0.0f;
-  return fullDutyCountsPerS / cpm;
+  return ensure().defaultCruiseMmS_;
 }
 
 // ---- move engine ----------------------------------------------------
@@ -488,6 +509,14 @@ bool updateMove() {
   return moveActive;
 }
 
+// Forward declaration: commandLooksActive() is defined further down, in
+// its own clearly delineated section right before the starvation
+// watchdog (it was written there first, for the watchdog's own use) --
+// tickDrive() below needs it too now, for its return value (sprint 007
+// ticket 002, closes R-10/API-01: see that function's own comment for
+// what it checks, and tickDrive()'s own comment below for why).
+static bool commandLooksActive(const Rig& r);
+
 // ---- tick engine (sprint 002) -----------------------------------------
 // tickDrive(): the caller-driven replacement for the kernel's own
 // now-unwired fiber. Runs exactly one kernel.step() + serviceMove() on
@@ -505,10 +534,32 @@ bool updateMove() {
 // command in force -- see sprint.md's Design Rationale: a
 // while (_tickDrive()) loop driving setWheelSpeeds()/driveTwist() must
 // step the kernel on every call, or continuous-mode driving would never
-// progress. The returned bool reports moveActive AFTER this call's
-// serviceMove() ran, so a position-mode move's final tick still returns
-// false, ending a while (_tickDrive()) loop on the same call that
-// finishes the move (no extra idle tick).
+// progress. The returned bool reports commandLooksActive(r) (sprint 007
+// ticket 002, closes R-10/API-01) -- "is anything still commanding the
+// wheels" -- computed AFTER this call's serviceMove() ran: a
+// move-engine move still in flight, OR nonzero applied duty. This used
+// to report raw post-serviceMove() moveActive, which meant the
+// documented continuous-mode idiom (setWheelSpeeds()/driveTwist()
+// followed by `while (diffDrive.driveTick())`, per the README, spec
+// §4.2, and usecases.md UC-002 step 4) exited on its very first
+// iteration: wheelsV()/wheelsX() (motion_engine.cpp) clear the move
+// planner before tickDrive() is ever called, so raw moveActive read
+// false immediately, and the starvation watchdog stopped the robot
+// ~150 ms later (code review 2026-08-23, R-10/API-01;
+// clasi/issues/drivetick-contract-broken-idiom.md).
+// commandLooksActive()'s existing "or nonzero applied duty" clause is
+// exactly what a continuous-mode command needs. For a position-mode
+// move's final tick, the settle loop just below already drives
+// appliedDutyLeft/Right to zero before this function returns, so the
+// original "a move's final tick still returns false, ending a
+// while (_tickDrive()) loop on the same call that finishes the move"
+// behavior is unchanged -- see
+// tests/host/test_continuous_drive_command_looks_active.py (the
+// shape-mirror regression test that pins the CONDITION this return
+// value now depends on; it cannot call tickDrive()/commandLooksActive()
+// themselves -- see that test's own module docstring) and
+// tests/host/test_regression_post_move_neutral.py (unchanged, pins the
+// settle loop itself).
 //%
 bool tickDrive() {
   Rig& r = ensure();
@@ -622,7 +673,7 @@ bool tickDrive() {
     r.sleeper.yield();
   }
 
-  return moveActive;
+  return commandLooksActive(r);
 }
 
 // cycleStat(): read-only tick/cycle diagnostics for desk verification
@@ -759,6 +810,29 @@ void estopAll() {
 //%
 void estopClear() { ensure().kernel.estopClear(); }
 
+// ---- stall latch: clear path + readback (sprint 007 ticket 001,
+// closing R-01/KERN-01) ------------------------------------------------
+// The kernel's clearStallLatch()/Output.stallHalted (diffdrive.h/.cpp)
+// already existed and were already correct -- this was a MISSING-CALLER
+// problem, not missing kernel logic (see the ticket/issue for the full
+// review trail). Two thin forwards, exactly like estopClear() above,
+// except deliberately NOT routed through estopClear()/estopAll() or any
+// new top-level wire verb: the stall latch and the e-stop latch are
+// separate fault classes (same principle deliverStopNow() above
+// established for a different pair -- a stop must never silently
+// become a latch, and clearing one latch must never silently clear the
+// other). clearStall() is reachable from a dedicated main.ts block AND
+// (ticket 001) the wire's `stall_clear` SET-action ConfigField
+// (setKernelValue() case 17, below); isStalled() backs the matching
+// main.ts readback block, the STATUS `flags` bit 2, and the
+// pre-existing diagValue(2) -- three independent ways to read the same
+// bit, all sourced from this one Output field.
+//%
+void clearStall() { ensure().kernel.clearStallLatch(); }
+
+//%
+bool isStalled() { return ensure().kernel.output().stallHalted; }
+
 // SerialTransport's writeLine() drop counter (sprint 004 ticket 006),
 // read back by case 26 below. Reached by same-package forward
 // declaration rather than by including protocol.h: that header pulls
@@ -804,9 +878,9 @@ int diagValue(int what) {
     case 21: return static_cast<int>(ensure().left.maxDrivenStreak_);
     case 22: return static_cast<int>(ensure().right.maxDrivenStreak_);
     // 23/24: rejected implausible encoder reads (glitch armor)
-    case 25: return static_cast<int>(ensure().engine.wrongWayCount());
     case 23: return static_cast<int>(ensure().left.glitchCount_);
     case 24: return static_cast<int>(ensure().right.glitchCount_);
+    case 25: return static_cast<int>(ensure().engine.wrongWayCount());
     // 26: SerialTransport::writeLine() drop count (ticket 006) -- the
     // two-writer guard's retry cap exhausted, or a uBit.serial.send()
     // call itself failed. Bench operators read this via probe(26); it
@@ -893,6 +967,31 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
                         v); break;
     case 13: k.setLambdaEnabled(v != 0.0f); break;
     case 14: k.setCrawlPulse(v); break;
+    // 15 (sprint 007 ticket 003, closing R-11/BLK-03/API-03):
+    // default_cruise -- the wire layer's OWN configured-default cruise
+    // field (Rig::defaultCruiseMmS_, NOT kernel.config()), see
+    // engineDefaultCruiseMmS()'s own comment above. Same ">0" silent-
+    // ignore validation style as setGeometry() -- a `SET default_cruise
+    // 0` line over the wire is accepted (kOk) but does not clear the
+    // field to 0; that is only reachable via the test double's own
+    // direct setter (there is no wire-level way to force "no default
+    // available" at ordinal 15, deliberately -- unlike stall_clear's
+    // ordinal 17 below, this is a real stored value, not an action).
+    case 15: if (v > 0.0f) r.defaultCruiseMmS_ = v; break;
+    // 16 (ticket 005, closing R-14/API-06): rotational_slip -- a thin
+    // forward to the now-tested MotionEngine::setRotationalSlip(),
+    // which already applies the ">0, else keep the prior value"
+    // validation itself (motion_engine.h); no duplicate check needed
+    // here, unlike case 15's own inline check above (defaultCruiseMmS_
+    // has no dedicated setter to own that validation).
+    case 16: r.engine.setRotationalSlip(v); break;
+    // 17 (ticket 001): stall_clear -- a write-triggered ACTION wearing a
+    // config-field's clothes, not a stored value. Only nonzero-vs-zero
+    // matters (mirrors the x1000 scaling convention: a wire
+    // `SET stall_clear 1` arrives here as value=1000, v=1.0f); the
+    // magnitude is otherwise ignored. Deliberately does not touch
+    // estopLatch_ -- see clearStall()'s own comment above.
+    case 17: if (v != 0.0f) k.clearStallLatch(); break;
     default: break;
   }
 }
@@ -939,6 +1038,21 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     case 12: v = c.stallWindow; break;
     case 13: v = c.lambdaEnabled ? 1.0f : 0.0f; break;
     case 14: v = c.crawlPulse; break;
+    // 15 (sprint 007 ticket 003): default_cruise's GET side --
+    // deliberately NOT read from `c` (this ordinal has no stored
+    // kernel Config field at all; it lives on Rig, see
+    // defaultCruiseMmS_'s own field comment above).
+    case 15: v = r.defaultCruiseMmS_; break;
+    // 16 (ticket 005): rotational_slip's GET side -- a thin forward to
+    // MotionEngine::rotationalSlip(), deliberately NOT read from `c`
+    // (this ordinal has no kernel Config field at all; it lives on
+    // MotionEngine, see setKernelValue() case 16's own comment above).
+    case 16: v = r.engine.rotationalSlip(); break;
+    // 17 (ticket 001): stall_clear's GET side -- a convenience readback
+    // of Output.stallHalted, deliberately NOT read from `c` (this
+    // ordinal has no stored Config field at all; see clearStall()'s own
+    // comment above and sprint 007's design/DESIGN.md §5 field table).
+    case 17: v = r.kernel.output().stallHalted ? 1.0f : 0.0f; break;
     default: return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));

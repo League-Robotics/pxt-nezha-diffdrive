@@ -2,7 +2,7 @@
 id: '006'
 title: runArgCount null guard + main.ts/build-config Minors (dead code, JSDoc, tsconfig,
   pxt.json)
-status: open
+status: done
 use-cases:
 - SUC-006
 depends-on: []
@@ -15,6 +15,23 @@ completes_issue: true
 # runArgCount null guard + main.ts/build-config Minors (dead code, JSDoc, tsconfig, pxt.json)
 
 ## Description
+
+**Priority fix, done ahead of the six items below (team-lead
+directive, not in the original six-item list): `pxt.json`'s `files`
+manifest omitted three headers sprint 006 merged (`src/heading_wrap.h`,
+`src/encoder_glitch_armor.h`, `src/encoder_pose_source.h`) -- all three
+exist, compile, and are `#include`d by shipped code, so no target
+build (V1 or codal-microbit-v2) could produce a hex at all until this
+landed. Fixed by adding the three headers to `pxt.json`'s `files`
+array (no other drift found -- audited every `src/*.h`/`*.cpp` against
+the manifest in both directions); verified with two real
+`uv run python tools/make_deploy.py` runs (the first hit the two
+known-benign failure modes -- the legacy V1 hex-merge step and a
+nondeterministic `TS9043` network-cache packaging abort -- with every
+`.cpp` compiling clean in both; the second produced a real hex). Added
+`tests/host/test_pxt_manifest_completeness.py` as a cheap recurrence
+guard (reads `pxt.json`, no compiler invocation) since the existing
+C++11 syntax gate cannot see a manifest omission at all.**
 
 This is the `main.ts`/TypeScript-side half of the batched Minors issue
 (R-15 + grouped Minors); ticket 007 handles the C++/wire-side half
@@ -86,24 +103,39 @@ independent, one-to-five-line fixes:
 
 ## Acceptance Criteria
 
-- [ ] `runArgCount()` has the `if (!runParts) return 0` guard,
+- [x] `runArgCount()` has the `if (!runParts) return 0` guard,
       matching `runArgText()`'s existing pattern exactly.
-- [ ] `docs/design/specification.md` §2 documents the `microphone`
+- [x] `docs/design/specification.md` §2 documents the `microphone`
       dependency's uncertain rationale; `pxt.json` itself is
       unchanged (dependency retained).
-- [ ] `tsconfig.json`'s `files` array includes
+- [x] `tsconfig.json`'s `files` array includes
       `pxt_modules/core/serial.ts`; a plain `tsc -p .` (or the
       project's equivalent type-check invocation) no longer fails on
       `main.ts` for a missing `serial` type — confirm by actually
-      running the type-check, not just editing the file.
-- [ ] `maxNudges` is deleted from `main.ts`; confirm no reference
+      running the type-check, not just editing the file. Confirmed:
+      `tsc -p .` dropped from 15 pre-existing errors to 1 (the 14
+      `serial.writeLine` errors are gone; the 1 remaining,
+      `pxt_modules/core/basic.ts(17,29): Property 'roundWithPrecision'
+      does not exist on type 'Math'`, is `basic.ts`'s own unrelated
+      pre-existing gap -- not something `main.ts`/testFiles reference
+      -- left alone per this item's own "do not go looking for
+      unrelated tsconfig improvements" scope note).
+- [x] `maxNudges` is deleted from `main.ts`; confirm no reference
       remains (it had none before this ticket either, so this is a
       pure deletion, not a behavior change).
-- [ ] `goToWorld()`'s exported JSDoc describes one-pass behavior,
+- [x] `goToWorld()`'s exported JSDoc describes one-pass behavior,
       consistent with its own body comment.
-- [ ] Full existing host suite passes (none of these five items touch
+- [x] Full existing host suite passes (none of these five items touch
       host-tested code, so this is a regression check, not new
-      coverage).
+      coverage). 328 passed (326 baseline + 2 new manifest-completeness
+      tests, see priority fix above).
+- [x] (Priority fix, not in the original six.) `pxt.json`'s `files`
+      manifest includes all three previously-missing headers; a real
+      `uv run python tools/make_deploy.py` run produced a hex
+      (`mbcodal-binary.hex`, 1,371,941 bytes); every `src/*.h`/`*.cpp`
+      audited against the manifest in both directions, no other drift
+      found; `tests/host/test_pxt_manifest_completeness.py` added as a
+      regression guard.
 
 ## C++11 Gate Coverage
 

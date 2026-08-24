@@ -107,6 +107,10 @@ def _bind(lib):
     lib.meCountsPerMm.restype = ctypes.c_float
     lib.meEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
     lib.meEffectiveTrackWidth.restype = ctypes.c_float
+    lib.meSetRotationalSlip.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetRotationalSlip.restype = None
+    lib.meRotationalSlip.argtypes = [ctypes.c_void_p]
+    lib.meRotationalSlip.restype = ctypes.c_float
 
     lib.meWheelsV.argtypes = [
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
@@ -240,6 +244,12 @@ class Engine:
     def effective_track_width(self):
         return self._lib.meEffectiveTrackWidth(self._handle)
 
+    def set_rotational_slip(self, slip):
+        self._lib.meSetRotationalSlip(self._handle, slip)
+
+    def rotational_slip(self):
+        return self._lib.meRotationalSlip(self._handle)
+
     # ---- move engine ----
     def move_x(self, distance, rotation, cruise, timeout_ms):
         self._lib.meMoveX(self._handle, distance, rotation, cruise,
@@ -350,6 +360,68 @@ def test_move_x_pivot_hand_computed(motion_lib):
             expected_left, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
             expected_right, rel=_DUTY_REL)
+
+
+def test_set_rotational_slip_changes_move_x_blended_kinematics(motion_lib):
+    """Sprint 007 ticket 005 (closing R-14/API-06): proves
+    MotionEngine::setRotationalSlip() changes REAL turn behavior, not
+    merely a field that round-trips -- the exact gap the issue this
+    ticket closes was filed over (UC-013 could not calibrate a
+    non-reference chassis's turn geometry at all). Deliberately uses the
+    same BLENDED (nonzero distance AND rotation, below the pivot
+    threshold) shape as test_move_x_blends_below_turn_first_threshold,
+    not a pure pivot: a pure pivot's ratio-locked duty (equal magnitude,
+    opposite sign, both wheels driven to exactly `cruise`) is
+    independent of effectiveTrackWidth by construction, so it would not
+    actually exercise this setter's effect. In the blended case, the
+    non-dominant wheel's duty is a direct function of
+    effectiveTrackWidth (== trackWidth_/rotationalSlip_, motion_engine.h,
+    via startSegment()'s yawTarget term) -- changing the slip changes
+    that duty."""
+    with Engine(motion_lib) as e:
+        fdv = _ready(e)
+        cpm = e.counts_per_mm()
+        rotation = (_TURN_FIRST_DEG - 0.5) * math.pi / 180.0  # 49.5 deg, blended
+
+        b1 = e.effective_track_width()
+        e.move_x(200.0, rotation, 150.0, 5000)
+        e.step()
+        left1 = e.motor_last_staged_duty(LEFT)
+        right1 = e.motor_last_staged_duty(RIGHT)
+        expected_left1, expected_right1 = _expected_duty_pair(
+            200.0, rotation, 150.0, cpm, b1, fdv, scale=0.25)
+        assert left1 == pytest.approx(expected_left1, rel=_DUTY_REL)
+        assert right1 == pytest.approx(expected_right1, rel=_DUTY_REL)
+
+        e.end_move()
+        original_slip = e.rotational_slip()
+        e.set_rotational_slip(original_slip * 0.5)  # deliberately distinct
+        b2 = e.effective_track_width()
+        # trackWidth_/rotationalSlip_ (motion_engine.h): halving slip
+        # must double b, holding trackWidth_ fixed.
+        assert b2 == pytest.approx(2.0 * b1, rel=_DUTY_REL)
+
+        e.move_x(200.0, rotation, 150.0, 5000)
+        e.step()
+        left2 = e.motor_last_staged_duty(LEFT)
+        right2 = e.motor_last_staged_duty(RIGHT)
+        expected_left2, expected_right2 = _expected_duty_pair(
+            200.0, rotation, 150.0, cpm, b2, fdv, scale=0.25)
+        assert left2 == pytest.approx(expected_left2, rel=_DUTY_REL)
+        assert right2 == pytest.approx(expected_right2, rel=_DUTY_REL)
+
+        # The non-dominant wheel (left, here: rotation is positive so
+        # right = dist+yaw is the larger magnitude) must actually
+        # differ between the two runs -- otherwise this test would pass
+        # even if setRotationalSlip() were a no-op. The DOMINANT wheel
+        # (right) is deliberately excluded from this check: by
+        # construction (the reduction's own "both wheels finish
+        # together" ratio-lock, _segment() above) it is always pinned to
+        # exactly cruise*scale regardless of geometry -- expected, not a
+        # gap in this test (test_wheels_x_ratio_locked_hand_computed,
+        # test_motion_engine_primitives.py, covers that pin directly).
+        assert left2 != pytest.approx(left1, rel=_DUTY_REL)
+        assert right2 == pytest.approx(right1, rel=_DUTY_REL)
 
 
 # ---- pivot-vs-blend threshold (motion-api.md S3.3) ------------------------

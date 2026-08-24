@@ -2,7 +2,7 @@
 id: '002'
 title: 'driveTick() continuous-drive contract: return commandLooksActive, pin with
   a regression test'
-status: open
+status: done
 use-cases:
 - SUC-002
 depends-on: []
@@ -92,16 +92,16 @@ behavioral gain. See `sprint.md`'s Architecture section and
 
 ## Acceptance Criteria
 
-- [ ] `tickDrive()`'s `return moveActive;` becomes
+- [x] `tickDrive()`'s `return moveActive;` becomes
       `return commandLooksActive(r);`; `commandLooksActive` is
       forward-declared (or moved) so it is visible at `tickDrive()`'s
       call site. No other line inside `tickDrive()` changes — confirm
       via diff review that the settle loop, the concurrency guard, and
       the pacing logic are byte-identical to before.
-- [ ] `main.ts`'s `_tickDrive()` returns
+- [x] `main.ts`'s `_tickDrive()` returns
       `simMoveActive || simVel !== 0 || simYawRate !== 0` instead of
       raw `simMoveActive`.
-- [ ] A **shape-mirror host test** (following the precedent set by
+- [x] A **shape-mirror host test** (following the precedent set by
       sprint 006's settle-loop shape test, per `src/DESIGN.md` §9's
       "not host-testable... bolted to Rig-local odometry" note for
       why `shims.cpp`'s actual body can't be compiled on host):
@@ -115,22 +115,22 @@ behavioral gain. See `sprint.md`'s Architecture section and
       the fix depends on. This does **not** call `tickDrive()` itself
       (impossible on host — see C++11 Gate Coverage) but proves the
       condition its new return expression relies on.
-- [ ] Existing settle-loop-shape tests
+- [x] Existing settle-loop-shape tests
       (`tests/host/test_regression_post_move_neutral.py` and similar)
       still pass unchanged, confirming a position-mode move's final
       tick still drives `appliedDuty` to zero.
-- [ ] A PXT build succeeds with `_tickDrive()`'s new return expression;
+- [x] A PXT build succeeds with `_tickDrive()`'s new return expression;
       manually confirm (code review, not an automated check — no host
       test reaches `main.ts`) that `move()`/`goTo()`'s
       `while (_tickDrive());` loops are unaffected in the simulator.
-- [ ] README (both worked examples), `specification.md` §4.2, and
+- [x] README (both worked examples), `specification.md` §4.2, and
       `usecases.md` UC-002 step 4 are each re-read against the fixed
       behavior and confirmed accurate; each gains one sentence
       cross-referencing the new host test by name as the mechanism
       that now pins this contract against silent regression. (Direct
       edits on the sprint branch — none of these three files is part
       of this project's canonical design-doc-overlay set.)
-- [ ] Full existing host suite passes with no regressions.
+- [x] Full existing host suite passes with no regressions.
 
 ## C++11 Gate Coverage
 

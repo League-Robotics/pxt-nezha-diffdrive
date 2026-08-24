@@ -41,7 +41,13 @@ enum ConfigField {
     //% block="lambda enabled"
     LambdaEnabled = 13,
     //% block="crawl pulse"
-    CrawlPulse = 14
+    CrawlPulse = 14,
+    //% block="default cruise speed"
+    DefaultCruise = 15,
+    //% block="rotational slip"
+    RotationalSlip = 16,
+    //% block="clear stall latch"
+    StallClear = 17
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"
@@ -231,6 +237,7 @@ namespace diffDrive {
     /** How many arguments the run command being handled carries. */
     //% blockHidden=true
     export function runArgCount(): number {
+        if (!runParts) return 0
         return runParts.length - 1
     }
 
@@ -543,7 +550,6 @@ namespace diffDrive {
     // when it was done host-side; this moves it onto the robot).
     // Anything under 12 deg is left to curve out over the leg.
     let turnFirstDeg = 12.0
-    let maxNudges = 6            // bounded arrival retries
 
     /**
      * How close counts as "arrived", in cm.
@@ -557,9 +563,12 @@ namespace diffDrive {
 
     /**
      * Drive to a point in WORLD coordinates, using the world sensor to
-     * decide where the robot is before each leg. Turns in place first
+     * decide where the robot is before the leg. Turns in place first
      * only if the target is far off to the side; otherwise curves to it
-     * in one arc. Repeats until inside the arrival tolerance.
+     * in one arc. ONE PASS: drives the leg and stops, whether or not it
+     * lands inside the arrival tolerance -- it does not loop or creep
+     * up on the target. Any remaining error is inherited by the next
+     * call/hop, which plans fresh from wherever the robot actually is.
      * @param x world x, eg: 60
      * @param y world y, eg: 0
      */
@@ -671,6 +680,31 @@ namespace diffDrive {
         _estopClear()
     }
 
+    /**
+     * Whether the stall latch has tripped: the robot demanded motion
+     * for too long with the wheels not turning, and every Drive/Move
+     * block has been silently ignored since. Separate from the
+     * emergency-stop latch -- see clearStallLatch(). Always false in
+     * the simulator: there is no stall model in the browser.
+     */
+    //% block="is stalled"
+    //% group="Drive"
+    export function isStalled(): boolean {
+        return _isStalled()
+    }
+
+    /**
+     * Clear the stall latch so Drive/Move blocks take effect again.
+     * Does NOT clear the emergency-stop latch -- the two are
+     * independent fault states (see clearEmergencyStop()). A no-op if
+     * nothing is latched.
+     */
+    //% block="clear stall latch" advanced=true
+    //% group="Drive"
+    export function clearStallLatch(): void {
+        _clearStallLatch()
+    }
+
     // ================= configuration =================================
 
     /**
@@ -737,6 +771,19 @@ namespace diffDrive {
     let simMoveRemainRad = 0
     let simMoveActive = false
 
+    // E-stop latch (sprint 007 ticket 004, closes R-13/BLK-07): mirrors
+    // hardware's estopLatch_ (diffdrive.h/.cpp). Set by _estopAll(),
+    // cleared only by _estopClear(); gates _setWheels()/_driveTwist()/
+    // _startMove() at INTAKE, mirroring checkCommandable()'s
+    // Status::kRefusedEstopped gate -- not a per-tick override like
+    // step()'s own `effective = kModeNeutral` (diffdrive.cpp), because
+    // nothing else in this simulator can introduce velocity between
+    // calls, so intake refusal alone is sufficient. _stopAll() (plain
+    // "stop") deliberately never touches this latch, the same
+    // stop-vs-latch distinction shims.cpp's deliverStopNow() documents
+    // for hardware.
+    let simEstopped = false
+
     // Tick-engine sim state (sprint 002): _tickDrive()'s simulator body
     // mirrors shims.cpp's absolute-deadline pacing (tickDrive(), 24 ms
     // cadence) so a simulator-run program is timing-observable the same
@@ -800,14 +847,28 @@ namespace diffDrive {
     //% shim=diffDrive::setWheels
     function _setWheels(left: int32, right: int32): void {
         simIntegrate()
+        if (simEstopped) return
         simVel = (left + right) / 2
-        simYawRate = ((right - left) / 10) / 115  // [rad/s] over track
+        // Differential-drive kinematics: omega [rad/s] = (v_right -
+        // v_left) [mm/s] / trackWidth [mm] -- the same relation
+        // _driveTwist() below applies in reverse (its hardware shim
+        // computes `twistMmS = yawRad * 0.5 * effectiveTrackWidth()`,
+        // shims.cpp), and the divisor hardware itself uses via
+        // effectiveTrackWidth() (motion_engine.h). 115 here is this
+        // simulator's fixed stand-in for the caliper-measured
+        // trackWidth_ (114.2 mm, motion_engine.h) -- setGeometry() is
+        // a no-op in the simulator (see _setGeometry below), so there
+        // is no live value to read. (Previously divided by 10 first
+        // as well, an erroneous effective 1150 mm track that turned
+        // 10x too slowly -- R-12/BLK-06.)
+        simYawRate = (right - left) / 115  // [rad/s]
         simMoveActive = false
     }
 
     //% shim=diffDrive::driveTwist
     function _driveTwist(speed: int32, yawRate: int32): void {
         simIntegrate()
+        if (simEstopped) return
         simVel = speed
         simYawRate = (yawRate / 100) * Math.PI / 180
         simMoveActive = false
@@ -817,6 +878,7 @@ namespace diffDrive {
     function _startMove(distance: int32, yaw: int32, speed: int32,
         yawRate: int32): void {
         simIntegrate()
+        if (simEstopped) return
         simMoveRemainMm = Math.abs(distance)
         simMoveRemainRad = Math.abs(yaw / 100) * Math.PI / 180
         let duration = 0
@@ -844,12 +906,30 @@ namespace diffDrive {
     // on `while (_tickDrive())` behave the same way in the browser as
     // on hardware. Always steps (simIntegrate()), even with no move
     // active, matching the hardware contract that continuous-mode
-    // driving depends on. Returns post-step move-active state.
+    // driving depends on.
+    //
+    // Returns `simMoveActive || simVel != 0 || simYawRate != 0` (sprint
+    // 007 ticket 002, closes R-10/API-01) -- the simulator-state mirror
+    // of shims.cpp's `commandLooksActive(r)`, not raw `simMoveActive`.
+    // simIntegrate() (just above) already zeroed simVel/simYawRate
+    // synchronously, in this same call, if a position-mode move
+    // completed on this step -- there is no motor coast-down to model
+    // in the browser, so no settle-loop equivalent is needed the way
+    // shims.cpp's tickDrive() needs one on hardware -- so a move's final
+    // tick still returns false here, same as before. A continuous-mode
+    // command (setWheelSpeeds()/driveTwist(), which leave
+    // simMoveActive == false but simVel/simYawRate nonzero) now keeps
+    // this true instead of returning false on the very first tick, the
+    // same fix as shims.cpp's own. See
+    // tests/host/test_continuous_drive_command_looks_active.py for the
+    // host-side proof of the equivalent hardware condition (this
+    // simulator body itself is not host-testable -- no automated check
+    // reaches main.ts; see this ticket's C++11 Gate Coverage).
     //% shim=diffDrive::tickDrive
     function _tickDrive(): boolean {
         simIntegrate()
         simCycleCount += 1
-        const moveActive = simMoveActive
+        const stillCommanded = simMoveActive || simVel != 0 || simYawRate != 0
 
         const now = control.millis()
         const consecutive = simTickDeadlineMs != 0 &&
@@ -864,7 +944,7 @@ namespace diffDrive {
         } else {
             simTickOverrunCount += 1
         }
-        return moveActive
+        return stillCommanded
     }
 
     // Minimal simulator stand-in for cycleStat() -- there is no real
@@ -908,10 +988,23 @@ namespace diffDrive {
     //% shim=diffDrive::estopAll
     function _estopAll(): void {
         _stopAll()
+        simEstopped = true
     }
 
     //% shim=diffDrive::estopClear
-    function _estopClear(): void { }
+    function _estopClear(): void {
+        simEstopped = false
+    }
+
+    // Stall latch clear/readback (sprint 007 ticket 001): no-ops in the
+    // simulator -- there is no stall model in the browser, matching
+    // this file's existing precedent for setGeometry/setKernelValue's
+    // simulator fallbacks (specification.md §5).
+    //% shim=diffDrive::clearStall
+    function _clearStallLatch(): void { }
+
+    //% shim=diffDrive::isStalled
+    function _isStalled(): boolean { return false }
 
     //% shim=diffDrive::poseX
     function _poseX(): int32 {
@@ -956,7 +1049,8 @@ namespace diffDrive {
 
     /**
      * Read one diagnostic value. See diagValue() in shims.cpp for the
-     * index list: 10/11 encoder positions, 12/13 applied duty x100,
+     * index list: 2 stall halted (see isStalled(), the named block for
+     * this same bit), 10/11 encoder positions, 12/13 applied duty x100,
      * 14/15 velocities, 6/7 wedge suspicion.
      */
     //% shim=diffDrive::probe

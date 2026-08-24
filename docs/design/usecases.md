@@ -56,7 +56,10 @@ or simulator).
 4. The user runs a `while (diffDrive.driveTick())` loop — under the
    tick model the robot only moves **while something keeps ticking
    the control loop**. The command then holds until superseded by
-   another Drive/Move command or a stop.
+   another Drive/Move command or a stop. `driveTick()`'s return value
+   for this step is pinned against silent regression by
+   `tests/host/test_continuous_drive_command_looks_active.py` (sprint
+   007 ticket 002, closing R-10/API-01).
 
 **Postconditions**: Kernel is in velocity mode with the last-commanded
 values; wheels continue at that command as long as the tick loop runs
@@ -77,8 +80,13 @@ clear-emergency-stop needed.
   `specification.md` §6.3, §11) — a known, not a fault, condition.
 - Motor stall detected (demanded duty with near-zero encoder motion
   sustained past `stallWindow`, default 500 ms): kernel self-halts to
-  neutral until `clearStallLatch` (not currently exposed as a block —
-  see gap noted in the report to team-lead).
+  neutral. The student checks `is stalled` to discover this (also
+  readable as STATUS flags bit 2, DIAG ordinal 2, and the wire's
+  `stall_clear` field's GET), then places `clear stall latch`
+  (advanced Drive block) to resume — the very next Drive/Move command
+  takes effect normally. This latch is **separate from the
+  emergency-stop latch** (§UC-010/§UC-012): `clear emergency stop`
+  clears only `estopLatch_`, never the stall latch, and vice versa.
 
 ---
 
@@ -333,6 +341,15 @@ Drive/Move commands are ineffective until `clear emergency stop`.
   pitfall worth calling out in student-facing docs (not currently
   called out in the README).
 
+As of sprint 007 ticket 004 (closes R-13/BLK-07), this main flow, both
+sets of postconditions, and this error flow all hold in the browser
+simulator too: `emergency stop` sets a `simEstopped` latch that
+`clear emergency stop` is the only thing that releases, and while set
+it silently refuses `setWheelSpeeds`/`driveTwist`/`startMove` the same
+way `checkCommandable()` refuses hardware (`specification.md` §5).
+Previously the simulator did not latch e-stop at all, so this use
+case's whole error flow was invisible in the browser.
+
 ---
 
 ## UC-012: Clear an Emergency Stop
@@ -348,8 +365,8 @@ Drive/Move commands are ineffective until `clear emergency stop`.
 
 **Postconditions**: Kernel no longer refuses commands for e-stop
 reasons. (Note: this clears only the e-stop latch, not an independent
-stall latch — see the gap noted for `clearStallLatch` in UC-002's
-error flows.)
+stall latch — a stalled robot needs its own dedicated `clear stall
+latch` block instead, see UC-002's error flows.)
 
 **Error flows**: Calling when not e-stopped: no-op.
 
@@ -371,21 +388,41 @@ right=M2 wiring (§ Wiring assumptions).
 2. User measures (or empirically tunes) wheel travel per encoder
    degree and places `set wheel calibration %calib mm/deg` with that
    value.
-3. Subsequent odometry, distance-based moves, and twist↔wheel-speed
+3. User measures rotational scrub against camera or other ground truth
+   (a series of commanded pivots, physical rotation compared to
+   commanded — see `motion_engine.h`'s own `rotationalSlip_` field
+   comment for the reference derivation on the vevov chassis) and
+   places `set config %field to %value` with `field` = `rotational
+   slip` and `value` = the measured ratio. Unlike step 1's `trackWidth`
+   (the caliper-measured physical dimension, never adjusted to correct
+   a turn), this is the one knob the geometry doctrine names for
+   correcting rotational scrub (`specification.md` §4.8 ordinal 16;
+   closes code review R-14/API-06 — previously `rotationalSlip` had no
+   setter on any surface, leaving `set track width` as the only
+   reachable turn-affecting knob, which the doctrine explicitly
+   forbids using for this).
+4. Subsequent odometry, distance-based moves, and twist↔wheel-speed
    conversions use the updated geometry.
 
-**Postconditions**: The `MotionEngine`'s `trackWidth`/`travelCalib`
-reflect the new chassis; distances and turns land accurately for that
-chassis instead of the reference defaults (114.2 mm track,
-0.8102 mm/deg — the vevov bake).
+**Postconditions**: The `MotionEngine`'s `trackWidth`/`travelCalib`/
+`rotationalSlip` reflect the new chassis; distances and turns land
+accurately for that chassis instead of the reference defaults
+(114.2 mm track, 0.8102 mm/deg, 0.952 rotational slip — the vevov
+bake).
 
 **Error flows**:
-- Value of `0` or negative for either parameter: the shim's
-  `setGeometry` only applies a value `if (value > 0)` — a zero/negative
-  calibration call is silently ignored, leaving the prior value in
-  place (not reset to some default).
-- Called in the simulator: no effect — `setGeometry` is a no-op in the
-  browser fallback (`specification.md` §5).
+- Value of `0` or negative for either geometry parameter (step 1/2):
+  the shim's `setGeometry` only applies a value `if (value > 0)` — a
+  zero/negative calibration call is silently ignored, leaving the
+  prior value in place (not reset to some default).
+- Value of `0` or negative for rotational slip (step 3):
+  `MotionEngine::setRotationalSlip` applies the same `if (value > 0)`
+  guard directly on the setter itself — silently ignored, prior value
+  retained. Same observable behavior as step 1/2's error flow, reached
+  through `setKernelValue`/`set config` instead of `setGeometry`.
+- Called in the simulator: no effect — `setGeometry` and
+  `setKernelValue` are both no-ops in the browser fallback
+  (`specification.md` §5).
 
 ---
 
@@ -476,3 +513,10 @@ represented.
   `specification.md` §5. This is a known simulator/hardware behavior
   gap, not a bug, but worth surfacing to students who tune in
   simulator and expect it to carry to hardware.
+
+**Note (sprint 007 ticket 004)**: two former simulator/hardware
+divergences are closed, not new ones documented above — `set wheel
+speeds`' turn rate was 10× too slow in the simulator (R-12/BLK-06), and
+`emergency stop` did not latch at all in the simulator (R-13/BLK-07,
+see UC-011). Both now match hardware; the tuning-effect gap above
+remains the only documented simulator/hardware behavior divergence.

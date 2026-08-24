@@ -103,7 +103,7 @@ int wheelSpeed(int which);  // [mm/s]; which: 0 = left, 1 = right
 
 namespace {
 
-// The 15 `ConfigField` enum entries (main.ts) mapped onto
+// The `ConfigField` enum entries (main.ts) mapped onto
 // setKernelValue()/getConfigValue()'s existing field ordinals
 // (shims.cpp) -- one wire NAME per field, replacing the old binary
 // CONFIG/SET_FIELD/GET_CONFIG verbs' bare ordinal one-for-one (sprint.md
@@ -111,7 +111,10 @@ namespace {
 // Config/Rig fields that exist today, under new wire names, with
 // nothing to convert"). Declaration order matches ConfigField's own
 // declaration order so a bare GET's dump reads in the same order a
-// human reading main.ts would expect.
+// human reading main.ts would expect. 15 entries through sprint 006;
+// 17 as of sprint 007 ticket 003 (`default_cruise` joins `stall_clear`);
+// 18 as of sprint 007 ticket 005, which fills in `rotational_slip`
+// (ordinal 16) between them.
 struct FieldEntry {
   const char* name;  // wire key
   int ordinal;        // shims.cpp's setKernelValue()/getConfigValue() field
@@ -133,6 +136,23 @@ constexpr FieldEntry kFields[] = {
     {"stall_window", 12},      // ConfigField.StallWindow
     {"lambda_enabled", 13},    // ConfigField.LambdaEnabled
     {"crawl_pulse", 14},       // ConfigField.CrawlPulse
+    {"default_cruise", 15},    // ConfigField.DefaultCruise (sprint 007
+                               // ticket 003, closing R-11/BLK-03/API-03
+                               // -- see shims.cpp's engineDefaultCruiseMmS()/
+                               // Rig::defaultCruiseMmS_ for the field this
+                               // ordinal actually reaches).
+    {"rotational_slip", 16},   // ConfigField.RotationalSlip (sprint 007
+                               // ticket 005, closing R-14/API-06 -- see
+                               // motion_engine.h's setRotationalSlip()/
+                               // rotationalSlip_ for the validation and
+                               // the load-bearing derivation comment on
+                               // the 0.952 default).
+    {"stall_clear", 17},       // ConfigField.StallClear (sprint 007
+                               // ticket 001) -- a write-triggered action
+                               // wearing a config-field's clothes; see
+                               // shims.cpp's setKernelValue()/
+                               // getConfigValue() case 17 and
+                               // clearStall()'s own comment.
 };
 constexpr size_t kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 
@@ -304,9 +324,20 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
                                     uint32_t duration, uint32_t id) {
   (void)id;
   if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
+  // WIRE-08 (code review 2026-08-23): refuse BEFORE the cast below runs
+  // at all -- see kWireBoundaryCastCeiling's own doc comment
+  // (wire_adapter.h) for why an unclamped static_cast<int> here is
+  // platform-dependent UB for a wire-legal but absurd value, and why
+  // this bound is what keeps the cast well-defined (and therefore
+  // identical) on both the C++20 host and the C++11 target.
+  if (left < -kWireBoundaryCastCeiling || left > kWireBoundaryCastCeiling ||
+      right < -kWireBoundaryCastCeiling || right > kWireBoundaryCastCeiling) {
+    return Wire::Result::kRange;
+  }
   // left/right arrive as exact integral values (decoded from the wire's
   // signed-integer fields, wire_handler.cpp) -- a plain narrowing cast
-  // is exact, no rounding needed.
+  // is exact, no rounding needed, now that the range check above rules
+  // out the one region where "exact" stops being true.
   setWheelsTimed(static_cast<int>(left), static_cast<int>(right), duration);
   // sprint 003 ticket 005: record the resulting deadline so
   // hasLiveMotionObligation() can tell protocol.cpp's fiber loop to keep
@@ -481,8 +512,19 @@ Wire::Result WireAdapter::onSet(const char* name, float value, uint32_t id) {
   (void)id;
   const FieldEntry* entry = findField(name);
   if (entry == nullptr) return Wire::Result::kUnknown;
-  setKernelValue(entry->ordinal,
-                static_cast<int>(std::lround(value * 1000.0f)));
+  // WIRE-08 (code review 2026-08-23): `value` arrives with no ceiling
+  // of its own (parseFloatField, wire_handler.cpp, accepts any finite
+  // float) -- setKernelValue()'s own x1000 scaling convention can turn
+  // an absurd-but-legal field value into a product that overflows
+  // `long`'s 32-bit range before std::lround() ever runs (e.g. `SET
+  // pid_kp 3000000` -> 3e9), which is unspecified on the target, not
+  // merely imprecise. Refuse BEFORE the round -- see
+  // kWireBoundaryCastCeiling's own doc comment (wire_adapter.h).
+  const float scaled = value * 1000.0f;
+  if (scaled < -kWireBoundaryCastCeiling || scaled > kWireBoundaryCastCeiling) {
+    return Wire::Result::kRange;
+  }
+  setKernelValue(entry->ordinal, static_cast<int>(std::lround(scaled)));
   return Wire::Result::kOk;
 }
 

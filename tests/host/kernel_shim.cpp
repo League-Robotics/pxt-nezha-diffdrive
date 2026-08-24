@@ -75,6 +75,13 @@ void kdSetPositionErrorMax(void* handle, float v) {
 void kdSetCyclePeriod(void* handle, uint32_t v) {
   static_cast<Handle*>(handle)->kernel.setCyclePeriod(v);
 }
+// sprint 007 ticket 001: lets a stall-latch test configure the
+// detector (0 = detector off, diffdrive.h's own Config comments) --
+// no existing setter exposed this before this ticket, since no caller
+// anywhere in the package needed to arm it from outside a host test.
+void kdSetStall(void* handle, float speed, float demand, float window) {
+  static_cast<Handle*>(handle)->kernel.setStall(speed, demand, window);
+}
 
 // ---- commands --------------------------------------------------------
 // Every Status-returning call returns DifferentialDrive::Status's

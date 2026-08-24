@@ -211,7 +211,7 @@ size_t sanitizeLineText(const char* text, char* out, size_t outCap) {
 
 }  // namespace
 
-const WireHandler::VerbEntry WireHandler::kCommandTable[18] = {
+const WireHandler::VerbEntry WireHandler::kCommandTable[] = {
     {"HELLO", &WireHandler::decodeAlwaysTrue, &WireHandler::execNoop},
     {"PING", &WireHandler::decodeAlwaysTrue, &WireHandler::execNoop},
     {"ID", &WireHandler::decodeNoFields, &WireHandler::execId},
@@ -233,7 +233,20 @@ const WireHandler::VerbEntry WireHandler::kCommandTable[18] = {
 };
 
 WireHandler::WireHandler(Adapter& adapter, Sink& sink)
-    : adapter_(adapter), sink_(sink) {}
+    : adapter_(adapter), sink_(sink) {
+  // WIRE-09 (code review 2026-08-23): pins kCommandTable's deduced size
+  // at compile time -- see that member's own doc comment
+  // (wire_handler.h) for the silent-zero-fill defect this closes.
+  // Placed in a member function (rather than at namespace scope right
+  // after the array's own definition above) because kCommandTable is
+  // private: an id-expression naming a private member is subject to
+  // access control even inside an unevaluated sizeof operand, and only
+  // member/friend context is exempt from that check. Evaluated purely
+  // at compile time -- this constructor need not even run for a
+  // mismatched count to fail the build.
+  static_assert(sizeof(kCommandTable) / sizeof(kCommandTable[0]) == 18,
+                "kCommandTable verb count");
+}
 
 // ---- feed() / line reassembly ------------------------------------------
 

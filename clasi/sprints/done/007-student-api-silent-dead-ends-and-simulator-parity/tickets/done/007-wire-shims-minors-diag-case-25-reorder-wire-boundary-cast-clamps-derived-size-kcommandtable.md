@@ -2,13 +2,13 @@
 id: '007'
 title: 'Wire/shims Minors: DIAG case-25 reorder, wire-boundary cast clamps, derived-size
   kCommandTable'
-status: open
+status: done
 use-cases:
 - SUC-006
 depends-on: []
 github-issue: ''
 issue: runargcount-guard-and-shim-minors.md
-completes_issue: true
+completes_issue: false
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -78,10 +78,10 @@ Three independent fixes, all in `shims.cpp`/`wire_handler.h`/`.cpp`:
 
 ## Acceptance Criteria
 
-- [ ] `diagValue()`'s `case 25` appears after `case 24`, immediately
+- [x] `diagValue()`'s `case 25` appears after `case 24`, immediately
       following the "23/24" comment; no case's return value or
       behavior changes.
-- [ ] Both WIRE-08 cast sites clamp before casting; a host test sends
+- [x] Both WIRE-08 cast sites clamp before casting; a host test sends
       `WHEELS_V` (or the relevant verb) with a wire value near
       `INT32_MAX` and asserts the resolved sign/magnitude matches
       between the clamp logic's own math and what the target's VCVT
@@ -90,20 +90,20 @@ Three independent fixes, all in `shims.cpp`/`wire_handler.h`/`.cpp`:
       host-testable today per the review's own "Coverage" note
       (extreme-value cases in `test_wire_motion_verbs.py` would expose
       the x86 sign flip directly).
-- [ ] A host test sends a `SET` for a config field with a value whose
+- [x] A host test sends a `SET` for a config field with a value whose
       ×1000 product exceeds a 32-bit range and asserts a `kRange`
       refusal (or a clamped, well-defined result) instead of an
       unspecified/garbage value landing in the kernel.
-- [ ] `kCommandTable` is declared without an explicit array size in
+- [x] `kCommandTable` is declared without an explicit array size in
       `wire_handler.h`, defined with a deduced size in
       `wire_handler.cpp`, and a `static_assert` pins the count. Confirm
       by temporarily removing one entry locally (not committed) and
       observing a **compile failure**, not a silent zero-fill — this
       is the actual defect this fix closes; do not skip verifying it
       fails closed.
-- [ ] All 18 verb names are unchanged, in the same order, after this
+- [x] All 18 verb names are unchanged, in the same order, after this
       fix (diff review).
-- [ ] Full existing host suite passes with no regressions to
+- [x] Full existing host suite passes with no regressions to
       `diagValue()`, wire-boundary casts, or verb dispatch.
 
 ## C++11 Gate Coverage
