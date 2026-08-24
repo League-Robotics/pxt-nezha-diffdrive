@@ -114,6 +114,16 @@ class Protocol {
   // handler's fiber rather than this object's own.
   const char* runText(int slot) const;
 
+  // SerialTransport::writeLine()'s drop counter (ticket 006), surfaced
+  // for shims.cpp's diagValue(26)/probe(26). Same same-package
+  // forward-declaration boundary as emitLine()/runText() above:
+  // shims.cpp reaches this via a free-function wrapper
+  // (protocolSerialDropCount(), protocol.cpp) rather than including
+  // this header directly, so it never pulls in radio_transport.h (see
+  // protocol.h's own top-of-file comment on why that matters to PXT's
+  // dependency scan).
+  int serialDropCount() const;
+
  private:
   static void fiberEntry(void* self);
   void run();

@@ -113,6 +113,14 @@ void Protocol::emitLine(const char* text) {
 // dependency scan demand the `radio` package for that file).
 void protocolEmitLine(const char* text) { protocol().emitLine(text); }
 
+int Protocol::serialDropCount() const {
+  return static_cast<int>(transport_.dropCount());
+}
+
+// Free-function entry point for shims.cpp's diagValue(26) case (ticket
+// 006) -- same boundary reason as protocolEmitLine() above.
+int protocolSerialDropCount() { return protocol().serialDropCount(); }
+
 // ---- the old-style cleartext RUN MessageBus bridge, unchanged --------
 
 void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
