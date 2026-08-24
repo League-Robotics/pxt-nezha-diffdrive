@@ -514,9 +514,26 @@ bool tickDrive() {
   r.kernel.step();
 
   const bool wasActive = r.engine.isMoveActive();
-  // odomUpdate() only while a move is (was) actually active -- see
-  // updateMove()'s own matching comment above.
-  if (wasActive) odomUpdate(r);
+  // odomUpdate() now runs UNCONDITIONALLY, every tick (sprint 006 ticket
+  // 003, closes R-09/BLK-05, continuous-mode-odometry-chord-error.md):
+  // this used to read `if (wasActive) odomUpdate(r);`, matching
+  // updateMove()'s own gate just below -- so continuous-mode driving
+  // (setWheels()/driveTwist() under a `while (tickDrive())` loop, no
+  // move-engine move ever active) never called this at all, and the
+  // next pose read integrated the ENTIRE driven interval as one
+  // straight chord at one midpoint heading: wrong by the difference
+  // between an arc and its chord, exactly the whole path length for a
+  // closed loop (drive a full circle, pose reports ~the path length
+  // instead of ~0). odomUpdate() diffs against the last kernel Output
+  // it consumed and immediately re-stamps that value, so it is a no-op
+  // on a tick with no new encoder movement -- safe to call
+  // unconditionally. `wasActive` is still computed here and kept for
+  // the settle-loop gate below (`if (wasActive && !moveActive)`), which
+  // is a different concern (folding post-move coast counts into pose)
+  // and is unaffected by this change. updateMove()'s OWN odometry gate
+  // -- a different caller, serving the TypeScript layer's blocking-move
+  // poll -- is untouched; see its own comment.
+  odomUpdate(r);
   const bool moveActive = r.engine.serviceMove();
 
   // Move-completion stop delivery (bench root-cause, 2026-08-20): when
