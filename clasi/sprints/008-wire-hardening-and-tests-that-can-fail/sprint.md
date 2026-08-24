@@ -1,9 +1,15 @@
 ---
 id: 008
 title: Wire hardening and tests that can fail
-status: roadmap
+status: ticketing
 branch: sprint/008-wire-hardening-and-tests-that-can-fail
-use-cases: []
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+- SUC-005
+- SUC-006
 issues:
 - wire-timeout-hardening.md
 - wire-constants-single-source.md
@@ -222,40 +228,404 @@ catching wire/kernel defects without hardware wherever possible:
 
 ## Architecture
 
-(Architecture for this sprint's change, sized to the change — a
-one-paragraph note for a trivial sprint, a fuller write-up with
-component/data-model detail for a substantial one. May read "N/A —
-trivial" when the change has no architectural impact.)
+**Sizing: Substantial.** Six issues touch real behavior across
+`wire_handler.h/.cpp`, `wire_adapter.h/.cpp`, `protocol.cpp`,
+`radio_transport.h`, `main.ts`, `motion_engine.h/.cpp`, `shims.cpp`, and
+a wide swath of `tests/host/` — well past the compact tier's "one
+module" line on module count alone. It also crosses the compact tier's
+"no new cross-module dependency" line for real: the settle-loop
+extraction (issue 4) gives `shims.cpp::tickDrive()` a new dependency on
+a host-portable `motion_engine` helper it did not call before, and that
+same helper becomes a new dependency of `tests/host/` (a new shim
+consuming it directly) — a genuine new edge in the module graph, not a
+field added to an existing table the way sprint 007's `kFields` growth
+was compact-adjacent but still ruled substantial. No data-model change
+this sprint (the wire's field set is unchanged; `TlmMode`'s existing
+enum values get defined semantics, not new ones).
 
-### Architecture Overview
+This project has opted into the persistent per-subsystem design-doc
+overlay model (`design_docs: enabled`), so the full architecture
+write-up — the 7-step methodology, module table, Design Rationale,
+Migration Concerns, and Open Questions — lives in this sprint's
+`design/` overlay, not here: see
+[`design/DESIGN.md`](design/DESIGN.md) (the seeded copy of
+`src/DESIGN.md`) §14 "Sprint 008 — architecture diagram and change
+summary" (inline `Sprint 008:` annotations also land in §4, §5, §6,
+§8, §9, and §11 where the changed modules already have sections) and
+[`design/host-DESIGN.md`](design/host-DESIGN.md) (the seeded copy of
+`tests/host/DESIGN.md`) for the host-harness-side detail (new shim, new
+tests, gate-coverage growth, the WaHandle re-sync). `docs/design/design.md`
+(the system doc, seeded copy at [`design/design.md`](design/design.md))
+**was**
+seeded and edited — its "Host-vs-target language standard" global
+convention paragraph is updated with the standing per-sprint
+build-checkpoint convention this sprint establishes (see the Design
+Rationale summary below); `specification.md`/`usecases.md`/`overview.md`
+were evaluated and **not** seeded, same as sprint 007's finding — they
+are pre-opt-in legacy docs `validate_design` does not recognize as
+canonical-doc-set members, and none of this sprint's fixes changes
+student-facing block behavior in a way that needs a spec/UC edit (this
+is a wire/test-infrastructure hardening sprint, not a student-API
+sprint).
 
-(High-level structure and component relationships, if applicable.)
+**The centerpiece decision (issue 6, target-viability gap).** Three
+independent defect classes have now escaped the host suite because
+nothing in the per-ticket or per-sprint flow requires a real target
+build: a non-aggregate struct under C++11 (sprint 004 ticket 005), a
+`uint8_t`-truncated buffer size (`-Woverflow`, same build), and a
+`pxt.json` manifest omission that blocked every hex entirely (sprint
+007 ticket 001). This sprint does **not** attempt to wire a hard,
+automated build gate into `close_sprint` itself — that tool is part of
+the CLASI MCP server, not this project's own source tree, so no ticket
+here can implement it, and the two documented "known-benign, tolerate a
+retry" failure modes (the legacy V1 `bbc-microbit-classic-gcc`
+hex-merge failure, and the nondeterministic `TS9283`/`TS9043`/`TS9200`
+packaging abort) make a hard pass/fail gate the wrong shape regardless
+— a gate that cannot reliably distinguish "the compiler rejected a
+`.cpp`" from "packaging aborted for an unrelated, retriable reason"
+would either block sprints on ghosts or, if loosened to avoid that, stop
+meaning anything. Instead this sprint formalizes what sprints 004 and
+007 already did **informally** (each one's own last ticket happened to
+run `make_deploy.py` and only that accident caught the defect): a
+**mandatory, always-last, per-sprint build-checkpoint ticket** — the
+same shape as sprint 004 ticket 005 and sprint 007 ticket 008, now
+written down as a standing convention in `design.md` and `src/DESIGN.md`
+§11 rather than left as something two sprints happened to do the same
+way. The one piece of this that IS a real code change lands in
+`tools/make_deploy.py` (unprotected, not part of the canonical
+`docs/design/` doc set, edited directly by its ticket rather than
+through the overlay): today `build()` only checks "does a hex exist,"
+with no triage of *why* one doesn't — this sprint adds the triage the
+issue asks for ("did any `.cpp` fail to compile," not the error code)
+plus one automatic retry on the two documented benign abort shapes, so
+the checkpoint ticket's own acceptance criterion — reintroduce a known
+C++14-only construct or a manifest omission and confirm the checkpoint
+catches it without a human reading raw compiler output — is something
+the tool itself proves, not something a human has to eyeball each time.
 
-### Design Rationale
+**Summary for readers of this file alone** (see the overlay for full
+detail): wire-layer timeout handling gets one enforcement point instead
+of six ad hoc ones — `timeout`/`duration` is rejected at 0 and clamped
+at 2^31−1 for every one of the six motion verbs at decode time in
+`wire_handler.cpp`, before any verb handler or the kernel's own lease
+math ever sees an out-of-range value, closing both the stale-armed-lease
+class (R-06) and the wrapped-negative-deadline class (R-18) at the same
+choke point. `kVersion` stops hand-mirroring `pxt.json`; `emitLine`'s
+200-byte clip and both transports' line caps collapse onto one shared
+constant, and `radio_transport.h`'s now-false "equals SerialTransport's"
+comment is corrected to state the truth (it is deliberately *not*
+coupled, sized to a bare-Column literal that has drifted); the
+`RUN_EVENT_SOURCE`/`kRunEventSource` `0x2001` duplicate between
+`main.ts` and `protocol.cpp` gets a drift test, as does the `kDiag*`
+ordinal set shared by name-only convention between `wire_adapter.cpp`
+and `shims.cpp`'s two independent switch statements. The `WaHandle`
+test doubles are re-synced to the three confirmed drifts (wedge fields,
+`setWheelsTimed` routing through `MotionEngine::wheelsV()`'s
+`cancelMove()`, `std::lround` config rounding) with no production
+change required — the doubles were wrong, not the code they mirror —
+plus a drift test proven, by demonstration, to fail when only one side
+changes. The settle-tick loop's bounded-iteration/break-on-rest logic
+is extracted into a new `MotionEngine` method consuming only the
+already-host-portable kernel port (`kernel.step()`/`kernel.output()`),
+leaving `shims.cpp::tickDrive()` with only the platform-specific
+`odomUpdate()` call and the loop-invocation glue; a new host test
+exercises the extracted loop directly, closing the gap the sprint 003
+regression test could only argue for. `TLM AUTO` becomes a documented
+alias for `TLM POSE` (matches today's de facto behavior — zero risk);
+`TLM BUFFER` becomes an explicit `kUnimplemented` refusal instead of a
+silent, unspecified fall-through, since no buffering mechanism actually
+exists to give it real semantics yet (a genuine behavior change for any
+host currently sending `TLM BUFFER` unknowingly — see Migration
+Concerns below).
 
-(Significant decisions with alternatives considered and reasoning, if
-applicable.)
+**Known behavior changes, not risks:**
+- A host currently sending `TLM BUFFER` and unknowingly receiving
+  POSE's 12 columns will now receive `err 6 #<id>` (`kUnimplemented`)
+  instead — the point of the fix (issue 5). No in-tree tool sends this
+  today (not exhaustively checked — cheap due diligence for whoever
+  executes that ticket, same caveat sprint 007's `default_cruise` fix
+  carried).
+- A host sending a motion verb with `timeout 0`/`duration 0` today gets
+  `ok` and either an instant no-op (MOVE_X) or a stale-lease lurch
+  (WHEELS_X); after this sprint every one of the six motion verbs
+  refuses `0` outright (`err 3 #<id>`, `kRange`) instead. This is a
+  strict behavior change for any caller that relied on either of the
+  old, disagreeing meanings of `0` — the review's own framing treats
+  both old meanings as bugs, not features, so no caller should be
+  relying on either deliberately, but it is a wire-visible change worth
+  stating plainly.
+- A host sending a `timeout`/`duration` above 2^31−1 today either wraps
+  the deadline negative (killing the move almost immediately, R-18) or,
+  post-fix, gets the value silently clamped to 2^31−1 (~24.8 days) — a
+  strict improvement (the move now actually runs), not a new refusal.
 
-### Migration Concerns
-
-(Data migration, backward compatibility, deployment sequencing — or
-"None" if not applicable.)
+**Risk (known, not newly introduced):** none of this sprint's own
+changes touches `diffdrive.{h,cpp}` (the vendored kernel stays
+byte-unchanged, so no cross-repo resync is triggered) or any CODAL-only
+file's *logic* — the settle-loop extraction moves logic, it does not
+change what that logic does, and the constants work is pure
+single-sourcing. The one item worth tracking procedurally, not
+architecturally: the settle-loop extraction's call-site change in
+`shims.cpp::tickDrive()` is, like every `shims.cpp` change, invisible to
+every host test by construction (§1's layering table) — this sprint's
+own build-checkpoint ticket is what proves that call site still
+compiles and links against the new signature, exactly the class of gap
+issue 6 exists to close, applied to this sprint's own riskiest change.
 
 ## Use Cases
 
-(Use cases sized to the change — may read "N/A — trivial" for small
-sprints that don't warrant new or updated use cases.)
+None of `docs/design/usecases.md`'s UC-001..UC-016 cover wire-protocol
+or test-infrastructure behavior (they are all student-facing block use
+cases) — every SUC below is bench/host/maintainer scope, following
+sprint 004's own precedent for this project's wire-protocol work (its
+SUC-001..007 are the model this sprint's SUCs reuse). Sized to the
+substantial tier: full treatment for the two SUCs with real wire-visible
+behavior change (SUC-001, SUC-005), proportional treatment for the rest.
 
-### SUC-001: (Title)
-Parent: UC-XXX
+### SUC-001: A wire host's malformed timeout can no longer arm a stale move or wrap into an early kill
+Parent: N/A (bench/host use case; closes `wire-timeout-hardening.md`,
+R-06 + R-18)
 
-- **Actor**: (Who)
-- **Preconditions**: (What must be true before)
+- **Actor**: A bench host or Python tool issuing raw wire motion verbs
+  (`WHEELS_X`/`WHEELS_V`/`MOVE_X`/`MOVE_V`/`GO_TO_R`/`GO_TO_W`).
+- **Preconditions**: The robot is connected and commandable.
 - **Main Flow**:
-  1. (Step)
-- **Postconditions**: (What is true after)
+  1. Host sends any of the six motion verbs with `timeout`/`duration`
+     field `0`. Decode rejects it before the verb's handler or the
+     kernel's own lease math ever runs: `err 3 #<id>` (`kRange`), no
+     motion obligation armed, no kernel lease staged.
+  2. Host sends the same verb with `timeout`/`duration` above
+     2^31−1 (up to the wire's full `uint32` range, 4294967295). Decode
+     clamps it to 2^31−1 before the handler runs — the move is
+     accepted and commanded for the full clamped duration, not killed
+     ~150 ms in by a wrapped-negative deadline comparison.
+  3. Host sends a `timeout`/`duration` in the previously-tested range
+     (1..5000 ms): behavior is unchanged.
+- **Postconditions**: `0` means the same thing — refusal — on every one
+  of the six motion verbs; no value a host can send produces either a
+  stale-armed kernel lease with no ticking obligation, or a
+  wrap-induced early kill.
 - **Acceptance Criteria**:
-  - [ ] (Criterion)
+  - [ ] A host test parametrized at `0`, `2^31−1`, `2^31`, and
+        `4294967295` (uint32-max) exercises all six motion verbs and
+        asserts the documented reject/clamp/unchanged behavior for each.
+  - [ ] `0` on `WHEELS_X` no longer leaves `MotionEngine`'s kernel lease
+        armed while `WireAdapter::hasLiveMotionObligation()` reports
+        false — a host test drives this specific R-06 sequence and
+        asserts no obligation/lease mismatch.
+  - [ ] A value above 2^31−1 no longer reproduces the ticket-011
+        starvation pattern (an acked move dying at ~150 ms) — a host
+        test drives the exact R-18 sequence and asserts the move keeps
+        running past 150 ms.
+
+### SUC-002: A maintainer trusts kVersion, emitLine's cap, and the radio parity comment because they can no longer silently drift
+Parent: N/A (bench/host use case; closes `wire-constants-single-source.md`,
+R-17 + R-21)
+
+- **Actor**: A firmware maintainer relying on `VER`'s reply during
+  `mbdeploy`'s deploy-verification flow, or reading
+  `radio_transport.h`'s header comments.
+- **Preconditions**: `pxt.json`'s version has been bumped since the last
+  time `protocol.cpp`'s `kVersion` was hand-updated (the actual,
+  ten-bump-drifted state at sprint start).
+- **Main Flow**:
+  1. Maintainer builds and flashes; `ID`/`VER`'s reply matches
+     `pxt.json`'s version by construction (single-sourced) or a host
+     test fails the build the moment they diverge (drift-tested) —
+     either mechanism is acceptable, chosen during ticket execution
+     against what the build toolchain actually allows.
+  2. A bench tool sends a maximal 240-byte `RUN:` result line through
+     `emitLine()`; it is no longer clipped at the old bare `200`.
+  3. Maintainer reads `radio_transport.h`'s `kMaxPayloadBytes` comment;
+     it states the true relationship to `SerialTransport`'s cap
+     (deliberately uncoupled, not "equals") instead of a claim the
+     ticket-005 serial-cap raise already falsified.
+- **Postconditions**: `kVersion`, the line-cap constants, the
+  `RUN_EVENT_SOURCE`/`kRunEventSource` pair, and the `kDiag*` ordinal
+  set each have exactly one source of truth or an automated test that
+  fails the moment two copies disagree — never neither.
+- **Acceptance Criteria**:
+  - [ ] A host test (or the build itself) fails when `kVersion` and
+        `pxt.json`'s version disagree.
+  - [ ] `emitLine` and both transports read one shared line-capacity
+        constant; a host test pins its value and confirms `emitLine` no
+        longer truncates below it.
+  - [ ] `radio_transport.h`'s parity comment states the true
+        relationship to `SerialTransport`'s cap.
+  - [ ] A host test fails if `main.ts`'s `RUN_EVENT_SOURCE` and
+        `protocol.cpp`'s `kRunEventSource` diverge.
+
+### SUC-003: A test that exercises DIAG wedge state, command supersession, or config rounding through WaHandle is exercising what production actually does
+Parent: N/A (bench/host use case; closes `host-harness-double-drift.md`,
+R-25)
+
+- **Actor**: A future test author extending `tests/host/test_wire_motion_verbs.py`
+  or a similar `WaHandle`-based suite.
+- **Preconditions**: None of the three confirmed drifts have been
+  exercised by any existing test (the issue's own finding: "no WaHandle
+  test drives wedge at all").
+- **Main Flow**:
+  1. A test reads `WaHandle`'s DIAG ordinal 6/7 (wedge); it reflects the
+     same field production's `diagValue()` reports
+     (`wedgeSuspectLeft/Right`), not the double's previous
+     `wedgeLeft/Right` substitution.
+  2. A test drives `WHEELS_V` through `WaHandle`'s `setWheelsTimed`
+     while a move-engine move is in flight; the new command supersedes
+     it via the same `cancelMove()` path production's
+     `MotionEngine::wheelsV()` takes, not a direct `kernel.drive()` call
+     that skips it.
+  3. A test reads a config field back through `WaHandle`'s
+     `getConfigValue` double; its rounding matches production's
+     `std::lround(v * 1000.0)`, not a truncating `static_cast<int>(v *
+     1000.0f)`.
+- **Postconditions**: The three fields/paths above are drift-tested — a
+  new host test that fails if either side (double or production)
+  changes alone, demonstrated by temporarily reverting the double's fix
+  and confirming that new test goes red, then restoring it green.
+- **Acceptance Criteria**:
+  - [ ] `WaHandle`'s DIAG shim reads `wedgeSuspectLeft/Right`.
+  - [ ] `WaHandle`'s `setWheelsTimed` routes through the same
+        `cancelMove()`-triggering path production's `setWheelsTimed`
+        uses (directly or via an equivalent call sequence).
+  - [ ] `WaHandle`'s config-rounding double matches `std::lround`
+        semantics, including the double-vs-float precision production
+        uses.
+  - [ ] A new drift test is shown, by demonstration, to fail when only
+        one side of any of the three pairs above changes.
+
+### SUC-004: A regression that deletes or shortens the post-move settle loop fails a host test, not just a hardware session
+Parent: N/A (bench/host use case; closes
+`settle-tick-loop-is-not-host-testable.md`, filed after sprint 003
+ticket 009)
+
+- **Actor**: A future contributor editing `shims.cpp::tickDrive()` or
+  the extracted settle-loop helper; the host test suite acting on their
+  behalf.
+- **Preconditions**: A move-engine move has just ended
+  (`wasActive && !moveActive`, `tickDrive()`'s existing gate, unchanged
+  by this sprint).
+- **Main Flow**:
+  1. `tickDrive()` calls the new `MotionEngine` settle helper instead of
+     its own inline loop; the helper steps the kernel up to its bounded
+     iteration cap, breaking early once both wheels measure at or below
+     the rest threshold, exactly as the inline loop did.
+  2. `shims.cpp` calls `odomUpdate(r)` once, after the helper returns,
+     exactly as today — odometry ownership does not move into
+     `motion_engine`, only the settle/rest decision does (the sprint 003
+     comment's stated objection to extraction — "would mean moving
+     odometry ownership into motion_engine too" — does not apply to this
+     narrower cut).
+  3. A new host test drives the extracted helper directly (via a new
+     `kernel_shim.cpp`/`fake_ports.h`-based shim, reusing the
+     `FakeSleeper::onSleep` hook where useful) and asserts the
+     bounded-iteration/break-on-rest/never-re-energize behavior by
+     executing the loop, not by argument.
+- **Postconditions**: The loop's shape (max iterations, rest threshold,
+  no re-energizing) is provably present by running it; the
+  one-fiber-ticks-a-move constraint is unaffected — no new fiber or
+  ticker is introduced, and the helper is called from the same single
+  call site `tickDrive()` already owned.
+- **Acceptance Criteria**:
+  - [ ] A host test constructs the settle scenario (wheels coasting
+        above rest threshold at move end) and asserts the helper steps
+        the kernel until rest or the iteration cap, matching the
+        pre-extraction loop's measured behavior
+        (`tests/host/test_regression_post_move_neutral.py` stays green,
+        unchanged).
+  - [ ] A host test proves the iteration cap is enforced (wheels held
+        artificially above rest threshold for longer than the cap) —
+        the helper returns after the cap, not indefinitely.
+  - [ ] `shims.cpp::tickDrive()`'s own body shrinks to platform glue
+        plus the helper call plus `odomUpdate()` — no settle-decision
+        logic left inline.
+  - [ ] The new helper is added as a method on the existing
+        `MotionEngine` class, defined in `motion_engine.cpp` — already
+        one of the four files `test_cxx11_syntax_gate.py`'s
+        `-std=c++11 -fsyntax-only` gate covers, so no new gate
+        registration is needed (unlike sprint 006's `heading_wrap.h`/
+        `encoder_glitch_armor.h`/`encoder_pose_source.h`, which needed
+        new dedicated syntax-check translation units because they were
+        new files); a passing gate run after the change confirms
+        coverage extends to the new method with no further action.
+
+### SUC-005: TLM AUTO and TLM BUFFER stop being an implementer's accident
+Parent: N/A (bench/host use case; closes
+`tlm-auto-buffer-column-set-undefined.md`)
+
+- **Actor**: A telemetry consumer selecting a `TLM` mode other than
+  `POSE`/`FULL`/`OFF`.
+- **Preconditions**: `TLM AUTO #<id>` or `TLM BUFFER #<id>` is sent.
+- **Main Flow**:
+  1. Host sends `TLM AUTO #<id>`. It is now a **documented alias** for
+     `TLM POSE` — the same 12-column set, on the same existing 50 ms
+     protocol cadence. This matches today's de facto fall-through
+     behavior exactly; the only change is that it is now a stated
+     decision (pinned by a host test on the emitted `thdr`), not an
+     accident of an unhandled `switch` default.
+  2. Host sends `TLM BUFFER #<id>`. It is now refused —
+     `err 6 #<id>` (`kUnimplemented`) — because no buffering mechanism
+     exists anywhere in this codebase to give "buffer" real, narrower
+     semantics yet; answering `err` is more honest than emitting an
+     unspecified column set (the issue's own preferred resolution).
+  3. Host sends `TLM POSE`/`TLM FULL`/`TLM OFF #<id>`: unchanged.
+- **Postconditions**: Every `TLM` mode either has documented, tested
+  semantics or is an explicit, documented refusal — no mode silently
+  falls through to a column set nobody specified.
+- **Acceptance Criteria**:
+  - [ ] A host test asserts `TLM AUTO`'s emitted `thdr` is
+        byte-identical to `TLM POSE`'s.
+  - [ ] A host test asserts `TLM BUFFER` returns `err 6 #<id>` and
+        never emits a `thdr`/`t` frame.
+  - [ ] `wire_adapter.h`'s `buildSnapshot()` doc comment states the
+        decision (`AUTO` = alias for POSE; `BUFFER` = unimplemented)
+        instead of describing the fall-through as unspecified.
+
+### SUC-006: A sprint cannot close having only proven its host suite is green
+Parent: N/A (bench/host use case; closes
+`host-tests-compile-newer-standard-than-target.md`, the sprint's
+centerpiece issue)
+
+- **Actor**: The firmware maintainer closing out this sprint (mirrors
+  sprint 004's own SUC-006, now formalized as a standing per-sprint
+  practice rather than a one-sprint precedent).
+- **Preconditions**: All host tests pass; every other ticket in this
+  sprint is done.
+- **Main Flow**:
+  1. Maintainer runs the (now triage-aware) `tools/make_deploy.py`. A
+     genuine `.cpp` compile failure on either real target variant is
+     reported as a hard failure, distinguished from the two documented
+     benign abort shapes (legacy V1 hex-merge failure; the
+     nondeterministic `TS9283`/`TS9043`/`TS9200` packaging abort after a
+     pxt-core cache-write `TypeError`), which are retried once
+     automatically rather than surfaced as a false failure.
+  2. A flashable hex is produced from this sprint's own final state —
+     proof that every change this sprint made, including the ones no
+     host test can see (`shims.cpp`'s settle-loop call site,
+     `protocol.cpp`'s `kVersion`/`emitLine`, `radio_transport.h`), still
+     compiles and links for both real embedded targets.
+  3. Maintainer confirms the triage logic itself: reintroducing a known
+     C++14-only construct (or a `pxt.json` manifest omission) into a
+     scratch copy is reported as a real failure, not swallowed by the
+     retry-on-benign-abort logic.
+- **Postconditions**: A flashable artifact exists; the sprint's own
+  target-viability claim is proven by a real build, not inferred from a
+  green host suite. No hardware flashing or live telemetry capture is
+  performed or claimed — building a hex needs network access to the
+  cloud compiler, not a robot, so this SUC's acceptance criteria are
+  satisfiable with no bench session.
+- **Acceptance Criteria**:
+  - [ ] `tools/make_deploy.py` distinguishes a real `.cpp` compile
+        failure from the two documented benign abort shapes, retrying
+        the latter once automatically.
+  - [ ] A real build produces a flashable hex from this sprint's final
+        state, with no code change required beyond the documented
+        retry.
+  - [ ] Reintroducing a known C++14-only construct (or omitting a file
+        from `pxt.json`) is confirmed to make the checkpoint fail, not
+        silently pass via the retry path.
+  - [ ] `src/DESIGN.md` §11 and `docs/design/design.md`'s "Host-vs-target
+        language standard" convention both state the standing
+        per-sprint build-checkpoint practice this ticket establishes.
 
 ## GitHub Issues
 
@@ -273,7 +643,22 @@ Before tickets can be created, all of the following must be true:
 
 ## Tickets
 
-| # | Title | Depends On |
-|---|-------|------------|
+| # | Title | Issue | Depends On |
+|---|-------|-------|------------|
+| 001 | Wire timeout hardening: reject 0, clamp above 2^31-1, unify across all six motion verbs | `wire-timeout-hardening.md` | — |
+| 002 | Wire constants single-sourced: kVersion, emitLine/line-cap, RUN_EVENT_SOURCE, kDiag* drift tests | `wire-constants-single-source.md` | — |
+| 003 | Host-harness WaHandle re-sync: wedge fields, setWheelsTimed/cancelMove, config rounding, drift test | `host-harness-double-drift.md` | — |
+| 004 | Settle-tick loop extraction: host-testable MotionEngine settle helper | `settle-tick-loop-is-not-host-testable.md` | — |
+| 005 | TLM AUTO/BUFFER column-set semantics: AUTO aliases POSE, BUFFER refuses | `tlm-auto-buffer-column-set-undefined.md` | — |
+| 006 | Target-viability build checkpoint: triage-aware make_deploy.py and the standing per-sprint convention | `host-tests-compile-newer-standard-than-target.md` | 001, 002, 003, 004, 005 |
 
-Tickets execute serially in the order listed.
+Tickets execute serially in the order listed. Tickets 001-005 are
+mutually independent (each touches a distinct concern; ordering among
+them is by issue priority — High, Med, Med, pre-review, Low — not by
+dependency) and could in principle run in any relative order; they are
+sequenced 001-005 for narrative clarity (wire-layer hardening, then
+constants, then test-harness hygiene, then the settle-loop's own
+module-boundary change, then the small TLM decision). Ticket 006 is the
+sprint's own build-checkpoint and depends on all five, by design — it
+exists to validate the sprint's *combined* final state, not any one
+ticket in isolation, and must run last.

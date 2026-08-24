@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 008
+tickets:
+- 008-001
 ---
 
 # Wire timeout hardening: reject 0, cap 2^31, make verbs agree

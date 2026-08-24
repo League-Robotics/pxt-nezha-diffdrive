@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 008
+tickets:
+- 008-002
 ---
 
 # Wire constants drift: kVersion says 1.0.0 (pxt.json: 1.0.10); line caps disagree

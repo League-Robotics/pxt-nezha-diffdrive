@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 008
+tickets:
+- 008-003
 ---
 
 # Host-harness doubles drifted from production: three behaviors no test can catch

@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 008
+tickets:
+- 008-005
 ---
 
 # `TLM AUTO` and `TLM BUFFER` have no defined telemetry column set

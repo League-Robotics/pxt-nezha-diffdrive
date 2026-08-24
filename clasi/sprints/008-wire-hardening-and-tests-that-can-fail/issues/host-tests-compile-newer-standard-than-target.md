@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 008
+tickets:
+- 008-006
 ---
 
 # Host tests compile at C++20 while both real targets compile at C++11, so target-only compile errors pass the suite

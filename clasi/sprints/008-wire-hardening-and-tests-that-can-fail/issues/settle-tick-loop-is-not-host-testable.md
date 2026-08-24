@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 008
+tickets:
+- 008-004
 ---
 
 # The settle-tick loop is not host-testable, so deleting it would go uncaught
