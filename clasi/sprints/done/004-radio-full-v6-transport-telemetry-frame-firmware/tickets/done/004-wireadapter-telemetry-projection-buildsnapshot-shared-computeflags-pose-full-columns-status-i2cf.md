@@ -2,9 +2,13 @@
 id: '004'
 title: 'WireAdapter telemetry projection: buildSnapshot, shared computeFlags, POSE/FULL
   columns, STATUS i2cf='
-status: open
-use-cases: [SUC-003, SUC-004, SUC-005]
-depends-on: ["003"]
+status: done
+use-cases:
+- SUC-003
+- SUC-004
+- SUC-005
+depends-on:
+- '003'
 github-issue: ''
 issue:
 - radio-speaks-full-v6-and-v6-gets-its-telemetry-frame.md
@@ -95,19 +99,19 @@ so the emitter and the (future) parser cannot silently drift apart.
 
 ## Acceptance Criteria
 
-- [ ] `WireAdapter::buildSnapshot()` returns a `const Wire::Snapshot&`
+- [x] `WireAdapter::buildSnapshot()` returns a `const Wire::Snapshot&`
       built from live state via the five new forward declarations;
       `telemetryEnabled()` returns `mode_ != Wire::TlmMode::kOff`.
-- [ ] `WireAdapter::status()`'s `out.otos` reflects real OTOS
+- [x] `WireAdapter::status()`'s `out.otos` reflects real OTOS
       connectivity (`otosGet(kOtosConnected)`, ordinal 7) instead of the
       current hardcoded `false` (R-22/WIRE-06 — see Description). A
       test using a new settable OTOS-connected test double asserts
       `STATUS`'s `otos=` value is `0` when disconnected and `1` when
       connected, not unconditionally `0`.
-- [ ] `computeFlags()` is a standalone function (same bit layout as
+- [x] `computeFlags()` is a standalone function (same bit layout as
       today's inline version — this ticket MOVES it, does not
       redefine it) called from both `status()` and `buildSnapshot()`.
-- [ ] `Wire::StatusFields` (`wire_handler.h`) gains an `int32_t i2cf =
+- [x] `Wire::StatusFields` (`wire_handler.h`) gains an `int32_t i2cf =
       0;` field, alongside the existing `flags`; `execStatus()`'s
       snprintf format string (`wire_handler.cpp`) gains `i2cf=%ld` in
       its existing `k=v` reply, populated the same way every other
@@ -116,14 +120,14 @@ so the emitter and the (future) parser cannot silently drift apart.
       struct. `WireAdapter::status()` sets `out.i2cf = diagValue(8);`.
       `protocol.md` §6.1's "order not guaranteed, unknown keys ignored"
       already covers backward compatibility for the new key.
-- [ ] `src/protocol.cpp`'s periodic-emission block is updated to the
+- [x] `src/protocol.cpp`'s periodic-emission block is updated to the
       REAL conditional: if `wireAdapter_.telemetryEnabled()`, call
       `wireAdapter_.buildSnapshot()` ONCE per tick and pass the SAME
       `Snapshot` reference to BOTH handlers' `emitTelemetry(snapshot)`;
       otherwise call `emitReliability()` on each, as ticket 003 left
       it. (See `sprint.md`'s Design Rationale for why `buildSnapshot()`
       is called once per tick, not once per handler.)
-- [ ] Six scale tests (verbatim from the issue's Verification table —
+- [x] Six scale tests (verbatim from the issue's Verification table —
       each test's setter takes RAW shim units so the test is not
       tautological):
 
@@ -138,19 +142,19 @@ so the emitter and the (future) parser cannot silently drift apart.
 
   Negatives specifically on `oy`/`vr` so a `static_cast<uint32_t>` slip
   shows.
-- [ ] `seq` wraps `127 -> 0` over 130 frames (adapter-side test, not
+- [x] `seq` wraps `127 -> 0` over 130 frames (adapter-side test, not
       handler-side — the handler only prints).
-- [ ] The widest `FULL` frame's formatted byte length is asserted
+- [x] The widest `FULL` frame's formatted byte length is asserted
       against `RadioTransport`'s 200-byte silent-truncation cap, using
       realistic-but-large values (not a synthetic all-`INT32_MIN` frame
       — see `sprint.md`'s Open Questions for why this specific number
       is unverified at planning time and must come from a real test,
       not a guess).
-- [ ] A test asserts the literal substring `otosRead` appears NOWHERE in
+- [x] A test asserts the literal substring `otosRead` appears NOWHERE in
       `src/wire_adapter.cpp` (a source-text check, not a runtime one —
       e.g. a small pytest reading the file and asserting the substring's
       absence).
-- [ ] `tests/host/golden_telemetry.py` exists, imported by a new C++-
+- [x] `tests/host/golden_telemetry.py` exists, imported by a new C++-
       driven test in this ticket that feeds known raw shim inputs
       through the real `WaHandle` (`wire_motion_verb_shim.cpp`) and
       asserts the exact `thdr`/`t` bytes match the fixture.

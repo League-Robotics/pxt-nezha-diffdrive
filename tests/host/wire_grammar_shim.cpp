@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "wire_handler.h"
 #include "wire_mock_adapter.h"
@@ -25,16 +26,34 @@ namespace {
 // is fine here: this file is host-only test scaffolding, not the
 // no-allocation library it drives (wire_handler.cpp itself never
 // allocates).
+//
+// Ticket 003 widens this with writeLengths_: emitTelemetry(snapshot)'s
+// own acceptance criteria require proving thdr/t/ack-or-nack go out as
+// THREE SEPARATE Sink::write() calls, not merely that their
+// concatenation looks right -- a bug that accidentally merged two of
+// them into one write() would still pass a buffer-only assertion.
+// Recording each call's length (in order) alongside the concatenated
+// buffer lets the Python side slice the buffer back into the ORIGINAL
+// per-call boundaries.
 class RecordingSink : public Wire::Sink {
  public:
   void write(const char* data, size_t length) override {
     buffer_.append(data, length);
+    writeLengths_.push_back(length);
   }
   const std::string& buffer() const { return buffer_; }
-  void clear() { buffer_.clear(); }
+  void clear() {
+    buffer_.clear();
+    writeLengths_.clear();
+  }
+  size_t writeCount() const { return writeLengths_.size(); }
+  size_t writeLength(size_t index) const {
+    return index < writeLengths_.size() ? writeLengths_[index] : 0;
+  }
 
  private:
   std::string buffer_;
+  std::vector<size_t> writeLengths_;
 };
 
 struct Handle {
@@ -62,8 +81,39 @@ void wgSendBanner(void* handle) {
   static_cast<Handle*>(handle)->handler.sendBanner();
 }
 
-void wgEmitTelemetry(void* handle) {
-  static_cast<Handle*>(handle)->handler.emitTelemetry();
+// Ticket 003: emitTelemetry() now takes a Snapshot -- this shim builds
+// one from parallel C arrays ctypes can populate directly (a
+// POINTER(c_char_p)/POINTER(c_int32)/POINTER(c_int) triple plus a
+// count), rather than round-tripping through a second struct ctypes
+// would have to mirror byte-for-byte. `kShimMaxColumns` is this SHIM's
+// own stack-array cap, independent of (and generously above)
+// WireHandler's own kMaxHeaderColumns -- a test that wants to exercise
+// the "wider than the header memo" fallback path can still pass more
+// than 40 columns here, up to this cap.
+namespace {
+constexpr int kShimMaxColumns = 64;
+}  // namespace
+
+void wgEmitTelemetry(void* handle, const char* const* names,
+                      const int32_t* values, const int* hexFlags,
+                      int count) {
+  Wire::Column cols[kShimMaxColumns];
+  int n = count;
+  if (n < 0) n = 0;
+  if (n > kShimMaxColumns) n = kShimMaxColumns;
+  for (int i = 0; i < n; ++i) {
+    cols[i].name = names[i];
+    cols[i].value = values[i];
+    cols[i].hex = hexFlags[i] != 0;
+  }
+  Wire::Snapshot snapshot;
+  snapshot.columns = cols;
+  snapshot.count = static_cast<size_t>(n);
+  static_cast<Handle*>(handle)->handler.emitTelemetry(snapshot);
+}
+
+void wgEmitReliability(void* handle) {
+  static_cast<Handle*>(handle)->handler.emitReliability();
 }
 
 uint32_t wgMalformedCount(void* handle) {
@@ -90,6 +140,19 @@ int wgSinkRead(void* handle, char* out, int cap) {
 
 void wgSinkClear(void* handle) { static_cast<Handle*>(handle)->sink.clear(); }
 
+// Ticket 003: the per-call write lengths (see RecordingSink's own
+// comment) -- lets the Python side slice wgSinkRead()'s concatenated
+// buffer back into the individual Sink::write() calls that produced
+// it, in order.
+int wgSinkWriteCount(void* handle) {
+  return static_cast<int>(static_cast<Handle*>(handle)->sink.writeCount());
+}
+int wgSinkWriteLength(void* handle, int index) {
+  if (index < 0) return 0;
+  return static_cast<int>(
+      static_cast<Handle*>(handle)->sink.writeLength(static_cast<size_t>(index)));
+}
+
 // ---- WireMockAdapter canned-response setup ------------------------------
 // NOTE: every const char* passed in must outlive its use -- the mock
 // stores the pointer, not a copy (mirroring Wire::Identity's own
@@ -114,7 +177,8 @@ void wgSetNow(void* handle, uint32_t now) {
 }
 
 void wgSetStatus(void* handle, int ready, int active, int connL, int connR,
-                  int otos, int wedge, uint32_t flags, const char* tlm) {
+                  int otos, int wedge, uint32_t flags, int32_t i2cf,
+                  const char* tlm) {
   Wire::StatusFields& s = static_cast<Handle*>(handle)->adapter.statusToReturn;
   s.ready = ready != 0;
   s.active = active != 0;
@@ -123,6 +187,7 @@ void wgSetStatus(void* handle, int ready, int active, int connL, int connR,
   s.otos = otos != 0;
   s.wedge = wedge != 0;
   s.flags = flags;
+  s.i2cf = i2cf;  // sprint 004 ticket 004
   s.tlm = tlm;
 }
 

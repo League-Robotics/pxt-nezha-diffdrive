@@ -105,8 +105,20 @@ def _bind(lib):
 
     lib.wgSendBanner.argtypes = [ctypes.c_void_p]
     lib.wgSendBanner.restype = None
-    lib.wgEmitTelemetry.argtypes = [ctypes.c_void_p]
+    # Ticket 003: emitTelemetry(snapshot) now takes a Column array as
+    # three parallel arrays (name/value/hex) plus a count -- see
+    # wire_grammar_shim.cpp's own wgEmitTelemetry() comment for why
+    # parallel arrays rather than a mirrored struct.
+    lib.wgEmitTelemetry.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_char_p),
+        ctypes.POINTER(ctypes.c_int32),
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_int,
+    ]
     lib.wgEmitTelemetry.restype = None
+    lib.wgEmitReliability.argtypes = [ctypes.c_void_p]
+    lib.wgEmitReliability.restype = None
 
     lib.wgMalformedCount.argtypes = [ctypes.c_void_p]
     lib.wgMalformedCount.restype = ctypes.c_uint32
@@ -117,6 +129,12 @@ def _bind(lib):
     lib.wgSinkRead.restype = ctypes.c_int
     lib.wgSinkClear.argtypes = [ctypes.c_void_p]
     lib.wgSinkClear.restype = None
+    # Ticket 003: per-Sink::write()-call lengths, for byte-exact
+    # ordering assertions independent of the concatenated buffer.
+    lib.wgSinkWriteCount.argtypes = [ctypes.c_void_p]
+    lib.wgSinkWriteCount.restype = ctypes.c_int
+    lib.wgSinkWriteLength.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.wgSinkWriteLength.restype = ctypes.c_int
 
     # ---- WireMockAdapter canned-response setup ----
     lib.wgSetIdentity.argtypes = [
@@ -129,7 +147,7 @@ def _bind(lib):
     lib.wgSetStatus.argtypes = [
         ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
         ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint32,
-        ctypes.c_char_p,
+        ctypes.c_int32, ctypes.c_char_p,
     ]
     lib.wgSetStatus.restype = None
     lib.wgSetGetOverride.argtypes = [
@@ -234,12 +252,28 @@ class WireGrammar:
     def send_banner(self):
         self._lib.wgSendBanner(self._handle)
 
-    def emit_telemetry(self):
+    def emit_telemetry(self, columns):
+        """The telemetry frame (protocol.md S5.2, ticket 003):
+        `columns` is an iterable of (name: bytes, value: int, hex:
+        bool) triples, hand-built by the test -- this class has no
+        robot state of its own to project (that is ticket 004's WireAdapter
+        projection, a separate concern). Marshals the three fields into
+        parallel ctypes arrays wgEmitTelemetry() expects."""
+        count = len(columns)
+        names = (ctypes.c_char_p * count)(*[c[0] for c in columns])
+        values = (ctypes.c_int32 * count)(*[c[1] for c in columns])
+        hex_flags = (ctypes.c_int * count)(*[1 if c[2] else 0 for c in columns])
+        self._lib.wgEmitTelemetry(self._handle, names, values, hex_flags, count)
+
+    def emit_reliability(self):
         """The reliability layer's own periodic emission (protocol.md
         S8.5) -- calling this with NO intervening feed() is exactly how
         a lost ack/nack is proven to self-heal with no timer of this
-        class's own (see test_wire_reliability.py)."""
-        self._lib.wgEmitTelemetry(self._handle)
+        class's own (see test_wire_reliability.py). Ticket 003 split
+        this out of the old argument-less emitTelemetry() so it stays
+        callable with no Snapshot involved at all (surviving `TLM
+        OFF`)."""
+        self._lib.wgEmitReliability(self._handle)
 
     @property
     def malformed_count(self):
@@ -255,10 +289,10 @@ class WireGrammar:
 
     def set_status(self, ready=False, active=False, conn_left=False,
                     conn_right=False, otos=False, wedge=False, flags=0,
-                    tlm: bytes = b"off"):
+                    i2cf=0, tlm: bytes = b"off"):
         self._lib.wgSetStatus(self._handle, int(ready), int(active),
                                int(conn_left), int(conn_right), int(otos),
-                               int(wedge), flags, tlm)
+                               int(wedge), flags, i2cf, tlm)
 
     def set_get_override(self, name: bytes, value: float):
         self._lib.wgSetGetOverride(self._handle, name, value)
@@ -366,6 +400,32 @@ class WireGrammar:
         data = buf.raw[:length]
         self._lib.wgSinkClear(self._handle)
         return data
+
+    def take_sink_writes(self) -> list:
+        """Everything the sink has captured since the last call, as a
+        LIST of separate bytes objects -- one per Sink::write() call, in
+        order -- then clears it. Ticket 003: lets a test assert
+        byte-exact ordering (e.g. thdr -> t -> ack/nack) on the actual
+        call boundaries, not just on the concatenated buffer, so a bug
+        that accidentally merged two writes into one would still be
+        caught."""
+        length = self._lib.wgSinkLength(self._handle)
+        data = b""
+        if length > 0:
+            buf = ctypes.create_string_buffer(length)
+            n = self._lib.wgSinkRead(self._handle, buf, length)
+            assert n == length
+            data = buf.raw[:length]
+        count = self._lib.wgSinkWriteCount(self._handle)
+        lengths = [self._lib.wgSinkWriteLength(self._handle, i) for i in range(count)]
+        self._lib.wgSinkClear(self._handle)
+        writes = []
+        pos = 0
+        for one_len in lengths:
+            writes.append(data[pos:pos + one_len])
+            pos += one_len
+        assert pos == len(data)
+        return writes
 
 
 @pytest.fixture
@@ -770,13 +830,15 @@ def test_ver_golden_vector(wg):
 
 
 def test_status_golden_vector(wg):
+    # sprint 004 ticket 004: i2cf=26 pinned as DECIMAL, not hex (a
+    # copy-pasted `hex` bit would silently print "1a" here instead).
     wg.set_status(ready=True, active=False, conn_left=True, conn_right=True,
-                  otos=False, wedge=False, flags=0xA, tlm=b"pose")
+                  otos=False, wedge=False, flags=0xA, i2cf=26, tlm=b"pose")
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == (
         _ack(1) +
         b"status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 "
-        b"flags=a tlm=pose next=2\n"
+        b"flags=a i2cf=26 tlm=pose next=2\n"
     )
 
 
@@ -869,6 +931,34 @@ def test_run_with_return_value_golden_vector(wg):
     wg.set_run_result_text(b"42")
     wg.feed(b"RUN getX #1\n")
     assert wg.take_sink() == _ack(1) + b"ret 42 #1\n"
+
+
+# ---------------------------------------------------------------------------
+# Sprint 004 ticket 001's own RX-routing acceptance criterion: a
+# `RUN:pivot:180`-style line (the OLD colon-separated cleartext form,
+# now carved out on radio too, alongside serial) still dispatches
+# through the unchanged handleRun()/MessageBus bridge, never the v6
+# grammar. Protocol::run() -- where the literal-prefix branch that
+# makes this routing decision actually lives -- is CODAL-bound and has
+# no host shim (protocol.h pulls in pxt.h transitively), so that
+# routing decision itself is verified by code review, per the ticket's
+# own testing plan (a direct structural mirror of serial's own,
+# already-tested branch). What IS host-testable, and is checked here,
+# is the other half of why that routing decision matters: this old
+# form is not itself valid v6 grammar, so if a caller's routing ever
+# skipped the prefix check, this line would NOT reach RUN's real
+# onRun() effect the way the routing's target (handleRun()) does --
+# unlike the space-separated `RUN <name> ... #<id>` form the golden
+# vectors above exercise, it carries no mandatory trailing `#<id>` at
+# all, so the reliability layer cannot even classify it.
+# ---------------------------------------------------------------------------
+
+
+def test_colon_form_legacy_run_is_not_v6_grammar(wg):
+    wg.feed(b"RUN:pivot:180\n")
+    assert wg.take_sink() == b""
+    assert wg.run_calls == 0
+    assert wg.malformed_count == 1
 
 
 # ---------------------------------------------------------------------------

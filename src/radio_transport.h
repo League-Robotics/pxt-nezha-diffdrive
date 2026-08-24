@@ -57,7 +57,21 @@ class RadioTransport {
   // never via a separate begin() step: uBit.radio.enable() has its own
   // RAM/softdevice cost (sprint.md), so a bench-only serial user who
   // never calls sendLine() never pays it.
-  void sendLine(const uint8_t* data, size_t len);
+  //
+  // Re-entrancy guard (sprint 004 ticket 002): as of this sprint, TWO
+  // fibers can call this -- the TS fiber via Protocol::emitLine(), and
+  // the protocol fiber via RadioSink::write() (its own
+  // emitTelemetry()/emitReliability() calls) -- and
+  // uBit.radio.datagram.send() can block and yield, giving the two a
+  // real chance to interleave mid-format into payloadBuf_/frameBuf_.
+  // Returns false, WITHOUT TOUCHING payloadBuf_/frameBuf_ at all, if a
+  // call is already in progress on the other fiber; true after a
+  // normal completion. The dropped caller decides for itself whether
+  // that matters: Protocol::emitLine() retries once after
+  // fiber_sleep(2); RadioSink::write() ignores the return value and
+  // accepts the drop silently (see sprint.md's Design Rationale for
+  // why the two callers get different policies).
+  bool sendLine(const uint8_t* data, size_t len);
 
   // RX (radio command plane, single-fragment only): polls one queued
   // datagram, accepts frames whose flags carry START|END together (a
@@ -129,11 +143,21 @@ class RadioTransport {
   // the protocol fiber's 2 KB stack cannot afford ~450 B of line+frame
   // buffers at the bottom of the deepest call chain (bench-measured:
   // run()+formatDiag+sendLine+sendFragmented overflowed the fiber
-  // stack and hard-faulted ~1 s after boot). Single-fiber use only.
+  // stack and hard-faulted ~1 s after boot). No longer single-fiber
+  // use only as of sprint 004 ticket 002: two fibers now call
+  // sendLine() (see its header comment), and sending_ below is what
+  // keeps only one of them touching these buffers at a time.
   uint8_t payloadBuf_[kMaxPayloadBytes + 1];
   uint8_t frameBuf_[256];
 
   bool radioReady_ = false;
+  // Re-entrancy guard for sendLine()'s payloadBuf_/frameBuf_-touching
+  // body (sprint 004 ticket 002): true from the moment a caller enters
+  // that body until it returns. A second caller arriving while this is
+  // already true returns false immediately, touching neither buffer;
+  // only the caller that actually set this clears it, on its own way
+  // out -- the dropped caller never touches it.
+  bool sending_ = false;
   volatile bool rxReady_ = false;
   size_t rxLen_ = 0;
   uint8_t rxLine_[64];

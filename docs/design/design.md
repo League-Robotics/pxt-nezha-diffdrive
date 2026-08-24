@@ -7,7 +7,7 @@ source_paths:
 ---
 # DiffDrive — System Design
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (sprint 003 as-built; sprints 004/005 are planned, not landed)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (sprint 004 as-built, currently in review, not yet merged; sprint 005 roadmapped, not yet detail-planned)
 
 ## What the system is
 
@@ -17,7 +17,8 @@ control: an encoder-servoed wheel-speed kernel stepped at a 24 ms
 cadence, a motion engine that reduces every move to constant-ratio
 wheel segments, dead-reckoned pose plus an optional OTOS optical world
 sensor, student-facing blocks in cm/deg, and a protocol-v6 ASCII wire
-interface over USB serial (plus a RUN-only radio carve-out) for bench
+interface over both USB serial and radio (sprint 004; a legacy
+cleartext `RUN:` carve-out survives on both transports) for bench
 hosts. Around the extension sit a Python bench-tool suite (`tools/`), a
 native host test harness that compiles the firmware C++ for the
 desktop and drives it from pytest (`tests/host/`), and on-robot PXT
@@ -108,12 +109,22 @@ canonical spec is `radio-robot-lib/docs/design/protocol.md` and
 `motion-api.md` — this project conforms to that grammar; it does not
 vendor that library's C++. The entire binary v5 stack (COBS codec,
 CRC-16, binary verbs) was deleted in sprint 003, not merely disused.
-One legacy carve-out survives: the old cleartext `RUN:<name>[:<arg>…]`
-form is detected by literal prefix ahead of the v6 parser and bridged
-to TypeScript handlers via MessageBus; the radio's receive side
-accepts **only** that form. There is currently **no data-bearing
-telemetry frame** on v6 — the old cleartext `TLM:` stream is retired
-and its `thdr`/`t` replacement is planned (sprint 004), not built.
+One legacy carve-out survives on both transports: the old cleartext
+`RUN:<name>[:<arg>…]` form is detected by literal prefix ahead of the
+v6 parser and bridged to TypeScript handlers via MessageBus. Sprint
+004 closed the asymmetry this section used to describe: radio's
+receive side now speaks the full v6 grammar too, through its own
+`Wire::WireHandler` over the same shared adapter serial uses, with the
+old `RUN:` prefix preserved as a fallback on both transports rather
+than a radio-only ceiling (see `src/DESIGN.md` §8). Radio's remaining
+limit is one of *capacity*, not grammar: a single 64-byte RX fragment
+slot with no multi-fragment reassembly
+(`clasi/issues/radio-rx-capacity-fragmentation.md`). v6 now **does**
+carry a data-bearing telemetry frame — `thdr`/`t`, built in sprint 004
+— replacing the old cleartext `TLM:` stream the same way the rest of
+v5 was replaced, though the bench tooling in `tools/` that used to
+parse `TLM:` has not yet been retrofit onto the new frame (sprint
+005).
 
 ### Execution model (tick model, sprint 002)
 
@@ -133,6 +144,17 @@ move runs entirely on encoder odometry and is never steered in flight.
 The overhead camera is a diagnostic, never a control input. All OTOS
 I2C traffic must run on the same fiber that ticks the kernel (shared
 bus with the Nezha encoder; see `src/DESIGN.md`).
+
+### Host-vs-target language standard
+
+`tests/host/` compiles this project's portable C++ at `-std=c++20`;
+both real embedded targets compile at `-std=c++11`, a target-toolchain
+ceiling this project's own `pxt.json` cannot override. A green host
+suite is therefore not evidence that a change actually compiles for
+the robot — see `src/DESIGN.md` §11 for the confirmed instance (a
+struct with default member initializers is not a C++11 aggregate),
+the narrow syntax gate sprint 004 added to catch that class of defect,
+and what that gate does not cover.
 
 ### Provenance
 

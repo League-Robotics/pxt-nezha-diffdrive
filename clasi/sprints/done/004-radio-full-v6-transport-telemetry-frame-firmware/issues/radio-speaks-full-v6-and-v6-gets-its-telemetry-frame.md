@@ -9,6 +9,7 @@ tickets:
 - 004-003
 - 004-004
 - 004-005
+- 004-007
 ---
 
 # Radio speaks full v6, and v6 gets its telemetry frame

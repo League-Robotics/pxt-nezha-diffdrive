@@ -133,7 +133,76 @@ struct StatusFields {
   bool otos = false;
   bool wedge = false;
   uint32_t flags = 0;
+  // Sprint 004 ticket 004: the I2C fault counter, closing
+  // status-lost-diag-numeric-surface.md -- the retired DIAG verb's own
+  // most-important numeric field (a wedged/unpowered Nezha brick shows
+  // up here as a climbing count, not just a boolean "wedge" flag).
+  // Sourced by WireAdapter::status() from the SAME diagValue(8) call
+  // the telemetry `i2cf` column also reads, so the two can never
+  // disagree (sprint.md's own Design Rationale). Decimal on the wire
+  // (execStatus()'s `i2cf=%ld`), unlike `flags`' hex -- a raw fault
+  // count has no bitfield meaning to pack.
+  int32_t i2cf = 0;
   const char* tlm = "off";
+};
+
+// One named, already-scaled telemetry value (protocol.md S5.2: `thdr
+// <col>...` then `t <v>...`). Mirrors radio-robot-lib's own
+// Column shape (src/protocol/adapter.h:113-139) -- this project's own
+// value type, not a vendored copy. `value` is always an
+// already-scaled plain integer -- this class has no opinion on what a
+// column MEANS or how it was derived, only how it prints: `hex` picks
+// lowercase hex with no `0x` prefix (flags-shaped columns); everything
+// else prints signed base-10.
+// Sprint 004 ticket 007 (remediating ticket 005's thrown exception):
+// this struct's default member initializers below are legal C++20 but
+// disqualify it from being a C++11 aggregate -- and BOTH real embedded
+// build targets compile at -std=c++11 (baked into the pxt-microbit
+// target's own yotta/CMake toolchain files), while tests/host/ compiles
+// at -std=c++20 (test_kernel_harness.py), which is why 253 host tests
+// passed against `columns_[i++] = {"name", value, hex};` call sites
+// (WireAdapter::buildSnapshot(), src/wire_adapter.cpp) that could not
+// actually be compiled for the robot. Explicit `Column() = default;`
+// plus this 3-argument converting constructor fix that WITHOUT dropping
+// the NSDMIs (dropping them would leave every default-constructed
+// `Column columns_[kMaxSnapshotColumns]` -- wire_adapter.h -- holding
+// indeterminate values until every element is filled) and WITHOUT
+// touching any of the ~20 already-correct call sites (each already
+// passes exactly these 3 positional arguments, matching this
+// constructor's signature exactly). See
+// host-tests-compile-newer-standard-than-target.md (sprint 008) for the
+// systemic gap this is one confirmed instance of.
+struct Column {
+  const char* name = "";
+  int32_t value = 0;
+  bool hex = false;
+
+  Column() = default;
+  Column(const char* name_, int32_t value_, bool hex_)
+      : name(name_), value(value_), hex(hex_) {}
+};
+
+// One telemetry frame's worth of columns (protocol.md S5.2). `columns`
+// is BORROWED: the caller (WireAdapter::buildSnapshot(), ticket 004)
+// owns the backing array and must keep it alive only for the duration
+// of the emitTelemetry(snapshot) call it is passed to -- WireHandler
+// copies what it needs for its own header memo (see kMaxHeaderColumns/
+// kMaxHeaderNameBytes below) and formats the rest immediately, keeping
+// no borrowed pointer alive past that one call. Mirrors radio-robot-
+// lib's own Snapshot shape (adapter.h:113-139).
+//
+// Shares Column's exact NSDMI shape immediately above, and is therefore
+// ALSO not a C++11 aggregate for the identical reason (sprint 004
+// ticket 007) -- but unlike Column, no site anywhere in src/ or
+// tests/host/ ever brace-initializes a Snapshot (every site
+// default-constructs one, then assigns `.columns`/`.count`
+// field-by-field), so this is a latent structural twin of Column's
+// defect, not a live one. Deliberately left unfixed here: there is no
+// call site it would protect, and adding constructors it doesn't need
+// would be scope creep against this ticket's own two confirmed defects.
+struct Snapshot {
+  const Column* columns = nullptr;
+  size_t count = 0;
 };
 
 // Maps 1:1 onto the wire outcome (protocol.md S4; wire codes per S6.1).
@@ -323,25 +392,50 @@ class WireHandler {
   // "device NEZHA2 robot <name> <serial>\n".
   void sendBanner();
 
+  // The telemetry frame (protocol.md S5.2): emits, in order, as THREE
+  // separate Sink::write() calls (never concatenated into one) --
+  //   1. `thdr <col>...\n`, but only when a fresh header is DUE (see
+  //      below);
+  //   2. `t <v>...\n`, always, one value per column in `snapshot`, in
+  //      the same order as the most recently emitted header;
+  //   3. emitReliability()'s own ack/nack keepalive (see its own doc
+  //      comment) -- so a telemetry subscriber never has to poll a
+  //      second entry point to also learn whether its last command
+  //      landed.
+  // A fresh header is DUE when: this is the very first call ever made
+  // on this instance; the column set changed since the last header
+  // (count, any column's name, OR any column's hex-ness -- a memo that
+  // compared only names/count would miss a hex-ness-only flip); or
+  // kHeaderRefreshFrames calls have elapsed since the last header,
+  // whichever comes first. That last case is what keeps a late-
+  // attaching listener over a lossy broadcast radio from being
+  // permanently locked out of decoding (sprint.md SUC-004) -- it has
+  // nothing to do with the column set changing at all.
+  //
+  // `snapshot`'s backing array is borrowed only for the duration of
+  // this call; this class copies what it needs of it (the header memo)
+  // and touches nothing else afterward.
+  void emitTelemetry(const Snapshot& snapshot);
+
   // The reliability layer's own periodic emission (protocol.md S8.5):
   // "nack <expectedNext_> <lastDone> <reason>" if gapOutstanding_ is
   // set, "ack <expectedNext_ - 1> <lastDone> <reason>" otherwise, with
   // <lastDone>/<reason> read FRESH off the Adapter, same as every other
   // ack/nack this class formats. The application drives this call on
-  // whatever cadence it already has (its own telemetry loop, once real
-  // telemetry frames exist) -- this class adds NO timer and NO clock of
-  // its own to make it happen (S8.1's own constraint). This is what lets
-  // a lost ack/nack self-heal: as long as this is called regularly, a
-  // stalled gap keeps producing fresh nacks, and a quiet host still
-  // eventually learns its last command landed.
+  // whatever cadence it already has -- this class adds NO timer and NO
+  // clock of its own to make it happen (S8.1's own constraint). This is
+  // what lets a lost ack/nack self-heal: as long as this is called
+  // regularly, a stalled gap keeps producing fresh nacks, and a quiet
+  // host still eventually learns its last command landed.
   //
-  // Deliberately does not yet take a telemetry Snapshot/Column payload
-  // -- this project has no telemetry-frame (thdr/t) formatting wired up
-  // at this point in the sprint. A later ticket that adds real telemetry
-  // projection is expected to extend this same seam (mirroring
-  // radio-robot-lib's own combined emitTelemetry(), protocol_handler.h)
-  // rather than inventing a second periodic entry point.
-  void emitTelemetry();
+  // Callable completely independent of any Snapshot -- carries what
+  // used to be emitTelemetry()'s entire body, verbatim, now split out
+  // so this keepalive survives `TLM OFF` (no Snapshot to project, but
+  // the reliability layer must keep going regardless).
+  // emitTelemetry(snapshot) above calls this internally as its own
+  // third step; a caller with nothing to project (or no subscriber at
+  // all) is free to call this alone.
+  void emitReliability();
 
   // Lines dropped as: an unrecognized verb or one this file does not
   // (yet) implement, wrong arity, an unparseable field, a sequenced
@@ -530,6 +624,19 @@ class WireHandler {
   void execNoop(char** fields, size_t fieldCount, uint32_t id,
                uint8_t& errCode);
 
+  // ---- telemetry header memo (protocol.md S5.2, sprint.md Phase B) --
+  // headerChanged() decides whether emitTelemetry() owes a fresh
+  // `thdr`; rememberHeader() then copies the just-emitted header's own
+  // shape into headerNames_/headerHex_/headerCount_ so the NEXT call
+  // has something to compare against. Deliberately a COPY, not a
+  // borrowed pointer into the caller's own Snapshot -- the caller is
+  // free to mutate or destroy its own Column array the instant
+  // emitTelemetry() returns; this memo must not care. ----
+  bool headerChanged(const Snapshot& snapshot) const;
+  void rememberHeader(const Snapshot& snapshot);
+  void emitHeader(const Snapshot& snapshot);  // "thdr <col>...\n"
+  void emitFrame(const Snapshot& snapshot);   // "t <v>...\n"
+
   Adapter& adapter_;
   Sink& sink_;
 
@@ -544,6 +651,43 @@ class WireHandler {
   // ack/nack, never cached on this class. ----
   uint32_t expectedNext_ = 1;    // next sequence id expected from the host
   bool gapOutstanding_ = false;  // a nack is currently owed (S8.5)
+
+  // ---- telemetry header memo state (protocol.md S5.2) -- a COPY of
+  // the most recently emitted header's shape, sized generously above
+  // any realistic column set (sprint.md's own widest set, POSE+FULL,
+  // is 20 columns; column names in this project are all <=6 chars) so
+  // headerChanged()'s per-column comparison never has to worry about
+  // storage running out for a real caller. A Snapshot wider than
+  // kMaxHeaderColumns is treated as always-changed by headerChanged()
+  // (a safe fallback -- see its own .cpp comment), never a buffer
+  // overrun. ----
+  static constexpr size_t kMaxHeaderColumns = 40;
+  static constexpr size_t kMaxHeaderNameBytes = 16;
+  char headerNames_[kMaxHeaderColumns][kMaxHeaderNameBytes] = {};
+  bool headerHex_[kMaxHeaderColumns] = {};
+  size_t headerCount_ = 0;
+  bool everEmittedHeader_ = false;  // false until the very first thdr
+
+  // The 20-frame (~1 Hz at this project's 50 ms emission cadence)
+  // forced header refresh (sprint.md SUC-004) -- counts calls to
+  // emitTelemetry(snapshot) since the last thdr was emitted (for ANY
+  // reason: a real change, the very first call, or this same
+  // staleness trigger), reset to 1 every time one goes out since the
+  // call that emits it counts as the first frame of the next streak.
+  static constexpr uint32_t kHeaderRefreshFrames = 20;
+  uint32_t framesSinceHeader_ = 0;
+
+  // Telemetry's own member-owned scratch buffer (never a stack local
+  // in emitHeader()/emitFrame() -- see this file's own kMaxLineBytes
+  // comment and sprint.md's Phase B formatting constraints: the
+  // protocol fiber is 2 KB, and radio_transport.h:128 records a
+  // measured hard-fault from exactly this mistake elsewhere in this
+  // project). Sized identically to lineBuf_ (the wire's own 240-byte
+  // line ceiling) rather than reused: lineBuf_ is RX-only reassembly
+  // state (fed byte-by-byte from feed()), and aliasing an unrelated TX
+  // formatting buffer onto it would be a correctness landmine for a
+  // future edit, not a real memory saving.
+  char emitBuf_[kMaxLineBytes] = {};
 };
 
 }  // namespace Wire

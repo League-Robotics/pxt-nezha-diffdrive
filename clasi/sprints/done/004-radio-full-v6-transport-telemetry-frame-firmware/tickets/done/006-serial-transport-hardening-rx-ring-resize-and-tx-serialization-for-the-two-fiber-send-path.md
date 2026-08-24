@@ -2,9 +2,12 @@
 id: '006'
 title: 'Serial transport hardening: RX ring resize and TX serialization for the two-fiber
   send path'
-status: open
-use-cases: [SUC-007]
-depends-on: ["001", "002"]
+status: done
+use-cases:
+- SUC-007
+depends-on:
+- '001'
+- '002'
 github-issue: ''
 issue: serial-transport-rx-ring-and-tx-serialization.md
 completes_issue: true
@@ -60,18 +63,31 @@ instead of radio's accept-the-drop-for-telemetry asymmetry.
 
 ## Acceptance Criteria
 
-- [ ] `SerialTransport::begin()` sizes both the RX and TX ring to
+- [x] `SerialTransport::begin()` sizes both the RX and TX ring to
       `>= 2 * kMaxLineBytes` (i.e. >= 480 B for RX; the ticket may use
       the existing named constant rather than a bare literal) —
-      replacing the current `128`.
-- [ ] `SerialTransport::writeLine()` is guarded so two fibers calling it
+      replacing the current `128`. **Done**: added `constexpr size_t
+      kRingBytes = 2 * kMaxLineBytes;` (`serial_transport.h`) = 480 B;
+      `begin()` now calls `setRxBufferSize(kRingBytes)` /
+      `setTxBufferSize(kRingBytes)` (`serial_transport.cpp`). **Flag for
+      reviewer/bench**: this repo has no vendored codal-core headers to
+      confirm `setRxBufferSize()`/`setTxBufferSize()`'s real parameter
+      width; if codal narrows it to `uint8_t` (max 255), 480 would
+      silently truncate at build time rather than fail to compile. Noted
+      in-code (`serial_transport.cpp`'s `begin()` comment) and flagged
+      here for confirmation at ticket 005's `make_deploy.py` build/bench
+      checkpoint, since the host suite cannot compile this
+      `pxt.h`-including file to check it first.
+- [x] `SerialTransport::writeLine()` is guarded so two fibers calling it
       concurrently cannot interleave their bytes into the wire: a
       `sending_`-style bool (mirroring ticket 002's `RadioTransport`
       pattern) around the guarded body, OR an equivalent minimal
       construct — implementer's choice, but the guard must cover BOTH
       `uBit.serial.send()` calls inside `writeLine()` (content AND the
-      delimiter), not just the first.
-- [ ] Unlike ticket 002's radio guard (where the second caller drops
+      delimiter), not just the first. **Done**: added a private
+      `sending_` bool (`serial_transport.h`); `writeLine()`'s guarded
+      body wraps both `uBit.serial.send()` calls.
+- [x] Unlike ticket 002's radio guard (where the second caller drops
       immediately and only `emitLine()` retries once), the serial guard
       uses a **bounded retry** on BOTH callers — `fiber_sleep(2)` and
       retry, capped at a small fixed attempt count (e.g. 5) — because
@@ -80,27 +96,74 @@ instead of radio's accept-the-drop-for-telemetry asymmetry.
       are host-visible traffic with no self-healing `seq`-gap signal
       the way telemetry has. If the cap is exhausted, the call gives up
       silently but the drop is counted (next bullet), not retried
-      forever.
-- [ ] `writeLine()`'s two `uBit.serial.send()` return values are
+      forever. **Done**: the retry loop lives entirely inside
+      `writeLine()` itself (`kMaxSendAttempts = 5`), not in the callers
+      — both `Protocol::emitLine()` and the serial `WireHandler`'s own
+      replies/keepalives call `writeLine()` unchanged and get the
+      bounded retry transparently, with no per-caller code needed (this
+      is why `protocol.h`/`.cpp` needed no change here, unlike radio's
+      caller-driven retry-once).
+- [x] `writeLine()`'s two `uBit.serial.send()` return values are
       checked; a non-OK result (or exhausting the retry cap above)
       increments a drop counter exposed as a new `diagValue()` ordinal
       (next available: 26) so a bench operator can see it via `probe(26)`
       the same way the existing counters (`i2cFaultCount`,
       `cycleOverrunCount`, etc.) are already read — mirrors the issue's
-      own stated remedy ("count drops in a DIAG ordinal").
-- [ ] `RadioTransport`'s existing guard (ticket 002) and its
+      own stated remedy ("count drops in a DIAG ordinal"). **Done**:
+      `dropCount_`/`dropCount()` on `SerialTransport`; a negative
+      `uBit.serial.send()` return on either call (mirroring this file's
+      own `tryReadLine()` negative-return convention) counts one drop,
+      not two, per `writeLine()` call. Wired to `diagValue()` via
+      `Protocol::serialDropCount()` -> free function
+      `protocolSerialDropCount()` (`protocol.h`/`.cpp`, same
+      forward-declaration boundary `protocolEmitLine`/`protocolRunText`
+      already use) -> `shims.cpp`'s new `case 26:`. Ordinal used is
+      **26**, matching this AC and ticket 005's bench checklist verbatim
+      — confirmed no different ordinal was substituted.
+- [x] `RadioTransport`'s existing guard (ticket 002) and its
       `sending_` member are untouched by this ticket — this ticket adds
       an analogous but separately-scoped guard on `SerialTransport`,
       not a shared abstraction between the two (see Design Rationale:
       the two guards' retry policies are deliberately different, so a
       shared base class would either need a policy parameter or would
-      force one transport's policy onto the other).
-- [ ] A host test exists IF expressible; if not, this ticket states
+      force one transport's policy onto the other). **Done**: `git diff
+      --stat -- src/radio_transport.h src/radio_transport.cpp` is empty
+      for this ticket's changes.
+- [x] A host test exists IF expressible; if not, this ticket states
       explicitly why not, following ticket 002's own precedent for its
       un-host-testable radio guard (see Testing Plan below — the
       answer here is "the ring resize and the real CODAL guard are not
       host-testable, for the same `#include "pxt.h"`-with-no-host-shim
-      reason ticket 002 gives for `radio_transport.cpp`").
+      reason ticket 002 gives for `radio_transport.cpp`"). **No host
+      test added — confirmed not expressible, and confirmed the
+      "CAN be host-tested" hedge in sprint.md's own Testing Plan/SUC-007
+      does not pan out once checked against the real code**:
+      `serial_transport.cpp`/`protocol.cpp`/`shims.cpp` all `#include
+      "pxt.h"` and are excluded from the host build by construction
+      (`tests/host/DESIGN.md` §6 lists `shims.cpp`'s real
+      composition and `protocol.cpp`'s fiber loop as "Not covered, by
+      design (CODAL-bound)"), so the real `diagValue(26)` ->
+      `protocolSerialDropCount()` -> `SerialTransport::dropCount()`
+      chain cannot be linked into a host test at all. The one place a
+      `diagValue()` test double DOES exist for host tests
+      (`tests/host/wire_motion_verb_shim.cpp`'s `WaHandle::diagValue()`)
+      is not a stand-in for `shims.cpp`'s own `diagValue()` — it exists
+      only to satisfy `wire_adapter.cpp`'s forward declaration, and
+      "mirrors the subset of shims.cpp's real diagValue() switch
+      wire_adapter.cpp actually reads" (its own header comment,
+      `wire_motion_verb_shim.cpp:370`) — ordinal 26 is read only by
+      `shims.cpp`'s own switch, never by `wire_adapter.cpp`, so adding
+      a case 26 there would test a hand-set fake with no wiring to the
+      real counter, not the real integration. Verified by code review
+      instead (guard covers both `send()` calls; `sending_` is only
+      ever set by the caller that actually enters the guarded body and
+      is cleared on that same caller's way out, mirroring ticket 002's
+      "the dropped caller never touches it" precedent — a caller that
+      gives up on the retry-cap-exhausted path never sets `sending_` in
+      the first place, so there is nothing for it to clear). First live
+      exercise is ticket 005's bench checkpoint (`probe(26)` staying 0
+      during a normal run), already reflected in that ticket's handoff
+      checklist.
 
 ## Implementation Plan
 

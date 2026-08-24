@@ -145,6 +145,55 @@ struct WaHandle {
   RecordingSink sink;
   Wire::WireHandler handler;
 
+  // ---- sprint 004 ticket 004: raw settable state for buildSnapshot()'s
+  // five new forward-declared reads (poseX/poseY/poseHeading/otosGet/
+  // wheelSpeed). Deliberately SEPARATE from `pose`/`poseSourceAvailable`
+  // above: on the real robot, poseX()/poseY()/poseHeading() read
+  // odometry (Rig.x/y/heading, shims.cpp) while GO_TO_W's PoseSource
+  // reads OTOS (otosRef()) -- two DIFFERENT sensors. Reusing the
+  // float/radian FakePoseSource for both here would conflate them AND
+  // reintroduce a rad<->cdeg round-trip rounding risk the "pose
+  // passthrough" and "h/oh both cdeg" scale tests exist specifically to
+  // rule out (an exact integer pass-through, no conversion in the way).
+  int poseXValue = 0;          // [mm], poseX()'s raw return
+  int poseYValue = 0;          // [mm], poseY()'s raw return
+  int poseHeadingCdeg = 0;     // [cdeg], poseHeading()'s raw return
+
+  // otosGet()'s raw state -- `otosXRaw01mm`/`otosYRaw01mm` are 0.1 mm
+  // (WireAdapter::buildSnapshot() divides by 10; NOT pre-divided here,
+  // so a test setting these proves the adapter's own division, not this
+  // shim's), `otosHeadingCdeg` is ALREADY centidegrees (otosGet(2)'s own
+  // real contract -- see wire_adapter.cpp's own hazard-2 comment).
+  // `otosConnectedValue` backs otosGet(7) independently of the other
+  // three -- a disconnected OTOS can still report a stale cached pose,
+  // per this ticket's own R-22 test requirement.
+  int otosXRaw01mm = 0;        // [0.1 mm]
+  int otosYRaw01mm = 0;        // [0.1 mm]
+  int otosHeadingCdeg = 0;     // [cdeg], already-scaled
+  bool otosConnectedValue = false;
+
+  // wheelSpeed()'s raw state -- mm/s, no further scaling anywhere in the
+  // adapter (the issue's own "wheel speed" scale test exists to catch a
+  // stray x10 copied from the reference's own mm/s x10 telemetry
+  // quantum, which this project does NOT adopt -- sprint.md Design
+  // Rationale).
+  int wheelSpeedLeftMms = 0;
+  int wheelSpeedRightMms = 0;
+
+  // A settable override for diagValue()'s otherwise kernel/engine-
+  // derived ordinals (i2cf=8, lexc=9, posl=10, posr=11, dutl=12,
+  // dutr=13, cyc=16, cycovr=19, wrng=25) -- lets a scale test or the
+  // widest-FULL-frame byte-budget test pin an EXACT raw value (e.g.
+  // i2cf=26) with no need to drive dozens of simulated I2C faults (etc.)
+  // through the real kernel just to land on one. An armed ordinal wins
+  // over the real kernel.output()/engine read below; an unarmed ordinal
+  // (the default) still reads the real computed value, keeping this
+  // shim's mirror of shims.cpp's own diagValue() switch meaningful for
+  // every other already-tested boolean ordinal (0-7, 14, 15).
+  static constexpr int kMaxDiagOverride = 32;
+  bool diagOverrideArmed[kMaxDiagOverride] = {};
+  int diagOverrideValue[kMaxDiagOverride] = {};
+
   explicit WaHandle(const Wire::Identity& identity)
       : kernel(motorLeft, motorRight, clock, sleeper, launcher),
         engine(kernel, clock),
@@ -322,9 +371,18 @@ bool engineGoToW(float x, float y, float speed, float arrive,
 // wire_adapter.cpp's status() actually reads (see that file's kDiag*
 // constants) -- read straight off the SAME kernel setWheelsTimed()/
 // stopAll()/estopAll() above drive, so a status() call after a WHEELS_V/
-// STOP/ESTOP dispatch reflects that call's real effect.
+// STOP/ESTOP dispatch reflects that call's real effect. Sprint 004
+// ticket 004 extends this with the FULL-column ordinals (8/9/10/11/12/
+// 13/16/19/25) buildSnapshot() now also reads, each overridable via
+// waSetDiagOverride() (this handle's own diagOverrideArmed/Value arrays,
+// above) so a scale test can pin an exact raw value with no real fault
+// injection required.
 int diagValue(int what) {
   if (g_activeWaHandle == nullptr) return 0;
+  if (what >= 0 && what < WaHandle::kMaxDiagOverride &&
+      g_activeWaHandle->diagOverrideArmed[what]) {
+    return g_activeWaHandle->diagOverrideValue[what];
+  }
   const DiffDrive::DifferentialDrive::Output out =
       g_activeWaHandle->kernel.output();
   switch (what) {
@@ -336,10 +394,60 @@ int diagValue(int what) {
     case 5: return out.connectedRight ? 1 : 0;
     case 6: return out.wedgeLeft ? 1 : 0;
     case 7: return out.wedgeRight ? 1 : 0;
+    case 8: return static_cast<int>(out.i2cFaultCount);
+    case 9: return static_cast<int>(out.leaseExpiryCount);
+    case 10: return static_cast<int>(out.positionLeft);
+    case 11: return static_cast<int>(out.positionRight);
+    case 12: return static_cast<int>(out.appliedDutyLeft * 100.0f);
+    case 13: return static_cast<int>(out.appliedDutyRight * 100.0f);
     case 14: return static_cast<int>(out.velocityLeft);
     case 15: return static_cast<int>(out.velocityRight);
+    case 16: return static_cast<int>(out.cycleCount);
+    case 19: return static_cast<int>(out.cycleOverrunCount);
+    case 25: return static_cast<int>(g_activeWaHandle->engine.wrongWayCount());
     default: return 0;
   }
+}
+
+// ---- sprint 004 ticket 004: buildSnapshot()'s five new forward-
+// declared reads -- see WaHandle's own field comments above for why
+// poseX/Y/heading and otosGet() are backed by SEPARATE raw state rather
+// than the existing float/radian FakePoseSource. ----
+
+int poseX() {
+  if (g_activeWaHandle == nullptr) return 0;
+  return g_activeWaHandle->poseXValue;
+}
+
+int poseY() {
+  if (g_activeWaHandle == nullptr) return 0;
+  return g_activeWaHandle->poseYValue;
+}
+
+int poseHeading() {
+  if (g_activeWaHandle == nullptr) return 0;
+  return g_activeWaHandle->poseHeadingCdeg;
+}
+
+// Mirrors shims.cpp's real otosGet() ordinal contract for the four
+// cases wire_adapter.cpp actually reads (0/1: 0.1 mm; 2: already cdeg;
+// 7: connected) -- every other ordinal (vx/vy/omega/productId/imu
+// calibration) is out of this ticket's scope and returns 0.
+int otosGet(int what) {
+  if (g_activeWaHandle == nullptr) return 0;
+  switch (what) {
+    case 0: return g_activeWaHandle->otosXRaw01mm;
+    case 1: return g_activeWaHandle->otosYRaw01mm;
+    case 2: return g_activeWaHandle->otosHeadingCdeg;
+    case 7: return g_activeWaHandle->otosConnectedValue ? 1 : 0;
+    default: return 0;
+  }
+}
+
+int wheelSpeed(int which) {
+  if (g_activeWaHandle == nullptr) return 0;
+  return which == 0 ? g_activeWaHandle->wheelSpeedLeftMms
+                     : g_activeWaHandle->wheelSpeedRightMms;
 }
 
 }  // namespace diffDrive
@@ -603,6 +711,85 @@ void waSetPose(void* handle, float x, float y, float heading) {
 
 void waSetPoseSourceAvailable(void* handle, int available) {
   static_cast<WaHandle*>(handle)->poseSourceAvailable = available != 0;
+}
+
+// ---- sprint 004 ticket 004: buildSnapshot()'s own raw settable state
+// -- RAW shim units in every case (0.1 mm for OTOS, mm/s for wheel
+// speed, mm/cdeg for pose), never pre-scaled, so a test exercising the
+// real WireAdapter::buildSnapshot() is exercising the adapter's OWN
+// scale factors, not this shim's. ----
+
+void waSetPoseRaw(void* handle, int x_mm, int y_mm, int heading_cdeg) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  h->poseXValue = x_mm;
+  h->poseYValue = y_mm;
+  h->poseHeadingCdeg = heading_cdeg;
+}
+
+void waSetOtosRaw(void* handle, int x_01mm, int y_01mm, int heading_cdeg) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  h->otosXRaw01mm = x_01mm;
+  h->otosYRaw01mm = y_01mm;
+  h->otosHeadingCdeg = heading_cdeg;
+}
+
+void waSetOtosConnected(void* handle, int connected) {
+  static_cast<WaHandle*>(handle)->otosConnectedValue = connected != 0;
+}
+
+void waSetWheelSpeed(void* handle, int left_mms, int right_mms) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  h->wheelSpeedLeftMms = left_mms;
+  h->wheelSpeedRightMms = right_mms;
+}
+
+// `what` is a diagValue() ordinal (see this file's own diagValue()
+// comment) -- arms an override that wins over the real kernel/engine
+// read until this handle is destroyed. Silently ignored if `what` is
+// out of the override array's bounds.
+void waSetDiagOverride(void* handle, int what, int value) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  if (what < 0 || what >= WaHandle::kMaxDiagOverride) return;
+  h->diagOverrideArmed[what] = true;
+  h->diagOverrideValue[what] = value;
+}
+
+// ---- sprint 004 ticket 004: telemetry projection readback -----------
+
+const Wire::Snapshot* waBuildSnapshot(void* handle) {
+  return &static_cast<WaHandle*>(handle)->adapter.buildSnapshot();
+}
+
+int waSnapshotCount(const Wire::Snapshot* snapshot) {
+  return static_cast<int>(snapshot->count);
+}
+
+const char* waSnapshotColumnName(const Wire::Snapshot* snapshot, int index) {
+  return snapshot->columns[index].name;
+}
+
+int32_t waSnapshotColumnValue(const Wire::Snapshot* snapshot, int index) {
+  return snapshot->columns[index].value;
+}
+
+int waSnapshotColumnHex(const Wire::Snapshot* snapshot, int index) {
+  return snapshot->columns[index].hex ? 1 : 0;
+}
+
+void waEmitTelemetry(void* handle, const Wire::Snapshot* snapshot) {
+  static_cast<WaHandle*>(handle)->handler.emitTelemetry(*snapshot);
+}
+
+// Returns Wire::Result's DECLARATION-ORDER ordinal, as int -- same
+// int-not-enum-class convention every other ctypes-facing result in
+// this file already uses (e.g. wvSetWheelsVResult's own int param).
+int waOnTlm(void* handle, int mode) {
+  return static_cast<int>(static_cast<WaHandle*>(handle)->adapter.onTlm(
+      static_cast<Wire::TlmMode>(mode)));
+}
+
+int waHasLiveTelemetry(void* handle) {
+  return static_cast<WaHandle*>(handle)->adapter.telemetryEnabled() ? 1 : 0;
 }
 
 }  // extern "C"

@@ -12,26 +12,83 @@ namespace diffDrive {
 
 namespace {
 constexpr uint8_t kLineDelimiter = 0x0A;
+
+// Bounded retry cap for writeLine()'s two-writer guard (ticket 006):
+// small enough that a fiber stuck waiting cannot meaningfully stall the
+// 50 ms telemetry emission cadence (kMaxSendAttempts * 2 ms sleep =
+// 10 ms worst case), large enough that ordinary contention between the
+// TS fiber's emitLine() and the protocol fiber's own replies/keepalives
+// clears well within it. See writeLine()'s own doc comment
+// (serial_transport.h) for the policy this implements.
+constexpr int kMaxSendAttempts = 5;
 }  // namespace
 
 void SerialTransport::begin() {
-  // codal's serial rx ring defaults to ~20 bytes -- smaller than one
-  // binary v5 frame (WHEELS is ~27 wire bytes), so a frame sent as a
-  // single burst at 115200 overflows the ring between the protocol
-  // fiber's polls and drops bytes (measured on bench: mangled frames,
-  // eaten delimiters, merged lines). Size both rings to hold a few
-  // full lines.
-  uBit.serial.setRxBufferSize(128);
-  uBit.serial.setTxBufferSize(128);
+  // codal's serial rx ring defaults to ~20 bytes -- smaller than a full
+  // v6 line, so a line sent as a single burst at 115200 (or a burst
+  // plus other traffic in the same motion-tick window) overflows the
+  // ring between the protocol fiber's polls and drops bytes (measured
+  // on bench, pre-v6: mangled frames, eaten delimiters, merged lines).
+  // Size both rings to kRingBytes (serial_transport.h; ticket 006 raised
+  // this from a flat 128 B -- tuned for v5's ~27-byte binary WHEELS
+  // frame -- toward 2x v6's 240-byte kMaxLineBytes; ticket 007 then
+  // corrected the resulting value once the real ceiling was confirmed,
+  // see below).
+  //
+  // CONFIRMED (ticket 007, remediating ticket 005's thrown exception --
+  // was UNVERIFIED under ticket 006): codal-core's real
+  // setRxBufferSize()/setTxBufferSize() (inc/driver-models/Serial.h)
+  // take `uint8_t size`, capping at 255. Ticket 006's original
+  // kRingBytes (480, `2 * kMaxLineBytes`) silently truncated to 224 on
+  // assignment -- BELOW kMaxLineBytes (240) itself, defeating the
+  // resize entirely with nothing but an easy-to-miss `-Woverflow`
+  // build-log warning as the signal, exactly the failure ticket 005's
+  // bench checkpoint caught. kRingBytes is now the real hard ceiling,
+  // `constexpr uint8_t kRingBytes{255}` -- see its own doc comment
+  // (serial_transport.h) for the honest ~15-byte, one-line-only
+  // headroom cost this leaves versus ticket 006's original two-line
+  // intent.
+  uBit.serial.setRxBufferSize(kRingBytes);
+  uBit.serial.setTxBufferSize(kRingBytes);
 }
 
 void SerialTransport::writeLine(const uint8_t* buf, size_t len) {
+  // Two-writer guard, bounded retry on the caller side (ticket 006):
+  // unlike RadioTransport::sendLine(), a caller that finds the guard
+  // already held does not drop immediately -- it sleeps 2 ms and checks
+  // again, up to kMaxSendAttempts times, because serial has no caller
+  // whose loss is "fine" (see this function's own doc comment in
+  // serial_transport.h). Exhausting the cap without ever acquiring the
+  // guard counts as a drop and gives up without sending anything.
+  int attempts = 0;
+  while (sending_) {
+    if (++attempts >= kMaxSendAttempts) {
+      ++dropCount_;
+      return;
+    }
+    fiber_sleep(2);
+  }
+  sending_ = true;
+
+  // Both uBit.serial.send() calls' return values are checked (ticket
+  // 006; previously ignored) -- a negative return indicates the send
+  // itself failed (mirrors this file's own tryReadLine(), which already
+  // treats a negative uBit.serial.read() result as an error/no-data
+  // signal). Either call failing counts as one dropped line, not two.
+  bool ok = true;
   if (len > 0) {
-    uBit.serial.send(const_cast<uint8_t*>(buf), static_cast<int>(len),
-                     SYNC_SLEEP);
+    if (uBit.serial.send(const_cast<uint8_t*>(buf), static_cast<int>(len),
+                         SYNC_SLEEP) < 0) {
+      ok = false;
+    }
   }
   uint8_t delimiter = kLineDelimiter;
-  uBit.serial.send(&delimiter, 1, SYNC_SLEEP);
+  if (uBit.serial.send(&delimiter, 1, SYNC_SLEEP) < 0) {
+    ok = false;
+  }
+
+  sending_ = false;
+  if (!ok) ++dropCount_;
 }
 
 bool SerialTransport::tryReadLine(uint8_t* outBuf, size_t outCap,

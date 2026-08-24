@@ -628,14 +628,22 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
   errCode = 0;
   StatusFields status;
   adapter_.status(status);
-  char buf[176];
+  // Sprint 004 ticket 004: `i2cf=%ld` joins `flags=%x` -- decimal, not
+  // hex (SUC-005's own AC: a copy-pasted hex bit would silently turn
+  // i2cf=26 into i2cf=1a). Buffer size bumped from 176 to 200 to keep
+  // headroom now that a signed 32-bit field (`i2cf`, up to 11 chars
+  // incl. sign) joined the line -- 176 already had margin (the
+  // previous worst case measures under 100 bytes), this just keeps
+  // that margin honest rather than trimming it to the wire.
+  char buf[200];
   snprintf(buf, sizeof(buf),
                 "status ready=%d active=%d connL=%d connR=%d otos=%d "
-                "wedge=%d flags=%x tlm=%s next=%lu\n",
+                "wedge=%d flags=%x i2cf=%ld tlm=%s next=%lu\n",
                 status.ready ? 1 : 0, status.active ? 1 : 0,
                 status.connLeft ? 1 : 0, status.connRight ? 1 : 0,
                 status.otos ? 1 : 0, status.wedge ? 1 : 0,
-                static_cast<unsigned int>(status.flags), status.tlm,
+                static_cast<unsigned int>(status.flags),
+                static_cast<long>(status.i2cf), status.tlm,
                 static_cast<unsigned long>(expectedNext_));
   writeLine(buf);
 }
@@ -974,7 +982,24 @@ void WireHandler::sendBanner() {
   writeLine(buf);
 }
 
-void WireHandler::emitTelemetry() {
+void WireHandler::emitTelemetry(const Snapshot& snapshot) {
+  // Count THIS call first -- see framesSinceHeader_'s own header
+  // comment for why the arithmetic is deliberately "increment, then
+  // compare, then reset to 1 (not 0) when due": that is what makes the
+  // 20th call the one that re-emits, not the 21st.
+  ++framesSinceHeader_;
+  const bool due =
+      headerChanged(snapshot) || framesSinceHeader_ >= kHeaderRefreshFrames;
+  if (due) {
+    emitHeader(snapshot);
+    rememberHeader(snapshot);
+    framesSinceHeader_ = 1;  // this call is frame 1 of the next streak
+  }
+  emitFrame(snapshot);
+  emitReliability();
+}
+
+void WireHandler::emitReliability() {
   // The reliability layer's own periodic emission (protocol.md S8.5) --
   // rides the caller's own cadence, no timer of this class's own. A
   // stalled stream (gapOutstanding_) keeps re-nacking for free at this
@@ -988,6 +1013,88 @@ void WireHandler::emitTelemetry() {
   } else {
     replyAck(expectedNext_ - 1);
   }
+}
+
+// A memo comparing only count/names would miss a hex-ness-only flip
+// (same names, same count, one column's rendering changes from decimal
+// to hex or back) -- explicitly called out in the issue this ticket
+// closes as the lazy-memo trap. Every column is compared on all three
+// of name, hex-ness, and (once, up front) count.
+bool WireHandler::headerChanged(const Snapshot& snapshot) const {
+  if (!everEmittedHeader_) return true;  // nothing to compare against yet
+  if (snapshot.count != headerCount_) return true;
+  // A Snapshot wider than the memo's own storage cap cannot be
+  // compared column-by-column against what was actually remembered
+  // (rememberHeader() below only copies the first kMaxHeaderColumns of
+  // it) -- treat it as always-changed rather than either overrunning
+  // headerNames_/headerHex_ or silently comparing a truncated prefix.
+  // No real caller in this project approaches this cap (sprint.md's
+  // widest set is 20 columns).
+  if (snapshot.count > kMaxHeaderColumns) return true;
+  for (size_t i = 0; i < snapshot.count; ++i) {
+    if (headerHex_[i] != snapshot.columns[i].hex) return true;
+    if (std::strcmp(headerNames_[i], snapshot.columns[i].name) != 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void WireHandler::rememberHeader(const Snapshot& snapshot) {
+  size_t n = snapshot.count;
+  if (n > kMaxHeaderColumns) n = kMaxHeaderColumns;
+  for (size_t i = 0; i < n; ++i) {
+    snprintf(headerNames_[i], kMaxHeaderNameBytes, "%s",
+             snapshot.columns[i].name);
+    headerHex_[i] = snapshot.columns[i].hex;
+  }
+  headerCount_ = snapshot.count;
+  everEmittedHeader_ = true;
+}
+
+void WireHandler::emitHeader(const Snapshot& snapshot) {
+  size_t pos = 0;
+  auto append = [&](const char* text) {
+    while (*text != '\0' && pos < sizeof(emitBuf_) - 1) {
+      emitBuf_[pos++] = *text++;
+    }
+  };
+  append("thdr");
+  for (size_t i = 0; i < snapshot.count; ++i) {
+    append(" ");
+    append(snapshot.columns[i].name);
+  }
+  append("\n");
+  emitBuf_[pos] = '\0';
+  writeLine(emitBuf_);
+}
+
+void WireHandler::emitFrame(const Snapshot& snapshot) {
+  size_t pos = 0;
+  auto append = [&](const char* text) {
+    while (*text != '\0' && pos < sizeof(emitBuf_) - 1) {
+      emitBuf_[pos++] = *text++;
+    }
+  };
+  char numBuf[16];
+  append("t");
+  for (size_t i = 0; i < snapshot.count; ++i) {
+    append(" ");
+    const Column& col = snapshot.columns[i];
+    if (col.hex) {
+      // Lowercase hex, no "0x" prefix -- a flags-shaped column's bit
+      // pattern reinterpreted as unsigned, same convention
+      // execStatus()'s own `flags=%x` already uses.
+      snprintf(numBuf, sizeof(numBuf), "%x",
+               static_cast<unsigned int>(col.value));
+    } else {
+      snprintf(numBuf, sizeof(numBuf), "%ld", static_cast<long>(col.value));
+    }
+    append(numBuf);
+  }
+  append("\n");
+  emitBuf_[pos] = '\0';
+  writeLine(emitBuf_);
 }
 
 }  // namespace Wire

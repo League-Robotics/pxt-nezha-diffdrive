@@ -1,6 +1,6 @@
 # src — the DiffDrive extension
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (as-built through sprint 003; sprints 004/005 planned, not landed)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (as-built through sprint 004, currently in review, not yet merged; sprint 005 roadmapped, not yet detail-planned)
 
 `src/` is flat — no subdirectories — so this one document carries the
 logical subsystem breakdown as sections. Global conventions (units
@@ -165,15 +165,44 @@ sharply distinct from decode failures. `lastDone`/`lastDoneReason` are
 polled fresh off the Adapter on every ack/nack, never cached.
 HELLO/PING/ESTOP are unsequenced, intercepted before id resolution;
 HELLO resets the sequence state (a reconnecting host's resync) but
-never touches Adapter state. `emitTelemetry()` is the periodic
-self-healing ack/nack re-emission — the **application** supplies the
-cadence (protocol.cpp, 50 ms); it carries no data frame yet.
+never touches Adapter state. The reliability layer's periodic
+self-healing re-emission is now two calls, split by sprint 004 ticket
+003 (before, there was one, `emitTelemetry()`, and it carried no data
+frame at all): `emitReliability()` alone re-states the highest
+accepted id (or re-nacks a stalled gap) with no Snapshot involved;
+`emitTelemetry(const Snapshot&)` additionally emits a fresh
+`thdr <col>...` when one is due plus `t <v>...` for the given frame,
+then calls `emitReliability()` internally as its own third step — so a
+telemetry subscriber never has to poll a second entry point to also
+learn whether its last command landed. The **application** still
+supplies the cadence (protocol.cpp, 50 ms) and now also decides which
+of the two to call, based on whether it has a `Snapshot` to project
+(see §8's Fiber loop).
 
 **`Adapter` seam.** The pure-virtual contract behind every verb:
 identity/now/status, the six motion verbs (angles arrive as float
 milliradians), estop/stop, GET/SET field delegation, TLM mode,
 lastDone channel, and RUN's raw-token pass-through. Satisfied by
 `WireAdapter` in production and `WireMockAdapter` in tests.
+
+**`Column`/`Snapshot` value types (sprint 004 ticket 004; ticket 007's
+correction).** `Column` (one telemetry value: `name`, `value`, `hex`)
+and `Snapshot` (a borrowed array of `Column` plus a count) carry
+default member initializers, which makes `Column` a non-aggregate
+under C++11 — even though `tests/host/` compiles at C++20, where the
+same rule does not disqualify it. `Column` therefore keeps an explicit
+`Column() = default;` plus a 3-argument converting constructor so the
+~20 `columns_[i++] = {"name", value, hex};` call sites in
+`WireAdapter::buildSnapshot()` (§5) compile identically on both
+standards, without dropping the NSDMIs (needed so a default-constructed
+`Column columns_[kMaxSnapshotColumns]` never holds indeterminate
+values) or touching any already-correct call site. `Snapshot` shares
+the exact same defect under C++11 but is deliberately left unfixed: no
+call site anywhere brace-initializes one (every site
+default-constructs, then assigns `.columns`/`.count`), so it is a
+latent structural twin, not a live one. This constructor pair is not a
+style choice — see §11 for why silently removing it breaks the robot
+build while every host test stays green.
 
 **Invariants.**
 - Decode functions are pure (no adapter call, no sink write); execute
@@ -203,8 +232,13 @@ this build) rather than driving toward a garbage pose. `mradToRad()`
 here is the **single** place wire milliradians become radians.
 GET/SET map 15 snake_case wire names 1:1 onto the `ConfigField`
 ordinals (`kFields` table); STATUS packs diag booleans into a local
-`flags` word. `onRun()` is an honest `kUnknown` — the real by-name
-test trigger is protocol.cpp's MessageBus RUN bridge, a CODAL
+`flags` word and, since sprint 004 ticket 004, an honest `otos=`
+(`otosGet(7) != 0`, replacing a hardcoded `false` that predated any
+wire-reachable OTOS check — R-22/WIRE-06) plus a decimal `i2cf=` fault
+count sourced from the same `diagValue(8)` call the telemetry `i2cf`
+column reads (see the Telemetry projection paragraph below), so the
+two can never disagree. `onRun()` is an honest `kUnknown` — the real
+by-name test trigger is protocol.cpp's MessageBus RUN bridge, a CODAL
 mechanism this host-portable class must never touch.
 
 **Motion-obligation tracking.** This class sees every accepted motion
@@ -217,6 +251,27 @@ almost immediately). The clock arrives as a plain C function pointer
 (`NowMsFn`), nullptr on hosts with no clock (obligation then always
 false — honest).
 
+**Telemetry projection (sprint 004 ticket 004).** `buildSnapshot()`
+returns a `const Wire::Snapshot&` into a member (mirroring
+radio-robot-lib's own `DiffDriveAdapter::buildSnapshot()`), built from
+five more forward-declared `shims.cpp` reads: `poseX`/`poseY`/
+`poseHeading` (each **mutates** odometry as a side effect — load-
+bearing, not an accident to optimize away, since nothing else advances
+odometry between moves and the 50 ms telemetry tick is what keeps pose
+current); `otosGet` (a **cache-only** read — the protocol fiber must
+never trigger a fresh OTOS sample, since an I2C transaction interposed
+in the Nezha encoder's select→read settle window destroys the encoder
+sample; `otosGet(0)`/`otosGet(1)` are 0.1 mm, `otosGet(2)` is already
+centidegrees — do not also divide it); and `wheelSpeed`. POSE's 12
+columns (`seq now flags x y h ox oy oh vl vr i2cf`) are always
+present; FULL adds 8 more (`cyc posl posr dutl dutr lexc wrng cycovr`)
+only in `TlmMode::kFull`. `telemetryEnabled()` (`mode_ !=
+TlmMode::kOff`) lets protocol.cpp skip building a Snapshot at all for
+a session with no subscriber (see §8's Fiber loop). `computeFlags()`
+(wire_adapter.cpp, anonymous namespace) is now the single source both
+`status()` and `buildSnapshot()` read, so STATUS's `flags=`/`i2cf=`
+and the telemetry `flags`/`i2cf` columns can never drift apart.
+
 **Known inert surfaces (deliberate, documented):** `lastDone()`/
 `lastDoneReason()` always report `0`/`kNone` — no completion channel
 is threaded back through the void bridge functions; a wire host cannot
@@ -226,19 +281,43 @@ yet observe motion completion through acks.
 forward declaration only (`stopAll`, `estopAll`, `setWheelsTimed`,
 `setKernelValue`, `getConfigValue`, `diagValue`, `engineWheelsX`,
 `engineMoveX`, `engineDefaultCruiseMmS`, `engineMoveV`, `engineGoToR`,
-`engineGoToW`). Holds no kernel/engine/Rig reference of its own.
+`engineGoToW`, and — sprint 004 ticket 004 — `poseX`, `poseY`,
+`poseHeading`, `otosGet`, `wheelSpeed`). Holds no kernel/engine/Rig
+reference of its own.
 
 ## 6. Transports — `serial_transport.*`, `radio_transport.*`
 
 **SerialTransport.** Owns the raw USB-serial byte stream and 0x0A
 line delimiting; explicit `(buffer, length)` pairs, never
-`ManagedString`. `begin()` grows CODAL's ~20-byte serial rings.
-`tryReadLine()` (the one Protocol uses) never sleeps: drains buffered
-bytes into a 240-byte partial-line accumulator across calls.
-`kMaxLineBytes` = 240 is deliberately kept equal to
+`ManagedString`. `begin()` grows CODAL's default ~20-byte serial rings
+to `kRingBytes` (sprint 004 tickets 006/007). That number is a real
+ceiling, not a tuning choice: codal-core's `setRxBufferSize()`/
+`setTxBufferSize()` (`inc/driver-models/Serial.h`) take a `uint8_t`
+size, capping at 255. `kRingBytes{255}` leaves only ~15 bytes of
+headroom above one full 240-byte line — enough for one maximal line
+plus a little slack, **not** enough to hold two full lines
+concurrently. Ticket 006's original intent (`2 * kMaxLineBytes` = 480)
+silently truncated to 224 on assignment — *below* `kMaxLineBytes`
+itself, defeating the resize with nothing but an easy-to-miss
+`-Woverflow` warning as the signal — which is why the constant changed
+under ticket 007 and is now brace-initialized so a future edit that
+overflows it again is a compile error, not a repeat of the same silent
+truncation. `tryReadLine()` (the one Protocol uses) never sleeps:
+drains buffered bytes into a 240-byte partial-line accumulator across
+calls. `kMaxLineBytes` = 240 is deliberately kept equal to
 `WireHandler::kMaxLineBytes` so this transport is never the tighter
 cap (a 201–239-byte line would otherwise be truncated one layer below
-the tested discard-whole-line guarantee).
+the tested discard-whole-line guarantee). `writeLine()`'s two-writer
+guard (sprint 004 ticket 006) is a **bounded retry inside the call
+itself**: a second caller finding the guard held sleeps `fiber_sleep(2)`
+and checks again, up to `kMaxSendAttempts = 5`, before giving up and
+counting a drop — deliberately a *different* policy from
+`RadioTransport::sendLine()`'s drop-and-retry-once below (the sprint's
+architecture review explicitly approved keeping the two distinct:
+serial has no caller whose loss is "fine" the way telemetry's
+self-healing `seq` gap makes radio's drop acceptable). The drop
+counter is exposed at diag ordinal 26 (`probe(26)`/`diagValue(26)`,
+`shims.cpp`).
 
 **RadioTransport.** Frames wire lines for the fleet's RADIOBRIDGE
 relay: `[SEQ][FLAGS][LEN][payload]` fragments (START/MORE/END flags),
@@ -251,7 +330,15 @@ kills the program within two polls (measured; CODAL EmptyPacket
 refcounting). Multi-fragment inbound reassembly is deliberately out of
 scope. Send-path scratch buffers are members, not stack locals — the
 protocol fiber's 2 KB stack overflowed and hard-faulted with them on
-the stack (measured).
+the stack (measured). Those buffers are no longer single-fiber-only
+(sprint 004 ticket 002): the protocol fiber (via `RadioSink::write()`)
+and the TS fiber (via `Protocol::emitLine()`) both call `sendLine()`
+now, guarded by a `sending_` bool — the second caller in returns
+`false` untouched. `emitLine()` retries once after `fiber_sleep(2)`;
+`RadioSink::write()` ignores the drop by design (a lost `t` frame
+self-heals via the next `seq` gap). Not host-testable (this file
+includes `pxt.h`); verified by code review, first exercised live at
+the bench.
 
 **Layering.** Both know bytes and framing only — no verbs, no COBS,
 no semantics. Siblings under Protocol, deliberately uncoupled from
@@ -297,21 +384,37 @@ select→read settle window destroys the encoder sample.
 
 **Responsibility.** The CODAL fiber that plumbs bytes between the
 transports and the v6 wire stack — it knows nothing of the grammar
-itself. Composition by NSDMI in declaration order: `SerialSink` (strips
-the `\n` WireHandler supplies because SerialTransport appends its
-own), `WireAdapter` (constructed with a placeholder identity;
-`run()` installs the real one via `setIdentity()` once the fiber is
-executing — the proven-safe time to call
-`microbit_friendly_name()`/`microbit_serial_number()`),
-`WireHandler`.
+itself. Composition by NSDMI in declaration order: `SerialSink`/
+`RadioSink` (each strips the trailing `\n` WireHandler supplies,
+because its own transport appends its own), a single `WireAdapter`
+(constructed with a placeholder identity; `run()` installs the real
+one via `setIdentity()` once the fiber is executing — the proven-safe
+time to call `microbit_friendly_name()`/`microbit_serial_number()`),
+then **two** `Wire::WireHandler` instances — `wireHandler_` (serial)
+and `wireHandlerRadio_` (radio, sprint 004 ticket 001) — composed over
+that **same** `WireAdapter` instance, not two adapters. Each handler
+still keeps its own `expectedNext_`/`gapOutstanding_` (plain instance
+members) — the whole point: two independent hosts share one robot's
+adapter state without one transport's sequence gap nacking the
+other's next command.
 
 **Fiber loop (`run()`).** Sends the boot banner unsolicited
 (byte-identical to HELLO's reply), then forever: poll serial
 `tryReadLine()` — lines with the literal `RUN:` prefix go to the
-legacy MessageBus bridge, everything else is `feed()`'d to the v6
-stack; poll radio RX (accepts **only** old-style `RUN:`); every 50 ms
-call `emitTelemetry()` (the reliability layer's self-healing
-re-ack/re-nack — no data frame); and while
+legacy MessageBus bridge, everything else is `feed()`'d to
+`wireHandler_`; poll radio RX the same way (sprint 004 ticket 001,
+closing sprint 003's own Open Question 4) — lines with the literal
+`RUN:` prefix go to the same legacy bridge, preserved unchanged as a
+fallback, everything else — the full v6 grammar — is `feed()`'d to
+`wireHandlerRadio_` instead; every 50 ms, if
+`wireAdapter_.telemetryEnabled()`, call `wireAdapter_.buildSnapshot()`
+**once** and hand that same `Snapshot` reference to both handlers'
+`emitTelemetry(snapshot)` (sprint 004 tickets 003/004) — building it
+twice would double-advance `seq_` and mutate odometry twice, and would
+report different `seq`/`now` to serial vs radio for what should read
+as the same instant; with telemetry off (the boot default, or on any
+tick where no host has subscribed), both handlers call
+`emitReliability()` alone instead; and while
 `wireAdapter_.hasLiveMotionObligation()`, call `tickDrive()` itself
 (the fiber is the tick source for wire-issued motion), else
 `fiber_sleep(5)`.
@@ -328,7 +431,13 @@ one 3×-repeated RUN ran three consecutive pivots).
 **`emitLine()`** writes one caller-supplied line to **both**
 transports — test results must come back over radio because USB only
 reaches the bench stand, where the wheels are off the ground. Note it
-caps at 200 bytes (predates the 240 raise).
+caps at 200 bytes (predates the 240 raise). Since sprint 004 ticket
+002, the radio half checks `RadioTransport::sendLine()`'s bool return:
+`false` means its re-entrancy guard fired against the protocol fiber's
+own concurrent `RadioSink::write()`, and — because this is the one
+caller whose loss is user-visible (a test's own recorded result) —
+this retries once after `fiber_sleep(2)` before giving up silently,
+not in a loop.
 
 **Lifecycle.** Lazy singleton `protocol()`, started by `main.ts`'s
 top-level `_startProtocol()` the moment the extension's compiled code
@@ -336,10 +445,17 @@ loads — never a global constructor (uBit.init ordering). Identity
 constants: drivetrain "diffdrive", profile "tovez", version — a
 manually-synced mirror of `pxt.json`'s version.
 
-**Telemetry gap (known, documented).** The old periodic cleartext
-`TLM:` line is retired with v5 and has no v6 replacement yet;
-`tools/` scripts that parse `TLM:` see nothing on this firmware.
-Planned (sprint 004), not built.
+**Telemetry gap (closed, sprint 004).** The old periodic cleartext
+`TLM:` line was retired with v5 and had no v6 replacement through
+sprint 003. Sprint 004 built the replacement: ticket 003 added the
+`thdr`/`t` frame mechanics (§4's `emitTelemetry()`/`emitReliability()`
+split); ticket 004 wired the real projection (§5's
+`WireAdapter::buildSnapshot()`) so a `t` frame actually carries live
+pose/OTOS/wheel-speed/fault-count data once a host subscribes via
+`TLM`. `tools/`'s existing scripts still parse the *old* `TLM:`
+prefix, though, and this firmware never emits that prefix again — they
+will see nothing until they are retrofit onto the new frame (sprint
+005, roadmapped, not yet detail-planned).
 
 ## 9. Shim + blocks — `shims.cpp`, `main.ts`
 
@@ -415,15 +531,57 @@ hard way:
 
 ## 10. Open questions / known limitations
 
-- No data-bearing telemetry frame on v6 (see §8); bench tools that
-  parse `TLM:` record nothing until the planned `thdr`/`t` frames
-  land.
+- `tools/`'s bench scripts still parse the old cleartext `TLM:`
+  prefix (see §8's Telemetry gap paragraph); the v6 `thdr`/`t` frames
+  sprint 004 built are real but nothing in `tools/` consumes them yet
+  — that retrofit is sprint 005 (roadmapped, not yet detail-planned).
 - `WireAdapter::lastDone()`/`lastDoneReason()` permanently inert —
   hosts cannot observe motion completion via the reliability channel.
-- Radio RX is RUN-only; the full v6 grammar over radio is an open
-  safety question (`clasi/issues/radio-rx-command-plane-run-over-bridge.md`).
+- Radio RX is a single 64-byte fragment slot with no multi-fragment
+  reassembly (unchanged this sprint — sprint 004 closed the *grammar*
+  question, not the *capacity* one). An inbound line longer than one
+  fragment is clamped to a parseable prefix rather than reassembled or
+  rejected, which can execute as a different, shorter, legal command,
+  not merely drop one — and radio's own TX cap (`kMaxPayloadBytes` =
+  200) is already provably exceedable by a legal, if pathological,
+  telemetry frame (up to 239 bytes measured). Filed as
+  `clasi/issues/radio-rx-capacity-fragmentation.md`, claimed by sprint
+  010.
 - The post-move settle loop is hardware-only-tested.
 - `protocol.cpp`'s `kVersion` is a manual mirror of `pxt.json` and
   can drift.
 - The encoder-odometry `PoseSource` fallback for OTOS-less robots is
   explicitly not built; GO_TO_W refuses on such robots.
+
+## 11. Host-vs-target language standard (a standing build-gate constraint)
+
+`tests/host/` compiles this package's portable C++ at `-std=c++20`
+(`tests/host/test_kernel_harness.py`); both real embedded targets — the
+legacy mbed-classic/yotta build and the codal-microbit-v2 build — compile
+at `-std=c++11`, baked into the pxt-microbit target's own yotta/CMake
+toolchain files and not overridable from this project's `pxt.json`. A
+green host suite is therefore **not evidence of target viability**: any
+C++14/17/20-only construct in `src/` compiles and passes on the host
+side while silently failing to compile for the robot at all, with no
+signal from the test suite. The confirmed instance is §4's
+`Column`/`Snapshot` paragraph — a struct with default member
+initializers is not a C++11 aggregate, and ~20 brace-initialization
+call sites in `WireAdapter::buildSnapshot()` (§5) compiled and passed
+253 host tests while failing every real target build
+(`clasi/issues/host-tests-compile-newer-standard-than-target.md`,
+sprint 008 — filed after sprint 004 ticket 005 could not produce a
+flashable hex against that fully green suite).
+
+Sprint 004 ticket 007 narrowed the gap for `src/` specifically: a
+`-std=c++11 -fsyntax-only` compile gate
+(`tests/host/test_cxx11_syntax_gate.py`) now runs, as part of the host
+suite, over the four translation units that do not include `pxt.h` and
+are therefore syntax-checkable this way — `diffdrive.cpp`,
+`motion_engine.cpp`, `wire_handler.cpp`, `wire_adapter.cpp`. This
+closes the specific defect class ticket 007 fixed for those four files
+going forward, but it is a syntax-only check on a subset of files, not
+a substitute for actually building the hex: the CODAL-facing files
+(`protocol.*`, `*_transport.*`, the hardware ports, `shims.cpp`) still
+need `pxt.h` and are not covered by this gate at all, and a *linkable*
+target build — not merely syntax-valid C++11 — is only ever proven by
+the sprint checkpoint that actually builds a flashable hex.

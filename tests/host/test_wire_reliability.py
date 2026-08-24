@@ -78,7 +78,7 @@ def test_well_formed_id_with_many_digits_is_accepted(wg):
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == _ack(1) + (
         b"status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 "
-        b"flags=0 tlm=off next=2\n"
+        b"flags=0 i2cf=0 tlm=off next=2\n"
     )
     assert wg.malformed_count == 0
 
@@ -245,8 +245,11 @@ def test_merits_rejection_acks_and_advances_unlike_a_decode_failure(wg):
 # ---------------------------------------------------------------------------
 # Gap stalling and self-healing (protocol.md S8.5): once a gap opens,
 # every subsequent well-formed command is nacked identically until the
-# missing id arrives; a lost nack self-heals via emitTelemetry() alone,
-# with NO new command and NO timer.
+# missing id arrives; a lost nack self-heals via emitReliability()
+# alone, with NO new command and NO timer. (Ticket 003 split
+# emitReliability() out of the old argument-less emitTelemetry() --
+# this is the exact keepalive body that split preserved verbatim, so
+# these tests now call the new name for the same behavior.)
 # ---------------------------------------------------------------------------
 
 
@@ -270,7 +273,7 @@ def test_missing_id_finally_arriving_resumes_the_sequence(wg):
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == _ack(1) + (
         b"status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 "
-        b"flags=0 tlm=off next=2\n"
+        b"flags=0 i2cf=0 tlm=off next=2\n"
     )
     wg.set_set_result(RESULT_OK)
     wg.feed(b"SET group.alpha 1.0 #2\n")
@@ -278,29 +281,29 @@ def test_missing_id_finally_arriving_resumes_the_sequence(wg):
     assert wg.set_calls == 1
 
 
-def test_lost_nack_self_heals_via_emit_telemetry_with_no_new_command(wg):
+def test_lost_nack_self_heals_via_emit_reliability_with_no_new_command(wg):
     """The scheme's own self-healing guarantee: a lost nack is recovered
-    by emitTelemetry() ALONE, riding whatever cadence the application
+    by emitReliability() ALONE, riding whatever cadence the application
     already drives -- no new command, and (load-bearing) no timer of
     this class's own."""
     wg.feed(b"SET group.alpha 1.0 #5\n")
     wg.take_sink()  # the original nack is "lost" -- simply discarded
 
-    wg.emit_telemetry()
+    wg.emit_reliability()
     assert wg.take_sink() == _nack(1)
 
     # It keeps happening on every subsequent call, not just once.
-    wg.emit_telemetry()
+    wg.emit_reliability()
     assert wg.take_sink() == _nack(1)
 
 
-def test_emit_telemetry_reacks_highest_accepted_id_when_no_gap_is_open(wg):
+def test_emit_reliability_reacks_highest_accepted_id_when_no_gap_is_open(wg):
     """A quiet host that sent its last command and went silent still
     eventually learns it landed, via this same periodic call."""
     wg.feed(b"STATUS #1\n")
     wg.take_sink()
 
-    wg.emit_telemetry()
+    wg.emit_reliability()
     assert wg.take_sink() == _ack(1)
 
 

@@ -106,6 +106,29 @@
 // keep ticking a little past actual completion, which is harmless
 // (serviceMove() is a cheap no-op once the move-engine is idle again),
 // not a correctness problem.
+//
+// Sprint 004 ticket 004: telemetry projection joins this class's
+// existing session/motion/safety/config seams. `buildSnapshot()`
+// (returns a `const Wire::Snapshot&` into a MEMBER, mirroring
+// radio-robot-lib's own DiffDriveAdapter::buildSnapshot()) reads live
+// state through FIVE more forward-declared shims.cpp reads (poseX/
+// poseY/poseHeading/otosGet/wheelSpeed -- wire_adapter.cpp's own
+// forward-declaration block documents three real debugging hazards
+// there: poseX/Y/heading MUTATE odometry and that is load-bearing,
+// otosGet()'s first two fields are 0.1 mm while the third is already
+// centidegrees, and otosGet() must NEVER be backed by otosRead() on
+// this fiber). `telemetryEnabled()` is `mode_ != Wire::TlmMode::kOff` --
+// protocol.cpp calls it once per emission tick to decide whether to
+// build a Snapshot at all. `computeFlags()` (wire_adapter.cpp,
+// anonymous namespace) is now a single function called from BOTH
+// status() and buildSnapshot(), so STATUS's `flags=` and the telemetry
+// `flags` column share one source and cannot drift; the same is true of
+// `i2cf` via the shared diagValue(8) accessor. Neither buildSnapshot()
+// nor telemetryEnabled() is part of Wire::Adapter's own interface --
+// protocol.cpp calls them directly on this concrete class, exactly once
+// per tick, and hands the SAME returned Snapshot reference to both
+// WireHandler instances (see sprint.md's own Design Rationale for why
+// once-per-tick, not once-per-handler).
 #pragma once
 
 #include <cstddef>
@@ -283,6 +306,35 @@ class WireAdapter : public Wire::Adapter {
   // ---- Wire::Adapter: telemetry ----
   Wire::Result onTlm(Wire::TlmMode mode) override;
 
+  // ---- sprint 004 ticket 004: telemetry projection -- NOT part of
+  // Wire::Adapter's own interface (see this file's header comment).
+  // protocol.cpp calls these two directly. ----
+
+  // Builds and returns this tick's telemetry Snapshot, scaled to wire
+  // units, from live state reached through five forward-declared
+  // shims.cpp reads (wire_adapter.cpp's own forward-declaration block).
+  // Advances and wraps this adapter's own `seq_` ((seq_+1) & 0x7F,
+  // protocol.md S6.2) -- WireHandler has no opinion on seq, it only
+  // prints whatever this method hands it. POSE's 12 columns (`seq now
+  // flags x y h ox oy oh vl vr i2cf`) are always present; FULL's 8 more
+  // (`cyc posl posr dutl dutr lexc wrng cycovr`) are added only when
+  // `mode_ == Wire::TlmMode::kFull` -- every other non-off mode
+  // (currently just kPose; kAuto/kBuffer have no distinct column-set
+  // behavior implemented on this adapter) gets POSE's 12. Returns a
+  // reference into a MEMBER (`snapshot_`/`columns_`), not a temporary --
+  // valid only until the next buildSnapshot() call, matching
+  // Wire::Snapshot's own "borrowed for one emitTelemetry() call" doc
+  // comment (wire_handler.h). NOT const: mutates `seq_` and the
+  // snapshot/column members, and poseX()/poseY()/poseHeading() below
+  // mutate live odometry too.
+  const Wire::Snapshot& buildSnapshot();
+
+  // True iff mode_ != Wire::TlmMode::kOff -- protocol.cpp's own
+  // periodic-emission block reads this to decide whether to call
+  // buildSnapshot() at all this tick (sprint.md's Design Rationale: no
+  // Snapshot is ever built for a session with no subscriber).
+  bool telemetryEnabled() const;
+
   // ---- sprint 003 ticket 005 (armed by every one of the six motion
   // verbs as of ticket 012 -- see this file's header comment for the
   // full rationale, including the bug ticket 011 left and ticket 012
@@ -338,6 +390,19 @@ class WireAdapter : public Wire::Adapter {
   NowMsFn nowMs_ = nullptr;
   bool motionObligationActive_ = false;
   uint32_t motionObligationDeadlineMs_ = 0;  // [ms], nowMs_'s own scale
+
+  // ---- sprint 004 ticket 004: telemetry projection state -----------
+  // `seq_` wraps at 0x7F (protocol.md S6.2); buildSnapshot() advances it
+  // BEFORE building each frame, so the first-ever frame reports seq 1,
+  // not 0. `columns_`/`snapshot_` are members, not locals, so
+  // buildSnapshot() can return a reference into them that stays valid
+  // until the NEXT call (same "member, not a stack local" rationale
+  // wire_handler.h's own emitBuf_ documents) -- sized for the widest
+  // documented set (POSE's 12 plus FULL's 8 more, sprint.md's Phase B).
+  uint8_t seq_ = 0;
+  static constexpr size_t kMaxSnapshotColumns = 20;
+  Wire::Column columns_[kMaxSnapshotColumns];
+  Wire::Snapshot snapshot_;
 };
 
 }  // namespace diffDrive

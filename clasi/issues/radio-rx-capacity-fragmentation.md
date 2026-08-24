@@ -74,3 +74,45 @@ unequal with the consequence stated at each site.
   *constants* and fixes `radio_transport.h`'s false "equals
   SerialTransport's" parity comment. That work and this work touch the
   same lines; sequence them deliberately.
+
+## Measured evidence from sprint 004 (2026-08-24)
+
+Sprint 004 ticket 003 built the v6 telemetry frame and measured the widest
+column set the sprint documents (the 20-column POSE+FULL set:
+`seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng
+cycovr`, with `flags` hex). Measured formatted widths:
+
+| case | `thdr` | `t` | vs radio TX 200 | vs wire 240 |
+|---|---|---|---|---|
+| realistic-but-large values | 86 B | 144 B | 56 B headroom | 96 B headroom |
+| pathological all-`INT32_MIN` | 86 B | **239 B** | **39 B over** | **1 B under** |
+
+So the TX half of this issue is no longer hypothetical: a telemetry frame
+the firmware can legally format **already exceeds** `kMaxPayloadBytes`
+(200) by 39 bytes in the worst case, and clears `kMaxLineBytes` (240) by a
+single byte. Both numbers are pinned by a host test
+(`tests/host/test_wire_telemetry_frame.py`,
+`test_widest_pathological_int32_min_frame_confirms_open_question_2`), so a
+future change that widens the frame will trip that test rather than
+silently truncating on the radio path.
+
+**Ticket 004 then answered the projection question: realistic values fit.**
+Measured through the real `WireAdapter::buildSnapshot()` pipeline with
+realistic-but-large values for all 20 columns: `thdr` = 86 B, `t` =
+**138 B** — comfortably under 200. Two of ticket 003's pathological
+assumptions do not survive contact with the projection: `flags` realistically
+maxes at `0xFF` because `computeFlags()` only ever wires 8 boolean bits (not
+`0xffffffff`), and `dutl`/`dutr` reach `±10000` (100% duty is routine, not
+pathological).
+
+So the honest statement of the TX risk is narrower than the 239 B figure
+alone suggests, and this issue should **not** be scoped as "telemetry
+overflows radio today":
+
+- No *projected* telemetry frame is expected to exceed 200 B.
+- The *formatting layer* still permits one that does, and radio truncates it
+  silently rather than refusing — so the hazard is a latent one, guarded now
+  only by the pinned host test, not by any runtime check.
+- The inbound half of this issue (a >64-byte command line clamped to a
+  parseable prefix and executed as a different, shorter, legal command) is
+  untouched by any of this and remains the more serious half.

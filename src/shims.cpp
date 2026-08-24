@@ -671,6 +671,15 @@ void estopAll() {
 //%
 void estopClear() { ensure().kernel.estopClear(); }
 
+// SerialTransport's writeLine() drop counter (sprint 004 ticket 006),
+// read back by case 26 below. Reached by same-package forward
+// declaration rather than by including protocol.h: that header pulls
+// in radio_transport.h, and PXT's per-file dependency scan then decides
+// this file needs the `radio` package and fails the build -- same
+// convention protocolEmitLine/protocolRunText already use further down
+// this file.
+int protocolSerialDropCount();
+
 // Kernel Output diagnostics accessor for the wire protocol's DIAG verb
 // (protocol.cpp is the only caller, via forward declaration -- same
 // convention as setWheelsTimed/getConfigValue above). Returns one field
@@ -710,6 +719,11 @@ int diagValue(int what) {
     case 25: return static_cast<int>(ensure().engine.wrongWayCount());
     case 23: return static_cast<int>(ensure().left.glitchCount_);
     case 24: return static_cast<int>(ensure().right.glitchCount_);
+    // 26: SerialTransport::writeLine() drop count (ticket 006) -- the
+    // two-writer guard's retry cap exhausted, or a uBit.serial.send()
+    // call itself failed. Bench operators read this via probe(26); it
+    // should stay 0 during a normal run.
+    case 26: return protocolSerialDropCount();
     default: return 0;
   }
 }
