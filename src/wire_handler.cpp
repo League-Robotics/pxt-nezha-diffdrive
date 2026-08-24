@@ -805,11 +805,20 @@ void WireHandler::execTlm(char** fields, size_t fieldCount, uint32_t id,
                            uint8_t& errCode) {
   (void)fieldCount;
   (void)id;
-  errCode = 0;  // the adapter's own Result never surfaces on the wire
-                // for TLM.
   TlmMode mode;
   parseTlmMode(fields[0], mode);  // decodeTlm() already proved this succeeds
-  (void)adapter_.onTlm(mode);
+  // Sprint 008 ticket 005: the adapter's own Result now surfaces on the
+  // wire for TLM, same as every other merits-checked verb dispatched
+  // through this table (ack unconditionally above, then `err <code>
+  // #<id>` on top iff errCode != 0, per dispatch()'s own comment) --
+  // previously this was hardcoded to 0 (errCode never set from the
+  // call's actual return), which is why TLM BUFFER's own refusal
+  // (WireAdapter::onTlm(), kUnimplemented) could never reach the wire
+  // no matter what the adapter decided. Every mode that still returns
+  // kOk (OFF/POSE/FULL/NOW/AUTO) is unaffected: resultCode(kOk) == 0,
+  // identical to the old hardcoded value.
+  Result result = adapter_.onTlm(mode);
+  errCode = resultCode(result);
 }
 
 // ---- motion: WHEELS_X / WHEELS_V / MOVE_X / MOVE_V / GO_TO_R / GO_TO_W ----

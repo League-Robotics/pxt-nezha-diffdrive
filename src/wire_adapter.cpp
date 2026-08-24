@@ -232,6 +232,11 @@ const char* tlmModeWireName(Wire::TlmMode mode) {
     case Wire::TlmMode::kPose: return "pose";
     case Wire::TlmMode::kFull: return "full";
     case Wire::TlmMode::kAuto: return "auto";
+    // kBuffer can never reach mode_ (onTlm() below refuses it,
+    // kUnimplemented, before assignment -- sprint 008 ticket 005), so
+    // this arm is as unreachable via status()/buildSnapshot() as kNow's,
+    // immediately below -- kept only so this switch stays exhaustive
+    // against a future TlmMode enumerator.
     case Wire::TlmMode::kBuffer: return "buffer";
     // kNow is a one-shot request in the CURRENT mode's own shape
     // (protocol.md S6.1) -- never stored into mode_ (see onTlm() below),
@@ -535,10 +540,30 @@ const char* WireAdapter::fieldName(size_t index) const {
 }
 
 Wire::Result WireAdapter::onTlm(Wire::TlmMode mode) {
+  // Sprint 008 ticket 005 (closing tlm-auto-buffer-column-set-undefined.md):
+  // TLM BUFFER refuses -- kUnimplemented, wire err 6 -- right here, BEFORE
+  // mode_ is ever touched: no buffering mechanism exists anywhere in this
+  // codebase to give "buffer" real, narrower column-set semantics yet
+  // (DESIGN.md S14's own Design Rationale), so answering err is more
+  // honest than emitting a column set nobody specified. This is a MERITS
+  // rejection, not a decode failure (decodeTlm()/parseTlmMode() already
+  // accept "BUFFER" as a well-formed token) -- same "ack unconditionally,
+  // then err on top, state left unchanged" shape wire_handler.cpp's
+  // clampMotionTimeout()-based refusals already established for the six
+  // motion verbs (sprint 008 ticket 001). mode_ is left exactly as it
+  // was, so a host with e.g. TLM POSE already active keeps getting POSE
+  // frames after a refused TLM BUFFER -- it is NOT silently switched to
+  // off or to any other mode.
+  if (mode == Wire::TlmMode::kBuffer) return Wire::Result::kUnimplemented;
   // TLM NOW is a one-shot request in the CURRENT subscription's shape,
   // not a new subscription (protocol.md S6.1: "does not change mode") --
-  // so it is deliberately never stored into mode_. Everything else
-  // becomes the persisted mode.
+  // so it is deliberately never stored into mode_. TLM AUTO is a
+  // documented ALIAS for TLM POSE as of this same ticket -- it stores
+  // mode_ = kAuto here like any other mode, but buildSnapshot() below
+  // already treats every stored mode other than kFull identically, so
+  // kAuto needs no separate branch there to behave exactly like kPose
+  // (same 12 columns, same cadence). Everything else (kOff/kPose/kFull/
+  // kAuto) becomes the persisted mode.
   if (mode != Wire::TlmMode::kNow) mode_ = mode;
   return Wire::Result::kOk;
 }
@@ -588,10 +613,14 @@ const Wire::Snapshot& WireAdapter::buildSnapshot() {
   columns_[i++] = {"vr", vr, false};
   columns_[i++] = {"i2cf", i2cf, false};
 
-  // FULL adds these 8; every other non-off mode (currently just kPose;
-  // kAuto/kBuffer have no distinct column-set behavior implemented on
-  // this adapter -- see this file's own buildSnapshot() doc comment,
-  // wire_adapter.h) gets POSE's 12 above and stops here.
+  // FULL adds these 8; every other mode this adapter can actually reach
+  // here is kPose or kAuto -- kAuto is a documented ALIAS for kPose
+  // (sprint 008 ticket 005: same 12 columns, same cadence, no separate
+  // branch needed); kOff never reaches this call at all (telemetryEnabled()
+  // gates it, see protocol.cpp's fiber loop); kBuffer can never reach
+  // mode_ in the first place -- onTlm() above refuses it before
+  // assignment. See this file's own buildSnapshot() doc comment,
+  // wire_adapter.h, for the full decision.
   if (mode_ == Wire::TlmMode::kFull) {
     columns_[i++] = {"cyc", static_cast<int32_t>(diagValue(kDiagCycleCount)),
                      false};
