@@ -41,7 +41,11 @@ enum ConfigField {
     //% block="lambda enabled"
     LambdaEnabled = 13,
     //% block="crawl pulse"
-    CrawlPulse = 14
+    CrawlPulse = 14,
+    // 15/16 (DefaultCruise/RotationalSlip) join here in sprint 007
+    // tickets 003/005 -- not yet present as of this ticket (001).
+    //% block="clear stall latch"
+    StallClear = 17
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"
@@ -671,6 +675,31 @@ namespace diffDrive {
         _estopClear()
     }
 
+    /**
+     * Whether the stall latch has tripped: the robot demanded motion
+     * for too long with the wheels not turning, and every Drive/Move
+     * block has been silently ignored since. Separate from the
+     * emergency-stop latch -- see clearStallLatch(). Always false in
+     * the simulator: there is no stall model in the browser.
+     */
+    //% block="is stalled"
+    //% group="Drive"
+    export function isStalled(): boolean {
+        return _isStalled()
+    }
+
+    /**
+     * Clear the stall latch so Drive/Move blocks take effect again.
+     * Does NOT clear the emergency-stop latch -- the two are
+     * independent fault states (see clearEmergencyStop()). A no-op if
+     * nothing is latched.
+     */
+    //% block="clear stall latch" advanced=true
+    //% group="Drive"
+    export function clearStallLatch(): void {
+        _clearStallLatch()
+    }
+
     // ================= configuration =================================
 
     /**
@@ -913,6 +942,16 @@ namespace diffDrive {
     //% shim=diffDrive::estopClear
     function _estopClear(): void { }
 
+    // Stall latch clear/readback (sprint 007 ticket 001): no-ops in the
+    // simulator -- there is no stall model in the browser, matching
+    // this file's existing precedent for setGeometry/setKernelValue's
+    // simulator fallbacks (specification.md §5).
+    //% shim=diffDrive::clearStall
+    function _clearStallLatch(): void { }
+
+    //% shim=diffDrive::isStalled
+    function _isStalled(): boolean { return false }
+
     //% shim=diffDrive::poseX
     function _poseX(): int32 {
         simIntegrate()
@@ -956,7 +995,8 @@ namespace diffDrive {
 
     /**
      * Read one diagnostic value. See diagValue() in shims.cpp for the
-     * index list: 10/11 encoder positions, 12/13 applied duty x100,
+     * index list: 2 stall halted (see isStalled(), the named block for
+     * this same bit), 10/11 encoder positions, 12/13 applied duty x100,
      * 14/15 velocities, 6/7 wedge suspicion.
      */
     //% shim=diffDrive::probe

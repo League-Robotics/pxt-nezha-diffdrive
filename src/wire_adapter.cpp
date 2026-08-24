@@ -103,7 +103,7 @@ int wheelSpeed(int which);  // [mm/s]; which: 0 = left, 1 = right
 
 namespace {
 
-// The 15 `ConfigField` enum entries (main.ts) mapped onto
+// The 16 `ConfigField` enum entries (main.ts) mapped onto
 // setKernelValue()/getConfigValue()'s existing field ordinals
 // (shims.cpp) -- one wire NAME per field, replacing the old binary
 // CONFIG/SET_FIELD/GET_CONFIG verbs' bare ordinal one-for-one (sprint.md
@@ -133,6 +133,14 @@ constexpr FieldEntry kFields[] = {
     {"stall_window", 12},      // ConfigField.StallWindow
     {"lambda_enabled", 13},    // ConfigField.LambdaEnabled
     {"crawl_pulse", 14},       // ConfigField.CrawlPulse
+    // 15/16 (default_cruise/rotational_slip) join here in sprint 007
+    // tickets 003/005 -- not yet present as of this ticket (001).
+    {"stall_clear", 17},       // ConfigField.StallClear (sprint 007
+                               // ticket 001) -- a write-triggered action
+                               // wearing a config-field's clothes; see
+                               // shims.cpp's setKernelValue()/
+                               // getConfigValue() case 17 and
+                               // clearStall()'s own comment.
 };
 constexpr size_t kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 

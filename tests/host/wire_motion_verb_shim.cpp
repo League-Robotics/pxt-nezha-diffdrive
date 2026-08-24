@@ -278,6 +278,11 @@ void setKernelValue(int field, int value) {
       break;
     case 13: k.setLambdaEnabled(v != 0.0f); break;
     case 14: k.setCrawlPulse(v); break;
+    // 17 (sprint 007 ticket 001): stall_clear -- a write-triggered
+    // ACTION wearing a config-field's clothes, mirroring shims.cpp's
+    // real setKernelValue() case 17 exactly (see that file's own
+    // comment). Only nonzero-vs-zero matters.
+    case 17: if (v != 0.0f) k.clearStallLatch(); break;
     default: break;
   }
 }
@@ -305,6 +310,13 @@ int getConfigValue(int field) {
     case 12: v = c.stallWindow; break;
     case 13: v = c.lambdaEnabled ? 1.0f : 0.0f; break;
     case 14: v = c.crawlPulse; break;
+    // 17 (sprint 007 ticket 001): stall_clear's GET side -- a
+    // convenience readback of Output.stallHalted, deliberately NOT
+    // read from `c` (this ordinal has no stored Config field), mirror
+    // of shims.cpp's real getConfigValue() case 17.
+    case 17:
+      v = g_activeWaHandle->kernel.output().stallHalted ? 1.0f : 0.0f;
+      break;
     default: break;
   }
   return static_cast<int>(v * 1000.0f);

@@ -101,6 +101,8 @@ internally, so this only matters for
 | `stop` | `stop()` | — | Normal stop: commands the kernel to neutral (`_stopAll`). Motors ramp to zero through the kernel's normal stop path (see §6.3/§7.2); not a hardware-level emergency stop. |
 | `emergency stop` | `emergencyStop()` | — | Emergency stop: latches the kernel's e-stop and calls the motor ports' `emergencyStop()` directly (`_estopAll`), bypassing normal shaping. Stays latched until `clearEmergencyStop()`. |
 | `clear emergency stop` *(advanced)* | `clearEmergencyStop()` | — | Clears the e-stop latch (`_estopClear`) so driving can resume. |
+| `is stalled` | `isStalled()` | — | Reports whether the kernel's stall latch has tripped (demanded duty with near-zero encoder motion sustained past `stallWindow`) — the same bit as STATUS flags bit 2 / DIAG ordinal 2 (`_isStalled`). Always `false` in the simulator (no stall model). Not advanced — this is the discoverability half of the stall-latch fix, so it stays in the default palette. |
+| `clear stall latch` *(advanced)* | `clearStallLatch()` | — | Clears the stall latch so Drive/Move commands take effect again (`_clearStallLatch`). **Separate from `clearEmergencyStop()`** — the stall latch and the e-stop latch are independent fault states; clearing one never clears the other. No-op if nothing is latched. No-op in the simulator. |
 
 ### 4.3 Move group — position-mode moves (blocking)
 
@@ -187,6 +189,19 @@ integer values used by the shim's `setKernelValue` switch, §9):
 | 12 | `StallWindow` | "stall window ms" | `stallWindow` |
 | 13 | `LambdaEnabled` | "lambda enabled" | `lambdaEnabled` |
 | 14 | `CrawlPulse` | "crawl pulse" | `crawlPulse` |
+| 17 | `StallClear` | "clear stall latch" | *(none — see below)* |
+
+Ordinals 15/16 are reserved for later sprint 007 tickets
+(`default_cruise`/`rotational_slip`) and are not yet present. Ordinal
+17's "Kernel `Config` field" column is deliberately non-standard: `Set
+config` with `StallClear` does not write a stored `Config` field at
+all — it is a write-triggered **action** wearing a config-field's
+clothes, reaching `DifferentialDrive::clearStallLatch()` directly
+(nonzero `value` clears the latch; magnitude is ignored). Its GET side
+is a convenience readback of `Output.stallHalted`, not a stored value —
+reading it back never returns whatever was last "set." This mirrors
+the dedicated `clear stall latch`/`is stalled` blocks (§4.2) exactly;
+both routes reach the same kernel call.
 
 **Not exposed anywhere in the block API or the `ConfigField` enum** (a
 source-derived observation, not in the README): the kernel's per-wheel

@@ -98,6 +98,10 @@ def _bind(lib):
         fn.restype = None
     lib.kdSetCyclePeriod.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
     lib.kdSetCyclePeriod.restype = None
+    lib.kdSetStall.argtypes = [
+        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
+    ]
+    lib.kdSetStall.restype = None
 
     lib.kdBegin.argtypes = [ctypes.c_void_p]
     lib.kdBegin.restype = ctypes.c_int
@@ -236,6 +240,12 @@ class Kernel:
     def set_full_duty_velocity(self, value):
         self._lib.kdSetFullDutyVelocity(self._handle, value)
 
+    def set_stall(self, speed, demand, window):
+        """Configure the stall detector directly (diffdrive.h's
+        DifferentialDrive::setStall()) -- 0 for any of the three
+        disables that condition (Config's own field comments)."""
+        self._lib.kdSetStall(self._handle, speed, demand, window)
+
     # ---- commands ----
     def begin(self):
         return self._lib.kdBegin(self._handle)
@@ -251,6 +261,12 @@ class Kernel:
 
     def estop(self):
         self._lib.kdEstop(self._handle)
+
+    def clear_stall_latch(self):
+        """DifferentialDrive::clearStallLatch() -- the ticket 001 clear
+        path under test: increments the clearStallReq_ handshake,
+        consumed on the kernel's NEXT step()."""
+        self._lib.kdClearStallLatch(self._handle)
 
     def rebase_position(self):
         self._lib.kdRebasePosition(self._handle)
@@ -292,6 +308,10 @@ class Kernel:
     @property
     def out_twist(self):
         return self._lib.kdOutTwist(self._handle)
+
+    @property
+    def out_stall_halted(self):
+        return bool(self._lib.kdOutStallHalted(self._handle))
 
 
 def test_smoke_drive_and_step_reports_expected_duty_and_velocity(kernel_lib):
@@ -413,3 +433,100 @@ def test_rebaseline_issues_no_bus_traffic(kernel_lib):
         assert k.motor_rebaseline_calls(LEFT) == 1
         assert k.motor_position(LEFT) == pytest.approx(position_before)
         assert k.motor_sample_time(LEFT) == sample_time_before
+
+
+def test_stall_latch_clear_path_and_readback(kernel_lib):
+    """Sprint 007 ticket 001 (closing R-01/KERN-01): the kernel's own
+    clearStallLatch()/Output.stallHalted (diffdrive.h/.cpp, both
+    UNCHANGED by this ticket) already correctly detect and clear a
+    stall -- this test drives the kernel into the latched state with
+    sustained demand + still encoders past stallWindow, confirms
+    drive() keeps returning kOk while latched (the existing,
+    documented-not-fixed silent-success behavior) and that the wheels
+    stop actually turning while halted, then proves clearStallLatch()
+    genuinely un-halts it and a subsequent drive() call commands
+    nonzero duty again.
+
+    Clock baseline is 1_000_000 us (1000 ms), never 0 -- updateLatch()
+    (diffdrive.cpp) treats a `since` of exactly 0 as "not yet armed"
+    (its own `if (since == 0) since = now` sentinel), so arming the
+    first stall observation at nowMs == 0 would be silently re-armed
+    on the next step() instead of accumulating toward the window. Every
+    other kernel-harness test in this file that cares about elapsed-ms
+    behavior sidesteps the same trap the same way.
+    """
+    with Kernel(kernel_lib) as k:
+        stall_speed = 50.0     # [counts/s] "still" ceiling
+        stall_demand = 200.0   # [counts/s] "demanding" floor
+        stall_window = 500.0   # [ms]
+
+        k.set_max_duty(100.0)
+        k.set_full_duty_velocity(1000.0)
+        k.set_stall(stall_speed, stall_demand, stall_window)
+        assert k.begin() == STATUS_OK
+
+        base_us = 1_000_000  # 1000 ms -- see docstring on why not 0
+        k.set_clock(base_us)
+        k.arm_motor_sample(LEFT, position=0.0, sample_time_us=base_us)
+        k.arm_motor_sample(RIGHT, position=0.0, sample_time_us=base_us)
+        k.step()  # baseline sample
+
+        assert k.drive(500.0, 0.0, 5000) == STATUS_OK  # > stall_demand
+
+        # First "demanding && encoder still" observation: stallSince_
+        # arms here (t=1100ms), not yet latched.
+        t1_us = base_us + 100_000
+        k.set_clock(t1_us)
+        k.arm_motor_sample(LEFT, position=0.0, sample_time_us=t1_us)
+        k.arm_motor_sample(RIGHT, position=0.0, sample_time_us=t1_us)
+        k.step()
+        assert not k.out_stall_halted
+
+        # 600ms later (> stall_window) with the wheels still not
+        # turning: the latch trips and promotes to stallHalted_ within
+        # this very step().
+        t2_us = base_us + 700_000
+        k.set_clock(t2_us)
+        k.arm_motor_sample(LEFT, position=0.0, sample_time_us=t2_us)
+        k.arm_motor_sample(RIGHT, position=0.0, sample_time_us=t2_us)
+        k.step()
+        assert k.out_stall_halted
+
+        # checkCommandable() never tests stallHalted_ (diffdrive.cpp) --
+        # this ticket does NOT change that. drive() keeps reporting
+        # kOk while latched; this is the documented silent-success
+        # behavior the issue is about, not a regression to fix here.
+        assert k.drive(500.0, 0.0, 5000) == STATUS_OK
+
+        # And the wheels genuinely stop responding while halted:
+        # step() forces effective mode to neutral every cycle the
+        # latch stays set, regardless of what drive() just staged.
+        t2b_us = t2_us + 10_000
+        k.set_clock(t2b_us)
+        k.arm_motor_sample(LEFT, position=0.0, sample_time_us=t2b_us)
+        k.arm_motor_sample(RIGHT, position=0.0, sample_time_us=t2b_us)
+        k.step()
+        assert k.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+        assert k.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+        # The clear path under test: clearStallLatch() arms a request
+        # consumed on the kernel's NEXT step() (diffdrive.cpp's
+        # clearStallReq_/seenClearStallReq_ handshake).
+        k.clear_stall_latch()
+        t3_us = t2b_us + 10_000
+        k.set_clock(t3_us)
+        k.arm_motor_sample(LEFT, position=0.0, sample_time_us=t3_us)
+        k.arm_motor_sample(RIGHT, position=0.0, sample_time_us=t3_us)
+        k.step()
+        assert not k.out_stall_halted
+
+        # A subsequent drive() call actually commands nonzero duty
+        # again -- the latch is genuinely gone, not just its own flag.
+        assert k.drive(500.0, 0.0, 5000) == STATUS_OK
+        t4_us = t3_us + 10_000
+        k.set_clock(t4_us)
+        k.arm_motor_sample(LEFT, position=0.0, sample_time_us=t4_us)
+        k.arm_motor_sample(RIGHT, position=0.0, sample_time_us=t4_us)
+        k.step()
+        assert k.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
+        assert k.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)

@@ -1682,12 +1682,15 @@ def test_go_to_w_no_pose_source_does_not_arm_motion_obligation(wa):
     assert not wa.has_live_motion_obligation()
 
 
-def test_get_bare_dumps_all_fifteen_fields_no_wheels_entry(wa):
-    """A bare-GET dump lists only the 15 ConfigField-equivalent wire
+def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
+    """A bare-GET dump lists only the 16 ConfigField-equivalent wire
     names (wire_adapter.cpp's kFields table) -- confirms the old
     multi-pair CONFIG batch verb's ordinal set is fully covered under
     new names, and that no WHEELS-named entry leaked into the config
-    table (WHEELS_V is a motion verb, not a config field)."""
+    table (WHEELS_V is a motion verb, not a config field). Sprint 007
+    ticket 001 adds `stall_clear` (ordinal 17) at the end -- the two
+    ordinals in between (15/16: default_cruise/rotational_slip) land
+    in tickets 003/005 and are not yet present."""
     wa.feed(b"GET #1\n")
     lines = wa.take_sink().split(b"\n")
     names = [line.split(b" ")[1] for line in lines if line.startswith(b"get ")]
@@ -1695,6 +1698,76 @@ def test_get_bare_dumps_all_fifteen_fields_no_wheels_entry(wa):
         b"max_duty", b"full_duty_velocity", b"pid_kp", b"pid_ki",
         b"pid_i_max", b"accel_kaff", b"pid_max", b"twist_hold_gain",
         b"speed_floor", b"pos_err_max", b"stall_speed", b"stall_demand",
-        b"stall_window", b"lambda_enabled", b"crawl_pulse",
+        b"stall_window", b"lambda_enabled", b"crawl_pulse", b"stall_clear",
     ]
     assert b"wheels" not in b" ".join(names).lower()
+
+
+def test_stall_clear_wire_field_clears_latch_and_reads_back(wa):
+    """Sprint 007 ticket 001 (closing R-01/KERN-01): `stall_clear`'s
+    end-to-end wire effect through the REAL WireAdapter + a REAL
+    kernel over FakeMotor -- drives the kernel into the stall-latched
+    state the same way test_kernel_harness.py's own kernel-level test
+    does (sustained demand + still encoders past the configured
+    window), then proves `SET stall_clear 1` clears it and `GET
+    stall_clear` reads the latch's own state (1 while latched, 0
+    after), not a stored config value.
+    """
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"SET stall_speed 50 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.feed(b"SET stall_demand 200 #2\n")
+    assert wa.take_sink() == _ack(2)
+    wa.feed(b"SET stall_window 500 #3\n")
+    assert wa.take_sink() == _ack(3)
+
+    # WHEELS_V's real dispatch (setWheelsTimed()'s test double) ->
+    # kernel.drive(velocity=500, twist=0, lease=5000ms) -- well above
+    # stall_demand, with the lease nowhere near expiring for the rest
+    # of this test.
+    wa.set_now_ms(1000)  # never 0 -- see test_kernel_harness.py's own
+                         # note on updateLatch()'s `since == 0` sentinel
+
+    # Priming step: WaHandle's FakeMotors are never explicitly armed
+    # (no such setter exists on this shim, unlike kernel_shim.cpp's
+    # kdMotorArmPosition), so WheelSample::connected starts false and
+    # only becomes true once refreshSample() has run once -- which
+    # happens at the END of step(), AFTER controlStep() already
+    # consumed the (still-default) sample for this cycle. One step
+    # before drive() takes effect flips connected true for every step
+    # after it, matching kernel_shim.cpp-based tests' own baseline-step
+    # convention (test_kernel_harness.py).
+    wa.step()
+
+    wa.feed(b"WHEELS_V 500 500 5000 #4\n")
+    assert wa.take_sink() == _ack(4)
+
+    wa.step()  # first "demanding && still" observation, since=1000ms
+
+    wa.feed(b"GET stall_clear #5\n")
+    reply = wa.take_sink()
+    prefix = _ack(5) + b"get stall_clear "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(0.0, abs=1e-3)
+
+    wa.set_now_ms(1600)  # +600ms > stall_window -> latches this step()
+    wa.step()
+
+    wa.feed(b"GET stall_clear #6\n")
+    reply = wa.take_sink()
+    prefix = _ack(6) + b"get stall_clear "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(1.0, abs=1e-3)
+
+    wa.feed(b"SET stall_clear 1 #7\n")
+    assert wa.take_sink() == _ack(7)
+    wa.step()  # consumes the clearStallReq_ handshake
+
+    wa.feed(b"GET stall_clear #8\n")
+    reply = wa.take_sink()
+    prefix = _ack(8) + b"get stall_clear "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(0.0, abs=1e-3)

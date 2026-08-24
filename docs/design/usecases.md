@@ -77,8 +77,13 @@ clear-emergency-stop needed.
   `specification.md` §6.3, §11) — a known, not a fault, condition.
 - Motor stall detected (demanded duty with near-zero encoder motion
   sustained past `stallWindow`, default 500 ms): kernel self-halts to
-  neutral until `clearStallLatch` (not currently exposed as a block —
-  see gap noted in the report to team-lead).
+  neutral. The student checks `is stalled` to discover this (also
+  readable as STATUS flags bit 2, DIAG ordinal 2, and the wire's
+  `stall_clear` field's GET), then places `clear stall latch`
+  (advanced Drive block) to resume — the very next Drive/Move command
+  takes effect normally. This latch is **separate from the
+  emergency-stop latch** (§UC-010/§UC-012): `clear emergency stop`
+  clears only `estopLatch_`, never the stall latch, and vice versa.
 
 ---
 
@@ -348,8 +353,8 @@ Drive/Move commands are ineffective until `clear emergency stop`.
 
 **Postconditions**: Kernel no longer refuses commands for e-stop
 reasons. (Note: this clears only the e-stop latch, not an independent
-stall latch — see the gap noted for `clearStallLatch` in UC-002's
-error flows.)
+stall latch — a stalled robot needs its own dedicated `clear stall
+latch` block instead, see UC-002's error flows.)
 
 **Error flows**: Calling when not e-stopped: no-op.
 

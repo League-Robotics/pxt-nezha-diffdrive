@@ -759,6 +759,29 @@ void estopAll() {
 //%
 void estopClear() { ensure().kernel.estopClear(); }
 
+// ---- stall latch: clear path + readback (sprint 007 ticket 001,
+// closing R-01/KERN-01) ------------------------------------------------
+// The kernel's clearStallLatch()/Output.stallHalted (diffdrive.h/.cpp)
+// already existed and were already correct -- this was a MISSING-CALLER
+// problem, not missing kernel logic (see the ticket/issue for the full
+// review trail). Two thin forwards, exactly like estopClear() above,
+// except deliberately NOT routed through estopClear()/estopAll() or any
+// new top-level wire verb: the stall latch and the e-stop latch are
+// separate fault classes (same principle deliverStopNow() above
+// established for a different pair -- a stop must never silently
+// become a latch, and clearing one latch must never silently clear the
+// other). clearStall() is reachable from a dedicated main.ts block AND
+// (ticket 001) the wire's `stall_clear` SET-action ConfigField
+// (setKernelValue() case 17, below); isStalled() backs the matching
+// main.ts readback block, the STATUS `flags` bit 2, and the
+// pre-existing diagValue(2) -- three independent ways to read the same
+// bit, all sourced from this one Output field.
+//%
+void clearStall() { ensure().kernel.clearStallLatch(); }
+
+//%
+bool isStalled() { return ensure().kernel.output().stallHalted; }
+
 // SerialTransport's writeLine() drop counter (sprint 004 ticket 006),
 // read back by case 26 below. Reached by same-package forward
 // declaration rather than by including protocol.h: that header pulls
@@ -893,6 +916,13 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
                         v); break;
     case 13: k.setLambdaEnabled(v != 0.0f); break;
     case 14: k.setCrawlPulse(v); break;
+    // 17 (ticket 001): stall_clear -- a write-triggered ACTION wearing a
+    // config-field's clothes, not a stored value. Only nonzero-vs-zero
+    // matters (mirrors the x1000 scaling convention: a wire
+    // `SET stall_clear 1` arrives here as value=1000, v=1.0f); the
+    // magnitude is otherwise ignored. Deliberately does not touch
+    // estopLatch_ -- see clearStall()'s own comment above.
+    case 17: if (v != 0.0f) k.clearStallLatch(); break;
     default: break;
   }
 }
@@ -939,6 +969,11 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     case 12: v = c.stallWindow; break;
     case 13: v = c.lambdaEnabled ? 1.0f : 0.0f; break;
     case 14: v = c.crawlPulse; break;
+    // 17 (ticket 001): stall_clear's GET side -- a convenience readback
+    // of Output.stallHalted, deliberately NOT read from `c` (this
+    // ordinal has no stored Config field at all; see clearStall()'s own
+    // comment above and sprint 007's design/DESIGN.md §5 field table).
+    case 17: v = r.kernel.output().stallHalted ? 1.0f : 0.0f; break;
     default: return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));
