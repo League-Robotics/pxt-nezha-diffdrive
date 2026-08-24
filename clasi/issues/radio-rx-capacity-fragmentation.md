@@ -96,8 +96,23 @@ single byte. Both numbers are pinned by a host test
 future change that widens the frame will trip that test rather than
 silently truncating on the radio path.
 
-Whether real `WireAdapter`-projected values ever reach `INT32_MIN`
-magnitude is a separate question, answered by sprint 004 ticket 004's
-projection work — but the formatting layer permits it, and radio truncates
-silently rather than refusing, which is precisely the failure mode this
-issue exists to close.
+**Ticket 004 then answered the projection question: realistic values fit.**
+Measured through the real `WireAdapter::buildSnapshot()` pipeline with
+realistic-but-large values for all 20 columns: `thdr` = 86 B, `t` =
+**138 B** — comfortably under 200. Two of ticket 003's pathological
+assumptions do not survive contact with the projection: `flags` realistically
+maxes at `0xFF` because `computeFlags()` only ever wires 8 boolean bits (not
+`0xffffffff`), and `dutl`/`dutr` reach `±10000` (100% duty is routine, not
+pathological).
+
+So the honest statement of the TX risk is narrower than the 239 B figure
+alone suggests, and this issue should **not** be scoped as "telemetry
+overflows radio today":
+
+- No *projected* telemetry frame is expected to exceed 200 B.
+- The *formatting layer* still permits one that does, and radio truncates it
+  silently rather than refusing — so the hazard is a latent one, guarded now
+  only by the pinned host test, not by any runtime check.
+- The inbound half of this issue (a >64-byte command line clamped to a
+  parseable prefix and executed as a different, shorter, legal command) is
+  untouched by any of this and remains the more serious half.

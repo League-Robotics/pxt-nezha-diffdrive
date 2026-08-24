@@ -2,7 +2,7 @@
 id: '004'
 title: 'WireAdapter telemetry projection: buildSnapshot, shared computeFlags, POSE/FULL
   columns, STATUS i2cf='
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 - SUC-004

@@ -9,6 +9,7 @@ issues:
 - wire-constants-single-source.md
 - host-harness-double-drift.md
 - settle-tick-loop-is-not-host-testable.md
+- tlm-auto-buffer-column-set-undefined.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
