@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Cross-fiber stop delivery inside the settle window
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on: []
