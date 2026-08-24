@@ -4,6 +4,8 @@
 
 #include <cmath>
 
+#include "heading_wrap.h"
+
 namespace diffDrive {
 
 void OtosPort::busGap() { fiber_sleep(kBusClearanceMs); }
@@ -183,6 +185,24 @@ void OtosPort::setOffset(float x, float y, float yaw) {
   writePoseMm(kRegOffsetXl, 0.0f, 0.0f, 0.0f);
 }
 
+// Sprint 006 ticket 004 (code review KERN-05): wraps `heading` into
+// (-pi, pi] via heading_wrap.h before it reaches writePoseMm()'s LSB
+// quantizer -- x/y are UNAFFECTED, still clamped (a length), not
+// wrapped (a periodic angle). Without this, a heading outside +/-180
+// deg (a 0-360 deg camera-yaw convention, or this project's own
+// deliberately-unwrapped odometry heading echoed back through
+// poseHeading()) silently clamped instead of wrapping, up to ~170 deg
+// of seed error. centreToSensor()'s own use of `heading` above is
+// UNCHANGED (unwrapped) -- it consumes heading only through cos/sin,
+// which is wrap-invariant, so wrapping there would be a no-op; only
+// the value handed to writePoseMm() needs it.
+//
+// This wiring is REVIEW-VERIFIED ONLY: otos_port.h includes pxt.h
+// unconditionally, so OtosPort cannot be host-compiled at all (no
+// existing seam exercises its I2C-bound methods host-side). The wrap
+// math itself is host-tested directly and thoroughly against
+// heading_wrap.h (tests/host/test_heading_wrap.py), which is the only
+// host-testable proxy for this method's fix.
 void OtosPort::setPose(float x, float y, float heading) {
   if (!initialized_) return;
   float sensorX = 0.0f, sensorY = 0.0f;
@@ -192,7 +212,7 @@ void OtosPort::setPose(float x, float y, float heading) {
   const float s = sinf(-offsetYaw_);
   const float xF = c * sensorX + s * sensorY;
   const float yF = -s * sensorX + c * sensorY;
-  writePoseMm(kRegPositionXl, xF, yF, heading);
+  writePoseMm(kRegPositionXl, xF, yF, wrapRadians(heading));
 }
 
 void OtosPort::resetTracking() {

@@ -152,9 +152,26 @@ class PoseSource {
  public:
   virtual ~PoseSource() = default;
 
-  virtual float x() const = 0;        // [mm] world frame
-  virtual float y() const = 0;        // [mm] world frame
-  virtual float heading() const = 0;  // [rad] world frame, CCW+ (unwrapped)
+  virtual float x() const = 0;  // [mm] world frame
+  virtual float y() const = 0;  // [mm] world frame
+
+  // [rad] world frame, CCW+. Wrap convention is IMPLEMENTATION-DEFINED
+  // -- this interface does NOT mandate wrapped or unwrapped, because
+  // this project's two hardware implementations legitimately disagree
+  // by construction: `OtosPort` (src/otos_port.h) reports heading
+  // WRAPPED to (-pi, pi] (the chip's own int16 register, full scale
+  // +/-pi); a Rig-odometry-backed source (motion-api.md S3.6's
+  // encoder fallback, `EncoderPoseSource`) is deliberately UNWRAPPED,
+  // matching `Rig`'s own odometry contract (`shims.cpp`'s `r.heading`
+  // accumulates without normalizing). Both are contractually valid
+  // because `MotionEngine::goToR()`/`goToW()` consume this value ONLY
+  // through cos()/sin() (wrap-invariant) -- resolves code review
+  // KERN-08, which found this comment's former unconditional
+  // "(unwrapped)" claim contradicted by `OtosPort`'s own construction.
+  // A caller that ever DIFFERENCES two heading() reads (rather than
+  // taking their cos/sin) must NOT assume a shared wrap convention
+  // across `PoseSource` implementations.
+  virtual float heading() const = 0;
 };
 
 class MotionEngine {

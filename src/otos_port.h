@@ -63,7 +63,16 @@ class OtosPort : public PoseSource {
   // refers to the sensor's own YAW mounting rotation only, not position.
   float x() const override { return x_; }              // [mm] centre
   float y() const override { return y_; }              // [mm] centre
-  float heading() const override { return heading_; }  // [rad] (no mount offset)
+  // [rad] (no mount offset). WRAPPED to (-pi, pi] -- the chip's int16
+  // heading register has full scale +/-pi (kHdgRadPerLsb below), so
+  // this is wrapped by hardware construction, not a choice this class
+  // makes (resolves code review KERN-08: PoseSource::heading()'s
+  // contract, motion_engine.h, is implementation-defined on wrap
+  // convention for exactly this reason -- OtosPort wraps,
+  // EncoderPoseSource, motion-api.md S3.6's encoder fallback, does
+  // not). Consume via cos()/sin() only; do not difference two
+  // heading() reads and assume a shared wrap convention.
+  float heading() const override { return heading_; }
   float vx() const { return vx_; }            // [mm/s]
   float vy() const { return vy_; }            // [mm/s]
   float omega() const { return omega_; }      // [rad/s]

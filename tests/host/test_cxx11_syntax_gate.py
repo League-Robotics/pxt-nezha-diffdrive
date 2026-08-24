@@ -17,18 +17,30 @@ brace-assignment sites in WireAdapter::buildSnapshot()
 while being uncompilable for the actual robot. This test would have
 caught that before it cost a bench checkpoint to surface.
 
-**Scope, deliberately narrow**: exactly the four files already known to
-have no pxt.h/CODAL dependency (confirmed by repo grep and by their own
-header comments) -- the same four files test_kernel_harness.py's own
-compile_shared_lib() already compiles successfully at -std=c++20. This
-only adds a SECOND, syntax-only compile of the identical files at the
-target's real standard: `-fsyntax-only` needs no `-shared -fPIC -o`, no
-shim, and no link step. Do NOT extend this to protocol.{h,cpp},
-radio_transport.{h,cpp}, serial_transport.{h,cpp}, shims.cpp,
-nezha_port.{h,cpp}, or otos_port.{h,cpp} -- all of those include pxt.h
-(directly or transitively via platform_ports.h) and cannot be
-syntax-checked without the CODAL toolchain, which this repo's host
-suite does not have.
+**Scope, deliberately narrow**: originally exactly the four production
+files already known to have no pxt.h/CODAL dependency (confirmed by
+repo grep and by their own header comments) -- the same four files
+test_kernel_harness.py's own compile_shared_lib() already compiles
+successfully at -std=c++20. This only adds a SECOND, syntax-only
+compile of the identical files at the target's real standard:
+`-fsyntax-only` needs no `-shared -fPIC -o`, no shim, and no link step.
+Do NOT extend this to protocol.{h,cpp}, radio_transport.{h,cpp},
+serial_transport.{h,cpp}, shims.cpp, nezha_port.{h,cpp}, or
+otos_port.{h,cpp} -- all of those include pxt.h (directly or
+transitively via platform_ports.h) and cannot be syntax-checked without
+the CODAL toolchain, which this repo's host suite does not have.
+
+**Sprint 006** widens this scope in one specific way: new host-portable
+*helper headers* extracted from an otherwise pxt.h-bound module (the
+same extraction pattern `EncoderGlitchArmor`/`heading_wrap.h` use --
+see src/DESIGN.md S1/S11) get covered here too, each via its own small
+dedicated syntax-check translation unit under tests/host/ (a header has
+no natural .cpp of its own the way motion_engine.h rides along with
+motion_engine.cpp). `heading_wrap.h` (ticket 004) is the first of
+these, via `heading_wrap_syntax_check.cpp`. This does not narrow the
+gap above: the actual call sites (`otos_port.cpp`, `nezha_port.cpp`,
+`shims.cpp`) still include pxt.h and stay outside this gate entirely --
+only the extracted, dependency-free math is covered.
 
 This is a partial, non-systemic down payment on
 host-tests-compile-newer-standard-than-target.md (filed against sprint
@@ -49,17 +61,25 @@ import pytest
 # tests/host/test_cxx11_syntax_gate.py -> host -> tests -> repo root
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _SRC_DIR = _REPO_ROOT / "src"
+_TEST_DIR = pathlib.Path(__file__).resolve().parent
 
-# The exact, fixed four-file list this ticket's own sizing note requires
-# -- not a moving target, and not "everything under src/". Each of these
-# is confirmed host-portable (no pxt.h, directly or transitively) by its
-# own header comment and by test_kernel_harness.py's existing
-# -std=c++20 compile of the same files.
+# The original fixed four-file list this ticket's own sizing note
+# required -- not a moving target, and not "everything under src/".
+# Each of these is confirmed host-portable (no pxt.h, directly or
+# transitively) by its own header comment and by
+# test_kernel_harness.py's existing -std=c++20 compile of the same
+# files.
 _CXX11_PORTABLE_SOURCES = [
     _SRC_DIR / "diffdrive.cpp",
     _SRC_DIR / "motion_engine.cpp",
     _SRC_DIR / "wire_handler.cpp",
     _SRC_DIR / "wire_adapter.cpp",
+    # Sprint 006 ticket 004: heading_wrap.h has no pxt.h dependency (it
+    # is the extracted, host-portable half of OtosPort::setPose()'s
+    # heading-wrap fix -- see src/heading_wrap.h's own header comment)
+    # but no natural .cpp of its own, so this dedicated translation
+    # unit exists solely to give this gate something to compile.
+    _TEST_DIR / "heading_wrap_syntax_check.cpp",
 ]
 
 
