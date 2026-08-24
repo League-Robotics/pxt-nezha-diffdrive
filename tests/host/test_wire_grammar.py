@@ -105,8 +105,20 @@ def _bind(lib):
 
     lib.wgSendBanner.argtypes = [ctypes.c_void_p]
     lib.wgSendBanner.restype = None
-    lib.wgEmitTelemetry.argtypes = [ctypes.c_void_p]
+    # Ticket 003: emitTelemetry(snapshot) now takes a Column array as
+    # three parallel arrays (name/value/hex) plus a count -- see
+    # wire_grammar_shim.cpp's own wgEmitTelemetry() comment for why
+    # parallel arrays rather than a mirrored struct.
+    lib.wgEmitTelemetry.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_char_p),
+        ctypes.POINTER(ctypes.c_int32),
+        ctypes.POINTER(ctypes.c_int),
+        ctypes.c_int,
+    ]
     lib.wgEmitTelemetry.restype = None
+    lib.wgEmitReliability.argtypes = [ctypes.c_void_p]
+    lib.wgEmitReliability.restype = None
 
     lib.wgMalformedCount.argtypes = [ctypes.c_void_p]
     lib.wgMalformedCount.restype = ctypes.c_uint32
@@ -117,6 +129,12 @@ def _bind(lib):
     lib.wgSinkRead.restype = ctypes.c_int
     lib.wgSinkClear.argtypes = [ctypes.c_void_p]
     lib.wgSinkClear.restype = None
+    # Ticket 003: per-Sink::write()-call lengths, for byte-exact
+    # ordering assertions independent of the concatenated buffer.
+    lib.wgSinkWriteCount.argtypes = [ctypes.c_void_p]
+    lib.wgSinkWriteCount.restype = ctypes.c_int
+    lib.wgSinkWriteLength.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.wgSinkWriteLength.restype = ctypes.c_int
 
     # ---- WireMockAdapter canned-response setup ----
     lib.wgSetIdentity.argtypes = [
@@ -234,12 +252,28 @@ class WireGrammar:
     def send_banner(self):
         self._lib.wgSendBanner(self._handle)
 
-    def emit_telemetry(self):
+    def emit_telemetry(self, columns):
+        """The telemetry frame (protocol.md S5.2, ticket 003):
+        `columns` is an iterable of (name: bytes, value: int, hex:
+        bool) triples, hand-built by the test -- this class has no
+        robot state of its own to project (that is ticket 004's WireAdapter
+        projection, a separate concern). Marshals the three fields into
+        parallel ctypes arrays wgEmitTelemetry() expects."""
+        count = len(columns)
+        names = (ctypes.c_char_p * count)(*[c[0] for c in columns])
+        values = (ctypes.c_int32 * count)(*[c[1] for c in columns])
+        hex_flags = (ctypes.c_int * count)(*[1 if c[2] else 0 for c in columns])
+        self._lib.wgEmitTelemetry(self._handle, names, values, hex_flags, count)
+
+    def emit_reliability(self):
         """The reliability layer's own periodic emission (protocol.md
         S8.5) -- calling this with NO intervening feed() is exactly how
         a lost ack/nack is proven to self-heal with no timer of this
-        class's own (see test_wire_reliability.py)."""
-        self._lib.wgEmitTelemetry(self._handle)
+        class's own (see test_wire_reliability.py). Ticket 003 split
+        this out of the old argument-less emitTelemetry() so it stays
+        callable with no Snapshot involved at all (surviving `TLM
+        OFF`)."""
+        self._lib.wgEmitReliability(self._handle)
 
     @property
     def malformed_count(self):
@@ -366,6 +400,32 @@ class WireGrammar:
         data = buf.raw[:length]
         self._lib.wgSinkClear(self._handle)
         return data
+
+    def take_sink_writes(self) -> list:
+        """Everything the sink has captured since the last call, as a
+        LIST of separate bytes objects -- one per Sink::write() call, in
+        order -- then clears it. Ticket 003: lets a test assert
+        byte-exact ordering (e.g. thdr -> t -> ack/nack) on the actual
+        call boundaries, not just on the concatenated buffer, so a bug
+        that accidentally merged two writes into one would still be
+        caught."""
+        length = self._lib.wgSinkLength(self._handle)
+        data = b""
+        if length > 0:
+            buf = ctypes.create_string_buffer(length)
+            n = self._lib.wgSinkRead(self._handle, buf, length)
+            assert n == length
+            data = buf.raw[:length]
+        count = self._lib.wgSinkWriteCount(self._handle)
+        lengths = [self._lib.wgSinkWriteLength(self._handle, i) for i in range(count)]
+        self._lib.wgSinkClear(self._handle)
+        writes = []
+        pos = 0
+        for one_len in lengths:
+            writes.append(data[pos:pos + one_len])
+            pos += one_len
+        assert pos == len(data)
+        return writes
 
 
 @pytest.fixture

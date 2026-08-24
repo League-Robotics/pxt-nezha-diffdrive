@@ -2,9 +2,13 @@
 id: '003'
 title: 'Telemetry frame formatting: Column/Snapshot, thdr/t, header memo, emitTelemetry/emitReliability
   split'
-status: open
-use-cases: [SUC-001, SUC-003, SUC-004]
-depends-on: ["001"]
+status: in-progress
+use-cases:
+- SUC-001
+- SUC-003
+- SUC-004
+depends-on:
+- '001'
 github-issue: ''
 issue: radio-speaks-full-v6-and-v6-gets-its-telemetry-frame.md
 completes_issue: true
@@ -45,37 +49,37 @@ a compiling, behaviorally-sane build.
 
 ## Acceptance Criteria
 
-- [ ] `src/wire_handler.h` gains `struct Column { const char* name =
+- [x] `src/wire_handler.h` gains `struct Column { const char* name =
       ""; int32_t value = 0; bool hex = false; };` and `struct Snapshot
       { const Column* columns = nullptr; size_t count = 0; };`,
       matching the reference's shape and doc comments.
-- [ ] `WireHandler::emitTelemetry()` becomes
+- [x] `WireHandler::emitTelemetry()` becomes
       `emitTelemetry(const Snapshot& snapshot)`: emits `thdr` (if due),
       then `t`, then calls `emitReliability()` — in that order, as three
       separate `Sink::write()` calls (never concatenated into one).
-- [ ] `WireHandler::emitReliability()` is a new public method carrying
+- [x] `WireHandler::emitReliability()` is a new public method carrying
       today's `emitTelemetry()` body verbatim (the `gapOutstanding_` ?
       nack : ack logic) — callable with no `Snapshot` at all.
-- [ ] Header memo: `headerChanged()`/`rememberHeader()` compare count,
+- [x] Header memo: `headerChanged()`/`rememberHeader()` compare count,
       names, AND hex-ness (a lazy memo that only compares
       names/count misses a hex-ness-only flip); state is a COPY
       (`kMaxHeaderColumns=40`, `kMaxHeaderNameBytes=16` — column names
       never approach this, existing names are ≤6 chars), not a
       borrowed pointer into the caller's `Snapshot`.
-- [ ] A 20-frame forced refresh: independent of whether the column set
+- [x] A 20-frame forced refresh: independent of whether the column set
       changed, a fresh `thdr` goes out at least once every 20 calls to
       `emitTelemetry(snapshot)` — a per-instance frame counter, reset
       whenever `thdr` is emitted for any reason.
-- [ ] All formatting happens into a `WireHandler` MEMBER buffer, never
+- [x] All formatting happens into a `WireHandler` MEMBER buffer, never
       a stack local (this class already has `lineBuf_`; either reuse it
       if its lifetime/size allow, or add a dedicated member — do not
       introduce a stack array in `emitTelemetry`/`emitReliability`'s own
       frames).
-- [ ] `snprintf` (not `std::snprintf`) is used for all new formatting;
+- [x] `snprintf` (not `std::snprintf`) is used for all new formatting;
       no `%f`/float printf anywhere — every column value is an already-
       scaled integer; `hex` columns print lowercase hex with no `0x`
       prefix (e.g. `%x`), everything else signed base-10 (e.g. `%ld`).
-- [ ] `src/protocol.cpp`'s two handler call sites are updated to the
+- [x] `src/protocol.cpp`'s two handler call sites are updated to the
       split API; production behavior is UNCHANGED by this ticket alone
       (both handlers call only `emitReliability()`; zero `t` frames go
       out in production until ticket 004).

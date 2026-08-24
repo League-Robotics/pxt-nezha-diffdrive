@@ -302,19 +302,28 @@ void Protocol::run() {
     }
 
     // The reliability layer's own periodic self-healing emission
-    // (protocol.md S8.5, wire_handler.h's emitTelemetry() doc comment):
-    // re-states the highest accepted id (or re-nacks a stalled gap) on
-    // this fiber's own cadence, since WireHandler adds no timer of its
-    // own. Rides the same cadence the retired cleartext TLM loop used.
-    // Both handlers are driven on this ONE shared cadence -- neither
-    // gets its own timer -- so a stalled gap on either transport is
-    // re-nacked no less often than before this ticket added the second
-    // handler.
+    // (protocol.md S8.5, wire_handler.h's emitReliability() doc
+    // comment): re-states the highest accepted id (or re-nacks a
+    // stalled gap) on this fiber's own cadence, since WireHandler adds
+    // no timer of its own. Rides the same cadence the retired
+    // cleartext TLM loop used. Both handlers are driven on this ONE
+    // shared cadence -- neither gets its own timer -- so a stalled gap
+    // on either transport is re-nacked no less often than before this
+    // ticket added the second handler.
+    //
+    // Ticket 003 (this ticket) calls emitReliability() unconditionally
+    // on BOTH handlers, exactly as the old argument-less emitTelemetry()
+    // used to -- WireAdapter::telemetryEnabled()/buildSnapshot() do not
+    // exist yet (ticket 004), so there is no real Snapshot to build and
+    // no `t` frame goes out in production from this ticket alone. This
+    // keeps the sprint bisectable: production behavior here is
+    // UNCHANGED even though WireHandler now has real formatting for a
+    // telemetry frame no caller in this file constructs yet.
     const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
     if (static_cast<int32_t>(nowMs - lastEmitMs) >=
         static_cast<int32_t>(kReliabilityEmitPeriodMs)) {
-      wireHandler_.emitTelemetry();
-      wireHandlerRadio_.emitTelemetry();
+      wireHandler_.emitReliability();
+      wireHandlerRadio_.emitReliability();
       lastEmitMs = nowMs;
     }
 

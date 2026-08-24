@@ -136,6 +136,33 @@ struct StatusFields {
   const char* tlm = "off";
 };
 
+// One named, already-scaled telemetry value (protocol.md S5.2: `thdr
+// <col>...` then `t <v>...`). Mirrors radio-robot-lib's own
+// Column shape (src/protocol/adapter.h:113-139) -- this project's own
+// value type, not a vendored copy. `value` is always an
+// already-scaled plain integer -- this class has no opinion on what a
+// column MEANS or how it was derived, only how it prints: `hex` picks
+// lowercase hex with no `0x` prefix (flags-shaped columns); everything
+// else prints signed base-10.
+struct Column {
+  const char* name = "";
+  int32_t value = 0;
+  bool hex = false;
+};
+
+// One telemetry frame's worth of columns (protocol.md S5.2). `columns`
+// is BORROWED: the caller (WireAdapter::buildSnapshot(), ticket 004)
+// owns the backing array and must keep it alive only for the duration
+// of the emitTelemetry(snapshot) call it is passed to -- WireHandler
+// copies what it needs for its own header memo (see kMaxHeaderColumns/
+// kMaxHeaderNameBytes below) and formats the rest immediately, keeping
+// no borrowed pointer alive past that one call. Mirrors radio-robot-
+// lib's own Snapshot shape (adapter.h:113-139).
+struct Snapshot {
+  const Column* columns = nullptr;
+  size_t count = 0;
+};
+
 // Maps 1:1 onto the wire outcome (protocol.md S4; wire codes per S6.1).
 // There is no kDuplicateId: the handler's own strict sequencing already
 // makes a duplicate id structurally unreachable by any Adapter call
@@ -323,25 +350,50 @@ class WireHandler {
   // "device NEZHA2 robot <name> <serial>\n".
   void sendBanner();
 
+  // The telemetry frame (protocol.md S5.2): emits, in order, as THREE
+  // separate Sink::write() calls (never concatenated into one) --
+  //   1. `thdr <col>...\n`, but only when a fresh header is DUE (see
+  //      below);
+  //   2. `t <v>...\n`, always, one value per column in `snapshot`, in
+  //      the same order as the most recently emitted header;
+  //   3. emitReliability()'s own ack/nack keepalive (see its own doc
+  //      comment) -- so a telemetry subscriber never has to poll a
+  //      second entry point to also learn whether its last command
+  //      landed.
+  // A fresh header is DUE when: this is the very first call ever made
+  // on this instance; the column set changed since the last header
+  // (count, any column's name, OR any column's hex-ness -- a memo that
+  // compared only names/count would miss a hex-ness-only flip); or
+  // kHeaderRefreshFrames calls have elapsed since the last header,
+  // whichever comes first. That last case is what keeps a late-
+  // attaching listener over a lossy broadcast radio from being
+  // permanently locked out of decoding (sprint.md SUC-004) -- it has
+  // nothing to do with the column set changing at all.
+  //
+  // `snapshot`'s backing array is borrowed only for the duration of
+  // this call; this class copies what it needs of it (the header memo)
+  // and touches nothing else afterward.
+  void emitTelemetry(const Snapshot& snapshot);
+
   // The reliability layer's own periodic emission (protocol.md S8.5):
   // "nack <expectedNext_> <lastDone> <reason>" if gapOutstanding_ is
   // set, "ack <expectedNext_ - 1> <lastDone> <reason>" otherwise, with
   // <lastDone>/<reason> read FRESH off the Adapter, same as every other
   // ack/nack this class formats. The application drives this call on
-  // whatever cadence it already has (its own telemetry loop, once real
-  // telemetry frames exist) -- this class adds NO timer and NO clock of
-  // its own to make it happen (S8.1's own constraint). This is what lets
-  // a lost ack/nack self-heal: as long as this is called regularly, a
-  // stalled gap keeps producing fresh nacks, and a quiet host still
-  // eventually learns its last command landed.
+  // whatever cadence it already has -- this class adds NO timer and NO
+  // clock of its own to make it happen (S8.1's own constraint). This is
+  // what lets a lost ack/nack self-heal: as long as this is called
+  // regularly, a stalled gap keeps producing fresh nacks, and a quiet
+  // host still eventually learns its last command landed.
   //
-  // Deliberately does not yet take a telemetry Snapshot/Column payload
-  // -- this project has no telemetry-frame (thdr/t) formatting wired up
-  // at this point in the sprint. A later ticket that adds real telemetry
-  // projection is expected to extend this same seam (mirroring
-  // radio-robot-lib's own combined emitTelemetry(), protocol_handler.h)
-  // rather than inventing a second periodic entry point.
-  void emitTelemetry();
+  // Callable completely independent of any Snapshot -- carries what
+  // used to be emitTelemetry()'s entire body, verbatim, now split out
+  // so this keepalive survives `TLM OFF` (no Snapshot to project, but
+  // the reliability layer must keep going regardless).
+  // emitTelemetry(snapshot) above calls this internally as its own
+  // third step; a caller with nothing to project (or no subscriber at
+  // all) is free to call this alone.
+  void emitReliability();
 
   // Lines dropped as: an unrecognized verb or one this file does not
   // (yet) implement, wrong arity, an unparseable field, a sequenced
@@ -530,6 +582,19 @@ class WireHandler {
   void execNoop(char** fields, size_t fieldCount, uint32_t id,
                uint8_t& errCode);
 
+  // ---- telemetry header memo (protocol.md S5.2, sprint.md Phase B) --
+  // headerChanged() decides whether emitTelemetry() owes a fresh
+  // `thdr`; rememberHeader() then copies the just-emitted header's own
+  // shape into headerNames_/headerHex_/headerCount_ so the NEXT call
+  // has something to compare against. Deliberately a COPY, not a
+  // borrowed pointer into the caller's own Snapshot -- the caller is
+  // free to mutate or destroy its own Column array the instant
+  // emitTelemetry() returns; this memo must not care. ----
+  bool headerChanged(const Snapshot& snapshot) const;
+  void rememberHeader(const Snapshot& snapshot);
+  void emitHeader(const Snapshot& snapshot);  // "thdr <col>...\n"
+  void emitFrame(const Snapshot& snapshot);   // "t <v>...\n"
+
   Adapter& adapter_;
   Sink& sink_;
 
@@ -544,6 +609,43 @@ class WireHandler {
   // ack/nack, never cached on this class. ----
   uint32_t expectedNext_ = 1;    // next sequence id expected from the host
   bool gapOutstanding_ = false;  // a nack is currently owed (S8.5)
+
+  // ---- telemetry header memo state (protocol.md S5.2) -- a COPY of
+  // the most recently emitted header's shape, sized generously above
+  // any realistic column set (sprint.md's own widest set, POSE+FULL,
+  // is 20 columns; column names in this project are all <=6 chars) so
+  // headerChanged()'s per-column comparison never has to worry about
+  // storage running out for a real caller. A Snapshot wider than
+  // kMaxHeaderColumns is treated as always-changed by headerChanged()
+  // (a safe fallback -- see its own .cpp comment), never a buffer
+  // overrun. ----
+  static constexpr size_t kMaxHeaderColumns = 40;
+  static constexpr size_t kMaxHeaderNameBytes = 16;
+  char headerNames_[kMaxHeaderColumns][kMaxHeaderNameBytes] = {};
+  bool headerHex_[kMaxHeaderColumns] = {};
+  size_t headerCount_ = 0;
+  bool everEmittedHeader_ = false;  // false until the very first thdr
+
+  // The 20-frame (~1 Hz at this project's 50 ms emission cadence)
+  // forced header refresh (sprint.md SUC-004) -- counts calls to
+  // emitTelemetry(snapshot) since the last thdr was emitted (for ANY
+  // reason: a real change, the very first call, or this same
+  // staleness trigger), reset to 1 every time one goes out since the
+  // call that emits it counts as the first frame of the next streak.
+  static constexpr uint32_t kHeaderRefreshFrames = 20;
+  uint32_t framesSinceHeader_ = 0;
+
+  // Telemetry's own member-owned scratch buffer (never a stack local
+  // in emitHeader()/emitFrame() -- see this file's own kMaxLineBytes
+  // comment and sprint.md's Phase B formatting constraints: the
+  // protocol fiber is 2 KB, and radio_transport.h:128 records a
+  // measured hard-fault from exactly this mistake elsewhere in this
+  // project). Sized identically to lineBuf_ (the wire's own 240-byte
+  // line ceiling) rather than reused: lineBuf_ is RX-only reassembly
+  // state (fed byte-by-byte from feed()), and aliasing an unrelated TX
+  // formatting buffer onto it would be a correctness landmine for a
+  // future edit, not a real memory saving.
+  char emitBuf_[kMaxLineBytes] = {};
 };
 
 }  // namespace Wire
