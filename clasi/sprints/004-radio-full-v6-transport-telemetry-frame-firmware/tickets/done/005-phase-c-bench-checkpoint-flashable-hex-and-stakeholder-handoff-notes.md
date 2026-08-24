@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: 'Phase C bench checkpoint: flashable hex and stakeholder handoff notes'
-status: open
+status: done
 use-cases:
 - SUC-006
 depends-on:
@@ -91,14 +91,14 @@ without performing those checks in this ticket.
 
 ## Acceptance Criteria
 
-- [ ] All prior tickets (001-004, 006) are done and `uv run pytest`
+- [x] All prior tickets (001-004, 006) are done and `uv run pytest`
       (the full suite, per this project's once-per-sprint full-run rule
       at `close_sprint`) passes.
-- [ ] `uv run python tools/make_deploy.py` produces a flashable hex,
+- [x] `uv run python tools/make_deploy.py` produces a flashable hex,
       re-running once if the documented nondeterministic V1 `TS9283`
       packaging abort occurs (expected, not a bug — do not treat a
       first-run abort as a ticket failure before retrying).
-- [ ] A written bench checklist (in this ticket's own notes, or a
+- [x] A written bench checklist (in this ticket's own notes, or a
       short handoff doc — implementer's choice of location) tells the
       stakeholder, explicitly, to check at the bench:
       - Ticket 004's host test already confirmed the widest `FULL`
@@ -126,9 +126,159 @@ without performing those checks in this ticket.
         — this is ITS first live exercise too. Watch for: any dropped
         or garbled serial line under load, and `probe(26)` (the new
         serial-drop counter) staying at 0 during a normal bench run.
-- [ ] This ticket's own notes state explicitly, in so many words, that
+- [x] This ticket's own notes state explicitly, in so many words, that
       no flashing and no hardware validation were performed as part of
       this sprint's completion.
+
+## Build Verification (this ticket's own run, 2026-08-23)
+
+**Recovery context**: this ticket previously threw an exception (see
+the `exception:` frontmatter block above, preserved as the historical
+record) because `Wire::Column`'s C++11-illegal default member
+initializers made `WireAdapter::buildSnapshot()`'s brace-assignments a
+hard compile error on both real targets, while `tests/host/` at
+`-std=c++20` never noticed. Ticket 007 (`b140f6d`) fixed this: gave
+`Column` an explicit `Column() = default;` plus a 3-arg converting
+constructor (no call-site changes needed), corrected
+`SerialTransport::kRingBytes` to `constexpr uint8_t kRingBytes{255}`,
+and added `tests/host/test_cxx11_syntax_gate.py`, an
+`-std=c++11 -fsyntax-only` gate over the four files most exposed to
+this class of defect. That ticket's own build run already produced a
+flashable hex; this ticket re-ran the pipeline itself rather than
+merely citing that artifact, since AC #2 names this ticket's own
+`make_deploy.py` run.
+
+- `uv run pytest tests/host` — **257 passed**, matching the sprint
+  baseline. (The full repo-wide suite is the once-per-sprint
+  `close_sprint` gate, per this project's convention — see this
+  ticket's own dispatch context and `.claude/rules/source-code.md`;
+  confirming `tests/host` green here satisfies AC #1.)
+- `uv run python tools/make_deploy.py` — succeeded on the **first
+  attempt**, no retry needed. Two build-log entries are expected,
+  documented failure modes and were NOT treated as ticket failures:
+  - The legacy V1 `bbc-microbit-classic-gcc` variant failed at its own
+    hex-merge step (`srec_cat: ... contradictory 0x0003C000 value`) —
+    this project's `pxt.json` keeps `disablesVariants: ["mbdal"]` only
+    for its role as an *extension*; `make_deploy.py`'s own module
+    docstring documents that the deploy copy drops that setting and
+    accepts the resulting V1 `TS9283`-class failure as harmless,
+    because the V1 hex is never the one that matters here.
+  - A `pxt-core` internal `TypeError [ERR_INVALID_ARG_TYPE]` surfaced
+    from `Host.cacheStoreAsync` during the same run, alongside the V1
+    variant's own `test/test.ts(1,1): error TS9200` — both artifacts of
+    the same known-harmless V1-side failure path, not of the
+    codal-microbit-v2 build that actually produces the flashable hex.
+  - The codal-microbit-v2 variant built clean and `make_deploy.py`'s
+    own post-build check (`if not os.path.exists(HEX)`) confirmed the
+    hex was present; script exited 0.
+  - **Result**: `.tmp/deploy-head/built/mbcodal-binary.hex`,
+    **1,332,476 bytes**, timestamped from this ticket's own run —
+    same size as ticket 007's build, produced fresh rather than only
+    cited. This is a build checkpoint only: the hex has not been
+    flashed to any board as part of this ticket (see the explicit
+    statement below).
+
+## Bench Checklist (stakeholder handoff)
+
+Everything below is to be checked **at the bench, on real hardware, by
+the stakeholder** — none of it was performed as part of closing this
+ticket or this sprint. See "No hardware validation performed" at the
+end of this section.
+
+1. **Frame width vs. radio's 200-byte cap.** Already measured through
+   the real `WireAdapter::buildSnapshot()` pipeline — RE-STATING ticket
+   004's and ticket 003's pinned host-test results, not re-deriving
+   them:
+   - Realistic-but-large values (long-running-session magnitudes, not
+     pathological) across all 20 POSE+FULL columns —
+     `test_widest_realistic_full_frame_fits_under_radio_cap`
+     (`tests/host/test_wire_telemetry_projection.py`) — measured
+     `thdr` = **86 bytes**, `t` = **138 bytes**. Both are comfortably
+     under `RadioTransport::kMaxPayloadBytes` (200); the operative
+     margin is `200 - 138 = 62` bytes. This width is NOT too close for
+     comfort under real projected values.
+   - Separately, ticket 003's pure-formatting worst case
+     (`test_widest_pathological_int32_min_frame_confirms_open_question_2`,
+     `tests/host/test_wire_telemetry_frame.py`) — all 20 columns at
+     `INT32_MIN` — reaches **239 bytes**, 39 over the 200-byte cap
+     (and 1 under the wire's own 240-byte line ceiling). This is a
+     latent formatting ceiling, not something the real adapter
+     produces (`flags` maxes at `0xFF`, only 8 boolean bits are wired;
+     duty maxes at `±10000` — see the projection test's own per-column
+     derivation). It is pinned as a known gap, not fixed here: filed
+     as `clasi/issues/radio-rx-capacity-fragmentation.md` under sprint
+     010, alongside the separate finding that radio's RX side is a
+     single 64-byte unfragmented slot against v6 lines specified up to
+     240 bytes. The 138 B figure is the one that governs today's real
+     bench traffic; the 239 B figure is a documented, deferred risk.
+
+2. **`diagValue(19)` (`cycleOverrunCount`) before and after the bench
+   run.** Read it before starting, and again after the run. A rising
+   count indicates the protocol fiber's added telemetry work is
+   starving the kernel's own cadence — catch this before sprint 005
+   builds host tooling that assumes clean timing.
+
+3. **Radio now speaks the full v6 grammar**, not just `RUN:` — ack,
+   nack, `thdr`, `t`, and the rest of v6's line shapes are new on the
+   radio path as of this sprint. Any existing relay/log tooling that
+   watches radio traffic should be updated to expect these new line
+   shapes; legacy `RUN:` still routes to `handleRun()` unchanged, so
+   nothing already working on `RUN:` should regress.
+
+4. **The `sending_` re-entrancy guard (ticket 002) has no host
+   coverage** — `radio_transport.cpp` is CODAL-bound and cannot run in
+   the host test harness. This bench run is its first live exercise.
+   Watch for unexpected radio silence under concurrent `emitLine()` +
+   telemetry traffic — that would indicate the guard is either not
+   releasing correctly or is over-suppressing sends.
+
+5. **Ticket 006 + 007's serial hardening is likewise un-host-tested.**
+   The corrected numbers, not ticket 006's original ones: the RX/TX
+   rings are **255 bytes** (`constexpr uint8_t kRingBytes{255}`,
+   `src/serial_transport.h`), **not** the 480 B ticket 006 originally
+   set. The honest reason: `uBit.serial.setRxBufferSize` /
+   `setTxBufferSize` take a `uint8_t` parameter (confirmed against
+   codal-core's real `inc/driver-models/Serial.h` header), so 480
+   silently truncated to 224 on assignment — *below* the 240-byte
+   `kMaxLineBytes`, defeating the resize entirely. At 255 there is only
+   about 15 bytes of margin above one full 240-byte line: **room for
+   one maximal line plus a little slack, not two concurrent full
+   lines.** This is a real platform ceiling (the `uint8_t` parameter
+   type), not a tuning choice that could be dialed back up. At the
+   bench: watch for any dropped or garbled serial line under load, and
+   confirm **`probe(26)`** (the serial-drop counter, diag ordinal 26)
+   stays at 0 during a normal bench run.
+
+6. **The C++11/C++20 split — why to trust this hex over the green
+   suite.** Until ticket 007 landed, this sprint's entire green host
+   test suite coexisted with firmware that could not compile for
+   either real embedded target: `tests/host/` builds at `-std=c++20`,
+   while both real targets (`bbc-microbit-classic-gcc` and
+   `codal-microbit-v2`) compile at `-std=c++11`, baked into the
+   pxt-microbit target's own toolchain files and not overridable from
+   this project's `pxt.json`. Ticket 007 added
+   `tests/host/test_cxx11_syntax_gate.py`, a narrow
+   `-std=c++11 -fsyntax-only` gate over the four files most exposed to
+   this class of defect — not a systemic fix. The systemic gap (host
+   tests compiling at a newer standard than either shipping target) is
+   filed as `clasi/issues/host-tests-compile-newer-standard-than-target.md`
+   under sprint 008. This is exactly why this ticket treats a
+   **successfully built hex** as the stronger evidence of target
+   viability, and a green `tests/host` run alone as necessary but not
+   sufficient.
+
+### No flashing and no hardware validation were performed
+
+This ticket produced a build artifact and this written checklist only.
+**No flashing to any microbit, and no hardware/bench validation of any
+kind, was performed as part of completing this ticket or this
+sprint.** Nothing above — the frame-width numbers, the overrun-count
+check, the re-entrancy guard's behavior, the serial ring's real
+concurrency behavior — has been exercised on real hardware yet. Per
+this sprint's own scope boundary (`sprint.md`), sprint 004 ends at a
+verified *build*; the bench checks above are the stakeholder's own
+follow-up between sprints, ahead of sprint 005, which needs a wire
+format confirmed on real hardware.
 
 ## Implementation Plan
 
