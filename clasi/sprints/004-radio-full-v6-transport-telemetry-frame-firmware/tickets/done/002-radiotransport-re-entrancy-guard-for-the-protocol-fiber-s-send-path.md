@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: RadioTransport re-entrancy guard for the protocol fiber's send path
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002

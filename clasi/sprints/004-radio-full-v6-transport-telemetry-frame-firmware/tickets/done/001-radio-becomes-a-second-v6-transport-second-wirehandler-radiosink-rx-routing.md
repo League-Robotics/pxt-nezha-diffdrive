@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: 'Radio becomes a second v6 transport: second WireHandler + RadioSink + RX routing'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
