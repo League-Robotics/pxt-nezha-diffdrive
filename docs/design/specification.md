@@ -32,7 +32,7 @@ From `pxt.json`:
 | description | "Closed-loop differential drive for the Nezha brick: encoder-servoed wheel speeds, twist and distance moves, curved go-to, and pose from odometry. The wheel controller runs in its own fiber." |
 | license | MIT |
 | dependencies | `core: *`, `microphone: *` |
-| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, motion_engine.h, motion_engine.cpp, platform_ports.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, wire_handler.h, wire_handler.cpp, wire_adapter.h, wire_adapter.cpp, shims.cpp, main.ts |
+| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, motion_engine.h, motion_engine.cpp, platform_ports.h, heading_wrap.h, encoder_glitch_armor.h, encoder_pose_source.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, wire_handler.h, wire_handler.cpp, wire_adapter.h, wire_adapter.cpp, shims.cpp, main.ts |
 | testFiles | test/test.ts, test/testrig.ts |
 | supportedTargets | microbit |
 | preferredEditor | tsprj |
@@ -41,6 +41,19 @@ From `pxt.json`:
 
 Supported targets, per README: "for PXT/microbit". (The README notes
 this metadata line "is needed for package cataloging.")
+
+**`microphone` dependency (sprint 007):** its true purpose is genuinely
+unknown. Two independent code-review passes found no reference to
+`microphone` anywhere in `src/` or `test/` and disagreed with each
+other on what that means — one read it as dead weight to delete or
+justify, the other assumed it is deliberate micro:bit V2 gating,
+alongside `disablesVariants: ["mbdal"]`. It is documented here, not
+deleted: removing a shipped extension's declared dependency on the
+strength of a source grep, with no confirmed understanding of PXT's
+editor/variant-gating behavior, risks a silent breakage a source-only
+review cannot see, for a Low-priority hygiene item. Flagged in case the
+stakeholder has out-of-band knowledge this review process cannot see
+from source alone.
 
 ## 3. Installation
 

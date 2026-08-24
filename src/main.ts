@@ -235,6 +235,7 @@ namespace diffDrive {
     /** How many arguments the run command being handled carries. */
     //% blockHidden=true
     export function runArgCount(): number {
+        if (!runParts) return 0
         return runParts.length - 1
     }
 
@@ -547,7 +548,6 @@ namespace diffDrive {
     // when it was done host-side; this moves it onto the robot).
     // Anything under 12 deg is left to curve out over the leg.
     let turnFirstDeg = 12.0
-    let maxNudges = 6            // bounded arrival retries
 
     /**
      * How close counts as "arrived", in cm.
@@ -561,9 +561,12 @@ namespace diffDrive {
 
     /**
      * Drive to a point in WORLD coordinates, using the world sensor to
-     * decide where the robot is before each leg. Turns in place first
+     * decide where the robot is before the leg. Turns in place first
      * only if the target is far off to the side; otherwise curves to it
-     * in one arc. Repeats until inside the arrival tolerance.
+     * in one arc. ONE PASS: drives the leg and stops, whether or not it
+     * lands inside the arrival tolerance -- it does not loop or creep
+     * up on the target. Any remaining error is inherited by the next
+     * call/hop, which plans fresh from wherever the robot actually is.
      * @param x world x, eg: 60
      * @param y world y, eg: 0
      */
