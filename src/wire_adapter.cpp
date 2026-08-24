@@ -113,7 +113,8 @@ namespace {
 // declaration order so a bare GET's dump reads in the same order a
 // human reading main.ts would expect. 15 entries through sprint 006;
 // 17 as of sprint 007 ticket 003 (`default_cruise` joins `stall_clear`);
-// `rotational_slip` (ordinal 16) still pending, sprint 007 ticket 005.
+// 18 as of sprint 007 ticket 005, which fills in `rotational_slip`
+// (ordinal 16) between them.
 struct FieldEntry {
   const char* name;  // wire key
   int ordinal;        // shims.cpp's setKernelValue()/getConfigValue() field
@@ -140,8 +141,12 @@ constexpr FieldEntry kFields[] = {
                                // -- see shims.cpp's engineDefaultCruiseMmS()/
                                // Rig::defaultCruiseMmS_ for the field this
                                // ordinal actually reaches).
-    // 16 (rotational_slip) joins here in sprint 007 ticket 005 -- not
-    // yet present as of this ticket (003).
+    {"rotational_slip", 16},   // ConfigField.RotationalSlip (sprint 007
+                               // ticket 005, closing R-14/API-06 -- see
+                               // motion_engine.h's setRotationalSlip()/
+                               // rotationalSlip_ for the validation and
+                               // the load-bearing derivation comment on
+                               // the 0.952 default).
     {"stall_clear", 17},       // ConfigField.StallClear (sprint 007
                                // ticket 001) -- a write-triggered action
                                // wearing a config-field's clothes; see

@@ -2,7 +2,7 @@
 id: '005'
 title: 'rotationalSlip setter: MotionEngine + ConfigField/wire field, derivation comment
   intact'
-status: open
+status: in-progress
 use-cases:
 - SUC-005
 depends-on: []
@@ -85,18 +85,18 @@ dedicated-block code path in the same sprint.
 
 ## Acceptance Criteria
 
-- [ ] `MotionEngine::setRotationalSlip(float)` exists, validates `>0`,
+- [x] `MotionEngine::setRotationalSlip(float)` exists, validates `>0`,
       silently ignores invalid values (prior value retained) —
       matching `setTrackWidth()`/`setTravelCalib()`'s own tested
       behavior.
-- [ ] The derivation comment on `rotationalSlip_` states the full
+- [x] The derivation comment on `rotationalSlip_` states the full
       0.915 → 120.0 mm → 0.952 chain (not just the top-line
       measurement) after this ticket, whether or not it already did
       before.
-- [ ] `rotational_slip` is settable/gettable via `SET`/`GET` and via
+- [x] `rotational_slip` is settable/gettable via `SET`/`GET` and via
       the generic `set config` block; no new dedicated block is
       added.
-- [ ] A host test constructs a `MotionEngine`, calls
+- [x] A host test constructs a `MotionEngine`, calls
       `setRotationalSlip()` with a valid value, confirms
       `rotationalSlip()`/`effectiveTrackWidth()` reflect it; calls it
       with `0` and a negative value, confirms both are silently
@@ -104,12 +104,12 @@ dedicated-block code path in the same sprint.
       `setTrackWidth`/`setTravelCalib` test pattern in
       `tests/host/test_motion_engine_primitives.py` or wherever those
       are currently tested.
-- [ ] A host test exercises the wire path: `SET rotational_slip
+- [x] A host test exercises the wire path: `SET rotational_slip
       <value>` then `GET rotational_slip` round-trips against a
       `WireAdapter`+`MotionEngine` fixture.
-- [ ] `docs/design/specification.md` §4.8 and `docs/design/usecases.md`
+- [x] `docs/design/specification.md` §4.8 and `docs/design/usecases.md`
       UC-013 updated per the Implementation Plan.
-- [ ] Full existing host suite passes.
+- [x] Full existing host suite passes.
 
 ## C++11 Gate Coverage
 

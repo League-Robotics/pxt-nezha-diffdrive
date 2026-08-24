@@ -116,6 +116,8 @@ def _bind(lib):
     lib.meSetTrackWidth.restype = None
     lib.meSetTravelCalib.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meSetTravelCalib.restype = None
+    lib.meSetRotationalSlip.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetRotationalSlip.restype = None
 
     lib.meWheelsV.argtypes = [
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
@@ -204,6 +206,9 @@ class Engine:
     def set_travel_calib(self, mm_per_deg):
         self._lib.meSetTravelCalib(self._handle, mm_per_deg)
 
+    def set_rotational_slip(self, slip):
+        self._lib.meSetRotationalSlip(self._handle, slip)
+
     # ---- the two primitives ----
     def wheels_v(self, left, right, duration_ms):
         self._lib.meWheelsV(self._handle, left, right, duration_ms)
@@ -249,6 +254,42 @@ def test_effective_track_width_is_computed_not_stored(motion_lib):
         assert e.rotational_slip() == pytest.approx(rotational_slip)  # untouched
         assert e.effective_track_width() == pytest.approx(
             200.0 / rotational_slip)
+
+
+def test_set_rotational_slip_updates_effective_track_width_and_rejects_non_positive(
+        motion_lib):
+    """Sprint 007 ticket 005 (closing R-14/API-06): rotationalSlip_ was
+    getter-only ("no caller has ever needed to set it at runtime"); this
+    is the setter that closes that gap (Acceptance Criterion 1/4). A
+    valid set must move BOTH rotationalSlip() and effectiveTrackWidth()
+    (== trackWidth_/rotationalSlip_, motion_engine.h) -- proving the new
+    value actually reaches the turn kinematics every move/pivot primitive
+    reads (test_motion_engine_reductions.py's own move_x/go_to_r tests
+    all read effectiveTrackWidth() for exactly this reason), not just a
+    field that round-trips in isolation. 0 and a negative value must both
+    be silently ignored, matching setTrackWidth()/setTravelCalib()'s own
+    tested ">0, else keep the prior value" behavior (verified above in
+    test_effective_track_width_is_computed_not_stored for trackWidth)."""
+    with Engine(motion_lib) as e:
+        track_width = e.track_width()
+        original_slip = e.rotational_slip()
+        assert original_slip != pytest.approx(1.0)  # else this test proves nothing
+
+        new_slip = original_slip * 0.5  # deliberately distinct from the default
+        e.set_rotational_slip(new_slip)
+        assert e.rotational_slip() == pytest.approx(new_slip)
+        assert e.track_width() == pytest.approx(track_width)  # untouched
+        assert e.effective_track_width() == pytest.approx(
+            track_width / new_slip)
+
+        # Invalid values (<= 0) are silently ignored -- the prior (new_slip)
+        # value survives, and so does the effectiveTrackWidth it produced.
+        e.set_rotational_slip(0.0)
+        assert e.rotational_slip() == pytest.approx(new_slip)
+        e.set_rotational_slip(-1.0)
+        assert e.rotational_slip() == pytest.approx(new_slip)
+        assert e.effective_track_width() == pytest.approx(
+            track_width / new_slip)
 
 
 def test_counts_per_mm(motion_lib):

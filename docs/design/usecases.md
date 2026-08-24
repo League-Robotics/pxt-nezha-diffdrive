@@ -388,21 +388,41 @@ right=M2 wiring (§ Wiring assumptions).
 2. User measures (or empirically tunes) wheel travel per encoder
    degree and places `set wheel calibration %calib mm/deg` with that
    value.
-3. Subsequent odometry, distance-based moves, and twist↔wheel-speed
+3. User measures rotational scrub against camera or other ground truth
+   (a series of commanded pivots, physical rotation compared to
+   commanded — see `motion_engine.h`'s own `rotationalSlip_` field
+   comment for the reference derivation on the vevov chassis) and
+   places `set config %field to %value` with `field` = `rotational
+   slip` and `value` = the measured ratio. Unlike step 1's `trackWidth`
+   (the caliper-measured physical dimension, never adjusted to correct
+   a turn), this is the one knob the geometry doctrine names for
+   correcting rotational scrub (`specification.md` §4.8 ordinal 16;
+   closes code review R-14/API-06 — previously `rotationalSlip` had no
+   setter on any surface, leaving `set track width` as the only
+   reachable turn-affecting knob, which the doctrine explicitly
+   forbids using for this).
+4. Subsequent odometry, distance-based moves, and twist↔wheel-speed
    conversions use the updated geometry.
 
-**Postconditions**: The `MotionEngine`'s `trackWidth`/`travelCalib`
-reflect the new chassis; distances and turns land accurately for that
-chassis instead of the reference defaults (114.2 mm track,
-0.8102 mm/deg — the vevov bake).
+**Postconditions**: The `MotionEngine`'s `trackWidth`/`travelCalib`/
+`rotationalSlip` reflect the new chassis; distances and turns land
+accurately for that chassis instead of the reference defaults
+(114.2 mm track, 0.8102 mm/deg, 0.952 rotational slip — the vevov
+bake).
 
 **Error flows**:
-- Value of `0` or negative for either parameter: the shim's
-  `setGeometry` only applies a value `if (value > 0)` — a zero/negative
-  calibration call is silently ignored, leaving the prior value in
-  place (not reset to some default).
-- Called in the simulator: no effect — `setGeometry` is a no-op in the
-  browser fallback (`specification.md` §5).
+- Value of `0` or negative for either geometry parameter (step 1/2):
+  the shim's `setGeometry` only applies a value `if (value > 0)` — a
+  zero/negative calibration call is silently ignored, leaving the
+  prior value in place (not reset to some default).
+- Value of `0` or negative for rotational slip (step 3):
+  `MotionEngine::setRotationalSlip` applies the same `if (value > 0)`
+  guard directly on the setter itself — silently ignored, prior value
+  retained. Same observable behavior as step 1/2's error flow, reached
+  through `setKernelValue`/`set config` instead of `setGeometry`.
+- Called in the simulator: no effect — `setGeometry` and
+  `setKernelValue` are both no-ops in the browser fallback
+  (`specification.md` §5).
 
 ---
 

@@ -1792,11 +1792,12 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
     CONFIG batch verb's ordinal set is fully covered under new names,
     and that no WHEELS-named entry leaked into the config table
     (WHEELS_V is a motion verb, not a config field). Sprint 007 ticket
-    001 added `stall_clear` (ordinal 17) at the end; ticket 003 (this
-    one) adds `default_cruise` (ordinal 15) just before it.
-    `rotational_slip` (ordinal 16) still lands in ticket 005 and is not
-    yet present -- the function name's stale "sixteen" predates both
-    and is left as-is rather than renamed mid-sprint."""
+    001 added `stall_clear` (ordinal 17) at the end; ticket 003 added
+    `default_cruise` (ordinal 15) just before it; ticket 005 (this one,
+    closing R-14/API-06) fills in `rotational_slip` (ordinal 16) between
+    the two. The function name's stale "sixteen" now undercounts by two
+    and is left as-is rather than renamed mid-sprint (same call made for
+    ticket 003's own `default_cruise` addition)."""
     wa.feed(b"GET #1\n")
     lines = wa.take_sink().split(b"\n")
     names = [line.split(b" ")[1] for line in lines if line.startswith(b"get ")]
@@ -1805,7 +1806,7 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"pid_i_max", b"accel_kaff", b"pid_max", b"twist_hold_gain",
         b"speed_floor", b"pos_err_max", b"stall_speed", b"stall_demand",
         b"stall_window", b"lambda_enabled", b"crawl_pulse",
-        b"default_cruise", b"stall_clear",
+        b"default_cruise", b"rotational_slip", b"stall_clear",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 
@@ -1854,6 +1855,66 @@ def test_default_cruise_wire_field_round_trips_and_feeds_the_zero_sentinel(wa):
     prefix = _ack(5) + b"get default_cruise "
     assert reply.startswith(prefix)
     assert float(reply[len(prefix):]) == pytest.approx(200.0, abs=1e-3)
+
+
+def test_rotational_slip_wire_field_round_trips_and_reaches_effective_track_width(wa):
+    """Sprint 007 ticket 005 (closing R-14/API-06): proves
+    `rotational_slip` is settable/gettable via the wire's own SET/GET
+    verbs -- the same setKernelValue()/getConfigValue() path (ordinal
+    16) the generic `set config` block reaches through -- AND that a
+    value set that way actually lands on the REAL
+    MotionEngine::rotationalSlip_, not a shadow copy: effectiveTrackWidth
+    (== trackWidth_/rotationalSlip_, motion_engine.h) is read back before
+    and after, and trackWidth_ is back-derived from that first reading
+    rather than hard-coded, so this test does not depend on either
+    constant's current measured value. Also proves the setter's own
+    ">0, else keep the prior value" validation (motion_engine.h) is
+    reachable end to end over the wire, mirroring
+    test_default_cruise_wire_field_round_trips_and_feeds_the_zero_sentinel's
+    own zero-sentinel check above."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"GET rotational_slip #1\n")
+    reply = wa.take_sink()
+    prefix = _ack(1) + b"get rotational_slip "
+    assert reply.startswith(prefix)
+    default_slip = float(reply[len(prefix):])
+    default_b = wa.effective_track_width()
+    # trackWidth_ = effectiveTrackWidth() * rotationalSlip_ -- back-derived,
+    # not hard-coded (motion_engine.h's own effectiveTrackWidth() comment).
+    track_width = default_b * default_slip
+
+    new_slip = default_slip * 0.5  # deliberately different from the default
+    wa.feed(f"SET rotational_slip {new_slip} #2\n".encode())
+    assert wa.take_sink() == _ack(2)
+
+    wa.feed(b"GET rotational_slip #3\n")
+    reply = wa.take_sink()
+    prefix = _ack(3) + b"get rotational_slip "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(new_slip, abs=1e-3)
+
+    # The wire SET reached the REAL MotionEngine, not a shadow copy:
+    # effectiveTrackWidth() moves with it, in the opposite direction
+    # (halving the slip must double b).
+    assert wa.effective_track_width() == pytest.approx(
+        track_width / new_slip, rel=1e-3)
+
+    # SET rotational_slip 0 is a silent no-op over the wire (same ">0"
+    # validation setRotationalSlip() applies) -- the PREVIOUS value
+    # (new_slip) survives, and so does the effectiveTrackWidth it
+    # produced.
+    wa.feed(b"SET rotational_slip 0 #4\n")
+    assert wa.take_sink() == _ack(4)
+    wa.feed(b"GET rotational_slip #5\n")
+    reply = wa.take_sink()
+    prefix = _ack(5) + b"get rotational_slip "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(new_slip, abs=1e-3)
+    assert wa.effective_track_width() == pytest.approx(
+        track_width / new_slip, rel=1e-3)
 
 
 def test_stall_clear_wire_field_clears_latch_and_reads_back(wa):

@@ -294,6 +294,11 @@ void setKernelValue(int field, int value) {
     case 15:
       if (v > 0.0f) g_activeWaHandle->defaultCruiseMmS = v;
       break;
+    // 16 (sprint 007 ticket 005): rotational_slip, mirroring shims.cpp's
+    // real setKernelValue() case 16 exactly -- a thin forward to the
+    // REAL MotionEngine::setRotationalSlip(), which owns its own ">0,
+    // else keep the prior value" validation (motion_engine.h).
+    case 16: g_activeWaHandle->engine.setRotationalSlip(v); break;
     // 17 (sprint 007 ticket 001): stall_clear -- a write-triggered
     // ACTION wearing a config-field's clothes, mirroring shims.cpp's
     // real setKernelValue() case 17 exactly (see that file's own
@@ -331,6 +336,10 @@ int getConfigValue(int field) {
     // NOT read from `c` (see case 15's own comment in setKernelValue()
     // above).
     case 15: v = g_activeWaHandle->defaultCruiseMmS; break;
+    // 16 (sprint 007 ticket 005): rotational_slip's GET side, mirroring
+    // shims.cpp's real getConfigValue() case 16 exactly -- a thin
+    // forward to the REAL MotionEngine::rotationalSlip().
+    case 16: v = g_activeWaHandle->engine.rotationalSlip(); break;
     // 17 (sprint 007 ticket 001): stall_clear's GET side -- a
     // convenience readback of Output.stallHalted, deliberately NOT
     // read from `c` (this ordinal has no stored Config field), mirror

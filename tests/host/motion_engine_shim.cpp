@@ -146,6 +146,13 @@ void meSetTrackWidth(void* handle, float mm) {
 void meSetTravelCalib(void* handle, float mmPerDeg) {
   static_cast<Handle*>(handle)->engine.setTravelCalib(mmPerDeg);
 }
+// Sprint 007 ticket 005 (closing R-14/API-06): exposes the setter
+// rotationalSlip_ never had -- see motion_engine.h's own setter/field
+// comments for the validation and the load-bearing derivation this
+// field's default carries.
+void meSetRotationalSlip(void* handle, float slip) {
+  static_cast<Handle*>(handle)->engine.setRotationalSlip(slip);
+}
 
 // ---- MotionEngine: the two primitives (motion-api.md S3.1/S3.2) -------
 

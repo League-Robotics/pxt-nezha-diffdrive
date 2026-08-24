@@ -206,6 +206,7 @@ integer values used by the shim's `setKernelValue` switch, §9):
 | 13 | `LambdaEnabled` | "lambda enabled" | `lambdaEnabled` |
 | 14 | `CrawlPulse` | "crawl pulse" | `crawlPulse` |
 | 15 | `DefaultCruise` | "default cruise speed" | *(none — see below)* |
+| 16 | `RotationalSlip` | "rotational slip" | *(none — see below)* |
 | 17 | `StallClear` | "clear stall latch" | *(none — see below)* |
 
 Ordinal 15's "Kernel `Config` field" column is also non-standard:
@@ -222,9 +223,28 @@ zero collapsed onto one field; `DefaultCruise` gives the wire layer's
 convenience sentinel its own, independent field, leaving
 `fullDutyVelocity`'s calibration-refusal meaning untouched.
 
-Ordinal 16 is reserved for a later sprint 007 ticket
-(`rotational_slip`) and is not yet present. Ordinal 17's "Kernel
-`Config` field" column is deliberately non-standard: `Set
+Ordinal 16's "Kernel `Config` field" column is also non-standard:
+`RotationalSlip` is not a `DifferentialDrive::Config` field either — it
+is `MotionEngine`'s own `rotationalSlip_` (`motion_engine.h`), the
+camera-measured wheel-contact-scrub ratio that `effectiveTrackWidth`
+(`= trackWidth / rotationalSlip`) is built from. This is the sprint 007
+ticket 005 fix for a code-review finding (R-14/API-06): `rotationalSlip`
+was getter-only, so the only palette knob that changed turn geometry at
+all was `set track width` — which this file's own geometry doctrine
+(§2.1 in the canonical motion-api spec this project conforms to)
+forbids using for that purpose, since `trackWidth` is the
+caliper-measured physical dimension and is never "corrected" to make a
+turn land. `setConfigValue`'s new setter applies the same
+"`>0`, else silently keep the prior value" validation
+`setTrackWidth`/`setTravelCalib` already use (via `setGeometry`,
+§9) — invalid values are silently ignored, not clamped or rejected.
+No dedicated block was added for this ordinal (unlike `trackWidth`/
+`travelCalib`, which each have one): `RotationalSlip` is a one-time
+chassis-calibration constant, reachable through the existing generic
+`set config` block at the same tier as the other kernel fields above
+it.
+
+Ordinal 17's "Kernel `Config` field" column is deliberately non-standard: `Set
 config` with `StallClear` does not write a stored `Config` field at
 all — it is a write-triggered **action** wearing a config-field's
 clothes, reaching `DifferentialDrive::clearStallLatch()` directly

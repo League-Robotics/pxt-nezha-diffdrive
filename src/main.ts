@@ -44,8 +44,8 @@ enum ConfigField {
     CrawlPulse = 14,
     //% block="default cruise speed"
     DefaultCruise = 15,
-    // 16 (RotationalSlip) joins here in sprint 007 ticket 005 -- not
-    // yet present as of this ticket (003).
+    //% block="rotational slip"
+    RotationalSlip = 16,
     //% block="clear stall latch"
     StallClear = 17
 }

@@ -978,6 +978,13 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // available" at ordinal 15, deliberately -- unlike stall_clear's
     // ordinal 17 below, this is a real stored value, not an action).
     case 15: if (v > 0.0f) r.defaultCruiseMmS_ = v; break;
+    // 16 (ticket 005, closing R-14/API-06): rotational_slip -- a thin
+    // forward to the now-tested MotionEngine::setRotationalSlip(),
+    // which already applies the ">0, else keep the prior value"
+    // validation itself (motion_engine.h); no duplicate check needed
+    // here, unlike case 15's own inline check above (defaultCruiseMmS_
+    // has no dedicated setter to own that validation).
+    case 16: r.engine.setRotationalSlip(v); break;
     // 17 (ticket 001): stall_clear -- a write-triggered ACTION wearing a
     // config-field's clothes, not a stored value. Only nonzero-vs-zero
     // matters (mirrors the x1000 scaling convention: a wire
@@ -1036,6 +1043,11 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // kernel Config field at all; it lives on Rig, see
     // defaultCruiseMmS_'s own field comment above).
     case 15: v = r.defaultCruiseMmS_; break;
+    // 16 (ticket 005): rotational_slip's GET side -- a thin forward to
+    // MotionEngine::rotationalSlip(), deliberately NOT read from `c`
+    // (this ordinal has no kernel Config field at all; it lives on
+    // MotionEngine, see setKernelValue() case 16's own comment above).
+    case 16: v = r.engine.rotationalSlip(); break;
     // 17 (ticket 001): stall_clear's GET side -- a convenience readback
     // of Output.stallHalted, deliberately NOT read from `c` (this
     // ordinal has no stored Config field at all; see clearStall()'s own
