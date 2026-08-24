@@ -77,3 +77,72 @@ reporting a stale or zero heading.
 
 - Split from [[radio-speaks-full-v6-and-v6-gets-its-telemetry-frame]], which
   must land and pass its bench checkpoint first.
+
+## Bench confirmation of the v6 frame — tovez, 2026-08-24
+
+**This issue's blocking precondition is satisfied.** Sprint 005's own
+sprint.md says it must not begin until a flashed robot is confirmed to emit
+`thdr`/`t` frames over the wire, rather than a format that exists only on
+paper. Confirmed on **tovez** (USB serial, `/dev/cu.usbmodem212402`), hex
+built from master at `4e14817` (sprints 004+006+007+008 merged).
+
+### The frames a real robot actually emits
+
+```
+TLM POSE  → thdr seq now flags x y h ox oy oh vl vr i2cf            (44 B, 12 cols)
+            t 1 37973 0 0 0 0 0 0 0 0 0 0                           (29 B)
+
+TLM FULL  → thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl
+              posr dutl dutr lexc wrng cycovr                       (85 B, 20 cols)
+            t 74 42016 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0          (46 B)
+```
+
+- **Column names and order match the host tests exactly** — `tlm.py`'s parser
+  can be written against these names with confidence.
+- **Header memo confirmed live**: 73 `t` frames to 4 `thdr` in one 4 s window
+  ≈ one header per 20 frames, matching `kHeaderRefreshFrames = 20`
+  (sprint 004 ticket 003). A parser must therefore tolerate `t` frames
+  arriving without a preceding `thdr` in its capture window, and must cache
+  the last header seen.
+- **Widths**: FULL `thdr` measured **85 B** on hardware against the host
+  test's predicted 86 B — effectively exact. `t` frames were 29–47 B here
+  because every value was zero (see the caveat below); the host-predicted
+  138 B for realistic large values remains the figure to size buffers
+  against, and it is comfortably under `RadioTransport::kMaxPayloadBytes`
+  (200).
+
+### Caveat on these specific numbers
+
+`STATUS` reported `connL=0 connR=0 ready=0` for this run — the Nezha brick's
+wheels were not reporting connected, so **every telemetry column was zero**.
+That validates the frame's *shape, cadence, column set and header-memo
+behavior*, which is what this issue was blocked on, but it does **not**
+exercise realistic value magnitudes or field widths. A follow-up capture with
+a powered brick and a moving robot is still wanted before `tlm.py`'s
+numeric parsing is considered proven.
+
+### Other v6 behavior confirmed in the same session
+
+Directly relevant to the tools this issue retrofits:
+
+- `VER` → `ver 1.0.10`, matching `pxt.json` (sprint 008 fixed ten bumps of
+  drift where it reported `1.0.0`). Deploy verification via VER now works.
+- `GET` dumps 18 fields including the new `default_cruise 150.0`,
+  `rotational_slip 0.952`, `stall_clear 0.0`.
+- `STATUS` → `status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0
+  i2cf=0 tlm=off next=2` — `otos=0` is truthful here (tovez has no OTOS),
+  which is sprint 004 ticket 004's fix working as intended rather than the
+  old hardcoded `false`.
+- `TLM BUFFER` → `err 6` (sprint 008 ticket 005; previously accepted silently).
+- `WHEELS_X` with `timeout=0` → `err 3` (sprint 008 ticket 001; previously
+  left a stale kernel lease armed).
+
+### One tooling defect found immediately, relevant to this issue's scope
+
+`tools/robotlink.py` cannot be imported under this repo's own venv:
+`uv run python` has **no `pyserial`**, while the system `python3` has 3.5.
+Every bench tool in `tools/` therefore runs only under a different
+interpreter than the project's own test/dev environment. This is a concrete
+instance of `tools-link-layer-consolidation.md`'s stale-venv complaint and
+should be fixed as part of this sprint's link-layer consolidation — declaring
+`pyserial` in `pyproject.toml` is the obvious fix.
