@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: Encoder glitch-armor rebaseline-on-discontinuity (host-testable)
-status: in-progress
+status: done
 use-cases:
 - SUC-005
 depends-on: []
