@@ -2,7 +2,7 @@
 id: '001'
 title: 'Wire timeout hardening: reject 0, clamp above 2^31-1, unify across all six
   motion verbs'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on: []
