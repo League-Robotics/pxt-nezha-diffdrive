@@ -1,7 +1,7 @@
 ---
 id: 008
 title: Wire hardening and tests that can fail
-status: executing
+status: done
 branch: sprint/008-wire-hardening-and-tests-that-can-fail
 use-cases:
 - SUC-001
