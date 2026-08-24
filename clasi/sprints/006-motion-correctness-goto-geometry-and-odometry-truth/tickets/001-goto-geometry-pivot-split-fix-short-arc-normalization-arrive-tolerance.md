@@ -1,8 +1,9 @@
 ---
 id: '001'
 title: 'goTo geometry: pivot-split fix, short-arc normalization, arrive tolerance'
-status: open
-use-cases: [SUC-001]
+status: done
+use-cases:
+- SUC-001
 depends-on: []
 github-issue: ''
 issue: goto-geometry-pivot-split-miss.md
@@ -55,30 +56,47 @@ which touch `shims.cpp`/hardware ports outside the gate).
 
 ## Acceptance Criteria
 
-- [ ] `goToR(100, 100, ...)` (bearing 45°, above the 25°/50° split
+- [x] `goToR(100, 100, ...)` (bearing 45°, above the 25°/50° split
       threshold) reaches within tolerance of (100, 100) — not the
       pre-fix (0, 157.1) miss. Host test asserts the kinematically
       integrated endpoint of the issued segment(s).
-- [ ] `goToR(-100, 1, ...)` (target behind the robot) issues a
+      (`test_go_to_r_pivot_split_reaches_target_above_threshold`)
+- [x] `goToR(-100, 1, ...)` (target behind the robot) issues a
       short-arc pivot (≤ ~180°), not a ~359° pivot plus a 31 m leg.
-- [ ] A target at/just below the 25°/50° threshold still uses the
+      (`test_go_to_r_behind_robot_near_axis_avoids_long_way_around_runaway`
+      for this exact input — implementation note: this specific input
+      normalizes to a ~-1.15° PLAIN-arc rotation, i.e. a near-straight
+      ~100 mm reverse rather than a literal large pivot, which still
+      satisfies the "≤180°" bound this AC states; a genuinely large
+      (116.57°), unambiguously-split "behind" pivot is covered
+      separately by `test_go_to_r_behind_robot_splits_into_bounded_pivot`)
+- [x] A target at/just below the 25°/50° threshold still uses the
       plain single-segment arc reduction, unchanged from before this
       ticket (no regression to `tests/host/test_motion_engine_reductions.py`'s
       existing below-threshold coverage).
-- [ ] Seeding the robot at (or within `arrive` of) the target makes
+- [x] Seeding the robot at (or within `arrive` of) the target makes
       `goToR()` a no-op — no segment is issued. Test both exact-zero
       and noise-offset (e.g. (0.02, 0.05) mm with `arrive` ~10 mm)
-      cases.
-- [ ] `theta` normalization to the short arc is itself covered by a
+      cases. (`test_go_to_r_arrive_gate_is_a_no_op`, plus a
+      just-outside-tolerance counter-test)
+- [x] `theta` normalization to the short arc is itself covered by a
       dedicated test independent of the split behavior (e.g. a
       below-threshold target behind the robot still takes the short
       turn, not the raw `2*atan2` value before normalization).
-- [ ] `motion_engine.h`'s `goToR()` doc comment is updated to describe
+      (`test_go_to_r_theta_normalized_independent_of_split_decision`,
+      goToR(-100, 0.05) -- isolates theta as the only value
+      normalization changes, since this input's distance always uses
+      the |y| < 0.1 straight branch regardless of theta)
+- [x] `motion_engine.h`'s `goToR()` doc comment is updated to describe
       the new split-ownership and `arrive` behavior (it currently
       says "arrive accepted but unused").
-- [ ] Existing `tests/host/test_motion_engine_gotow.py` and
+- [x] Existing `tests/host/test_motion_engine_gotow.py` and
       `test_motion_engine_reductions.py` pass unchanged except where
       this ticket's fix corrects previously-wrong expected behavior.
+      (all pre-existing tests pass with unmodified expectations; only
+      the "must stay under the pivot-first threshold" dodge comment in
+      `test_go_to_r_arc_hand_computed` was reframed per the
+      implementation plan, pointing at the new above-threshold tests)
 
 ## Implementation Plan
 
