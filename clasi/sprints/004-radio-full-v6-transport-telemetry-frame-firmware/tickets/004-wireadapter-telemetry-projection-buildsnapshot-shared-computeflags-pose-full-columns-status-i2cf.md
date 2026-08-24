@@ -38,6 +38,26 @@ there): `int poseX(); int poseY(); int poseHeading(); int
 otosGet(int); int wheelSpeed(int);` — all five already exist in
 `shims.cpp` today; this ticket adds ZERO new entry points there.
 
+**Correction (code review 2026-08-23, R-22/WIRE-06, CONFIRMED):**
+`wire_adapter.cpp:226` currently hardcodes `out.otos = false;` in
+`status()`, with a comment claiming "no OTOS in this project's
+wire-reachable surface yet." That claim is false as of this same
+session: `shims.cpp:891-892`'s `engineGoToW()` already gates on
+`otosRef().connected()`, and `shims.cpp:970`'s `otosGet(7)` already
+returns that exact connected/disconnected boolean (`o.connected() ? 1 :
+0`) — an entry point this same ticket is already forward-declaring for
+`ox`/`oy`/`oh`. So `STATUS` can end up telling a bench operator "no
+OTOS" while `GO_TO_W` is actively using one, which would misroute
+sprint 005's closed-loop tooling if left uncorrected. Since this
+ticket's own forward declaration for `otosGet(int)` already exists,
+fixing this costs one line, not a new shim entry point: replace
+`out.otos = false;` with `out.otos = otosGet(kOtosConnected) != 0;`
+(add `constexpr int kOtosConnected = 7;` alongside this file's existing
+`kDiag*` constants), and delete the now-false "no OTOS" comment. `otos`
+is a `StatusFields` field independent of `flags`/`computeFlags()` and
+is not part of any telemetry column — this fix is scoped to `status()`
+alone; `buildSnapshot()` needs no change for it.
+
 POSE columns (12): `seq now flags x y h ox oy oh vl vr i2cf`. FULL adds
 8 more (20 total): `cyc posl posr dutl dutr lexc wrng cycovr`, all
 sourced from the already-forward-declared `diagValue()` (ordinals 16,
@@ -78,6 +98,12 @@ so the emitter and the (future) parser cannot silently drift apart.
 - [ ] `WireAdapter::buildSnapshot()` returns a `const Wire::Snapshot&`
       built from live state via the five new forward declarations;
       `telemetryEnabled()` returns `mode_ != Wire::TlmMode::kOff`.
+- [ ] `WireAdapter::status()`'s `out.otos` reflects real OTOS
+      connectivity (`otosGet(kOtosConnected)`, ordinal 7) instead of the
+      current hardcoded `false` (R-22/WIRE-06 — see Description). A
+      test using a new settable OTOS-connected test double asserts
+      `STATUS`'s `otos=` value is `0` when disconnected and `1` when
+      connected, not unconditionally `0`.
 - [ ] `computeFlags()` is a standalone function (same bit layout as
       today's inline version — this ticket MOVES it, does not
       redefine it) called from both `status()` and `buildSnapshot()`.
@@ -148,7 +174,10 @@ reference-specific class.
   `buildSnapshot()`/`telemetryEnabled()`; extract `computeFlags()` out
   of `status()`'s current inline block into its own function in the
   anonymous namespace, call it from both `status()` and
-  `buildSnapshot()`; set `out.i2cf = diagValue(8);` inside `status()`.
+  `buildSnapshot()`; set `out.i2cf = diagValue(8);` inside `status()`;
+  add `constexpr int kOtosConnected = 7;` alongside the existing
+  `kDiag*` constants and replace `out.otos = false;` (plus its stale
+  comment) with `out.otos = otosGet(kOtosConnected) != 0;` (R-22 fix).
 - `src/wire_handler.h`: add `int32_t i2cf = 0;` to `Wire::StatusFields`.
 - `src/wire_handler.cpp`: extend `execStatus()`'s snprintf format
   string to include `i2cf=%ld` (matching the existing `flags=%x`-style
@@ -159,7 +188,10 @@ reference-specific class.
   `waSetWheelSpeed(left_mms, right_mms)`, reuse the existing
   `FakePoseSource`/odometry path for `poseX`/`poseY`/`poseHeading` where
   practical, or add a settable override if the existing fake does not
-  already expose one).
+  already expose one); also add `waSetOtosConnected(bool)` so the R-22
+  `otos=` fix has a test double to flip (`otosGet(7)`'s fake must
+  return this value, independent of the `waSetOtosRaw()` values, since
+  a disconnected OTOS can still have a stale cached pose).
 - `tests/host/golden_telemetry.py` (new): the shared fixture described
   above.
 
@@ -170,8 +202,9 @@ reference-specific class.
   this is the ticket where the real-adapter shim is required, per
   `sprint.md`'s own handler/projection test split.
 - Six scale tests, `seq`-wrap test, FULL-width byte-budget test,
-  `otosRead`-absence source check, and the golden-frame test, all as
-  listed in Acceptance Criteria above.
+  `otosRead`-absence source check, the `STATUS otos=` truthfulness test
+  (R-22), and the golden-frame test, all as listed in Acceptance
+  Criteria above.
 - **Verification command**: `uv run pytest tests/host/test_wire_motion_verbs.py tests/host/test_wire_telemetry_projection.py` (or wherever the new tests land — scoped to this ticket's modules; full suite runs once at `close_sprint`).
 
 **Documentation updates**: `wire_adapter.h`'s file-header comment

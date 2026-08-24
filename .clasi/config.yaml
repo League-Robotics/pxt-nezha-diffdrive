@@ -1,4 +1,9 @@
-design_docs: disabled
+design_docs: enabled
+sources:
+- src
+- tools
+- tests
+- test
 paths:
   db: .clasi/.clasi.db
   design: docs/design

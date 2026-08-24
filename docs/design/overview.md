@@ -5,8 +5,11 @@
 DiffDrive is a MakeCode extension for PXT/micro:bit that gives the
 ElecFreaks Nezha brick's two-wheel differential drive **closed-loop**
 control from student-facing blocks. An encoder-servoed wheel-speed
-controller (the "DiffDrive kernel") runs continuously in its own fiber
-on the micro:bit at a 24 ms cadence; every drive/move/pose block just
+controller (the "DiffDrive kernel") steps at a 24 ms cadence on
+whichever fiber ticks it — blocking moves tick internally, continuous
+driving runs a `driveTick()` loop, and a starvation-watchdog fiber
+stops the robot within ~150 ms if the ticking caller disappears (the
+"tick model", since sprint 002); every drive/move/pose block just
 talks to it.
 
 ## Why it exists
@@ -35,6 +38,9 @@ Extensions dialog. From there, the `DiffDrive` block category exposes:
   as a loop that runs student code every tick during the move
   (`while moving`, `while going to`).
 - **Pose** — read back `(x, y, heading)` at any time, or reset it.
+- **World** — the OTOS optical world sensor (start tracking, seed the
+  world pose, read fixes, `go to world x y`), consulted at move
+  boundaries only.
 - **Setup** — calibrate track width and wheel travel for a chassis
   that differs from the reference kit, set default move speed/turn
   rate, and (advanced) reach into individual kernel tuning parameters
@@ -47,7 +53,8 @@ in hand.
 
 ## How it's built
 
-Three layers, cleanly separated:
+Layers, cleanly separated (the full breakdown is in
+`../../src/DESIGN.md`):
 
 1. **Kernel** (`diffdrive.h`/`.cpp`) — a platform-agnostic closed-loop
    wheel-speed controller: PID + feedforward, per-wheel correction
@@ -60,11 +67,22 @@ Three layers, cleanly separated:
    I2C and for the CODAL runtime underneath MakeCode/micro:bit,
    including an anti-latch write-shaping pipeline that guards several
    measured hardware failure modes of the brick.
-3. **Shim + blocks** (`src/shims.cpp`, `src/main.ts`) — composes the kernel and
+3. **Motion engine** (`motion_engine.h`/`.cpp`) — chassis geometry
+   and the two-primitive motion reduction (constant-ratio wheel
+   segments) plus the move engine's taper/ramp/deadline shaping;
+   host-portable, shared by the blocks and the wire protocol
+   (extracted from the shim layer in sprint 003).
+4. **Wire protocol** (`wire_handler.*`, `wire_adapter.*`,
+   `protocol.*`, `serial_transport.*`, `radio_transport.*`) — the
+   protocol-v6 ASCII line grammar with its ack/nack reliability
+   layer, dispatched over USB serial (radio RX is a RUN-only
+   carve-out), added in sprint 003 replacing the binary v5 wire.
+5. **Shim + blocks** (`src/shims.cpp`, `src/main.ts`) — composes the kernel and
    ports into a lazily-initialized rig, adds odometry (dead-reckoning
    from encoder counts, since the kernel itself has no chassis
-   geometry) and a position-mode move engine, and exposes it all as
-   cm/deg student-facing MakeCode blocks.
+   geometry), the tick engine and starvation watchdog, and the OTOS
+   world-sensor surface, and exposes it all as cm/deg student-facing
+   MakeCode blocks.
 
 ## Provenance
 
@@ -79,9 +97,11 @@ README and the source comments.
 
 ## Status
 
-v1.0.0, working, shipping as a GitHub-hosted MakeCode extension.
+v1.0.10, working, shipping as a GitHub-hosted MakeCode extension.
 Versioned to intentionally outrank the firmware's own
-`0.YYYYMMDD.n` tag scheme.
+`0.YYYYMMDD.n` tag scheme. Code reflects work through sprint 003
+(protocol v6, motion API, host test harness); sprints 004/005
+(telemetry frames, radio command plane) are planned, not built.
 
 This overview is additive context, not a replacement for
 `specification.md`, which is the authoritative, complete reference for

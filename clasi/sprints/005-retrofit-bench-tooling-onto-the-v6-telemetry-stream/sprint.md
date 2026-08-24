@@ -6,6 +6,9 @@ branch: sprint/005-retrofit-bench-tooling-onto-the-v6-telemetry-stream
 use-cases: []
 issues:
 - retrofit-bench-tooling-onto-the-v6-telemetry-stream.md
+- tools-link-layer-consolidation.md
+- wire-motion-completion-signal.md
+- testfiles-are-not-type-checked-testrig-is-broken.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 

@@ -6,8 +6,14 @@
         "mcp"
       ]
     },
-    "aprilcam": {
+    "aprilcamv1": {
       "command": "aprilcamv1",
+      "args": [
+        "mcp"
+      ]
+    },
+    "aprilcam": {
+      "command": "aprilcam",
       "args": [
         "mcp"
       ]

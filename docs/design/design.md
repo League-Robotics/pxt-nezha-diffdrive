@@ -1,0 +1,142 @@
+---
+source_paths:
+- /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/src
+- /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tools
+- /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tests
+- /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/test
+---
+# DiffDrive — System Design
+
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (sprint 003 as-built; sprints 004/005 are planned, not landed)
+
+## What the system is
+
+DiffDrive is a MakeCode/PXT extension for the micro:bit that gives the
+ElecFreaks Nezha brick's two-wheel differential drive closed-loop
+control: an encoder-servoed wheel-speed kernel stepped at a 24 ms
+cadence, a motion engine that reduces every move to constant-ratio
+wheel segments, dead-reckoned pose plus an optional OTOS optical world
+sensor, student-facing blocks in cm/deg, and a protocol-v6 ASCII wire
+interface over USB serial (plus a RUN-only radio carve-out) for bench
+hosts. Around the extension sit a Python bench-tool suite (`tools/`), a
+native host test harness that compiles the firmware C++ for the
+desktop and drives it from pytest (`tests/host/`), and on-robot PXT
+test programs (`test/`).
+
+## Subsystem map
+
+- [`src/DESIGN.md`](../../src/DESIGN.md) — the extension itself:
+  C++ kernel, motion engine, v6 wire stack, transports, hardware
+  ports, and the TypeScript block API. `src/` is flat, so that one doc
+  carries the logical subsystem breakdown as sections.
+- [`tools/DESIGN.md`](../../tools/DESIGN.md) — host-side Python bench
+  and diagnostic tooling: robot/camera links, deploy builds, tour
+  runners/recorders/charts, ground-truth and calibration scripts.
+- [`tests/DESIGN.md`](../../tests/DESIGN.md) — the Python-run test
+  root; its one subsystem is
+  [`tests/host/DESIGN.md`](../../tests/host/DESIGN.md), the native
+  host harness (firmware C++ under pytest via ctypes).
+- [`test/DESIGN.md`](../../test/DESIGN.md) — PXT `testFiles`: on-robot
+  test programs (playfield tours, the zeguz OTOS rig). Deliberately
+  thin.
+
+Project-level companion docs in this directory: `overview.md`,
+`specification.md`, `usecases.md` (stakeholder-facing; the
+specification is the authoritative block-API reference).
+
+## Global conventions
+
+Subsystem docs assume everything below without restating it.
+
+### Units ladder
+
+Each layer has one native unit system; conversions happen at layer
+boundaries, nowhere else.
+
+| Layer | Units |
+|---|---|
+| Blocks (`main.ts`, student-facing) | cm, cm/s, degrees, degrees/s |
+| TS→C++ shim boundary | **integers only**: mm, mm/s, centidegrees, centidegrees/s |
+| Kernel config across the shim boundary | value × 1000 as an integer (the ×1000 fixed-point convention; `setKernelValue`/`getConfigValue` in `shims.cpp`) |
+| MotionEngine | mm, mm/s, radians, ms |
+| Kernel (`DiffDrive::DifferentialDrive`) | encoder counts and counts/s only — 1 count = 0.1° of shaft rotation; the kernel has **no chassis geometry** |
+| v6 wire | integer fields: mm, mm/s, ms; **angles are milliradian integers** (`mradToRad()` in `wire_adapter.cpp` is the single wire→radians conversion point) |
+
+### Coordinate frames and sign convention
+
+- **CCW-positive everywhere.** Positive twist/rotation/yaw turns left
+  and increases camera-measured yaw; the left wheel is the slower one
+  in a left turn. This convention is pinned by host tests
+  (`tests/host/test_motion_engine_primitives.py`) precisely so a
+  cable-order "fix" fails a test instead of shipping — that bug has
+  shipped before.
+- **Robot/body frame:** x forward, y left.
+- **Pose frame:** dead-reckoned `(x, y, heading)` in the start frame
+  (re-anchored by `resetPose()`; seeded jointly with the OTOS by
+  `seedPose()`).
+- **World frame:** whatever frame the OTOS was seeded in — on the
+  playfield, A1-centred, +x east, +y north.
+
+### Left-motor mirroring
+
+The wheels are mirror-mounted, so one motor's "forward" is the other's
+"reverse". `NezhaMotorPort` takes a per-motor `fwdSign` applied to
+**both** the commanded duty and the encoder readback — odometry read
+through the same flipped sign stays self-consistent under any sign
+choice, which means a sign error is invisible to odometry and only a
+camera can catch it. Current (vevov) wiring in `shims.cpp`:
+left = M1 with `fwdSign -1`, right = M2 with `+1`. Which port is
+called "left" is the free variable that sets physical rotation
+direction; the signs themselves set forward. Verified under AprilCam
+2026-08-20.
+
+### Geometry doctrine
+
+`trackWidth` is the caliper-measured wheel separation and is **never
+adjusted to make a turn land**. All rotational scrub correction lives
+in `rotationalSlip`, measured separately against camera truth.
+`effectiveTrackWidth() = trackWidth / rotationalSlip` is always
+computed fresh, never cached, so a config read-back can never report a
+derived number as though it had been measured.
+
+### Protocol versioning
+
+The wire protocol is **v6**: an ASCII line grammar (UPPERCASE
+commands, lowercase replies, mandatory trailing `#<id>` sequence
+numbers on sequenced verbs, ack/nack/err reliability layer). The
+canonical spec is `radio-robot-lib/docs/design/protocol.md` and
+`motion-api.md` — this project conforms to that grammar; it does not
+vendor that library's C++. The entire binary v5 stack (COBS codec,
+CRC-16, binary verbs) was deleted in sprint 003, not merely disused.
+One legacy carve-out survives: the old cleartext `RUN:<name>[:<arg>…]`
+form is detected by literal prefix ahead of the v6 parser and bridged
+to TypeScript handlers via MessageBus; the radio's receive side
+accepts **only** that form. There is currently **no data-bearing
+telemetry frame** on v6 — the old cleartext `TLM:` stream is retired
+and its `thdr`/`t` replacement is planned (sprint 004), not built.
+
+### Execution model (tick model, sprint 002)
+
+The kernel's own background fiber is deliberately unwired. Every
+control cycle runs on whichever fiber calls `tickDrive()` (a student's
+`driveTick()` loop, a blocking move, or the protocol fiber while a
+wire motion obligation is live), which self-paces to an absolute 24 ms
+deadline. Exactly two background fibers exist: the protocol loop and a
+starvation watchdog that port-level-stops the motors ~100–150 ms after
+the last tick if something still looks like it is driving. "The robot
+only moves while something ticks" is a system invariant.
+
+### Sensor doctrine
+
+The OTOS world sensor is consulted at **move boundaries only** — a
+move runs entirely on encoder odometry and is never steered in flight.
+The overhead camera is a diagnostic, never a control input. All OTOS
+I2C traffic must run on the same fiber that ticks the kernel (shared
+bus with the Nezha encoder; see `src/DESIGN.md`).
+
+### Provenance
+
+`diffdrive.h/.cpp` is a vendored, byte-stable copy of the
+radio-robot firmware's control kernel — bugs are fixed in both repos
+until the firmware consumes this package. Everything else under `src/`
+is owned here.

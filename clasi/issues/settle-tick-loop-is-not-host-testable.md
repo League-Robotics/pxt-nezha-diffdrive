@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: 008
 ---
 
 # The settle-tick loop is not host-testable, so deleting it would go uncaught

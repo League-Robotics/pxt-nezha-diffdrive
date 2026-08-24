@@ -48,17 +48,22 @@ or simulator).
    `drive %speed cm/s turning %yawRate deg/s` block (body speed
    −50..50 cm/s, turn rate −180..180 deg/s).
 2. On first use of any `diffDrive` block, the rig is lazily
-   initialized (kernel configured with default tuning, `begin()` +
-   `start()` called — see `specification.md` §9, §11).
+   initialized (kernel configured with default tuning, `begin()`
+   called; under the tick model `start()` is deliberately never
+   called — see `specification.md` §9, §11).
 3. The command is sent to the kernel and takes effect within one
    control cycle (~24 ms on hardware).
-4. The robot drives at the commanded wheel speeds / body speed and
-   turn rate **until superseded by another Drive/Move command or a
-   stop**.
+4. The user runs a `while (diffDrive.driveTick())` loop — under the
+   tick model the robot only moves **while something keeps ticking
+   the control loop**. The command then holds until superseded by
+   another Drive/Move command or a stop.
 
 **Postconditions**: Kernel is in velocity mode with the last-commanded
-values; wheels continue at that command indefinitely (up to the
-kernel's 1-hour internal lease backstop) until changed.
+values; wheels continue at that command as long as the tick loop runs
+(up to the kernel's 1-hour internal lease backstop). If the ticking
+stops, the starvation watchdog soft-stops the robot within ~150 ms; a
+fresh command or resumed tick loop resumes immediately, no
+clear-emergency-stop needed.
 
 **Error flows**:
 - Robot is emergency-stopped (§UC-010 latched): the kernel refuses the
@@ -88,9 +93,10 @@ kernel's 1-hour internal lease backstop) until changed.
    and a nonzero `distance`.
 2. Block execution starts the move at the current `defaultSpeed`
    (15 cm/s unless changed, §UC-012) and blocks the running script.
-3. The move engine (shim layer) computes a duration and issues a
-   velocity command with a lease; on-hardware progress is tracked
-   against encoder counts with a small decel margin (~2 mm).
+3. The move engine (`MotionEngine`, since sprint 003) computes a
+   duration and issues a velocity command; on-hardware progress is
+   tracked against encoder counts each tick, with an end-of-move
+   taper and a small completion margin (~1 mm).
 4. When the travelled distance reaches the target (within margin), the
    kernel is commanded to neutral and the move ends.
 5. Script execution resumes after the block.
@@ -100,8 +106,9 @@ approximately the commanded distance along the heading at move start.
 
 **Error flows**:
 - Move never reaches target (e.g. robot physically blocked): the
-  move's lease-aligned deadline (duration + 500 ms backstop) or a
-  kernel stall-halt ends the move early regardless, so the block does
+  move's timeout deadline (duration + 1500 ms backstop, the extra
+  covering the end-of-move taper), a kernel stall-halt, or a
+  wrong-way abort ends the move early regardless, so the block does
   not hang forever — but the travelled distance will be short of the
   commanded value.
 - `distance = 0` and `yaw = 0`: no motion is commanded; the move
@@ -193,14 +200,20 @@ the requested `(x, y)` point (subject to closed-loop tracking error).
    (or `start go to x %x cm y %y cm`) — the advanced, non-blocking
    forms of UC-003–006.
 2. Script continues immediately without waiting.
-3. Elsewhere in the program, user polls `moving?` to check whether the
+3. The user's program keeps a concurrent `drive tick`
+   (`driveTick()`) loop running — **known tick-model gap** (see
+   `startMove`'s doc comment in `main.ts`): polling alone does not
+   advance the move; without a tick source it never progresses and
+   the watchdog stops it within ~150 ms.
+4. Elsewhere in the program, user polls `moving?` to check whether the
    move is still active, and/or reads `move progress` (0–1) for a
    completion fraction.
-4. User calls `stop move` when done, or lets the move complete/expire
+5. User calls `stop move` when done, or lets the move complete/expire
    on its own.
 
-**Postconditions**: Move either completes on its own (as in UC-003–006)
-or is ended early by an explicit `stop move`.
+**Postconditions**: Move either completes on its own (as in UC-003–006,
+given the tick source in step 3) or is ended early by an explicit
+`stop move`.
 
 **Error flows**:
 - Calling `stop move` when no move is active: no-op.
@@ -348,8 +361,8 @@ error flows.)
 setup for a chassis that differs from the reference kit)
 
 **Preconditions**: Extension installed; robot is a Nezha-brick,
-two-motor differential-drive chassis with left=M2 (mirrored),
-right=M1 wiring (§ Wiring assumptions).
+two-motor differential-drive chassis with left=M1 (mirrored),
+right=M2 wiring (§ Wiring assumptions).
 
 **Main flow**:
 1. User measures the actual track width (distance between wheel
@@ -361,9 +374,10 @@ right=M1 wiring (§ Wiring assumptions).
 3. Subsequent odometry, distance-based moves, and twist↔wheel-speed
    conversions use the updated geometry.
 
-**Postconditions**: Rig's `trackWidth`/`travelCalib` reflect the new
-chassis; distances and turns land accurately for that chassis instead
-of the reference-kit defaults (115 mm track, 0.7837 mm/deg).
+**Postconditions**: The `MotionEngine`'s `trackWidth`/`travelCalib`
+reflect the new chassis; distances and turns land accurately for that
+chassis instead of the reference defaults (114.2 mm track,
+0.8102 mm/deg — the vevov bake).
 
 **Error flows**:
 - Value of `0` or negative for either parameter: the shim's

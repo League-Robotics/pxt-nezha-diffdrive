@@ -3,7 +3,7 @@ id: '005'
 title: 'Phase C bench checkpoint: flashable hex and stakeholder handoff notes'
 status: open
 use-cases: [SUC-006]
-depends-on: ["002", "004"]
+depends-on: ["002", "004", "006"]
 github-issue: ''
 issue: radio-speaks-full-v6-and-v6-gets-its-telemetry-frame.md
 completes_issue: true
@@ -29,9 +29,9 @@ without performing those checks in this ticket.
 
 ## Acceptance Criteria
 
-- [ ] All prior tickets (001-004) are done and `uv run pytest` (the
-      full suite, per this project's once-per-sprint full-run rule at
-      `close_sprint`) passes.
+- [ ] All prior tickets (001-004, 006) are done and `uv run pytest`
+      (the full suite, per this project's once-per-sprint full-run rule
+      at `close_sprint`) passes.
 - [ ] `uv run python tools/make_deploy.py` produces a flashable hex,
       re-running once if the documented nondeterministic V1 `TS9283`
       packaging abort occurs (expected, not a bug — do not treat a
@@ -58,6 +58,12 @@ without performing those checks in this ticket.
         coverage — this is its first live exercise; watch for
         unexpected radio silence under concurrent `emitLine()` +
         telemetry traffic.
+      - Ticket 006's serial hardening (RX ring raised to >= 480 B, a
+        bounded-retry TX guard on `SerialTransport::writeLine()`) is
+        likewise un-host-tested for its real concurrency/ring behavior
+        — this is ITS first live exercise too. Watch for: any dropped
+        or garbled serial line under load, and `probe(26)` (the new
+        serial-drop counter) staying at 0 during a normal bench run.
 - [ ] This ticket's own notes state explicitly, in so many words, that
       no flashing and no hardware validation were performed as part of
       this sprint's completion.

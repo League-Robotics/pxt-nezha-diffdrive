@@ -12,9 +12,10 @@ detail beyond the README is marked as such by section.
 
 DiffDrive is a MakeCode extension for PXT/micro:bit. It drives the
 ElecFreaks Nezha brick's two-wheel differential drive **closed loop**:
-an encoder-servoed wheel-speed controller (the DiffDrive kernel) runs in
-its own fiber on the micro:bit at a 24 ms cadence, and every block talks
-to it.
+an encoder-servoed wheel-speed controller (the DiffDrive kernel) steps
+at a 24 ms cadence on whichever fiber ticks it (the "tick model" —
+sprint 002 unwired the kernel's own background fiber; see §9), and
+every block talks to it.
 
 Unlike open-loop duty control, wheel speeds are measured and corrected
 continuously — straight means straight, distances land on the encoder,
@@ -27,14 +28,16 @@ From `pxt.json`:
 | Field | Value |
 |---|---|
 | name | `nezha-diffdrive` |
-| version | `1.0.0` |
+| version | `1.0.10` |
 | description | "Closed-loop differential drive for the Nezha brick: encoder-servoed wheel speeds, twist and distance moves, curved go-to, and pose from odometry. The wheel controller runs in its own fiber." |
 | license | MIT |
-| dependencies | `core: *` |
-| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, platform_ports.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, shims.cpp, main.ts |
+| dependencies | `core: *`, `microphone: *` |
+| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, motion_engine.h, motion_engine.cpp, platform_ports.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, wire_handler.h, wire_handler.cpp, wire_adapter.h, wire_adapter.cpp, shims.cpp, main.ts |
 | testFiles | test/test.ts, test/testrig.ts |
 | supportedTargets | microbit |
 | preferredEditor | tsprj |
+| yotta config | `microbit_radio_max_packet_size: 250` |
+| disablesVariants | `mbdal` (dropped in deploy builds — see `tools/make_deploy.py`) |
 
 Supported targets, per README: "for PXT/microbit". (The README notes
 this metadata line "is needed for package cataloging.")
@@ -53,10 +56,16 @@ https://github.com/League-Robotics/pxt-nezha-diffdrive
 
 The public surface is the `diffDrive` namespace in `main.ts`
 (`//% color=#0f9c5a icon="" block="DiffDrive"`), organized into block
-groups: **Drive**, **Move**, **Pose**, **Setup**. Every exported
-function in `main.ts` is documented below; the README's example listing
-is a representative subset, not the full API — every block that exists
-in code is included here.
+groups: **Drive**, **Move**, **Pose**, **World**, **Setup**. Every
+exported function present at the time of writing is documented below;
+the README's example listing is a representative subset, not the full
+API. Sprints 002/003 added surfaces this section does not yet detail
+(see `main.ts` and `src/DESIGN.md` §9 for the current inventory):
+the `drive tick` block and tick-model contract (continuous-mode
+commands only move the robot while a `driveTick()` loop runs), the
+**World** group (OTOS start/seed/read blocks and `go to world x y`),
+the `on run` / `on run command` wire-trigger blocks, the taper/ramp
+shaping shims, and the `emitLine`/`probe`/OTOS shim surface.
 
 ### 4.1 Units and coordinate conventions
 
@@ -76,8 +85,14 @@ in code is included here.
 
 ### 4.2 Drive group — velocity commands
 
-Velocity commands **run until superseded by another command or a
-stop**. They do not block.
+Velocity commands do not block. Under the tick model (sprint 002) the
+robot only moves **while something keeps ticking the control loop** —
+run a `while (diffDrive.driveTick())` loop after issuing one. If
+nothing ticks, the starvation watchdog stops the robot within about
+150 ms; a fresh command or resumed tick loop resumes immediately, no
+clear-emergency-stop needed. (Position-mode blocks like `move` tick
+internally, so this only matters for
+`setWheelSpeeds`/`driveTwist`.)
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|
@@ -94,7 +109,7 @@ program flow continues.
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|
-| `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. Setting both at once produces an arc. Internally: `startMove(distance, yaw)` then polls `_updateMove()` every 10 ms until it returns false. |
+| `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. Setting both at once produces an arc. Internally: `startMove(distance, yaw)` then `while (_tickDrive())` — the blocking form ticks the control loop itself at the 24 ms cadence until the move ends. |
 | `go to x %x cm y %y cm` | `goTo(x, y)` | `x`: forward distance cm; `y`: leftward distance cm (robot frame) | Drives a curved (constant-curvature) path to a point in the robot's current coordinate frame, then stops. Blocks the same way as `move`. |
 
 `goTo`'s arc math (in `startGoTo`, shared by the blocking and async
@@ -115,7 +130,7 @@ polling.
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|
-| `start move %distance cm turning %yaw degrees` *(advanced)* | `startMove(distance, yaw)` | same as `move` | Starts a distance/yaw move without waiting. Uses the current `defaultSpeed` (default 15 cm/s) and `defaultYawRate` (default 90 deg/s) as the move's speed/turn-rate targets. Poll `isMoving()` / call `stopMove()`. |
+| `start move %distance cm turning %yaw degrees` *(advanced)* | `startMove(distance, yaw)` | same as `move` | Starts a distance/yaw move without waiting. Uses the current `defaultSpeed` (default 15 cm/s) and `defaultYawRate` (default 90 deg/s) as the move's speed/turn-rate targets. Poll `isMoving()` / call `stopMove()`. **Known tick-model gap**: polling does not itself advance the move — without a concurrent `driveTick()` loop the move never progresses and the watchdog stops it within ~150 ms (see `startMove`'s doc comment in `main.ts`). |
 | `start go to x %x cm y %y cm` *(advanced)* | `startGoTo(x, y)` | same as `goTo` | Starts a go-to without waiting; computes the arc (see §4.3) and calls `startMove` internally. |
 | `moving?` | `isMoving()` | — | Returns whether a move is currently running (`_updateMove()`; this call also advances the move state machine — see §9). |
 | `move progress` *(advanced)* | `moveProgress()` | — | Fraction of the current move completed, 0 to 1 (`_progress() / 1000`). |
@@ -196,8 +211,9 @@ reproduction of the closed-loop control law:
   clamped so that `dt < 0` or `dt > 0.5s` is treated as `dt = 0`
   (guards clock jumps).
 - `setWheelSpeeds`: sets `simVel` to the mean and `simYawRate` to the
-  half-difference over an assumed track width (`/115` mm, matching the
-  hardware default track width), and cancels any active simulated move.
+  half-difference over an assumed track width (`/115` mm — near, no
+  longer exactly equal to, the hardware default of 114.2 mm), and
+  cancels any active simulated move.
 - `driveTwist`: sets `simVel`/`simYawRate` directly from the twist
   command.
 - `startMove`: computes a constant velocity/yaw-rate for the move's
@@ -212,6 +228,10 @@ reproduction of the closed-loop control law:
   pose.
 - `setGeometry`/`setKernelValue` are no-ops in the simulator — track
   width, wheel calibration, and kernel tuning have no simulated effect.
+- `_tickDrive` (sprint 002) mirrors the hardware tick engine's
+  absolute-deadline 24 ms pacing with `basic.pause()`, so
+  `while (driveTick())` loops are timing-observable in the browser the
+  same way they are on hardware.
 
 ## 6. Kernel: `DiffDrive::DifferentialDrive` (closed-loop wheel-speed controller)
 
@@ -223,11 +243,15 @@ four small ports it defines itself (`Motor`, `Clock`, `Sleeper`,
 
 ### 6.1 Execution model
 
-- Runs its own cooperative fiber, started by `start()` via the injected
-  `FiberLauncher`; the fiber body (`run()`) calls `step()` once per
-  cycle and sleeps to an **absolute** deadline (`cycleStartUs +
-  cyclePeriod*1000`), tracking `cycleOverrunCount_` when a cycle
-  overruns instead of sleeping.
+- Can run its own cooperative fiber, started by `start()` via the
+  injected `FiberLauncher`; the fiber body (`run()`) calls `step()`
+  once per cycle and sleeps to an **absolute** deadline
+  (`cycleStartUs + cyclePeriod*1000`), tracking `cycleOverrunCount_`
+  when a cycle overruns instead of sleeping. **In this package that
+  fiber is deliberately never started** (sprint 002's tick model):
+  `shims.cpp` drives `step()` from `tickDrive()` on the caller's
+  fiber, with the same absolute-deadline pacing lifted into the shim
+  layer — see §9.
 - Default cadence: **24 ms** (`Config::cyclePeriod`, set once before
   `begin()` — changing it after `begin()` is refused with
   `kCadencePreserved` and the prior value is kept; see `setConfig`'s
@@ -513,62 +537,84 @@ pieces of application logic the kernel deliberately does not contain:
 
 - **Odometry**: differential dead-reckoning computed from the kernel's
   `Output` wheel positions. The kernel is counts-native and has no
-  chassis geometry; track width and travel calibration live here
-  (`Rig::trackWidth`, `Rig::travelCalib`). `odomUpdate()` converts each
-  wheel's position delta to mm via `countsPerMm() = 10 /
-  travelCalib`, then applies the standard differential-drive
-  dead-reckoning update: `dCenter = (dLeft+dRight)/2`, `dHeading =
-  (dRight-dLeft)/trackWidth`, integrated at the mid-step heading
+  chassis geometry; track width, travel calibration, and rotational
+  slip moved to `MotionEngine` in sprint 003 (`motion_engine.h` —
+  `odomUpdate()` reads them from `Rig::engine`). `odomUpdate()`
+  converts each wheel's position delta to mm via
+  `countsPerMm() = 10 / travelCalib`, then applies the standard
+  differential-drive dead-reckoning update:
+  `dCenter = (dLeft+dRight)/2`, `dHeading =
+  (dRight-dLeft)/effectiveTrackWidth()` (track width divided by the
+  measured rotational slip), integrated at the mid-step heading
   (midpoint method) into `(x, y, heading)`.
-- **Move engine**: a start/update/end state machine layered over the
-  kernel's velocity interface, implementing position-mode moves
-  (distance+yaw; `goTo`'s arc math lives in the TS layer, §4.3).
-  `startMove` computes a single duration covering both the distance
-  and yaw axes (so they complete simultaneously — an arc finishes as
-  one motion, not two sequential ones), derives a constant
-  velocity/twist from that duration, and issues a `kernel.drive()`
-  with a lease of `duration*1000 + 500` ms as a backstop.
-  `updateMove()` (called by the TS layer's `_updateMove()` shim, which
-  every blocking/loop/polling form is built on) compares progress
-  against the target with a 25-count (~2 mm) decel margin on each
-  axis, and ends the move (commands `kernel.neutral()`, clears
-  `moveActive`) when both axes are done, the lease-aligned deadline
-  has expired, or the kernel reports `stallHalted`. `progress()`
-  reports the more-limiting of the two axes' fractional completion,
-  0..1000. `endMove()` ends a move early if one is active.
+- **Move engine**: since sprint 003 this lives in
+  `MotionEngine` (`motion_engine.h`/`.cpp`), shared by the blocks and
+  the wire protocol; the shim's `startMove`/`updateMove`/`endMove`/
+  `progress` are thin forwards onto `engine.moveX()`/`serviceMove()`/
+  `endMove()`/`progress()`. `startMove` still computes a single
+  duration covering both the distance and yaw axes (so an arc
+  finishes as one motion), derives from it the single `cruise` that
+  reproduces the legacy dual-rate math exactly, and calls
+  `engine.moveX()` with a timeout backstop of
+  `duration*1000 + 1500` ms (the extra covers the end-of-move taper).
+  `serviceMove()` shapes each tick — acceleration ramp, end-of-move
+  taper with floors, wrong-way abort — reissuing `kernel.drive()`
+  every tick with a rolling 500 ms lease, and ends the move
+  (commands `kernel.neutral()`) when both axes are within margin
+  (10 counts distance; 4 counts yaw on a pure turn, 10 in an arc),
+  the timeout deadline expires, the kernel reports `stallHalted`, or
+  the robot rotates the wrong way. `progress()` reports the
+  more-limiting axis's fractional completion, 0..1000.
 - **Boundary convention**: integers only across the TS↔C++ boundary —
   mm, mm/s, centidegrees, centidegrees/s; kernel config values scaled
   ×1000. The TS layer owns the cm/deg student-facing units (§4.1) and
   performs all the scaling.
 - **Lazy singleton**: the whole rig (`Rig` struct: two motor ports,
-  platform ports, the kernel, odometry state, move-engine state) is
+  platform ports, the kernel, the `MotionEngine`, odometry state) is
   constructed once on first use (`ensure()`), which also applies the
-  default tuned `Config` (§11), calls `kernel.begin()` (primes
-  encoders, arms the boot zero-write) and `kernel.start()` (the kernel
-  fiber free-runs from here on). There is no explicit
+  default tuned `Config` (§11) and calls `kernel.begin()` (primes
+  encoders, arms the boot zero-write). `kernel.start()` is
+  **deliberately not called** (sprint 002's tick model): every
+  control cycle runs on whichever fiber calls the shim's
+  `tickDrive()` — one `kernel.step()` + `serviceMove()`, then
+  absolute-deadline self-pacing to the 24 ms cadence. The one
+  background fiber `ensure()` launches is the **starvation
+  watchdog**: every ~50 ms, if something looks like it is driving and
+  no tick has run for ~100 ms, it neutrals the kernel, ends the move,
+  and writes a port-level zero — a resumable soft stop that never
+  touches the e-stop latch. There is no explicit
   "initialize"/"connect" block — first use of any `diffDrive` block
   triggers setup.
 
 ## 10. Wiring assumptions
 
-Left wheel on **M2** (mirrored, `fwdSign = -1`), right wheel on **M1**
-(`fwdSign = +1`) — the standard two-motor chassis. These are compile-time
-defaults in `shims.cpp`'s `Rig` struct
-(`NezhaMotorPort left{2, -1}; NezhaMotorPort right{1, +1};`), not
+Left wheel on **M1** (mirrored, `fwdSign = -1`), right wheel on **M2**
+(`fwdSign = +1`) — the vevov wiring, camera-verified 2026-08-20. (The
+earlier tovez defaults had the side labels the other way around;
+because `fwdSign` applies to both duty and encoder, odometry is
+self-consistent under any sign choice, and which port is called
+"left" is the free variable that sets physical rotation direction —
+see the history comment on `Rig` in `shims.cpp`.) These are
+compile-time defaults in `shims.cpp`'s `Rig` struct
+(`NezhaMotorPort left{1, -1}; NezhaMotorPort right{2, +1};`), not
 runtime-configurable from blocks.
 
 ## 11. Default tuning values (the "tovez" bake)
 
-Set once, in `shims.cpp`'s `ensure()`, before `begin()`/`start()`.
-Comment in source: "tovez-measured defaults; generic kits adjust via
-`setGeometry()`" (i.e. via the `set track width` / `set wheel
-calibration` blocks, §4.7) — these are defaults for the reference kit,
-not universal constants.
+Kernel config set once, in `shims.cpp`'s `ensure()`, before `begin()`;
+geometry defaults live on `MotionEngine`'s fields (`motion_engine.h`,
+with the measurement history behind each in the field comments).
+Generic kits adjust via `setGeometry()` (i.e. the `set track width` /
+`set wheel calibration` blocks, §4.7) — these are measured defaults
+for the reference robot, not universal constants. The geometry values
+are the vevov bake (2026-08-19/20 measurements), superseding the
+original tovez numbers.
 
 | Field | Default | Units |
 |---|---|---|
-| `travelCalib` (Rig, not Config) | 0.7837 | mm/deg |
-| `trackWidth` (Rig, not Config) | 115.0 | mm |
+| `travelCalib` (MotionEngine, not Config) | 0.8102 | mm/deg |
+| `trackWidth` (MotionEngine, not Config) | 114.2 | mm (caliper-measured; never adjusted to fix a turn) |
+| `rotationalSlip` (MotionEngine, not Config) | 0.952 | — (camera-measured scrub; all rotational correction lives here) |
 | `maxDuty` | 100.0 | % |
 | `fullDutyVelocity` | 10795.0 | counts/s |
 | `kp` | 0.0 | — (proportional term disabled by default) |
@@ -583,11 +629,12 @@ not universal constants.
 | `stallSpeed` | 191.4 | counts/s |
 | `stallDemand` | 510.4 | counts/s |
 | `stallWindow` | 500.0 | ms |
+| `twistHoldGain` | 2.0 | 1/s (enabled 2026-08-20 — trims measured vs. commanded differential; the tovez bake shipped it off) |
 | `cyclePeriod` | 24 | ms |
 
 Fields **not** set by the default config (left at the `Config` struct's
 own zero/identity defaults): `kaff` (0 → no accel feedforward),
-`twistHoldGain` (0 → twist-hold trim off), `wheelGain`/`wheelIntercept`
+`wheelGain`/`wheelIntercept`
 (identity: gain 1.0, intercept 0.0 → no per-wheel correction),
 `deficitThreshold`/`deficitWindow` (0 → deficit detector off),
 `lambdaEnabled` (false → authority scaling off), `crawlPulse` (0 → off).
@@ -643,26 +690,29 @@ Nezha port shaping defaults (`nezha_port.h`, used as-is —
 
 ## 13. Versioning
 
-Current version: **1.0.0**. Per stakeholder constraint: this
-extension's semver must outrank the firmware's own tag scheme
+Current version: **1.0.10** (`pxt.json`). Per stakeholder constraint:
+this extension's semver must outrank the firmware's own tag scheme
 (`0.YYYYMMDD.n`) for this package — hence starting at `1.0.0` rather
-than `0.x`.
+than `0.x`. Note `protocol.cpp`'s `kVersion` constant (reported by the
+wire's ID/VER verbs) is a manually-kept mirror of this field.
 
 ## 14. Test coverage
 
-`test.ts` (declared in `pxt.json`'s `testFiles`) is a smoke program,
-not a unit-test suite with assertions: the square tour in four moves,
-plus a loop-form leg with a live pose readout. Runs both in the
-simulator (against the kinematic stand-in, §5) and on hardware (against
-the real kernel):
+Two test surfaces (see `tests/DESIGN.md` and `test/DESIGN.md`):
 
-- Button A: `resetPose()`, then four iterations of `move(50, 0)`
-  (50 cm straight) followed by `move(0, 90)` (pivot 90° CCW) — a
-  50 cm-sided square — then shows the rounded `poseX()` on the LED
-  matrix.
-- Button B: `whileMoving(50, 0, ...)` driving 50 cm straight while
-  plotting a live bar graph of `x` progress on the LED matrix each
-  iteration, then an explicit `stop()` after the loop exits.
+- **`tests/host/`** — the assertion-based suite (sprint 003): the
+  extension's portable C++ (kernel, motion engine, v6 wire grammar,
+  wire adapter) compiled for the desktop and driven from pytest via
+  `ctypes` against fake ports. Run with `uv run pytest`.
+- **`test/test.ts` / `test/testrig.ts`** (declared in `pxt.json`'s
+  `testFiles`) — on-robot smoke/bench programs, not assertion suites.
+  `test.ts` drives three playfield square tours (robot-relative,
+  OTOS-guided `goToWorld`, open-loop wheels), triggered by buttons or
+  wire `RUN:` commands, each as an explicit `startMove` +
+  `driveTick()` loop; plus named commands for lever-arm calibration
+  and probes. `testrig.ts` is the zeguz OTOS drum-rig console.
+  Deployed via `tools/make_deploy.py`, which promotes them into
+  `files` in a scratch build.
 
 ## 15. License
 

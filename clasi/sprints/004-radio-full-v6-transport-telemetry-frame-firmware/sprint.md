@@ -10,9 +10,11 @@ use-cases:
 - SUC-004
 - SUC-005
 - SUC-006
+- SUC-007
 issues:
 - radio-speaks-full-v6-and-v6-gets-its-telemetry-frame.md
 - status-lost-diag-numeric-surface.md
+- serial-transport-rx-ring-and-tx-serialization.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -165,6 +167,9 @@ but not yet run on a robot.
 
 - Radio accepts and answers the full v6 protocol (ack/nack, `TLM`,
   `STATUS`, etc.), not just `RUN:`; the `RUN:` fallback still works.
+  (Within radio's existing single-fragment RX capacity — see Scope's
+  Out of Scope entry on RX capacity/fragmentation; this sprint changes
+  the GRAMMAR radio speaks, not how much of it fits in one fragment.)
 - A `t` telemetry frame reaches both serial and radio sinks, correctly
   scaled (host tests prove scale, not just shape — see the issue's
   verification table for the specific scale-mismatch cases each test
@@ -199,6 +204,19 @@ but not yet run on a robot.
   (`otosRead` absence in `wire_adapter.cpp`; a shared golden telemetry
   frame fixture used by both the C++-driven test and the Python parser
   test).
+- **Serial transport hardening** (issue
+  `serial-transport-rx-ring-and-tx-serialization.md`, code review
+  R-19/R-20; ticket 006): `SerialTransport`'s RX ring resized from
+  128 B to >= 480 B (>= 2x `kMaxLineBytes`), and a bounded-retry
+  serialization guard on `SerialTransport::writeLine()` so `emitLine()`
+  (TS fiber) and the serial `WireHandler`'s own replies/keepalives
+  (protocol fiber) can no longer interleave or silently drop into one
+  serial port. Corrects ticket 002's original AC, which wrongly
+  asserted the serial path needed no such guard.
+- **STATUS reports OTOS truthfully** (code review R-22/WIRE-06; folded
+  into ticket 004): `out.otos` stops hardcoding `false` and instead
+  reads the already-existing `otosGet(7)` connected boolean, so
+  `STATUS` cannot claim "no OTOS" while `GO_TO_W` is actively using one.
 
 ### Out of Scope
 
@@ -217,6 +235,30 @@ but not yet run on a robot.
   issue (`tour_watch.py:202`'s `len(f) == 7` check and
   `tour_capture.py:70`'s 7/4/3 field-count check) — real bugs, but they
   belong to the host-tooling sprint, not this one.
+- **Radio RX capacity / fragmentation** (code review R-27/DES-01).
+  `RadioTransport`'s RX path stays a single 64-byte slot with no
+  multi-fragment reassembly, unchanged from before this sprint — this
+  is a decision, not an oversight the review's previous "modulo the
+  existing single-fragment RX size limit" one-liner made it sound like.
+  Stated honestly: a v6 command line sent host-to-robot over radio
+  whose encoding does not fit in that single 64-byte fragment does not
+  fail cleanly today — depending on where the overflow lands, it either
+  clamps to a parseable prefix (silently executing a truncated, wrong
+  command) or is silently dropped. This sprint adds ZERO capacity or
+  fragmentation work to change that. In practice this affects only v6
+  lines whose formatted length exceeds ~64 bytes; the current verb
+  catalog's short commands (`STATUS #1`, `HELLO`, `WHEELS_V 100 100 500
+  #3`, etc.) fit comfortably, and `test.ts`'s `RUN:` bench tooling is
+  well under the limit too — a verbose multi-field `SET` line is the
+  plausible case that would not fit. This is deliberately out of scope
+  for 004: Phase A's goal is making radio speak the v6 GRAMMAR, not
+  resizing its RX capacity, and the existing hazard (present before
+  this sprint, unchanged by it) is not this sprint's regression to fix.
+  If bench use surfaces it as a real problem, that is follow-up work
+  for a future sprint, not a silent expansion of this one's scope. (See
+  also Open Question 2, below, for the SEPARATE and already-tracked
+  TX-side 200-byte truncation cap on radio's outbound telemetry line —
+  that is a different direction and a different limit from this one.)
 
 ## Test Strategy
 
@@ -225,26 +267,38 @@ scale-correctness tests per the issue's table (each test picks
 input/expected pairs where source and wire values differ by the factor
 under test, not just shape), frame-mechanics tests (thdr cadence and
 byte-exact ordering, `seq` wraparound 127->0), per-transport reliability
-isolation, the `otosRead`-absence invariant, and a shared golden
-telemetry frame fixture consumed by both the emitter-side C++ test and
-the Python parser test so the two cannot drift. Full detail deferred to
-Detail Mode's Use Cases / ticketing.
+isolation, the `otosRead`-absence invariant, a `STATUS otos=` truthful-
+reporting test (R-22, ticket 004), and a shared golden telemetry frame
+fixture consumed by both the emitter-side C++ test and the Python
+parser test so the two cannot drift. Full detail deferred to Detail
+Mode's Use Cases / ticketing. **Not host-testable, by construction**
+(both `radio_transport.cpp` and `serial_transport.cpp` `#include`
+`pxt.h` directly with no host shim): `RadioTransport`'s re-entrancy
+guard (ticket 002) and `SerialTransport`'s RX ring resize + write guard
+(ticket 006, added post-review) — both verified by code review and
+first exercised live at ticket 005's bench checkpoint.
 
 ## Architecture
 
-**Substantial** — this sprint touches four modules with a new
+**Substantial** — this sprint touches five modules with a new
 cross-module dependency (a second `Wire::WireHandler` instance now
 shares the one existing `WireAdapter`; `Protocol` gains a direct
 `buildSnapshot()`/`telemetryEnabled()` call onto that adapter it never
 made before) and introduces a new wire-facing value type (`Column`/
 `Snapshot`) that two independent formatting call sites must agree on
 byte-for-byte. It also closes sprint 003's own "Open Question 4" (the
-radio RUN-only carve-out) by design, not by accident. The full 7-step
-methodology applies, diagrams included — no exception like sprint 020's
-is available here, because this sprint's whole point is composing a
-NEW relationship between existing modules (two handlers over one
-adapter), which is exactly the case the methodology's diagram
-requirement exists for.
+radio RUN-only carve-out) by design, not by accident. **Amendment
+(post-review, ticket 006):** `src/serial_transport.{h,cpp}` joins the
+touched-module set — code review 2026-08-23 (R-19/R-20) found the
+serial transport needs its own RX-ring resize and TX-serialization
+guard, mirroring `RadioTransport`'s (this sprint does not add a NEW
+cross-module dependency for this — `SerialTransport` was already
+reached from `protocol.cpp` before this sprint; only its own internal
+guard and ring size change). The full 7-step methodology applies,
+diagrams included — no exception like sprint 020's is available here,
+because this sprint's whole point is composing a NEW relationship
+between existing modules (two handlers over one adapter), which is
+exactly the case the methodology's diagram requirement exists for.
 
 There is still no consolidated `docs/architecture/` document for this
 project (only `docs/design/{overview.md,specification.md,
@@ -312,14 +366,24 @@ optimization; it is the precondition for Phase A being safe at all.
    `STATUS`'s flags/`i2cf`. Changes only when the column set or a scale
    factor changes; has no wire-byte or CODAL awareness of its own.
    (`src/wire_adapter.{h,cpp}`)
+5. **Serial send-path safety** *(added post-review, ticket 006)* — the
+   RX-ring capacity and write-serialization guard that let two fibers
+   (the TS fiber's `emitLine()`, the protocol fiber's serial
+   `WireHandler` replies/keepalives) share `writeLine()`'s underlying
+   wire without overflowing or corrupting it. Changes only when the
+   concurrency or capacity story on that one class changes.
+   (`src/serial_transport.{h,cpp}`)
 
-Responsibilities 1-2 are already separate modules today and stay
-separate (a scheduling bug and a radio-buffer-corruption bug have
-nothing in common); 3-4 are the same handler/adapter split sprint 003
-already established for command verbs, extended here to telemetry for
-the identical reason — "the adapter builds and scales; the handler
-only prints" (`protocol.md` §5.2) is a boundary this project already
-has, not a new one.
+Responsibilities 1, 2, and 5 are already separate modules today and
+stay separate (a scheduling bug, a radio-buffer-corruption bug, and a
+serial-ring/write-corruption bug have nothing structurally in common
+with each other, even though 2 and 5 are analogous IN KIND — same
+category of defect, different transport, deliberately not unified into
+one shared guard abstraction, per Design Rationale); 3-4 are the same
+handler/adapter split sprint 003 already established for command
+verbs, extended here to telemetry for the identical reason — "the
+adapter builds and scales; the handler only prints" (`protocol.md`
+§5.2) is a boundary this project already has, not a new one.
 
 #### Step 3 — Subsystems and Modules
 
@@ -329,7 +393,8 @@ has, not a new one.
 | `src/wire_handler.{h,cpp}` **(extended)** | Formats and dispatches wire lines, including the self-describing telemetry frame. | Inside: `feed()`/`dispatch()` (unchanged), the new `Column`/`Snapshot` value types, `emitTelemetry(snapshot)`/`emitReliability()`, the per-instance header memo + 1 Hz refresh, per-instance `expectedNext_`/`gapOutstanding_`. Outside: what a column MEANS, any robot state, any CODAL type. | SUC-001, SUC-002, SUC-003, SUC-004 |
 | `src/wire_adapter.{h,cpp}` **(extended)** | Projects live robot state into wire-scaled columns for whichever handler asks, and answers `STATUS`. | Inside: `buildSnapshot()`/`telemetryEnabled()`, the shared `computeFlags()`, the POSE/FULL column tables, `STATUS`'s `i2cf=` key. Outside: any wire byte, any CODAL/I2C call — `otosRead()` never appears here. | SUC-003, SUC-004, SUC-005 |
 | `src/radio_transport.{h,cpp}` **(extended)** | Gets a formatted line onto the fleet radio, now safely shared by two independent fiber callers. | Inside: the `sending_` re-entrancy guard, the bool-returning `sendLine()`, fragment framing (unchanged). Outside: line content, verb semantics, retry policy (that lives in the caller). | SUC-001, SUC-002 |
-| `src/shims.cpp` **(no new entry point)** | Already-existing forward-declared reads (`poseX`/`poseY`/`poseHeading`/`otosGet`/`wheelSpeed`/`diagValue`) that this sprint's projection reuses as-is. | Inside: unchanged. Outside: unchanged — this sprint adds zero new functions here. | SUC-003, SUC-004, SUC-005 |
+| `src/serial_transport.{h,cpp}` **(extended, added post-review)** | Gets a formatted line onto USB-serial, now safely shared by two independent fiber callers. | Inside: the RX/TX ring size constants (sized for a full v6 line), the bounded-retry serialization guard around `writeLine()`, the new serial-drop counter. Outside: line content, verb semantics, retry POLICY choice for other transports (radio's policy is its own, per Design Rationale). | SUC-007 |
+| `src/shims.cpp` **(no new entry point)** | Already-existing forward-declared reads (`poseX`/`poseY`/`poseHeading`/`otosGet`/`wheelSpeed`/`diagValue`) that this sprint's projection reuses as-is. | Inside: unchanged, plus one new `diagValue()` switch case (26, the serial-drop counter — a new case, not a new function). Outside: unchanged — this sprint adds zero new FUNCTIONS here. | SUC-003, SUC-004, SUC-005, SUC-007 |
 
 Every module addresses at least one SUC below; each passes the
 cohesion test in one sentence, no "and" (the table's "Purpose" column
@@ -362,12 +427,19 @@ graph TD
     wireHS -->|"write() one line"| serSink --> serT
     wireHR -.->|"write() one line (NEW)"| radSink --> radT
     proto -.->|"sendLine(), 2nd caller,<br/>re-entrancy guarded (NEW)"| radT
+    proto -.->|"writeLine(), 2nd caller,<br/>re-entrancy guarded (NEW,<br/>ticket 006)"| serT
     wireA -->|"forward-declared reads"| shims
 ```
 
 Dashed edges are new as of this sprint; solid edges already existed
 (radio's own `RUN:`-only receive path, not drawn separately, is the
-same "route RX bytes in" edge `proto --> wireHR` now generalizes).
+same "route RX bytes in" edge `proto --> wireHR` now generalizes). The
+`proto -.-> serT` edge is an amendment added after the initial
+architecture review (code review R-19/R-20): `emitLine()` was already
+a caller of `serT` via `wireHS`'s sink before this sprint, but this
+sprint is what makes that a formally-guarded, DOCUMENTED two-caller
+relationship (ticket 006), the same way `proto -.-> radT` already was
+in the original plan for radio.
 
 **ERD**: none. `Column`/`Snapshot` are transient, stack/member-lived
 formatting value objects for one emission tick — nothing here is
@@ -377,9 +449,10 @@ persisted, and no existing schema changes.
 new edge. No cycle exists: `wireA -> shims` is one direction (`shims`
 calls nothing back into `wire_adapter.cpp`); `wireHS`/`wireHR ->
 wireA` is one direction (the `Wire::Adapter` interface is called BY the
-handler, never the reverse); `proto -> {wireHS, wireHR, wireA, radT}`
-fans out from the one composition root, with no edge pointing back
-into `proto` from any of them.
+handler, never the reverse); `proto -> {wireHS, wireHR, wireA, radT,
+serT}` fans out from the one composition root (the `serT` edge added
+post-review, ticket 006), with no edge pointing back into `proto` from
+any of them.
 
 #### Step 5 — What Changed / Why / Impact
 
@@ -417,6 +490,14 @@ into `proto` from any of them.
   `poseHeading`/`otosGet`/`wheelSpeed`) — all five functions already
   exist there today; `execStatus()`'s format string gains `i2cf=<n>`,
   read via the ALREADY-forward-declared `diagValue(8)`.
+- **`src/serial_transport.h`/`.cpp` (amendment, ticket 006):** RX/TX
+  ring size raised from 128 B to >= 480 B (>= 2x `kMaxLineBytes`); a
+  bounded-retry serialization guard around `writeLine()` so `emitLine()`
+  and the serial `WireHandler`'s own replies/keepalives can no longer
+  interleave or silently drop into one write; both `uBit.serial.send()`
+  return values checked, with drops counted in a new `diagValue(26)`
+  ordinal (`src/shims.cpp` gains one new `switch` case, not a new
+  function).
 - No new files. `pxt.json`'s `files` array needs no update (unlike
   sprint 003) — every change lands inside an existing `.h`/`.cpp` pair.
 
@@ -430,7 +511,16 @@ two hosts share one robot's reliability state safely. Phase B's
 handler/adapter split mirrors sprint 003's own command-verb boundary
 onto telemetry, for the same reason: `WireHandler` stays testable
 against a canned `Snapshot` with no robot state, and `WireAdapter`
-stays the one place scale factors live and can drift.
+stays the one place scale factors live and can drift. Ticket 006's
+serial hardening is added for a related but distinct reason: this
+sprint is what puts the protocol fiber and the TS fiber's `emitLine()`
+under closer review as concurrent transport writers (that review is
+what caught R-20's radio half), and the same review caught that the
+identical two-writer hazard already existed on serial, unfixed,
+independent of anything this sprint otherwise changes there — fixing
+it in this sprint (rather than filing it away for a later one) keeps
+one sprint's review from leaving a confirmed, described defect
+sitting unaddressed in a component this sprint is already touching.
 
 **Impact on Existing Components**
 
@@ -450,10 +540,19 @@ stays the one place scale factors live and can drift.
   new test-double functions (mirroring `poseX`/`poseY`/`poseHeading`/
   `otosGet`/`wheelSpeed`) plus settable raw-unit state, needed by the
   projection ticket's scale tests.
-- Existing serial-only behavior (`STATUS`, `GET`/`SET`, the six motion
-  verbs, `HELLO`/`PING`/`ESTOP`) — **unchanged**: every existing verb's
-  wire shape is untouched; `STATUS` gains one new key, backward
-  compatible per `protocol.md` §6.1's own "unknown keys ignored."
+- Existing serial-only verb BEHAVIOR (`STATUS`, `GET`/`SET`, the six
+  motion verbs, `HELLO`/`PING`/`ESTOP`) — **unchanged at the wire-grammar
+  level**: every existing verb's wire shape is untouched; `STATUS` gains
+  two new keys (`i2cf=`, and `otos=` now reports truthfully instead of
+  a hardcoded `false` — R-22), backward compatible per `protocol.md`
+  §6.1's own "unknown keys ignored." **Correction (amendment, ticket
+  006): serial's underlying TRANSPORT is NOT unchanged** — an earlier
+  draft of this bullet claimed it was; code review R-19/R-20 found
+  `SerialTransport`'s RX ring (v5-sized) and its unguarded two-fiber
+  write path needed the same hardening `RadioTransport` gets in ticket
+  002, and ticket 006 now does that. The wire GRAMMAR any existing host
+  parses is unaffected; the TRANSPORT layer beneath it gets a bigger RX
+  ring and a write guard it did not have before this sprint.
 - `test.ts`/bench tooling's `RUN:` bridge — **unchanged** on both
   transports; this is the one grammar this sprint deliberately does not
   touch.
@@ -535,6 +634,30 @@ retry need.
 contention with no retry, by design — this is stated explicitly here so
 a future reader does not "fix" it into matching `emitLine()`'s retry.
 
+**Decision (amendment, ticket 006): `SerialTransport`'s two-writer guard
+uses a bounded retry on BOTH callers, not radio's asymmetric
+drop-vs-retry-once.**
+*Context*: code review R-19/R-20 found the identical two-fiber
+`writeLine()` hazard already existed on serial, predating this sprint;
+fixing it means choosing a guard policy the same way ticket 002 already
+had to for radio.
+*Alternatives considered*: (a) copy radio's exact policy (second caller
+drops immediately, only `emitLine()` retries once); (b) a bounded retry
+on every serial caller, capped and counted via a new `diagValue()`
+ordinal.
+*Why this choice*: (b). Radio's asymmetry is justified by telemetry's
+own self-healing `seq` gap and by `emitLine()` being the one caller
+whose loss is user-visible; serial has no such split — a lost `STATUS`
+reply from the protocol fiber's `WireHandler` is exactly as bad as a
+lost `emitLine()` result, so treating every serial writer the way
+radio treats only `emitLine()` is the more honest match for serial's
+actual stakes. Serial's lower contention (one host, not a fleet) also
+makes the extra bounded-retry latency cheap.
+*Consequences*: `RadioTransport` and `SerialTransport` now have two
+DIFFERENT guard policies, deliberately, not a shared base class — a
+future reader should not "unify" them without first re-reading this
+decision and ticket 002's matching one.
+
 **Decision: wire units for the new POSE/FULL columns stay v5-compatible
 plain integers (`x`/`y` in mm, `vl`/`vr` in mm/s, etc.) — the
 reference's `mm/s ×10` telemetry quantum is NOT adopted.**
@@ -593,9 +716,18 @@ compatibility break for existing `STATUS` consumers.
 - **Backward compatible on the wire.** `STATUS` gains one new key
   (`i2cf=`); per `protocol.md` §6.1, "order not guaranteed, unknown keys
   ignored" — an existing host parsing `STATUS` today is unaffected.
-  Radio gaining the full v6 grammar is additive: the `RUN:` carve-out
-  a bench host already speaks keeps working unchanged on both
-  transports.
+  `STATUS`'s existing `otos=` key changes VALUE (R-22: it can now read
+  `1`, not just an always-`0`) but not shape or key name — a host
+  already parsing it as a boolean/int sees a more truthful number, not
+  a new field to handle. Radio gaining the full v6 grammar is additive:
+  the `RUN:` carve-out a bench host already speaks keeps working
+  unchanged on both transports.
+- **Serial transport hardening is a pure capacity/robustness change
+  (amendment, ticket 006).** No wire-grammar host sees any difference —
+  the RX ring resize and the TX serialization guard are both beneath
+  the wire-grammar layer; a host that was already working reliably
+  keeps working, and one hitting today's confirmed drop/interleave
+  defects (R-19/R-20) stops hitting them. No migration action needed.
 - **`TlmMode::kOff` boot default requires no code change** — `wire_adapter.h`
   already default-initializes `mode_` to `Wire::TlmMode::kOff` today;
   this sprint's Phase B only makes that default SAFE to rely on (a radio
@@ -652,6 +784,14 @@ compatibility break for existing `STATUS` consumers.
    to break anything today — flagged because sprint 005's tooling
    retrofit is the first place this would matter, and that sprint should
    inherit this note rather than rediscover it.
+4. **Ticket 006's serial guard, like ticket 002's radio guard, has no
+   host test for its real concurrency/timing behavior** (added post-
+   review) — `SerialTransport`'s bounded-retry write guard and the RX
+   ring resize are both first exercised live at ticket 005's bench
+   checkpoint, not before. If the bench run shows unexpected serial
+   drops or latency, that is this decision's first real feedback, not
+   a regression from a previously-working state (the underlying R-19/
+   R-20 defects were already present, just previously undocumented).
 
 ## Use Cases
 
@@ -677,9 +817,17 @@ Parent: N/A (bench/host use case; no student-facing block equivalent)
   3. A bench test still sends the legacy `RUN:pivot:180` cleartext form
      over radio; it is recognized and dispatched via the unchanged
      MessageBus bridge, not rejected by the v6 grammar.
-- **Postconditions**: The radio host has the same command surface a
-  serial host has, modulo the existing single-fragment RX size limit;
-  `test.ts`'s bench tooling is unaffected.
+- **Postconditions**: The radio host has the same v6 command GRAMMAR a
+  serial host has, but not the same CAPACITY (code review R-27/DES-01,
+  CONFIRMED): `RadioTransport`'s RX path remains a single 64-byte slot
+  with no multi-fragment reassembly, unchanged by this sprint. A v6
+  line whose encoding does not fit that one fragment does not fail
+  cleanly — it either clamps to a parseable prefix (silently executing
+  a truncated, wrong command) or is silently dropped, depending on
+  where the overflow lands. This sprint does not fix that; see Scope's
+  Out of Scope entry for the explicit decision and what it excludes.
+  `test.ts`'s bench tooling (well under 64 bytes per `RUN:` line) is
+  unaffected either way.
 - **Acceptance Criteria**:
   - [ ] A sequenced non-motion verb (`STATUS`/`GET`/etc.) sent over
         radio gets a correct ack/reply, not silently dropped.
@@ -687,6 +835,10 @@ Parent: N/A (bench/host use case; no student-facing block equivalent)
         the existing MessageBus bridge, unchanged.
   - [ ] Radio's own `expectedNext_` starts at 1 and advances
         independently of anything happening on serial.
+  - [ ] No new test is required to prove the single-fragment RX
+        capacity itself (that limit is pre-existing and out of scope,
+        per Out of Scope) — this SUC's acceptance is about GRAMMAR
+        reachability for lines that already fit today's capacity.
 
 ### SUC-002: Two Transports Operate Without Cross-Contaminating Reliability State
 Parent: N/A (bench/host use case; directly implements the architectural
@@ -814,6 +966,48 @@ boundary)
   - [ ] The handoff notes name exactly what the stakeholder should
         check at the bench, without performing those checks here.
 
+### SUC-007: Serial Transport Survives Two Writers and a Maximal Line Under Load
+Parent: N/A (bench/host use case; added post-review, closes
+`serial-transport-rx-ring-and-tx-serialization.md`, code review
+R-19/R-20)
+
+- **Actor**: The same TS fiber (`emitLine()`) and protocol fiber (the
+  serial `WireHandler`'s own replies/keepalives) that have always
+  shared `SerialTransport`, now under closer scrutiny as concurrent
+  writers to one wire.
+- **Preconditions**: The robot is running under wire-driven motion
+  (WHEELS_V traffic, reliability-layer acks/keepalives) while the TS
+  fiber emits at least one `RUN:` result line.
+- **Main Flow**:
+  1. The protocol fiber's serial `WireHandler` writes a reply/keepalive
+     via `SerialTransport::writeLine()` at the same time the TS fiber's
+     `emitLine()` calls the same function.
+  2. The bounded-retry guard (ticket 006) serializes the two writers —
+     neither call corrupts the other's bytes, and a caller that loses
+     the race retries (capped) rather than either blocking forever or
+     dropping unconditionally.
+  3. Separately, a near-max-length (240 B) line arrives at the RX ring
+     during one ~24 ms motion-tick window that also carries other
+     traffic; the resized ring (>= 480 B) retains all of it rather than
+     overflowing.
+- **Postconditions**: No interleaved/garbled serial output under
+  two-writer contention; no dropped RX bytes for a max-length line
+  arriving mid-motion-window; any drop that does occur after the retry
+  cap is exhausted is counted (`diagValue(26)`), not silent.
+- **Acceptance Criteria**:
+  - [ ] Code review confirms the guard covers both `writeLine()`
+        `send()` calls (content and delimiter) and that `sending_` (or
+        equivalent) is cleared on every path, including the
+        retry-cap-exhausted one — no host test is possible for the
+        real CODAL-level behavior (see ticket 006's own testing plan
+        for why, mirroring ticket 002's precedent for radio).
+  - [ ] `diagValue(26)` reads back the serial-drop counter correctly
+        (host-testable if the counter is threaded through a location
+        the existing shim already models).
+  - [ ] The RX ring size constant used by `begin()` is >= 480 B
+        (>= 2x `kMaxLineBytes`), confirmed by code review (not
+        host-testable — see ticket 006).
+
 ## GitHub Issues
 
 (GitHub issues linked to this sprint's tickets. Format: `owner/repo#N`.)
@@ -834,14 +1028,23 @@ Before tickets can be created, all of the following must be true:
 |---|-------|------------|
 | 001 | Radio becomes a second v6 transport: second WireHandler + RadioSink + RX routing | — |
 | 002 | RadioTransport re-entrancy guard for the protocol fiber's send path | 001 |
+| 006 | Serial transport hardening: RX ring resize and TX serialization for the two-fiber send path | 001, 002 |
 | 003 | Telemetry frame formatting: Column/Snapshot, thdr/t, header memo, emitTelemetry/emitReliability split | 001 |
-| 004 | WireAdapter telemetry projection: buildSnapshot, shared computeFlags, POSE/FULL columns, STATUS i2cf= | 003 |
-| 005 | Phase C bench checkpoint: flashable hex and stakeholder handoff notes | 002, 004 |
+| 004 | WireAdapter telemetry projection: buildSnapshot, shared computeFlags, POSE/FULL columns, STATUS i2cf=, STATUS otos= (R-22) | 003 |
+| 005 | Phase C bench checkpoint: flashable hex and stakeholder handoff notes | 002, 004, 006 |
 
 Tickets execute serially in the order listed. Phase A (001-002) and
 Phase B (003-004) are each internally ordered by real dependency (002
 needs 001's second handler to exist before its guard matters; 004 needs
 003's split `emitTelemetry(snapshot)` signature to call); 003 does not
 depend on 002 (formatting and the radio send-path guard are orthogonal
-concerns). 005 depends on both chains' last ticket since the bench
-checkpoint needs the complete feature set.
+concerns). **Ticket 006 (added post-review, code review R-19/R-20)**
+hardens `SerialTransport` — a technically independent change (it does
+not require 001's or 002's actual code, since the serial two-writer
+hazard predates both), sequenced here right after 002 so it lands
+alongside the sprint's other transport-hardening work and can be read
+as this project's answer to "did the review's two transport-guard
+findings both get fixed, not just one." 005 depends on every other
+chain's last ticket (002, 004, 006) since the bench checkpoint needs
+the complete feature set, including the serial hardening that has no
+host-test coverage of its own.

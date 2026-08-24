@@ -53,13 +53,23 @@ would just reintroduce the same contention it is trying to avoid.
       `sendLine()`'s bool return entirely — a dropped telemetry/ack
       line under contention is accepted silently, by design (see
       Description).
-- [ ] `SerialTransport`'s own send path is untouched — this guard is
-      `RadioTransport`-only; serial has no analogous second-caller
-      hazard (`SerialTransport::writeLine()` was already the single
-      send path for both the TS fiber and, after ticket 001, the
-      serial `WireHandler`'s replies — confirm this ticket does not
-      need to touch it, since `SerialTransport` has no documented
-      single-fiber-only member buffers the way `RadioTransport` does).
+- [ ] `SerialTransport` is explicitly OUT of this ticket's scope, but
+      NOT because it is safe. **Correction (code review 2026-08-23,
+      R-20/WIRE-04, CONFIRMED):** an earlier draft of this AC asserted
+      serial has no analogous second-caller hazard; that assertion was
+      wrong and has been removed. `SerialTransport::writeLine()` is
+      already the single send path for both the TS fiber
+      (`Protocol::emitLine()`) and the serial `WireHandler`'s own
+      replies/keepalives, it calls `uBit.serial.send(..., SYNC_SLEEP)`
+      (which blocks and yields the calling fiber) with no guard around
+      either call, and both callers' return codes are ignored today —
+      the same interleave-or-drop hazard this ticket fixes for radio,
+      just unfixed on serial. This ticket does NOT fix it either: the
+      serial half of R-20, plus the separate RX-ring sizing defect
+      (R-19), is ticket 006's scope
+      (`serial-transport-rx-ring-and-tx-serialization.md`). This
+      ticket's own `sending_`/bool-return/retry-once pattern is
+      `RadioTransport`-only.
 
 ## Implementation Plan
 
