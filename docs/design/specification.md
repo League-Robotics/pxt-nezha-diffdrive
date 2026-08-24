@@ -205,11 +205,26 @@ integer values used by the shim's `setKernelValue` switch, §9):
 | 12 | `StallWindow` | "stall window ms" | `stallWindow` |
 | 13 | `LambdaEnabled` | "lambda enabled" | `lambdaEnabled` |
 | 14 | `CrawlPulse` | "crawl pulse" | `crawlPulse` |
+| 15 | `DefaultCruise` | "default cruise speed" | *(none — see below)* |
 | 17 | `StallClear` | "clear stall latch" | *(none — see below)* |
 
-Ordinals 15/16 are reserved for later sprint 007 tickets
-(`default_cruise`/`rotational_slip`) and are not yet present. Ordinal
-17's "Kernel `Config` field" column is deliberately non-standard: `Set
+Ordinal 15's "Kernel `Config` field" column is also non-standard:
+`DefaultCruise` is not a `DifferentialDrive::Config` field at all — it
+is the wire/shim layer's own `Rig::defaultCruiseMmS_` (`shims.cpp`),
+seeded to 150 mm/s (matching the block layer's own `defaultSpeed`).
+This is the sprint 007 ticket 003 fix for a code-review finding
+(R-11/BLK-03/API-03): the wire's "cruise/speed == 0 means the
+configured default" sentinel used to resolve through
+`fullDutyVelocity` — the kernel's own 100%-duty ceiling, ~875 mm/s,
+*and* the field whose `0` means "uncalibrated, refuse VELOCITY
+commands" at the kernel layer. Those were two unrelated meanings of
+zero collapsed onto one field; `DefaultCruise` gives the wire layer's
+convenience sentinel its own, independent field, leaving
+`fullDutyVelocity`'s calibration-refusal meaning untouched.
+
+Ordinal 16 is reserved for a later sprint 007 ticket
+(`rotational_slip`) and is not yet present. Ordinal 17's "Kernel
+`Config` field" column is deliberately non-standard: `Set
 config` with `StallClear` does not write a stored `Config` field at
 all — it is a write-triggered **action** wearing a config-field's
 clothes, reaching `DifferentialDrive::clearStallLatch()` directly

@@ -180,6 +180,16 @@ struct WaHandle {
   int wheelSpeedLeftMms = 0;
   int wheelSpeedRightMms = 0;
 
+  // Sprint 007 ticket 003 (closing R-11/BLK-03/API-03): mirrors
+  // shims.cpp's real Rig::defaultCruiseMmS_ field-for-field, same
+  // 150.0f seed -- see engineDefaultCruiseMmS()'s test-double
+  // definition below, and waSetDefaultCruise()'s own comment for why
+  // this is a direct field, not filtered through setKernelValue()'s
+  // ">0" validation (mirrors waSetFullDutyVelocity()'s own unfiltered
+  // convention -- test setup needs to be able to force this to exactly
+  // 0, which the wire-level SET path deliberately cannot do).
+  float defaultCruiseMmS = 150.0f;  // [mm/s]
+
   // A settable override for diagValue()'s otherwise kernel/engine-
   // derived ordinals (i2cf=8, lexc=9, posl=10, posr=11, dutl=12,
   // dutr=13, cyc=16, cycovr=19, wrng=25) -- lets a scale test or the
@@ -278,6 +288,12 @@ void setKernelValue(int field, int value) {
       break;
     case 13: k.setLambdaEnabled(v != 0.0f); break;
     case 14: k.setCrawlPulse(v); break;
+    // 15 (sprint 007 ticket 003): default_cruise, mirroring shims.cpp's
+    // real setKernelValue() case 15 exactly (same ">0" silent-ignore
+    // validation) -- see WaHandle::defaultCruiseMmS's own comment.
+    case 15:
+      if (v > 0.0f) g_activeWaHandle->defaultCruiseMmS = v;
+      break;
     // 17 (sprint 007 ticket 001): stall_clear -- a write-triggered
     // ACTION wearing a config-field's clothes, mirroring shims.cpp's
     // real setKernelValue() case 17 exactly (see that file's own
@@ -310,6 +326,11 @@ int getConfigValue(int field) {
     case 12: v = c.stallWindow; break;
     case 13: v = c.lambdaEnabled ? 1.0f : 0.0f; break;
     case 14: v = c.crawlPulse; break;
+    // 15 (sprint 007 ticket 003): default_cruise's GET side, mirroring
+    // shims.cpp's real getConfigValue() case 15 exactly -- deliberately
+    // NOT read from `c` (see case 15's own comment in setKernelValue()
+    // above).
+    case 15: v = g_activeWaHandle->defaultCruiseMmS; break;
     // 17 (sprint 007 ticket 001): stall_clear's GET side -- a
     // convenience readback of Output.stallHalted, deliberately NOT
     // read from `c` (this ordinal has no stored Config field), mirror
@@ -342,13 +363,20 @@ void engineMoveX(float distance, float rotationRad, float cruise,
   g_activeWaHandle->engine.moveX(distance, rotationRad, cruise, timeoutMs);
 }
 
+// Sprint 007 ticket 003 (closing R-11/BLK-03/API-03,
+// cruise-zero-sentinel-full-duty-lunge.md): mirrors shims.cpp's real,
+// POST-FIX engineDefaultCruiseMmS() exactly -- returns the handle's own
+// defaultCruiseMmS_-equivalent field, NOT a fullDutyVelocity/countsPerMm
+// derivation. This double previously mirrored the OLD (pre-fix)
+// derivation; left unchanged, it would have kept
+// test_wheels_x_cruise_zero_uses_configured_default and its MOVE_X/
+// GO_TO_R/GO_TO_W siblings silently exercising the retired contract
+// while the real fix shipped elsewhere -- a fully green suite proving
+// nothing about the actual behavior change. See waSetDefaultCruise()
+// below for the test-setup setter.
 float engineDefaultCruiseMmS() {
   if (g_activeWaHandle == nullptr) return 0.0f;
-  const float cpm = g_activeWaHandle->engine.countsPerMm();
-  const float fullDutyCountsPerS =
-      g_activeWaHandle->kernel.config().fullDutyVelocity;
-  if (fullDutyCountsPerS <= 0.0f || cpm <= 0.0f) return 0.0f;
-  return fullDutyCountsPerS / cpm;
+  return g_activeWaHandle->defaultCruiseMmS;
 }
 
 // Mirrors shims.cpp's real engineMoveV()/engineGoToR()/engineGoToW()
@@ -670,6 +698,15 @@ void waSetMaxDuty(void* handle, float v) {
 }
 void waSetFullDutyVelocity(void* handle, float v) {
   static_cast<WaHandle*>(handle)->kernel.setFullDutyVelocity(v);
+}
+
+// Sprint 007 ticket 003: direct test-setup setter for
+// WaHandle::defaultCruiseMmS, mirroring waSetFullDutyVelocity()'s own
+// pattern exactly -- unfiltered (unlike setKernelValue()'s wire-level
+// case 15 above), so a test can force this to exactly 0.0f to exercise
+// the "without configured default" refusal path.
+void waSetDefaultCruise(void* handle, float v) {
+  static_cast<WaHandle*>(handle)->defaultCruiseMmS = v;
 }
 
 // ---- MotionEngine geometry readback (sprint 003 ticket 011): lets a

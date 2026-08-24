@@ -2,7 +2,7 @@
 id: '003'
 title: 'Wire cruise==0 sentinel: split default_cruise from fullDutyVelocity (config
   field + test-double update)'
-status: open
+status: done
 use-cases:
 - SUC-003
 depends-on: []
@@ -103,26 +103,26 @@ during the code review's comment audit.
 
 ## Acceptance Criteria
 
-- [ ] `engineDefaultCruiseMmS()` no longer references
+- [x] `engineDefaultCruiseMmS()` no longer references
       `fullDutyVelocity` or `countsPerMm` in its body; returns the new
       `defaultCruiseMmS_` Rig field.
-- [ ] The four `onWheelsX`/`onMoveX`/`onGoToR`/`onGoToW` handlers in
+- [x] The four `onWheelsX`/`onMoveX`/`onGoToR`/`onGoToW` handlers in
       `wire_adapter.cpp` are diff-empty for this ticket (confirm via
       review — their refusal logic was already correct).
-- [ ] `wire_motion_verb_shim.cpp`'s test double is updated in the same
+- [x] `wire_motion_verb_shim.cpp`'s test double is updated in the same
       commit/PR as the real `engineDefaultCruiseMmS()` change — not a
       follow-up.
-- [ ] All three existing cruise-zero-default test pairs pass against
+- [x] All three existing cruise-zero-default test pairs pass against
       the NEW contract (asserting ~150 mm/s, not ~875 mm/s) — verify
       by reading the diff, since a stale, unedited assertion for the
       old value would also "pass" if the test double were
       inadvertently left unchanged (the exact risk item 5 above
       exists to prevent).
-- [ ] A new `GO_TO_W` cruise/speed-zero-default test pair exists and
+- [x] A new `GO_TO_W` cruise/speed-zero-default test pair exists and
       passes.
-- [ ] `default_cruise` is settable/gettable via `SET`/`GET` and via
+- [x] `default_cruise` is settable/gettable via `SET`/`GET` and via
       the generic `set config` block (no new dedicated block needed).
-- [ ] Full existing host suite passes.
+- [x] Full existing host suite passes.
 
 ## C++11 Gate Coverage
 

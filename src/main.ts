@@ -42,8 +42,10 @@ enum ConfigField {
     LambdaEnabled = 13,
     //% block="crawl pulse"
     CrawlPulse = 14,
-    // 15/16 (DefaultCruise/RotationalSlip) join here in sprint 007
-    // tickets 003/005 -- not yet present as of this ticket (001).
+    //% block="default cruise speed"
+    DefaultCruise = 15,
+    // 16 (RotationalSlip) joins here in sprint 007 ticket 005 -- not
+    // yet present as of this ticket (003).
     //% block="clear stall latch"
     StallClear = 17
 }

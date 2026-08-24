@@ -103,7 +103,7 @@ int wheelSpeed(int which);  // [mm/s]; which: 0 = left, 1 = right
 
 namespace {
 
-// The 16 `ConfigField` enum entries (main.ts) mapped onto
+// The `ConfigField` enum entries (main.ts) mapped onto
 // setKernelValue()/getConfigValue()'s existing field ordinals
 // (shims.cpp) -- one wire NAME per field, replacing the old binary
 // CONFIG/SET_FIELD/GET_CONFIG verbs' bare ordinal one-for-one (sprint.md
@@ -111,7 +111,9 @@ namespace {
 // Config/Rig fields that exist today, under new wire names, with
 // nothing to convert"). Declaration order matches ConfigField's own
 // declaration order so a bare GET's dump reads in the same order a
-// human reading main.ts would expect.
+// human reading main.ts would expect. 15 entries through sprint 006;
+// 17 as of sprint 007 ticket 003 (`default_cruise` joins `stall_clear`);
+// `rotational_slip` (ordinal 16) still pending, sprint 007 ticket 005.
 struct FieldEntry {
   const char* name;  // wire key
   int ordinal;        // shims.cpp's setKernelValue()/getConfigValue() field
@@ -133,8 +135,13 @@ constexpr FieldEntry kFields[] = {
     {"stall_window", 12},      // ConfigField.StallWindow
     {"lambda_enabled", 13},    // ConfigField.LambdaEnabled
     {"crawl_pulse", 14},       // ConfigField.CrawlPulse
-    // 15/16 (default_cruise/rotational_slip) join here in sprint 007
-    // tickets 003/005 -- not yet present as of this ticket (001).
+    {"default_cruise", 15},    // ConfigField.DefaultCruise (sprint 007
+                               // ticket 003, closing R-11/BLK-03/API-03
+                               // -- see shims.cpp's engineDefaultCruiseMmS()/
+                               // Rig::defaultCruiseMmS_ for the field this
+                               // ordinal actually reaches).
+    // 16 (rotational_slip) joins here in sprint 007 ticket 005 -- not
+    // yet present as of this ticket (003).
     {"stall_clear", 17},       // ConfigField.StallClear (sprint 007
                                // ticket 001) -- a write-triggered action
                                // wearing a config-field's clothes; see

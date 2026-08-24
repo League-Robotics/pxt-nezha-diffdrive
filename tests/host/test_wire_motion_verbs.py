@@ -198,6 +198,11 @@ def _bind(lib):
     lib.waSetMaxDuty.restype = None
     lib.waSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.waSetFullDutyVelocity.restype = None
+    # Sprint 007 ticket 003 (closing R-11/BLK-03/API-03): direct
+    # test-setup setter for the test double's own defaultCruiseMmS
+    # field, mirroring waSetFullDutyVelocity's binding exactly.
+    lib.waSetDefaultCruise.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.waSetDefaultCruise.restype = None
     lib.waCountsPerMm.argtypes = [ctypes.c_void_p]
     lib.waCountsPerMm.restype = ctypes.c_float
     lib.waEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
@@ -458,6 +463,12 @@ class WireAdapterHandle:
 
     def set_full_duty_velocity(self, v):
         self._lib.waSetFullDutyVelocity(self._handle, v)
+
+    def set_default_cruise(self, v):
+        """Sprint 007 ticket 003: the test double's own
+        defaultCruiseMmS field -- see engineDefaultCruiseMmS()'s
+        test-double definition (wire_motion_verb_shim.cpp)."""
+        self._lib.waSetDefaultCruise(self._handle, v)
 
     def counts_per_mm(self):
         return self._lib.waCountsPerMm(self._handle)
@@ -1012,36 +1023,51 @@ def test_wheels_x_negative_cruise_is_range_error(wa):
 
 
 def test_wheels_x_cruise_zero_uses_configured_default(wa):
-    """motion-api.md S1.1: "Pass 0 for the configured default" -- this
-    robot's own configured full_duty_velocity (the same ceiling GET
-    full_duty_velocity reports), converted to mm/s."""
+    """Sprint 007 ticket 003 (closing R-11/BLK-03/API-03,
+    cruise-zero-sentinel-full-duty-lunge.md): motion-api.md S1.1's
+    "Pass 0 for the configured default" now resolves through the wire
+    layer's OWN `default_cruise` field (shims.cpp's `defaultCruiseMmS_`
+    / this double's `defaultCruiseMmS`), NOT `full_duty_velocity`.
+    `full_duty_velocity` is deliberately set here to a value whose OLD
+    (retired) derivation -- fullDutyVelocity/cpm =~ 405 mm/s -- differs
+    clearly from the new default (150 mm/s): if the double (or the
+    real function) ever reverted to the old contract, this test would
+    fail on the wrong NUMBER, not merely "still nonzero". Uses the same
+    large full_duty_velocity as the WHEELS_X real-effect tests above
+    (_WHEELS_X_FULL_DUTY_VELOCITY's own rationale: wheelsX() is a
+    PRIMITIVE with no ramp scaling, so 150 mm/s must stay well under
+    the maxDuty=100% rail on its own, unlike MOVE_X's first-tick 0.25
+    floor)."""
     wa.set_max_duty(100.0)
-    wa.set_full_duty_velocity(1000.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)
     assert wa.begin() == STATUS_OK
     cpm = wa.counts_per_mm()
-    default_cruise = 1000.0 / cpm  # fullDutyVelocity [counts/s] -> [mm/s]
+    default_cruise = 150.0  # [mm/s] -- NOT fullDutyVelocity/cpm
 
     wa.feed(b"WHEELS_X 200 200 0 5000 #1\n")
     assert wa.take_sink() == _ack(1)
     wa.step()
 
     expected_left, expected_right = _expected_wheels_x_duty_pair(
-        200.0, 200.0, default_cruise, cpm, 1000.0)
+        200.0, 200.0, default_cruise, cpm, _WHEELS_X_FULL_DUTY_VELOCITY)
     assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
     assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
-    # A straight line commanded at exactly the configured ceiling should
-    # stage exactly full duty -- an independent sanity check that the
-    # substitution landed on the right number, not merely a nonzero one.
-    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(1.0)
 
 
 def test_wheels_x_cruise_zero_without_configured_default_is_range_error(wa):
-    """A fresh robot whose full_duty_velocity was never SET (still its
-    zero/off default, diffdrive.h) has no configured default cruise to
-    fall back to -- refused (kRange), not silently commanded to drive at
-    zero speed forever."""
+    """`default_cruise` explicitly forced to 0 via the test double's
+    direct setter -- unlike before this ticket, merely never calling
+    set_full_duty_velocity no longer suffices: production seeds
+    `defaultCruiseMmS_`/this double's `defaultCruiseMmS` to 150.0f, so
+    a fresh Rig now HAS a configured default. `full_duty_velocity` is
+    set to a healthy nonzero value here specifically to prove the
+    refusal is driven by `default_cruise` alone, independent of
+    `fullDutyVelocity` -- under the OLD (retired) contract this would
+    have produced a valid ~81 mm/s default and NOT refused."""
     wa.set_max_duty(100.0)
-    # full_duty_velocity deliberately left unset (default 0).
+    wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(0.0)
     assert wa.begin() == STATUS_OK
 
     wa.feed(b"WHEELS_X 200 200 0 5000 #1\n")
@@ -1176,13 +1202,17 @@ def test_move_x_negative_cruise_is_range_error(wa):
 def test_move_x_cruise_zero_uses_configured_default(wa):
     """motion-api.md S1.1's "configured default" substitution, exercised
     through MOVE_X's own move-engine path (not just WHEELS_X's plain
-    primitive)."""
+    primitive). Sprint 007 ticket 003: resolves through `default_cruise`,
+    not `fullDutyVelocity` -- see
+    test_wheels_x_cruise_zero_uses_configured_default's own comment for
+    why full_duty_velocity is deliberately set to a DIFFERENT value."""
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(150.0)
     assert wa.begin() == STATUS_OK
     cpm = wa.counts_per_mm()
     b = wa.effective_track_width()
-    default_cruise = 1000.0 / cpm
+    default_cruise = 150.0  # [mm/s] -- NOT fullDutyVelocity/cpm
 
     wa.feed(b"MOVE_X 200 0 0 5000 #1\n")
     assert wa.take_sink() == _ack(1)
@@ -1197,8 +1227,14 @@ def test_move_x_cruise_zero_uses_configured_default(wa):
 
 
 def test_move_x_cruise_zero_without_configured_default_is_range_error(wa):
+    """See test_wheels_x_cruise_zero_without_configured_default_is_
+    range_error's own comment: `default_cruise` must be explicitly
+    forced to 0 now that production seeds it nonzero, and
+    full_duty_velocity is set nonzero to prove the refusal doesn't
+    depend on it."""
     wa.set_max_duty(100.0)
-    # full_duty_velocity deliberately left unset (default 0).
+    wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(0.0)
     assert wa.begin() == STATUS_OK
 
     wa.feed(b"MOVE_X 200 0 0 5000 #1\n")
@@ -1474,13 +1510,17 @@ def test_go_to_r_negative_speed_is_range_error(wa):
 def test_go_to_r_speed_zero_uses_configured_default(wa):
     """motion-api.md S1.1's "configured default" substitution, exercised
     through GO_TO_R's own path -- same substitution onWheelsX()/onMoveX()
-    already use."""
+    already use. Sprint 007 ticket 003: resolves through
+    `default_cruise`, not `fullDutyVelocity` -- see
+    test_wheels_x_cruise_zero_uses_configured_default's own comment for
+    why full_duty_velocity is deliberately set to a DIFFERENT value."""
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(150.0)
     assert wa.begin() == STATUS_OK
     cpm = wa.counts_per_mm()
     b = wa.effective_track_width()
-    default_speed = 1000.0 / cpm
+    default_speed = 150.0  # [mm/s] -- NOT fullDutyVelocity/cpm
 
     wa.feed(b"GO_TO_R 200 50 0 0 5000 #1\n")
     assert wa.take_sink() == _ack(1)
@@ -1496,8 +1536,14 @@ def test_go_to_r_speed_zero_uses_configured_default(wa):
 
 
 def test_go_to_r_speed_zero_without_configured_default_is_range_error(wa):
+    """See test_wheels_x_cruise_zero_without_configured_default_is_
+    range_error's own comment: `default_cruise` must be explicitly
+    forced to 0 now that production seeds it nonzero, and
+    full_duty_velocity is set nonzero to prove the refusal doesn't
+    depend on it."""
     wa.set_max_duty(100.0)
-    # full_duty_velocity deliberately left unset (default 0).
+    wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(0.0)
     assert wa.begin() == STATUS_OK
 
     wa.feed(b"GO_TO_R 200 50 0 0 5000 #1\n")
@@ -1606,6 +1652,64 @@ def test_go_to_w_negative_speed_is_range_error(wa):
     assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
 
 
+def test_go_to_w_speed_zero_uses_configured_default(wa):
+    """The fourth verb R-11/BLK-03/API-03 (cruise-zero-sentinel-full-
+    duty-lunge.md) names explicitly ("all four verbs") -- GO_TO_W's own
+    speed==0 substitution, gated on a real pose source being available
+    (motion-api.md S3.6). Identity pose (0,0,0), same as
+    test_go_to_w_identity_pose_matches_go_to_r above, so the body-frame
+    target equals GO_TO_R's own (200, 50) case and this can reuse the
+    same hand-computed formula. Sprint 007 ticket 003: resolves through
+    `default_cruise`, not `fullDutyVelocity` -- see
+    test_wheels_x_cruise_zero_uses_configured_default's own comment for
+    why full_duty_velocity is deliberately set to a DIFFERENT value."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(150.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+    wa.set_pose_source_available(True)
+    wa.set_pose(0.0, 0.0, 0.0)
+    default_speed = 150.0  # [mm/s] -- NOT fullDutyVelocity/cpm
+
+    wa.feed(b"GO_TO_W 200 50 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    theta, s = _go_to_r_theta_s(200.0, 50.0)
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        s, theta, default_speed, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_go_to_w_speed_zero_without_configured_default_is_range_error(wa):
+    """See test_wheels_x_cruise_zero_without_configured_default_is_
+    range_error's own comment: `default_cruise` must be explicitly
+    forced to 0 now that production seeds it nonzero, and
+    full_duty_velocity is set nonzero to prove the refusal doesn't
+    depend on it. A real pose source is available here (unlike
+    test_go_to_w_no_pose_source_is_unimplemented below) so the refusal
+    under test is unambiguously the cruise/speed range check, not the
+    separate "no pose source" refusal."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(0.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_pose_source_available(True)
+    wa.set_pose(0.0, 0.0, 0.0)
+
+    wa.feed(b"GO_TO_W 200 50 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
 def test_go_to_w_no_pose_source_is_unimplemented(wa):
     """motion-api.md S3.6 / ticket 010's own explicitly out-of-scope
     encoder-odometry fallback: with no OTOS fitted/connected, this class
@@ -1683,14 +1787,16 @@ def test_go_to_w_no_pose_source_does_not_arm_motion_obligation(wa):
 
 
 def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
-    """A bare-GET dump lists only the 16 ConfigField-equivalent wire
-    names (wire_adapter.cpp's kFields table) -- confirms the old
-    multi-pair CONFIG batch verb's ordinal set is fully covered under
-    new names, and that no WHEELS-named entry leaked into the config
-    table (WHEELS_V is a motion verb, not a config field). Sprint 007
-    ticket 001 adds `stall_clear` (ordinal 17) at the end -- the two
-    ordinals in between (15/16: default_cruise/rotational_slip) land
-    in tickets 003/005 and are not yet present."""
+    """A bare-GET dump lists only the ConfigField-equivalent wire names
+    (wire_adapter.cpp's kFields table) -- confirms the old multi-pair
+    CONFIG batch verb's ordinal set is fully covered under new names,
+    and that no WHEELS-named entry leaked into the config table
+    (WHEELS_V is a motion verb, not a config field). Sprint 007 ticket
+    001 added `stall_clear` (ordinal 17) at the end; ticket 003 (this
+    one) adds `default_cruise` (ordinal 15) just before it.
+    `rotational_slip` (ordinal 16) still lands in ticket 005 and is not
+    yet present -- the function name's stale "sixteen" predates both
+    and is left as-is rather than renamed mid-sprint."""
     wa.feed(b"GET #1\n")
     lines = wa.take_sink().split(b"\n")
     names = [line.split(b" ")[1] for line in lines if line.startswith(b"get ")]
@@ -1698,9 +1804,56 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"max_duty", b"full_duty_velocity", b"pid_kp", b"pid_ki",
         b"pid_i_max", b"accel_kaff", b"pid_max", b"twist_hold_gain",
         b"speed_floor", b"pos_err_max", b"stall_speed", b"stall_demand",
-        b"stall_window", b"lambda_enabled", b"crawl_pulse", b"stall_clear",
+        b"stall_window", b"lambda_enabled", b"crawl_pulse",
+        b"default_cruise", b"stall_clear",
     ]
     assert b"wheels" not in b" ".join(names).lower()
+
+
+def test_default_cruise_wire_field_round_trips_and_feeds_the_zero_sentinel(wa):
+    """Sprint 007 ticket 003 (closing R-11/BLK-03/API-03): proves
+    `default_cruise` is settable/gettable via the wire's own SET/GET
+    verbs (the acceptance criterion the generic `set config` block
+    reaches through the same setKernelValue()/getConfigValue() path,
+    ordinal 15) AND that a value set that way is exactly what a
+    subsequent cruise==0 command resolves to -- end to end, not just a
+    round-tripped number sitting unused. Uses the same large
+    full_duty_velocity as the WHEELS_X real-effect tests (see
+    _WHEELS_X_FULL_DUTY_VELOCITY's own rationale) so 200 mm/s stays
+    well under the maxDuty=100% rail through wheelsX()'s un-ramped
+    primitive path."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+
+    wa.feed(b"SET default_cruise 200.0 #1\n")
+    assert wa.take_sink() == _ack(1)
+
+    wa.feed(b"GET default_cruise #2\n")
+    reply = wa.take_sink()
+    prefix = _ack(2) + b"get default_cruise "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(200.0, abs=1e-3)
+
+    wa.feed(b"WHEELS_X 200 200 0 5000 #3\n")
+    assert wa.take_sink() == _ack(3)
+    wa.step()
+
+    expected_left, expected_right = _expected_wheels_x_duty_pair(
+        200.0, 200.0, 200.0, cpm, _WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+
+    # SET default_cruise 0 is a silent no-op over the wire (same ">0"
+    # validation setGeometry() uses) -- the PREVIOUS value survives.
+    wa.feed(b"SET default_cruise 0 #4\n")
+    assert wa.take_sink() == _ack(4)
+    wa.feed(b"GET default_cruise #5\n")
+    reply = wa.take_sink()
+    prefix = _ack(5) + b"get default_cruise "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(200.0, abs=1e-3)
 
 
 def test_stall_clear_wire_field_clears_latch_and_reads_back(wa):

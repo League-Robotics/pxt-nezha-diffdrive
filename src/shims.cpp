@@ -168,6 +168,19 @@ struct Rig {
                                   // Distinct from the kernel's own
                                   // cycleOverrunCount_, which only its
                                   // unused run() ever increments.
+
+  // Sprint 007 ticket 003 (closing R-11/BLK-03/API-03,
+  // cruise-zero-sentinel-full-duty-lunge.md): the wire's OWN "0 = use
+  // the configured default" convenience field, deliberately SEPARATE
+  // from kernel.config().fullDutyVelocity. Those are two unrelated
+  // meanings of zero that used to be collapsed onto one field: the
+  // wire layer's sentinel (this) vs. the kernel's own "0 = uncalibrated,
+  // refuse VELOCITY" gate (DifferentialDrive::checkCommandable()). See
+  // engineDefaultCruiseMmS() below, the wire-layer section, for the
+  // consumer. Seeded to 150.0f to match the block layer's own
+  // `defaultSpeed` (15 cm/s, main.ts) -- NOT derived from any kernel
+  // constant, and NOT the duty ceiling.
+  float defaultCruiseMmS_ = 150.0f;  // [mm/s]
 };
 
 static Rig* rig = nullptr;
@@ -381,20 +394,28 @@ void engineMoveX(float distance, float rotationRad, float cruise,
 
 // The wire's "cruise == 0 means the configured default" substitution
 // (motion-api.md S1.1: "an X-form's commanded value is a displacement
-// ... pass 0 for the configured default"): this robot's own configured
-// full-duty velocity -- the same ceiling GET full_duty_velocity already
-// reports -- converted from the kernel's native counts/s into wheelsX()/
-// moveX()'s own mm/s ceiling. Returns 0 if unconfigured (fullDutyVelocity
-// <= 0, or a zero/negative travelCalib leaves countsPerMm() <= 0) -- an
-// honest "no default available" rather than a fabricated number or a
-// divide-by-zero; wire_adapter.cpp treats that as a range refusal, not a
-// silently-accepted zero-speed command.
+// ... pass 0 for the configured default"). Sprint 007 ticket 003
+// (closing R-11/BLK-03/API-03): this used to derive the substituted
+// value from kernel.config().fullDutyVelocity -- this robot's 100%-duty
+// ceiling, ~875 mm/s -- so a spec-following host sending `cruise 0`
+// got the fastest, least-controlled move the robot can make, ~1.5x the
+// speed the project's own bench notes call unusable. fullDutyVelocity
+// is the wrong field for this: at the kernel layer, `0` there means
+// "uncalibrated, refuse VELOCITY commands entirely"
+// (DifferentialDrive::checkCommandable()) -- an unrelated meaning of
+// zero that happened to share a variable with this substitution. Now
+// returns the Rig's own, independently configured defaultCruiseMmS_
+// (seeded 150 mm/s above, settable/gettable via the `default_cruise`
+// wire field, ordinal 15 -- setKernelValue()/getConfigValue() below).
+// fullDutyVelocity remains the duty CEILING elsewhere in this file and
+// the kernel; it is no longer read here. Returns 0 if defaultCruiseMmS_
+// itself is non-positive (an operator can still force "no default
+// available" via `SET default_cruise 0`) -- wire_adapter.cpp's four
+// verb handlers already treat that as a range refusal, not a
+// silently-accepted zero-speed command; that refusal logic is
+// unchanged by this ticket.
 float engineDefaultCruiseMmS() {
-  Rig& r = ensure();
-  const float cpm = r.engine.countsPerMm();
-  const float fullDutyCountsPerS = r.kernel.config().fullDutyVelocity;
-  if (fullDutyCountsPerS <= 0.0f || cpm <= 0.0f) return 0.0f;
-  return fullDutyCountsPerS / cpm;
+  return ensure().defaultCruiseMmS_;
 }
 
 // ---- move engine ----------------------------------------------------
@@ -946,6 +967,17 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
                         v); break;
     case 13: k.setLambdaEnabled(v != 0.0f); break;
     case 14: k.setCrawlPulse(v); break;
+    // 15 (sprint 007 ticket 003, closing R-11/BLK-03/API-03):
+    // default_cruise -- the wire layer's OWN configured-default cruise
+    // field (Rig::defaultCruiseMmS_, NOT kernel.config()), see
+    // engineDefaultCruiseMmS()'s own comment above. Same ">0" silent-
+    // ignore validation style as setGeometry() -- a `SET default_cruise
+    // 0` line over the wire is accepted (kOk) but does not clear the
+    // field to 0; that is only reachable via the test double's own
+    // direct setter (there is no wire-level way to force "no default
+    // available" at ordinal 15, deliberately -- unlike stall_clear's
+    // ordinal 17 below, this is a real stored value, not an action).
+    case 15: if (v > 0.0f) r.defaultCruiseMmS_ = v; break;
     // 17 (ticket 001): stall_clear -- a write-triggered ACTION wearing a
     // config-field's clothes, not a stored value. Only nonzero-vs-zero
     // matters (mirrors the x1000 scaling convention: a wire
@@ -999,6 +1031,11 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     case 12: v = c.stallWindow; break;
     case 13: v = c.lambdaEnabled ? 1.0f : 0.0f; break;
     case 14: v = c.crawlPulse; break;
+    // 15 (sprint 007 ticket 003): default_cruise's GET side --
+    // deliberately NOT read from `c` (this ordinal has no stored
+    // kernel Config field at all; it lives on Rig, see
+    // defaultCruiseMmS_'s own field comment above).
+    case 15: v = r.defaultCruiseMmS_; break;
     // 17 (ticket 001): stall_clear's GET side -- a convenience readback
     // of Output.stallHalted, deliberately NOT read from `c` (this
     // ordinal has no stored Config field at all; see clearStall()'s own
