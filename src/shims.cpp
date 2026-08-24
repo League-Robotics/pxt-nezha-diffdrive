@@ -798,6 +798,16 @@ int diagValue(int what) {
     // call itself failed. Bench operators read this via probe(26); it
     // should stay 0 during a normal run.
     case 26: return protocolSerialDropCount();
+    // 27: sum of both wheels' encoder rebaseline-on-discontinuity
+    // events (sprint 006 ticket 005, EncoderGlitchArmor's
+    // kAcceptAsRebaseline outcome -- see encoder_glitch_armor.h). A
+    // two-strike implausible-then-consistent jump treated as a counter
+    // restart (e.g. a brick MCU reset) instead of integrated as a
+    // multi-meter teleport. Should read 0 across a normal session with
+    // no discontinuities.
+    case 27:
+      return static_cast<int>(ensure().left.rebaselineCount_ +
+                              ensure().right.rebaselineCount_);
     default: return 0;
   }
 }

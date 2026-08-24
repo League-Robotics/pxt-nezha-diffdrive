@@ -65,10 +65,13 @@ void NezhaMotorPort::begin() {
           int32_t t = samples[i]; samples[i] = samples[j]; samples[j] = t;
         }
     encOffset_ = samples[good / 2];
-    lastGoodRaw_ = encOffset_;
+    glitchArmor_.seedLastGoodRaw(encOffset_);
     connected_ = true;
   }
-  primed_ = true;
+  // Arms the plausibility gate unconditionally, even when good == 0 --
+  // reproducing the pre-extraction code's own asymmetry (lastGoodRaw_
+  // stays at its default 0 in that case, but the gate still arms).
+  glitchArmor_.markPrimed();
 }
 
 // ---- command staging + shaping --------------------------------------
@@ -196,32 +199,40 @@ void NezhaMotorPort::requestSample() {
 void NezhaMotorPort::collect(uint64_t nowUs) {
   int32_t raw = 0;
   if (readEncoderRaw(&raw)) {
-    // Glitch rejection, ported from the reference driver (see
-    // radio-robot-elite docs/design/encoder-refresh-characterization.md
-    // Phase F: a sample destroyed by interposed bus traffic reads as
-    // raw 0; other corruption shows as a physically impossible jump).
-    // Bench capture 2026-08-20: one such read produced a phantom
-    // -22 m odometry teleport and a 3.5 M counts/s velocity spike that
-    // instantly mis-terminated the tour's last leg. A rejected value
-    // is accepted on its SECOND consecutive appearance (within the
-    // gate of itself), so a genuinely moved wheel (hand-rotation,
-    // repositioning) re-syncs after one tick instead of deadlocking.
-    const int32_t kMaxDeltaCounts = 5000;  // per collect; real max ~75
-    const int32_t delta = raw - lastGoodRaw_;
-    const int32_t mag = delta < 0 ? -delta : delta;
-    if (primed_ && mag > kMaxDeltaCounts) {
-      const int32_t rejDelta = raw - lastRejectedRaw_;
-      const int32_t rejMag = rejDelta < 0 ? -rejDelta : rejDelta;
-      if (!(rejectPending_ && rejMag <= kMaxDeltaCounts)) {
-        lastRejectedRaw_ = raw;
-        rejectPending_ = true;
-        ++glitchCount_;
-        return;  // discarded: position/velocity/sampleTime all HOLD
-      }
-      // second consecutive consistent reading: accept reality below
+    // Glitch/discontinuity plausibility decision, extracted to
+    // encoder_glitch_armor.h (sprint 006 ticket 005 -- see that header
+    // for the kMaxDeltaCounts derivation and code review R-07/KERN-07).
+    // Ported from the reference driver (see radio-robot-elite
+    // docs/design/encoder-refresh-characterization.md Phase F: a sample
+    // destroyed by interposed bus traffic reads as raw 0; other
+    // corruption shows as a physically impossible jump). Bench capture
+    // 2026-08-20: one such read produced a phantom -22 m odometry
+    // teleport and a 3.5 M counts/s velocity spike that instantly
+    // mis-terminated the tour's last leg.
+    const EncoderGlitchArmor::Decision decision = glitchArmor_.evaluate(raw);
+    if (decision == EncoderGlitchArmor::Decision::kRejectPending) {
+      // First implausible reading: held, awaiting a second consistent
+      // one to disambiguate real motion from a counter discontinuity.
+      ++glitchCount_;
+      return;  // discarded: position/velocity/sampleTime all HOLD
     }
-    rejectPending_ = false;
-    lastGoodRaw_ = raw;
+    if (decision == EncoderGlitchArmor::Decision::kAcceptAsRebaseline) {
+      // Second consecutive self-consistent implausible reading: R-07's
+      // fix. The pre-extraction code accepted this as a real ~4 m jump
+      // (the "hand-rotation re-sync" path); this is now a THIRD outcome
+      // instead -- treat it as the counter having restarted (e.g. a
+      // brick MCU reset), not the wheel having moved. Re-anchor
+      // encOffset_ so THIS raw value maps to the position already held
+      // (continuity) rather than to zero -- the same offset technique
+      // rebaseline() below uses, generalized from "map to 0" to "map to
+      // the current position." Falls through to the shared accept-path
+      // computation below, using the freshly re-anchored offset; since
+      // pos comes out equal to lastPosition_ by construction, velocity_
+      // for this tick correctly reads ~0 rather than the multi-m/s
+      // spike the old behavior produced.
+      encOffset_ = raw - static_cast<int32_t>(lastPosition_) * fwdSign_;
+      ++rebaselineCount_;
+    }
     connected_ = true;
     const float pos =
         static_cast<float>(raw - encOffset_) * static_cast<float>(fwdSign_);
@@ -276,7 +287,7 @@ float NezhaMotorPort::appliedDuty() const {
 void NezhaMotorPort::rebaseline() {
   // Software-only re-anchor: position() reads 0 from here, no bus
   // traffic, the device counter is untouched.
-  encOffset_ = lastGoodRaw_;
+  encOffset_ = glitchArmor_.lastGoodRaw();
   lastPosition_ = 0.0f;
 }
 

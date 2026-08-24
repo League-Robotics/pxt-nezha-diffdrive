@@ -1,8 +1,9 @@
 ---
 id: '005'
 title: Encoder glitch-armor rebaseline-on-discontinuity (host-testable)
-status: open
-use-cases: [SUC-005]
+status: in-progress
+use-cases:
+- SUC-005
 depends-on: []
 github-issue: ''
 issue: brick-reset-odometry-teleport.md
@@ -72,27 +73,47 @@ either real embedded target.
 
 ## Acceptance Criteria
 
-- [ ] A host test drives `EncoderGlitchArmor` directly (no I2C fake
+- [x] A host test drives `EncoderGlitchArmor` directly (no I2C fake
       needed — it has no hardware dependency) with a scripted
       implausible-then-consistent raw-counts sequence (e.g. simulating
       a ~50k-count reset-like jump) and asserts an "accept as
       rebaseline" decision, not "accept as motion."
-- [ ] A host test confirms the existing behavior for a plausible
+      — `tests/host/test_encoder_glitch_armor.py::
+      test_reset_like_jump_then_consistent_reading_is_accepted_as_rebaseline`
+      (prime(50_000), evaluate(30) -> kRejectPending, evaluate(75) ->
+      kAcceptAsRebaseline).
+- [x] A host test confirms the existing behavior for a plausible
       single reading (no jump) is unchanged: "accept as motion."
-- [ ] A host test confirms the existing behavior for an implausible
+      — `test_plausible_single_reading_is_accepted_as_motion`
+      (parametrized deltas including the exact kMaxDeltaCounts
+      boundary) and `test_a_run_of_plausible_readings_stays_accepted`.
+- [x] A host test confirms the existing behavior for an implausible
       first reading with **no** consistent second reading is
       unchanged: "hold pending" (the existing reject-and-wait path).
-- [ ] `NezhaMotorPort::collect()`'s integration with
+      — `test_implausible_first_reading_with_no_second_holds_pending`
+      and `test_implausible_first_reading_followed_by_an_inconsistent_second_still_holds`.
+- [x] `NezhaMotorPort::collect()`'s integration with
       `EncoderGlitchArmor` is exercised indirectly if any existing
       `nezha_port.cpp`-adjacent test exists; if none does (likely,
       given `nezha_port.cpp` is not host-testable), state so explicitly
       rather than silently skipping this check.
-- [ ] A DIAG counter increments when a rebaseline fires, 0 across a
+      — Stated explicitly: no `nezha_port.cpp`-adjacent host test
+      exists (`nezha_port.h` includes `pxt.h` unconditionally;
+      `tests/host/DESIGN.md` S6 already lists `nezha_port` under "not
+      covered, by design"). The `collect()`/`begin()`/`rebaseline()`
+      wiring to `EncoderGlitchArmor` (offset re-anchor formula, DIAG
+      counter increment) is **review-verified only** — see this
+      ticket's own report to team-lead for the exact diff reasoning.
+- [x] A DIAG counter increments when a rebaseline fires, 0 across a
       normal session with no discontinuities (add to the existing
       DIAG ordinal table alongside the other glitch/wedge counters).
-- [ ] `encoder_glitch_armor.h` is added to
+      — `shims.cpp::diagValue()` ordinal 27 (sum of
+      `left.rebaselineCount_ + right.rebaselineCount_`); wiring is
+      review-verified only (same host-testability limit as above).
+- [x] `encoder_glitch_armor.h` is added to
       `tests/host/test_cxx11_syntax_gate.py`'s covered-files list.
-- [ ] `completes_issue: false` remains set in this ticket's frontmatter
+      — via `tests/host/encoder_glitch_armor_syntax_check.cpp`.
+- [x] `completes_issue: false` remains set in this ticket's frontmatter
       (do not change it — ticket 006 completes the issue).
 
 ## Implementation Plan

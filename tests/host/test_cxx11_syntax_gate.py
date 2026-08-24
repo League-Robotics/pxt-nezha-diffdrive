@@ -80,6 +80,13 @@ _CXX11_PORTABLE_SOURCES = [
     # but no natural .cpp of its own, so this dedicated translation
     # unit exists solely to give this gate something to compile.
     _TEST_DIR / "heading_wrap_syntax_check.cpp",
+    # Sprint 006 ticket 005: encoder_glitch_armor.h has no pxt.h
+    # dependency (it is the extracted, host-portable half of
+    # NezhaMotorPort::collect()'s rebaseline-on-discontinuity fix --
+    # see src/encoder_glitch_armor.h's own header comment) but no
+    # natural .cpp of its own, so this dedicated translation unit
+    # exists solely to give this gate something to compile.
+    _TEST_DIR / "encoder_glitch_armor_syntax_check.cpp",
 ]
 
 
