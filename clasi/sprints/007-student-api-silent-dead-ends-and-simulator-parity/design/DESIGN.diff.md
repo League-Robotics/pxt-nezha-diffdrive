@@ -1,6 +1,6 @@
 ---
 source_file: DESIGN.md
-source_hash: 717179b52ed99288d78ba18adbc8569ecb077b49a3bf2cd7b01439cf608ccdd4
+source_hash: f53f38950f63cc4c4f15aee7880a8d940e2ad2cb16f41a5dd1173bc1d4f340c6
 ---
 # Diff: DESIGN.md
 
@@ -9,6 +9,14 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 ```diff
 --- DESIGN.md (pristine)
 +++ DESIGN.md (current)
+@@ -1,6 +1,6 @@
+ # src — the DiffDrive extension
+ 
+-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (as-built through sprint 006, closed and merged 2026-08-24 — motion correctness: goTo geometry, cross-fiber stop delivery, continuous-mode odometry, OTOS heading wrap, encoder-reset rebaseline, encoder `PoseSource` fallback for GO_TO_W; sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint)
++**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (as-built through sprint 007, closed and merged 2026-08-24 — student API: stall-latch clear and readback, the `driveTick()` continuous-drive contract, the wire `cruise == 0` sentinel, simulator turn-rate and e-stop parity, a `rotationalSlip` setter, and the `pxt.json` manifest fix that had been blocking every hex build; sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint)
+ 
+ `src/` is flat — no subdirectories — so this one document carries the
+ logical subsystem breakdown as sections. Global conventions (units
 @@ -130,7 +130,17 @@
    `setRampMs`).
  - Geometry: `countsPerMm() = 10 / travelCalib`;
