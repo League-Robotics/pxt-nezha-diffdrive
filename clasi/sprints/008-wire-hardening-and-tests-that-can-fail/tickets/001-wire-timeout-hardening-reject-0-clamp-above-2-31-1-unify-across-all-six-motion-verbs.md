@@ -2,7 +2,7 @@
 id: '001'
 title: 'Wire timeout hardening: reject 0, clamp above 2^31-1, unify across all six
   motion verbs'
-status: open
+status: in-progress
 use-cases:
 - SUC-001
 depends-on: []
@@ -69,31 +69,38 @@ Design Rationale entry.
 
 ## Acceptance Criteria
 
-- [ ] A shared decode-time helper in `wire_handler.cpp` rejects
+- [x] A shared decode-time helper in `wire_handler.cpp` rejects
       `timeout`/`duration == 0` (`kRange`) and clamps values above
       `2^31 - 1` down to it, applied uniformly to all six motion verbs
       before any verb-specific handler logic runs.
-- [ ] `WHEELS_X … timeout 0` no longer leaves a kernel lease armed with
+- [x] `WHEELS_X … timeout 0` no longer leaves a kernel lease armed with
       `hasLiveMotionObligation()` reporting false — confirmed by a host
       test that drives this exact R-06 sequence and asserts no
       obligation/lease mismatch (e.g. after the refused command, a
       subsequent unrelated tick does not resume a stale move).
-- [ ] `MOVE_X`'s existing `timeout 0` behavior is reconciled with the
+- [x] `MOVE_X`'s existing `timeout 0` behavior is reconciled with the
       same reject-at-decode rule — investigate and document what
       `MotionEngine::moveX()` actually did before this ticket (this
       ticket's Description above states the WHEELS_X mechanism from
       direct source reading; MOVE_X's exact mechanism was not verified
       to the same depth during planning — confirm during execution and
       correct this ticket's own Description if it turns out to differ).
-- [ ] A `timeout`/`duration` above `2^31 - 1` (up to `4294967295`) no
+      Verified by direct reading of `motion_engine.cpp::moveX()`
+      (`move_.deadline = nowMs() + timeoutMs;`, then `serviceMove()`'s
+      `expired = (now - move_.deadline) >= 0` fires on the very next
+      tick when `timeoutMs == 0`): the Description's characterization
+      ("instant silent no-op") is accurate as written; no correction
+      needed. GO_TO_R/GO_TO_W share this exact mechanism (both set
+      `move_.deadline` the same way, directly or via `moveX()`).
+- [x] A `timeout`/`duration` above `2^31 - 1` (up to `4294967295`) no
       longer reproduces the ticket-011 starvation pattern — a host test
       drives the exact R-18 sequence (a value above `2^31`) and asserts
       the move keeps running past ~150 ms instead of being killed.
-- [ ] The existing host-test boundary-value parametrize (currently
+- [x] The existing host-test boundary-value parametrize (currently
       maxing at 5000 ms) is extended to `0`, `2^31 - 1`, `2^31`, and
       `4294967295` across all six motion verbs, asserting the documented
       reject/clamp/unchanged behavior for each.
-- [ ] Values in the previously-tested range (1..5000 ms) are unchanged
+- [x] Values in the previously-tested range (1..5000 ms) are unchanged
       — no regression to `test_wire_motion_verbs.py`'s existing
       coverage.
 

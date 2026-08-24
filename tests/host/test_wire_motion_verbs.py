@@ -171,6 +171,11 @@ def _bind(lib):
     for name in (
         "wvLastWheelsVDuration", "wvLastWheelsVId", "wvLastWheelsXTimeout",
         "wvLastMoveXTimeout", "wvLastMoveVDuration", "wvLastGoToRTimeout",
+        # Sprint 008 (wire-timeout-hardening.md): GO_TO_W's own timeout
+        # accessor -- previously missing, the only one of the six motion
+        # verbs with no exported timeout/duration getter on WvHandle (see
+        # wvLastGoToWTimeout's own doc comment, wire_motion_verb_shim.cpp).
+        "wvLastGoToWTimeout",
     ):
         fn = getattr(lib, name)
         fn.argtypes = [ctypes.c_void_p]
@@ -403,6 +408,12 @@ class WireVerbMock:
         return (
             self._lib.wvLastGoToWX(self._handle),
             self._lib.wvLastGoToWY(self._handle),
+            # Sprint 008: previously missing (see wvLastGoToWTimeout's own
+            # doc comment, wire_motion_verb_shim.cpp) -- appended, not
+            # inserted, so this tuple's first two positions stay backward
+            # compatible with test_go_to_w_golden_vector's existing
+            # pytest.approx((300.0, -400.0)) assertion above.
+            self._lib.wvLastGoToWTimeout(self._handle),
         )
 
 
@@ -645,7 +656,10 @@ def test_go_to_w_golden_vector(wv):
     wv.feed(b"GO_TO_W 300 -400 250 20 5000 #1\n")
     assert wv.take_sink() == _ack(1) + _err(1, 1)
     assert wv.go_to_w_calls == 1
-    assert wv.last_go_to_w == pytest.approx((300.0, -400.0))
+    # Sprint 008: last_go_to_w grew a third element (timeout) -- see
+    # wvLastGoToWTimeout's own doc comment, wire_motion_verb_shim.cpp.
+    assert wv.last_go_to_w[:2] == pytest.approx((300.0, -400.0))
+    assert wv.last_go_to_w[2] == 5000
 
 
 # ---------------------------------------------------------------------------
@@ -1883,6 +1897,265 @@ def test_every_motion_verb_arms_motion_obligation(wa, line, window_ms):
     # ...and clear once it has.
     wa.set_now_ms(1_000_000 + window_ms)
     assert not wa.has_live_motion_obligation()
+
+
+# ---------------------------------------------------------------------------
+# Sprint 008 (wire-timeout-hardening.md, R-06 + R-18, code review
+# 2026-08-23): timeout/duration boundary hardening. One shared decode-time
+# clamp (wire_handler.cpp's clampMotionTimeout()) now runs ahead of every
+# one of the six motion verbs' own Adapter dispatch, replacing what used to
+# be two disagreeing, untested behaviors for `timeout`/`duration == 0`
+# (WHEELS_X's stale ~10s kernel lease left armed with no live obligation
+# tracking it -- R-06; MOVE_X's/GO_TO_R's/GO_TO_W's instant silent no-op)
+# and an unreachable-by-any-prior-test starvation-kill class for any value
+# above 2^31-1 (R-18: WireAdapter's own
+# `motionObligationDeadlineMs_ = nowMs_() + timeout` wraps negative, the
+# ticket-011 pattern resurrected). `0` is now refused outright
+# (Result::kRange, err 3, matching the existing `cruise <= 0` refusal
+# precedent); a value above 2^31-1 is silently clamped down to it.
+#
+# The existing boundary-value coverage above (WHEELS_V's own
+# kWheelsVDurationCeiling tests, maxing at 5000/5001 ms) is UNCHANGED --
+# neither of those two values is anywhere near 2^31-1, so this ticket's own
+# clamp never touches them; the sections below are new, adjacent coverage
+# rather than edits to that existing parametrize (0's "rejected outright,
+# no dispatch at all" shape and the ~24.8-day clamp ceiling do not fit
+# test_every_motion_verb_arms_motion_obligation's own "armed, then expires
+# within `window_ms`" body without breaking its own single-purpose shape).
+# ---------------------------------------------------------------------------
+
+# (verb id, wire line template with a `{t}` timeout/duration placeholder,
+# whether this verb ALSO enforces WireAdapter's own separate
+# kWheelsVDurationCeiling (5000 ms) downstream of the shared clamp above --
+# WHEELS_V/MOVE_V's own "duration IS the lease, a dead host cannot mean a
+# runaway" ceiling, unrelated to and unchanged by this ticket, but relevant
+# here because it means neither verb can ever reach the accepted side of
+# the NEW 2^31-1 ceiling: both ceilings apply, and 5000 is the tighter one;
+# and the timeout/duration field's own INDEX into that verb's `last_<verb>`
+# tuple above -- NOT always the last element: last_wheels_v's own tuple
+# ends with `id`, not `duration`, so `last[-1]` would silently check the
+# wrong field for that one verb).
+_MOTION_VERB_TIMEOUT_CASES = [
+    ("wheels_x", "WHEELS_X 100 100 150 {t} #1\n", False, 3),
+    ("wheels_v", "WHEELS_V 100 100 {t} #1\n", True, 2),
+    ("move_x", "MOVE_X 200 0 150 {t} #1\n", False, 3),
+    ("move_v", "MOVE_V 100 0 {t} #1\n", True, 2),
+    ("go_to_r", "GO_TO_R 200 50 150 0 {t} #1\n", False, 4),
+    ("go_to_w", "GO_TO_W 200 50 150 0 {t} #1\n", False, 2),
+]
+
+# wire_handler.cpp's own kMaxMotionTimeoutMs (2^31 - 1) -- restated here,
+# not imported: this suite hardcodes its own wire-level literals throughout
+# (e.g. WHEELS_V's 5000 ms ceiling above), matching that existing
+# convention rather than introducing a new cross-language constant-sharing
+# mechanism for one test file.
+_MAX_MOTION_TIMEOUT_MS = 2147483647  # 2^31 - 1
+
+
+@pytest.mark.parametrize("verb,line_template,has_duration_ceiling,timeout_index",
+                          _MOTION_VERB_TIMEOUT_CASES)
+def test_motion_verb_timeout_zero_is_rejected_not_dispatched(
+        wv, verb, line_template, has_duration_ceiling, timeout_index):
+    """R-06, generalized to all six verbs via the mock adapter (`wv`):
+    timeout/duration == 0 is now a MERITS rejection (ack + err 3) at the
+    shared wire_handler.cpp clamp, BEFORE the Adapter is ever called --
+    `*_calls` stays 0, proving this is a single choke point every verb goes
+    through identically, not six independently-agreeing Adapter checks."""
+    del has_duration_ceiling, timeout_index  # decode/dispatch-only check
+    setter = getattr(wv, f"set_{verb}_result")
+    setter(RESULT_UNKNOWN)  # would be visible in the reply if reached
+    wv.feed(line_template.format(t=0).encode())
+    assert wv.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE, not ERR_UNKNOWN
+    assert getattr(wv, f"{verb}_calls") == 0
+    assert wv.malformed_count == 0  # a merits rejection, not a decode failure
+
+
+@pytest.mark.parametrize("timeout_value", [
+    2**31,      # one past the ceiling -- clamps
+    2**32 - 1,  # uint32-max -- clamps to the same ceiling
+])
+@pytest.mark.parametrize("verb,line_template,has_duration_ceiling,timeout_index",
+                          _MOTION_VERB_TIMEOUT_CASES)
+def test_motion_verb_timeout_above_ceiling_clamps_before_dispatch(
+        wv, verb, line_template, has_duration_ceiling, timeout_index,
+        timeout_value):
+    """R-18, generalized via the mock adapter: a timeout/duration above
+    2^31-1 is silently clamped DOWN to it before the Adapter ever sees it --
+    proven by reading back the exact value the mock adapter recorded
+    (last_<verb>'s own timeout/duration field, at its own index -- see
+    _MOTION_VERB_TIMEOUT_CASES's own comment on why that index is not
+    always -1), not merely by the wire-level outcome (which
+    kWheelsVDurationCeiling alone could also explain for WHEELS_V/MOVE_V)."""
+    del has_duration_ceiling
+    setter = getattr(wv, f"set_{verb}_result")
+    setter(RESULT_UNKNOWN)
+    wv.feed(line_template.format(t=timeout_value).encode())
+    assert wv.take_sink() == _ack(1) + _err(1, 1)  # ERR_UNKNOWN: dispatched
+    assert getattr(wv, f"{verb}_calls") == 1
+    last = getattr(wv, f"last_{verb}")
+    assert last[timeout_index] == _MAX_MOTION_TIMEOUT_MS  # clamped, not raw
+
+
+@pytest.mark.parametrize("verb,line_template,has_duration_ceiling,timeout_index",
+                          _MOTION_VERB_TIMEOUT_CASES)
+def test_motion_verb_timeout_at_ceiling_is_unchanged(
+        wv, verb, line_template, has_duration_ceiling, timeout_index):
+    """2^31-1 itself is the inclusive top of the accepted range -- passes
+    through byte-for-byte, unclamped: this ticket's own "values in the
+    previously-tested range are unchanged" contract, extended to the new
+    ceiling's own boundary rather than only the old 1..5000 ms range."""
+    del has_duration_ceiling
+    setter = getattr(wv, f"set_{verb}_result")
+    setter(RESULT_UNKNOWN)
+    wv.feed(line_template.format(t=_MAX_MOTION_TIMEOUT_MS).encode())
+    assert wv.take_sink() == _ack(1) + _err(1, 1)
+    assert getattr(wv, f"{verb}_calls") == 1
+    last = getattr(wv, f"last_{verb}")
+    assert last[timeout_index] == _MAX_MOTION_TIMEOUT_MS
+
+
+@pytest.mark.parametrize("timeout_value", [
+    0, _MAX_MOTION_TIMEOUT_MS, 2**31, 2**32 - 1,
+])
+@pytest.mark.parametrize("verb,line_template,has_duration_ceiling,timeout_index",
+                          _MOTION_VERB_TIMEOUT_CASES)
+def test_motion_verb_timeout_boundary_values_real_adapter_obligation(
+        wa, verb, line_template, has_duration_ceiling, timeout_index,
+        timeout_value):
+    """The same four boundary values, this time through the REAL
+    WireAdapter + a real clock (`wa`), asserting the motion-obligation
+    flag protocol.cpp's fiber loop actually polls -- the acceptance
+    criterion's own "asserting the documented reject/clamp/unchanged
+    behavior for each" verb, at each boundary value, via
+    hasLiveMotionObligation() rather than only the mock adapter's recorded
+    argument. For the two duration-ceiling verbs (WHEELS_V/MOVE_V), every
+    one of these four values is refused (0 by the new clamp; the other
+    three by the pre-existing, unchanged 5000 ms ceiling, since clamping
+    down to 2^31-1 still leaves them far above it) -- so those two verbs
+    never reach the "obligation armed" branch at all, which is itself the
+    proof that ceiling and clamp compose correctly rather than the new
+    clamp accidentally bypassing the old ceiling."""
+    del timeout_index  # this test reads the obligation flag, not last_<verb>
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_pose(0.0, 0.0, 0.0)  # only read by GO_TO_W; harmless otherwise
+
+    base_ms = 1_000_000
+    wa.set_now_ms(base_ms)
+    assert not wa.has_live_motion_obligation()
+
+    wa.feed(line_template.format(t=timeout_value).encode())
+
+    if timeout_value == 0 or has_duration_ceiling:
+        # 0: rejected for every verb (R-06). Otherwise: the clamped value
+        # (<=2^31-1) still exceeds WHEELS_V/MOVE_V's own 5000 ms ceiling.
+        assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+        assert not wa.has_live_motion_obligation()
+        return
+
+    # Accepted -- armed immediately (R-18's own bug would show FALSE here,
+    # from the wrapped-negative deadline computed at arm time).
+    assert wa.take_sink() == _ack(1)
+    assert wa.has_live_motion_obligation()
+
+    # ...and still armed a good deal past the ~150 ms starvation-watchdog
+    # window R-18's bug would have missed entirely (this ticket's own
+    # acceptance criterion: "the move keeps running past ~150 ms").
+    wa.set_now_ms(base_ms + 200)
+    assert wa.has_live_motion_obligation()
+
+
+# ---------------------------------------------------------------------------
+# R-06's own named sequence (issue text, wire-timeout-hardening.md): WHEELS_X
+# specifically, since it is the ONE verb (of the six) whose own lease
+# computation (MotionEngine::wheelsX()'s dead-reckoned
+# `lease = dominant/cruise*1000`) silently substituted a LONGER lease than
+# `timeoutMs` when `timeoutMs == 0` -- `if (timeoutMs > 0 && timeoutMs <
+# lease) lease = timeoutMs;` never fires at 0, so the kernel used to stay
+# armed with a multi-second command while WireAdapter's own obligation
+# window read `now + 0 == now` (already expired). This is a stronger proof
+# than the flag-only check above: it proves the KERNEL itself was never
+# even commanded, by observing the motor never receives a nonzero duty
+# across several subsequent, unrelated ticks -- exactly the "a subsequent
+# unrelated tick does not resume a stale move" acceptance criterion.
+# ---------------------------------------------------------------------------
+
+
+def test_wheels_x_timeout_zero_leaves_no_stale_kernel_lease_armed(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    wa.set_now_ms(1_000_000)
+
+    wa.feed(b"WHEELS_X 200 200 150 0 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    assert not wa.has_live_motion_obligation()
+
+    # Pre-fix, MotionEngine::wheelsX() would still have been called with
+    # timeoutMs == 0 and armed the kernel with its own multi-second
+    # dead-reckoned lease -- these "unrelated" ticks (protocol.cpp's fiber
+    # loop resuming for some other reason entirely; here, simply advancing
+    # time and stepping) would then have resumed that stale command. Post-
+    # fix, engineWheelsX() is never even called for a refused timeout, so
+    # the motor never receives a nonzero duty at all.
+    for elapsed_ms in (10, 1000, 8000):
+        wa.set_now_ms(1_000_000 + elapsed_ms)
+        wa.step()
+        assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+        assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+        assert not wa.has_live_motion_obligation()
+
+
+# ---------------------------------------------------------------------------
+# R-18's own named sequence (issue text, wire-timeout-hardening.md; the
+# code-review annex's own extra-derivation note, verify-wire.md's "WIRE-02
+# -- extra derivation detail"): WHEELS_X with a timeout STRICTLY greater
+# than 2^31 -- the annex's own re-derivation of the wraparound arithmetic
+# found the pre-fix break threshold is exact and easy to get one-off wrong:
+# `(int32_t)(now - (now + t))` is INT32_MIN (still "< 0", i.e. still
+# reported live) at t == 2^31 EXACTLY, and only flips to "dead on arrival"
+# for t > 2^31 -- so a test at exactly 2^31 would NOT have been red
+# pre-fix, and is not used here for that reason (the boundary-value
+# parametrize above still covers t == 2^31 for the POST-fix "clamped and
+# accepted" contract, which holds regardless of this pre-fix coincidence).
+# uint32-max (4294967295) sits unambiguously past the threshold on both
+# sides of that off-by-one, matching the value the annex's own derivation
+# table uses to illustrate "dead on arrival".
+# ---------------------------------------------------------------------------
+
+
+def test_wheels_x_timeout_above_2_31_survives_starvation_window(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.begin() == STATUS_OK
+    wa.set_now_ms(1_000_000)
+
+    # 4294967295 (uint32-max): pre-fix, `now + 4294967295` wraps to
+    # `now - 1`, so hasLiveMotionObligation() reads FALSE from the very
+    # first poll (verify-wire.md's own derivation: t = 4294967295 -> 1,
+    # "dead on arrival") -- protocol.cpp's fiber never ticks, and the
+    # ~100-150 ms starvation watchdog port-stops the motors despite the
+    # move having just been acked. Post-fix, the shared clamp reduces this
+    # to kMaxMotionTimeoutMs (2^31-1) before WireAdapter ever computes a
+    # deadline, so the wrap never happens.
+    wa.feed(b"WHEELS_X 200 200 150 4294967295 #1\n")
+    assert wa.take_sink() == _ack(1)  # accepted, not refused
+    assert wa.has_live_motion_obligation()
+
+    wa.step()
+    expected_left, expected_right = _expected_wheels_x_duty_pair(
+        200.0, 200.0, 150.0, wa.counts_per_mm(), _WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+
+    # Past the ~150 ms starvation-watchdog window the pre-fix wrap would
+    # have left this move stranded inside -- still armed, still driving.
+    wa.set_now_ms(1_000_000 + 200)
+    assert wa.has_live_motion_obligation()
+    wa.step()
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
 
 
 def test_go_to_w_no_pose_source_does_not_arm_motion_obligation(wa):

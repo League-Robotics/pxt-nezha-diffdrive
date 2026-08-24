@@ -123,6 +123,59 @@ bool parseUint32(const char* field, uint32_t& out) {
   return true;
 }
 
+// Sprint 008 (wire-timeout-hardening.md, R-06 + R-18, code review
+// 2026-08-23): the shared ceiling every one of the six motion verbs'
+// `timeout`/`duration` field is clamped against, in each exec function
+// below, BEFORE the value ever reaches the Adapter (WireAdapter's own
+// obligation-window math, MotionEngine::wheelsX()'s lease-clamp
+// arithmetic, and the kernel's own lease/deadline math therefore never
+// see an out-of-range value -- none of them needs its own defensive
+// check).
+//
+// This is a SIBLING of wire_adapter.h's kWireBoundaryCastCeiling
+// (2e9), not a reuse of it, and deliberately so: that constant bounds a
+// float->int32 CAST at the wire boundary (chosen with headroom below
+// where float's 24-bit mantissa stops representing every integer
+// exactly, so the cast itself stays well-defined) -- this one bounds a
+// uint32_t value directly, with no float involved anywhere in its own
+// path. 2^31-1 is exactly this project's own signed-difference
+// wraparound-safe half-range -- the same idiom
+// WireAdapter::hasLiveMotionObligation() already relies on
+// (`static_cast<int32_t>(nowMs - deadlineMs) < 0`): a `timeout` at or
+// below this ceiling can never make `now + timeout` wrap PAST `now`
+// itself, so that comparison stays correct for any `now`. Reusing
+// kWireBoundaryCastCeiling's literal value (2e9, not 2^31-1) here would
+// leave ~147M ms of headroom where the wraparound-safety guarantee
+// above no longer holds; reusing the symbol itself would mean this file
+// including wire_adapter.h, inverting this project's own layering rule
+// (src/DESIGN.md S1: wire_adapter depends on wire_handler, never the
+// reverse -- this file stays host-portable with no project includes at
+// all). The two ceilings are close in magnitude only because "very
+// large but still safe" happens to land in the same neighborhood in
+// both domains.
+constexpr uint32_t kMaxMotionTimeoutMs = 2147483647u;  // 2^31 - 1
+
+// Applied identically to WHEELS_X/WHEELS_V/MOVE_X/MOVE_V/GO_TO_R/GO_TO_W's
+// own timeout/duration field (see kMaxMotionTimeoutMs's own doc comment
+// above for why, and DESIGN.md S14's Design Rationale for the
+// reject-vs-clamp choice on each end): `0` is refused outright
+// (matching the existing precedent that `cruise <= 0` already refuses
+// rather than silently reinterpreting a nonsensical input, WireAdapter
+// ::onWheelsX() et al.) -- both of today's two disagreeing "0" meanings
+// (WHEELS_X's stale-lease lurch, MOVE_X's instant no-op) are confirmed
+// bugs, not designs worth preserving. A value above the ceiling is
+// silently clamped down to it: a host sending an oversized timeout is
+// asking for "run for a very long time," which clamping serves;
+// rejecting would force every large-sentinel-using host to learn this
+// project's specific ceiling. Returns false (reject) for exactly 0,
+// leaving `timeout` unmodified; otherwise clamps `timeout` in place to
+// at most kMaxMotionTimeoutMs and returns true.
+bool clampMotionTimeout(uint32_t& timeout) {
+  if (timeout == 0) return false;
+  if (timeout > kMaxMotionTimeoutMs) timeout = kMaxMotionTimeoutMs;
+  return true;
+}
+
 bool parseFloatField(const char* field, float& out) {
   if (field == nullptr || field[0] == '\0' || isWireSpace(field[0])) {
     return false;
@@ -786,6 +839,15 @@ void WireHandler::execWheelsX(char** fields, size_t fieldCount, uint32_t id,
   parseInt32(fields[1], right);
   parseInt32(fields[2], cruise);
   parseUint32(fields[3], timeout);
+  // Sprint 008 (R-06 + R-18): shared reject-0/clamp-above-2^31-1 bound --
+  // see clampMotionTimeout()'s own doc comment above. Rejecting here
+  // means engineWheelsX() (and therefore MotionEngine::wheelsX()'s own
+  // lease-clamp arithmetic) never even runs for timeout == 0, closing
+  // R-06's stale-lease bug at the source rather than downstream.
+  if (!clampMotionTimeout(timeout)) {
+    errCode = resultCode(Result::kRange);
+    return;
+  }
   Result result =
       adapter_.onWheelsX(static_cast<float>(left), static_cast<float>(right),
                          static_cast<float>(cruise), timeout, id);
@@ -808,6 +870,16 @@ void WireHandler::execWheelsV(char** fields, size_t fieldCount, uint32_t id,
   parseInt32(fields[0], left);
   parseInt32(fields[1], right);
   parseUint32(fields[2], duration);
+  // Sprint 008 (R-06 + R-18): shared reject-0/clamp-above-2^31-1 bound --
+  // see clampMotionTimeout()'s own doc comment above. WHEELS_V's own
+  // kWheelsVDurationCeiling (5000 ms, wire_adapter.h) still applies
+  // downstream, unchanged -- this only rules out 0 and the >2^31-1
+  // wraparound class, both of which sat well outside that ceiling
+  // anyway.
+  if (!clampMotionTimeout(duration)) {
+    errCode = resultCode(Result::kRange);
+    return;
+  }
   Result result = adapter_.onWheelsV(static_cast<float>(left),
                                      static_cast<float>(right), duration, id);
   errCode = resultCode(result);
@@ -830,6 +902,17 @@ void WireHandler::execMoveX(char** fields, size_t fieldCount, uint32_t id,
   parseInt32(fields[1], rotation);
   parseInt32(fields[2], cruise);
   parseUint32(fields[3], timeout);
+  // Sprint 008 (R-06 + R-18): shared reject-0/clamp-above-2^31-1 bound --
+  // see clampMotionTimeout()'s own doc comment above. Rejecting here
+  // means engineMoveX() never runs for timeout == 0, so
+  // MotionEngine::moveX()'s own `move_.deadline = nowMs() + timeoutMs`
+  // never gets set to "now" (this verb's own instant-no-op behavior,
+  // confirmed unchanged from the ticket's own description by reading
+  // motion_engine.cpp directly -- see this ticket's own report).
+  if (!clampMotionTimeout(timeout)) {
+    errCode = resultCode(Result::kRange);
+    return;
+  }
   Result result = adapter_.onMoveX(static_cast<float>(distance),
                                    static_cast<float>(rotation),
                                    static_cast<float>(cruise), timeout, id);
@@ -852,6 +935,13 @@ void WireHandler::execMoveV(char** fields, size_t fieldCount, uint32_t id,
   parseInt32(fields[0], v_x);
   parseInt32(fields[1], omega);
   parseUint32(fields[2], duration);
+  // Sprint 008 (R-06 + R-18): shared reject-0/clamp-above-2^31-1 bound --
+  // see clampMotionTimeout()'s own doc comment above. MOVE_V shares
+  // WHEELS_V's own kWheelsVDurationCeiling downstream (unchanged).
+  if (!clampMotionTimeout(duration)) {
+    errCode = resultCode(Result::kRange);
+    return;
+  }
   Result result = adapter_.onMoveV(static_cast<float>(v_x),
                                    static_cast<float>(omega), duration, id);
   errCode = resultCode(result);
@@ -876,6 +966,16 @@ void WireHandler::execGoToR(char** fields, size_t fieldCount, uint32_t id,
   parseInt32(fields[2], speed);
   parseInt32(fields[3], arrive);
   parseUint32(fields[4], timeout);
+  // Sprint 008 (R-06 + R-18): shared reject-0/clamp-above-2^31-1 bound --
+  // see clampMotionTimeout()'s own doc comment above. Rejecting here
+  // means engineGoToR() never runs for timeout == 0, so
+  // MotionEngine::goToR()'s own deadline math (identical
+  // "nowMs() + timeoutMs" shape to moveX(), see execMoveX()'s comment
+  // above) never sees the instant-no-op input either.
+  if (!clampMotionTimeout(timeout)) {
+    errCode = resultCode(Result::kRange);
+    return;
+  }
   Result result =
       adapter_.onGoToR(static_cast<float>(x), static_cast<float>(y),
                        static_cast<float>(speed), static_cast<float>(arrive),
@@ -897,6 +997,14 @@ void WireHandler::execGoToW(char** fields, size_t fieldCount, uint32_t id,
   parseInt32(fields[2], speed);
   parseInt32(fields[3], arrive);
   parseUint32(fields[4], timeout);
+  // Sprint 008 (R-06 + R-18): shared reject-0/clamp-above-2^31-1 bound --
+  // see clampMotionTimeout()'s own doc comment above. Same rationale as
+  // execGoToR() immediately above -- GO_TO_W shares GO_TO_R's identical
+  // field shape and deadline math (via MotionEngine::goToR()).
+  if (!clampMotionTimeout(timeout)) {
+    errCode = resultCode(Result::kRange);
+    return;
+  }
   Result result =
       adapter_.onGoToW(static_cast<float>(x), static_cast<float>(y),
                        static_cast<float>(speed), static_cast<float>(arrive),

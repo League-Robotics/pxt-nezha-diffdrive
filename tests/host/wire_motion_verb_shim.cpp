@@ -649,6 +649,16 @@ float wvLastGoToWX(void* handle) {
 float wvLastGoToWY(void* handle) {
   return static_cast<WvHandle*>(handle)->adapter.lastGoToWY;
 }
+// Sprint 008 (wire-timeout-hardening.md): GO_TO_W's own `timeout` was
+// already recorded by WireMockAdapter (wire_mock_adapter.h's
+// lastGoToWTimeout) but had no exported accessor -- every one of the
+// other five verbs already had one for its own timeout/duration field
+// (see wvLastGoToRTimeout immediately above), so this closes that one
+// gap rather than leaving GO_TO_W as the sole verb this suite cannot
+// directly prove the shared clamp reached.
+uint32_t wvLastGoToWTimeout(void* handle) {
+  return static_cast<WvHandle*>(handle)->adapter.lastGoToWTimeout;
+}
 
 // ============================================================================
 // WaHandle: WireHandler + the REAL WireAdapter + a REAL kernel over
