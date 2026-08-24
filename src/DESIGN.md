@@ -251,7 +251,15 @@ kills the program within two polls (measured; CODAL EmptyPacket
 refcounting). Multi-fragment inbound reassembly is deliberately out of
 scope. Send-path scratch buffers are members, not stack locals — the
 protocol fiber's 2 KB stack overflowed and hard-faulted with them on
-the stack (measured).
+the stack (measured). Those buffers are no longer single-fiber-only
+(sprint 004 ticket 002): the protocol fiber (via `RadioSink::write()`)
+and the TS fiber (via `Protocol::emitLine()`) both call `sendLine()`
+now, guarded by a `sending_` bool — the second caller in returns
+`false` untouched. `emitLine()` retries once after `fiber_sleep(2)`;
+`RadioSink::write()` ignores the drop by design (a lost `t` frame
+self-heals via the next `seq` gap). Not host-testable (this file
+includes `pxt.h`); verified by code review, first exercised live at
+the bench.
 
 **Layering.** Both know bytes and framing only — no verbs, no COBS,
 no semantics. Siblings under Protocol, deliberately uncoupled from

@@ -92,7 +92,19 @@ void Protocol::emitLine(const char* text) {
   while (text[len] != '\0' && len < 200) ++len;
   if (len == 0) return;
   transport_.writeLine(reinterpret_cast<const uint8_t*>(text), len);
-  radioTransport_.sendLine(reinterpret_cast<const uint8_t*>(text), len);
+  // RadioTransport::sendLine() now guards its shared scratch buffers
+  // against the protocol fiber's own RadioSink::write() calls (ticket
+  // 002); false means the guard fired and this line was dropped
+  // untouched. This is the one caller whose loss is user-visible (a
+  // test's own recorded result, e.g. an OCAL: corner fix), so it gets
+  // exactly one fiber_sleep(2)-and-retry -- not a loop -- before giving
+  // up silently, per sprint.md's Design Rationale.
+  if (!radioTransport_.sendLine(reinterpret_cast<const uint8_t*>(text),
+                                len)) {
+    fiber_sleep(2);
+    (void)radioTransport_.sendLine(reinterpret_cast<const uint8_t*>(text),
+                                   len);
+  }
 }
 
 // Free-function entry point for shims.cpp's emitLine shim. Lives here,

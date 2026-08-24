@@ -1,9 +1,12 @@
 ---
 id: '002'
 title: RadioTransport re-entrancy guard for the protocol fiber's send path
-status: open
-use-cases: [SUC-001, SUC-002]
-depends-on: ["001"]
+status: in-progress
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '001'
 github-issue: ''
 issue: radio-speaks-full-v6-and-v6-gets-its-telemetry-frame.md
 completes_issue: true
@@ -37,23 +40,23 @@ would just reintroduce the same contention it is trying to avoid.
 
 ## Acceptance Criteria
 
-- [ ] `RadioTransport::sendLine()` returns `bool`: `true` on a normal
+- [x] `RadioTransport::sendLine()` returns `bool`: `true` on a normal
       send, `false` if a call was already in progress (the guard
       fired) — the caller that fired the guard does NOT touch
       `payloadBuf_`/`frameBuf_` at all before returning.
-- [ ] A `sending_` bool member is set true at entry to the guarded body
+- [x] A `sending_` bool member is set true at entry to the guarded body
       and cleared before every return path (normal completion AND the
       guard's own early return leaves it as the OTHER caller's send is
       still in flight — only the caller that actually entered the
       guarded section clears it, on its own way out).
-- [ ] `Protocol::emitLine()` checks `radioTransport_.sendLine()`'s
+- [x] `Protocol::emitLine()` checks `radioTransport_.sendLine()`'s
       return value; on `false`, it calls `fiber_sleep(2)` and retries
       the send exactly once (not in a loop) before giving up silently.
-- [ ] `RadioSink::write()` (ticket 001/003's radio sink) ignores
+- [x] `RadioSink::write()` (ticket 001/003's radio sink) ignores
       `sendLine()`'s bool return entirely — a dropped telemetry/ack
       line under contention is accepted silently, by design (see
       Description).
-- [ ] `SerialTransport` is explicitly OUT of this ticket's scope, but
+- [x] `SerialTransport` is explicitly OUT of this ticket's scope, but
       NOT because it is safe. **Correction (code review 2026-08-23,
       R-20/WIRE-04, CONFIRMED):** an earlier draft of this AC asserted
       serial has no analogous second-caller hazard; that assertion was

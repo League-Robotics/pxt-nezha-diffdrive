@@ -121,8 +121,16 @@ bool RadioTransport::tryReceiveLine(uint8_t* outBuf, size_t outCap,
   return true;
 }
 
-void RadioTransport::sendLine(const uint8_t* data, size_t len) {
+bool RadioTransport::sendLine(const uint8_t* data, size_t len) {
   ensureRadioReady();
+
+  // Re-entrancy guard (sprint 004 ticket 002): payloadBuf_/frameBuf_
+  // are shared scratch now reached by two fibers (see header comment).
+  // A caller that finds sending_ already true returns immediately,
+  // WITHOUT touching either buffer -- the in-flight caller owns them
+  // until it clears sending_ on its own way out below.
+  if (sending_) return false;
+  sending_ = true;
 
   // `data`/`len` plus one trailing '\n' delimiter -- the ONE
   // terminator every outbound line uses here, exactly as
@@ -137,6 +145,9 @@ void RadioTransport::sendLine(const uint8_t* data, size_t len) {
   }
   payload[n] = kLineDelimiter;
   sendFragmented(payload, n + 1);
+
+  sending_ = false;
+  return true;
 }
 
 }  // namespace diffDrive

@@ -101,7 +101,10 @@ class Protocol {
   // Called from the TS layer (shims.cpp's emitLine), NOT from this
   // object's own fiber; SerialTransport::writeLine blocks the caller
   // until the bytes are out, and RadioTransport::sendLine is a single
-  // datagram, so a caller between moves pays a bounded cost.
+  // datagram, so a caller between moves pays a bounded cost -- plus,
+  // as of ticket 002, at most one extra fiber_sleep(2) if
+  // sendLine()'s re-entrancy guard fires against the protocol fiber's
+  // own concurrent RadioSink::write() and this call retries once.
   void emitLine(const char* text);
 
   // Text of the RUN command that raised MessageBus event value `slot`
@@ -215,8 +218,16 @@ class Protocol {
     explicit RadioSink(RadioTransport& transport) : transport_(transport) {}
     void write(const char* data, size_t length) override {
       const size_t contentLen = length > 0 ? length - 1 : 0;
-      transport_.sendLine(reinterpret_cast<const uint8_t*>(data),
-                          contentLen);
+      // sendLine()'s bool return (ticket 002's re-entrancy guard) is
+      // deliberately ignored here, not an oversight: a telemetry/ack
+      // line dropped under contention with Protocol::emitLine() (the
+      // TS fiber's own sendLine() caller) self-heals for free via the
+      // next frame's seq gap, and retrying here would just reintroduce
+      // the contention the guard exists to avoid (see sprint.md's
+      // Design Rationale -- do not "fix" this into matching
+      // emitLine()'s retry).
+      (void)transport_.sendLine(reinterpret_cast<const uint8_t*>(data),
+                                contentLen);
     }
 
    private:
