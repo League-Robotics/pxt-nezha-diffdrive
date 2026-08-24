@@ -1,6 +1,6 @@
 ---
 source_file: DESIGN.md
-source_hash: 80cee8b1bac85b18632e7afc5b23704f0f0c0fc885f62a47bc05f3078920a5ab
+source_hash: 7cec66b921e155932c4a0b55ef4b236661ee8b877e8e5cce9a78005da9e725c0
 ---
 # Diff: DESIGN.md
 
@@ -17,7 +17,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  `src/` is flat — no subdirectories — so this one document carries the
  logical subsystem breakdown as sections. Global conventions (units
-@@ -200,7 +200,24 @@ and zero-fill the vacated slot, which `strcmp()`s a `nullptr` on the
+@@ -200,7 +200,24 @@
  first lookup that reaches it (a hard fault on the robot, for every
  command). No verb is added, removed, or reordered by this change — the
  18 names above are unchanged; only how the array's size is spelled
@@ -43,7 +43,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **Reliability layer.** Every sequenced verb carries a mandatory
  trailing `#<id>`, strictly incrementing from 1. Handler state is
-@@ -328,7 +345,12 @@ handlers (ticket 012 fixed a real ticket-011 bug where only WHEELS_V
+@@ -328,7 +345,12 @@
  armed it and every other verb's move starved and was watchdog-stopped
  almost immediately). The clock arrives as a plain C function pointer
  (`NowMsFn`), nullptr on hosts with no clock (obligation then always
@@ -57,7 +57,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **Telemetry projection (sprint 004 ticket 004).** `buildSnapshot()`
  returns a `const Wire::Snapshot&` into a member (mirroring
-@@ -344,7 +366,17 @@ sample; `otosGet(0)`/`otosGet(1)` are 0.1 mm, `otosGet(2)` is already
+@@ -344,7 +366,17 @@
  centidegrees — do not also divide it); and `wheelSpeed`. POSE's 12
  columns (`seq now flags x y h ox oy oh vl vr i2cf`) are always
  present; FULL adds 8 more (`cyc posl posr dutl dutr lexc wrng cycovr`)
@@ -76,7 +76,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  TlmMode::kOff`) lets protocol.cpp skip building a Snapshot at all for
  a session with no subscriber (see §8's Fiber loop). `computeFlags()`
  (wire_adapter.cpp, anonymous namespace) is now the single source both
-@@ -417,7 +449,21 @@ now, guarded by a `sending_` bool — the second caller in returns
+@@ -417,7 +449,21 @@
  `RadioSink::write()` ignores the drop by design (a lost `t` frame
  self-heals via the next `seq` gap). Not host-testable (this file
  includes `pxt.h`); verified by code review, first exercised live at
@@ -99,7 +99,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **Layering.** Both know bytes and framing only — no verbs, no COBS,
  no semantics. Siblings under Protocol, deliberately uncoupled from
-@@ -569,12 +615,36 @@ burst) and raises event source 0x2001 with the slot as the value;
+@@ -569,12 +615,38 @@
  `main.ts` reads it back via `runCommandText()` and dispatches by name
  on the handler's own fiber. 3 s same-text dedupe absorbs hosts
  repeating commands to survive the single-slot radio buffer (measured:
@@ -130,16 +130,18 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 +moves from `private` to `public` on `RadioTransport` to make this
 +reference possible — a one-line access-specifier change with no
 +encapsulation cost (it stays a compile-time constant, still used
-+in-class to size `payloadBuf_`; `RadioTransport`'s other size/framing
-+constants — `kFrameHeaderBytes`, `kGroup`, `kChannel`,
-+`kTransmitPower` — are already `public` for the same reason).
++in-class to size `payloadBuf_`. Note that `RadioTransport`'s other
++size/framing constants — `kFrameHeaderBytes`, `kGroup`, `kChannel`,
++`kTransmitPower` — remain `private`, and only `kMaxPayloadBytes` was
++moved: nothing outside the class needs to name the others, so widening
++them would be access-loosening without a caller to justify it).
 +Single-sourcing the name, not the value, closes the drift risk without
 +touching radio's actual capacity (sprint 010's scope, §6). Since
 +sprint 004 ticket
  002, the radio half checks `RadioTransport::sendLine()`'s bool return:
  `false` means its re-entrancy guard fired against the protocol fiber's
  own concurrent `RadioSink::write()`, and — because this is the one
-@@ -585,8 +655,15 @@ not in a loop.
+@@ -585,8 +657,15 @@
  **Lifecycle.** Lazy singleton `protocol()`, started by `main.ts`'s
  top-level `_startProtocol()` the moment the extension's compiled code
  loads — never a global constructor (uBit.init ordering). Identity
@@ -157,7 +159,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **Telemetry gap (closed, sprint 004).** The old periodic cleartext
  `TLM:` line was retired with v5 and had no v6 replacement through
-@@ -631,18 +708,32 @@ Pieces the kernel deliberately does not contain:
+@@ -631,18 +710,32 @@
    `serviceMove()` on the caller's fiber, then absolute-deadline
    self-pacing to the kernel's configured 24 ms cadence (re-anchored
    after gaps). A cooperative-fiber `stepBusy` flag serializes
@@ -201,7 +203,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
    return value changes from raw post-`serviceMove()` move-engine state
    to `commandLooksActive(r)` (the same helper the starvation watchdog
    below already used and proved correct in production — move-engine
-@@ -798,10 +889,36 @@ hard way:
+@@ -798,10 +891,36 @@
    telemetry frame (up to 239 bytes measured). Filed as
    `clasi/issues/radio-rx-capacity-fragmentation.md`, claimed by sprint
    010.
@@ -242,7 +244,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  - **(Resolved, sprint 006)** ~~The encoder-odometry `PoseSource`
    fallback for OTOS-less robots is explicitly not built; GO_TO_W
    refuses on such robots.~~ `EncoderPoseSource` (§7) now serves that
-@@ -900,6 +1017,33 @@ host suite for this sprint's `shims.cpp`/port changes is, as always,
+@@ -900,6 +1019,33 @@
  not evidence they compile for the robot — only the sprint's own
  flashable-hex checkpoint proves that.
  
@@ -276,7 +278,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  ## 12. Sprint 006 — architecture diagram and change summary
  
  Substantial-tier sprint update (see `sprint.md`'s Architecture section
-@@ -1165,3 +1309,244 @@ procedural, not architectural: a ticket that changes
+@@ -1165,3 +1311,244 @@
  `tests/host/wire_motion_verb_shim.cpp`'s mirror leaves a fully green
  host suite that has stopped testing the real contract — called out
  above and in the corresponding ticket's acceptance criteria.

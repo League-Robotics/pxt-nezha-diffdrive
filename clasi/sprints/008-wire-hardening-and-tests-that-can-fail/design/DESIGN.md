@@ -639,9 +639,11 @@ that rationale, which is what let it read as merely stale once ticket
 moves from `private` to `public` on `RadioTransport` to make this
 reference possible — a one-line access-specifier change with no
 encapsulation cost (it stays a compile-time constant, still used
-in-class to size `payloadBuf_`; `RadioTransport`'s other size/framing
-constants — `kFrameHeaderBytes`, `kGroup`, `kChannel`,
-`kTransmitPower` — are already `public` for the same reason).
+in-class to size `payloadBuf_`. Note that `RadioTransport`'s other
+size/framing constants — `kFrameHeaderBytes`, `kGroup`, `kChannel`,
+`kTransmitPower` — remain `private`, and only `kMaxPayloadBytes` was
+moved: nothing outside the class needs to name the others, so widening
+them would be access-loosening without a caller to justify it).
 Single-sourcing the name, not the value, closes the drift risk without
 touching radio's actual capacity (sprint 010's scope, §6). Since
 sprint 004 ticket

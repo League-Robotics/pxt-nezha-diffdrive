@@ -2,7 +2,7 @@
 id: '002'
 title: 'Wire constants single-sourced: kVersion, emitLine/line-cap, RUN_EVENT_SOURCE,
   kDiag* drift tests'
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on: []
