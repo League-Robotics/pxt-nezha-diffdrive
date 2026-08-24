@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: 'Settle-tick loop extraction: host-testable MotionEngine settle helper'
-status: in-progress
+status: done
 use-cases:
 - SUC-004
 depends-on: []

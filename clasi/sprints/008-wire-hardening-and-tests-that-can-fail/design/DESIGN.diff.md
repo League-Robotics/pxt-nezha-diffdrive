@@ -1,6 +1,6 @@
 ---
 source_file: DESIGN.md
-source_hash: 7cec66b921e155932c4a0b55ef4b236661ee8b877e8e5cce9a78005da9e725c0
+source_hash: fbe33c20454afdec886b1e71052c0c7a63b35575de7e43dcdd2f31172f40bc16
 ---
 # Diff: DESIGN.md
 
@@ -159,7 +159,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  
  **Telemetry gap (closed, sprint 004).** The old periodic cleartext
  `TLM:` line was retired with v5 and had no v6 replacement through
-@@ -631,18 +710,32 @@
+@@ -631,18 +710,38 @@
    `serviceMove()` on the caller's fiber, then absolute-deadline
    self-pacing to the kernel's configured 24 ms cadence (re-anchored
    after gaps). A cooperative-fiber `stepBusy` flag serializes
@@ -193,17 +193,23 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 +  settle-then-integrate behavior as one unit; it does not apply once the
 +  settle decision and the odometry fold are kept as two separate calls,
 +  which is what this sprint does. The extracted helper is now
-+  **host-tested directly** (a new `tests/host/` shim exercises it via
-+  `kernel_shim.cpp`/`fake_ports.h`, reusing the `FakeSleeper::onSleep`
-+  hook sprint 006 added) — closing the gap sprint 003's own regression
-+  test could only argue for by proxy. No new fiber or ticker is
-+  introduced; the one-fiber-ticks-a-move constraint (§4/§8) is
-+  unaffected — `tickDrive()` is still the loop's only caller.
++  **host-tested directly** (exercised via `motion_engine_shim.cpp`
++  extended with `meSettleToRest`/`meArmSettleProfile`, plus
++  `fake_ports.h`'s `FakeSleeper::onSleep` hook sprint 006 added, reused
++  here to script a decaying velocity profile across the helper's own
++  internal step loop — `kernel_shim.cpp` has no `MotionEngine` instance
++  to call the method on, so this ticket extended the existing
++  `motion_engine_shim.cpp` instead, per its own header comment: "extend
++  this file's function list, don't invent a second shim") — closing the
++  gap sprint 003's own regression test could only argue for by proxy. No
++  new fiber or ticker is introduced; the one-fiber-ticks-a-move
++  constraint (§4/§8) is unaffected — `tickDrive()` is still the loop's
++  only caller.
 +  **Sprint 007**: `tickDrive()`'s
    return value changes from raw post-`serviceMove()` move-engine state
    to `commandLooksActive(r)` (the same helper the starvation watchdog
    below already used and proved correct in production — move-engine
-@@ -798,10 +891,36 @@
+@@ -798,10 +897,36 @@
    telemetry frame (up to 239 bytes measured). Filed as
    `clasi/issues/radio-rx-capacity-fragmentation.md`, claimed by sprint
    010.
@@ -244,7 +250,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  - **(Resolved, sprint 006)** ~~The encoder-odometry `PoseSource`
    fallback for OTOS-less robots is explicitly not built; GO_TO_W
    refuses on such robots.~~ `EncoderPoseSource` (§7) now serves that
-@@ -900,6 +1019,33 @@
+@@ -900,6 +1025,33 @@
  not evidence they compile for the robot — only the sprint's own
  flashable-hex checkpoint proves that.
  
@@ -278,7 +284,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
  ## 12. Sprint 006 — architecture diagram and change summary
  
  Substantial-tier sprint update (see `sprint.md`'s Architecture section
-@@ -1165,3 +1311,244 @@
+@@ -1165,3 +1317,244 @@
  `tests/host/wire_motion_verb_shim.cpp`'s mirror leaves a fully green
  host suite that has stopped testing the real contract — called out
  above and in the corresponding ticket's acceptance criteria.
@@ -330,7 +336,7 @@ Comparison of the sprint overlay copy of `DESIGN.md` against its pristine (seed-
 +  verbs; a `kVersion`/`pxt.json` drift test; an `emitLine`/transport
 +  line-cap test; a `RUN_EVENT_SOURCE` drift test; the `WaHandle` wedge/
 +  `setWheelsTimed`/config-rounding re-sync plus a demonstrated drift
-+  test; a new settle-helper shim (`kernel_shim.cpp`/`fake_ports.h`
++  test; a new settle-helper shim (`motion_engine_shim.cpp`/`fake_ports.h`
 +  extension, reusing `FakeSleeper::onSleep`) and its host test; `TLM
 +  AUTO`/`BUFFER` `thdr`/`err` pinning tests.
 +
