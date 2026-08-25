@@ -28,14 +28,15 @@ from robotlink import open_link
 from field import wrap
 import tlm
 
-# RUN verb -> commanded rotation [deg]
-PIVOTS = [(2, 360.0), (4, 180.0), (5, -180.0)]
+# Commanded rotation [deg]. RUN:pivot:<deg> takes the angle directly,
+# so this no longer needs to pair each one with a numeric RUN verb.
+PIVOTS = [360.0, 180.0, -180.0]
 
 
 def fix(link, tries=3):
     """Take one live OTOS fix -> (x_mm, y_mm, heading_deg) or None."""
     for _ in range(tries):
-        seen = link.send_until('RUN:10', 'OCAL:now', tries=1, wait=5.0,
+        seen = link.send_until('RUN:fix', 'OCAL:now', tries=1, wait=5.0,
                                echo=False)
         for s in seen:
             if s.startswith('OCAL:now'):
@@ -62,6 +63,12 @@ def encoder_heading(link, stream, wait=2.0):
     return tlm.pose_cm(latest)['h']
 
 
+def send_pivot(link, deg):
+    """Command a relative pivot of `deg` and wait for it to finish."""
+    return link.send_until(f'RUN:pivot:{int(deg)}', 'GAP:', tries=2,
+                           wait=abs(deg) / 45.0 + 12.0, echo=False)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('port', nargs='?', default=None)
@@ -79,15 +86,14 @@ def main():
           f" {'drift mm':>9}")
     ratios = []
     for _ in range(a.reps):
-        for verb, commanded in PIVOTS:
+        for commanded in PIVOTS:
             before = fix(link)
             enc0 = encoder_heading(link, stream)
             if before is None or enc0 is None:
                 print('  no fix -- skipping')
                 continue
             # A full turn at 45 deg/s is 8 s; allow generous headroom.
-            link.send_until(f'RUN:{verb}', 'GAP:', tries=2,
-                            wait=abs(commanded) / 45.0 + 12.0, echo=False)
+            send_pivot(link, commanded)
             time.sleep(1.5)
             after = fix(link)
             enc1 = encoder_heading(link, stream)

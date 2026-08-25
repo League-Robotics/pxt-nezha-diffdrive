@@ -54,13 +54,13 @@ def _yaw_mark(cam):
 
 def one_turn(link, cam, deg, rate, settle):
     """Command one pivot; return a result row or None if unmeasurable."""
-    link.send(f'RUN:{57000 + int(rate)}')
+    link.send(f'RUN:turnrate:{int(rate)}')
     time.sleep(0.4)
     t0, n0, err = _yaw_mark(cam)
     if err:
         return None, err
 
-    link.send(f'RUN:{58360 + int(deg)}')
+    link.send(f'RUN:pivot:{int(deg)}')
     trn = None
     # A slow big turn takes a while; allow generously, plus the taper.
     budget = abs(deg) / max(rate, 1) + 15.0

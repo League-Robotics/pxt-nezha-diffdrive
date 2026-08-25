@@ -29,10 +29,6 @@ from robotlink import open_link
 from field import wrap
 import tlm
 
-# Commanded rotation [deg] -> the RUN verb that performs it.
-PIVOT_VERB = {180: 4, -180: 5, 360: 2}
-
-
 # The CLI talks to whichever daemon these point at. The playfield
 # daemon runs on TCP 5280 here (mDNS discovery does not find it, and
 # the local unix socket belongs to a different instance).
@@ -80,12 +76,23 @@ def cam_yaw(cam, tag=53, samples=5):
 
 def otos_fix(link):
     """Live OTOS fix -> (x_mm, y_mm, heading_deg) or None."""
-    for s in link.send_until('RUN:10', 'OCAL:now', tries=2, wait=5.0,
+    for s in link.send_until('RUN:fix', 'OCAL:now', tries=2, wait=5.0,
                              echo=False):
         if s.startswith('OCAL:now'):
             p = s.split(':')
             return int(p[2]) / 10.0, int(p[3]) / 10.0, int(p[4]) / 100.0
     return None
+
+
+def send_pivot(link, deg):
+    """Command a relative pivot of `deg` and wait for it to finish.
+
+    RUN:pivot:<deg> takes an arbitrary signed degree value directly --
+    unlike the old dead numeric PIVOT_VERB table, every commanded angle
+    (not just 180/-180/360) now has a real verb.
+    """
+    return link.send_until(f'RUN:pivot:{int(deg)}', 'GAP:', tries=1,
+                           wait=abs(deg) / 45.0 + 12.0, echo=False)
 
 
 def enc_heading(link, stream, wait=2.0):
@@ -139,11 +146,6 @@ def main():
           f" {'cam/cmd':>8} {'gyro/cam':>9}")
     rows = []
     for commanded in a.pivots:
-        verb = PIVOT_VERB.get(int(commanded))
-        if verb is None:
-            print(f'  no RUN verb for {commanded} deg -- skipping')
-            continue
-
         c0 = cam_yaw(a.cam, a.tag)
         o0 = otos_fix(link)
         e0 = enc_heading(link, stream)
@@ -170,8 +172,7 @@ def main():
 
         th = threading.Thread(target=sampler, daemon=True)
         th.start()
-        link.send_until(f'RUN:{verb}', 'GAP:', tries=1,
-                        wait=abs(commanded) / 45.0 + 12.0, echo=False)
+        send_pivot(link, commanded)
         time.sleep(2.0)
         stop.set()
         th.join(timeout=5.0)

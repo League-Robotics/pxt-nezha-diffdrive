@@ -2,7 +2,7 @@
 id: '006'
 title: test.ts named pivot/turn-rate verbs; retarget five ground-truth tools off dead
   numeric RUN
-status: open
+status: in-progress
 use-cases:
 - SUC-008
 depends-on:
@@ -83,27 +83,27 @@ landmine on day one if this ticket skips it.
 
 ## Acceptance Criteria
 
-- [ ] `test.ts` gains a named relative-pivot verb and a named
+- [x] `test.ts` gains a named relative-pivot verb and a named
       turn-rate verb, both reachable over radio with no OTOS/world-pose
       requirement (confirm by tracing: neither new handler calls
       `worldReady()` or anything gated on it).
-- [ ] `test.ts`'s header comment (lines 9-14) lists both new verbs
+- [x] `test.ts`'s header comment (lines 9-14) lists both new verbs
       alongside the existing `cal`/`fix`/`seed`/`probe`/`arm`/`gap`
       list.
-- [ ] `otos_levercal.py` sends `RUN:cal`/`RUN:cal:1` (or the chosen
+- [x] `otos_levercal.py` sends `RUN:cal`/`RUN:cal:1` (or the chosen
       equivalent) instead of `RUN:8`/`RUN:14`.
-- [ ] `pivot_truth.py`, `truth_check.py`, `rotation_check.py` send
+- [x] `pivot_truth.py`, `truth_check.py`, `rotation_check.py` send
       `RUN:fix` instead of `RUN:10`, and the new pivot verb instead of
       `PIVOT_VERB`'s numeric offsets (2/4/5).
-- [ ] `turn_sweep.py` sends the new turn-rate/pivot verbs instead of
+- [x] `turn_sweep.py` sends the new turn-rate/pivot verbs instead of
       `RUN:{57000+rate}`/`RUN:{58360+deg}`.
-- [ ] Every RUN string these five tools send matches a real,
+- [x] Every RUN string these five tools send matches a real,
       documented named verb on current `test.ts` — verified against a
       mocked/fake link (string-level assertion on what `send()`
       receives), no robot required.
-- [ ] `otos_bench.py` and `testrig.ts` are **unaffected** by this
+- [x] `otos_bench.py` and `testrig.ts` are **unaffected** by this
       ticket — their vocabulary is ticket 005's concern, not this one.
-- [ ] `uv run pytest` (full suite) passes.
+- [x] `uv run pytest` (full suite) passes.
 
 ## Implementation Notes
 

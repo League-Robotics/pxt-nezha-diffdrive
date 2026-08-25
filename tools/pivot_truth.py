@@ -27,8 +27,6 @@ from robotlink import open_link
 from camproc import Cam
 from field import wrap
 
-PIVOT_VERB = {180: 4, -180: 5, 360: 2}
-
 
 def _yaw_mark(cam):
     """(total unwrapped yaw turned so far, latest (x, y, yaw) pose) --
@@ -49,12 +47,23 @@ def _yaw_mark(cam):
 
 
 def otos_fix(link):
-    for s in link.send_until('RUN:10', 'OCAL:now', tries=2, wait=5.0,
+    for s in link.send_until('RUN:fix', 'OCAL:now', tries=2, wait=5.0,
                              echo=False):
         if s.startswith('OCAL:now'):
             p = s.split(':')
             return int(p[2]) / 10.0, int(p[3]) / 10.0, int(p[4]) / 100.0
     return None
+
+
+def send_pivot(link, deg):
+    """Command a relative pivot of `deg` and wait for it to finish.
+
+    RUN:pivot:<deg> takes an arbitrary signed degree value directly --
+    unlike the old dead numeric PIVOT_VERB table, there is no fixed set
+    of supported angles to look up.
+    """
+    return link.send_until(f'RUN:pivot:{int(deg)}', 'GAP:', tries=1,
+                           wait=abs(deg) / 45.0 + 12.0, echo=False)
 
 
 def main():
@@ -79,9 +88,7 @@ def main():
                 print('  lost a reading -- skipping')
                 continue
 
-            link.send_until(f'RUN:{PIVOT_VERB[int(commanded)]}', 'GAP:',
-                            tries=1, wait=abs(commanded) / 45.0 + 12.0,
-                            echo=False)
+            send_pivot(link, commanded)
             time.sleep(1.5)
 
             t1, r1 = _yaw_mark(cam)
