@@ -1,5 +1,8 @@
 {
-  "DESIGN.md": "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tests/DESIGN.md",
   "design.md": "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/docs/design/design.md",
-  "tools-DESIGN.md": "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tests/tools/DESIGN.md"
+  "src-root-DESIGN.md": "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/src/DESIGN.md",
+  "test-root-DESIGN.md": "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/test/DESIGN.md",
+  "tests-root-DESIGN.md": "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tests/DESIGN.md",
+  "tools-DESIGN.md": "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tests/tools/DESIGN.md",
+  "tools-root-DESIGN.md": "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tools/DESIGN.md"
 }
