@@ -210,6 +210,42 @@ bool parseTlmMode(const char* field, TlmMode& mode) {
   return false;
 }
 
+// formatConfigValue()'s own bound on the INPUT magnitude, applied BEFORE
+// scaling -- NOT a post-scale clamp on the scaled product, which is the
+// defect this constant closes (get-full-duty-velocity-returns-
+// garbage.md). The OLD code scaled in a `uint32_t` intermediate and
+// clamped THAT to `kMaxScaled` (~UINT32_MAX): since `uint32_t` cannot
+// represent `magnitude * 1,000,000` for any magnitude past ~4295 no
+// matter where inside its own range the clamp threshold sits, EVERY
+// field whose real magnitude reached that line clamped to the exact
+// same wrong constant (4294.967040) -- fullDutyVelocity (10795.0) was
+// simply the first of today's 18 kFields entries to cross it, not a
+// field-specific defect (confirmed by reading every seeded Config value
+// in shims.cpp's ensure()).
+//
+// Mirroring kWireBoundaryCastCeiling's own doc-comment style
+// (wire_adapter.h) but deliberately a SIBLING constant, not a reuse:
+// that one bounds a float->int32_t CAST at the SET/inbound boundary;
+// this one bounds the magnitude a GET reply is willing to report at
+// all, entirely on the OUTBOUND side, and reusing the adapter's own
+// symbol would mean this host-portable, no-project-includes file
+// (src/DESIGN.md S4) including wire_adapter.h, inverting this project's
+// wire_adapter-depends-on-wire_handler layering rule -- same reasoning
+// kMaxMotionTimeoutMs's own doc comment above already applies to a
+// different pair of ceilings. 1,000,000.0f is chosen with two orders of
+// magnitude of headroom above this project's largest real config value
+// (fullDutyVelocity, 10795.0 counts/s) while keeping the scaled product
+// (`kGetValueCeiling * kDivisor` == 1e12) comfortably inside `double`'s
+// exact-integer range (2^53, ~9.007e15) -- see formatConfigValue()'s own
+// comment below for why that headroom is what makes the wide
+// intermediate safe. A magnitude beyond this ceiling is CLAMPED to the
+// ceiling itself: a suspiciously round, always-identical, documented
+// number no real configured value could ever coincide with -- standing
+// in clear contrast to the old bug's plausible-looking wrong digits,
+// and honest about "this is a saturation flag" the instant an operator
+// notices the same round value on more than one field.
+constexpr float kGetValueCeiling = 1000000.0f;  // 1e6
+
 // formatConfigValue() -- six fractional digits, always present, no
 // exponent, using integer arithmetic because newlib-nano's printf (the
 // eventual firmware target) has no %f. formatConfigValue(0.02f) ->
@@ -218,23 +254,31 @@ bool parseTlmMode(const char* field, TlmMode& mode) {
 // `value` is NOT wire-parsed here -- it is whatever the ADAPTER's own
 // onGet() handed back (parseFloatField already rejects NaN/Inf on the
 // way IN), so this function cannot assume it is finite. +-Inf is already
-// handled correctly below: it compares greater than kMaxScaled and gets
-// clamped before the cast. NaN does not: every comparison against a NaN
-// is false, so `scaled > kMaxScaled` is false too and a NaN would sail
-// past the clamp intact into `static_cast<uint32_t>(scaled)` --
-// undefined behavior. There is no wire spelling for NaN, so fail safe to
-// 0.0 rather than invent one.
+// handled correctly below: `magnitude` compares greater than
+// kGetValueCeiling and gets clamped before scaling ever runs. NaN does
+// not: every comparison against a NaN is false, so the ceiling clamp
+// would never trigger for one -- there is no wire spelling for NaN, so
+// fail safe to 0.0 rather than invent one, exactly as before.
+//
+// The scaling intermediate is `double`, not `uint32_t` -- see
+// kGetValueCeiling's own comment above for why that pairing (a bounded
+// input, a wide intermediate) closes the overflow rather than merely
+// relocating it. `double` exactly represents every integer this
+// function's own bounded `scaled` can reach, so no precision is lost by
+// widening; the final narrowing to `uint32_t` (wholePart/fracPart, each
+// individually far under UINT32_MAX once magnitude is bounded) is what
+// stays safe to print via `%lu` on this project's own embedded target.
 void formatConfigValue(float value, char* out, size_t cap) {
   if (std::isnan(value)) value = 0.0f;
   constexpr uint32_t kDivisor = 1000000u;  // 10^6 -- six fixed digits
   const bool negative = value < 0.0f;
-  const float magnitude = negative ? -value : value;
-  constexpr float kMaxScaled = 4294967040.0f;  // largest float < UINT32_MAX
-  float scaled = magnitude * static_cast<float>(kDivisor) + 0.5f;
-  if (scaled > kMaxScaled) scaled = kMaxScaled;
-  const uint32_t scaledInt = static_cast<uint32_t>(scaled);
-  const uint32_t wholePart = scaledInt / kDivisor;
-  const uint32_t fracPart = scaledInt % kDivisor;
+  float magnitude = negative ? -value : value;
+  if (magnitude > kGetValueCeiling) magnitude = kGetValueCeiling;
+  const double scaled =
+      static_cast<double>(magnitude) * static_cast<double>(kDivisor) + 0.5;
+  const uint64_t scaledInt = static_cast<uint64_t>(scaled);
+  const uint32_t wholePart = static_cast<uint32_t>(scaledInt / kDivisor);
+  const uint32_t fracPart = static_cast<uint32_t>(scaledInt % kDivisor);
   snprintf(out, cap, "%s%lu.%06lu", negative ? "-" : "",
                 static_cast<unsigned long>(wholePart),
                 static_cast<unsigned long>(fracPart));
@@ -697,15 +741,29 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
   // incl. sign) joined the line -- 176 already had margin (the
   // previous worst case measures under 100 bytes), this just keeps
   // that margin honest rather than trimming it to the wire.
+  //
+  // Sprint 010 ticket 003: `cyc=%lu` joins `i2cf=` immediately after it
+  // (both are kernel-health-cousin fields -- see StatusFields::cyc's own
+  // doc comment, wire_handler.h). Re-verified against 200: the widest
+  // possible line is "status ready=1 active=1 connL=1 connR=1 otos=1 "
+  // "wedge=1 flags=ffffffff i2cf=-2147483648 cyc=4294967295 tlm=buffer "
+  // "next=4294967295\n" -- 8 single-digit bools (8B), an 8-hex-digit
+  // flags (15B incl. "flags="), an 11-char signed i2cf (17B incl.
+  // " i2cf="), a 10-digit unsigned cyc (15B incl. " cyc="), tlm's
+  // longest wire name "buffer" (11B incl. " tlm="), and a 10-digit
+  // next (16B incl. " next="), plus the "status " prefix (7B) and
+  // trailing '\n' (1B) -- measures well under 130 bytes total, so 200
+  // still keeps comfortable headroom; no bump needed.
   char buf[200];
   snprintf(buf, sizeof(buf),
                 "status ready=%d active=%d connL=%d connR=%d otos=%d "
-                "wedge=%d flags=%x i2cf=%ld tlm=%s next=%lu\n",
+                "wedge=%d flags=%x i2cf=%ld cyc=%lu tlm=%s next=%lu\n",
                 status.ready ? 1 : 0, status.active ? 1 : 0,
                 status.connLeft ? 1 : 0, status.connRight ? 1 : 0,
                 status.otos ? 1 : 0, status.wedge ? 1 : 0,
                 static_cast<unsigned int>(status.flags),
-                static_cast<long>(status.i2cf), status.tlm,
+                static_cast<long>(status.i2cf),
+                static_cast<unsigned long>(status.cyc), status.tlm,
                 static_cast<unsigned long>(expectedNext_));
   writeLine(buf);
 }

@@ -1,9 +1,12 @@
 ---
 id: '010'
 title: 'Port-layer robustness: full-length radio lines and a survivable dead brick'
-status: ticketing
+status: done
 branch: sprint/010-port-layer-robustness-full-length-radio-lines-and-a-survivable-dead-brick
-use-cases: ['SUC-001', 'SUC-002', 'SUC-003']
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
 issues:
 - radio-rx-capacity-fragmentation.md
 - unpowered-nezha-brick-wedges-program-at-boot.md

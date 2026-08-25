@@ -1,16 +1,13 @@
 ---
 id: '003'
 title: STATUS gains a cyc field so never-ticked is distinguishable from brick-unreachable
-status: open
-use-cases: ['SUC-002']
+status: done
+use-cases:
+- SUC-002
 depends-on: []
 github-issue: ''
 issue: unpowered-nezha-brick-wedges-program-at-boot.md
-completes_issue: false  # This closes only the observability half of the
-  # issue (never-ticked vs. unreachable is now distinguishable). The
-  # actual bus-hang guard (ticket 004) and its bench confirmation
-  # (ticket 005) are still open; the issue stays open past this sprint
-  # pending those.
+completes_issue: false
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -41,28 +38,41 @@ the reply a bench operator reads without first subscribing to telemetry.
 
 ## Acceptance Criteria
 
-- [ ] `Wire::StatusFields` (`src/wire_handler.h`) gains a `uint32_t cyc`
+- [x] `Wire::StatusFields` (`src/wire_handler.h`) gains a `uint32_t cyc`
       field.
-- [ ] `WireAdapter::status()` (`src/wire_adapter.cpp:298`) sets
+- [x] `WireAdapter::status()` (`src/wire_adapter.cpp:298`) sets
       `out.cyc = static_cast<uint32_t>(diagValue(kDiagCycleCount));` —
       no `shims.cpp` change, no new forward declaration.
-- [ ] `WireHandler::execStatus()`'s format string
+- [x] `WireHandler::execStatus()`'s format string
       (`src/wire_handler.cpp:705-707`) gains ` cyc=%lu`, placed after
       `i2cf=` (both are kernel-health-cousin fields); the 200-byte
       `buf` headroom is re-verified against the longer line.
-- [ ] `tests/host/wire_mock_adapter.h`'s `WireMockAdapter` gains a
-      settable `cyc` field feeding `status()`.
-- [ ] A host test with the mock adapter at `cyc=0` asserts STATUS's
+- [x] `tests/host/wire_mock_adapter.h`'s `WireMockAdapter` gains a
+      settable `cyc` field feeding `status()`. (`WireMockAdapter::status()`
+      already copies the WHOLE `Wire::StatusFields` struct — `statusToReturn
+      = ...; out = statusToReturn;` — so the new `cyc` member became
+      settable there for free the moment `StatusFields` gained it; a
+      doc comment was added at `statusToReturn`'s declaration recording
+      this. The file that DID need a real code change is
+      `tests/host/wire_grammar_shim.cpp`'s `wgSetStatus()`, the ctypes
+      surface Python tests actually call — it sets `StatusFields`
+      members individually, not via whole-struct assignment, so it
+      needed a new `cyc` parameter. This exactly mirrors sprint 004
+      ticket 004's own `i2cf` precedent: that ticket's commit
+      (f46ccf8) touched `wire_grammar_shim.cpp`, not
+      `wire_mock_adapter.h`, for the identical reason — confirmed by
+      re-reading that commit's diff before writing this ticket's own.)
+- [x] A host test with the mock adapter at `cyc=0` asserts STATUS's
       reply contains `cyc=0`.
-- [ ] A host test with the mock adapter at `cyc>0` and `connLeft=false`
+- [x] A host test with the mock adapter at `cyc>0` and `connLeft=false`
       asserts STATUS's reply shows the ticked-and-not-connected shape
       (`cyc` nonzero, `connL=0`).
-- [ ] A host test against the **real** `WireAdapter` (via `WaHandle` or
+- [x] A host test against the **real** `WireAdapter` (via `WaHandle` or
       equivalent, stepping a real kernel with `FakeMotor`/`FakeClock`)
       confirms `status().cyc` equals `diagValue(kDiagCycleCount)` at
       that same instant — mirroring the same-source guarantee sprint 004
       ticket 004 established for `i2cf` ("the two can never disagree").
-- [ ] No existing STATUS field's meaning or position changes; this is
+- [x] No existing STATUS field's meaning or position changes; this is
       purely additive.
 
 ## Implementation Plan

@@ -1542,6 +1542,147 @@ def test_set_value_large_but_sane_is_still_accepted(wa):
 
 
 # ---------------------------------------------------------------------------
+# Sprint 010 ticket 006 (closing get-full-duty-velocity-returns-
+# garbage.md): formatConfigValue()'s (wire_handler.cpp) scaling
+# intermediate used to overflow a `uint32_t` for ANY field whose real
+# magnitude reached ~4295 (kDivisor's own 10^6 scale against uint32_t's
+# own range), always clamping to the SAME wrong constant, 4294.967040,
+# independent of the field's real value -- full_duty_velocity (10795.0)
+# was simply the first of today's kFields entries large enough to cross
+# that line (confirmed by reading every seeded Config value in
+# shims.cpp's ensure()). This sweep proves the fix generically, across
+# EVERY field wire_adapter.cpp's kFields table declares, not just that
+# one -- field names are discovered dynamically off a bare `GET #<id>`
+# dump (never hardcoded, and never assumed to be exactly however many
+# entries kFields happens to have today -- sprint 009's own guideline:
+# a hardcoded field count rots the moment a field is added or removed),
+# so this test tracks kFields automatically.
+# ---------------------------------------------------------------------------
+
+# One representative value per kFields entry, chosen to exercise
+# formatConfigValue()'s six-fixed-digit formatting honestly for that
+# field's own real semantics. Most are plain gains/thresholds (an
+# ordinary SET/GET round trip) -- several are deliberately the SAME
+# values get-full-duty-velocity-returns-garbage.md's own root-cause
+# section reads off shims.cpp's ensure() (max_duty, pid_ki, pid_i_max,
+# pid_max, speed_floor, pos_err_max, stall_speed, stall_demand,
+# stall_window, twist_hold_gain), so this sweep exercises the SAME real
+# magnitudes production actually seeds, not arbitrary numbers. Two
+# fields are NOT plain stored values and are called out individually:
+#   - lambda_enabled: setKernelValue() case 13 (wire_motion_verb_shim.cpp,
+#     mirroring shims.cpp) coerces ANY nonzero SET to a stored 1.0
+#     (`k.setLambdaEnabled(v != 0.0f)`) -- 1.0 is the representative
+#     value a round trip can actually land on exactly.
+#   - stall_clear: a WRITE-TRIGGERED ACTION wearing a config-field's
+#     clothes (setKernelValue() case 17) -- its GET side reads
+#     `kernel.output().stallHalted`, NOT the value just SET. 0.0 is a
+#     legitimate no-op SET (only a nonzero value triggers
+#     clearStallLatch()) whose honest GET readback on a freshly created,
+#     never-stalled kernel is 0.0 -- this sweep proves formatConfigValue()
+#     formats that 0.0 correctly, not that this field round-trips an
+#     arbitrary value (it structurally cannot; this file's own dedicated
+#     stall_clear tests elsewhere already cover its real write-then-clear
+#     behavior).
+# crawl_pulse's own documented range is [-1, 1] (diffdrive.h) -- 0.75
+# stays inside it rather than picking an arbitrary out-of-contract value.
+_KFIELDS_REPRESENTATIVE_VALUES = {
+    "max_duty": 100.0,
+    "full_duty_velocity": 10795.0,  # the issue's own reported value
+    "pid_kp": 42.5,
+    "pid_ki": 6.0,
+    "pid_i_max": 765.6,
+    "accel_kaff": 3.25,
+    "pid_max": 1276.0,
+    "twist_hold_gain": 2.0,
+    "speed_floor": 255.2,
+    "pos_err_max": 127.6,
+    "stall_speed": 191.4,
+    "stall_demand": 510.4,
+    "stall_window": 500.0,
+    "lambda_enabled": 1.0,
+    "crawl_pulse": 0.75,
+    "default_cruise": 150.0,
+    "rotational_slip": 0.952,
+    "stall_clear": 0.0,
+}
+
+
+def _bare_get_field_names(wa, seq_id):
+    """Discovers every field name the adapter's bare `GET #<id>` dump
+    reports, in wire order -- derived from the wire itself so this never
+    hardcodes kFields' own count. Returns (names, next_seq_id)."""
+    wa.feed(f"GET #{seq_id}\n".encode())
+    reply = wa.take_sink()
+    ack = _ack(seq_id)
+    assert reply.startswith(ack), reply
+    body = reply[len(ack):]
+    names = []
+    for line in body.split(b"\n"):
+        if not line:
+            continue
+        assert line.startswith(b"get "), line
+        names.append(line.split(b" ")[1].decode())
+    return names, seq_id + 1
+
+
+def test_get_set_sweeps_every_kfields_entry_without_overflow(wa):
+    """Sprint 010 ticket 006's own sweep AC: loop over EVERY field
+    wire_adapter.cpp's kFields table declares (not a single field), SET
+    each to a representative value through the real adapter, and assert
+    GET's reply round-trips it -- proving formatConfigValue()'s overflow
+    fix is generic, not a full_duty_velocity-specific patch. The set
+    equality assertion below (rather than a plain per-name dict lookup)
+    catches BOTH directions of drift: a kFields entry added with no
+    matching representative value here, and a stale representative-value
+    entry for a field kFields no longer declares.
+
+    Round-trip tolerance mirrors test_get_set_field_name_table_round_
+    trips' own documented precedent immediately above (that scaling
+    convention -- onSet()/onGet()'s SEPARATE, pre-existing x1000/x0.001
+    float32 round trip in wire_adapter.cpp, untouched by this ticket --
+    was never bit-exact); this test's own dedicated exact-value proof of
+    formatConfigValue() ITSELF lives in test_wire_grammar.py instead
+    (isolated from that unrelated imprecision via WireMockAdapter's
+    onGet() override)."""
+    names, seq_id = _bare_get_field_names(wa, 1)
+    assert set(names) == set(_KFIELDS_REPRESENTATIVE_VALUES), (
+        "wire_adapter.cpp's kFields table has drifted from this sweep's "
+        "own representative-value table (a field was added, removed, or "
+        "renamed) -- update _KFIELDS_REPRESENTATIVE_VALUES above to "
+        "match before trusting this sweep again.\n"
+        f"kFields (wire):        {sorted(names)}\n"
+        f"representative table:  {sorted(_KFIELDS_REPRESENTATIVE_VALUES)}"
+    )
+    assert len(names) == len(set(names)), "kFields dump reported a duplicate field name"
+
+    for name in names:
+        value = _KFIELDS_REPRESENTATIVE_VALUES[name]
+        wa.feed(f"SET {name} {value} #{seq_id}\n".encode())
+        assert wa.take_sink() == _ack(seq_id), name
+        seq_id += 1
+
+        wa.feed(f"GET {name} #{seq_id}\n".encode())
+        reply = wa.take_sink()
+        prefix = _ack(seq_id) + f"get {name} ".encode()
+        assert reply.startswith(prefix), (name, reply)
+        got = float(reply[len(prefix):])
+        assert got == pytest.approx(value, rel=1e-3, abs=1e-3), (
+            f"{name}: SET {value}, GET read back {got} -- "
+            f"formatConfigValue() scaling regression "
+            f"(get-full-duty-velocity-returns-garbage.md)"
+        )
+        # The overflow bug's own signature: EVERY field whose real
+        # magnitude crossed ~4295 clamped to this SAME wrong constant,
+        # regardless of its actual value. Never allowed to appear here,
+        # on ANY field, not just full_duty_velocity.
+        assert not reply.endswith(b"4294.967040\n"), (
+            f"{name}: GET reply is the OLD uint32_t-overflow sentinel "
+            f"value -- the exact defect this ticket fixes"
+        )
+        seq_id += 1
+
+
+# ---------------------------------------------------------------------------
 # MOVE_V's real effect (sprint 003 ticket 012): the plain wheelsV
 # reduction -- move_v(v_x, omega) == wheels_v(v_x - omega*b/2,
 # v_x + omega*b/2) (motion-api.md S2) -- dispatched onto

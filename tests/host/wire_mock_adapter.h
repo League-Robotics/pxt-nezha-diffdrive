@@ -31,6 +31,14 @@ class WireMockAdapter : public Wire::Adapter {
 
   // ---- canned responses, set by the test before feed() --------------------
   Wire::Identity identityToReturn;
+  // A full Wire::StatusFields -- status() below copies it whole (`out =
+  // statusToReturn`), so every member StatusFields declares, including
+  // sprint 010 ticket 003's new `cyc`, is already settable here with no
+  // per-field plumbing in this class needed. (The one place that DOES
+  // still need per-field plumbing is tests/host/wire_grammar_shim.cpp's
+  // extern "C" wgSetStatus(), which sets fields individually rather
+  // than assigning a whole struct -- that file's own wgSetStatus is
+  // where a NEW StatusFields member actually needs a new parameter.)
   Wire::StatusFields statusToReturn;
   uint32_t nowToReturn = 0;
   Wire::Result stopResult = Wire::Result::kOk;

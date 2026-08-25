@@ -145,7 +145,7 @@ def _bind(lib):
     lib.wgSetStatus.argtypes = [
         ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
         ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint32,
-        ctypes.c_int32, ctypes.c_char_p,
+        ctypes.c_int32, ctypes.c_uint32, ctypes.c_char_p,
     ]
     lib.wgSetStatus.restype = None
     lib.wgSetGetOverride.argtypes = [
@@ -287,10 +287,10 @@ class WireGrammar:
 
     def set_status(self, ready=False, active=False, conn_left=False,
                     conn_right=False, otos=False, wedge=False, flags=0,
-                    i2cf=0, tlm: bytes = b"off"):
+                    i2cf=0, cyc=0, tlm: bytes = b"off"):
         self._lib.wgSetStatus(self._handle, int(ready), int(active),
                                int(conn_left), int(conn_right), int(otos),
-                               int(wedge), flags, i2cf, tlm)
+                               int(wedge), flags, i2cf, cyc, tlm)
 
     def set_get_override(self, name: bytes, value: float):
         self._lib.wgSetGetOverride(self._handle, name, value)
@@ -830,14 +830,60 @@ def test_ver_golden_vector(wg):
 def test_status_golden_vector(wg):
     # sprint 004 ticket 004: i2cf=26 pinned as DECIMAL, not hex (a
     # copy-pasted `hex` bit would silently print "1a" here instead).
+    # sprint 010 ticket 003: cyc=147 joins i2cf -- the exact cycle count
+    # the bench evidence's own RUN:straight:60 reached
+    # (unpowered-nezha-brick-wedges-program-at-boot.md's 2026-08-24
+    # correction), pinned here so this golden vector proves `cyc=` rides
+    # the wire at the right position (immediately after `i2cf=`, before
+    # `tlm=`) with no reformatting surprises (decimal, unsigned).
     wg.set_status(ready=True, active=False, conn_left=True, conn_right=True,
-                  otos=False, wedge=False, flags=0xA, i2cf=26, tlm=b"pose")
+                  otos=False, wedge=False, flags=0xA, i2cf=26, cyc=147,
+                  tlm=b"pose")
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == (
         _ack(1) +
         b"status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 "
-        b"flags=a i2cf=26 tlm=pose next=2\n"
+        b"flags=a i2cf=26 cyc=147 tlm=pose next=2\n"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint 010 ticket 003 (unpowered-nezha-brick-wedges-program-at-boot.md's
+# 2026-08-24 correction): `cyc` is the discriminator between "this kernel
+# has never ticked" (every other STATUS field's 0 is meaningless -- not a
+# fault) and "this kernel is running and its other fields mean what they
+# say." Before this ticket, a healthy-but-never-ticked robot and a robot
+# with a genuinely unreachable brick reported the IDENTICAL STATUS line
+# (ready=0 connL=0 connR=0 i2cf=0); these two tests pin the two shapes
+# apart at the wire-format level, independent of any real kernel.
+# ---------------------------------------------------------------------------
+
+
+def test_status_cyc_zero_means_never_ticked(wg):
+    """The default/never-ticked shape: every field, including the new
+    `cyc`, reads 0 -- exactly what a robot nothing has ever stepped
+    reports, and exactly the reply the stakeholder misread as a dead
+    brick."""
+    wg.set_status(ready=False, active=False, conn_left=False,
+                  conn_right=False, otos=False, wedge=False, flags=0,
+                  i2cf=0, cyc=0, tlm=b"off")
+    wg.feed(b"STATUS #1\n")
+    assert b"cyc=0" in wg.take_sink()
+
+
+def test_status_cyc_nonzero_with_conn_left_down_is_ticked_not_unreachable(wg):
+    """The OTHER shape a bare `connL=0` used to make indistinguishable
+    from never-ticked: the kernel has ticked (`cyc` nonzero) but the
+    left brick connection is down. An operator reading `cyc=147 ...
+    connL=0` can now conclude "kernel running, left brick genuinely
+    unreachable" instead of "maybe nothing has run yet at all"."""
+    wg.set_status(ready=True, active=False, conn_left=False,
+                  conn_right=True, otos=False, wedge=False, flags=0,
+                  i2cf=0, cyc=147, tlm=b"off")
+    wg.feed(b"STATUS #1\n")
+    reply = wg.take_sink()
+    assert b"cyc=147" in reply
+    assert b"connL=0" in reply
 
 
 def test_help_golden_vector(wg):
@@ -879,6 +925,86 @@ def test_get_unknown_name_acks_with_no_get_line(wg):
     wg.feed(b"GET nosuch.field #1\n")
     assert wg.take_sink() == _ack(1)
     assert wg.malformed_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Sprint 010 ticket 006 (closing get-full-duty-velocity-returns-
+# garbage.md): formatConfigValue()'s own scaling fix, exercised here in
+# ISOLATION from wire_adapter.cpp's SEPARATE, pre-existing x1000/x0.001
+# float32 descaling round trip (getConfigValue()'s double-precision x1000
+# scale, then onGet()'s own SINGLE-precision x0.001f descale) -- feeding
+# an exact float straight into onGet() via WireMockAdapter's
+# overrideName/overrideValue (set_get_override(), wgSetGetOverride) is
+# what makes an EXACT six-fixed-digit assertion possible at all here.
+# Going through the real WireAdapter/kernel path instead (this project's
+# own test_wire_motion_verbs.py, `wa` fixture) compounds that separate
+# rounding step: full_duty_velocity's own 10795.0 lands there at
+# 10795.0009765625f, not bit-exact 10795.0f (confirmed by direct
+# float32 computation, not assumed) -- a real, SEPARATE imprecision in a
+# DIFFERENT function this ticket's own AC explicitly leaves untouched
+# ("this ticket touches only the GET-reply formatting function").
+# test_wire_motion_verbs.py's own kFields sweep (this ticket's other new
+# test) exercises that full real path instead, with the tolerance its
+# pre-existing round-trip precedent already documents.
+# ---------------------------------------------------------------------------
+
+
+def test_get_full_duty_velocity_exact_10795_after_fix(wg):
+    """The ticket's own dedicated regression test: get-full-duty-
+    velocity-returns-garbage.md reported `4294.967040` for a kernel
+    holding 10795.0 -- formatConfigValue()'s old uint32_t scaling
+    intermediate overflowed for ANY magnitude past ~4295 and always
+    clamped to that same wrong constant. Fed directly here (see this
+    section's own header comment for why direct, not through the real
+    kernel/adapter), the reply must now be the true value, six fixed
+    digits, not the old wraparound sentinel."""
+    wg.set_get_override(b"full_duty_velocity", 10795.0)
+    wg.feed(b"GET full_duty_velocity #1\n")
+    assert wg.take_sink() == _ack(1) + b"get full_duty_velocity 10795.000000\n"
+
+
+def test_get_reports_large_magnitudes_without_uint32_overflow(wg):
+    """Sweeps magnitudes straddling and well past the OLD bug's own
+    ~4295 overflow line (uint32_t's own range divided by kDivisor's own
+    10^6 scale), proving the fix is generic -- not a
+    full_duty_velocity-specific patch. Every one of these magnitudes
+    overflowed the SAME way under the old code, landing on the SAME
+    wrong 4294.967040 regardless of the real value; each must now format
+    to its own true value instead. Chosen as exact integers so the
+    expected string can be asserted exactly, with no float-rounding
+    tolerance needed anywhere in this test."""
+    cases = [4294.0, 4295.0, 10795.0, 50000.0, 999999.0]
+    for i, magnitude in enumerate(cases, start=1):
+        wg.set_get_override(b"probe_field", magnitude)
+        wg.feed(f"GET probe_field #{i}\n".encode())
+        expected = f"get probe_field {magnitude:.6f}\n".encode()
+        assert wg.take_sink() == _ack(i) + expected, magnitude
+
+
+def test_get_negative_large_magnitude_formats_correctly(wg):
+    """The sign path (formatConfigValue()'s own `negative` branch) is
+    untouched by this ticket's fix but shares the same scaling
+    intermediate -- confirm a large-magnitude NEGATIVE value also
+    escapes the old overflow, not just positive ones."""
+    wg.set_get_override(b"probe_field", -10795.0)
+    wg.feed(b"GET probe_field #1\n")
+    assert wg.take_sink() == _ack(1) + b"get probe_field -10795.000000\n"
+
+
+def test_get_value_beyond_ceiling_clamps_to_ceiling_not_wraparound(wg):
+    """A magnitude beyond this fix's own input ceiling
+    (kGetValueCeiling, wire_handler.cpp) -- far beyond anything this
+    project's real config space plausibly holds -- clamps to the
+    ceiling itself, a documented, stable, obviously-saturated number,
+    rather than wrapping around to the OLD bug's unrelated-looking wrong
+    digits (which this asserts against explicitly, not just the correct
+    value, since a future regression could plausibly reintroduce a
+    DIFFERENT wraparound constant)."""
+    wg.set_get_override(b"probe_field", 5000000.0)  # 5e6, past the 1e6 ceiling
+    wg.feed(b"GET probe_field #1\n")
+    reply = wg.take_sink()
+    assert reply == _ack(1) + b"get probe_field 1000000.000000\n"
+    assert b"4294.967040" not in reply
 
 
 def test_set_golden_vector(wg):
