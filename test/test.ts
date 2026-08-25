@@ -352,6 +352,14 @@ diffDrive.onRun("cal", function (arg: number) {
 })
 
 diffDrive.onRun("fix", function (arg: number) {
+    // worldReady() FIRST, not just logFix(). logFix() calls readWorld()
+    // directly, so a bare RUN:probe -> RUN:fix on the bench used to
+    // report a pose with NO lever arm applied -- the sensor's position,
+    // not the robot centre's, off by up to 38.2 mm and silently
+    // plausible. That is exactly the reading that sent a 2026-08-25
+    // bench session chasing a drivetrain fault that did not exist.
+    // worldReady() is idempotent and cheap once the chip is up.
+    if (!worldReady()) return
     logFix("now")
 })
 
