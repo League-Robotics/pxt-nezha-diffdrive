@@ -101,3 +101,109 @@ the two have completely different fixes.
   closure; it must not be run until this is fixed.
 - `unpowered-nezha-brick-wedges-program-at-boot.md` — same lazy-init class of
   ambiguity in `STATUS`.
+
+---
+
+## CORRECTION (2026-08-25, team-lead) — the stale-cache mechanism is REFUTED
+
+The "What to do" list above is built on a hypothesis this issue's own data
+rules out. Read this section before acting on anything above it.
+
+### 1. `logFix()` does not read a cache. It forces a live I2C burst.
+
+```
+test/test.ts:79   function logFix(tag) {
+                      if (!diffDrive.readWorld()) emitLine("OERR:read-failed:"+tag)
+                      ... worldX() / worldY() / worldHeading()
+```
+
+`readWorld()` -> `otosRead()` (`src/main.ts:478`, `src/shims.cpp:1088`) ->
+`OtosPort::read()` (`src/otos_port.cpp:114`), which writes `kRegPositionXl`
+and reads 12 bytes off the wire every call. `worldX/Y/Heading` then read the
+members that `read()` just overwrote.
+
+So the premise "the tour never takes a boundary fix, therefore `logFix()`
+returns the seeded value" is wrong at the first step: `logFix()` takes its own
+fix, unconditionally, on the spot. The cache-refresh contract cited from
+`otos-on-vevov-move-goto-world-pose-square-tours.md` governs the *motion
+layer's* pose source, not this diagnostic path.
+
+Corollary: no `OERR:read-failed` lines appeared in the capture, so all five
+reads returned `true` — the I2C transactions succeeded.
+
+### 2. The recorded fixes are not identical, and a stale cache would be.
+
+```
+c0 5000:3000:17989
+c1 5000:2998:17982
+c2 5000:2998:17980
+c3 5000:2998:17974
+c4 5000:2998:17970
+```
+
+Heading walks 17989 -> 17970 monotonically; y moves 3000 -> 2998. A cache
+returning a stored value returns the *same bytes* every time. Monotonic creep
+of ~0.19 deg over ~30 s is the signature of live reads from a sensor that is
+genuinely powered, tracking, and very slightly drifting — i.e. a sensor
+watching a chassis that is sitting still.
+
+Note also that `c0` reads 17989, not the seeded 18000. `otos_port.cpp:99`
+documents exactly this: a seed of (50, 30, 180) read back a few seconds later
+as 49.97, 29.97, 179.89. The `c0` value is the *drifted readback* of the seed,
+not the seed itself — further evidence the read path is live.
+
+### 3. The likely real mechanism: the chassis never moved.
+
+The capture script (`tour3.py`, preserved in this session's scratchpad) opened
+`/dev/cu.usbmodem212402` — **tovez over the USB cable**. On this bench the USB
+cable reaches the bench stand, where the wheels are off the ground. Every
+observation then falls out consistently:
+
+| observation | on a stand |
+|---|---|
+| `posl/posr` +34834/+44306 counts | wheels spin freely ✓ |
+| peak duty 2500/2900 | motors driven ✓ |
+| encoder odometry integrates ~52 mm | phantom trajectory from free-spinning wheels ✓ |
+| OTOS reports ~0.6 mm | **correct** — the chassis did not translate ✓ |
+
+On this reading the OTOS was the only honest instrument in the run, and the
+encoder odometry was the fiction. That inverts the issue title.
+
+### 4. What is NOT yet established
+
+Floor-vs-stand placement during that run is not recorded anywhere, and tovez
+dropped off the USB bus during the follow-up attempt (2026-08-25 — its port
+disappeared mid-test), so the confirming experiment has not run. The
+alternative — chassis on the floor, OTOS powered but not optically tracking —
+remains formally open, though it does not explain the monotonic drift as
+naturally.
+
+**Decisive experiment, when tovez is back:** place it on the floor, seed a
+pose, drive `RUN:straight:20`, and compare the OTOS delta against the encoder
+delta. Agreement => sensor fine, earlier run was on a stand. OTOS flat while
+encoders advance on a *floor* run => the sensor really is not tracking.
+
+### 5. The finding that survives, and it is a real one
+
+Regardless of which way the experiment lands, this stands:
+
+> Nothing in the firmware, the tooling, or the tour distinguishes "robot
+> driving on the floor" from "robot on a stand with its wheels in the air."
+> Both produce a complete, well-formed, plausible-looking tour record.
+
+That is a genuine gap and it is worth fixing: a wheels-vs-OTOS divergence
+check at each corner would catch a robot on a stand, a stalled wheel, a
+slipping surface, and a dead sensor — all with one comparison. Item 3 of the
+original "What to do" list ("make a stale fix detectable") is still the right
+instinct; the correct implementation is a *cross-source disagreement* check,
+not a cache-freshness flag, because there is no cache to check.
+
+### Impact on this sprint
+
+Tickets 005 and 006 (the OTOS and residual-leg campaigns) are **not** blocked
+by a firmware defect, because no firmware defect has been demonstrated. They
+ARE blocked by a methodology requirement: **every campaign procedure they
+produce must state the robot's placement (floor vs stand) and must include the
+wheels-vs-OTOS divergence check as a validity precondition.** A campaign that
+cannot tell those two situations apart will confirm whatever it hoped to see —
+which is the one true thing the original issue text got exactly right.
