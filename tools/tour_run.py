@@ -27,6 +27,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
+import tlm
 
 VENV = '/Volumes/Cache/User-Eric/.local/pipx/venvs/aprilcam/bin/python'
 CAMLINK = os.path.dirname(os.path.abspath(__file__)) + '/camlink.py'
@@ -220,6 +221,15 @@ def main():
 
     for run in range(1, a.runs + 1):
         print(f'\n=== {a.tour} tour, run {run} ===')
+        # --- fail loud: a dead instrument must not cost a run (SUC-001).
+        # Checked before reposition/seed too, not just before RUN:tour: --
+        # reposition already drives the robot, so a dead telemetry link
+        # should stop the run before THAT cost is spent either. ---
+        try:
+            stream = tlm.require_stream(link, timeout=3.0)
+        except tlm.DeadTelemetryError as e:
+            print(f'  {e}')
+            break
         if a.reposition:
             print('  repositioning onto the NE dot (setup, not the tour)')
             # 1.5 deg, not 4: an open-loop tour turns start heading
@@ -242,7 +252,6 @@ def main():
         link.send(f'RUN:tour:{a.tour}')
         ended = False
         fixes = []      # the robot's own corner fixes (OCAL:cN)
-        tlm = []        # full telemetry
         for s in link.lines(120):
             if s.startswith('TOUR:end'):
                 ended = True
@@ -256,22 +265,10 @@ def main():
                                       int(p2[4]) / 100.0))
                     except ValueError:
                         pass
-            elif s.startswith('TLM:'):
-                f2 = s[4:].split(':')
-                if len(f2) >= 9:
-                    try:
-                        tlm.append((time.time() - t0, int(f2[1]) / 10.0,
-                                    int(f2[2]) / 10.0, int(f2[3]) / 100.0,
-                                    int(f2[4]) / 10.0, int(f2[5]) / 10.0,
-                                    int(f2[6]) / 100.0,
-                                    # Fields 8/9: the kernel's own per-tick
-                                    # encoder measurement, mm/s. Do NOT
-                                    # substitute a pose difference here --
-                                    # 24 ms ticks sampled every 56 ms alias
-                                    # into a +-25% sawtooth.
-                                    int(f2[7]), int(f2[8])))
-                    except ValueError:
-                        pass
+                continue
+            # thdr/t telemetry decodes into `stream`; ack/nack/anything
+            # else tlm.py doesn't recognize is silently ignored by feed().
+            stream.feed(s)
         # Let the CAMERA catch up before scoring. The daemon updates at
         # ~4 Hz and the detection pipeline lags behind the world, so
         # cutting the record at TOUR:end freezes it roughly 0.7 s in the
@@ -296,8 +293,9 @@ def main():
         # the number that says whether a leg ran at its commanded rate
         # or sat on the taper floor -- the fault that used to make the
         # tour stop a third of the way to each corner.
-        fwd = sorted((v[7] + v[8]) / 2.0 for v in tlm
-                     if abs(v[7]) + abs(v[8]) > 20)
+        wheel_pairs = [tlm.wheels_mms(row) for row in stream.frames]
+        fwd = sorted((w['vl'] + w['vr']) / 2.0 for w in wheel_pairs
+                     if abs(w['vl']) + abs(w['vr']) > 20)
         if fwd:
             print(f'  wheel speed while moving: median '
                   f'{fwd[len(fwd) // 2]:.0f} mm/s, p90 '
@@ -317,11 +315,13 @@ def main():
             w.writerow(['t', 'x_cm', 'y_cm', 'yaw_deg'])
             w.writerows([[round(c[0] - t0, 3), round(c[1], 2),
                           round(c[2], 2), round(c[3], 2)] for c in cam_rows])
-        with open(stem + '_tlm.csv', 'w') as f:
-            w = csv.writer(f)
-            w.writerow(['t', 'enc_x', 'enc_y', 'enc_h',
-                        'otos_x', 'otos_y', 'otos_h', 'vl_mms', 'vr_mms'])
-            w.writerows([[round(v, 2) for v in row] for row in tlm])
+        # write_tlm_csv() writes stem + '_tlm.csv' (raw wire units: mm,
+        # cdeg) plus the stem + '_tlm.meta.json' sidecar, and returns the
+        # same dict it wrote -- surface the loss report here rather than
+        # leaving it decoration only the sidecar carries (SUC-003).
+        meta = tlm.write_tlm_csv(stream, stem + '_tlm.csv')
+        print(f'  telemetry: {meta["frames"]} frames, '
+              f'{meta["dropped"]} dropped ({meta["loss_pct"]:.1f}% loss)')
         time.sleep(1.5)
 
     link.close()

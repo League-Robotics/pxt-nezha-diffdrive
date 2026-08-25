@@ -10,9 +10,12 @@ recorded alongside for comparison, but a tour that navigates by the
 OTOS cannot be graded by the OTOS -- it would be marking its own
 homework.
 
-Wheel speeds are DERIVED from the encoder-odometry pose stream rather
-than polled: a request/reply round-trip inside a move over the wireless
-link is measured to collapse a 197.5 mm leg to 0.3 mm.
+Wheel speeds ride the v6 telemetry frame's own vl/vr columns (the
+kernel's own per-tick measurement, via tools/tlm.py) rather than being
+polled: a request/reply round-trip inside a move over the wireless link
+is measured to collapse a 197.5 mm leg to 0.3 mm. (`wheel_speeds()`
+below, deriving speed by differencing the pose stream instead, is not
+called anywhere in this file -- kept for reference only.)
 
   python3 tools/tour_practice.py [--tours robot world] [--runs 2]
 """
@@ -28,6 +31,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
 from reposition import Repositioner, wrap
+import tlm
 
 VENV = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
 CAMLINK = os.path.dirname(os.path.abspath(__file__)) + '/camlink.py'
@@ -97,7 +101,17 @@ class CamProc:
 
 
 def record_tour(link, cam, name, timeout=120):
-    """Trigger a tour and record until it ends."""
+    """Subscribe telemetry (aborting before the tour is triggered if the
+    instrument is dead -- SUC-001), trigger the tour, and record until
+    it ends.
+
+    Returns (t0, pose, fixes, ended, stream): `stream` is the
+    tools/tlm.py TlmStream the caller passes on to write_tlm_csv() for
+    this run's own <stem>_tlm.csv/.meta.json -- already primed with at
+    least one frame by require_stream(), so write_tlm_csv() cannot raise
+    EmptyCaptureError against it.
+    """
+    stream = tlm.require_stream(link, timeout=3.0)
     t0 = time.time()
     link.send(f'RUN:tour:{name}')
     pose, fixes = [], []
@@ -108,28 +122,27 @@ def record_tour(link, cam, name, timeout=120):
             if s.startswith('DBG:tour='):
                 started = True
                 t0 = time.time()
-            elif s.startswith('TLM:') and started:
-                f = s[4:].split(':')
-                if len(f) >= 7:
-                    try:
-                        # f[0] is the DEVICE timestamp [ms] -- use it for
-                        # dt, not host arrival, which jitters badly over
-                        # the wireless link and fabricates speed spikes.
-                        pose.append((time.time(), int(f[1]) / 10.0,
-                                     int(f[2]) / 10.0, int(f[3]) / 100.0,
-                                     int(f[4]) / 10.0, int(f[5]) / 10.0,
-                                     int(f[6]) / 100.0, int(f[0]),
-                                     int(f[7]) / 10.0 if len(f) > 8 else 0.0,
-                                     int(f[8]) / 10.0 if len(f) > 8 else 0.0))
-                    except ValueError:
-                        pass
-            elif s.startswith('OCAL:c') and started:
+            elif not started:
+                continue
+            elif s.startswith('OCAL:c'):
                 fixes.append(s)
-            elif s.startswith('TOUR:end') and started:
-                return t0, pose, fixes, True
+            elif s.startswith('TOUR:end'):
+                return t0, pose, fixes, True, stream
+            else:
+                row = stream.feed(s)
+                if row is not None:
+                    # row['now'] is the DEVICE timestamp [ms] -- use it
+                    # for dt, not host arrival, which jitters badly over
+                    # the wireless link and fabricates speed spikes.
+                    enc = tlm.pose_cm(row)
+                    otos = tlm.otos_cm(row)
+                    wheels = tlm.wheels_mms(row)
+                    pose.append((time.time(), enc['x'], enc['y'], enc['h'],
+                                 otos['x'], otos['y'], otos['h'],
+                                 row['now'], wheels['vl'], wheels['vr']))
         if started and time.time() - t0 > timeout:
             break
-    return t0, pose, fixes, started
+    return t0, pose, fixes, started, stream
 
 
 def wheel_speeds(pose):
@@ -185,17 +198,21 @@ def write_csv(path, header, rows):
 
 def chart(name, run, pose, camrows, sc, path, stem):
     """Chart in a subprocess: the system matplotlib is broken here, so
-    plotting runs under uv while this process keeps pyserial."""
+    plotting runs under uv while this process keeps pyserial.
+
+    `pose` rows carry vl/vr in mm/s (tlm.py's wheels_mms() -- the wire's
+    own unit, no scale factor of this tool's own) under the `vl_mms`/
+    `vr_mms` header names; practice_chart.py already has a display-unit
+    conversion path (mm/s -> cm/s) keyed on that exact header pair.
+    """
     write_csv(stem + '_cam.csv', ['t', 'x_cm', 'y_cm', 'yaw_deg'],
               [[round(c[0], 3), round(c[1], 2), round(c[2], 2),
                 round(c[3], 2)] for c in camrows])
     write_csv(stem + '_pose.csv',
               ['t', 'enc_x', 'enc_y', 'enc_h', 'otos_x', 'otos_y', 'otos_h',
-               'dev_ms', 'vl_cms', 'vr_cms'],
+               'dev_ms', 'vl_mms', 'vr_mms'],
               [[round(p[0], 3)] + [round(v, 2) for v in p[1:7]]
-               + [p[7] if len(p) > 7 else 0]
-               + [round(p[8], 1) if len(p) > 8 else 0,
-                  round(p[9], 1) if len(p) > 9 else 0] for p in pose])
+               + [p[7], round(p[8], 1), round(p[9], 1)] for p in pose])
     subprocess.run(['uv', 'run', '--with', 'numpy', '--with', 'matplotlib',
                     'python3',
                     os.path.dirname(os.path.abspath(__file__))
@@ -246,7 +263,14 @@ def main():
                     print('  camera lost the robot; skipping')
                     continue
             time.sleep(1.0)
-            t0, pose, fixes, ok = record_tour(link, cam, name)
+            # --- fail loud: a dead instrument must not cost a run
+            # (SUC-001), checked by record_tour()'s own require_stream()
+            # call before it sends RUN:tour: ---
+            try:
+                t0, pose, fixes, ok, stream = record_tour(link, cam, name)
+            except tlm.DeadTelemetryError as e:
+                print(f'  {e}')
+                continue
             camrows = cam.since(t0)
             if not ok or not camrows:
                 print(f'  tour did not report an end ({len(pose)} tlm, '
@@ -256,12 +280,18 @@ def main():
             stem = f'{a.outdir}/{name}-run{run}'
             png = stem + '.png'
             chart(name, run, pose, camrows, sc, png, stem)
+            # require_stream() inside record_tour() already guaranteed
+            # `stream` has at least one frame, so this cannot raise
+            # EmptyCaptureError here.
+            meta = tlm.write_tlm_csv(stream, stem + '_tlm.csv')
             results.append((name, run, sc))
             print(f'  corners: ' + '  '.join(
                 f'{t} {sc[t]:.1f}cm' for t in ORDER))
             print(f'  closure {sc["closure"]:.1f} cm, end heading '
                   f'{sc["end_heading_err"]:+.1f} deg, '
                   f'{len(pose)} tlm / {len(camrows)} cam samples')
+            print(f'  telemetry: {meta["frames"]} frames, '
+                  f'{meta["dropped"]} dropped ({meta["loss_pct"]:.1f}% loss)')
             print(f'  -> {png}')
             subprocess.run(['open', png])
 

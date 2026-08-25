@@ -6,11 +6,15 @@
 """
 import csv
 import math
+import os
 import sys
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tlm
 
 DOTS = {'NW': (-50.0, 30.0), 'NE': (50.0, 30.0),
         'SE': (50.0, -30.0), 'SW': (-50.0, -30.0)}
@@ -107,6 +111,19 @@ def score(cam):
 
 def main():
     name, run, campath, posepath, out = sys.argv[1:6]
+
+    # SUC-002: refuse to plot a run whose capture recorded zero telemetry
+    # frames -- a chart drawn from an empty capture is exactly the
+    # confident-wrong-conclusion failure mode this sprint's fail-loud
+    # guards exist to prevent. A MISSING sidecar (older capture, or a
+    # source that never wrote one) is not itself refused here.
+    meta = tlm.read_meta_sidecar(posepath)
+    if meta is not None and meta.get('frames', 0) == 0:
+        raise SystemExit(
+            f'refusing to plot {posepath}: its capture\'s telemetry '
+            f'sidecar reports frames=0 -- no telemetry was recorded for '
+            f'this run')
+
     _, cam = rd(campath)
     phdr, pose = rd(posepath)
     sc = score(cam) if cam else None

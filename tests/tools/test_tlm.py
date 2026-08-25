@@ -44,6 +44,16 @@ fixture; and `test_require_stream_raises_...`/`test_require_stream_
 returns_normally_...` are a matched raising/non-raising pair against
 the SAME fake link shape, not two differently-shaped doubles.
 
+**Sprint 005 ticket 002** (the six-consumer retrofit) added one more
+piece of real decision logic to `tlm.py` itself, not just to a thin
+consumer wrapper: `read_meta_sidecar()`, the read-time counterpart to
+`write_tlm_csv()`'s sidecar, used by `tour_chart.py`/`practice_chart.py`
+to refuse plotting a zero-frame run without duplicating the sidecar's
+naming convention into two chart tools. The three tests below pin its
+three outcomes (missing sidecar, present with real frames, present
+reporting `frames == 0`) the same way the fail-loud guards above are
+pinned -- against `tmp_path`, no chart tool or matplotlib involved.
+
 Run with::
 
     uv run pytest tests/tools/test_tlm.py
@@ -456,3 +466,57 @@ def test_write_tlm_csv_union_header_survives_a_mid_stream_column_switch(
     assert 'cyc' in fieldnames and 'dutl' in fieldnames  # FULL-only cols
     assert rows[0]['cyc'] == ''  # the POSE row never had this column
     assert rows[1]['cyc'] == '101'
+
+
+# --- sprint 005 ticket 002: read_meta_sidecar() ---------------------------
+# The read-time counterpart to write_tlm_csv()'s sidecar, for chart tools
+# that plot a run's CSVs without being the ones that captured them.
+
+
+def test_read_meta_sidecar_missing_returns_none_not_an_error(tmp_path):
+    """No sidecar at all (an older capture, or a source that never wrote
+    one) is not itself refused -- the caller decides what to do with
+    None, this function just reports "nothing to check"."""
+    pose_csv = tmp_path / 'run_pose.csv'
+    pose_csv.write_text('t,x\n')  # the sidecar this derives from a NAME,
+    # not file content -- no _tlm.meta.json needs to exist alongside it
+
+    assert tlm.read_meta_sidecar(str(pose_csv)) is None
+
+
+def test_read_meta_sidecar_finds_the_sidecar_for_a_differently_suffixed_csv(
+        tmp_path):
+    """The whole point: a chart tool passes `<stem>_pose.csv`, and the
+    sidecar actually lives at `<stem>_tlm.meta.json` -- a DIFFERENT
+    suffix, written by write_tlm_csv() for `<stem>_tlm.csv`. Proves the
+    stem-derivation, not just "a sidecar exists somewhere"."""
+    stream = tlm.TlmStream()
+    stream.feed(POSE_THDR)
+    stream.feed(_pose_t_line(1))
+    stream.feed(_pose_t_line(2))
+    tlm.write_tlm_csv(stream, str(tmp_path / 'run_tlm.csv'))
+    pose_csv = tmp_path / 'run_pose.csv'  # a DIFFERENT suffix, same stem
+
+    meta = tlm.read_meta_sidecar(str(pose_csv))
+
+    assert meta is not None
+    assert meta['frames'] == 2
+
+
+def test_read_meta_sidecar_zero_frames_is_returned_not_raised(tmp_path):
+    """This function only READS and reports -- it never raises on the
+    caller's behalf (tour_chart.py/practice_chart.py do that, via this
+    project's own `raise SystemExit(...)` CLI convention). A sidecar
+    that positively reports frames == 0 still comes back as a dict, with
+    frames == 0 in it, for the caller to act on."""
+    meta_path = tmp_path / 'run_tlm.meta.json'
+    meta_path.write_text(json.dumps({
+        'frames': 0, 'dropped': 0, 'loss_pct': 0.0, 'orphan_frames': 0,
+        'malformed': 0, 'columns': [], 'duration': 0.0,
+    }))
+    pose_csv = tmp_path / 'run_pose.csv'
+
+    meta = tlm.read_meta_sidecar(str(pose_csv))
+
+    assert meta is not None
+    assert meta['frames'] == 0

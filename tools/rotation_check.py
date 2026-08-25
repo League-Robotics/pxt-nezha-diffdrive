@@ -25,6 +25,7 @@ import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
+import tlm
 
 # RUN verb -> commanded rotation [deg]
 PIVOTS = [(2, 360.0), (4, 180.0), (5, -180.0)]
@@ -42,18 +43,22 @@ def fix(link, tries=3):
     return None
 
 
-def encoder_heading(link, wait=2.0):
-    """Latest encoder-odometry heading [deg] from the telemetry stream."""
-    h = None
+def encoder_heading(link, stream, wait=2.0):
+    """Latest encoder-odometry heading [deg] decoded during THIS wait
+    window on `stream` (the same tools/tlm.py TlmStream the caller keeps
+    feeding across the whole run, already primed by require_stream()) --
+    or None if no `t` frame decodes within `wait`. Never falls back to
+    an older frame already in `stream.frames`: the caller must treat
+    None as "abort this measurement," not a stale/fabricated heading.
+    """
+    latest = None
     for s in link.lines(wait):
-        if s.startswith('TLM:'):
-            f = s[4:].split(':')
-            if len(f) >= 4:
-                try:
-                    h = int(f[3]) / 100.0
-                except ValueError:
-                    pass
-    return h
+        row = stream.feed(s)
+        if row is not None:
+            latest = row
+    if latest is None:
+        return None
+    return tlm.pose_cm(latest)['h']
 
 
 def unwrap(delta):
@@ -73,14 +78,19 @@ def main():
     a = ap.parse_args()
 
     link = open_link(a.port, radio=a.radio)
+    # --- fail loud: a dead instrument must not cost a run (SUC-001) ---
+    try:
+        stream = tlm.require_stream(link, timeout=3.0)
+    except tlm.DeadTelemetryError as e:
+        raise SystemExit(str(e))
     print(f"{'commanded':>10} {'wheels':>9} {'gyro':>9} {'gyro/cmd':>9}"
           f" {'drift mm':>9}")
     ratios = []
     for _ in range(a.reps):
         for verb, commanded in PIVOTS:
             before = fix(link)
-            enc0 = encoder_heading(link)
-            if before is None:
+            enc0 = encoder_heading(link, stream)
+            if before is None or enc0 is None:
                 print('  no fix -- skipping')
                 continue
             # A full turn at 45 deg/s is 8 s; allow generous headroom.
@@ -88,8 +98,8 @@ def main():
                             wait=abs(commanded) / 45.0 + 12.0, echo=False)
             time.sleep(1.5)
             after = fix(link)
-            enc1 = encoder_heading(link)
-            if after is None:
+            enc1 = encoder_heading(link, stream)
+            if after is None or enc1 is None:
                 print('  no fix after pivot -- skipping')
                 continue
 
@@ -98,8 +108,7 @@ def main():
             # pick the revolution, measure the remainder.
             revs = round(commanded / 360.0)
             gyro = revs * 360.0 + unwrap(after[2] - before[2] - revs * 360.0)
-            wheels = ('%9.1f' % unwrap(enc1 - enc0)) if None not in (enc0, enc1) \
-                else '        -'
+            wheels = '%9.1f' % unwrap(enc1 - enc0)
             drift = ((after[0] - before[0]) ** 2
                      + (after[1] - before[1]) ** 2) ** 0.5
             ratio = gyro / commanded

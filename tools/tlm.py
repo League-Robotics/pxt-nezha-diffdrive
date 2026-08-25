@@ -60,7 +60,9 @@ it, uncounted anywhere. This is deliberate filtering, not a gap: a
 caller that only speaks `feed()` never has to know the reliability
 line's own shape.
 
-Import `TlmStream`, `require_stream()`, `write_tlm_csv()`, and the
+Import `TlmStream`, `require_stream()`, `write_tlm_csv()`,
+`read_meta_sidecar()` (sprint 005 ticket 002's read-side zero-frame
+guard for chart tools that did not capture the run they plot), and the
 `pose_cm()`/`otos_cm()`/`wheels_mms()` helpers. See tools/DESIGN.md's
 "Telemetry (tlm.py)" section for the module's place in the bench
 tooling architecture.
@@ -390,3 +392,39 @@ def _ordered_union_columns(frames):
 
 def _meta_path_for(csv_path):
     return str(pathlib.Path(csv_path).with_suffix('.meta.json'))
+
+
+# --- fail-loud guard, read side: chart tools that did not capture -------
+# the run they are about to plot ------------------------------------------
+
+def read_meta_sidecar(any_csv_path):
+    """Read the `<stem>_tlm.meta.json` sidecar for the SAME capture run
+    as `any_csv_path` -- any `<stem>_<suffix>.csv` this sprint's tools
+    write for one run (`<stem>_pose.csv`, `<stem>_cam.csv`, ...), all
+    sharing one stem with the `<stem>_tlm.csv` write_tlm_csv() itself
+    wrote. Added in sprint 005 ticket 002 for tour_chart.py/
+    practice_chart.py: those tools plot a run's CSVs without being the
+    ones that captured them, so they cannot call write_tlm_csv()'s own
+    write-time guard -- this is the same "refuse to represent absent
+    data as a real result" contract, applied at READ time, with the
+    sidecar-naming knowledge kept in this one module rather than
+    duplicated into two chart tools.
+
+    Returns the parsed meta dict, or None if no sidecar exists at the
+    derived path -- an older capture, or one from a source that never
+    wrote one. Absence here is NOT itself an error; it is the caller's
+    job to decide whether "no sidecar to check against" is fine (plot
+    anyway) or should itself refuse. A sidecar that DOES exist and
+    reports `frames == 0` is for the caller to act on (typically
+    `raise SystemExit(...)`, this project's own CLI error convention)
+    -- this function only reads and returns, it never raises on the
+    caller's behalf.
+    """
+    p = pathlib.Path(any_csv_path)
+    name = p.stem  # strips the .csv extension
+    stem = name.rsplit('_', 1)[0] if '_' in name else name
+    meta_path = p.with_name(stem + '_tlm.meta.json')
+    if not meta_path.exists():
+        return None
+    with open(meta_path) as f:
+        return json.load(f)
