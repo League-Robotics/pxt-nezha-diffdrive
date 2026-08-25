@@ -207,3 +207,88 @@ produce must state the robot's placement (floor vs stand) and must include the
 wheels-vs-OTOS divergence check as a validity precondition.** A campaign that
 cannot tell those two situations apart will confirm whatever it hoped to see —
 which is the one true thing the original issue text got exactly right.
+
+---
+
+## RESOLVED ON HARDWARE (2026-08-25) — both readings above were half right
+
+The stakeholder pointed out the obvious instrument neither the issue nor the
+correction had used: **the overhead camera.** vevov carries AprilTag 53 with a
+measured mount offset already registered with the daemon, so the camera reports
+the robot's centre of rotation directly. That is a chassis-frame ground truth
+independent of BOTH the wheels and the OTOS — it settles in one move what the
+two previous sections argued about from inference.
+
+### The experiment
+
+vevov, on the playfield, driven over the **zavaz radio relay** (not USB — the
+bench/playfield distinction `tools/robotlink.py`'s own docstring insists on).
+Two consecutive `RUN:straight:20` legs, camera fix before and after each.
+
+Leg 2, the cleanest of the pair:
+
+| instrument | reported | error vs camera |
+|---|---|---|
+| camera, tag 53 centre: (18.02, 27.19) -> (1.85, 16.56) cm | **19.34 cm** | ground truth |
+| live OTOS fix, `RUN:fix`: `OCAL:now:382:7:0` -> `OCAL:now:2297:2:102` | **19.15 cm** | **2 mm** |
+| encoders, `STRAIGHT:end:2010:30:77` | 20.1 cm | +7.6 mm |
+| telemetry `ox`/`oy`/`oh` | **0.0 cm** — `(386,345,-16504)` unchanged | total |
+
+### What this establishes
+
+1. **The OTOS sensor is healthy, and it is the most accurate instrument on the
+   robot** — 2 mm from camera truth over 19 cm, beating the encoders, which
+   overran by 7.6 mm on the same leg. Any plan premised on a broken or
+   non-tracking OTOS is chasing nothing.
+
+2. **`logFix()` is live and correct**, as the correction section argued. The
+   `OCAL` values moved 382 -> 2297 across the drive. Confirmed.
+
+3. **A stale cache is real, and the original issue was right that one exists** —
+   it is just not the path the issue named. The frozen values are the
+   **telemetry projection** `ox`/`oy`/`oh`, which stayed byte-identical through
+   an entire camera-confirmed 20 cm drive. `logFix()` and the telemetry columns
+   are different code paths, and the issue conflated them.
+
+4. Therefore the correction section's conclusion — *"no firmware defect has been
+   demonstrated"* — **is withdrawn.** One has now been demonstrated, on
+   hardware, in the telemetry projection.
+
+### Scope limit — do not overstate this
+
+vevov is running **older firmware**: it emits the 12-column `POSE` frame
+(`thdr seq now flags x y h ox oy oh vl vr i2cf`) and does not answer `STATUS`.
+Current master emits the 20-column `FULL` frame. **The freeze is confirmed on at
+least one build; it has NOT been tested on master.** Re-running this exact
+experiment against a master-flashed board is the next step, and it is cheap.
+
+### Why this is worse than a wrong number
+
+`tools/tlm.py`'s `otos_cm()` reads `ox`/`oy`/`oh` directly (`tlm.py:265`). Every
+consumer of that helper — including sprint 011's planned campaign tooling — can
+receive a constant while the robot drives a full leg, and nothing in the data
+says so. A frozen source and a genuinely stationary robot are byte-identical.
+
+**The only way to tell them apart is cross-source disagreement**, which is why
+the divergence check proposed in the correction section is the right fix, and
+now has hardware evidence behind it rather than a hypothesis.
+
+### The tovez question is still open
+
+Nothing here explains tovez's tour, where the *live* `OCAL` fixes barely moved
+while its encoders reported 52 mm. vevov proves the live path tracks correctly
+when the robot really drives, which makes the stand hypothesis for tovez more
+likely, not less — but tovez dropped off the bus before it could be tested and
+this has NOT been confirmed. Leave it open.
+
+### Actions
+
+- [ ] Re-run this three-instrument test on a **master-flashed** board to
+      establish whether the telemetry freeze exists on current firmware.
+- [ ] Fix the telemetry projection so `ox`/`oy`/`oh` refresh, or mark them
+      explicitly stale in the frame rather than repeating the last value.
+- [ ] `leg_analysis.py` (sprint 011 ticket 002) flags any leg whose OTOS delta
+      is ~zero while the encoder delta is real, as `otos-stale` — in flight.
+- [ ] Campaign procedures (tickets 005/006) bracket every tour with camera
+      fixes at start and end — permitted by the standing rule (camera at tour
+      start and end only, never during) and the only way to catch this class.
