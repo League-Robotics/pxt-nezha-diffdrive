@@ -100,7 +100,7 @@ TICK_MS = 24.0
 # floor/ramp defaults verbatim (400/180 counts, 25%/12%, 400 ms) -- a
 # freshly-constructed engine below already matches production tuning on
 # those knobs with no explicit setter calls needed. Only speed/yawRate
-# live outside the engine (shims.cpp/main.ts globals), so those two are
+# live outside the engine (shims.cpp/motion.ts globals), so those two are
 # set explicitly, matching openLoopProfile()'s own values.
 PRODUCTION_SPEED_MM_S = 200.0    # [mm/s] diffDrive.setDefaultSpeed(20)
 PRODUCTION_YAW_RATE_DEG_S = 90.0  # [deg/s] diffDrive.setDefaultYawRate(90)

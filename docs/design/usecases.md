@@ -210,7 +210,7 @@ the requested `(x, y)` point (subject to closed-loop tracking error).
 2. Script continues immediately without waiting.
 3. The user's program keeps a concurrent `drive tick`
    (`driveTick()`) loop running — **known tick-model gap** (see
-   `startMove`'s doc comment in `main.ts`): polling alone does not
+   `startMove`'s doc comment in `motion.ts`): polling alone does not
    advance the move; without a tick source it never progresses and
    the watchdog stops it within ~150 ms.
 4. Elsewhere in the program, user polls `moving?` to check whether the

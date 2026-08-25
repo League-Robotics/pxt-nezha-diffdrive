@@ -2,7 +2,7 @@
 
 Status: existing, working codebase (v1.0.0) being brought under the CLASI
 process. This specification is reconstructed from the stakeholder-written
-`README.md` and from the shipped source (`main.ts`, `diffdrive.h/.cpp`,
+`README.md` and from the shipped source (`motion.ts`, `diffdrive.h/.cpp`,
 `nezha_port.h/.cpp`, `platform_ports.h`, `shims.cpp`, `test.ts`,
 `pxt.json`), which is treated as ground truth for actual behavior. Every
 statement in `README.md` is preserved somewhere below; source-derived
@@ -32,7 +32,7 @@ From `pxt.json`:
 | description | "Closed-loop differential drive for the Nezha brick: encoder-servoed wheel speeds, twist and distance moves, curved go-to, and pose from odometry. The wheel controller runs in its own fiber." |
 | license | MIT |
 | dependencies | `core: *`, `microphone: *` |
-| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, motion_engine.h, motion_engine.cpp, platform_ports.h, heading_wrap.h, encoder_glitch_armor.h, encoder_pose_source.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, wire_handler.h, wire_handler.cpp, wire_adapter.h, wire_adapter.cpp, shims.cpp, main.ts |
+| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, motion_engine.h, motion_engine.cpp, platform_ports.h, heading_wrap.h, encoder_glitch_armor.h, encoder_pose_source.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, wire_handler.h, wire_handler.cpp, wire_adapter.h, wire_adapter.cpp, shims.cpp, sim.ts, run.ts, pose.ts, stop.ts, world.ts, motion.ts |
 | testFiles | test/test.ts, test/testrig.ts |
 | supportedTargets | microbit |
 | preferredEditor | tsprj |
@@ -67,13 +67,15 @@ https://github.com/League-Robotics/pxt-nezha-diffdrive
 
 ## 4. Public API (block reference)
 
-The public surface is the `diffDrive` namespace in `main.ts`
-(`//% color=#0f9c5a icon="" block="DiffDrive"`), organized into block
-groups: **Drive**, **Move**, **Pose**, **World**, **Setup**. Every
-exported function present at the time of writing is documented below;
-the README's example listing is a representative subset, not the full
-API. Sprints 002/003 added surfaces this section does not yet detail
-(see `main.ts` and `src/DESIGN.md` §9 for the current inventory):
+The public surface is the `diffDrive` namespace
+(`//% color=#0f9c5a icon="" block="DiffDrive"`), split across `src/`'s
+block-API modules (`sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`,
+`motion.ts` — see `src/DESIGN.md` §9 for the module split), organized
+into block groups: **Drive**, **Move**, **Pose**, **World**, **Setup**.
+Every exported function present at the time of writing is documented
+below; the README's example listing is a representative subset, not the
+full API. Sprints 002/003 added surfaces this section does not yet
+detail (see `src/DESIGN.md` §9 for the current inventory):
 the `drive tick` block and tick-model contract (continuous-mode
 commands only move the robot while a `driveTick()` loop runs), the
 **World** group (OTOS start/seed/read blocks and `go to world x y`),
@@ -148,7 +150,7 @@ polling.
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|
-| `start move %distance cm turning %yaw degrees` *(advanced)* | `startMove(distance, yaw)` | same as `move` | Starts a distance/yaw move without waiting. Uses the current `defaultSpeed` (default 15 cm/s) and `defaultYawRate` (default 90 deg/s) as the move's speed/turn-rate targets. Poll `isMoving()` / call `stopMove()`. **Known tick-model gap**: polling does not itself advance the move — without a concurrent `driveTick()` loop the move never progresses and the watchdog stops it within ~150 ms (see `startMove`'s doc comment in `main.ts`). |
+| `start move %distance cm turning %yaw degrees` *(advanced)* | `startMove(distance, yaw)` | same as `move` | Starts a distance/yaw move without waiting. Uses the current `defaultSpeed` (default 15 cm/s) and `defaultYawRate` (default 90 deg/s) as the move's speed/turn-rate targets. Poll `isMoving()` / call `stopMove()`. **Known tick-model gap**: polling does not itself advance the move — without a concurrent `driveTick()` loop the move never progresses and the watchdog stops it within ~150 ms (see `startMove`'s doc comment in `motion.ts`). |
 | `start go to x %x cm y %y cm` *(advanced)* | `startGoTo(x, y)` | same as `goTo` | Starts a go-to without waiting; computes the arc (see §4.3) and calls `startMove` internally. |
 | `moving?` | `isMoving()` | — | Returns whether a move is currently running (`_updateMove()`; this call also advances the move state machine — see §9). |
 | `move progress` *(advanced)* | `moveProgress()` | — | Fraction of the current move completed, 0 to 1 (`_progress() / 1000`). |
@@ -266,7 +268,7 @@ floats), the adaptive-bias tuning (`setAdaptation`: `biasMax`,
 ## 5. Simulator behavior (browser fallback)
 
 Every exported block function has two implementations: a C++ shim
-(hardware, §9) and a TypeScript body in `main.ts` (browser simulator,
+(hardware, §9) and a TypeScript body in `sim.ts` (browser simulator,
 used when a MakeCode program runs in the web simulator rather than on
 device). The simulator is a minimal kinematic stand-in, not a
 reproduction of the closed-loop control law:
@@ -758,8 +760,9 @@ Nezha port shaping defaults (`nezha_port.h`, used as-is —
   fix a kernel bug in both this repo and the firmware repo (per the
   source comment) until the firmware itself is cut over to depend on
   this package. The port/shim files (`nezha_port.*`,
-  `platform_ports.h`, `shims.cpp`, `main.ts`) are this repo's own and
-  are edited here directly.
+  `platform_ports.h`, `shims.cpp`, and the `src/*.ts` block-API files
+  (`sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`, `motion.ts`))
+  are this repo's own and are edited here directly.
 
 ## 13. Versioning
 

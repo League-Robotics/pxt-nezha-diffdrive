@@ -176,7 +176,7 @@ retired the firmware's periodic `TLM:` stream with no v6 replacement
 yet, so the recorders' `TLM:` branch never fires against current
 firmware — pose columns record empty, silently. The `RUN:` cleartext
 *transport* still works (`protocol.cpp` forwards it), but the numeric
-`RUN:<n>` vocabulary has no handlers anywhere: `main.ts` dispatches RUN
+`RUN:<n>` vocabulary has no handlers anywhere: `run.ts` dispatches RUN
 by exact name, `test/test.ts` registers only named handlers, and
 `testrig.ts`'s two-arg handler stores the argument, not the name — so
 every numeric command from `otos_bench.py`, `rotation_check.py`,

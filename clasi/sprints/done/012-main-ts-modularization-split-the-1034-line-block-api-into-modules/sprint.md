@@ -1,7 +1,7 @@
 ---
 id: '012'
 title: 'main.ts modularization: split the 1034-line block API into modules'
-status: ticketing
+status: done
 branch: sprint/012-main-ts-modularization-split-the-1034-line-block-api-into-modules
 use-cases: []
 issues:
