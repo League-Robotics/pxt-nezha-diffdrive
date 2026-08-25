@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: 'tools/tlm.py: shared v6 telemetry parser and fail-loud guards'
-status: open
+status: in-progress
 use-cases:
 - SUC-001
 - SUC-002
@@ -73,36 +73,36 @@ drift apart.
 
 ## Acceptance Criteria
 
-- [ ] `TlmStream.feed(line)` decodes a `thdr` line into the current
+- [x] `TlmStream.feed(line)` decodes a `thdr` line into the current
       column set and a `t` line into a `dict[name, int]` (or `None` for
       a non-`t`/`thdr` line), using the header for column names — no
       hardcoded column index or position.
-- [ ] A `t` line arriving before any `thdr` increments `orphan_frames`
+- [x] A `t` line arriving before any `thdr` increments `orphan_frames`
       and is not counted into `frames`.
-- [ ] A `t` line whose value count disagrees with the last `thdr`'s
+- [x] A `t` line whose value count disagrees with the last `thdr`'s
       column count increments `malformed` and is not counted into
       `frames`; it does not raise (parsing tolerates malformed input,
       fail-loud is `require_stream`/`write_tlm_csv`'s job).
-- [ ] Re-feeding an identical `thdr` (same names, same order, same hex
+- [x] Re-feeding an identical `thdr` (same names, same order, same hex
       flags) is a no-op — no observable state change beyond having
       re-confirmed the header.
-- [ ] `seq` gap tracking: consecutive `t` frames with a gap in `seq`
+- [x] `seq` gap tracking: consecutive `t` frames with a gap in `seq`
       increment `dropped` by the gap size and `loss_pct` reflects it;
       a `seq` wraparound from 127 to 0 is not miscounted as a gap.
-- [ ] `pose_cm`/`otos_cm`/`wheels_mms` convert a decoded row's raw wire
+- [x] `pose_cm`/`otos_cm`/`wheels_mms` convert a decoded row's raw wire
       integers to the documented engineering units, verified against
       `tests/host/golden_telemetry.py`'s expected values (not a
       hand-rolled fixture).
-- [ ] `require_stream(link, timeout=3.0)` raises before any `send()` of
+- [x] `require_stream(link, timeout=3.0)` raises before any `send()` of
       a run-triggering command is observed on a fake link when no `t`
       frame arrives inside the timeout, and returns normally once one
       does.
-- [ ] `write_tlm_csv()` raises on zero accumulated frames and leaves no
+- [x] `write_tlm_csv()` raises on zero accumulated frames and leaves no
       CSV file on disk; on one or more frames it writes both the CSV
       and a `<stem>_tlm.meta.json` sidecar whose `frames`/`dropped`/
       `loss_pct`/`orphan_frames`/`malformed`/`columns`/`duration`
       fields match the fed data.
-- [ ] Fed against the real 75 B `TLM FULL` frame captured on tovez
+- [x] Fed against the real 75 B `TLM FULL` frame captured on tovez
       (`t 25 988992 31 142 -16 11737 0 0 0 -122 126 3 101 286 3319
       -1300 1800 0 0 0`, from the issue's "Realistic-value capture"
       section) with its preceding `thdr`, `TlmStream` decodes all 20
