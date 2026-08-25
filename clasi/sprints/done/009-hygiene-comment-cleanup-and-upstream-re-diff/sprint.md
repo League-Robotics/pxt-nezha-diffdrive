@@ -1,7 +1,7 @@
 ---
 id: 009
 title: 'Hygiene: comment cleanup and upstream re-diff'
-status: ticketing
+status: done
 branch: sprint/009-hygiene-comment-cleanup-and-upstream-re-diff
 use-cases:
 - SUC-001

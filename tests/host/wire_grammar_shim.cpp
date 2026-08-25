@@ -1,11 +1,12 @@
 // wire_grammar_shim.cpp -- extern "C" ctypes surface for the wire host
-// test harness (ticket 002, widened by ticket 003). Test scaffolding
-// only: nothing under src/ knows this file exists, and it is compiled
-// only into this test's own throwaway shared library -- reused by BOTH
-// test_wire_grammar.py (grammar mechanics + the nine non-motion verbs'
-// golden vectors) and test_wire_reliability.py (the reliability layer),
-// mirroring radio-robot-lib/tests/protocol/protocol_shim.cpp's own
-// pattern of one shim, several pytest files.
+// test harness. Test scaffolding only: nothing under src/ knows this
+// file exists, and it is compiled only into this test's own throwaway
+// shared library -- reused by test_wire_grammar.py (grammar mechanics +
+// the nine non-motion verbs' golden vectors), test_wire_reliability.py
+// (the reliability layer), test_wire_telemetry_frame.py, and
+// test_wire_per_transport_isolation.py, mirroring
+// radio-robot-lib/tests/protocol/protocol_shim.cpp's own pattern of one
+// shim, several pytest files.
 //
 // ctypes cannot call C++ methods directly, so this file is the thin
 // translation layer: one opaque handle bundling the handler under test

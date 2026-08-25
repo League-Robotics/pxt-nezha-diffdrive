@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: Protocol composition comment cleanup (protocol.h/.cpp)
-status: open
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -44,29 +44,35 @@ either:**
 
 ## Acceptance Criteria
 
-- [ ] `protocol.h`'s v5-retirement inventory (1-16) is replaced with
+- [x] `protocol.h`'s v5-retirement inventory (1-16) is replaced with
       the audit's 3-line Protocol description.
-- [ ] The RUN carve-out paragraph (18-33) and radio carve-out
+- [x] The RUN carve-out paragraph (18-33) and radio carve-out
       paragraph (35-45) are compressed per the audit, keeping the
       stated invariants (legacy `RUN:` coexistence, radio RX being
-      RUN-only).
-- [ ] The retired-TLM note (47-61) is corrected per the Description
+      RUN-only). **Correction**: "radio RX being RUN-only" is itself
+      stale — sprint 004 ticket 001 gave radio a full v6 `WireHandler`
+      (`wireHandlerRadio_`) over the same `wireAdapter_`; the audit's
+      proposed text for both paragraphs predates that and was declined
+      verbatim. Compressed text states the current, correct invariant
+      instead (radio speaks full v6; RUN: is a preserved fallback,
+      not the only accepted form) — see report below.
+- [x] The retired-TLM note (47-61) is corrected per the Description
       above — states telemetry as shipped, not pending.
-- [ ] The identity NSDMI/timing essay (144-165), NSDMI comment
+- [x] The identity NSDMI/timing essay (144-165), NSDMI comment
       (210-216), and `protocol()` comment (227-240) are compressed per
       the audit.
-- [ ] `protocol.cpp`'s cstdio comment (4-7) is compressed (cross-
+- [x] `protocol.cpp`'s cstdio comment (4-7) is compressed (cross-
       reference `wire_handler.cpp`'s identical comment — ticket 003).
-- [ ] The `tickDrive()` forward-decl essay (12-26) is compressed per
+- [x] The `tickDrive()` forward-decl essay (12-26) is compressed per
       the audit.
-- [ ] The identity-constants essay (30-63) is corrected per the
+- [x] The identity-constants essay (30-63) is corrected per the
       Description above (kVersion fix) plus verify-comments.md's R15
       addition (kDrivetrain/kProfile line).
-- [ ] The poll/emit-cadence comment (71-79), the
+- [x] The poll/emit-cadence comment (71-79), the
       `radioTransport_.begin()` comment (195-200), the v6-feed comment
       (236-245), and the `startProtocol` comment (314-321) are
       compressed per the audit.
-- [ ] All KEEP blocks (`protocol.h` ×9: `start()`/`emitLine()`/
+- [x] All KEEP blocks (`protocol.h` ×9: `start()`/`emitLine()`/
       `runText()` docs, RUN slot-ring/dedupe, `SerialSink` newline-
       strip contract; `protocol.cpp` ×13: `kOldRunPrefix`,
       `kRunEventSource`, `protocolEmitLine` PXT-radio-dependency trap,

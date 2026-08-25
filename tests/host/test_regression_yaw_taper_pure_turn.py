@@ -1,7 +1,7 @@
-"""tests/host/test_regression_yaw_taper_pure_turn.py -- sprint 003
-ticket 008: locks in commit `bd9f005`'s fix ("Arcs no longer taper on
+"""tests/host/test_regression_yaw_taper_pure_turn.py -- locks in
+commit `bd9f005`'s fix ("Arcs no longer taper on
 yaw: a 0.57 deg bearing change was worth 4x speed") against
-`motion_engine`'s ported copy of the same logic (ticket 007).
+`motion_engine`'s ported copy of the same logic.
 
 THE BUG (bd9f005, src/shims.cpp's serviceMove(), now
 MotionEngine::serviceMove() in src/motion_engine.cpp): every move was

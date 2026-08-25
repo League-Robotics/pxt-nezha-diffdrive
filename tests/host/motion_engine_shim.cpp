@@ -1,6 +1,7 @@
-// motion_engine_shim.cpp -- extern "C" ctypes surface for sprint 003
-// tickets 006/007's own host tests (test_motion_engine_primitives.py,
-// test_motion_engine_reductions.py): MotionEngine's geometry
+// motion_engine_shim.cpp -- extern "C" ctypes surface for MotionEngine's
+// host tests (test_motion_engine_primitives.py,
+// test_motion_engine_reductions.py, test_motion_engine_gotow.py,
+// test_motion_engine_settle.py): MotionEngine's geometry
 // (effectiveTrackWidth/countsPerMm), its two wheel primitives
 // (wheelsX/wheelsV), and its move engine (moveX/moveV/goToR/
 // serviceMove/...), wired to a REAL DiffDrive::DifferentialDrive kernel
@@ -33,10 +34,10 @@ struct Handle {
   FakeFiberLauncher launcher;
   DiffDrive::DifferentialDrive kernel;
   diffDrive::MotionEngine engine;
-  // Sprint 003 ticket 010: the goToW() PoseSource these tests arm via
-  // mePoseSourceSetPose() -- NOT constructed over `engine` (PoseSource is
-  // passed per-call, not stored; see motion_engine.h's own comment), so
-  // its declaration order relative to `engine` above does not matter.
+  // The goToW() PoseSource these tests arm via mePoseSourceSetPose() --
+  // NOT constructed over `engine` (PoseSource is passed per-call, not
+  // stored; see motion_engine.h's own comment), so its declaration
+  // order relative to `engine` above does not matter.
   FakePoseSource pose;
 
   // Sprint 006 ticket 007: backing fields plus a REAL
@@ -90,15 +91,15 @@ int meOutLeaseExpired(void* handle) {
   return static_cast<Handle*>(handle)->kernel.output().leaseExpired ? 1 : 0;
 }
 
-// Ticket 009 (regression: post-move neutral delivery, commit 3e919e5):
+// Regression guard (post-move neutral delivery, commit 3e919e5):
 // exposes the kernel's own MEASURED velocity (diffdrive.h Output.
 // velocityLeft/Right -- computed from encoder position deltas across
 // two collects, refreshSample(), NOT the commanded duty) so a host test
 // can prove that delivering a zero DUTY to the FakeMotor (meMotorLastStagedDuty)
 // is a distinct event from the reported velocity actually reading at
-// rest -- shims.cpp's own settle-tick loop (Rig::tickDrive()) exists
-// precisely because these two can diverge for several ticks after a
-// move ends.
+// rest -- shims.cpp's own settle-tick loop (tickDrive(), now via
+// MotionEngine::settleToRest()) exists precisely because these two can
+// diverge for several ticks after a move ends.
 float meOutVelocityLeft(void* handle) {
   return static_cast<Handle*>(handle)->kernel.output().velocityLeft;
 }
@@ -146,10 +147,9 @@ void meSetTrackWidth(void* handle, float mm) {
 void meSetTravelCalib(void* handle, float mmPerDeg) {
   static_cast<Handle*>(handle)->engine.setTravelCalib(mmPerDeg);
 }
-// Sprint 007 ticket 005 (closing R-14/API-06): exposes the setter
-// rotationalSlip_ never had -- see motion_engine.h's own setter/field
-// comments for the validation and the load-bearing derivation this
-// field's default carries.
+// Exposes the setter rotationalSlip_ never had -- see motion_engine.h's
+// own setter/field comments for the validation and the load-bearing
+// derivation this field's default carries.
 void meSetRotationalSlip(void* handle, float slip) {
   static_cast<Handle*>(handle)->engine.setRotationalSlip(slip);
 }
@@ -165,8 +165,7 @@ void meWheelsX(void* handle, float left, float right, float cruise,
                                                timeoutMs);
 }
 
-// ---- MotionEngine: the move engine (motion-api.md S3.3-S3.5,
-// sprint 003 ticket 007) -------------------------------------------------
+// ---- MotionEngine: the move engine (motion-api.md S3.3-S3.5) ----------
 
 void meMoveX(void* handle, float distance, float rotation, float cruise,
             uint32_t timeoutMs) {

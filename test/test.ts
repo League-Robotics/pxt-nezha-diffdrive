@@ -77,8 +77,8 @@ function worldReady(): boolean {
 
 // Log a fix as OCAL:<tag>:<x 0.01cm>:<y 0.01cm>:<h 0.01deg>.
 function logFix(tag: string) {
-    // A FAILED read used to log the previous (usually zero) values,
-    // which is indistinguishable from a real fix at the origin.
+    // A failed read is logged explicitly: silence would be
+    // indistinguishable from a real fix at the origin.
     if (!diffDrive.readWorld()) {
         diffDrive.emitLine("OERR:read-failed:" + tag)
     }
@@ -236,17 +236,10 @@ function tourWorld() {
         return
     }
     touring = true
-    // 200 mm/s (stakeholder). 60 cm/s was near the drivetrain ceiling
-    // and produced unusable runs; this is the working pace.
-    // This speed is now actually ACHIEVED. It previously was not: every
-    // leg goToWorld planned as an arc was pinned at the 25% floor by
-    // the yaw taper (see serviceMove in shims.cpp), so the tour crawled
-    // at 5 cm/s and ran its legs out of deadline at a third of the
-    // distance. That was misread as "the taper profile is too slow",
-    // and this block briefly carried the goto verb's faster windows to
-    // compensate. It was masking a bug with a higher floor -- the
-    // accuracy-tuned shaping is what these open-loop legs want, so it
-    // is restored now that arcs reach commanded speed on their own.
+    // 200 mm/s (stakeholder); 60 cm/s was near the drivetrain ceiling.
+    // Accuracy-tuned shaping restored: the earlier "taper too slow"
+    // reading was actually the yaw-taper double-count bug
+    // (MotionEngine::serviceMove) masking as a profile problem.
     diffDrive.setTaperWindows(400, 180)
     diffDrive.setTaperFloors(25, 12)
     diffDrive.setRampMs(400)

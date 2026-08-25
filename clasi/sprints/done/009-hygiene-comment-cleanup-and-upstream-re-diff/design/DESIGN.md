@@ -80,7 +80,13 @@ host that owns its loop drives `step()` directly).
   kernel itself). A fidelity suite in that repo holds the two
   byte-for-byte to the same control law; fix kernel bugs in both
   repos, never only here, until the firmware is cut over to depend on
-  this package directly. This is the one authoritative statement of
+  this package directly. **One known exception** (found by this
+  sprint's upstream re-diff, not introduced by it): `cycleGapCount`/
+  `cycleGapCount_` — the idle-gap re-anchor counter from
+  `clasi/issues/done/first-move-after-idle-runs-at-full-duty.md`
+  (commit 704c40d) — exists only in this repo's copy and has not yet
+  been ported upstream; no other divergence, comment or code, was
+  found in either file. This is the one authoritative statement of
   the kernel's upstream repo and path — per-file headers in `src/`
   point at this paragraph rather than each restating it (see §15).
   Maintenance boundary: the kernel files (`diffdrive.h`/`.cpp`) are a

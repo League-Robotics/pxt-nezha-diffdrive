@@ -1,8 +1,8 @@
-"""tests/host/test_motion_engine_reductions.py -- sprint 003 ticket 007:
+"""tests/host/test_motion_engine_reductions.py -- tests
 src/motion_engine.h/.cpp's move engine -- moveX/moveV/goToR, and the
 taper/ramp/wrong-way-abort shaping ported from shims.cpp's former
-Rig::startMove()/serviceMove() (this ticket's own move-engine reduction,
-built on top of ticket 006's wheelsX/wheelsV primitives).
+Rig::startMove()/serviceMove(), built on top of the wheelsX/wheelsV
+primitives.
 
 Canonical spec (read-only, a different repo -- this project conforms to
 its grammar, it does not vendor its C++): radio-robot-lib/docs/design/
@@ -10,8 +10,8 @@ motion-api.md S2 ("Everything is constant-ratio wheel segments"), S3.3
 (move_x, including the pivot-vs-blend threshold), S3.4 (move_v), S3.5
 (go_to_r's arc solve).
 
-Verification strategy: same as test_motion_engine_primitives.py (ticket
-006) -- read back FakeMotor's own LAST STAGED DUTY after exactly one
+Verification strategy: same as test_motion_engine_primitives.py --
+read back FakeMotor's own LAST STAGED DUTY after exactly one
 step(), with the kernel configured so duty is pure feedforward (only
 maxDuty/fullDutyVelocity set). moveX()'s FIRST tick is additionally
 scaled by the acceleration ramp's floor (0.25, motion_engine.cpp's own
@@ -94,7 +94,7 @@ def _bind(lib):
     ]
     lib.meMotorArmPosition.restype = None
 
-    # Ticket 009: the kernel's own MEASURED velocity (Output.
+    # The kernel's own MEASURED velocity (Output.
     # velocityLeft/Right) -- distinct from meMotorLastStagedDuty's
     # COMMANDED duty, see motion_engine_shim.cpp's own comment on these
     # two exports.

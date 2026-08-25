@@ -1,11 +1,9 @@
 // nezha_port.h -- NezhaMotorPort: the DiffDrive::Motor port implemented
 // against the ElecFreaks Nezha brick over I2C, for the MakeCode target.
 //
-// This is a faithful port of the firmware's battle-tested Nezha leaf
-// (radio-robot src/firm/hardware/nezha/nezha_motor.cpp + the wedge
-// detector from motor_armor.h), reduced to the 13 methods the kernel's
-// Motor port needs. The write-shaping pipeline is NOT optional styling:
-// each stage guards against a measured hardware failure --
+// Ported from radio-robot nezha_motor.cpp + motor_armor.h's wedge
+// detector. The write-shaping pipeline is not optional styling -- each
+// stage guards a measured hardware failure:
 //
 //   - exact-zero short-circuit: stop is NEVER shaped or throttled; the
 //     brick physically latches its last commanded speed across MCU

@@ -55,14 +55,6 @@ namespace diffDrive {
     let defaultSpeed = 15      // [cm/s]
     let defaultYawRate = 90    // [deg/s]
 
-    // Start the wire-protocol loop (its own CODAL fiber -- see
-    // protocol.h) as soon as this extension's code loads, independent
-    // of whether any block below is ever placed in a user's program.
-    // This is what makes the boot/HELLO identity banner go out
-    // "without any host request" (sprint.md SUC-001). Idempotent (the
-    // underlying Protocol object guards itself), and a no-op in the
-    // simulator (see the shim body below) -- there's no serial link or
-    // fiber scheduler to start there.
     // Parts of the RUN command currently being dispatched: [0] is the
     // name, [1..] its arguments. Safe as shared state because
     // MessageBus delivers these events one at a time, each after the
@@ -89,6 +81,14 @@ namespace diffDrive {
         if (!runAnyHandlers) runAnyHandlers = []
     }
 
+    // Start the wire-protocol loop (its own CODAL fiber -- see
+    // protocol.h) as soon as this extension's code loads, independent
+    // of whether any block below is ever placed in a user's program.
+    // This is what makes the boot/HELLO identity banner go out
+    // "without any host request" (sprint.md SUC-001). Idempotent (the
+    // underlying Protocol object guards itself), and a no-op in the
+    // simulator (see the shim body below) -- there's no serial link or
+    // fiber scheduler to start there.
     _startProtocol()
 
     // ================= public API: velocity commands =================
@@ -155,8 +155,7 @@ namespace diffDrive {
     // reads the text back through runCommandText() and routes it by
     // NAME. The wire therefore reads as what it does -- RUN:pivot:180,
     // not RUN:4 -- and arguments ride along as text instead of being
-    // encoded into numeric offsets the way the old numbered vocabulary
-    // had to (RUN:30000+us for a servo pulse, and so on).
+    // encoded into numeric offsets.
     const RUN_EVENT_SOURCE = 0x2001
 
 
@@ -277,9 +276,9 @@ namespace diffDrive {
      * itself, advance the move -- something must still call
      * driveTick() (or otherwise tick the control loop) concurrently,
      * or the move never progresses and the safety watchdog stops it
-     * within about 150 ms. This sprint does not supply that tick
-     * source; prefer move()/whileMoving() unless you are pairing this
-     * with your own driveTick() loop.
+     * within about 150 ms. Nothing supplies that tick automatically;
+     * prefer move()/whileMoving() unless you are pairing this with your
+     * own driveTick() loop.
      */
     //% block="start move %distance cm turning %yaw degrees"
     //% group="Move" advanced=true
@@ -784,8 +783,8 @@ namespace diffDrive {
     // for hardware.
     let simEstopped = false
 
-    // Tick-engine sim state (sprint 002): _tickDrive()'s simulator body
-    // mirrors shims.cpp's absolute-deadline pacing (tickDrive(), 24 ms
+    // Tick-engine sim state: _tickDrive()'s simulator body mirrors
+    // shims.cpp's absolute-deadline pacing (tickDrive(), 24 ms
     // cadence) so a simulator-run program is timing-observable the same
     // way hardware is -- an anchored deadline while ticks stay
     // consecutive, re-anchored to "now" after a gap.
@@ -800,18 +799,11 @@ namespace diffDrive {
         if (dt < 0 || dt > 0.5) dt = 0
         simLastMs = now
         if (dt == 0) return
-        // Capture the velocity/yaw-rate actually in effect for THIS
-        // step before any end-of-move zeroing below, and clip this
-        // step's own contribution to the fraction of dt actually
-        // needed to reach the target -- so a move that finishes
-        // partway through a step neither overshoots (crediting the
-        // whole step) nor undershoots (crediting none of it). At the
-        // old 10 ms poll cadence this distinction was invisible for
-        // typical durations (the terminating step happened to land
-        // with floating-point room to spare); the new, coarser 24 ms
-        // tick cadence (main.ts's _tickDrive()) exposed it as a real,
-        // test.ts-square-visible pose drift -- caught by this ticket's
-        // own net-zero-pose simulator check.
+        // Capture the velocity/yaw-rate in effect for THIS step before
+        // any end-of-move zeroing below, and clip this step's own
+        // contribution to the fraction of dt actually needed to reach
+        // the target, so a move that finishes partway through a step
+        // neither overshoots nor undershoots.
         const stepVel = simVel
         const stepYawRate = simYawRate
         let stepDt = dt

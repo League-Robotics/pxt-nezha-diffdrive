@@ -29,25 +29,9 @@ void SerialTransport::begin() {
   // plus other traffic in the same motion-tick window) overflows the
   // ring between the protocol fiber's polls and drops bytes (measured
   // on bench, pre-v6: mangled frames, eaten delimiters, merged lines).
-  // Size both rings to kRingBytes (serial_transport.h; ticket 006 raised
-  // this from a flat 128 B -- tuned for v5's ~27-byte binary WHEELS
-  // frame -- toward 2x v6's 240-byte kMaxLineBytes; ticket 007 then
-  // corrected the resulting value once the real ceiling was confirmed,
-  // see below).
-  //
-  // CONFIRMED (ticket 007, remediating ticket 005's thrown exception --
-  // was UNVERIFIED under ticket 006): codal-core's real
-  // setRxBufferSize()/setTxBufferSize() (inc/driver-models/Serial.h)
-  // take `uint8_t size`, capping at 255. Ticket 006's original
-  // kRingBytes (480, `2 * kMaxLineBytes`) silently truncated to 224 on
-  // assignment -- BELOW kMaxLineBytes (240) itself, defeating the
-  // resize entirely with nothing but an easy-to-miss `-Woverflow`
-  // build-log warning as the signal, exactly the failure ticket 005's
-  // bench checkpoint caught. kRingBytes is now the real hard ceiling,
-  // `constexpr uint8_t kRingBytes{255}` -- see its own doc comment
-  // (serial_transport.h) for the honest ~15-byte, one-line-only
-  // headroom cost this leaves versus ticket 006's original two-line
-  // intent.
+  // Size both rings to kRingBytes -- see its own doc comment
+  // (serial_transport.h) for why 255, not a larger value, is the real
+  // ceiling here.
   uBit.serial.setRxBufferSize(kRingBytes);
   uBit.serial.setTxBufferSize(kRingBytes);
 }
@@ -114,8 +98,7 @@ bool SerialTransport::tryReadLine(uint8_t* outBuf, size_t outCap,
       partial_[partialLen_++] = static_cast<uint8_t>(c);
     }
     // else: past kMaxLineBytes -- keep consuming so the stream stays
-    // framed (mirrors readLine()'s own truncate-not-overrun behavior),
-    // just stop copying into partial_.
+    // framed, just stop copying into partial_.
   }
   return false;  // no complete line yet -- partial_ retained for next call
 }

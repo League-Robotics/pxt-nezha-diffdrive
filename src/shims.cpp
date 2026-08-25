@@ -12,45 +12,25 @@
 //     updateMove() -- blocking and loop-style forms are both built on
 //     that poll. Both updateMove() and the tick engine below share one
 //     implementation, serviceMove().
-//   - TICK ENGINE (sprint 002): tickDrive() runs one kernel.step() +
-//     serviceMove() on the CALLER's own fiber, then self-paces to the
-//     next 24 ms deadline. The kernel's own background fiber pacer
+//   - TICK ENGINE: tickDrive() runs one kernel.step() + serviceMove()
+//     on the CALLER's own fiber, then self-paces to the next 24 ms
+//     deadline. The kernel's own background fiber pacer
 //     (start()/run()/fiberEntry()) is deliberately left unwired -- see
 //     ensure()'s own comment -- so every control cycle now runs on
 //     whichever fiber calls tickDrive() instead.
-//   - STARVATION WATCHDOG (sprint 002): the one background fiber this
-//     file still launches -- a safety net, not a control path; see its
-//     own clearly delineated section below.
+//   - STARVATION WATCHDOG: the one background fiber this file still
+//     launches -- a safety net, not a control path; see its own
+//     clearly delineated section below.
 //
 // Boundary convention: integers only. mm, mm/s, centidegrees,
 // centidegrees/s; config values scaled x1000. The TS layer owns the
 // cm/deg student units.
 //
-// Second caller (ticket 003): Protocol's binary motion-verb handlers
-// (protocol.cpp) call a small subset of this file's functions directly
-// -- startMove, stopAll, estopAll (unchanged), plus two new duration-
-// bound primitives added by ticket 003 (setWheelsTimed, driveTwistTimed)
-// -- via same-package C++ forward declarations, not through the TS/`//%`
-// shim boundary main.ts uses. See protocol.cpp's own forward-declaration
-// block for the up-to-date list this file must keep signature-compatible
-// with.
-//
-// Third caller (ticket 011): WireAdapter's WHEELS_X/MOVE_X handlers
-// (wire_adapter.cpp) reach this file's `engine` the same way -- three
-// more wire-shaped forward declarations (engineWheelsX, engineMoveX,
-// engineDefaultCruiseMmS), defined in the "wire motion-engine
-// primitives" section below. See wire_adapter.cpp's own forward-
-// declaration block for the up-to-date list it must keep signature-
-// compatible with.
-//
-// Fourth caller (ticket 012): WireAdapter's MOVE_V/GO_TO_R/GO_TO_W
-// handlers reach this file the same way -- three more forward
-// declarations (engineMoveV, engineGoToR, engineGoToW), completing the
-// six-verb motion surface. Defined in the "wire motion-engine
-// primitives, part 2" section further down (after the OTOS section,
-// since engineGoToW() needs otosRef()). See wire_adapter.cpp's own
-// forward-declaration block for the up-to-date list it must keep
-// signature-compatible with.
+// Also called directly by protocol.cpp and wire_adapter.cpp via
+// same-package forward declarations (this file has no header):
+// tickDrive/stopAll/estopAll/setWheelsTimed/setKernelValue/
+// getConfigValue/diagValue and the engine* wire forwards. Keep
+// signatures compatible with their forward-declaration blocks.
 #include "pxt.h"
 #include "diffdrive.h"
 #include "encoder_pose_source.h"
@@ -75,16 +55,6 @@ static void watchdogEntry(void* context);
 // ---- composition ----------------------------------------------------
 
 struct Rig {
-  // Excludes the first one or two pivots of a session, which over-rotate
-  // grossly (262 and 233 deg commanded 180, reproduced twice) -- a
-  // separate defect, see clasi/issues/. (Geometry fields/methods
-  // formerly here -- travelCalib, trackWidth, rotationScrub,
-  // countsPerMm(), effectiveTrack() -- moved to MotionEngine, sprint 003
-  // ticket 006: see engine's own field comments for the measurements
-  // behind each. `engine` below is constructed over `kernel`, declared
-  // next, so it must stay declared AFTER it -- member init order follows
-  // declaration order, not the initializer list.)
-
   // vevov wiring. History: the tovez defaults left{2,-1}/right{1,+1}
   // drove vevov backward, so on 2026-08-19 both fwdSigns were flipped to
   // left{2,+1}/right{1,-1}. That fixed forward and silently mirrored
@@ -141,14 +111,6 @@ struct Rig {
   // instance would dangle. engineGoToW() (below) is this project's one
   // selection point between this and `otosRef()`'s OtosPort.
   EncoderPoseSource encoderPose{x, y, heading};
-
-  // Move-engine state (moveActive, the taper/ramp/floor knobs,
-  // wrongWayCount, ...) moved into `engine` itself, sprint 003 ticket
-  // 007 -- see motion_engine.h's own field comments for the measurement
-  // behind each. `startMove`/`serviceMove`/`updateMove`/`tickDrive`/
-  // `endMove`/`progress`/`setTaperWindows`/`setTaperFloors`/`setRampMs`
-  // below are now thin forwards onto `engine.moveX`/`serviceMove`/
-  // `isMoveActive`/`endMove`/`progress`/the taper setters.
 
   // tick engine (sprint 002): caller-driven stepping replaces the
   // kernel's own now-unwired fiber pacer -- see ensure(), tickDrive(),
@@ -225,11 +187,8 @@ static Rig& ensure() {
     // pacer entirely unwired -- no dual mode").
     // rig->kernel.start();
 
-    // The starvation watchdog is the only background fiber this sprint
-    // leaves running -- launched the same way the kernel used to launch
-    // its own (CodalFiberLauncher), so an abandoned tick caller can
-    // still be stopped even though no control fiber of this file's own
-    // is running. See the "starvation watchdog" section below.
+    // The starvation watchdog is the only background fiber this file
+    // launches -- see the "starvation watchdog" section below.
     rig->launcher.launch(&watchdogEntry, rig);
   }
   return *rig;
@@ -299,15 +258,6 @@ static void deliverStopNow(Rig& r) {
 
 // ---- velocity commands ----------------------------------------------
 
-// setWheels()/driveTwist() and their two timed variants below are now
-// thin forwards into MotionEngine::wheelsV() (sprint 003 ticket 006) --
-// the math is unchanged (setWheels/setWheelsTimed pass their per-wheel
-// mm/s straight through; driveTwist/driveTwistTimed convert body
-// speed+yawRate to per-wheel mm/s first, via the same
-// move_v == wheels_v(v_x - omega*b/2, v_x + omega*b/2) reduction
-// motion-api.md S2 states), so observable block behavior is unchanged --
-// see wheelsV()'s own doc comment for the shared implementation.
-
 //%
 void setWheels(int left, int right) {  // [mm/s] [mm/s]
   Rig& r = ensure();
@@ -326,22 +276,14 @@ void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
                    DiffDrive::DifferentialDrive::kLeaseMax);
 }
 
-// ---- duration-bound direct drive (ticket 003: Protocol's WHEELS and
+// ---- duration-bound direct drive (Protocol's WHEELS and
 // MOVE-with-TIME-stop verb handlers) ------------------------------------
-// Two small additive primitives, each identical to setWheels()/
-// driveTwist() above except the lease is the caller's own duration
-// instead of kLeaseMax (kernel.drive()'s own validUntil bookkeeping,
-// diffdrive.cpp, already treats an expired lease as neutral every
-// subsequent step() -- see that file's `if (leaseExpired) effective =
-// kModeNeutral;` -- so no separate timer/callback is needed here: the
-// kernel's own real-time fiber auto-neutralizes at the deadline, the
-// same backstop mechanism the move engine's own deadline already leans
-// on). Deliberately NOT `//%`-annotated: the block API never needed a
-// duration-bound direct-drive primitive (every block-facing use case is
-// already served by setWheels/driveTwist or the move engine), so these
-// stay C++-internal to avoid exposing a new, un-asked-for block
-// (sprint.md Architecture, Impact). Protocol (protocol.cpp) is their only
-// caller, via its own same-package forward declarations.
+// Two additive primitives, identical to setWheels()/driveTwist() above
+// except the lease is the caller's own duration instead of kLeaseMax --
+// an expired lease auto-neutralizes on the kernel's next step()
+// (diffdrive.cpp), so no separate timer is needed. Deliberately NOT
+// `//%`-annotated: not block-facing (protocol.cpp is their only caller,
+// via same-package forward declarations).
 void setWheelsTimed(int left, int right,
                     uint32_t durationMs) {  // [mm/s] [mm/s] [ms]
   Rig& r = ensure();
@@ -361,25 +303,19 @@ void driveTwistTimed(int speed, int yawRate,
   r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS, durationMs);
 }
 
-// ---- wire motion-engine primitives (sprint 003 ticket 011: WireAdapter's
-// WHEELS_X/MOVE_X handlers) -----------------------------------------------
+// ---- wire motion-engine primitives (WireAdapter's WHEELS_X/MOVE_X
+// handlers) --------------------------------------------------------------
 // Same same-package forward-declaration convention as setWheelsTimed()/
-// driveTwistTimed() above -- WireAdapter (wire_adapter.cpp) has no
-// reference of its own to this Rig's `engine` (sprint.md's lazy-
-// singleton composition lives here, not there), so it forwards through
-// these thin, wire-shaped calls instead. Wire-shaped units all the way
-// through (mm, mm/s, ms); `rotationRad` arrives at engineMoveX() ALREADY
-// converted from the wire's milliradian integer to radians --
-// wire_adapter.cpp performs that one conversion (motion-api.md S9.1:
-// "the conversion lives in the binding, in one place"), this function
-// performs none of its own. `cruise` <= 0 here is MotionEngine's own
-// existing "nothing to command" no-op (motion_engine.h) -- a caller
-// wanting the wire's "0 means the configured default" substitution
-// (motion-api.md S1.1) must resolve it BEFORE calling these, via
-// engineDefaultCruiseMmS() below; neither of these two ever sees the
-// sentinel itself. Deliberately NOT `//%`-annotated, same rationale as
-// setWheelsTimed(): the block API's own startMove() (above) already has
-// a call shape of its own and never needed this wire-shaped one.
+// driveTwistTimed() above -- WireAdapter has no reference of its own to
+// this Rig's `engine`, so it forwards through these thin, wire-shaped
+// calls instead. Wire-shaped units throughout (mm, mm/s, ms);
+// `rotationRad` arrives at engineMoveX() ALREADY converted from the
+// wire's milliradian integer (wire_adapter.cpp's mradToRad()). `cruise`
+// <= 0 here is MotionEngine's own existing no-op -- the wire's "0 means
+// the configured default" substitution (engineDefaultCruiseMmS() below)
+// is resolved BEFORE calling these; neither of these two ever sees the
+// sentinel itself. Deliberately NOT `//%`-annotated: the block API's
+// own startMove() already has a call shape of its own.
 void engineWheelsX(float left, float right, float cruise,
                    uint32_t timeoutMs) {  // [mm] [mm] [mm/s] [ms]
   Rig& r = ensure();
@@ -507,10 +443,8 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
 bool updateMove() {
   if (rig == nullptr) return false;
   Rig& r = *rig;
-  // odomUpdate() only while a move is (was) actually active, matching
-  // the pre-extraction free-function serviceMove()'s own early-return
-  // gate -- pose stays lazily updated (poseX()/Y()/heading() on demand)
-  // otherwise.
+  // odomUpdate() only while a move was actually active -- pose stays
+  // lazily updated (poseX()/Y()/heading() on demand) otherwise.
   const bool wasActive = r.engine.isMoveActive();
   if (wasActive) odomUpdate(r);
   const bool moveActive = r.engine.serviceMove();
@@ -536,49 +470,37 @@ bool updateMove() {
 // what it checks, and tickDrive()'s own comment below for why).
 static bool commandLooksActive(const Rig& r);
 
-// ---- tick engine (sprint 002) -----------------------------------------
+// ---- tick engine --------------------------------------------------------
 // tickDrive(): the caller-driven replacement for the kernel's own
-// now-unwired fiber. Runs exactly one kernel.step() + serviceMove() on
-// the CALLER's fiber every time it is called, then self-paces to the
-// next absolute 24 ms deadline before returning -- the same
-// absolute-deadline pacing DifferentialDrive::run() uses
-// (diffdrive.cpp:290-306), lifted here since run() itself is no longer
-// wired to anything. The deadline is anchored to the previous tick's
-// own deadline while calls stay consecutive (no drift accumulates from
-// per-call scheduling jitter); a gap since the last recorded deadline
-// re-anchors to now instead of trying to "catch up" a burst of overdue
-// ticks.
+// now-unwired fiber (see ensure()'s comment). Runs exactly one
+// kernel.step() + serviceMove() on the CALLER's fiber, then self-paces
+// to the next absolute 24 ms deadline -- the same absolute-deadline
+// pacing DifferentialDrive::run() uses, lifted here since run() itself
+// is no longer wired to anything. The deadline anchors to the previous
+// tick's own deadline while calls stay consecutive (no drift
+// accumulates); a gap since the last deadline re-anchors to now rather
+// than catching up a burst of overdue ticks.
 //
 // Always executes the step, even with no move active and no continuous
-// command in force -- see sprint.md's Design Rationale: a
-// while (_tickDrive()) loop driving setWheelSpeeds()/driveTwist() must
-// step the kernel on every call, or continuous-mode driving would never
-// progress. The returned bool reports commandLooksActive(r) (sprint 007
-// ticket 002, closes R-10/API-01) -- "is anything still commanding the
-// wheels" -- computed AFTER this call's serviceMove() ran: a
-// move-engine move still in flight, OR nonzero applied duty. This used
-// to report raw post-serviceMove() moveActive, which meant the
-// documented continuous-mode idiom (setWheelSpeeds()/driveTwist()
-// followed by `while (diffDrive.driveTick())`, per the README, spec
-// §4.2, and usecases.md UC-002 step 4) exited on its very first
-// iteration: wheelsV()/wheelsX() (motion_engine.cpp) clear the move
-// planner before tickDrive() is ever called, so raw moveActive read
-// false immediately, and the starvation watchdog stopped the robot
-// ~150 ms later (code review 2026-08-23, R-10/API-01;
-// clasi/issues/drivetick-contract-broken-idiom.md).
-// commandLooksActive()'s existing "or nonzero applied duty" clause is
-// exactly what a continuous-mode command needs. For a position-mode
-// move's final tick, the settle loop just below already drives
-// appliedDutyLeft/Right to zero before this function returns, so the
-// original "a move's final tick still returns false, ending a
-// while (_tickDrive()) loop on the same call that finishes the move"
-// behavior is unchanged -- see
-// tests/host/test_continuous_drive_command_looks_active.py (the
-// shape-mirror regression test that pins the CONDITION this return
-// value now depends on; it cannot call tickDrive()/commandLooksActive()
-// themselves -- see that test's own module docstring) and
-// tests/host/test_regression_post_move_neutral.py (unchanged, pins the
-// settle loop itself).
+// command in force: a `while (tickDrive())` loop driving
+// setWheels()/driveTwist() must step the kernel every call, or
+// continuous-mode driving never progresses.
+//
+// Returns commandLooksActive(r) -- a move-engine move still in flight,
+// OR nonzero applied duty -- computed AFTER serviceMove() runs. NOT raw
+// post-serviceMove() moveActive: wheelsV()/wheelsX() clear the move
+// planner before tickDrive() is ever called, so a continuous-mode
+// `while (tickDrive())` loop reading raw moveActive exited on its very
+// first iteration (the starvation watchdog then stopped the robot
+// ~150 ms later); commandLooksActive()'s "or nonzero applied duty"
+// clause is what keeps the loop running. A position-mode move's final
+// tick is unaffected: the settle loop just below already drives
+// applied duty to zero before this function returns, so that tick still
+// returns false as before. See
+// tests/host/test_continuous_drive_command_looks_active.py (pins this
+// return value's condition) and
+// tests/host/test_regression_post_move_neutral.py (pins the settle
+// loop).
 //%
 bool tickDrive() {
   Rig& r = ensure();
@@ -631,25 +553,19 @@ bool tickDrive() {
   // former co-ticking sometimes delivered this step by accident.) Run
   // one extra step here so the stop lands before we report "done".
   if (wasActive && !moveActive) {
-    // Settle-tick decision (sprint 008 ticket 004): extracted into
-    // MotionEngine::settleToRest() -- see that method's own comment
-    // (motion_engine.h) for the full bench history (commit 3e919e5,
-    // 2026-08-20) this guards: kernel_.neutral() only STAGES a zero
-    // command, and one extra step's own encoder read can land
+    // Settling before reporting "done": kernel.neutral() only STAGES a
+    // zero command, and one extra step's own encoder read can land
     // mid-spin-down, freezing Output -- and every post-move DIAG -- at
     // a nonzero velocity forever (bench chart artifact: wheels "ending"
-    // at +4/-2.5 cm/s). settleToRest() keeps stepping (bounded, break
-    // on measured rest) until both wheels witness the actual stop.
-    // Odometry ownership is UNCHANGED by this extraction: settleToRest()
-    // never touches Rig-local x/y/heading (it does not even know they
-    // exist) -- odomUpdate(r) below is still this file's own call,
-    // immediately after, exactly as before. A sprint-003-era comment on
-    // the old inline loop argued extraction "would mean moving odometry
-    // ownership into motion_engine too" -- that objection is about
-    // extracting the whole settle-then-integrate behavior as ONE unit;
-    // it does not apply to this narrower cut, which keeps the two calls
-    // separate (see motion_engine.h's own comment on settleToRest() for
-    // the same reasoning stated from that side).
+    // at +4/-2.5 cm/s). settleToRest() (MotionEngine, host-tested) keeps
+    // stepping, bounded, until both wheels witness the actual stop --
+    // see its own comment (motion_engine.h) for the decision logic.
+    // KNOWN GAP: the decision logic is host-tested, but this call and
+    // odomUpdate(r) below are only ever exercised against real hardware
+    // (flashing) -- both need a real kernel.step() over real encoders.
+    // Odometry ownership is unchanged by the extraction: settleToRest()
+    // never touches Rig-local x/y/heading -- odomUpdate(r) is still
+    // this file's own call, immediately after.
     r.engine.settleToRest();
     odomUpdate(r);  // coast counts -> pose before the final TLM
   }
@@ -703,10 +619,10 @@ int cycleStat(int which) {
   }
 }
 
-// ---- starvation watchdog (sprint 002) ----------------------------------
-// The ONLY background fiber this sprint leaves running (every other
-// control cycle now runs on whichever caller's fiber invokes
-// tickDrive() above). Purely a safety net -- it never drives, only
+// ---- starvation watchdog ------------------------------------------------
+// The ONLY background fiber left running (every other control cycle
+// now runs on whichever caller's fiber invokes tickDrive() above).
+// Purely a safety net -- it never drives, only
 // stops -- guaranteeing "the robot only moves while something ticks" is
 // actually true even when a tick caller (a student's loop, a wire
 // session) disappears mid-move. Launched from ensure() via the same
@@ -728,9 +644,7 @@ int cycleStat(int which) {
 // only) and emergencyStop() (kernel.estop() latch + port zero): it
 // never touches kernel.estop()/estopLatch_, so a fresh tickDrive() call
 // (a new move, or a resumed driveTick() loop) resumes motion
-// immediately, with no clearEmergencyStop() needed. See sprint.md's
-// Design Rationale ("the starvation watchdog stops at the port level,
-// not via the kernel's e-stop latch").
+// immediately, with no clearEmergencyStop() needed.
 //
 // Note: while abandonment persists, this fires on every ~50 ms poll,
 // not just once -- kernel.neutral()/moveActive=false/the port zero
@@ -846,11 +760,9 @@ bool isStalled() { return ensure().kernel.output().stallHalted; }
 // this file.
 int protocolSerialDropCount();
 
-// Kernel Output diagnostics accessor for the wire protocol's DIAG verb
-// (protocol.cpp is the only caller, via forward declaration -- same
-// convention as setWheelsTimed/getConfigValue above). Returns one field
-// per call as an int; floats are scaled x100. Not //%-annotated: not a
-// block, C++-internal only.
+// Kernel Output accessor, one int per field: booleans 0/1, duty x100,
+// positions/velocities raw counts. Callers: wire_adapter.cpp status(),
+// probe() (TS).
 int diagValue(int what) {
   const DiffDrive::DifferentialDrive::Output out = ensure().kernel.output();
   switch (what) {
@@ -1000,28 +912,13 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
   }
 }
 
-// ---- config read-back (ticket 004: Protocol's GET_CONFIG verb handler) --
-// The read-back counterpart to setKernelValue() above: same field-ordinal
-// switch, same x1000 scaling convention, reading from
-// DiffDrive::DifferentialDrive::config() -- the kernel's own existing
-// accessor (unchanged, vendored; setKernelValue's cases 10-12 already read
-// through it for their untouched two stall fields, above). `config()`
-// returns the kernel's `staged_` Config, which every `setXxx()` writes
-// synchronously and unconditionally -- there is no separate "applied"
-// copy to lag behind it -- so this always reflects the true current
-// value, whether it was last set over the wire (setKernelValue, via
-// CONFIG/SET_FIELD) or via a MakeCode `set config` block in the same
-// running program: both paths call this exact same setKernelValue(), into
-// this exact same kernel Config. No kernel change: config() already
-// existed; only this shim-layer getter is new (sprint.md Architecture
-// Impact). Deliberately NOT `//%`-annotated -- like setWheelsTimed/
-// driveTwistTimed (ticket 003), the block API never needed a read-back
-// primitive (its `set config` block is write-only), so this stays
-// C++-internal; Protocol (protocol.cpp) is its only caller, via its own
-// same-package forward declaration. An out-of-range field returns 0 --
-// protocol.cpp's handleGetConfig() validates the field range itself
-// before ever calling this, so `default` here is an unreachable-in-
-// practice guard, not a relied-upon behavior.
+// ---- config read-back -------------------------------------------------
+// The read-back counterpart to setKernelValue() above: same ordinals,
+// same x1000 scaling. Reads config() (the kernel's `staged_` Config,
+// written synchronously by every setter, so this always reflects the
+// true current value). Deliberately NOT `//%`-annotated -- C++-internal;
+// wire_adapter.cpp is the only caller, via its own same-package forward
+// declaration. An out-of-range field returns 0.
 int getConfigValue(int field) {  // -> [x1000 scaled]
   Rig& r = ensure();
   const DiffDrive::DifferentialDrive::Config c = r.kernel.config();
@@ -1077,20 +974,16 @@ static OtosPort& otosRef() {
   return *gOtos;
 }
 
-// ---- wire motion-engine primitives, part 2 (sprint 003 ticket 012:
-// WireAdapter's MOVE_V/GO_TO_R/GO_TO_W handlers) -----------------------
+// ---- wire motion-engine primitives, part 2 (WireAdapter's MOVE_V/
+// GO_TO_R/GO_TO_W handlers) -----------------------------------------------
 // Same forward-declaration convention as engineWheelsX()/engineMoveX()/
-// engineDefaultCruiseMmS() above -- WireAdapter has no reference of its
-// own to this Rig's `engine`, so these three thin, wire-shaped forwards
-// are the seam. `omegaRad` arrives at engineMoveV() ALREADY converted
-// from the wire's milliradian integer (wire_adapter.cpp's mradToRad()).
-// `speed`'s <0/==0 "configured default" substitution (motion-api.md
-// S1.1) is resolved by onGoToR()/onGoToW() in wire_adapter.cpp BEFORE
-// either of these two is ever called, via engineDefaultCruiseMmS()
-// above -- identical convention to `cruise` for engineWheelsX()/
-// engineMoveX(). Placed after otosRef() (just above), not with
-// engineWheelsX()/engineMoveX() further up this file, because
-// engineGoToW() needs it.
+// engineDefaultCruiseMmS() above. `omegaRad` arrives at engineMoveV()
+// ALREADY converted from the wire's milliradian integer
+// (wire_adapter.cpp's mradToRad()); `speed`'s <0/==0 "configured
+// default" substitution is resolved by onGoToR()/onGoToW() BEFORE
+// either of these is ever called, via engineDefaultCruiseMmS() above.
+// Placed after otosRef(), not with engineWheelsX()/engineMoveX() above,
+// because engineGoToW() below needs it.
 void engineMoveV(float vx, float omegaRad, uint32_t durationMs) {
   Rig& r = ensure();
   r.engine.moveV(vx, omegaRad, durationMs);
@@ -1102,32 +995,29 @@ void engineGoToR(float x, float y, float speed, float arrive,
   r.engine.goToR(x, y, speed, arrive, timeoutMs);
 }
 
-// GO_TO_W's own PoseSource (motion_engine.h, ticket 010; motion-api.md
-// S3.6): SPRINT 006 TICKET 007 closes no-encoder-odometry-posesource-
-// fallback.md -- this is now the ONE place this project decides which
-// PoseSource serves a GO_TO_W call, via selectPoseSource()
-// (encoder_pose_source.h): this file's `gOtos`/otosRef() lazy singleton
-// when `connected()` (initialized AND actually talking to the chip), the
-// Rig-owned `encoderPose` (dead-reckoned, drifting, but always available)
-// otherwise. A robot with no OTOS fitted at all (motion-api.md S3.6's own
-// `gopiv` example), or one whose OTOS was never begun/never matched, now
+// GO_TO_W's own PoseSource selection: the ONE place this project
+// decides which PoseSource serves a GO_TO_W call, via
+// selectPoseSource() (encoder_pose_source.h) -- this file's
+// `gOtos`/otosRef() lazy singleton when `connected()` (initialized AND
+// actually talking to the chip), the Rig-owned `encoderPose`
+// (dead-reckoned, drifting, but always available) otherwise. A robot
+// with no OTOS fitted, or one whose OTOS was never begun/matched, now
 // drives on encoder odometry instead of refusing the call outright --
 // GO_TO_W is no longer a no-op on the fleet's OTOS-less robots (tovez,
-// gopiv, zeguz). This always dispatches onto MotionEngine::goToW() now,
-// so the bool return is unconditionally true; it is kept (rather than
-// changed to void) only because wire_adapter.cpp's own contract for this
-// entry point ("was a live pose actually available to dispatch with") is
-// otherwise unchanged, and a future PoseSource-less state is not
-// impossible to imagine. GO_TO_W's own return value still does NOT
-// distinguish "served by OTOS" (accurate) from "served by encoder
-// odometry" (drifts, no correction) -- a caller that needs to know reads
-// STATUS's `otos=` flag before calling (motion-api.md S3.6's own
-// documented caveat; building a real signal for this is a follow-on, not
-// done here). Mid-move OTOS disconnection is not a race this needs to
-// guard against: goToW() reads its PoseSource exactly ONCE, at call time
-// (motion_engine.h's own comment), before ever delegating to goToR() --
-// nothing re-reads or re-selects a pose source while a move is in
-// flight, so there is no live pose-frame switch to invent here.
+// gopiv, zeguz).
+//
+// This always dispatches onto MotionEngine::goToW() now, so the bool
+// return is unconditionally true; kept (rather than void) only because
+// wire_adapter.cpp's contract for this entry point ("was a live pose
+// actually available") is otherwise unchanged. The return value still
+// does NOT distinguish "served by OTOS" (accurate) from "served by
+// encoder odometry" (drifts, no correction) -- a caller that needs to
+// know reads STATUS's `otos=` flag.
+//
+// Mid-move OTOS disconnection is not a race to guard against: goToW()
+// reads its PoseSource exactly ONCE, at call time, before ever
+// delegating to goToR() -- nothing re-reads or re-selects a pose source
+// while a move is in flight.
 bool engineGoToW(float x, float y, float speed, float arrive,
                 uint32_t timeoutMs) {
   OtosPort& otos = otosRef();
@@ -1137,13 +1027,6 @@ bool engineGoToW(float x, float y, float speed, float arrive,
   return true;
 }
 
-// Expose diagValue() to the TS layer for on-device instrumentation.
-// The values it carries (applied duty, encoder positions, wedge
-// suspicion) are exactly what a failing move needs recorded PER TICK,
-// and they cannot be polled from the host during a move: a
-// request/reply round-trip inside a move over the relay is measured to
-// be actively dangerous (a 197.5 mm leg collapsed to 0.3 mm). A test
-// program samples into arrays and dumps afterwards instead.
 // Set end-of-move shaping. Larger tapers and lower floors buy accuracy
 // with time; a closed-loop caller that re-fixes between moves should
 // spend far less of it. Zero or negative leaves a field unchanged.
@@ -1184,6 +1067,13 @@ int wheelSpeed(int which) {
   return static_cast<int>(std::lround(counts * r.engine.travelCalib() * 0.1f));
 }
 
+// Expose diagValue() to the TS layer for on-device instrumentation.
+// The values it carries (applied duty, encoder positions, wedge
+// suspicion) are exactly what a failing move needs recorded PER TICK,
+// and they cannot be polled from the host during a move: a
+// request/reply round-trip inside a move over the relay is measured to
+// be actively dangerous (a 197.5 mm leg collapsed to 0.3 mm). A test
+// program samples into arrays and dumps afterwards instead.
 //%
 int probe(int what) { return diagValue(what); }
 

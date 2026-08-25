@@ -1,76 +1,42 @@
 // protocol.cpp -- see protocol.h.
 #include "protocol.h"
 
-#include <cstdio>  // plain snprintf: this ARM cross compiler's newlib-nano
-                   // <cstdio> lacks std::snprintf (see wire_handler.cpp's
-                   // own copy of this same discovery, sprint 003 ticket
-                   // 005)
+#include <cstdio>  // plain snprintf, not std::snprintf: newlib-nano's
+                   // <cstdio> declares it globally but never puts it in
+                   // namespace std (same gotcha wire_handler.cpp
+                   // documents for its own copy).
 #include <cstring>
 
 namespace diffDrive {
 
 // ---- shims.cpp entry point this file still needs directly ---------------
-// tickDrive() runs one kernel.step() + serviceMove() -- the caller-driven
-// replacement for the kernel's own now-unwired fiber (shims.cpp's own
-// comment). With the kernel's own background fiber removed (sprint 002
-// ticket 001), a wire-issued WHEELS_V has no student loop left to keep
-// ticking it, so this fiber becomes its own bounded tick caller while
-// wireAdapter_ reports a live motion obligation outstanding (see
-// wire_adapter.h's own hasLiveMotionObligation() comment for why THAT
-// class tracks the obligation but THIS file still owns the actual tick
-// call -- a CODAL-fiber concern the host-portable adapter must never
-// touch). Reached by same-package forward declaration, not a shims.cpp
-// header (that file has no header of its own) -- same convention every
-// other caller of shims.cpp uses, including wire_adapter.cpp's own block
-// of these for the functions it needs.
+// tickDrive() runs one kernel.step() + serviceMove() -- the caller-
+// driven replacement for the kernel's own unwired fiber. This fiber
+// calls it directly while a wire motion obligation is live (see run()'s
+// own comment below on why THIS file, not wireAdapter_, owns that
+// call). Reached by same-package forward declaration -- shims.cpp has
+// no header of its own; keep signatures compatible.
 bool tickDrive();
 
 namespace {
 
-// ---- identity constants (ticket 002, carried over unchanged) --------
-// Sourced per ticket 002's acceptance criteria ("the implementer picks
-// a reasonable source ... and documents the choice"), assembled into a
-// Wire::Identity by Protocol::buildIdentity() below (ticket 005) instead
-// of being formatted directly into a DEVICE: banner the way the retired
-// v5 sendDeviceBanner() used to:
-//
-//   - name: the board's own five-letter micro:bit name via CODAL's
-//     microbit_friendly_name() (derived in silicon from
-//     FICR.DEVICEID[1]). The fleet tooling (mbdeploy) keys its device
-//     registry off this field of the announcement, so a fixed string
-//     here would make every robot announce the same name and stomp the
-//     registry on each probe.
-//   - serial: this micro:bit's own hardware serial number, via CODAL's
-//     microbit_serial_number() -- the same source pxt-microbit's own
-//     `control.deviceSerialNumber()` block reads. Genuinely unique per
-//     device; nothing invented or cached.
-//   - kDrivetrain/kProfile (ID's reply): "diffdrive" names this
-//     extension's own kinematic type (matches the package name and
-//     diffdrive.h/.cpp); "tovez" names the tuning bake shims.cpp's Rig
+// ---- identity constants ----------------------------------------------
+// Assembled into a Wire::Identity by Protocol::buildIdentity() below.
+//   - name: microbit_friendly_name() (silicon-derived, unique per
+//     board). mbdeploy keys its device registry off this field, so a
+//     fixed string here would stomp the registry across the fleet.
+//   - serial: microbit_serial_number() -- genuinely unique per device.
+//   - kDrivetrain = this extension's kinematic type (matches the
+//     package name); kProfile = the tuning bake shims.cpp's Rig
 //     defaults are measured from (see shims.cpp's "tovez-measured
-//     defaults" comment on Rig::travelCalib/trackWidth) -- a real,
-//     already-existing identifier, not a new invention.
-//   - kVersion (ID and VER's reply): this extension's own semver
-//     identity, i.e. pxt.json's "version" field. There is no
-//     build-time injection mechanism in this repo's C++ build (unlike
-//     the reference firmware's generated version_generated.h) -- no
-//     codegen step, no preprocessor substitution, nothing in
-//     tools/make_deploy.py that patches this file before a build -- so
-//     this constant stays a manually-kept-in-sync mirror of pxt.json,
-//     same manual convention specification.md S13 already documents
-//     for this project's versioning. Bump this alongside pxt.json's
-//     "version" whenever that changes. Sprint 008 ticket 002
-//     (WIRE-01/MOD-01/BLK-09, R-17): the manual half of that convention
-//     had already failed silently once -- this literal drifted ten
-//     pxt.json version bumps behind (it read "1.0.0" while pxt.json was
-//     at "1.0.10"), so every ID/VER reply misreported the build and
-//     defeated the mbdeploy -> VER deploy-verification flow. Fixed here
-//     to match; going forward, tests/host/test_wire_constants_drift.py
-//     reads this literal and pxt.json's "version" field as text on
-//     every host test run and fails the moment they disagree, so a
-//     forgotten bump is now caught immediately instead of silently, the
-//     same "read both files as text" shape as this file's own
-//     kRunEventSource/RUN_EVENT_SOURCE pairing below.
+//     defaults" comment on Rig::travelCalib/trackWidth).
+//   - kVersion: manually-synced mirror of pxt.json's "version" (no
+//     build-time injection in this repo's C++ build) -- bump together.
+//     Pinned by tests/host/test_wire_constants_drift.py, which reads
+//     both files as text on every host run and fails the moment they
+//     disagree (the drift this constant suffered once already, before
+//     that test existed) -- same "read both as text" shape as this
+//     file's own kRunEventSource/RUN_EVENT_SOURCE pairing below.
 constexpr const char* kDrivetrain = "diffdrive";
 constexpr const char* kProfile = "tovez";
 constexpr const char* kVersion = "1.0.10";  // keep in sync with pxt.json --
@@ -84,12 +50,10 @@ constexpr size_t kOldRunPrefixLen = 4;
 
 // Poll granularity between transport reads, and the reliability layer's
 // own periodic self-healing emission cadence (wire_handler.h's
-// emitTelemetry() doc comment) -- both carried over from the retired v5
-// loop's identical constants (ticket 005's own "TLM must not starve
-// command dispatch" acceptance heritage): small enough that a command
-// arriving just after one poll is still picked up well within one
-// emission period, not so small it spins this fiber against an idle
-// UART between bytes.
+// emitTelemetry() doc comment): small enough that a command arriving
+// just after one poll is still picked up well within one emission
+// period; not so small it spins this fiber against an idle UART
+// between bytes.
 constexpr uint32_t kReliabilityEmitPeriodMs = 50;
 constexpr uint32_t kPollIntervalMs = 5;
 
@@ -249,12 +213,9 @@ void Protocol::start() {
   if (running_) return;  // idempotent, mirrors DifferentialDrive::start()
   running_ = true;
   transport_.begin();  // size serial rings before any traffic
-  // No analogous radioTransport_.begin() call here: RadioTransport has no
-  // such method -- it lazily enables uBit.radio on its own first
-  // sendLine()/tryReceiveLine() call instead. That first call happens
-  // unconditionally from run()'s own loop (the radio-RX poll, below),
-  // so the radio is still effectively started unconditionally from this
-  // boot path, without a redundant explicit call here.
+  // No analogous radioTransport_.begin() call here: RadioTransport self-
+  // enables on first use (see ensureRadioReady(), called from
+  // tryReceiveLine() in run()'s own radio-poll loop below).
   launcher_.launch(&Protocol::fiberEntry, this);
 }
 
@@ -292,14 +253,9 @@ void Protocol::run() {
       } else {
         // Every other line -- including the v6 grammar's own
         // space-separated "RUN <name> ... #<id>" verb -- goes to the
-        // v6 wire stack. feed() owns its own line reassembly (ticket
-        // 002/003's tested contract); this transport currently only
-        // ever delivers a complete line at a time
-        // (SerialTransport::tryReadLine()), so that whole line IS
-        // "whatever chunk the transport delivers" here. The trailing
-        // '\n' feed() needs to recognize the line as complete is fed
-        // as a second, separate call -- feed() does not care that it
-        // arrives split from the content that precedes it.
+        // v6 wire stack. feed() reassembles regardless of chunking; the
+        // trailing '\n' it needs to recognize the line as complete is
+        // fed as a second, separate call.
         wireHandler_.feed(reinterpret_cast<const char*>(lineBuf), len);
         wireHandler_.feed("\n", 1);
       }
@@ -414,13 +370,12 @@ Protocol& protocol() {
   return *gProtocol;
 }
 
-// Boot-time auto-start wiring (ticket 002): called once from a
-// top-level statement in main.ts's `diffDrive` namespace (see
-// protocol()'s doc comment in protocol.h), so the protocol loop -- and
-// its boot banner -- start as soon as this extension's compiled code
-// loads, independent of whether any block is ever placed in a user's
-// program. `protocol()`'s own lazy-singleton guard makes this call
-// (and any other) idempotent.
+// Boot-time auto-start wiring: called once from a top-level statement in
+// main.ts's `diffDrive` namespace (see protocol()'s doc comment in
+// protocol.h), so the protocol loop -- and its boot banner -- start as
+// soon as this extension's compiled code loads, independent of whether
+// any block is ever placed in a user's program. `protocol()`'s own
+// lazy-singleton guard makes this call (and any other) idempotent.
 //%
 void startProtocol() { protocol(); }
 

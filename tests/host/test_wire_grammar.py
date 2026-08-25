@@ -1,12 +1,10 @@
 """tests/host/test_wire_grammar.py -- protocol v6 wire grammar mechanics
 for src/wire_handler.{h,cpp}: line reassembly, tokenizing,
 case-as-direction, and the grammar edge cases (240-byte line cap, lone
-'\\r' stripping, blank-line handling) -- ticket 002's own scope -- PLUS
-(sprint 003 ticket 003) golden wire vectors, both directions, for the
-nine non-motion sequenced verbs this ticket wires up: ID, VER, STATUS,
+'\\r' stripping, blank-line handling), PLUS golden wire vectors, both
+directions, for the nine non-motion sequenced verbs: ID, VER, STATUS,
 HELP, GET, SET, TLM, STOP, RUN. HELLO/PING/ESTOP stay unsequenced
-(protocol.md S8.3) and are exercised here exactly as ticket 002 left
-them. The reliability layer's OWN state machine (the three-way id
+(protocol.md S8.3). The reliability layer's OWN state machine (the three-way id
 classification, decode-failure-is-NAK, gap stalling/self-healing) is
 tested separately in test_wire_reliability.py, which reuses this file's
 `wire_lib` fixture and `WireGrammar` wrapper rather than duplicating the
@@ -19,8 +17,8 @@ direction), S3.1 (feed() must survive being handed anything), S3.2
 (parsing is split-in-place, no allocation), S6/S6.1 (the verb catalog
 and outcome/error-code vocabulary), S8/S8.9 (the reliability layer).
 
-Reuses ticket 001's compile_shared_lib() (test_kernel_harness.py)
-against this ticket's own source list (wire_handler.cpp +
+Reuses compile_shared_lib() (test_kernel_harness.py)
+against the source list (wire_handler.cpp +
 wire_grammar_shim.cpp) instead of inventing new build plumbing.
 
 Run with::
@@ -92,8 +90,8 @@ def _bind(lib):
     """Attach ctypes argtypes/restype for every wire_grammar_shim.cpp
     export. Mirrors radio-robot-lib/tests/protocol/
     test_protocol_harness.py's own binding conventions (phFeed/
-    phSinkLength/phSinkRead's argtypes shape), widened (ticket 003) past
-    ticket 002's original three-verb surface to the full WireMockAdapter
+    phSinkLength/phSinkRead's argtypes shape), widened past the
+    original three-verb surface to the full WireMockAdapter
     surface both this file and test_wire_reliability.py share."""
     lib.wgCreate.argtypes = []
     lib.wgCreate.restype = ctypes.c_void_p

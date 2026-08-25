@@ -67,24 +67,14 @@
 // lastDone()/lastDoneReason() -- that state is Adapter-owned and a
 // handler-level reset has no business reaching into it (S8.8).
 //
-// Sprint 003 ticket 004 adds the six motion verbs (WHEELS_X, WHEELS_V,
-// MOVE_X, MOVE_V, GO_TO_R, GO_TO_W) to Adapter and kCommandTable,
-// inserted between TLM and STOP per protocol.md S6's own canonical
-// ordering (WHEELS is RENAMED WHEELS_V -- there is no bare WHEELS verb
-// in this table). Angles (rotation, omega) are milliradian integers on
-// the wire (motion-api.md S9.1) -- decoded here with the ordinary
-// signed-integer field parser, same as any other field; the
-// degrees-at-the-API conversion is a LANGUAGE BINDING's job, not this
-// file's. src/wire_adapter.{h,cpp} (also ticket 004) is the concrete
-// Adapter behind this handler for this robot: WHEELS_V gets real effect
-// there; the other five answer Result::kUnknown, a deliberate,
-// documented "no planner yet" (protocol.md S9.10 item 1's own
-// precedent), not a stub left unfinished.
+// Angles (rotation, omega) are milliradian integers on the wire
+// (motion-api.md S9.1) -- decoded here with the ordinary signed-integer
+// field parser, same as any other field; the degrees-at-the-API
+// conversion is a LANGUAGE BINDING's job, not this file's.
 //
 // Host-portable by construction: no pxt.h, no CODAL type, anywhere in
 // this file or wire_handler.cpp. See tests/host/wire_grammar_shim.cpp
-// for the native host test harness (ticket 001's compile_shared_lib(),
-// extended) this module is exercised through.
+// for the native host test harness this module is exercised through.
 #pragma once
 
 #include <cstddef>
@@ -95,9 +85,7 @@ namespace Wire {
 // Sink -- where finished reply lines go. Exactly one write() per
 // formatted line, INCLUDING the trailing '\n'; the caller owns
 // transport (serial, radio, or a test's recording buffer). Mirrors
-// radio-robot-lib's own Protocol::Sink split (protocol_handler.h) so a
-// later ticket wiring this onto SerialTransport/RadioTransport (sprint
-// 003 ticket 005) has nothing to redesign here.
+// radio-robot-lib's own Protocol::Sink split (protocol_handler.h).
 class Sink {
  public:
   virtual ~Sink() = default;
@@ -108,9 +96,8 @@ class Sink {
 // adapter owns the storage (a string literal or a robot-config field)
 // and must keep it alive at least until the identity() call that
 // requested it returns. Mirrors radio-robot-lib's own Protocol::Identity
-// (adapter.h) -- drivetrain/profile/version join name/serial now that
-// ID/VER are wired up (ticket 003; ticket 002 only needed name/serial
-// for HELLO's banner).
+// (adapter.h) -- drivetrain/profile/version join name/serial, which
+// ID/VER read alongside HELLO's own banner fields.
 struct Identity {
   const char* name = "";
   const char* serial = "";
@@ -238,9 +225,8 @@ enum class TlmMode : uint8_t {
 // The reliability layer's completion-reason vocabulary (S8.8): the
 // reasons a motion can finish, plus kNone for "nothing has completed
 // yet" -- the wire spelling "none" is what lastDone() == 0 pairs with.
-// Carried here even though this ticket wires up no motion verb yet,
-// because every sequenced verb's ack/nack piggybacks this pair (S8.8),
-// not only the motion ones.
+// Every sequenced verb's ack/nack piggybacks this pair (S8.8), not only
+// the motion ones.
 //
 // kStall (sprint 005 ticket 004, closing wire-motion-completion-
 // signal.md/R-23): purely additive -- no existing wire consumer reads
@@ -269,16 +255,12 @@ enum class DoneReason : uint8_t {
 // invoke-by-name, and the reliability layer's completion channel
 // (lastDone()/lastDoneReason(), polled fresh on every ack/nack, S8.8).
 //
-// This is NOT sprint.md's own src/wire_adapter.{h,cpp} module (this file
-// only declares the CONTRACT; src/wire_adapter.h's WireAdapter, ticket
-// 004, is the production implementation, backed by this robot's real
-// identity/config/shims.cpp surface) -- it is this file's OWN seam,
-// satisfied in tests by tests/host/wire_mock_adapter.h's WireMockAdapter
-// (a recording test double, never linked into production code). Ticket
-// 004 widened this interface with the six motion methods (onWheelsV/
-// onWheelsX/onMoveX/onMoveV/onGoToR/onGoToW) radio-robot-lib's own
-// Adapter (adapter.h) already declares -- see each method's own doc
-// comment below for its exact wire units.
+// This file only declares the CONTRACT: diffDrive::WireAdapter
+// (src/wire_adapter.h) is the production implementation, backed by this
+// robot's real identity/config/shims.cpp surface; tests/host/
+// wire_mock_adapter.h's WireMockAdapter is the test double (a recording
+// stand-in, never linked into production code). See each motion
+// method's own doc comment below for its exact wire units.
 class Adapter {
  public:
   virtual ~Adapter() = default;
@@ -533,9 +515,7 @@ class WireHandler {
   // intercepts all three by verb identity before any id is even looked
   // at (protocol.md S8.3). They are still present here purely so HELP's
   // generated listing (execHelp()) walks ONE table for every verb name
-  // this file knows about and cannot drift from the dispatcher. Ticket
-  // 004 inserted the six motion verbs between TLM and STOP, matching
-  // protocol.md S6's own canonical ordering.
+  // this file knows about and cannot drift from the dispatcher.
   //
   // WIRE-09 (code review 2026-08-23): deliberately declared with NO
   // explicit size -- the definition in wire_handler.cpp supplies the
@@ -605,14 +585,12 @@ class WireHandler {
               uint8_t& errCode);
 
   // ---- motion: WHEELS_X / WHEELS_V / MOVE_X / MOVE_V / GO_TO_R /
-  // GO_TO_W (motion-api.md S9.1's wire mapping, sprint 003 ticket 004).
-  // Every decode function here is a plain arity + signed/unsigned-
-  // integer-field-parseability check, same DecodeFn contract as every
-  // other verb; every exec function re-parses the same fields (decode
-  // already proved they succeed) and forwards them to the Adapter as
-  // floats, the same "wire integer -> float for arithmetic convenience"
-  // pattern WHEELS_V's own left/right fields already used before
-  // motion-api.md's other five verbs existed on this wire.
+  // GO_TO_W (motion-api.md S9.1's wire mapping). Every decode function
+  // here is a plain arity + signed/unsigned-integer-field-parseability
+  // check, same DecodeFn contract as every other verb; every exec
+  // function re-parses the same fields (decode already proved they
+  // succeed) and forwards them to the Adapter as floats -- wire integer
+  // -> float for arithmetic convenience.
   //
   // Sprint 008 (wire-timeout-hardening.md, R-06 + R-18): every one of
   // these six exec functions now runs its own `timeout`/`duration`

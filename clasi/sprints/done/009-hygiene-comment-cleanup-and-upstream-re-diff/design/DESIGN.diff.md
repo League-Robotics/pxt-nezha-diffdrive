@@ -1,20 +1,14 @@
 ---
-source_file: src/DESIGN.md
-source_hash: a64fd1c1ed8244e88b6c359fc9b7b48a85dc48ca6929a9e1f4f09ffd96d90e15
+source_file: DESIGN.md
+source_hash: 4ccaf205c417073b9be7a6cc67ef86a0a7e1530f0f65f4aa2b4d077e0510c834
 ---
+# Diff: DESIGN.md
 
-# Diff: src/DESIGN.md
-
-Resolves the kernel's provenance path to the current upstream
-location (`League-Robotics/radio-robot`, `src/firm/diffdrive/`) as the
-one authoritative statement per-file headers point at, and adds a
-Sprint 009 change-summary section documenting the comment-hygiene work
-order and the upstream re-diff/restoration — no diagram, since this
-sprint composes no new module or dependency.
+Comparison of the sprint overlay copy against its pristine (seed-commit) canonical version.
 
 ```diff
---- src/DESIGN.md
-+++ clasi/sprints/009-hygiene-comment-cleanup-and-upstream-re-diff/design/DESIGN.md
+--- DESIGN.md (pristine)
++++ DESIGN.md (current)
 @@ -1,6 +1,6 @@
  # src — the DiffDrive extension
  
@@ -23,7 +17,7 @@ sprint composes no new module or dependency.
  
  `src/` is flat — no subdirectories — so this one document carries the
  logical subsystem breakdown as sections. Global conventions (units
-@@ -70,10 +70,25 @@
+@@ -70,10 +70,31 @@
  **Dependencies.** None. This is the bottom of the stack.
  
  **Invariants.**
@@ -41,7 +35,13 @@ sprint composes no new module or dependency.
 +  kernel itself). A fidelity suite in that repo holds the two
 +  byte-for-byte to the same control law; fix kernel bugs in both
 +  repos, never only here, until the firmware is cut over to depend on
-+  this package directly. This is the one authoritative statement of
++  this package directly. **One known exception** (found by this
++  sprint's upstream re-diff, not introduced by it): `cycleGapCount`/
++  `cycleGapCount_` — the idle-gap re-anchor counter from
++  `clasi/issues/done/first-move-after-idle-runs-at-full-duty.md`
++  (commit 704c40d) — exists only in this repo's copy and has not yet
++  been ported upstream; no other divergence, comment or code, was
++  found in either file. This is the one authoritative statement of
 +  the kernel's upstream repo and path — per-file headers in `src/`
 +  point at this paragraph rather than each restating it (see §15).
 +  Maintenance boundary: the kernel files (`diffdrive.h`/`.cpp`) are a
@@ -53,7 +53,7 @@ sprint composes no new module or dependency.
  - Each `step()` runs split-phase encoder sampling:
    `requestSample()` → 4 ms settle sleep → `tick()` per wheel. Anything
    that lands other I2C traffic inside that settle window destroys the
-@@ -1558,3 +1573,78 @@
+@@ -1558,3 +1579,78 @@
    is a real design choice (see `src/DESIGN.md` §1's deliberate
    `shims.cpp`-has-no-header convention) better made deliberately in its
    own review than folded into a Minor here.

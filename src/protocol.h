@@ -1,73 +1,37 @@
-// protocol.h -- Protocol: the hardware transport-seam / fiber-loop
-// composition module for protocol v6. Sprint 003 ticket 005 (the
-// hardware transport-seam cutover) retires the ENTIRE v5 wire format
-// this file used to own -- the COBS 0x0A-keyed codec, CRC-16/CCITT-
-// FALSE, the locally-defined binary verb payload shapes (MOVE/WHEELS/
-// CONFIG/GET_CONFIG/SET_FIELD/CALIBRATE/CFG), and the closed cleartext
-// verb registry that used to dispatch HELLO/PING/ID/VER/DIAG -- all of
-// it deleted, not merely unused. What remains under this filename is
-// the CODAL fiber (start()/run()) and the byte plumbing between
-// SerialTransport/RadioTransport and the new v6 wire stack
-// (src/wire_handler.{h,cpp}, src/wire_adapter.{h,cpp}, tickets
-// 002-004): this file feeds raw bytes in, writes reply bytes back out
-// via a small Sink over each transport, and otherwise knows nothing
-// about the v6 grammar, the reliability layer, or any verb's own
-// behavior -- all of that lives behind wireHandler_/wireHandlerRadio_/
-// wireAdapter_ now, exactly as sprint.md's own module table draws the
-// boundary.
+// protocol.h -- Protocol: the CODAL protocol fiber and byte plumbing
+// between SerialTransport/RadioTransport and the v6 wire stack
+// (wire_handler.h/.cpp, wire_adapter.h/.cpp). Knows nothing of the v6
+// grammar, the reliability layer, or any verb's own behavior -- all of
+// that lives behind wireHandler_/wireHandlerRadio_/wireAdapter_.
 //
 // One exception, preserved deliberately: the OLD cleartext
 // "RUN:<name>[:<arg>...]" MessageBus bridge (handleRun()/runText()/the
-// runSlots_ ring below) is untouched, because main.ts's
-// onRun()/onRunCommand() block API -- and every test/test.ts program
-// built on it -- is unchanged this sprint (sprint.md Design Rationale:
-// "the block API is UNCHANGED"). That old grammar has no general-verb
-// registry to recognize it anymore (the v5 registry that used to do
-// this is gone), so run() below detects it directly by its literal
-// "RUN:" prefix before ever handing a line to the v6 wire stack -- see
-// run()'s own comment. This is the ONE place the two grammars
-// deliberately coexist on the same wire: a v6 host speaks the new
-// space-and-`#id` RUN verb (wire_adapter.cpp's WireAdapter::onRun(),
-// currently kUnknown -- this project's actual by-name test trigger is
-// the bridge below, a CODAL-specific mechanism that class must never
-// touch); test.ts's own bench tooling keeps speaking the old
-// colon-separated form unchanged.
+// runSlots_ ring below) coexists with v6 on the same wire -- detected
+// directly by its literal "RUN:" prefix before a line ever reaches the
+// v6 stack (no verb registry involved -- see run()'s own comment). It
+// is the ONLY path that feeds the MessageBus test-trigger bridge
+// test.ts actually uses: v6's own RUN verb (wire_adapter.cpp's
+// WireAdapter::onRun()) is kUnknown.
 //
-// The radio transport now speaks the full v6 grammar too (this
-// ticket, closing sprint 003's own Open Question 4, whose stated
-// rationale -- "RX stays RUN-only because nothing could reach the v6
-// stack over the radio link, which was true only because RX stayed
-// RUN-only" -- was circular): a second WireHandler instance
-// (wireHandlerRadio_, below) is fed every line the radio's own poll
-// receives, with the SAME old-style-cleartext-RUN carve-out serial
-// already has preserved as a fallback, unchanged -- see run()'s own
-// radio-polling block. Per wifi-link.md:373 ("a separate
-// ProtocolHandler per transport over one shared adapter"), that second
-// handler is composed over the SAME wireAdapter_ instance the serial
-// handler already uses, not a second adapter: two hosts sharing one
-// handler's expectedNext_/gapOutstanding_ would let a sequence gap on
-// one transport nack the OTHER transport's next command, which is
-// exactly the corruption the second-handler structure exists to
-// prevent. `emitLine()` below -- the free function shims.cpp's
-// test-result reporting already uses -- still writes to both
-// transports unchanged, so an untethered bench run's results still
-// reach a listening host exactly as before.
+// The radio transport speaks the full v6 grammar too, through a SECOND
+// WireHandler (wireHandlerRadio_, below) composed over the SAME
+// wireAdapter_ instance the serial handler uses -- not a second
+// adapter: two adapters would let a sequence gap on one transport nack
+// the OTHER transport's next command, which is exactly the corruption
+// the second-handler structure exists to prevent. The old-style
+// cleartext RUN: carve-out above is preserved on radio too, as a
+// fallback, unchanged -- see run()'s own radio-polling block.
+// `emitLine()` below -- the free function shims.cpp's test-result
+// reporting already uses -- still writes to both transports unchanged,
+// so an untethered bench run's results still reach a listening host.
 //
-// Sprint 003 ticket 013 (final integration) note: this project's OWN
-// automatic cleartext telemetry -- the old v5 loop's periodic
-// "TLM:<ms>:<x>:<y>:<h>:<ox>:<oy>:<oh>:<vl>:<vr>" line -- is retired
-// along with the rest of v5 and has NO v6 replacement yet:
-// wire_handler.h's emitTelemetry() sends only ack/nack keepalives (see
-// its own doc comment), not a data-bearing frame. `tools/tour_run.py`,
-// `tools/tour_capture.py`, `tools/tour_watch.py`, and this repo's other
-// bench scripts that parse a `TLM:` prefix will see that branch simply
-// never fire on this firmware -- not a crash, but a silent loss of the
-// wheel-speed/pose diagnostic those tools log and chart. A future
-// ticket implementing real telemetry projection (thdr/t frames per
-// `radio-robot-lib/docs/design/protocol.md` S5.2) is what restores
-// this; until then, anyone running those tools against this build
-// should be told, not left to discover an empty telemetry column on a
-// live run.
+// This project's own telemetry is real and shipped on the v6 wire
+// stack: WireHandler::emitTelemetry(Snapshot) (see its own doc comment
+// for the thdr/t frame format) replaces the old v5 cleartext
+// "TLM:<ms>:..." line entirely. tools/tour_run.py, tools/tour_capture.py,
+// tools/tour_watch.py, and this repo's other bench scripts read the
+// thdr/t stream directly -- retrofitted onto it in full; no TLM:
+// parsing remains anywhere in this tree.
 #pragma once
 
 #include <cstddef>
@@ -163,28 +127,14 @@ class Protocol {
   char lastRunText_[kRunTextBytes] = {};
   uint32_t lastRunMs_ = 0;   // [ms] arrival time of the last accepted RUN
 
-  // ---- ticket 005: identity, assembled once the fiber actually runs --
-  // WireAdapter must stay CODAL-free to keep it host-testable (its own
-  // header comment), so it cannot call microbit_friendly_name()/
-  // microbit_serial_number() itself -- this, the CODAL-facing side of
-  // the seam, calls them and hands the result to wireAdapter_ via
-  // setIdentity(). Deliberately NOT done at Protocol construction time
-  // (wireAdapter_'s own NSDMI below constructs it with a harmless
-  // placeholder Wire::Identity() instead): this object is constructed
-  // the instant main.ts's top-level `_startProtocol()` statement runs
-  // protocol()'s lazy-singleton new, which is earlier than this class's
-  // own existing safety margin was ever proven for a CODAL identity
-  // read -- the fiber body (run(), launched separately by start()) is
-  // the exact call site the OLD sendDeviceBanner() safely used for the
-  // same two functions, so buildIdentity() is called from there
-  // instead, preserving that proven timing exactly.
-  //
-  // name/drivetrain/profile/version are all program-lifetime-stable
-  // pointers (CODAL's own static name buffer; string literals below);
-  // serial is the one field with no ready-made string form
-  // (microbit_serial_number() returns a uint32_t) -- formatted once
-  // into serialBuf_, a Protocol member so its storage outlives the
-  // WireAdapter that borrows a pointer into it.
+  // ---- identity, assembled once the fiber actually runs ---------------
+  // WireAdapter must stay CODAL-free (host-testable), so this CODAL-
+  // facing side calls microbit_friendly_name()/microbit_serial_number()
+  // and hands the result to wireAdapter_ via setIdentity() -- from
+  // run() (the fiber body), never at construction: neither function is
+  // proven safe before uBit.init(). name/drivetrain/profile/version are
+  // program-lifetime-stable pointers; serial is formatted once into
+  // serialBuf_, a member because WireAdapter borrows a pointer into it.
   static constexpr size_t kSerialBufBytes = 16;  // 10 decimal digits + NUL, with margin
   char serialBuf_[kSerialBufBytes] = {};
   Wire::Identity buildIdentity();
@@ -252,25 +202,18 @@ class Protocol {
                       // timing and wireNowMs() itself (via protocol()).
   bool running_ = false;
 
-  // NSDMI, not a hand-written constructor: each of these depends only on
-  // members declared textually above it (transport_ for serialSink_;
-  // radioTransport_ for radioSink_; wireNowMs() -- callable before its
-  // own later textual declaration, same as any other member function
-  // -- for wireAdapter_; wireAdapter_ and serialSink_/radioSink_ for
-  // wireHandler_/wireHandlerRadio_), so plain in-class initializers,
-  // evaluated in declaration order, are enough -- no constructor body
-  // needed to sequence them by hand. wireAdapter_ starts with a
-  // placeholder Wire::Identity() (every field ""); run() replaces it
-  // with the real one via setIdentity() once it is safe to read (see
-  // buildIdentity()'s own comment above for why that is deferred).
+  // NSDMI, not a hand-written constructor: each member depends only on
+  // members declared textually above it (transport_/radioTransport_ for
+  // the sinks; wireNowMs() for wireAdapter_; wireAdapter_ + the sinks
+  // for wireHandler_/wireHandlerRadio_), so declaration-order in-class
+  // initializers are enough. wireAdapter_ starts with a placeholder
+  // Wire::Identity(); run() supplies the real one via setIdentity()
+  // once it is safe to read (see buildIdentity()'s own comment above).
   //
-  // wireHandlerRadio_ is composed over the SAME wireAdapter_ instance
-  // wireHandler_ already uses -- NOT a second WireAdapter -- per
-  // wifi-link.md:373's "one ProtocolHandler per transport over one
-  // shared adapter" (see this file's own top-of-file comment). Each
-  // handler still keeps its OWN expectedNext_/gapOutstanding_ (they
-  // are plain WireHandler instance members), which is the whole point:
-  // two independent hosts, one shared robot.
+  // wireHandlerRadio_ shares this SAME wireAdapter_ instance with
+  // wireHandler_ -- NOT a second WireAdapter (see this file's own
+  // top-of-file comment for why) -- but each keeps its own
+  // expectedNext_/gapOutstanding_.
   SerialSink serialSink_{transport_};
   RadioSink radioSink_{radioTransport_};
   WireAdapter wireAdapter_{Wire::Identity(), &Protocol::wireNowMs};
@@ -285,20 +228,12 @@ class Protocol {
   uint8_t rxLineBuf_[64];
 };
 
-// Lazy singleton, mirroring shims.cpp's Rig/ensure() pattern: the
-// Protocol object -- and its fiber -- is constructed and started on
-// first access, never from a global constructor (which would run
-// before uBit.init() has brought up the CODAL fiber scheduler, and
-// before microbit_friendly_name()/microbit_serial_number() are safe to
-// call -- see buildIdentity()). Ticket 002 wires the actual call site:
-// main.ts's `diffDrive` namespace calls this (through the
-// `startProtocol()` shim defined alongside this function in
-// protocol.cpp) as a top-level statement, which runs once when this
-// extension's compiled code loads -- independent of whether any block
-// below is ever placed in a user's program. That is what makes the
-// boot banner (emitted from the top of `Protocol::run()`, before the
-// loop ever blocks on a read) go out "without any host request" per
-// SUC-001.
+// Lazy singleton, mirroring shims.cpp's Rig/ensure() pattern:
+// constructed and started on first access, never from a global
+// constructor (which would run before uBit.init() brings up the CODAL
+// fiber scheduler -- see buildIdentity()). Called from main.ts's
+// top-level `_startProtocol()` statement, so the boot banner
+// (Protocol::run()'s own) goes out without any host request.
 Protocol& protocol();
 
 }  // namespace diffDrive
