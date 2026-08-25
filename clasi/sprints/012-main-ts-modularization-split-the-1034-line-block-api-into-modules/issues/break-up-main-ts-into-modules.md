@@ -1,6 +1,14 @@
 ---
-status: pending
+status: in-progress
 sprint: '012'
+tickets:
+- 012-001
+- 012-002
+- 012-003
+- 012-004
+- 012-005
+- 012-006
+- 012-007
 ---
 
 # Break main.ts into modules

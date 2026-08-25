@@ -344,15 +344,17 @@ assuming).
 
 ## GitHub Issues
 
-(None linked yet — this is a roadmap-phase sprint.)
+None. This sprint's one issue (`break-up-main-ts-into-modules.md`) is
+an internal CLASI issue file, not a GitHub issue — no `gh-import`
+provenance to propagate.
 
 ## Definition of Ready
 
 Before tickets can be created, all of the following must be true:
 
-- [ ] Sprint planning document is complete (sprint.md, including its
+- [x] Sprint planning document is complete (sprint.md, including its
       Architecture and Use Cases sections)
-- [ ] Architecture review passed (or skipped, for changes with no
+- [x] Architecture review passed (or skipped, for changes with no
       architectural impact)
 - [ ] Stakeholder has approved the sprint plan
 
@@ -360,5 +362,22 @@ Before tickets can be created, all of the following must be true:
 
 | # | Title | Depends On |
 |---|-------|------------|
+| 001 | Extract sim.ts: the browser-simulator shim surface, plus the pre-split baseline build | — |
+| 002 | Extract run.ts: the RUN command dispatcher | 001 |
+| 003 | Extract pose.ts: local pose readback | 001 |
+| 004 | Extract stop.ts: stop and fault-latch blocks | 001 |
+| 005 | Extract world.ts: OTOS world-pose tracking and goToWorld | 001 |
+| 006 | Extract motion.ts: config, direct drive, and position-mode moves; retire main.ts | 001, 002, 003, 004, 005 |
+| 007 | Final build checkpoint: hex and block-surface parity, flashable hex, handoff notes | 006 |
 
-Tickets execute serially in the order listed.
+Tickets execute serially in the order listed. Tickets 002-005 each
+depend only on 001 (sim.ts must exist before anything calls into its
+shim bodies) — they have no dependency on each other, but execute in
+this listed order by convention (simplest/most self-contained first:
+run.ts is fully self-contained, pose.ts and stop.ts are small and
+single-purpose, world.ts is the largest of the four and benefits most
+from the cross-file pattern being proven three times over already).
+Ticket 006 depends on all five prior extractions in the practical
+sense that it is "whatever remains once everything else is carved
+out," not because each one is a strict technical prerequisite. Ticket
+007 depends on 006 alone but implicitly verifies the whole sprint.
