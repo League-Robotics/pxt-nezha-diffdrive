@@ -1,7 +1,7 @@
 ---
 id: '012'
 title: Final build checkpoint (host suite + flashable hex)
-status: in-progress
+status: done
 use-cases: []
 depends-on:
 - '001'
