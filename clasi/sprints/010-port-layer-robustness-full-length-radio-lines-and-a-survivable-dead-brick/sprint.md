@@ -7,6 +7,7 @@ use-cases: []
 issues:
 - radio-rx-capacity-fragmentation.md
 - unpowered-nezha-brick-wedges-program-at-boot.md
+- get-full-duty-velocity-returns-garbage.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 

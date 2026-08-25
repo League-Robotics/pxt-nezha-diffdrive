@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '010'
 ---
 
 # `GET full_duty_velocity` returns 4294.967040 where the firmware sets 10795.0
