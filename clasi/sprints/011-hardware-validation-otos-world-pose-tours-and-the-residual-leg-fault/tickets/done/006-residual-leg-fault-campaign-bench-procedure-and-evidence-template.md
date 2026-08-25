@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: 'Residual leg-fault campaign: bench procedure and evidence template'
-status: in-progress
+status: done
 use-cases:
 - SUC-006
 depends-on:
