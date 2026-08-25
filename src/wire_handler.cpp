@@ -7,19 +7,15 @@
 
 #include <cerrno>
 #include <cmath>
-#include <cstdio>   // plain snprintf, not std::snprintf -- this ARM cross
+#include <cstdio>   // plain snprintf, not std::snprintf: this ARM cross
                     // compiler's newlib-nano <cstdio> declares snprintf
-                    // globally but never actually puts it in namespace
-                    // std (sprint 003 ticket 005, discovered the first
-                    // time this file was built for the microbit target
-                    // rather than only host-tested; protocol.cpp already
-                    // documented and worked around the identical gotcha
-                    // for the v5 wire codec this file replaces). Same
-                    // story for strtof() below -- every OTHER std::
-                    // function this file uses (strtol/strtoul/isnan/
-                    // isinf/strcmp/strlen/memcpy) genuinely is in
-                    // namespace std on this toolchain; only these two
-                    // are not.
+                    // globally but never puts it in namespace std --
+                    // same gotcha protocol.cpp documents for its own
+                    // snprintf call. Same story for strtof() below --
+                    // every OTHER std:: function this file uses
+                    // (strtol/strtoul/isnan/isinf/strcmp/strlen/memcpy)
+                    // genuinely is in namespace std on this toolchain;
+                    // only these two are not.
 #include <cstdlib>
 #include <cstring>
 
@@ -497,8 +493,7 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
     }
   }
   if (entry == nullptr) {
-    // Unrecognized verb (including every motion verb this ticket does
-    // not yet wire up): a decode failure exactly like a known verb's
+    // Unrecognized verb: a decode failure exactly like a known verb's
     // own bad arity or unparseable field -- the sequence does NOT
     // advance.
     handleDecodeFailure(id, resultCode(Result::kUnknown));
@@ -823,14 +818,13 @@ void WireHandler::execTlm(char** fields, size_t fieldCount, uint32_t id,
 }
 
 // ---- motion: WHEELS_X / WHEELS_V / MOVE_X / MOVE_V / GO_TO_R / GO_TO_W ----
-// motion-api.md S9.1's wire mapping (sprint 003 ticket 004). Angles
-// (rotation, omega) are milliradian integers on the wire (S9.1:
-// "degrees at the API, milliradian integers on the wire ... the
-// conversion lives in the binding, in one place" -- NOT this file's
-// job), decoded here with the ordinary signed-integer field parser and
-// handed to the Adapter as float milliradians, the same "wire integer ->
-// float for arithmetic convenience" pattern WHEELS_V's own left/right
-// fields already used before this ticket.
+// motion-api.md S9.1's wire mapping. Angles (rotation, omega) are
+// milliradian integers on the wire (S9.1: "degrees at the API,
+// milliradian integers on the wire ... the conversion lives in the
+// binding, in one place" -- NOT this file's job), decoded here with the
+// ordinary signed-integer field parser and handed to the Adapter as
+// float milliradians -- wire integer -> float for arithmetic
+// convenience.
 
 bool WireHandler::decodeWheelsX(char** fields, size_t fieldCount) {
   if (fieldCount != 4) return false;

@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: Wire grammar comment cleanup (wire_handler.h/.cpp)
-status: open
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -33,7 +33,7 @@ overwrite a newer, correct comment with pre-008 text.
 
 ## Acceptance Criteria
 
-- [ ] `wire_handler.h`'s header REWRITE (1-87) is applied per the
+- [x] `wire_handler.h`'s header REWRITE (1-87) is applied per the
       audit: the reliability-layer summary (lines ~14-68 in the
       audited version) is genuine wire-format documentation and is
       **kept**; only the trailing "Sprint 003 ticket 004 adds..."
@@ -41,7 +41,7 @@ overwrite a newer, correct comment with pre-008 text.
       per `wire_adapter.cpp`) and ticket-archaeology — is replaced
       with the milliradian-integers + host-portable-constraint
       statement the audit specifies. Re-anchor by content match.
-- [ ] `Sink` comment (95-100), `Identity` comment (107-113),
+- [x] `Sink` comment (95-100), `Identity` comment (107-113),
       `DoneReason` comment (169-174 — confirm "carried here even
       though this ticket wires up no motion verb yet" is still stale;
       it should be, since all six verbs dispatch), `Adapter` comment
@@ -50,21 +50,21 @@ overwrite a newer, correct comment with pre-008 text.
       the audit — all AGREE per verify-comments.md's general
       assessment of this cluster, but each still gets the load-bearing
       check since none of the 16 samples came from this file.
-  - [ ] All ×23 KEEP blocks are confirmed present, in particular the
+  - [x] All ×23 KEEP blocks are confirmed present, in particular the
       `feed()` doc (NUL characterization + overflow rule) and the
       completion-channel/`kMaxFieldTokens`/stand-ins notes — these are
       explicitly called out as exemplary and must not be touched.
-- [ ] `wire_handler.cpp`'s cstdio/`strtof` comment (10-22) is
+- [x] `wire_handler.cpp`'s cstdio/`strtof` comment (10-22) is
       compressed per the audit (drop the discovery narrative, keep the
       newlib-nano namespace fact — cross-reference `protocol.cpp`'s
       identical comment, ticket 006).
-- [ ] The "Unrecognized verb" comment (audit's 433-437) and the motion
+- [x] The "Unrecognized verb" comment (audit's 433-437) and the motion
       section banner (audit's 741-749) are checked against sprint
       008's decode-clamp addition first (see Description); apply the
       audit's stale→current correction only where the current text
       still needs it, and preserve or fold in the decode-clamp
       documentation if present rather than deleting it.
-- [ ] All ×32 KEEP blocks (parse-helper strictness, `formatConfigValue`
+- [x] All ×32 KEEP blocks (parse-helper strictness, `formatConfigValue`
       NaN-UB analysis, sanitize/overflow/blank-line/NUL guards,
       case-is-direction, ESTOP/PING/HELLO handling, id classification,
       `-Wswitch` note, `execRun`'s `kMaxLineBytes+1` subtlety,
