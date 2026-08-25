@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 split_from: radio-speaks-full-v6-and-v6-gets-its-telemetry-frame.md
 sprint: '005'
 tickets:
