@@ -119,24 +119,37 @@ class RadioTransport {
   // relabeled in place) so no other private member below picks up
   // public access as a side effect. Made public so protocol.cpp's
   // Protocol::emitLine() can clip to this SAME constant by name instead
-  // of re-declaring its own bare 200 literal, which had silently
-  // drifted out of sync with what this constant actually means: once
-  // sprint 004 ticket 005 raised SerialTransport::kMaxLineBytes to 240,
-  // this constant -- and radio's real capacity -- stayed 200, and
-  // emitLine()'s own separate 200 literal was numerically right but
-  // disconnected from that fact, which is what let it read as merely
-  // stale rather than load-bearing. Deliberately the TIGHTER of the two
-  // transports' caps, not "equal" to SerialTransport's own bound (this
-  // header used to claim equality -- corrected here): chosen so a line
-  // emitLine() clips never depends on which transport happens to carry
-  // it. The *value* is unchanged by this ticket --
-  // still 200, still radio's real capacity ceiling -- this only
-  // single-sources the NAME; raising radio's actual capacity is sprint
-  // 010's scope (clasi/issues/radio-rx-capacity-fragmentation.md). No
-  // encapsulation cost: it stays a compile-time constant, still used
-  // in-class below to size payloadBuf_ -- the class still owns every
-  // byte of storage it sizes.
-  static constexpr size_t kMaxPayloadBytes = 200;
+  // of re-declaring its own bare literal, which had silently drifted
+  // out of sync with what this constant actually means: once sprint
+  // 004 ticket 005 raised SerialTransport::kMaxLineBytes to 240, this
+  // constant -- and radio's real capacity -- stayed at its old, smaller
+  // value, and emitLine()'s own separate literal was numerically right
+  // but disconnected from that fact, which is what let it read as
+  // merely stale rather than load-bearing.
+  //
+  // RAISED to 240 by sprint 010 ticket 002
+  // (radio-rx-capacity-fragmentation.md): this constant now EQUALS
+  // SerialTransport::kMaxLineBytes (serial_transport.h) and
+  // Wire::WireHandler::kMaxLineBytes (wire_handler.h) -- and this
+  // class's own private RX-capacity constant just below (kMaxLineBytes,
+  // sprint 010 ticket 001) -- all four are the SAME number, 240. Sprint
+  // 008's version of this comment described the relationship as
+  // deliberately the smaller of the two transports' bounds, not equal
+  // to SerialTransport's own; that was true at the old value and is no
+  // longer true now. tests/host/test_wire_constants_drift.py pins this
+  // four-way equality by reading all the relevant headers as text, so a
+  // future edit to any one of the four numbers fails a test instead of
+  // silently reintroducing an inequality. The widened value still fits
+  // one physical radio fragment: the MTU (kMtu = MICROBIT_RADIO_MAX_
+  // PACKET_SIZE(250, pxt.json) - kFrameHeaderBytes(3) = 247, see
+  // sendFragmented() in radio_transport.cpp) has 6 bytes of margin above
+  // the 241-byte payload+delimiter this constant now allows, so
+  // sendFragmented()'s multi-fragment loop still runs its
+  // single-iteration path for every real payload. No encapsulation
+  // cost: it stays a compile-time constant, still used in-class below
+  // to size payloadBuf_ -- the class still owns every byte of storage
+  // it sizes.
+  static constexpr size_t kMaxPayloadBytes = 240;
 
  private:
   void ensureRadioReady();

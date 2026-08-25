@@ -148,15 +148,21 @@ def _radio_transport_max_payload_bytes_is_public():
     raise AssertionError("kMaxPayloadBytes declaration line was not found while walking the class body")
 
 
-def test_radio_max_payload_bytes_is_pinned_at_200():
+def test_radio_max_payload_bytes_is_pinned_at_240():
     """RadioTransport::kMaxPayloadBytes is radio's real on-air capacity
-    ceiling (sprint 010's scope owns raising it, not this ticket) --
-    pin the value here so a future edit that changes it is a deliberate,
+    ceiling. Sprint 010 ticket 002 raised it from 200 to 240, closing
+    the gap with SerialTransport::kMaxLineBytes / Wire::WireHandler::
+    kMaxLineBytes (both already 240) that this same file's test 2 used
+    to document as a deliberate inequality -- see
+    test_radio_serial_wire_capacity_constants_are_equal_at_240, below,
+    for the four-way equality this raise establishes. Pin the value
+    here too so a future edit that changes it again is a deliberate,
     reviewed decision rather than an accidental one."""
-    assert _radio_transport_max_payload_bytes() == 200, (
+    assert _radio_transport_max_payload_bytes() == 240, (
         "RadioTransport::kMaxPayloadBytes changed from the pinned value "
-        "200 -- if this is a deliberate capacity change (sprint 010's "
-        "scope), update this pinned test too; if not, it's a regression."
+        "240 -- if this is a deliberate capacity change, update this "
+        "pinned test (and the four-way equality test below) too; if "
+        "not, it's a regression."
     )
 
 
@@ -208,24 +214,129 @@ def test_emit_line_clips_to_shared_constant_not_a_bare_literal():
     )
 
 
-def test_radio_transport_doc_comment_states_tighter_not_equal():
-    """radio_transport.h's doc comment for kMaxPayloadBytes must state
-    the true relationship to SerialTransport's cap (deliberately
-    tighter) and must no longer claim the two are "equal" or "the
-    same" -- that claim went false the moment sprint 004 ticket 005
-    raised SerialTransport::kMaxLineBytes to 240 while this constant
-    stayed 200 (WIRE-05/R-21)."""
+def _radio_transport_max_payload_bytes_doc_comment():
+    """The block of `//` comment lines directly above kMaxPayloadBytes's
+    declaration, so the two tests below can check what this comment
+    says without a false pass/fail from unrelated text elsewhere in the
+    file (the same "scope the check to one function body" technique
+    test_emit_line_clips_to_shared_constant_not_a_bare_literal, above,
+    uses for protocol.cpp)."""
     text = _read("radio_transport.h")
-    assert "sized the same as serialtransport" not in text.lower(), (
-        "radio_transport.h still claims parity with SerialTransport's "
-        "bound -- false since sprint 004 ticket 005 raised "
-        "SerialTransport::kMaxLineBytes to 240 while this constant "
-        "stayed 200."
+    match = re.search(
+        r"((?:^[ \t]*//[^\n]*\n)+)[ \t]*static constexpr size_t kMaxPayloadBytes",
+        text,
+        re.MULTILINE,
     )
-    assert "tighter" in text.lower(), (
-        "radio_transport.h's doc comment should state that "
-        "kMaxPayloadBytes is deliberately the tighter of the two "
-        "transports' caps, not merely that it is unchanged."
+    assert match, (
+        "No comment block was found directly above kMaxPayloadBytes's "
+        "declaration in radio_transport.h"
+    )
+    return match.group(1)
+
+
+def test_radio_transport_doc_comment_states_equality_not_tighter():
+    """radio_transport.h's doc comment for kMaxPayloadBytes must state
+    the CURRENT relationship to SerialTransport::kMaxLineBytes / Wire::
+    WireHandler::kMaxLineBytes -- equal, both 240, as of sprint 010
+    ticket 002 -- not the pre-ticket "deliberately tighter" relationship
+    (sprint 008, WIRE-05/R-21) that was only true while this constant
+    was still 200. A comment claiming "tighter" after this ticket raised
+    the value would be exactly the same kind of silent staleness this
+    file's other tests already guard against for kVersion/
+    RUN_EVENT_SOURCE/kDiag*."""
+    comment = _radio_transport_max_payload_bytes_doc_comment().lower()
+    assert "tighter" not in comment, (
+        "radio_transport.h's kMaxPayloadBytes doc comment still "
+        "describes this cap as 'tighter' than SerialTransport's -- that "
+        "was true at the old value (200) and is no longer true now that "
+        "sprint 010 ticket 002 raised it to 240, equal to "
+        "SerialTransport::kMaxLineBytes and Wire::WireHandler::"
+        "kMaxLineBytes."
+    )
+    assert "equal" in comment, (
+        "radio_transport.h's kMaxPayloadBytes doc comment no longer "
+        "states the four-way equality with SerialTransport::"
+        "kMaxLineBytes / Wire::WireHandler::kMaxLineBytes / this "
+        "class's own RX-capacity constant, now that sprint 010 ticket "
+        "002 raised the value to 240."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 2b. The four-way line-capacity equality itself (sprint 010 ticket 002,
+#     radio-rx-capacity-fragmentation.md): RadioTransport's TX cap
+#     (kMaxPayloadBytes, above) and its own private RX cap (kMaxLineBytes,
+#     sprint 010 ticket 001) must equal the wire grammar's own ceiling
+#     (Wire::WireHandler::kMaxLineBytes) and SerialTransport's line
+#     capacity (its own independent kMaxLineBytes, serial_transport.h --
+#     see that file's own "MUST stay ==" comment). These three constants
+#     have already drifted apart twice (sprint 003 raised the wire's cap
+#     without radio's TX bound; radio_transport.h then claimed equality
+#     that was false for five sprints, per this ticket's own writeup) --
+#     this test is what makes a THIRD silent drift fail loudly instead.
+# ---------------------------------------------------------------------------
+
+
+def _radio_transport_rx_capacity():
+    """Ticket 001's own local RX-capacity constant: radio_transport.h's
+    PRIVATE `kMaxLineBytes` (rxLine_'s array bound), distinct from the
+    public `kMaxPayloadBytes` this ticket raises but required to stay
+    numerically equal to it. Read as text (not compiled/linked) exactly
+    like this file's other checks, so a private member is no obstacle --
+    see this file's own module docstring for why these are text-based
+    drift tests in the first place."""
+    text = _read("radio_transport.h")
+    matches = re.findall(r"kMaxLineBytes\s*=\s*(\d+)", text)
+    assert matches, (
+        "radio_transport.h's kMaxLineBytes (RX capacity) declaration "
+        "was not found"
+    )
+    assert len(matches) == 1, (
+        f"Expected exactly one `kMaxLineBytes = <N>` assignment in "
+        f"radio_transport.h, found {len(matches)}: {matches} -- this "
+        f"test's regex assumes there is only one so it can't "
+        f"accidentally match the wrong one."
+    )
+    return int(matches[0])
+
+
+def _wire_handler_max_line_bytes():
+    text = (_SRC_DIR / "wire_handler.h").read_text()
+    match = re.search(r"kMaxLineBytes\s*=\s*(\d+)", text)
+    assert match, "wire_handler.h's kMaxLineBytes declaration was not found"
+    return int(match.group(1))
+
+
+def _serial_transport_max_line_bytes():
+    text = (_SRC_DIR / "serial_transport.h").read_text()
+    match = re.search(r"kMaxLineBytes\s*=\s*(\d+)", text)
+    assert match, "serial_transport.h's kMaxLineBytes declaration was not found"
+    return int(match.group(1))
+
+
+def test_radio_serial_wire_capacity_constants_are_equal_at_240():
+    """The four independently-declared line/payload capacity numbers
+    this project carries -- RadioTransport::kMaxPayloadBytes (TX),
+    RadioTransport's own private kMaxLineBytes (RX, ticket 001),
+    SerialTransport::kMaxLineBytes, and Wire::WireHandler::
+    kMaxLineBytes -- must all equal 240. This is the ticket 002
+    deliverable itself: raising RadioTransport::kMaxPayloadBytes to 240
+    closes the last of the three-times-drifted gaps, and this test is
+    what stops a fourth drift from being silent. Changing ANY ONE of
+    the four values (without changing the other three to match) must
+    fail this test."""
+    radio_tx = _radio_transport_max_payload_bytes()
+    radio_rx = _radio_transport_rx_capacity()
+    serial = _serial_transport_max_line_bytes()
+    wire = _wire_handler_max_line_bytes()
+    assert radio_tx == radio_rx == serial == wire == 240, (
+        f"The four line-capacity constants have drifted apart -- "
+        f"RadioTransport::kMaxPayloadBytes (TX) = {radio_tx}, "
+        f"RadioTransport's private RX kMaxLineBytes = {radio_rx}, "
+        f"SerialTransport::kMaxLineBytes = {serial}, "
+        f"Wire::WireHandler::kMaxLineBytes = {wire}. All four must be "
+        f"240; see radio-rx-capacity-fragmentation.md for why this has "
+        f"already happened twice before."
     )
 
 

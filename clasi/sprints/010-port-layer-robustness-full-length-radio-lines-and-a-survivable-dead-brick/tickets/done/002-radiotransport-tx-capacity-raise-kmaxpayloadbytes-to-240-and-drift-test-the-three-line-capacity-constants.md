@@ -2,9 +2,11 @@
 id: '002'
 title: 'RadioTransport TX capacity: raise kMaxPayloadBytes to 240 and drift-test the
   three line-capacity constants'
-status: open
-use-cases: ['SUC-001']
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-001
+depends-on:
+- '001'
 github-issue: ''
 issue: radio-rx-capacity-fragmentation.md
 completes_issue: true
@@ -50,23 +52,23 @@ project's only pinned evidence of the FULL column set's true worst case.
 
 ## Acceptance Criteria
 
-- [ ] `RadioTransport::kMaxPayloadBytes` is 240; `payloadBuf_` resizes
+- [x] `RadioTransport::kMaxPayloadBytes` is 240; `payloadBuf_` resizes
       with it (`kMaxPayloadBytes + 1`, unchanged formula).
-- [ ] `protocol.cpp::emitLine()` requires no code change (already
+- [x] `protocol.cpp::emitLine()` requires no code change (already
       references the constant by name) — confirmed by reading the call
       site, not assumed.
-- [ ] A new host test asserts
+- [x] A new host test asserts
       `RadioTransport::kMaxPayloadBytes == Wire::WireHandler::kMaxLineBytes
       == SerialTransport::kMaxLineBytes` (all 240), and — via a
       compile-time or runtime check against ticket 001's own local
       constant — that `RadioTransport`'s RX buffer capacity equals the
       same value, so a future edit to any one of these four numbers
       fails a test rather than silently reintroducing an inequality.
-- [ ] `tests/host/test_wire_telemetry_frame.py`'s pinned boundary
+- [x] `tests/host/test_wire_telemetry_frame.py`'s pinned boundary
       assertions are updated to the 240-byte ceiling; the 239-byte
       pathological-frame measurement itself is preserved (not deleted),
       with a comment noting the 1-byte headroom against the new cap.
-- [ ] `tests/host/test_wire_telemetry_projection.py` (the realistic-value
+- [x] `tests/host/test_wire_telemetry_projection.py` (the realistic-value
       projection, 138 B) is re-run to confirm it is unaffected (it
       already had headroom under 200 and gains more under 240).
 
