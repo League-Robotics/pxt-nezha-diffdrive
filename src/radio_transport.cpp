@@ -3,13 +3,11 @@
 // nezha_port.cpp talks to uBit.i2c: one small CODAL-facing leaf, no
 // shaping/porting layers of its own.
 //
-// sendFragmented() below is a provenance-documented, TX-only port of
-// radio-robot-elite's Platform::MicroBitRadioLink::sendFragmented()
-// (src/firm/platform/microbit/microbit_radio_link.cpp) -- the fleet's
-// own reference driver the RADIOBRIDGE relay hardware is built
-// against. Trimmed to exactly what a sender needs: no reassembly
-// buffer, no RX ISR registration, no ACK interpretation -- see
-// radio_transport.h's top comment for the full citation and rationale.
+// sendFragmented() below is a provenance-documented port of
+// radio-robot-elite's Platform::MicroBitRadioLink::sendFragmented() --
+// the fleet's own reference driver the RADIOBRIDGE relay hardware is
+// built against. See radio_transport.h's top comment for the framing
+// this implements and its RX/TX/ACK scope.
 #include "radio_transport.h"
 
 #include <cstring>
@@ -134,8 +132,7 @@ bool RadioTransport::sendLine(const uint8_t* data, size_t len) {
 
   // `data`/`len` plus one trailing '\n' delimiter -- the ONE
   // terminator every outbound line uses here, exactly as
-  // SerialTransport::writeLine() appends for the serial side (see this
-  // module's header for why that's safe for binary content). Truncates
+  // SerialTransport::writeLine() appends for the serial side. Truncates
   // rather than overflows on an over-length caller, mirroring
   // SerialTransport's own defensive truncation.
   uint8_t* payload = payloadBuf_;  // member scratch -- see header comment
