@@ -2,7 +2,7 @@
 id: '001'
 title: Kernel re-diff and provenance restoration (diffdrive.h/.cpp, src/DESIGN.md,
   overview.md, specification.md)
-status: open
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -35,14 +35,14 @@ first.
 
 ## Acceptance Criteria
 
-- [ ] Fetched (WebFetch or equivalent) the current upstream
+- [x] Fetched (WebFetch or equivalent) the current upstream
       `https://github.com/League-Robotics/radio-robot` tree at
       `src/firm/diffdrive/differential_drive.{h,cpp}` and diffed it
       against this repo's `src/diffdrive.{h,cpp}`, beyond just the five
       known-truncated comments — confirm no other comment or code
       divergence exists that the original vendoring step silently
       dropped alongside the truncated text.
-- [ ] `diffdrive.h` lines 81, 84, 90, 91, and 125 read the complete
+- [x] `diffdrive.h` lines 81, 84, 90, 91, and 125 read the complete
       upstream sentences (not paraphrases), using the text already
       quoted in `docs/code-review/2026-08-23/raw/verify-comments.md`
       §3:
@@ -62,7 +62,7 @@ first.
         also has a "lesson 17" clause the audit correctly drops as
         upstream-repo lore, per verify-comments.md R5 — do not
         restore that part).
-- [ ] `diffdrive.h`'s file-header REWRITE (audit item 1-26) and
+- [x] `diffdrive.h`'s file-header REWRITE (audit item 1-26) and
       `diffdrive.cpp`'s file-header REWRITE (audit item 1-6) are
       applied using `verify-comments.md`'s R1/R6-corrected text (the
       resolvable repo name and current path), never the audit's raw
@@ -71,7 +71,7 @@ first.
       landing it (both R1/R6 CHALLENGE only the repo-name/path
       portion; the rest of the compression is otherwise sound per
       verify-comments.md).
-- [ ] `src/DESIGN.md` §2 (Kernel) — the "Vendored, synced copy"
+- [x] `src/DESIGN.md` §2 (Kernel) — the "Vendored, synced copy"
       invariant currently says "extracted from the radio-robot
       firmware (`src/firm/control/`)" — this is the stale path.
       Rewrite it to state, as one authoritative statement: upstream
@@ -84,7 +84,7 @@ first.
       synced copy — edit both trees; port/shim files are this repo's
       own and are edited here only) if §2 doesn't already carry one
       clearly.
-- [ ] `docs/design/overview.md` §Provenance and
+- [x] `docs/design/overview.md` §Provenance and
       `docs/design/specification.md` §12 are updated to **resolve**,
       not merely flag, the README/source path discrepancy
       specification.md §12 currently defers ("flagged here rather
@@ -92,7 +92,7 @@ first.
       matter-of-factly and point at `src/DESIGN.md` §2 as the one
       place the path details live, rather than each independently
       restating it.
-- [ ] Any divergence the re-diff finds beyond the five comments is
+- [x] Any divergence the re-diff finds beyond the five comments is
       recorded: deliberate divergences get a one-line note in place
       (in `diffdrive.{h,cpp}` or `src/DESIGN.md` §2, whichever is the
       more natural home); an **accidental** divergence gets fixed
@@ -100,12 +100,85 @@ first.
       permitted code change, not a general kernel refactor — and is
       called out explicitly in this ticket's completion notes with
       the specific upstream contract it restores.
-- [ ] No file in `src/` states `radio-robot-elite` as the vendored
+- [x] No file in `src/` states `radio-robot-elite` as the vendored
       kernel's upstream repository (the broader sweep of
       `radio-robot-elite` in other, non-kernel files — `otos_port.*`,
       `radio_transport.*`, `nezha_port.cpp` — is ticket 007's job, not
       this one; this criterion is scoped to `diffdrive.{h,cpp}` and
       the design docs this ticket touches).
+
+## Completion notes
+
+**Upstream fetch.** `gh api repos/League-Robotics/radio-robot/contents/...`
+(default branch `master`) pulled the live
+`src/firm/diffdrive/differential_drive.{h,cpp}` (556 + 1101 lines,
+heavily commented) and, for cross-checking the historical framing, the
+old-path forwarding-adapter header now at
+`src/firm/control/differential_drive.h`. Comparing comment-stripped
+upstream against this repo's `src/diffdrive.{h,cpp}` (Python
+regex-strip of `//`/`/* */`, blank-line collapse, then `diff -u`) found
+**exactly one code-level difference** in each file: the
+`cycleGapCount`/`cycleGapCount_` field and its `kMaxCycleGapUs` guard in
+`step()`/`publishOutput()`, present only in this repo's copy. This is
+the known, closed, deliberate fix from
+`clasi/issues/done/first-move-after-idle-runs-at-full-duty.md` (commit
+704c40d) — not accidental, so it was **recorded, not reconciled**, per
+the ticket's own instruction. No other code divergence exists anywhere
+in either file; every other diff line was upstream's own additional
+commentary (this repo's copy has comments "stripped for size" per
+`specification.md`, confirmed accurate) or the expected
+`differential_drive.h`→`diffdrive.h` include-filename rename.
+
+**Restored comments (before → after), verbatim from upstream:**
+- `81` `kRefusedNotBegun`: `// command before begin(). NOT before
+  start(): the` → `...the host harness commands and step()s WITHOUT
+  ever launching the fiber, so readiness is begin()'s to grant, not
+  start()'s`
+- `84` `kCadencePreserved`: `// post-begin setConfig with a differing
+  cyclePeriod:` → `...cyclePeriod: block applied, frozen cadence kept`
+- `90` `maxDuty`: `// [%] authority rail (lambda scales to` →
+  `...scales to this); 0 = ALL modes refused` (audit's own completion
+  would have dropped the sentinel — used verify-comments.md R4's
+  corrected text instead)
+- `91` `fullDutyVelocity` (the fifth truncation, missed by the audit
+  entirely): `// [counts/s] wheel rate at 100% duty;` → `...100%
+  duty; 0 = uncalibrated → VELOCITY refused`
+- `125` `cycleOverrunCount`: `// cycles that missed their absolute` →
+  `...their absolute deadline` (upstream's trailing "— the
+  observability half of lesson 17" deliberately dropped as
+  upstream-repo lore, per R5)
+
+**Audit items verified against current, post-sprint-004/005/006/007/008
+code (not the audit's line numbers) — no no-ops or wrong calls found
+among this ticket's items.** `radio_transport.h`'s `kMaxPayloadBytes`
+comment (sprint 008), `protocol.cpp`'s `kVersion` drift note (sprint
+008), and `protocol.h`'s telemetry-frame gap note (sprint 004) — the
+three staleness traps flagged in the dispatch brief — are all outside
+this ticket's file set (`diffdrive.{h,cpp}`, `src/DESIGN.md`,
+`overview.md`, `specification.md`) and were left untouched, confirmed
+already correct by earlier sprints.
+
+**Unsampled REWRITE load-bearing check.** Both REWRITE items this
+ticket applies (`diffdrive.h` 1-26, `diffdrive.cpp` 1-6) **were**
+sampled and CHALLENGE-corrected by `verify-comments.md` (R1/R6) — there
+was no unsampled REWRITE item in this ticket's scope, so there was
+nothing additional to load-bearing-check beyond applying R1/R6's
+corrections and re-verifying the "otherwise fine" remainder against the
+live file (confirmed: the ports summary and both-trees invariant they
+describe still match the current class surface exactly).
+
+**Authoritative provenance statement (for ticket 007 to point at):**
+`src/DESIGN.md` §2, "Vendored, synced copy" invariant — upstream repo
+`League-Robotics/radio-robot`; kernel currently at
+`src/firm/diffdrive/differential_drive.{h,cpp}`;
+`src/firm/control/differential_drive.h` is a thin forwarding-adapter
+header in the upstream repo, not the kernel; fix kernel bugs in both
+trees until the firmware depends on this package directly; one
+documented exception (`cycleGapCount`, not yet ported upstream);
+maintenance boundary (kernel files synced-copy/edit-both-trees vs.
+port/shim files ported/edit-here-only) stated explicitly. This overlay
+edit needs its `.diff.md` `source_hash` regenerated by the team-lead
+(see report).
 
 ## C++11 gate coverage
 

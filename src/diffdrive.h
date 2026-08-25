@@ -4,25 +4,18 @@
 // <cstdint>, and the four small interfaces below are the package's OWN
 // ports — the complete surface a host platform implements to run it.
 //
-// This is deliberately NOT derived from any firmware HAL. The firmware
-// that grew this kernel connects it back through one-line forwarding
-// adapters; a MakeCode/PXT package or a MicroPython C module implements
-// the same four ports against its own platform instead. Same functions,
-// no inheritance coupling, adapters only where integration wants them.
+// Vendored from League-Robotics/radio-robot, where the kernel currently
+// lives at src/firm/diffdrive/ (src/DESIGN.md §2 is the one
+// authoritative statement of this path and the maintenance boundary).
+// Control law byte-identical to upstream except cycleGapCount /
+// cycleGapCount_ below, a local fix not yet ported back — fix bugs in
+// both trees.
 //
-// PORTS (implement these):
-//   Motor        — one wheel: staged duty writes, split-phase encoder
-//                  sampling, an immediate emergency stop.
-//   Clock        — monotonic microseconds.
-//   Sleeper      — settle/pace sleeps + a cooperative yield.
-//   FiberLauncher— start the kernel loop on its own thread of execution.
-//                  OPTIONAL: a host that owns its own loop never calls
-//                  start() and drives step() directly instead.
-//
-// Everything below the ports is the kernel itself, unchanged from the
-// firmware tree (src/firm/control/) it is extracted from — the fidelity
-// suite in src/tests/diffdrive/ holds the two byte-for-byte to the same
-// control law.
+// Ports the host implements: Motor (staged duty writes, split-phase
+// encoder sampling, an immediate emergency stop), Clock (monotonic
+// microseconds), Sleeper (settle/pace sleeps + a cooperative yield),
+// FiberLauncher (optional — a host that owns its own loop never calls
+// start() and drives step() directly instead).
 #pragma once
 
 #include <cstdint>
@@ -79,16 +72,22 @@ class DifferentialDrive {
     kOk = 0,
     kRefusedUnconfigured,  // maxDuty == 0; or VELOCITY with fullDutyVelocity == 0
     kRefusedNotBegun,      // command before begin(). NOT before start(): the
+                           //   host harness commands and step()s WITHOUT ever
+                           //   launching the fiber, so readiness is begin()'s
+                           //   to grant, not start()'s
     kRefusedEstopped,
     kRefusedNonFinite,
     kCadencePreserved,     // post-begin setConfig with a differing cyclePeriod:
+                           //   block applied, frozen cadence kept
   };
 
   static constexpr uint32_t kLeaseMax = 3600000u;  // [ms]
 
   struct Config {
     float maxDuty = 0.0f;            // [%] authority rail (lambda scales to
+                                     //   this); 0 = ALL modes refused
     float fullDutyVelocity = 0.0f;   // [counts/s] wheel rate at 100% duty;
+                                     //   0 = uncalibrated → VELOCITY refused
     float kp = 0.0f;                 // [1]
     float ki = 0.0f;                 // [1/s] on clamped position error
     float iMax = 0.0f;               // [counts/s] I-term clamp; 0 disables I
@@ -123,6 +122,7 @@ class DifferentialDrive {
                                      // (caller idle); re-anchored, not
                                      // integrated across
     uint32_t cycleOverrunCount = 0;  // cycles that missed their absolute
+                                    //   deadline
     uint32_t sampleTimeLeft = 0;    // [us]
     uint32_t sampleTimeRight = 0;   // [us]
     uint32_t positionEpochLeft = 0;

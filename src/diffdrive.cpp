@@ -1,9 +1,10 @@
 // differential_drive.cpp — DiffDrive::DifferentialDrive implementation.
-// EXTRACTED from src/firm/control/differential_drive.cpp with only the
-// namespace (Control -> DiffDrive) and include changed; the control law
-// is byte-identical, and src/tests/diffdrive/ holds the two to the same
-// behaviour. Fix bugs THERE first or HERE first, but always in both —
-// until the firmware is cut over to consume this package directly.
+// Vendored from League-Robotics/radio-robot
+// src/firm/diffdrive/differential_drive.cpp (namespace/include changes
+// only) — see src/DESIGN.md §2 for the full provenance statement,
+// current path, and the one known local divergence (cycleGapCount).
+// Fix bugs in both trees until the firmware consumes this package
+// directly.
 #include "diffdrive.h"
 
 #include <algorithm>

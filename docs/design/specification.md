@@ -723,25 +723,21 @@ Nezha port shaping defaults (`nezha_port.h`, used as-is —
 
 ## 12. Provenance and maintenance boundary
 
-- The wheel kernel (`diffdrive.h`/`diffdrive.cpp`) is vendored from the
-  [radio-robot](https://github.com/League-Robotics/radio-robot)
-  firmware and is **maintained there**; this repo carries the MakeCode
-  packaging. Per README: vendored from `src/firm/diffdrive/`, comments
-  stripped for size.
-  **Note** — the source files' own header comments describe a more
-  specific origin: `diffdrive.h` says the kernel is "unchanged from
-  the firmware tree (`src/firm/control/`) it is extracted from," and
-  `diffdrive.cpp`'s header says it was "EXTRACTED from
-  `src/firm/control/differential_drive.cpp` with only the namespace
-  (`Control` → `DiffDrive`) and include changed... fix bugs THERE
-  first or HERE first, but always in both — until the firmware is cut
-  over to consume this package directly." This is a discrepancy
-  between the README's stated path (`src/firm/diffdrive/`) and the
-  code's own stated path (`src/firm/control/`); flagged here rather
-  than silently resolved (see report to team-lead).
+- The wheel kernel (`diffdrive.h`/`diffdrive.cpp`) is vendored from
+  [`League-Robotics/radio-robot`](https://github.com/League-Robotics/radio-robot),
+  where it currently lives at `src/firm/diffdrive/`, and is
+  **maintained there**; this repo carries the MakeCode packaging on
+  top of it. The kernel moved to that path after this package was
+  first vendored — `src/firm/control/differential_drive.h` (the path
+  this section, and the source files' own header comments, once
+  named) is now a thin forwarding-adapter header in the upstream repo,
+  not the kernel itself; the README's path was already correct. See
+  `src/DESIGN.md` §2 for the one authoritative statement of the
+  upstream repo, current path, and maintenance boundary — this
+  section summarizes it rather than restating it independently.
 - The firmware's fidelity test suite (`src/tests/diffdrive/`, in the
   radio-robot repo) holds the two copies to the same, byte-for-byte
-  control law.
+  control law, with one documented exception — see `src/DESIGN.md` §2.
 - The Nezha motor port (`nezha_port.h`/`.cpp`) is, per README, "a
   faithful reduction of that firmware's anti-latch motor leaf." Its own
   header comment is more specific: ported from

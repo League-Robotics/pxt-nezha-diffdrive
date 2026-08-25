@@ -87,13 +87,13 @@ Layers, cleanly separated (the full breakdown is in
 ## Provenance
 
 The kernel is vendored from the
-[radio-robot](https://github.com/League-Robotics/radio-robot) firmware
-and is maintained there — this repo carries the MakeCode packaging on
-top of it. The Nezha motor port is a faithful reduction of that
-firmware's battle-tested anti-latch motor leaf. See
-`specification.md` §12 for the maintenance boundary (what's edited
-here vs. upstream) and a path discrepancy worth resolving between the
-README and the source comments.
+[radio-robot](https://github.com/League-Robotics/radio-robot) firmware,
+currently at `src/firm/diffdrive/`, and is maintained there — this repo
+carries the MakeCode packaging on top of it. The Nezha motor port is a
+faithful reduction of that firmware's battle-tested anti-latch motor
+leaf. See `src/DESIGN.md` §2 for the current path, upstream repo, and
+maintenance boundary — the one authoritative place those details live,
+rather than restated independently here and in `specification.md` §12.
 
 ## Status
 
