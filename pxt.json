@@ -37,7 +37,7 @@
         "src/pose.ts",
         "src/stop.ts",
         "src/world.ts",
-        "src/main.ts"
+        "src/motion.ts"
     ],
     "testFiles": [
         "test/test.ts",
