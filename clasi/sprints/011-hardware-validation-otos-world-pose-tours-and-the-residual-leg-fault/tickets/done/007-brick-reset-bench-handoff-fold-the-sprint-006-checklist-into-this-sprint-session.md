@@ -2,7 +2,7 @@
 id: '007'
 title: 'Brick-reset bench handoff: fold the sprint 006 checklist into this sprint
   session'
-status: in-progress
+status: done
 use-cases:
 - SUC-007
 depends-on: []
