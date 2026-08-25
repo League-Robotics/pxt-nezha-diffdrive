@@ -1,4 +1,4 @@
-"""tests/host/test_wire_motion_verbs.py -- sprint 003 tickets 004/011/012:
+"""tests/host/test_wire_motion_verbs.py --
 the six motion verbs' wire decode/dispatch (WHEELS_X, WHEELS_V, MOVE_X,
 MOVE_V, GO_TO_R, GO_TO_W), src/wire_adapter.h's WireAdapter, and STOP's
 `now` token.
@@ -6,7 +6,7 @@ MOVE_V, GO_TO_R, GO_TO_W), src/wire_adapter.h's WireAdapter, and STOP's
 Canonical spec (read-only, a different repo -- this project conforms to
 its grammar, it does not vendor its C++):
 radio-robot-lib/docs/design/protocol.md S4 (the Adapter interface), S5
-(the DiffDrive adapter -- WHEELS_V real, five kUnknown), S6/S6.1 (the
+(the DiffDrive adapter), S6/S6.1 (the
 verb table, outcome codes), S9.10 item 1 (why kUnknown, not
 kUnimplemented).
 radio-robot-lib/docs/design/motion-api.md S1 (arguments/units), S1.1
@@ -25,7 +25,7 @@ own header comment for the full rationale):
   (`err 1`, ERR_UNKNOWN) is never a decode failure (nack + err).
 - `wa` -- WireHandler + the REAL WireAdapter + a REAL DiffDrive kernel
   AND MotionEngine over FakeMotor: real effect for all SIX motion verbs
-  (sprint 003 tickets 004/011/012 -- commanded left/right, distance/
+  (commanded left/right, distance/
   rotation, v_x/omega, or x/y/speed all map to the correct velocity/
   twist/lease or move-engine segment), the cruise/speed==0 "configured
   default" substitution and the cruise/speed<0 range refusal
@@ -33,7 +33,7 @@ own header comment for the full rationale):
   both turn directions, GO_TO_W's real effect via a FakePoseSource and
   its honest refusal (ERR_UNIMPLEMENTED) with none available,
   WireAdapter's own GET/SET field-name table, STOP/ESTOP's real effect
-  on the kernel, and the motion-obligation flag (ticket 012's own
+  on the kernel, and the motion-obligation flag (the
   arm-from-every-verb bug fix, wire_adapter.h's own header comment) via
   a real nowMs wired in through waSetNowMs()/waHasLiveMotionObligation().
 

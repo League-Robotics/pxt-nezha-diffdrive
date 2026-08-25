@@ -9,7 +9,7 @@ Both carriers deliver the same ASCII lines, so every tool here takes
 `--radio` and otherwise behaves identically.
 
   link = open_link(port, radio=True)   # zavaz relay, channel 4
-  link.send('RUN:8')
+  link.send('RUN:probe')
   for line in link.lines(timeout=60): ...
 """
 import time

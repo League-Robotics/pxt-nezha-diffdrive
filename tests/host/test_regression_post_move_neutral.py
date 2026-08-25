@@ -1,7 +1,7 @@
-"""tests/host/test_regression_post_move_neutral.py -- sprint 003
-ticket 009: locks in commit `3e919e5`'s fix ("Root-cause move-end coast:
+"""tests/host/test_regression_post_move_neutral.py -- locks in
+commit `3e919e5`'s fix ("Root-cause move-end coast:
 deliver the stop on the completing tick") against `motion_engine`'s
-ported completion path (ticket 007).
+ported completion path.
 
 THE BUG (3e919e5, src/shims.cpp's `tickDrive()`): `MotionEngine::
 serviceMove()` ends a move by calling `kernel_.neutral()` -- but that
@@ -80,8 +80,7 @@ the loop's necessity and exercises the real velocity-settling machinery
 (diffdrive.cpp's `refreshSample()`) it depends on, using a Python-side
 loop that mirrors -- but does not invoke -- `tickDrive()`'s C++ one. A
 regression that deleted or shortened the ACTUAL loop in shims.cpp would
-not be caught by any host test today. See this ticket's own report for
-the recommendation to ticket 013.
+not be caught by any host test today.
 
 Run with::
 

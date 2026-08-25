@@ -6,11 +6,12 @@ the air and the body never rotates, so every answer is zero.
 
 Why it exists: the lever-arm run on 2026-08-20 showed each commanded
 45 deg pivot producing about 42 deg of real rotation -- a consistent 7%
-UNDER-rotation. That points the opposite way from the AprilCam
-calibration baked into the firmware (rotationScrub 1.040, from a pivot
-measured at 369.2 deg physical for 359.5 believed, i.e. OVER-rotation).
-Both cannot be right. This measures it directly, over a full turn where
-a small per-pivot error is easy to see.
+UNDER-rotation. That agrees with the firmware's resolved rotationalSlip
+0.952 (six 180 deg pivots measured 164-166 deg physical -- also
+under-rotation; see motion_engine.h for the full derivation). An
+earlier single-pivot reading (rotationScrub 1.040, i.e. OVER-rotation)
+had the sign of the effect backwards and was retired. This measures it
+directly, over a full turn where a small per-pivot error is easy to see.
 
 The robot's own odometry heading rides the same telemetry frames, so
 each run compares three numbers: what was commanded, what the wheels

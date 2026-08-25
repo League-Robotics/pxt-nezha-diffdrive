@@ -1,4 +1,4 @@
-"""tests/host/test_motion_engine_primitives.py -- sprint 003 ticket 006:
+"""tests/host/test_motion_engine_primitives.py -- tests
 src/motion_engine.h/.cpp's geometry (effectiveTrackWidth/countsPerMm) and
 its two wheel primitives, wheelsX and wheelsV.
 
@@ -237,7 +237,7 @@ def _expected_duty(mm_per_s, cpm, fdv=FULL_DUTY_VELOCITY):
 
 def test_effective_track_width_is_computed_not_stored(motion_lib):
     """b = trackWidth / rotationalSlip, recomputed on every call -- never
-    a cached field (Acceptance Criterion 1). Also proves trackWidth's own
+    a cached field. Also proves trackWidth's own
     read-back stays exactly the caliper-measured value even though the
     effective (rotation-corrected) value differs, and that setting
     trackWidth again never touches rotationalSlip -- the standing "never

@@ -1,4 +1,4 @@
-"""tests/host/test_motion_engine_gotow.py -- sprint 003 ticket 010:
+"""tests/host/test_motion_engine_gotow.py --
 src/motion_engine.h/.cpp's world-frame reduction, goToW(), and the
 PoseSource port it reads (a minimal x()/y()/heading() interface,
 implemented for tests by FakePoseSource -- tests/host/fake_pose_source.h).
@@ -15,7 +15,7 @@ motion-api.md S2 ("go_to_w(x, y) == read pose -> world-to-body ->
 go_to_r"), S3.6 (go_to_w's pluggable pose source), S9.3 item 3.
 
 Verification strategy: goToW() is a small, pure transform in front of an
-ALREADY-tested reduction (goToR()/moveX(), sprint 003 ticket 007's own
+ALREADY-tested reduction (goToR()/moveX(),
 test_motion_engine_reductions.py) -- so this file does not re-exercise
 goToR()'s own branches (the pivot-vs-blend threshold, the timeout
 backstop, wrong-way abort, ...) beyond what is needed to prove the
@@ -28,7 +28,7 @@ S2.1 header comment) and then goToR()'s own arc-solve formula
 after exactly one step() -- the same verification strategy
 test_motion_engine_reductions.py uses for goToR() itself.
 
-Per the ticket: cases below deliberately combine a NONZERO heading with a
+Cases below deliberately combine a NONZERO heading with a
 NONZERO position (sign and rotation-direction errors hide exactly there),
 and include headings near +-180 deg to exercise the transform across the
 wrap boundary a naive angle-difference implementation could get wrong --
@@ -444,7 +444,7 @@ def test_go_to_w_target_directly_ahead_of_rotated_heading_is_straight(
 def test_go_to_w_target_equal_to_pose_is_a_no_op(motion_lib, heading_deg):
     """dx == dy == 0 must transform to a (0, 0) body-frame delta
     regardless of heading (cos/sin(heading) * 0 is always 0) -- goToR()
-    already treats that as a no-op (ticket 007)."""
+    already treats that as a no-op."""
     with Engine(motion_lib) as e:
         _ready(e)
         heading = math.radians(heading_deg)

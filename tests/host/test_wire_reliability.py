@@ -1,5 +1,5 @@
 """tests/host/test_wire_reliability.py -- protocol v6's reliability
-layer for src/wire_handler.{h,cpp} (sprint 003 ticket 003): the
+layer for src/wire_handler.{h,cpp}: the
 mandatory, trailing, digits-only `#<n>` sequence id; handler state
 limited to exactly `expectedNext_`/`gapOutstanding_` (no clock, no
 timer); the three-way classification of every inbound id; and

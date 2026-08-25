@@ -1,23 +1,23 @@
 """tests/host/test_kernel_harness.py -- the native host test harness for
 DiffDrive::DifferentialDrive (src/diffdrive.h/.cpp).
 
-This is this repo's first test suite. Its whole job is to prove the
-host-compile + fake-port + pytest pipeline works end to end against code
-that already exists and is already portable -- `src/diffdrive.h`/`.cpp`
-depend on nothing but `<cstdint>`/`<cmath>`/`<algorithm>` and their own
-four ports (Motor/Clock/Sleeper/FiberLauncher). It does NOT touch the
-wire grammar or the motion engine -- those land in later sprint 003
-tickets, which extend this same harness (`compile_shared_lib()` below,
-and `tests/host/fake_ports.h`) rather than inventing their own.
+Its whole job is to prove the host-compile + fake-port + pytest pipeline
+works end to end against code that already exists and is already
+portable -- `src/diffdrive.h`/`.cpp` depend on nothing but
+`<cstdint>`/`<cmath>`/`<algorithm>` and their own four ports
+(Motor/Clock/Sleeper/FiberLauncher). It does NOT touch the wire grammar
+or the motion engine -- other test files extend this same harness
+(`compile_shared_lib()` below, and `tests/host/fake_ports.h`) rather
+than inventing their own.
 
 Modeled on radio-robot-lib/tests/protocol/{mock_adapter.h,
 protocol_shim.cpp} and tools/sim/README.md's build recipe -- same
 `/usr/bin/c++ -std=c++20 ... -shared -fPIC` pattern, no CMake -- except
 the shared library is compiled ONCE per pytest session (see the
-`kernel_lib` fixture) rather than once per test function: every ticket
-after this one adds more tests against the same handful of translation
-units, and re-invoking the compiler per test would make the whole
-sprint's suite slow to run.
+`kernel_lib` fixture) rather than once per test function: every other
+test file in this suite adds more tests against the same handful of
+translation units, and re-invoking the compiler per test would make the
+whole suite slow to run.
 
 Run with::
 

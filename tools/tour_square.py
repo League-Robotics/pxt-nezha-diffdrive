@@ -2,10 +2,11 @@
 """Drive the square with the firmware as it currently stands.
 
 The on-robot goToWorld commits to an arc of 2*bearing, so a leg that
-starts badly off-bearing drives a half-circle. The permanent fix caps
-that curvature (built, needs a flash). Until then this sidesteps it:
-point at the target FIRST using the robot's own on-device face loop,
-so goto always starts nearly on-bearing and its arc stays gentle.
+starts badly off-bearing drives a half-circle. main.ts's own
+turnFirstDeg already pivots first beyond a 12 deg bearing error, but
+this tool still points at the target FIRST using the robot's own
+on-device face loop, so goto always starts nearly on-bearing and its
+arc stays gentle regardless.
 
 Camera discipline is kept: seed once at the start, score at the end,
 NEVER during. The per-leg pose used for aiming comes from RUN:fix --
@@ -71,15 +72,8 @@ def main():
             tx, ty = DOTS[tag]
             if rp is None:
                 print('  no pose from the robot'); break
-            # Split long legs. A move's deadline is computed from the
-            # COMMANDED speed, but the robot averages about half of it,
-            # so a ~95 cm leg times out at 82% of the distance -- which
-            # is exactly the 20-25 cm shortfall the long legs showed.
-            # Two hops each get their own deadline, and the second hop
-            # inherits and corrects whatever the first left over.
-            # Splitting long legs was tried and made things WORSE (SE
-            # went 10.7 -> 24.0 cm), so the deadline theory that
-            # motivated it is not the explanation. One hop per corner.
+            # Splitting long legs was tried and made things worse
+            # (SE 10.7 -> 24.0 cm); one hop per corner.
             hops = [(tx, ty)]
             for hx, hy in hops:
                 if rp is None:
