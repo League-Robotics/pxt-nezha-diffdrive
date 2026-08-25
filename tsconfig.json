@@ -20,6 +20,7 @@
     "src/sim.ts",
     "src/run.ts",
     "src/pose.ts",
+    "src/stop.ts",
     "src/main.ts",
     "test/test.ts",
     "test/testrig.ts"
