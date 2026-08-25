@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: 'tools/tlm.py: shared v6 telemetry parser and fail-loud guards'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002

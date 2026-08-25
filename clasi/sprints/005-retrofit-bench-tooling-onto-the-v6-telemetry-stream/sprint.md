@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: Retrofit bench tooling onto the v6 telemetry stream
-status: ticketing
+status: executing
 branch: sprint/005-retrofit-bench-tooling-onto-the-v6-telemetry-stream
 use-cases:
 - SUC-001

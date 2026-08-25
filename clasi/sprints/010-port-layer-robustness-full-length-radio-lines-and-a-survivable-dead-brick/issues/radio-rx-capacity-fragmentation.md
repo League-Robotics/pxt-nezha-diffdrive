@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '010'
+tickets:
+- 010-001
 ---
 
 # Radio RX is one 64-byte fragment, so most of v6 cannot be received over radio
