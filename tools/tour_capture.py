@@ -73,8 +73,12 @@ def main():
         # unprompted once subscribed (require_stream() above already
         # sent TLM POSE), so the pose track survives; wheel speeds via
         # DIAG are simply unavailable untethered (and, on this firmware,
-        # unavailable wired too -- see the module docstring), so the
-        # per-corner OCAL fixes carry the scoring.
+        # unavailable wired too -- see the module docstring). The
+        # per-corner OCAL fixes are currently UNRELIABLE for scoring:
+        # they read a stale cached pose, not a live measurement (see
+        # clasi/issues/tour-corner-fixes-are-stale-cache.md) -- do not
+        # trust a tour closure number derived from them until that is
+        # fixed.
         if not a.radio and now - last_diag > 0.12:
             link.send('DIAG')
             last_diag = now

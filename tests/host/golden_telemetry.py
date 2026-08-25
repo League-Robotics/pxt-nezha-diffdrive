@@ -1,5 +1,5 @@
-"""tests/host/golden_telemetry.py -- sprint 004 ticket 004's shared
-golden telemetry-frame fixture.
+"""tests/host/golden_telemetry.py -- the shared golden telemetry-frame
+fixture.
 
 One canonical set of RAW shim inputs (what a test double, or the real
 shims.cpp, returns for buildSnapshot()'s five forward-declared reads
@@ -8,11 +8,11 @@ i2cf), the WIRE-scaled values `WireAdapter::buildSnapshot()` must
 produce from them, and the exact `thdr`/`t` byte strings
 `Wire::WireHandler` must emit from that Snapshot.
 
-Imported by BOTH this ticket's own C++-driven host test
+Imported by BOTH the C++-driven host test
 (test_wire_telemetry_projection.py, via the real WireAdapter/WaHandle)
-AND sprint 005's future Python telemetry-parser test -- so the emitter
-and the (future) parser cannot silently drift apart from each other
-(sprint.md's own stated rationale for this file's existence).
+AND the Python telemetry-parser test (tests/tools/test_tlm.py) -- so
+the emitter and the parser cannot silently drift apart from each
+other.
 
 Deliberately POSE-shaped (12 columns), not FULL: the widest-FULL-frame
 byte-budget question has its own dedicated test in

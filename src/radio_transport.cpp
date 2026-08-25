@@ -4,10 +4,11 @@
 // shaping/porting layers of its own.
 //
 // sendFragmented() below is a provenance-documented port of
-// radio-robot-elite's Platform::MicroBitRadioLink::sendFragmented() --
-// the fleet's own reference driver the RADIOBRIDGE relay hardware is
-// built against. See radio_transport.h's top comment for the framing
-// this implements and its RX/TX/ACK scope.
+// radio-robot's Platform::MicroBitRadioLink::sendFragmented() -- the
+// fleet's own reference driver the RADIOBRIDGE relay hardware is built
+// against (src/DESIGN.md §2 has the authoritative upstream repo/path
+// statement). See radio_transport.h's top comment for the framing this
+// implements and its RX/TX/ACK scope.
 #include "radio_transport.h"
 
 #include <cstring>

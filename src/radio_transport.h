@@ -5,10 +5,11 @@
 // uBit.radio and the RadioRelay on-air fragment framing, nothing about
 // pose, verb names, or command semantics.
 //
-// On-air framing is a port of radio-robot-elite's
+// On-air framing is a port of radio-robot's
 // Platform::MicroBitRadioLink (RadioRelay wire spec section 5 -- the
 // fleet's own radio driver the RADIOBRIDGE relay hardware is built
-// against): every packet is a fragment
+// against; src/DESIGN.md §2 has the authoritative upstream repo/path
+// statement): every packet is a fragment
 //     [SEQ:1][FLAGS:1][LEN:1][payload:LEN]
 // carried as the raw CODAL datagram payload (no MakeCode/PXT radio
 // package header). FLAGS: START=0x01, MORE=0x02, END=0x04. A message
