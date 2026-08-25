@@ -566,8 +566,9 @@ namespace diffDrive {
      * only if the target is far off to the side; otherwise curves to it
      * in one arc. ONE PASS: drives the leg and stops, whether or not it
      * lands inside the arrival tolerance -- it does not loop or creep
-     * up on the target. Any remaining error is inherited by the next
-     * call/hop, which plans fresh from wherever the robot actually is.
+     * up on the target. Any remaining error is DISCARDED by the next
+     * call/hop, which re-measures and plans its own absolute target
+     * from wherever the robot actually is.
      * @param x world x, eg: 60
      * @param y world y, eg: 0
      */
@@ -577,13 +578,25 @@ namespace diffDrive {
         // ONE PASS. Drive at the point, get as close as the leg gets,
         // stop. No arrival nudging, no creeping up on it, no squaring
         // up -- iterating at the destination is what turned a tour into
-        // 44 s of lurch-and-sit, and it buys accuracy the next hop can
-        // absorb for free.
+        // 44 s of lurch-and-sit, and it buys accuracy the next hop
+        // gets for free.
         //
-        // Whatever error this leg ends with is INHERITED by the next
-        // one, which plans from wherever the robot actually is. Over a
-        // multi-hop route that converges; correcting in place does not,
-        // it just costs time and looks awful.
+        // This leg's MISS IS NOT CARRIED FORWARD. The next hop re-reads
+        // the OTOS and plans its own absolute target from the pose it
+        // measures, so per-waypoint position error stays bounded by one
+        // leg's execution error instead of accumulating. What IS
+        // carried forward is OTOS error -- the gap between what the
+        // sensor believes and where the body physically is. Re-planning
+        // cannot see that, because it consults the same drifting
+        // sensor; only a camera fix can.
+        //
+        // Correcting in place fixes neither. It chases the OTOS's own
+        // belief, costs time, and looks awful.
+        //
+        // A miss is not quite free: overshoot far enough and the next
+        // leg starts past the 12 deg pivot-first threshold below, and
+        // pivots are where rotation error gets injected. The cost of a
+        // miss is an extra pivot, not accumulated position error.
         //
         // The OTOS is read here, on the robot. That is not the camera:
         // the overhead camera is a diagnostic and never drives a leg.
