@@ -298,6 +298,13 @@ void WireAdapter::status(Wire::StatusFields& out) const {
 
   out.flags = computeFlags();
   out.i2cf = diagValue(kDiagI2cFault);
+  // Sprint 010 ticket 003: same seam as i2cf immediately above, same
+  // reasoning -- diagValue(kDiagCycleCount) is the SAME call FULL
+  // telemetry's `cyc` column reads (buildSnapshot() below), so a
+  // never-ticked kernel (cyc == 0) and a ticked-but-unreachable-brick
+  // kernel (cyc > 0, connL/connR possibly still 0) are distinguishable
+  // from STATUS alone (unpowered-nezha-brick-wedges-program-at-boot.md).
+  out.cyc = static_cast<uint32_t>(diagValue(kDiagCycleCount));
 
   out.tlm = tlmModeWireName(mode_);
 }

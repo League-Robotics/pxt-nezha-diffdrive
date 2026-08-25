@@ -130,6 +130,23 @@ struct StatusFields {
   // (execStatus()'s `i2cf=%ld`), unlike `flags`' hex -- a raw fault
   // count has no bitfield meaning to pack.
   int32_t i2cf = 0;
+  // Sprint 010 ticket 003: the kernel's own heartbeat counter, closing
+  // unpowered-nezha-brick-wedges-program-at-boot.md's 2026-08-24
+  // correction -- a robot nothing has ever ticked and a robot with a
+  // genuinely unreachable brick used to report the IDENTICAL STATUS
+  // line (ready=0 connL=0 connR=0 i2cf=0), because ready/connL/connR/
+  // i2cf are all only ever written from inside step()/collect(), which
+  // never ran either way. `cyc` is the discriminator: 0 means "this
+  // kernel has never ticked" (every other field's 0 is meaningless,
+  // not a fault), nonzero means the kernel is running and every other
+  // field means what it says. Sourced by WireAdapter::status() from the
+  // SAME diagValue(16) call the telemetry `cyc` column already reads
+  // (src/wire_adapter.cpp), so the two can never disagree -- mirrors
+  // `i2cf` immediately above, sprint 004 ticket 004's identical
+  // same-source guarantee. Unsigned and decimal on the wire
+  // (execStatus()'s `cyc=%lu`): a cycle count never goes negative and
+  // has no bitfield meaning to pack.
+  uint32_t cyc = 0;
   const char* tlm = "off";
 };
 

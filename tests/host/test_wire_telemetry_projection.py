@@ -28,6 +28,7 @@ Run with::
 """
 
 import pathlib
+import re
 
 import golden_telemetry as golden
 from test_wire_motion_verbs import (  # noqa: F401 -- wa/motion_verb_lib re-exported as fixtures
@@ -48,6 +49,7 @@ from test_wire_motion_verbs import (  # noqa: F401 -- wa/motion_verb_lib re-expo
     DIAG_WEDGE_LEFT,
     DIAG_WEDGE_RIGHT,
     DIAG_WRONG_WAY_COUNT,
+    STATUS_OK,
     TLM_AUTO,
     TLM_BUFFER,
     TLM_FULL,
@@ -289,6 +291,46 @@ def test_status_i2cf_decimal_from_shared_diag_source(wa):
     reply = wa.take_sink()
     assert b"i2cf=26 " in reply
     assert b"i2cf=1a" not in reply  # wrong `hex` bit would produce this
+
+
+# ---------------------------------------------------------------------------
+# STATUS cyc= (sprint 010 ticket 003,
+# unpowered-nezha-brick-wedges-program-at-boot.md's 2026-08-24
+# correction) -- same-source guarantee, mirroring i2cf's own test
+# immediately above: STATUS's `cyc=` and FULL telemetry's `cyc` column
+# both read diagValue(kDiagCycleCount), so the two can never disagree.
+# Unlike the i2cf test above, this one deliberately does NOT use
+# set_diag_override() -- it steps a REAL kernel (no canned value
+# anywhere) so a bug that wired status()'s `cyc` to a different ordinal,
+# or to a stale/cached read, would show up as a genuine mismatch instead
+# of two overridable stubs that merely happen to share one array.
+# ---------------------------------------------------------------------------
+
+
+def test_status_cyc_matches_live_telemetry_cyc_column(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.on_tlm(TLM_FULL)  # cyc is a FULL-only column (POSE's 12 lack it)
+    for _ in range(3):
+        wa.step()
+
+    wa.feed(b"STATUS #1\n")
+    reply = wa.take_sink()
+    match = re.search(rb"cyc=(\d+)", reply)
+    assert match is not None, reply
+    status_cyc = int(match.group(1))
+
+    snapshot = wa.build_snapshot()
+    cols = {name: value for name, value, _ in snapshot.columns()}
+    telemetry_cyc = cols["cyc"]
+
+    # Never-ticked would be 0 -- this kernel really stepped, so both
+    # readings must be the SAME nonzero value, not just equal-because-
+    # both-are-zero.
+    assert status_cyc == 3
+    assert telemetry_cyc == 3
+    assert status_cyc == telemetry_cyc
 
 
 # ---------------------------------------------------------------------------

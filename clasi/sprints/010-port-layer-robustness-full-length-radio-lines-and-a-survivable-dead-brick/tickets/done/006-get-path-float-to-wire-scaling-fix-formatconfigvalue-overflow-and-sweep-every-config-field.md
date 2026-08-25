@@ -2,8 +2,9 @@
 id: '006'
 title: 'GET-path float-to-wire scaling: fix formatConfigValue overflow and sweep every
   config field'
-status: open
-use-cases: ['SUC-003']
+status: done
+use-cases:
+- SUC-003
 depends-on: []
 github-issue: ''
 issue: get-full-duty-velocity-returns-garbage.md
@@ -74,26 +75,26 @@ substituting an unrelated fixed number.
 
 ## Acceptance Criteria
 
-- [ ] `formatConfigValue()`'s intermediate scaling arithmetic no longer
+- [x] `formatConfigValue()`'s intermediate scaling arithmetic no longer
       silently overflows for any field magnitude this project's config
       space plausibly holds (verified up to at least `fullDutyVelocity`'s
       real value, 10795.0, with headroom well beyond it).
-- [ ] The fix bounds the **input** value against a named, documented
+- [x] The fix bounds the **input** value against a named, documented
       ceiling (not a post-scale clamp reachable by ordinary configured
       values) — mirroring `kWireBoundaryCastCeiling`'s doc-comment style
       so a future reader understands why the ceiling is where it is.
-- [ ] A new host test loops over all 18 `kFields` entries (not a single
+- [x] A new host test loops over all 18 `kFields` entries (not a single
       field), sets each to a representative value via the adapter's
       `onSet`/equivalent, and asserts the `GET` reply round-trips the
       real configured value.
-- [ ] A dedicated host test asserts `GET full_duty_velocity` on a kernel
+- [x] A dedicated host test asserts `GET full_duty_velocity` on a kernel
       configured with 10795.0 replies `10795.000000`, not
       `4294.967040`.
-- [ ] Existing `formatConfigValue()` behavior for every already-correct
+- [x] Existing `formatConfigValue()` behavior for every already-correct
       field (`max_duty 100.000008`-style six-fixed-digit formatting) is
       unchanged — this is a targeted fix to the overflow path only, not
       a reformat.
-- [ ] `execSet()`'s own field validity is unaffected — this ticket
+- [x] `execSet()`'s own field validity is unaffected — this ticket
       touches only the GET-reply formatting function; inbound `SET`
       parsing (`parseFloatField()`) is untouched, confirmed by reading
       it, per sprint.md's Architecture (WIRE-08's inbound fix already
@@ -130,3 +131,87 @@ ticket's test run.
 doc-comment reference (if one exists) or §5's GET/SET paragraph gains a
 note on the widened arithmetic — landed via this sprint's design
 overlay.
+
+## Implementation Notes
+
+**The scaling factor, confirmed by reading the code, not assumed:**
+`kDivisor = 1,000,000u` (×10⁶) exactly as the issue's own root-cause
+section already stated — `10795 × 1,000,000 = 10,795,000,000`, which
+does exceed `uint32_t`'s ~4.29e9 range (unlike `10795 × 1000`, which
+the ticket's own caution about not assuming ×10⁶ correctly rules out as
+NOT the overflow's cause). The overflow line is real magnitude ≈ 4295
+(`UINT32_MAX / 1,000,000`).
+
+**The fix:** `formatConfigValue()` (`wire_handler.cpp`) now bounds the
+INPUT magnitude against a new, internal, anonymous-namespace constant,
+`kGetValueCeiling = 1,000,000.0f` (two orders of magnitude above
+`fullDutyVelocity`'s own 10795.0), clamping only values that exceed it
+— no real `kFields` value comes near this bound, so every field's real
+GET reply is now the true value, never a clamp. The scaling
+intermediate itself widened from `uint32_t` to `double` (then a
+`uint64_t` for the exact integer split), which is what makes the
+post-ceiling arithmetic safe rather than merely relocating the overflow.
+`kGetValueCeiling` is declared in `wire_handler.cpp`'s own anonymous
+namespace (mirroring `kMaxMotionTimeoutMs`'s placement immediately
+above it), NOT `wire_handler.h` — it is purely an implementation detail
+of one function, with no external caller needing it, so no header
+change was needed. It is a deliberate SIBLING of
+`kWireBoundaryCastCeiling` (`wire_adapter.h`), not a reuse: reusing that
+symbol would require this host-portable, no-project-includes file to
+include `wire_adapter.h`, inverting `src/DESIGN.md` §1's layering rule
+(same reasoning `kMaxMotionTimeoutMs`'s own doc comment already gives
+for a different ceiling pair).
+
+**Sweep results:** all 18 `kFields` entries were exercised
+(`tests/host/test_wire_motion_verbs.py`, field names discovered
+dynamically from a bare `GET` dump, never hardcoded as "18"). Only
+`full_duty_velocity` (10795.0) crosses the old ~4295 overflow line among
+today's real seeded values — confirmed by direct measurement in this
+sweep, not just by reading `shims.cpp`, since the sweep is now the
+generic, repeatable proof.
+
+**Test-discrimination proof:** the production fix was `git stash`ed and
+all 5 new tests (4 in `test_wire_grammar.py`, 1 in
+`test_wire_motion_verbs.py`) were confirmed to fail against the reverted
+code — the `full_duty_velocity` sweep row failed with `4294.96704`, the
+isolated tests failed with the literal `4294.967040` sentinel — then the
+stash was restored and all tests confirmed green again.
+
+**Deviation from the AC's literal wording, and why:** AC 4 asks for a
+test through "a kernel configured with 10795.0" replying exactly
+`10795.000000`. Direct `float32` computation
+(`10795000.0f * 0.001f == 10795.0009765625f`) shows `wire_adapter.cpp`'s
+own `onGet()` descale (`static_cast<float>(getConfigValue(...)) *
+0.001f`, single precision, UNTOUCHED by this ticket — AC 6) makes an
+EXACT `10795.000000` unreachable through the real kernel/adapter path
+regardless of this fix; that pre-existing imprecision is a different,
+out-of-scope function. The dedicated exact-match test instead exercises
+`formatConfigValue()` directly, through `WireMockAdapter`'s
+`onGet()` override (`test_wire_grammar.py`'s `wg` fixture,
+`set_get_override()`), which is the correct isolation boundary for
+proving the actual fixed function is now correct at exactly 10795.0.
+The real `kFields`/kernel path is additionally covered by the AC 3
+sweep (approx tolerance, matching this repo's own pre-existing
+`test_get_set_field_name_table_round_trips` precedent), which confirms
+`full_duty_velocity` round-trips close to 10795.0 through the real
+adapter and never reproduces the old wraparound string. Flagging this
+for team-lead/reviewer visibility rather than silently reinterpreting
+the AC.
+
+**`src/DESIGN.md`:** grepped for `formatConfigValue`/`kMaxScaled`/
+scaling-related text — none found; §334's GET/SET paragraph documents
+only the field-name-table mapping, not `formatConfigValue()`'s own
+internals, so no existing doc-comment reference needed updating. No
+edit made (per dispatch instruction not to touch design docs) — flagging
+here in case team-lead judges an overlay note worthwhile anyway.
+
+**Concurrency:** `wire_handler.cpp` and `wire_handler.h` were being
+edited concurrently by ticket 003 (STATUS `cyc=`) during this ticket's
+execution. `wire_handler.cpp`'s `cyc=` addition landed (and was
+committed) before this ticket's own edit; `wire_handler.h` was not
+touched by this ticket at all. `tests/host/test_wire_grammar.py` picked
+up ticket 003's own STATUS/`cyc` test additions concurrently while this
+ticket was working in the same file — staged and committed as two
+separate hunks (this ticket's own insertion isolated via `git apply
+--cached` against only its own hunk) so ticket 003's uncommitted work
+was left untouched for that agent to commit itself.
