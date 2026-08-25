@@ -9,38 +9,26 @@
 // Host-portable by construction: this file and motion_engine.cpp include
 // nothing but <cstdint>/<cmath> and diffdrive.h -- no pxt.h, no CODAL
 // type, anywhere -- so the native host test harness (tests/host/) links
-// and exercises this class with no micro:bit involved, and both call
-// paths this sprint is building (main.ts's block API via shims.cpp, and
-// the wire adapter, wire_adapter.cpp) are meant to eventually share this
-// one implementation instead of duplicating the math (sprint.md Design
-// Rationale: "motion_engine exposes one lazy-singleton instance ...
-// reached by both shims.cpp and wire_adapter.cpp").
+// and exercises this class with no micro:bit involved. Both call paths
+// this codebase has -- main.ts's block API via shims.cpp's engine*
+// forwards, and the wire adapter (wire_adapter.cpp) via the same
+// forwards -- share this one implementation instead of duplicating the
+// math.
 //
-// TWO PRIMITIVES (motion-api.md S1/S2). Everything else in the six-
-// operation Motion API reduces onto these; sprint 003 ticket 006
-// implemented only these two plus the geometry they both depend on.
+// TWO PRIMITIVES (motion-api.md S1/S2): wheelsX() (per-wheel commanded
+// DISTANCE, ratio-locked to a cruise ceiling so both wheels finish
+// together) and wheelsV() (per-wheel commanded VELOCITY, held for
+// `duration` -- `duration` IS the kernel's own lease). Everything else
+// in the six-operation Motion API reduces onto these two plus the
+// geometry they both depend on; see each method's own doc comment below
+// for units and contract. Both clear the move engine's own in-flight
+// state first (see MOVE ENGINE below) -- motion-api.md S6: "wheels_*
+// clears the planner."
 //
-//   wheelsX(left, right, cruise, timeout) -- per-wheel commanded
-//     DISTANCE [mm], ratio-locked so both wheels finish together
-//     (motion-api.md S3.1); bounded by a dead-reckoned duration at the
-//     dominant wheel's cruise ceiling, capped by `timeout`'s backstop.
-//     No prior primitive in this codebase commands independent
-//     per-wheel distances -- this is genuinely new.
-//   wheelsV(left, right, duration) -- per-wheel commanded VELOCITY
-//     [mm/s], held for `duration` [ms] -- `duration` IS the kernel's own
-//     lease, the same field, same meaning (motion-api.md S3.2). This is
-//     shims.cpp's existing setWheels()/driveTwist()/setWheelsTimed()/
-//     driveTwistTimed() velocity-hold behavior, renamed and given one
-//     home instead of four call sites computing the same math. Both
-//     primitives now also clear the move-engine's own in-flight state
-//     (see MOVE ENGINE below) -- motion-api.md S6: "wheels_* clears the
-//     planner."
-//
-// MOVE ENGINE (motion-api.md S3.3-S3.5), sprint 003 ticket 007. The
-// taper/ramp/wrong-way-abort/settle SHAPING that used to live in
-// shims.cpp's Rig::serviceMove()/startMove() moves here verbatim
-// (algorithm unchanged, only its home and calling convention), restated
-// as the three reductions:
+// MOVE ENGINE (motion-api.md S3.3-S3.5). The taper/ramp/wrong-way-abort/
+// settle SHAPING that used to live in shims.cpp's Rig::serviceMove()/
+// startMove() moves here verbatim (algorithm unchanged, only its home
+// and calling convention), restated as the three reductions:
 //
 //   moveX(distance, rotation, cruise, timeout) -- body distance [mm] +
 //     heading change [rad] CCW+, reduced onto wheelsX's ratio math
@@ -82,8 +70,8 @@
 //     main.ts, a separate, TS-level turn-first/capped-curvature call
 //     path (sprint.md Design Rationale: two paths sharing one primitive,
 //     not one implementation).
-//   goToW(pose, x, y, speed, arrive, timeout) -- sprint 003 ticket 010,
-//     the WORLD-frame counterpart: motion-api.md S3.6, "go_to_w(x, y) ==
+//   goToW(pose, x, y, speed, arrive, timeout) -- the WORLD-frame
+//     counterpart: motion-api.md S3.6, "go_to_w(x, y) ==
 //     read pose -> world-to-body -> go_to_r". Reads `pose`'s current
 //     (x, y, heading), rotates the world-frame delta into the body frame,
 //     and delegates to goToR() above -- same single-shot, no-
@@ -139,15 +127,14 @@ namespace diffDrive {
 
 // PoseSource -- a minimal world-pose read port for goToW() (motion-api.md
 // S3.6, S9.3 item 3: "the pose source is pluggable... OTOS when fitted,
-// encoder odometry otherwise"). Three reads, nothing else -- alongside
-// DiffDrive::Motor/Clock/Sleeper in spirit (a small port a caller
-// implements against its own platform), no CODAL/PXT dependency, so a
-// future robot with no OTOS at all (motion-api.md S3.6's own `gopiv`
-// example) can supply a trivial always-stale implementation without
-// breaking the interface, and the host test harness can supply a fake
-// with no OTOS anywhere in the link. `OtosPort` (src/otos_port.h)
-// implements this for hardware; `FakePoseSource`
-// (tests/host/fake_pose_source.h) implements it for tests.
+// encoder odometry otherwise"). Three reads, nothing else, no CODAL/PXT
+// dependency -- so a future robot with no OTOS at all (motion-api.md
+// S3.6's own `gopiv` example) can supply a trivial always-stale
+// implementation without breaking the interface, and the host test
+// harness can supply a fake with no OTOS anywhere in the link.
+// `OtosPort` (src/otos_port.h) implements this for hardware;
+// `FakePoseSource` (tests/host/fake_pose_source.h) implements it for
+// tests.
 class PoseSource {
  public:
   virtual ~PoseSource() = default;
@@ -178,18 +165,17 @@ class MotionEngine {
  public:
   // `kernel`/`clock` are constructed and owned by the CALLER (shims.cpp's
   // Rig for hardware; the host test harness's own fixture for tests) --
-  // this class only ever holds references, exactly the way
-  // DiffDrive::DifferentialDrive itself holds references to its own
+  // this class only ever holds references, the same pattern
+  // DiffDrive::DifferentialDrive itself uses for its own
   // Motor/Clock/Sleeper/FiberLauncher ports rather than owning them.
-  // `clock` is new in ticket 007: the move engine's ramp (elapsed time
-  // since a segment started) and its `timeout` backstop both need wall
-  // time independent of whether/when the kernel has last step()'d, which
-  // wheelsX/wheelsV never needed (kernel_.drive() reads ITS OWN clock_
-  // reference internally to stamp a lease's `validUntil`; that reference
-  // is private to DifferentialDrive, so the move engine needs its own).
-  // Geometry defaults below are the tovez/vevov bake this class is
-  // extracted from (shims.cpp's former Rig fields) -- see this class's
-  // own field comments for the measurement behind each.
+  // This class needs its own Clock reference, separate from the
+  // kernel's: the move engine's ramp (elapsed time since a segment
+  // started) and its `timeout` backstop both need wall time independent
+  // of whether/when the kernel has last step()'d, and kernel_.drive()'s
+  // own clock_ reference (used to stamp a lease's `validUntil`) is
+  // private to DifferentialDrive. Geometry defaults below are the
+  // measured tovez/vevov bake -- see this class's own field comments for
+  // the measurement behind each.
   MotionEngine(DiffDrive::DifferentialDrive& kernel,
                const DiffDrive::Clock& clock);
 
@@ -241,12 +227,11 @@ class MotionEngine {
 
   // wheels_v(left, right, duration): hold each wheel at a commanded
   // velocity [mm/s] for `duration` [ms] -- duration IS the kernel's
-  // lease, no reinterpretation. Byte-for-byte the math shims.cpp's
-  // setWheels()/driveTwist()/setWheelsTimed()/driveTwistTimed() already
-  // perform: velocity = mean(left, right), twist = half-differential
-  // (right - left) -- CCW-positive, per this file's header comment.
-  // Clears any in-flight moveX()/goToR() move first (motion-api.md S6:
-  // "wheels_* clears the planner" -- exactly one subsystem owns motion).
+  // lease, no reinterpretation. velocity = mean(left, right), twist =
+  // half-differential (right - left) -- CCW-positive, per this file's
+  // header comment. Clears any in-flight moveX()/goToR() move first
+  // (motion-api.md S6: "wheels_* clears the planner" -- exactly one
+  // subsystem owns motion).
   void wheelsV(float left, float right, uint32_t durationMs);
 
   // wheels_x(left, right, cruise, timeout): move each wheel a commanded
@@ -262,8 +247,8 @@ class MotionEngine {
   // in-flight moveX()/goToR() move first, same as wheelsV() above.
   void wheelsX(float left, float right, float cruise, uint32_t timeoutMs);
 
-  // ---- move engine (motion-api.md S3.3-S3.5), sprint 003 ticket 007 --
-  // see this file's header comment for the shape of each reduction. ----
+  // ---- move engine (motion-api.md S3.3-S3.5) -- see this file's header
+  // comment for the shape of each reduction. ----
 
   // move_x(distance, rotation, cruise, timeout): see header comment.
   // Supersedes any in-flight move (this call's own prior phase, or a
@@ -355,9 +340,8 @@ class MotionEngine {
   // move" invariant is unaffected by this extraction.
   void settleToRest();
 
-  // ---- end-of-move shaping knobs (settable per tour) -- shims.cpp's
-  // setTaperWindows()/setTaperFloors()/setRampMs() forward to these. See
-  // this class's own field comments (below) for what each trades off. --
+  // ---- end-of-move shaping knobs (settable per tour). See this class's
+  // own field comments (below) for what each trades off. --
   void setDistTaper(float counts) { distTaper_ = counts; }
   void setYawTaper(float counts) { yawTaper_ = counts; }
   void setDistFloor(float fraction) { distFloor_ = fraction; }
@@ -476,8 +460,7 @@ class MotionEngine {
   // constant was.
   float rotationalSlip_ = 0.952f;
 
-  // ---- move engine state (extracted from shims.cpp's former Rig
-  // fields, sprint 003 ticket 007) ----
+  // ---- move engine state ----
 
   MoveState move_;
 

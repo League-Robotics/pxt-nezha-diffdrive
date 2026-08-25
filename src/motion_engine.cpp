@@ -83,7 +83,7 @@ void MotionEngine::wheelsX(float left, float right, float cruise,
   kernel_.drive(velocity, twist, lease);
 }
 
-// ---- move engine (motion-api.md S3.3-S3.5), sprint 003 ticket 007 -------
+// ---- move engine (motion-api.md S3.3-S3.5) -------
 
 void MotionEngine::cancelMove() {
   move_.active = false;
