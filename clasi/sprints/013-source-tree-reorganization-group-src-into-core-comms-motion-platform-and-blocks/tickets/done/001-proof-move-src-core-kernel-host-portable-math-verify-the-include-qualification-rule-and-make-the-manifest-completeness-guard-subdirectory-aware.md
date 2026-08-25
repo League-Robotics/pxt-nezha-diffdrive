@@ -2,7 +2,7 @@
 id: '001'
 title: 'Proof: move src/core/ (kernel + host-portable math), verify the include-qualification
   rule, and make the manifest-completeness guard subdirectory-aware'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
