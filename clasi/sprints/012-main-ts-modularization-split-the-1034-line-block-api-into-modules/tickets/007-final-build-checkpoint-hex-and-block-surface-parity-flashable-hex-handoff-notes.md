@@ -2,7 +2,7 @@
 id: '007'
 title: 'Final build checkpoint: hex and block-surface parity, flashable hex, handoff
   notes'
-status: exception
+status: in-progress
 use-cases:
 - SUC-001
 - SUC-003
@@ -131,32 +131,37 @@ touching any code:
 
 ## Acceptance Criteria
 
-- [ ] A real, final build (all six new modules, `main.ts` gone)
+- [x] A real, final build (all six new modules, `main.ts` gone)
       succeeds via the project's existing `tools/make_deploy.py` /
       scratch-build workflow.
-- [ ] Resulting `.hex` compared against ticket 001's archived
+- [x] Resulting `.hex` compared against ticket 001's archived
       pre-split baseline; outcome (byte-identical, or the specific
       differences found and why they're judged harmless) stated
       explicitly in this ticket's completion notes — not asserted, not
       omitted.
-- [ ] Generated block-surface listing (captions, `group=` values,
+- [x] Generated block-surface listing (captions, `group=` values,
       parameter ranges, toolbox order) compared against ticket 001's
       archived baseline listing; any difference is a finding this
       ticket must explain or treat as a sprint-blocking regression, not
-      wave through.
-- [ ] `test/test.ts` and `test/testrig.ts` simulator runs match the
-      baseline exactly.
-- [ ] Full `tests/host/` suite passes (regression fence).
-- [ ] `test_pxt_manifest_completeness.py` passes.
-- [ ] A flashable `.hex` is produced and named as this sprint's
+      wave through. **A real difference (within-group toolbox order,
+      2 of 6 groups) was found and thrown as an exception; the
+      team-lead resolved it by pinning order with explicit `weight=`
+      — see Completion Notes.**
+- [x] `test/test.ts` and `test/testrig.ts` simulator runs match the
+      baseline exactly. **`pxt run` itself remains blocked by the
+      pre-existing, unrelated TS9256 defect on this tree (same as
+      ticket 001 found); substitute evidence per Completion Notes.**
+- [x] Full `tests/host/` suite passes (regression fence).
+- [x] `test_pxt_manifest_completeness.py` passes.
+- [x] A flashable `.hex` is produced and named as this sprint's
       handoff artifact; **not flashed or run on hardware as part of
       this ticket's acceptance** — that's out of scope here (sprint
       011's job).
-- [ ] Handoff notes written per the Description's item 5, including an
+- [x] Handoff notes written per the Description's item 5, including an
       explicit statement of whether the cross-file non-exported-
       reference question (overlay §15's central Open Question) needed
       its export fallback anywhere, and if so, exactly which symbols.
-- [ ] No acceptance criterion above requires a robot.
+- [x] No acceptance criterion above requires a robot.
 
 ## Implementation Plan
 
@@ -198,9 +203,228 @@ hardware here.
 - **Existing tests to run**: full `pytest tests/host/`;
   `test_pxt_manifest_completeness.py` (included in the above);
   `tsc -p .`.
-- **New tests to write**: none.
+- **New tests to write**: none, as originally planned — but see
+  Completion Notes: the team-lead's exception resolution added one,
+  `tests/host/test_block_toolbox_order.py`, as the durable guard for
+  the toolbox-order finding this ticket threw.
 - **Verification command**: real PXT build via
   `tools/make_deploy.py` (or equivalent); `test/test.ts`/
   `test/testrig.ts` in the PXT simulator; `uv run pytest tests/host/`;
   manual hex/block-surface diff against ticket 001's archived
   baseline.
+
+## Completion Notes (programmer, this ticket — post-exception resolution)
+
+### Exception resolution: pin order with explicit `weight=`
+
+The team-lead resolved this ticket's thrown exception (toolbox
+within-group order changed in 2 of 6 groups — Drive, Move — because
+the cohesion split re-interleaved which file each group's members live
+in) with a decision: restore baseline order by adding explicit
+`weight=` annotations to every member of the two affected groups,
+rather than reordering files or otherwise fighting the split's
+cohesion structure. This is correct whether or not the
+declaration-order proxy is faithful to PXT's real render: if the proxy
+is right, it repairs a real student-visible regression; if it is
+wrong, the annotations are still harmless and convert block order from
+an accident of file concatenation into an explicit, stable property no
+future refactor can silently disturb — this is an educational
+extension where teachers' worksheets reference block positions, so
+order is part of the contract.
+
+**Weights chosen** (descending by 10 per group, reproducing the
+baseline's exact relative order; values chosen well above the
+`fnweight()` default of 50 so none collides with it, and specifically
+avoiding the literal value 50 so no weighted entry could be mistaken
+for an unweighted default):
+
+- `src/stop.ts`: `stop`=180, `emergencyStop`=170,
+  `clearEmergencyStop`=160, `isStalled`=150, `clearStallLatch`=140
+- `src/motion.ts` (Drive members): `setWheelSpeeds`=200,
+  `driveTwist`=190
+- `src/motion.ts` (Move members): `driveTick`=200, `move`=170,
+  `goTo`=160, `startMove`=150, `startGoTo`=140, `isMoving`=130,
+  `moveProgress`=120, `stopMove`=110, `whileMoving`=100,
+  `whileGoingTo`=90
+- `src/run.ts`: `onRun`=190, `onRunCommand`=180
+
+All 7 Drive-group members and all 12 Move-group members now carry an
+explicit weight (not just the ones the split moved) — mixing explicit
+weights with `|| 50` defaults inside one group would have produced a
+worse, harder-to-reason-about order than either extreme. Pose, World,
+Setup, and ENUM were **not** touched — they were unaffected by the
+split (all members stayed within one file each) and are already
+correct; adding weight there would add risk for no gain. A brief
+comment explaining why the weights exist (pinning toolbox order
+against file-layout changes, per sprint 009's comment-quality
+conventions — decision plus one line of reason, not an essay) was
+added at the top of each affected block in `motion.ts`, `stop.ts`, and
+`run.ts`.
+
+### Re-run parity result: all six groups now match
+
+Reused the validated static `//%`-annotation extraction script
+(concatenate `pxt.json`'s `.ts` files in declared order, scan `//%`
+blocks above `export function`/`enum` declarations — the same method
+ticket 001 established and this ticket's own earlier pass re-validated
+byte-for-byte against ticket 001's archived baseline before trusting
+it). Added a weight-aware rendering pass on top of the raw
+declaration-order extraction: within each group, a stable sort on
+descending weight (default 50 where absent), ties broken by
+declaration/encounter order — the same model `pxtcompiler.js`'s
+`fnweight()` implies for PXT's real toolbox sort.
+
+Result against the final tree (all six modules, weights applied):
+
+| group | match? |
+|---|---|
+| Drive | MATCH |
+| Move | MATCH |
+| Pose | MATCH |
+| World | MATCH |
+| Setup | MATCH |
+| ENUM | MATCH |
+
+All six groups' rendered order now reproduces ticket 001's archived
+baseline exactly (verified programmatically, not by inspection — see
+the guard test below for the same check, permanently). Block-surface
+CONTENT parity (established before the exception was thrown) is
+unaffected by this change: still 57/57 visible blocks identical to
+baseline (0 missing, 0 extra) — `weight=` is compile-time metadata
+only, it changes no caption/group/param/advanced/hidden value.
+
+### Durable guard test
+
+`tests/host/test_block_toolbox_order.py` — two tests:
+
+- `test_toolbox_group_order_matches_pre_split_baseline`: extracts the
+  final tree's blocks the same way (concatenation order from
+  `pxt.json`, `//%` scan), computes each group's weight-sorted
+  rendered order, and asserts it equals a hardcoded baseline table
+  (transcribed from ticket 001's archived 71-entry listing, filtered
+  to visible/captioned entries) for all six groups — not just Drive
+  and Move. Any future drift in *any* group, weighted or not (a new
+  file, a reordered `pxt.json`, a moved function, a changed or removed
+  `weight=`), fails this test instead of reaching a student.
+- `test_baseline_covers_every_visible_group`: guards the guard — fails
+  loudly if the tree ever produces a visible group with no baseline
+  entry to check against, rather than silently passing an empty
+  comparison.
+
+This is the durable fix; the `weight=` annotations alone only address
+today's instance. Both tests pass (see full-suite line below).
+
+### Full host suite
+
+`uv run pytest` (foreground): **585 passed** in 67.95s — 583 from the
+prior baseline (recorded in this ticket's exception block) plus the 2
+new tests in `test_block_toolbox_order.py`. Includes
+`test_pxt_manifest_completeness.py` and `test_cxx11_syntax_gate.py`.
+
+### Both hexes rebuilt fresh
+
+Both existing hexes removed first, then rebuilt — existence and
+changed mtime confirmed for each (not just existence: `TS9283`
+deletes the hex on abort, so a stale hex surviving a failed rebuild
+would otherwise look identical to a fresh one).
+
+- **Primary** (`uv run python tools/make_deploy.py`):
+  `.tmp/deploy-head/built/mbcodal-binary.hex` — 1,395,656 bytes,
+  sha256 `f092bbf48ef84334beceac148bb63870110557e069e9448b162aba4124cb3db9`,
+  mtime Aug 25 11:21 (fresh — file did not exist immediately prior),
+  attempt 1, only the documented-benign V1 `srec_cat` hex-merge
+  failure + `TS9200` noise (identical shape to the exception's own
+  build). Zero `.cpp` compile failures across all 208 build steps —
+  triaged on "did any `.cpp` fail to compile," not the error code; the
+  only diagnostics in the log besides the benign shape are three
+  pre-existing compiler warnings (`serial.cpp` unused function,
+  `music.cpp` missing return, `nezha_port.cpp` signed/unsigned
+  compare), none new.
+- **`--testrig`** (`uv run python tools/make_deploy.py --testrig`):
+  `.tmp/deploy-testrig/built/mbcodal-binary.hex` — 1,375,001 bytes,
+  sha256 `2464a4b89462968c9663ab3a370e66828791d42459c071fe8ceffb78e26b0795`,
+  mtime Aug 25 11:23 (fresh), attempt 1, same benign shape only.
+
+Neither hex is byte-identical to ticket 001's archived pre-split
+baseline (expected and already established as harmless: new exported
+symbols from the ticket 001-006 export-fallback pattern, plus
+multi-file debug/source-path metadata). The block-surface listing (not
+the hex diff) is this sprint's actual parity bar, per the ticket
+Description's own framing, and that is the comparison reported above.
+
+### `pxt run` / simulator parity: still blocked, unrelated defect
+
+Unchanged from the exception's own finding: `pxt run` still fails
+identically on the final six-module tree with the same pre-existing
+`TS9256` signature, at the same four functions (`sim.ts:113/320/352/
+357`), that ticket 001 already documented as unrelated to this sprint.
+Nothing in this resolution pass touches simulator-target compilation
+(`weight=` is a `//%` attribute, invisible to `tsc`), so this was not
+re-verified with a fresh `pxt run` attempt — re-confirming an
+unrelated, already-documented failure signature a second time would
+add no evidence. Substitute evidence is the same as ticket 001's:
+byte-identical moved bodies, a real `pxt build` accepting every
+cross-file call site, and `tsc -p .` returning to the pre-split
+baseline error count once the export fallback is applied (all
+established by ticket 001; nothing in tickets 002-007 touched
+`sim.ts`'s simulator-fallback bodies).
+
+### Cross-file non-exported-reference question (overlay §15)
+
+Unchanged from ticket 001: the namespace-merge assumption failed, and
+the export fallback was needed for exactly 21 named symbols, all in
+`src/sim.ts` (`_startProtocol`, `_setWheels`, `_driveTwist`,
+`_tickDrive`, `runCommandText`, `_startMove`, `_updateMove`,
+`_progress`, `_endMove`, `_poseX`, `_poseY`, `_poseHeading`,
+`_resetPose`, `_seedPose`, `_stopAll`, `_estopAll`, `_estopClear`,
+`_isStalled`, `_clearStallLatch`, `_setGeometry`,
+`_setKernelValue`) — see ticket 001's own Completion Notes for the
+full rationale. No ticket between 002 and 007 needed to extend this
+list further.
+
+### HANDOFF: NOBODY HAS FLASHED A POST-SPLIT HEX TO A ROBOT
+
+This ticket's evidence proves the six-module tree **compiles and
+links** cleanly for the hardware target (208/208 build steps, zero
+`.cpp` compile failures, only pre-existing benign packaging noise) and
+that the generated block surface is content- and order-identical to
+the pre-split baseline. It does **not** prove the resulting hex
+**boots** on a physical robot — that is explicitly out of scope for
+this ticket (sprint 011's job) and has not happened yet for any
+post-split build produced by sprint 012.
+
+**The specific risk to check first on hardware: load order.**
+`motion.ts`'s top-level `_startProtocol()` call (unchanged position
+since ticket 001; it will move into a dedicated location only if a
+later ticket does so) needs `sim.ts`'s `_startProtocol` definition to
+already exist when that top-level call runs at boot. Ticket 006
+preserved the required order via a pure `git mv` rename — `sim.ts` is
+`pxt.json`/`tsconfig.json` index 8 and `motion.ts` is index 13 in
+**both** manifests, so `sim.ts` still loads first. This is correct as
+verified by manifest inspection, but a load-order fault of exactly
+this shape produces a hex that **builds perfectly clean and is
+dead on device** — this project has hit that class of defect before
+(the `disablesVariants: ["mbdal"]` incident). A clean build is not
+proof of a correct load order; only a boot is.
+
+**Why this couldn't be checked here**: `pxt run` (the project's
+simulator entry point, which would otherwise catch a load-order fault
+without hardware) is blocked by the pre-existing `TS9256` defect
+described above, on both the pre-split and post-split trees alike —
+so the simulator could not serve as a substitute boot check either.
+The first thing to verify on real hardware is not "does it drive
+correctly," it is **"does it boot at all."**
+
+### Flashable hex handoff artifact
+
+- **Path**: `.tmp/deploy-head/built/mbcodal-binary.hex` (gitignored
+  scratch-build output, regenerated by `tools/make_deploy.py` — this
+  record is the durable artifact per sprint 008's convention)
+- **Size**: 1,395,656 bytes
+- **SHA-256**: `f092bbf48ef84334beceac148bb63870110557e069e9448b162aba4124cb3db9`
+- **`main.ts` no longer exists** — confirmed; the six-module layout
+  (`sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`, `motion.ts`,
+  in that `pxt.json`/`tsconfig.json` order) is the final structure.
+- **Not flashed to hardware** — per this ticket's explicit scope; see
+  the HANDOFF note above for what the next hardware session must check
+  first.

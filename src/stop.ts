@@ -1,11 +1,16 @@
 namespace diffDrive {
     // ================= stopping ======================================
 
+    // weight= below (through clearStallLatch()) pins Drive group order
+    // to the pre-split baseline (sprint 012 ticket 007) -- see
+    // motion.ts's setWheelSpeeds() for the full rationale; this file
+    // supplies the other half of the same group.
+
     /**
      * Stop driving (normal stop).
      */
     //% block="stop"
-    //% group="Drive"
+    //% group="Drive" weight=180
     export function stop(): void {
         _stopAll()
     }
@@ -14,7 +19,7 @@ namespace diffDrive {
      * Emergency stop: latch off until clearEmergencyStop().
      */
     //% block="emergency stop"
-    //% group="Drive"
+    //% group="Drive" weight=170
     export function emergencyStop(): void {
         _estopAll()
     }
@@ -23,7 +28,7 @@ namespace diffDrive {
      * Clear the emergency-stop latch.
      */
     //% block="clear emergency stop" advanced=true
-    //% group="Drive"
+    //% group="Drive" weight=160
     export function clearEmergencyStop(): void {
         _estopClear()
     }
@@ -36,7 +41,7 @@ namespace diffDrive {
      * the simulator: there is no stall model in the browser.
      */
     //% block="is stalled"
-    //% group="Drive"
+    //% group="Drive" weight=150
     export function isStalled(): boolean {
         return _isStalled()
     }
@@ -48,7 +53,7 @@ namespace diffDrive {
      * nothing is latched.
      */
     //% block="clear stall latch" advanced=true
-    //% group="Drive"
+    //% group="Drive" weight=140
     export function clearStallLatch(): void {
         _clearStallLatch()
     }

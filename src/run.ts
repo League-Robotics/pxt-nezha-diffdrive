@@ -56,6 +56,11 @@ namespace diffDrive {
         })
     }
 
+    // weight= below (onRun/onRunCommand) pins Move group order to the
+    // pre-split baseline (sprint 012 ticket 007) -- see motion.ts's
+    // setWheelSpeeds() for the full rationale; this file supplies two
+    // members of the same group.
+
     /**
      * Run code when the named command arrives over the wire protocol --
      * `RUN:<name>` or `RUN:<name>:<arg>`, e.g. RUN:pivot:180. Bind your
@@ -69,7 +74,7 @@ namespace diffDrive {
      */
     //% block="on run %name $arg"
     //% draggableParameters="reporter"
-    //% group="Move"
+    //% group="Move" weight=190
     export function onRun(name: string, handler: (arg: number) => void): void {
         ensureRunState()
         wireRunDispatch()
@@ -84,7 +89,7 @@ namespace diffDrive {
      */
     //% block="on run command $name $arg"
     //% draggableParameters="reporter"
-    //% group="Move"
+    //% group="Move" weight=180
     export function onRunCommand(
         handler: (name: string, arg: number) => void): void {
         ensureRunState()

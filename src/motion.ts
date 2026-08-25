@@ -67,6 +67,11 @@ namespace diffDrive {
 
     // ================= public API: velocity commands =================
 
+    // weight= below (through whileGoingTo()) pins Drive/Move toolbox
+    // order to the pre-split baseline (sprint 012 ticket 007) -- without
+    // it, order ties break on file layout, which the module split
+    // changed.
+
     /**
      * Set the two wheel speeds. Continuous-mode command: the robot only
      * moves while something keeps ticking the control loop -- run a
@@ -82,7 +87,7 @@ namespace diffDrive {
      */
     //% block="set wheel speeds left %left right %right cm/s"
     //% left.min=-50 left.max=50 right.min=-50 right.max=50
-    //% group="Drive"
+    //% group="Drive" weight=200
     export function setWheelSpeeds(left: number, right: number): void {
         _setWheels(Math.round(left * 10), Math.round(right * 10))
     }
@@ -99,7 +104,7 @@ namespace diffDrive {
      */
     //% block="drive %speed cm/s turning %yawRate deg/s"
     //% speed.min=-50 speed.max=50 yawRate.min=-180 yawRate.max=180
-    //% group="Drive"
+    //% group="Drive" weight=190
     export function driveTwist(speed: number, yawRate: number): void {
         _driveTwist(Math.round(speed * 10), Math.round(yawRate * 100))
     }
@@ -115,7 +120,7 @@ namespace diffDrive {
      * (about 24 ms), so don't add your own pause() in the loop.
      */
     //% block="drive tick"
-    //% group="Move"
+    //% group="Move" weight=200
     export function driveTick(): boolean {
         return _tickDrive()
     }
@@ -129,7 +134,7 @@ namespace diffDrive {
      * @param yaw angle to turn CCW+, eg: 0
      */
     //% block="move %distance cm turning %yaw degrees"
-    //% group="Move"
+    //% group="Move" weight=170
     export function move(distance: number, yaw: number): void {
         startMove(distance, yaw)
         while (_tickDrive());
@@ -142,7 +147,7 @@ namespace diffDrive {
      * @param y leftward distance, eg: 10
      */
     //% block="go to x %x cm y %y cm"
-    //% group="Move"
+    //% group="Move" weight=160
     export function goTo(x: number, y: number): void {
         startGoTo(x, y)
         while (_tickDrive());
@@ -161,7 +166,7 @@ namespace diffDrive {
      * own driveTick() loop.
      */
     //% block="start move %distance cm turning %yaw degrees"
-    //% group="Move" advanced=true
+    //% group="Move" advanced=true weight=150
     export function startMove(distance: number, yaw: number): void {
         _startMove(Math.round(distance * 10), Math.round(yaw * 100),
             Math.round(defaultSpeed * 10),
@@ -174,7 +179,7 @@ namespace diffDrive {
      * driveTick() loop, this does not progress on its own.
      */
     //% block="start go to x %x cm y %y cm"
-    //% group="Move" advanced=true
+    //% group="Move" advanced=true weight=140
     export function startGoTo(x: number, y: number): void {
         // Constant-curvature arc from the robot origin (heading 0,
         // along +x) through (x, y): turn angle theta = 2*atan2(y, x);
@@ -200,7 +205,7 @@ namespace diffDrive {
      * loop); see startMove()'s doc comment.
      */
     //% block="moving?"
-    //% group="Move"
+    //% group="Move" weight=130
     export function isMoving(): boolean {
         return _updateMove()
     }
@@ -211,7 +216,7 @@ namespace diffDrive {
      * advance the move (see startMove()'s doc comment).
      */
     //% block="move progress"
-    //% group="Move" advanced=true
+    //% group="Move" advanced=true weight=120
     export function moveProgress(): number {
         return _progress() / 1000
     }
@@ -224,7 +229,7 @@ namespace diffDrive {
      * move-engine state.
      */
     //% block="stop move"
-    //% group="Move"
+    //% group="Move" weight=110
     export function stopMove(): void {
         _endMove()
     }
@@ -238,7 +243,7 @@ namespace diffDrive {
      */
     //% block="while moving %distance cm turning %yaw degrees"
     //% draggableParameters="reporter" handlerStatement=1
-    //% group="Move"
+    //% group="Move" weight=100
     export function whileMoving(distance: number, yaw: number,
         body: (x: number, y: number, heading: number) => void): void {
         startMove(distance, yaw)
@@ -253,7 +258,7 @@ namespace diffDrive {
      */
     //% block="while going to x %x cm y %y cm"
     //% draggableParameters="reporter" handlerStatement=1
-    //% group="Move"
+    //% group="Move" weight=90
     export function whileGoingTo(x: number, y: number,
         body: (x: number, y: number, heading: number) => void): void {
         startGoTo(x, y)
