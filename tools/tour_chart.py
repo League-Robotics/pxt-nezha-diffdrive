@@ -4,7 +4,7 @@
 Reads the two CSVs the capture step writes (pose stream + wheel-speed
 samples) and renders one PNG with two panels:
 
-  1. x-y trajectory (mm), equal aspect, commanded square overlaid
+  1. x-y trajectory (mm), equal aspect, commanded path overlaid
      dashed, start/end markers, start-to-end closure drawn + labeled.
   2. wheel speeds vs time (cm/s), left/right lines.
 
@@ -38,10 +38,11 @@ MAX_SPEED_CM_S = 60.0     # robot tops out ~20 cm/s
 
 
 def read_csv(path):
+    """-> (rows, header). The header is DATA: the vel CSV names its units."""
     with open(path) as f:
         r = csv.reader(f)
-        next(r)
-        return [[float(v) for v in row] for row in r if row]
+        head = next(r)
+        return [[float(v) for v in row] for row in r if row], head
 
 
 def main():
@@ -49,7 +50,14 @@ def main():
     ap.add_argument('pose_csv')
     ap.add_argument('vel_csv')
     ap.add_argument('out_png')
-    ap.add_argument('--side-mm', type=float, default=300.0)
+    ap.add_argument('--rect-cm', type=float, nargs=2, default=[100.0, 60.0],
+                    metavar=('W', 'H'),
+                    help='commanded rectangle, CENTRED on the origin -- the '
+                         'shape the tours actually drive')
+    ap.add_argument('--side-mm', type=float, default=None,
+                    help='LEGACY: an origin-anchored SQUARE of this side '
+                         'instead. Not the current tour; kept for old '
+                         'captures only.')
     ap.add_argument('--travel-calib', type=float, default=0.8102)
     ap.add_argument('--title', default='Square Tour')
     a = ap.parse_args()
@@ -66,9 +74,16 @@ def main():
             f'sidecar reports frames=0 -- no telemetry was recorded for '
             f'this run')
 
-    pose_all = read_csv(a.pose_csv)
-    vel_all = read_csv(a.vel_csv)            # t, vel_l_counts, vel_r_counts
-    k = a.travel_calib / 100.0               # counts/s -> cm/s
+    pose_all, _ = read_csv(a.pose_csv)
+    vel_all, vel_head = read_csv(a.vel_csv)
+    # Units are READ, never assumed. vl/vr off the v6 wire are already
+    # mm/s; DIAG's retired `vel=` was encoder counts/s and needed
+    # travelCalib. Applying the counts scale to mm/s is a ~12x error
+    # that plots perfectly plausibly.
+    if any('mmps' in c for c in vel_head):
+        k, unit_note = 0.1, 'mm/s'
+    else:
+        k, unit_note = a.travel_calib / 100.0, 'counts/s'
 
     # Pose CSV shapes: legacy 4-col (t, x, y, h), device-timestamped
     # 5-col (t_host, t_dev_ms, x, y, h), or dual-pose 8-col with the
@@ -110,10 +125,14 @@ def main():
     for o in otos:
         if not fixes or (o[1], o[2]) != (fixes[-1][1], fixes[-1][2]):
             fixes.append(o)
-    vel = [(t, l * k, r * k) for t, l, r in vel_all
-           if abs(l * k) < MAX_SPEED_CM_S and abs(r * k) < MAX_SPEED_CM_S
-           and t <= t_cut]
-    n_bad = (len(pose_all) - len(pose)) + (len(vel_all) - len(vel))
+    vel_cut = [v for v in vel_all if v[0] <= t_cut]
+    vel = [(t, l * k, r * k) for t, l, r in vel_cut
+           if abs(l * k) < MAX_SPEED_CM_S and abs(r * k) < MAX_SPEED_CM_S]
+    # ONLY implausible samples are corrupt. Comparing against the
+    # UNtruncated velocity source made the correctly-cut post-motion
+    # tail get announced as corruption -- 16 phantom "corrupt samples"
+    # on a run that had none.
+    n_bad = (len(pose_all) - len(pose)) + (len(vel_cut) - len(vel))
 
     if not pose:
         raise SystemExit('no plausible pose data')
@@ -121,7 +140,15 @@ def main():
     ex, ey = pose[-1][1], pose[-1][2]
     closure = ((ex - sx) ** 2 + (ey - sy) ** 2) ** 0.5
     end_h = pose[-1][3] / 100.0
-    s = a.side_mm
+    if a.side_mm is not None:
+        sq = a.side_mm
+        cmd_x, cmd_y = [0, sq, sq, 0, 0], [0, 0, sq, sq, 0]
+        clabel = f'commanded {sq:.0f} mm square (legacy)'
+    else:
+        hw, hh = a.rect_cm[0] * 5.0, a.rect_cm[1] * 5.0   # cm -> mm, halved
+        cmd_x = [hw, -hw, -hw, hw, hw]
+        cmd_y = [hh, hh, -hh, -hh, hh]
+        clabel = f'commanded {a.rect_cm[0]:.0f}x{a.rect_cm[1]:.0f} cm'
 
     fig = plt.figure(figsize=(12, 6.4), facecolor='#fcfcfb')
     otos_note = ""
@@ -138,8 +165,8 @@ def main():
     # ---- panel 1: trajectory -------------------------------------------
     ax = fig.add_subplot(1, 2, 1)
     ax.set_facecolor('#fcfcfb')
-    ax.plot([0, s, s, 0, 0], [0, 0, s, s, 0], ls='--', lw=1.2,
-            color=MUTED, label='commanded square', zorder=1)
+    ax.plot(cmd_x, cmd_y, ls='--', lw=1.2, color=MUTED, label=clabel,
+            zorder=1)
     ax.plot([p[1] for p in pose], [p[2] for p in pose], lw=1.8,
             color=S1, label='odometry path', zorder=2)
     if fixes:
@@ -199,7 +226,8 @@ def main():
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     fig.savefig(a.out_png, dpi=160)
     print(f"wrote {a.out_png}  (closure {closure:.0f} mm, end heading "
-          f"{end_h:.1f} deg, {n_bad} corrupt samples excluded)")
+          f"{end_h:.1f} deg, wheel speeds from {unit_note}, "
+          f"{n_bad} corrupt samples excluded)")
 
 
 if __name__ == '__main__':

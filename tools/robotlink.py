@@ -23,10 +23,74 @@ ZAVAZ_CHANNEL = 4
 ZAVAZ_GROUP = 10
 
 
+# v6 wire verbs (protocol.md S6.1). These are SEQUENCED: the handler
+# compares each line's `#<id>` against its own expectedNext_, and an id
+# BELOW that is classified as a stale retransmit and deliberately NOT
+# executed. An unsequenced line therefore parses as `#0`, which is
+# unconditionally < expectedNext_ (it starts at 1 and never goes below),
+# so it is silently dropped.
+#
+# MEASURED on vevov, 2026-08-25, v6 firmware over USB:
+#     'TLM POSE'      -> 0 telemetry frames (72 keepalive acks only)
+#     'TLM POSE #1'   -> 72 `t` frames + 4 `thdr` frames
+# i.e. every v6 command sent through this link without an id was a
+# silent no-op. The cleartext `RUN:`/`DIAG` vocabulary is a DIFFERENT
+# parser path and is NOT sequenced -- `RUN:tour:wheels` unsequenced
+# returns its DBG:tour= receipt normally -- so only these verbs get an
+# id appended.
+_V6_VERBS = frozenset((
+    'VER', 'ID', 'STATUS', 'HELP', 'GET', 'SET', 'TLM', 'STOP', 'ESTOP',
+    'MOVE', 'PIVOT', 'WHEELS_V', 'WHEELS_X', 'GO_TO', 'GO_TO_W', 'ARC',
+))
+
+
 class Link:
     def __init__(self, port, radio):
         self.radio = radio
         self.p = port
+        # Next id to allocate. expectedNext_ starts at 1 on the robot;
+        # sync_seq() corrects this against a live keepalive, because a
+        # robot mid-session is already past 1 and a stale counter here
+        # opens a numeric GAP, which stalls the stream ON PURPOSE until
+        # the missing id arrives.
+        self._seq = 0
+
+    def _is_wire(self, line):
+        return line.split(' ', 1)[0] in _V6_VERBS
+
+    def _format(self, line):
+        """Attach a sequence id to a v6 wire verb; pass cleartext through.
+
+        Allocates AT MOST ONE id per logical command -- a retransmit must
+        reuse its original id, never take a fresh one, or it reads as a
+        gap rather than as the resend it is. That is why send_until()
+        formats once and resends the identical string.
+        """
+        if not self._is_wire(line) or '#' in line:
+            return line
+        self._seq += 1
+        return f'{line} #{self._seq}'
+
+    def sync_seq(self, timeout=1.5):
+        """Learn the robot's expectedNext_ from a keepalive ack.
+
+        The keepalive is `ack <expectedNext-1> <lastDone> <reason>`, so
+        the next id we may legally use is that first field + 1.
+        """
+        import re
+        end = time.time() + timeout
+        while time.time() < end:
+            raw = self.p.readline()
+            if not raw:
+                continue
+            t = raw.decode('ascii', errors='replace').strip()
+            if t.startswith('< '):
+                t = t[2:]
+            m = re.match(r'^(?:ack|nack)\s+(\d+)', t)
+            if m:
+                self._seq = int(m.group(1))
+                return self._seq
+        return None
 
     def send(self, line, repeat=1):
         """Send a line, once by default.
@@ -40,8 +104,9 @@ class Link:
         pivots. Use send_until() instead, which only resends when the
         reply that proves arrival never came.
         """
+        wire = self._format(line)
         for i in range(repeat):
-            self.p.write((line + '\n').encode())
+            self.p.write((wire + '\n').encode())
             if i + 1 < repeat:
                 time.sleep(0.25)
 
@@ -53,8 +118,13 @@ class Link:
         land -- the reply IS the delivery receipt.
         """
         seen = []
+        # Format ONCE: every retry must carry the SAME id. A resend that
+        # took a fresh id would present as a numeric gap, which the
+        # handler stalls on deliberately -- nacking every subsequent
+        # command until the "missing" id it is waiting for arrives.
+        wire = self._format(line)
         for attempt in range(tries):
-            self.send(line)
+            self.p.write((wire + '\n').encode())
             for s in self.lines(wait):
                 seen.append(s)
                 if s.startswith(expect):
@@ -105,11 +175,16 @@ def open_link(port=None, radio=False):
         p.write(b'!GO\n')
         time.sleep(0.8)
         p.reset_input_buffer()
-        return Link(p, True)
+        link = Link(p, True)
+        link.sync_seq()
+        return link
 
     if port is None:
         raise ValueError('USB link needs an explicit port')
     p = serial.Serial(port, 115200, timeout=0.1)
     time.sleep(1.5)
     p.reset_input_buffer()
-    return Link(p, False)
+    link = Link(p, False)
+    # Adopt the robot's own expectedNext_ before the first wire command.
+    link.sync_seq()
+    return link

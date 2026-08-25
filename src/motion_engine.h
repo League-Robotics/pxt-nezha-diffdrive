@@ -417,11 +417,47 @@ class MotionEngine {
   DiffDrive::DifferentialDrive& kernel_;
   const DiffDrive::Clock& clock_;
 
-  // vevov-measured travel calibration (2026-08-19 bench: commanded
-  // 80 cm, odometry believed 798 mm, tape measured 825 mm ->
-  // 0.7837 * 825/798 = 0.8102). Generic kits calibrate via
+  // vevov-measured travel calibration. Generic kits calibrate via
   // setTravelCalib()/setTrackWidth() (shims.cpp's setGeometry() block).
-  float travelCalib_ = 0.8102f;  // [mm/deg] wheel travel per shaft degree
+  //
+  // CAMERA-MEASURED 2026-08-25 on the playfield, and this REPLACES the
+  // 0.8102 that stood here. That entry came from a single tape
+  // measurement (2026-08-19: commanded 80 cm, odometry believed 798 mm,
+  // tape measured 825 mm -> 0.7837 * 825/798 = 0.8102) which raised the
+  // constant. This measurement says the raise was in the WRONG
+  // DIRECTION: the robot travels ~2.8% LESS than it believes, not more.
+  // The new value lands within 0.5% of the 0.7837 that 2026-08-19
+  // replaced, so this is close to a revert of that change.
+  //
+  // Why trust this over the tape: twelve `RUN:straight` legs at three
+  // distances (30/55/85 cm), both directions, each bracketed by
+  // overhead-AprilCam fixes taken AT REST. `RUN:straight` is the clean
+  // probe -- test.ts documents it as wheels-only, with no OTOS, no world
+  // frame and no heading correction, so nothing is quietly steering it.
+  // The camera's own scale was verified in the same session against
+  // three fixed field-tag pairs of known separation: +0.13%, -0.09%,
+  // -0.11%. A tape over 80 cm cannot beat that.
+  //
+  //   commanded 85 cm -> odometry believed 85.10 cm (control is fine,
+  //   0.1%) -> camera measured 82.7 cm.
+  //
+  // SCALE, not offset -- which is what makes this constant the right
+  // knob. Fitting shortfall = a + b*distance over the three distances
+  // gives b = 3.07% with a = -0.20 cm; forcing the physically-motivated
+  // zero intercept gives 2.7608% with residuals under 0.21 cm. A
+  // stopping/deadline overshoot would have shown up as a constant `a`
+  // and left `b` near zero, and would NOT have been fixable here.
+  //   0.8102 * (1 - 0.027608) = 0.7878
+  //
+  // KNOCK-ON FOR ROTATION, which must not be "fixed" twice: heading is
+  // (wheel travel)/track, so this scale error propagated into rotation
+  // identically. Isolated camera-truthed 90 deg pivots measured
+  // camera/encoder 0.9805 BEFORE this change; 0.9805/0.9724 = 1.0093,
+  // so once travel is right the robot should OVER-rotate by ~0.9% and
+  // that residual -- not the raw 0.9805 -- is what rotationalSlip_
+  // below would have to answer for. Re-measure rotation after this
+  // lands before touching that constant.
+  float travelCalib_ = 0.7878f;  // [mm/deg] wheel travel per shaft degree
 
   // [mm] MEASURED track (stakeholder tape, 2026-08-19). This is the
   // robot's geometry; it is never "corrected" -- turning slip is
