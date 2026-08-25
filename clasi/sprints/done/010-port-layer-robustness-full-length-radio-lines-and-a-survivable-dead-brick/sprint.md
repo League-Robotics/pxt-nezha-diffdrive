@@ -1,7 +1,7 @@
 ---
 id: '010'
 title: 'Port-layer robustness: full-length radio lines and a survivable dead brick'
-status: executing
+status: done
 branch: sprint/010-port-layer-robustness-full-length-radio-lines-and-a-survivable-dead-brick
 use-cases:
 - SUC-001
