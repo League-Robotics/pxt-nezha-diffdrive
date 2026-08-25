@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: 'WireAdapter: real motion-completion signal (lastDone/lastDoneReason)'
-status: open
+status: done
 use-cases:
 - SUC-006
 depends-on: []
@@ -71,14 +71,14 @@ out two tempting alternatives):**
 
 ## Acceptance Criteria
 
-- [ ] `Wire::DoneReason` gains `kStall`; `doneReasonWireName()`
+- [x] `Wire::DoneReason` gains `kStall`; `doneReasonWireName()`
       (`wire_handler.cpp`) returns `"stall"` for it.
-- [ ] `shims.cpp` gains one new thin, read-only, forward-declared free
+- [x] `shims.cpp` gains one new thin, read-only, forward-declared free
       function (`engineMoveActive()` or equivalent) that
       `WireAdapter`/`wire_adapter.cpp` forward-declares and calls — no
       stored `MotionEngine`/`Rig` reference anywhere in
       `wire_adapter.h`/`.cpp`.
-- [ ] `WireAdapter::lastDone()`/`lastDoneReason()` report real values
+- [x] `WireAdapter::lastDone()`/`lastDoneReason()` report real values
       for all six motion verbs (WHEELS_V, WHEELS_X, MOVE_X, MOVE_V,
       GO_TO_R, GO_TO_W), read fresh on every ack/nack (no cached copy),
       matching the existing S8.8 contract
@@ -86,23 +86,23 @@ out two tempting alternatives):**
       existing pattern in `tests/host/test_wire_reliability.py`, which
       tests the mock adapter — this ticket's new tests do the
       equivalent against the **real** `WireAdapter`).
-- [ ] A motion that reaches its own stop condition before its
+- [x] A motion that reaches its own stop condition before its
       deadline/lease expires reports `kStop`.
-- [ ] A motion verb accepted while a previous one is still live reports
+- [x] A motion verb accepted while a previous one is still live reports
       `kAborted` for the superseded one.
-- [ ] A lease-style verb's deadline elapses with nothing superseding it
+- [x] A lease-style verb's deadline elapses with nothing superseding it
       → `kTimeout`.
-- [ ] The kernel's stall latch being set during a move → `kStall`.
-- [ ] An ESTOP landing during a move → `kEstop`.
-- [ ] Before any motion verb has ever completed, `lastDone()` reports
+- [x] The kernel's stall latch being set during a move → `kStall`.
+- [x] An ESTOP landing during a move → `kEstop`.
+- [x] Before any motion verb has ever completed, `lastDone()` reports
       `0` and `lastDoneReason()` reports `kNone` — the pre-existing
       "nothing completed yet" case is preserved, not broken by this
       ticket's new bookkeeping.
-- [ ] `WireMockAdapter` (`tests/host/wire_mock_adapter.h`) and
+- [x] `WireMockAdapter` (`tests/host/wire_mock_adapter.h`) and
       `tests/host/test_wire_reliability.py`'s existing mock-based tests
       are unaffected — this ticket changes the real `WireAdapter`, not
       the `Wire::Adapter` interface's mock test double's own behavior.
-- [ ] `uv run pytest` (full suite) passes, including
+- [x] `uv run pytest` (full suite) passes, including
       `tests/host/test_cxx11_syntax_gate.py`.
 
 ## Implementation Notes

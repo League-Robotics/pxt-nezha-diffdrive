@@ -101,6 +101,20 @@ int otosGet(int what);  // CACHE ONLY -- see hazard 3 above; never the
                          // blocking-read entry point
 int wheelSpeed(int which);  // [mm/s]; which: 0 = left, 1 = right
 
+// ---- shims.cpp entry point (sprint 005 ticket 004: the motion-
+// completion signal, closing wire-motion-completion-signal.md/R-23) ----
+// The ONE genuinely new read this ticket needs (sprint.md's own Design
+// Rationale) -- true iff MotionEngine's own move-engine state is
+// currently active, read-only, thin, matching engineWheelsX()'s own
+// forward-declaration convention exactly. Used only by
+// resolvePendingReason() (below) for the three goal-directed verbs
+// (MOVE_X/GO_TO_R/GO_TO_W); WHEELS_V/WHEELS_X/MOVE_V never need it
+// (they never make MotionEngine's move-engine state active in the
+// first place -- wheelsV()/wheelsX() both call cancelMove() first,
+// motion_engine.cpp). This class still holds no stored reference to
+// MotionEngine/Rig -- see this file's own header comment.
+bool engineMoveActive();
+
 namespace {
 
 // The `ConfigField` enum entries (main.ts) mapped onto
@@ -327,7 +341,6 @@ void WireAdapter::status(Wire::StatusFields& out) const {
 
 Wire::Result WireAdapter::onWheelsV(float left, float right,
                                     uint32_t duration, uint32_t id) {
-  (void)id;
   if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
   // WIRE-08 (code review 2026-08-23): refuse BEFORE the cast below runs
   // at all -- see kWireBoundaryCastCeiling's own doc comment
@@ -343,6 +356,18 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
   // signed-integer fields, wire_handler.cpp) -- a plain narrowing cast
   // is exact, no rounding needed, now that the range check above rules
   // out the one region where "exact" stops being true.
+  //
+  // sprint 005 ticket 004: resolve any still-pending PREVIOUS motion as
+  // "superseded" BEFORE dispatching this one, not after -- setWheelsTimed()
+  // below calls MotionEngine::wheelsV(), whose FIRST act is cancelMove()
+  // (motion-api.md S6: "wheels_* clears the planner"); if the previous
+  // pending motion was goal-directed (MOVE_X/GO_TO_R/GO_TO_W),
+  // resolvePendingReason() would misread that SIDE-EFFECT cancellation
+  // as the old move having reached its own stop condition (kStop)
+  // instead of having been superseded (kAborted) if this ran AFTER the
+  // dispatch below. A no-op if nothing was pending (e.g. this is the
+  // session's first motion verb, or no clock is wired).
+  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   setWheelsTimed(static_cast<int>(left), static_cast<int>(right), duration);
   // sprint 003 ticket 005: record the resulting deadline so
   // hasLiveMotionObligation() can tell protocol.cpp's fiber loop to keep
@@ -351,13 +376,13 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
   if (nowMs_ != nullptr) {
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + duration;
+    armPendingMotion(id, /*goalDirected=*/false);
   }
   return Wire::Result::kOk;
 }
 
 Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
                                     uint32_t timeout, uint32_t id) {
-  (void)id;
   // A speed ceiling has no sign -- refuse outright rather than take its
   // magnitude, or fall into wheelsX()'s own non-positive-cruise no-op
   // (motion_engine.h), which would silently accept this as "nothing to
@@ -371,6 +396,11 @@ Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
   const float resolvedCruise =
       cruise == 0.0f ? engineDefaultCruiseMmS() : cruise;
   if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
+  // sprint 005 ticket 004: see onWheelsV()'s identical comment above --
+  // engineWheelsX() below routes onto MotionEngine::wheelsX(), which
+  // ALSO calls cancelMove() first, same "wheels_* clears the planner"
+  // rationale.
+  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   engineWheelsX(left, right, resolvedCruise, timeout);
   // sprint 003 ticket 012: arm the SAME motion-obligation tracking
   // onWheelsV() above always has -- see wire_adapter.h's own header
@@ -383,6 +413,7 @@ Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
   if (nowMs_ != nullptr) {
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + timeout;
+    armPendingMotion(id, /*goalDirected=*/false);
   }
   return Wire::Result::kOk;
 }
@@ -390,29 +421,43 @@ Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
 Wire::Result WireAdapter::onMoveX(float distance, float rotation,
                                   float cruise, uint32_t timeout,
                                   uint32_t id) {
-  (void)id;
   // Same cruise <0/==0 handling as onWheelsX() above.
   if (cruise < 0.0f) return Wire::Result::kRange;
   const float resolvedCruise =
       cruise == 0.0f ? engineDefaultCruiseMmS() : cruise;
   if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
+  // sprint 005 ticket 004: resolve any still-pending PREVIOUS motion
+  // BEFORE dispatching -- unlike WHEELS_V/WHEELS_X/MOVE_V,
+  // engineMoveX() below does not call cancelMove() (it overwrites this
+  // engine's own `move_` state directly, motion_engine.cpp), so this
+  // ordering is not strictly required for correctness the way it is
+  // there, but is kept identical for one uniform rule (resolve-before-
+  // dispatch, always) rather than a rule with silent exceptions.
+  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   // The wire's ONE milliradian->radian conversion seam (motion-api.md
   // S9.1) -- see mradToRad()'s own comment above.
   engineMoveX(distance, mradToRad(rotation), resolvedCruise, timeout);
   // sprint 003 ticket 012: see onWheelsX()'s identical comment above.
   if (nowMs_ != nullptr) {
+    // GOAL-DIRECTED: this class's own resolvePendingReason() also reads
+    // engineMoveActive() for this one -- see wire_adapter.h.
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + timeout;
+    armPendingMotion(id, /*goalDirected=*/true);
   }
   return Wire::Result::kOk;
 }
 
 Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
                                   uint32_t id) {
-  (void)id;
   // Shares WHEELS_V's own ceiling and "duration is the lease" rationale
   // -- see kWheelsVDurationCeiling's own doc comment (wire_adapter.h).
   if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
+  // sprint 005 ticket 004: see onWheelsV()'s identical comment above --
+  // engineMoveV() below routes onto MotionEngine::moveV(), which itself
+  // calls wheelsV() (motion_engine.cpp), so the SAME cancelMove()
+  // side-effect ordering hazard applies here.
+  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   // The wire's OTHER milliradian->radian conversion seam (motion-api.md
   // S9.1) -- `omega` is angle-shaped exactly like MOVE_X's `rotation`;
   // see mradToRad()'s own comment above.
@@ -422,13 +467,13 @@ Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
   if (nowMs_ != nullptr) {
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + duration;
+    armPendingMotion(id, /*goalDirected=*/false);
   }
   return Wire::Result::kOk;
 }
 
 Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
                                   uint32_t timeout, uint32_t id) {
-  (void)id;
   // `speed`'s <0/==0 handling mirrors onWheelsX()/onMoveX() above -- see
   // this method's own doc comment (wire_adapter.h) for why (`speed`
   // plays `cruise`'s role for the underlying moveX() call).
@@ -436,18 +481,21 @@ Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
   const float resolvedSpeed =
       speed == 0.0f ? engineDefaultCruiseMmS() : speed;
   if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
+  // sprint 005 ticket 004: see onMoveX()'s identical comment above --
+  // GOAL-DIRECTED, same as MOVE_X.
+  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   engineGoToR(x, y, resolvedSpeed, arrive, timeout);
   // sprint 003 ticket 012: see onWheelsX()'s identical comment above.
   if (nowMs_ != nullptr) {
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + timeout;
+    armPendingMotion(id, /*goalDirected=*/true);
   }
   return Wire::Result::kOk;
 }
 
 Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
                                   uint32_t timeout, uint32_t id) {
-  (void)id;
   // Same speed <0/==0 handling as onGoToR() above.
   if (speed < 0.0f) return Wire::Result::kRange;
   const float resolvedSpeed =
@@ -464,35 +512,100 @@ Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
   // sprint 003 ticket 012: see onWheelsX()'s identical comment above --
   // only armed on the path that actually dispatched a move.
   if (nowMs_ != nullptr) {
+    // sprint 005 ticket 004: GOAL-DIRECTED, same as MOVE_X/GO_TO_R --
+    // but UNLIKE those two (and unlike the three lease-style verbs),
+    // this supersede resolution stays AFTER the dispatch call above,
+    // not before: whether this GO_TO_W call dispatches at all is
+    // exactly what `!engineGoToW(...)` above just decided, so there is
+    // no "before dispatch" point at which that is already known. This
+    // is still safe -- goToR()/goToW() (unlike wheelsV()/wheelsX())
+    // never clears a PREVIOUS in-flight move's own `active` flag as a
+    // side effect; it only ever overwrites `move_` with a real new
+    // segment (which stays active) or leaves `move_` untouched entirely
+    // (the `arrive`-gate no-op case, motion_engine.cpp) -- so a
+    // still-live previous goal-directed pending motion's
+    // engineMoveActive() reads correctly here regardless of ordering.
+    forceResolvePending(Wire::DoneReason::kAborted);
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + timeout;
+    armPendingMotion(id, /*goalDirected=*/true);
   }
   return Wire::Result::kOk;
 }
 
 void WireAdapter::onEstop() {
-  // ESTOP -> estopAll() -> kernel.estop() + emergencyStopMotors(): the
-  // handler itself never inspects this method's return (void, per
-  // wire_handler.h's own Adapter::onEstop() contract) -- it replies
-  // `estop` unconditionally after calling this.
+  // ESTOP -> estopAll() -> kernel.estop() + emergencyStopMotors() +
+  // engine.endMove(): the handler itself never inspects this method's
+  // return (void, per wire_handler.h's own Adapter::onEstop() contract)
+  // -- it replies `estop` unconditionally after calling this.
   estopAll();
-  // sprint 003 ticket 005: clear any live WHEELS_V obligation too -- an
-  // e-stop must revert protocol.cpp's fiber loop to its idle poll
-  // immediately, not keep ticking until a now-meaningless deadline
-  // elapses (same rationale sprint 002's original obligation-clearing
-  // handleEstop() documented).
+  // sprint 005 ticket 004: resolve whatever motion was still pending as
+  // kEstop, RIGHT NOW, UNCONDITIONALLY -- deliberately NOT going through
+  // forceResolvePending()'s usual "trust resolvePendingReason()'s own
+  // natural resolution first" path (every other force-resolve call site
+  // in this file does), because a real ESTOP has two hazards that path
+  // cannot see past:
+  //   1. diagValue(kDiagEstopped) is a published Output field
+  //      (shims.cpp's publishOutput(), mirrored by the host test
+  //      double) that only updates on the kernel's NEXT step() -- it
+  //      cannot yet read true here, no matter how real this estop is.
+  //   2. estopAll() above already force-ends any in-flight goal-directed
+  //      move (engine.endMove()), so engineMoveActive() already reads
+  //      false for a pending MOVE_X/GO_TO_R/GO_TO_W -- resolvePendingReason()
+  //      would misread that as "reached its own stop condition" (kStop)
+  //      rather than "estopped," since hasLiveMotionObligation() is
+  //      still true at this exact instant (see point 3 below).
+  // ESTOP is this class's own highest-priority reason
+  // (resolvePendingReason()'s own priority order checks it before
+  // anything else, including kStall) -- there is never a MORE specific
+  // NATURAL reason for this call to defer to the way onStop() below
+  // correctly defers to an already-latched kStall, so committing
+  // unconditionally is not a shortcut, it is the correct rule for this
+  // one reason.
+  if (pendingActive_) {
+    lastDoneId_ = pendingId_;
+    lastDoneReason_ = Wire::DoneReason::kEstop;
+    pendingActive_ = false;
+  }
+  // 3. Cleared AFTER the commit above, not before: motionObligationActive_
+  // feeds hasLiveMotionObligation(), which a NATURAL (non-ESTOP)
+  // resolution above would have needed to read correctly -- clearing it
+  // first would corrupt that read for no benefit, since this commit
+  // does not consult it anyway. An e-stop must still revert
+  // protocol.cpp's fiber loop to its idle poll immediately, not keep
+  // ticking until a now-meaningless deadline elapses (same rationale
+  // sprint 002's original obligation-clearing handleEstop() documented).
   motionObligationActive_ = false;
 }
 
 Wire::Result WireAdapter::onStop(bool /*immediate*/, uint32_t /*id*/) {
-  // STOP [now] -> stopAll() -> kernel.neutral(): stopAll() has no
-  // refusal path of its own (matches kernel.neutral()'s own unconditional
-  // acceptance), so this always acks kOk. `immediate` (STOP's optional
-  // `now` token) has no effect here -- this project's stopAll() has
-  // always been immediate regardless, same posture DiffDriveAdapter
-  // documents for its own onStop() override (protocol.md S5.1: "both are
-  // immediate at the kernel level").
+  // STOP [now] -> stopAll() -> kernel.neutral() + engine.endMove():
+  // stopAll() has no refusal path of its own (matches kernel.neutral()'s
+  // own unconditional acceptance), so this always acks kOk. `immediate`
+  // (STOP's optional `now` token) has no effect here -- this project's
+  // stopAll() has always been immediate regardless, same posture
+  // DiffDriveAdapter documents for its own onStop() override
+  // (protocol.md S5.1: "both are immediate at the kernel level").
   stopAll();
+  // sprint 005 ticket 004: an explicit STOP ends whatever motion was
+  // still pending -- "the stop condition was met, or stop() ended it"
+  // (Wire::DoneReason::kStop's own doc comment, wire_handler.h).
+  // forceResolvePending() gives resolvePendingReason() first refusal, so
+  // an already-stalled pending motion keeps kStall instead of being
+  // downgraded to kStop; for a goal-directed pending motion,
+  // stopAll()'s own engine.endMove() above has already made
+  // engineMoveActive() read false, so resolvePendingReason() naturally
+  // resolves this to kStop on its own too (no forced fallback actually
+  // needed there, but it is harmless -- unlike ESTOP above, there is no
+  // hazard here: nothing this call does can be mistaken for a DIFFERENT
+  // reason, since kStop is exactly what a false engineMoveActive() with
+  // a still-live deadline already means). Called BEFORE clearing
+  // motionObligationActive_ below -- clearing it first would make
+  // hasLiveMotionObligation() read false prematurely and misresolve a
+  // still-pending LEASE-STYLE motion (WHEELS_V/WHEELS_X/MOVE_V, which
+  // has no engineMoveActive() signal of its own to fall back on) as
+  // kTimeout instead of kStop.
+  forceResolvePending(Wire::DoneReason::kStop);
   // sprint 003 ticket 005: see onEstop()'s identical comment above.
   motionObligationActive_ = false;
   return Wire::Result::kOk;
@@ -504,6 +617,84 @@ bool WireAdapter::hasLiveMotionObligation() const {
   // Wraparound-safe elapsed check (signed-difference idiom), same one
   // sprint 002's original obligation tracking used in protocol.cpp.
   return static_cast<int32_t>(nowMs - motionObligationDeadlineMs_) < 0;
+}
+
+// ---- sprint 005 ticket 004: motion-completion resolution (S8.8) --------
+// See wire_adapter.h's own comment on lastDone()/lastDoneReason() for the
+// full design; this is the implementation.
+
+Wire::DoneReason WireAdapter::resolvePendingReason() const {
+  if (!pendingActive_) return Wire::DoneReason::kNone;
+  // Safety conditions win regardless of verb kind or deadline state --
+  // wherever a panic stop or a kernel-level stall lands, it is the
+  // right answer for whatever motion was in flight when it happened.
+  // Both already reach this class through the SAME diagValue() path
+  // computeFlags() uses for STATUS's `flags=` and telemetry's `flags`
+  // column -- no new plumbing (sprint.md's own Design Rationale).
+  if (diagValue(kDiagEstopped) != 0) return Wire::DoneReason::kEstop;
+  if (diagValue(kDiagStallHalted) != 0) return Wire::DoneReason::kStall;
+  if (pendingGoalDirected_) {
+    // MOVE_X/GO_TO_R/GO_TO_W: the ONE genuinely new read (this file's
+    // own forward declaration above). Still active means not yet
+    // resolved, regardless of the wire-side deadline -- the engine's
+    // own internal deadline/goal/wrong-way checks (serviceMove(),
+    // motion_engine.cpp) are what eventually clear it, and this class
+    // only ever observes the result. Once it goes inactive: the wire-
+    // side lease not yet elapsed means it reached its own stop
+    // condition EARLY (kStop); already elapsed means the deadline is
+    // what ended it (kTimeout).
+    if (engineMoveActive()) return Wire::DoneReason::kNone;
+    return hasLiveMotionObligation() ? Wire::DoneReason::kStop
+                                      : Wire::DoneReason::kTimeout;
+  }
+  // WHEELS_V/WHEELS_X/MOVE_V: no engine read needed -- these resolve
+  // entirely from the SAME lease-deadline bookkeeping
+  // hasLiveMotionObligation() already provides ("no new dependency
+  // needed for these three verbs," sprint.md's own Design Rationale).
+  // A still-live lease means not yet resolved; an elapsed one with
+  // nothing having superseded or stopped it (both handled elsewhere,
+  // see forceResolvePending()) means it simply ran out the clock.
+  return hasLiveMotionObligation() ? Wire::DoneReason::kNone
+                                    : Wire::DoneReason::kTimeout;
+}
+
+void WireAdapter::resolvePendingIfDue() const {
+  if (!pendingActive_) return;
+  const Wire::DoneReason reason = resolvePendingReason();
+  if (reason == Wire::DoneReason::kNone) return;  // not yet terminal
+  lastDoneId_ = pendingId_;
+  lastDoneReason_ = reason;
+  pendingActive_ = false;
+}
+
+void WireAdapter::forceResolvePending(Wire::DoneReason forcedReason) {
+  if (!pendingActive_) return;
+  // resolvePendingReason() gets first refusal: an already-stalled or
+  // already-estopped pending motion keeps THAT more specific reason
+  // rather than being overwritten by whatever the caller forces (e.g.
+  // onStop()'s own kStop) -- see this method's own doc comment
+  // (wire_adapter.h).
+  Wire::DoneReason reason = resolvePendingReason();
+  if (reason == Wire::DoneReason::kNone) reason = forcedReason;
+  lastDoneId_ = pendingId_;
+  lastDoneReason_ = reason;
+  pendingActive_ = false;
+}
+
+void WireAdapter::armPendingMotion(uint32_t id, bool goalDirected) {
+  pendingActive_ = true;
+  pendingId_ = id;
+  pendingGoalDirected_ = goalDirected;
+}
+
+uint32_t WireAdapter::lastDone() const {
+  resolvePendingIfDue();
+  return lastDoneId_;
+}
+
+Wire::DoneReason WireAdapter::lastDoneReason() const {
+  resolvePendingIfDue();
+  return lastDoneReason_;
 }
 
 bool WireAdapter::onGet(const char* name, float& out) const {

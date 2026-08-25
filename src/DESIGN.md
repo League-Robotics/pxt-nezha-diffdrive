@@ -383,18 +383,41 @@ a session with no subscriber (see §8's Fiber loop). `computeFlags()`
 `status()` and `buildSnapshot()` read, so STATUS's `flags=`/`i2cf=`
 and the telemetry `flags`/`i2cf` columns can never drift apart.
 
-**Known inert surfaces (deliberate, documented):** `lastDone()`/
-`lastDoneReason()` always report `0`/`kNone` — no completion channel
-is threaded back through the void bridge functions; a wire host cannot
-yet observe motion completion through acks.
+**Real motion-completion signal (sprint 005 ticket 004, closing
+wire-motion-completion-signal.md/R-23).** `lastDone()`/`lastDoneReason()`
+are no longer the permanently inert `0`/`kNone` sprint 003 ticket 012
+left — they now report the accepted `id` and `Wire::DoneReason` of
+whichever motion verb most recently reached a terminal state, resolved
+fresh on every call (S8.8). `WHEELS_V`/`WHEELS_X`/`MOVE_V` resolve
+done-vs-timeout-vs-superseded entirely from this class's own existing
+lease-deadline bookkeeping; `MOVE_X`/`GO_TO_R`/`GO_TO_W` additionally
+read `engineMoveActive()` (the one new bridge function below) to
+distinguish "reached its own stop condition early" from "ran out the
+clock." `stall`/`estop` need no new plumbing — both already reach this
+class through the same `diagValue()`/`computeFlags()` path STATUS's
+`flags=` and telemetry's `flags` column already use. `DoneReason` gains
+`kStall` (wire spelling `"stall"`), purely additive. Two ordering
+hazards found and fixed while implementing this: (1) a lease-style
+verb's own dispatch (`setWheelsTimed()`/`engineWheelsX()`/
+`engineMoveV()`, all routing through `MotionEngine::wheelsV()`/
+`wheelsX()`, whose first act is `cancelMove()`) must resolve a
+still-pending PREVIOUS motion as superseded *before* that dispatch
+runs, or the cancellation reads as the old motion having reached its
+own stop condition; (2) `onEstop()` commits `kEstop` unconditionally,
+never through the "trust the natural resolution first" path every
+other force-resolve call site uses, because `estopAll()`'s own
+`engine.endMove()` already clears `engineMoveActive()` synchronously
+while `diagValue(kDiagEstopped)` is still stale (an `Output` field that
+only updates on the kernel's next `step()`) — a naive natural-first
+commit would misread that combination as `kStop`.
 
 **Dependencies.** `wire_handler.h`; `shims.cpp` free functions by
 forward declaration only (`stopAll`, `estopAll`, `setWheelsTimed`,
 `setKernelValue`, `getConfigValue`, `diagValue`, `engineWheelsX`,
 `engineMoveX`, `engineDefaultCruiseMmS`, `engineMoveV`, `engineGoToR`,
-`engineGoToW`, and — sprint 004 ticket 004 — `poseX`, `poseY`,
-`poseHeading`, `otosGet`, `wheelSpeed`). Holds no kernel/engine/Rig
-reference of its own.
+`engineGoToW`, `engineMoveActive` — sprint 005 ticket 004 — and —
+sprint 004 ticket 004 — `poseX`, `poseY`, `poseHeading`, `otosGet`,
+`wheelSpeed`). Holds no kernel/engine/Rig reference of its own.
 
 ## 6. Transports — `serial_transport.*`, `radio_transport.*`
 
@@ -885,8 +908,6 @@ hard way:
   prefix (see §8's Telemetry gap paragraph); the v6 `thdr`/`t` frames
   sprint 004 built are real but nothing in `tools/` consumes them yet
   — that retrofit is sprint 005 (roadmapped, not yet detail-planned).
-- `WireAdapter::lastDone()`/`lastDoneReason()` permanently inert —
-  hosts cannot observe motion completion via the reliability channel.
 - Radio RX is a single 64-byte fragment slot with no multi-fragment
   reassembly (unchanged this sprint — sprint 004 closed the *grammar*
   question, not the *capacity* one). An inbound line longer than one

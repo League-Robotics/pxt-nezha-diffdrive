@@ -266,12 +266,35 @@ void setWheelsTimed(int left, int right, uint32_t durationMs) {
 
 void stopAll() {
   if (g_activeWaHandle == nullptr) return;
+  // Sprint 005 ticket 004: mirrors shims.cpp's real stopAll() exactly --
+  // `r.engine.endMove(); r.kernel.neutral();` -- not just the kernel
+  // half. The pre-fix version omitted engine.endMove(), which meant a
+  // still-live goal-directed move-engine move (MOVE_X/GO_TO_R/GO_TO_W)
+  // stayed reported "active" (isMoveActive()) through this double after
+  // a real STOP, something production has never done -- untested and
+  // untestable through this double until this ticket's own completion-
+  // channel logic needed to observe engineMoveActive() actually go
+  // false here. (No deliverStopNow() call here, unlike production --
+  // that is a CODAL-fiber cross-fiber-stop concern this host-portable
+  // double has never modeled, same as every other WaHandle double
+  // function in this file.)
+  g_activeWaHandle->engine.endMove();
   g_activeWaHandle->kernel.neutral();
 }
 
 void estopAll() {
   if (g_activeWaHandle == nullptr) return;
+  // Sprint 005 ticket 004: mirrors shims.cpp's real estopAll() exactly
+  // -- `r.engine.endMove(); r.kernel.estop(); r.kernel.emergencyStopMotors();`
+  // -- see stopAll()'s own comment above for why engine.endMove() is
+  // the piece that was missing. kernel.emergencyStopMotors() (which
+  // ALSO re-sets the estop latch, diffdrive.cpp) is added too, for the
+  // same completeness -- kernel.estop() alone already covers this
+  // double's own observable estop surface (Output.estopped), so this is
+  // not separately exercised by name, only kept signature-faithful.
+  g_activeWaHandle->engine.endMove();
   g_activeWaHandle->kernel.estop();
+  g_activeWaHandle->kernel.emergencyStopMotors();
 }
 
 // Mirrors shims.cpp's real setKernelValue() switch exactly (same field
@@ -435,6 +458,20 @@ bool engineGoToW(float x, float y, float speed, float arrive,
   g_activeWaHandle->engine.goToW(g_activeWaHandle->pose, x, y, speed, arrive,
                                  timeoutMs);
   return true;
+}
+
+// Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/R-23):
+// mirrors shims.cpp's real engineMoveActive() exactly -- the ONE
+// genuinely new read WireAdapter::resolvePendingReason() (wire_adapter.cpp)
+// needs for MOVE_X/GO_TO_R/GO_TO_W. Reads this handle's OWN real
+// MotionEngine::isMoveActive(), the SAME engine engineWheelsX()/
+// engineMoveX()/engineMoveV()/engineGoToR()/engineGoToW() above already
+// drive -- so a test exercising the real WireAdapter's completion
+// channel is exercising the exact bridge production code uses, not a
+// separate notion of "active."
+bool engineMoveActive() {
+  if (g_activeWaHandle == nullptr) return false;
+  return g_activeWaHandle->engine.isMoveActive();
 }
 
 // Mirrors the subset of shims.cpp's real diagValue() switch
@@ -774,6 +811,35 @@ int waBegin(void* handle) {
 }
 void waStep(void* handle) { static_cast<WaHandle*>(handle)->kernel.step(); }
 
+// Sprint 005 ticket 004: waStep() above only steps the KERNEL -- unlike
+// production's tickDrive() (shims.cpp), it never also calls
+// engine.serviceMove(), so no existing WaHandle test could drive a
+// move-engine move (MOVE_X/GO_TO_R/GO_TO_W) to a REAL completion (goal
+// reached, deadline expired, or stalled) the way tickDrive()'s own
+// `kernel.step(); engine.serviceMove();` pair does. Exposed as its own
+// call (not folded into waStep()) so a test controls the two
+// independently, matching meServiceMove()'s own sibling export in
+// motion_engine_shim.cpp. Returns whether the move is STILL active
+// after this call (MotionEngine::serviceMove()'s own return value).
+int waServiceMove(void* handle) {
+  return static_cast<WaHandle*>(handle)->engine.serviceMove() ? 1 : 0;
+}
+
+// Directly arms a FakeMotor's NEXT tick()'s committed position/sample
+// time (fake_ports.h's own armed-then-committed contract) -- lets a
+// test simulate "the wheel has physically reached this encoder count"
+// without hand-rolling a duty-to-position physics model. Mirrors
+// motion_engine_shim.cpp's own meMotorArmPosition() exactly. `side`: 0
+// == left, 1 == right, same convention as every other side-taking
+// export in this file (e.g. waMotorLastStagedDuty()).
+void waArmMotorPosition(void* handle, int side, float positionCounts,
+                        uint64_t sampleTimeUs) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  FakeMotor& motor = (side == 0 ? h->motorLeft : h->motorRight);
+  motor.nextPositionValue = positionCounts;
+  motor.nextSampleTimeUs = sampleTimeUs;
+}
+
 float waMotorLastStagedDuty(void* handle, int side) {
   WaHandle* h = static_cast<WaHandle*>(handle);
   return (side == 0 ? h->motorLeft : h->motorRight).lastStagedDuty;
@@ -825,6 +891,22 @@ int waHasLiveMotionObligation(void* handle) {
   return static_cast<WaHandle*>(handle)->adapter.hasLiveMotionObligation()
              ? 1
              : 0;
+}
+
+// Sprint 005 ticket 004: the real WireAdapter::lastDone()/lastDoneReason()
+// -- lets a test poll the completion channel directly, without needing
+// to route through a SUBSEQUENT sequenced verb's own ack/nack (the
+// production reading path, exercised separately by this ticket's
+// ack/nack-based tests). Wire::DoneReason's DECLARATION-ORDER ordinal,
+// as int -- same int-not-enum-class convention every other ctypes-
+// facing result in this file already uses (e.g. waOnTlm()'s own int
+// param/return).
+uint32_t waLastDone(void* handle) {
+  return static_cast<WaHandle*>(handle)->adapter.lastDone();
+}
+int waLastDoneReason(void* handle) {
+  return static_cast<int>(
+      static_cast<WaHandle*>(handle)->adapter.lastDoneReason());
 }
 
 // GO_TO_W's own PoseSource test double (FakePoseSource, tests/host/

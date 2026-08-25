@@ -591,6 +591,7 @@ const char* WireHandler::doneReasonWireName(DoneReason reason) {
     case DoneReason::kTimeout: return "timeout";
     case DoneReason::kEstop: return "estop";
     case DoneReason::kAborted: return "aborted";
+    case DoneReason::kStall: return "stall";
   }
   return "none";  // unreachable with every enumerator handled above
 }

@@ -405,33 +405,49 @@ class WireAdapter : public Wire::Adapter {
   // false with no clock wired (nowMs == nullptr).
   bool hasLiveMotionObligation() const;
 
-  // No motion queue and no completion event on this adapter yet.
-  // DECISION (sprint 003 ticket 012, explicitly revisited per that
-  // ticket's own acceptance criteria): even though MOVE_X/GO_TO_R/
-  // GO_TO_W's underlying MotionEngine move DOES have a genuine
-  // completion event internally (isMoveActive() going false, tracked
-  // move-engine state) unlike WHEELS_V's plain lease-expiry, NONE of it
-  // is threaded back through this project's thin, wire-shaped bridge
-  // functions (engineWheelsX()/engineMoveX()/engineMoveV()/
-  // engineGoToR()/engineGoToW(), all void or availability-only in their
-  // return value) -- and this class deliberately holds no reference of
-  // its own to MotionEngine (sprint.md's own Design Rationale: `engine`
-  // stays a shims.cpp-owned singleton, reached only through
-  // forward-declared free functions, so wire_adapter.cpp and shims.cpp
-  // stay decoupled from each other). Building a real completion channel
-  // would mean either breaking that boundary or giving every bridge
-  // function a stateful "how did the LAST call end" return value no
-  // wire host has asked for yet -- out of this ticket's scope. Both
-  // methods therefore keep reporting the inert default for every one of
-  // the six verbs, matching DiffDriveAdapter's own posture for the
-  // identical reason (protocol.md S8.8.1) -- a deliberate, documented
-  // choice, not an oversight, and a natural candidate to revisit once a
-  // real use case needs `lastDone()`/`lastDoneReason()` to mean
-  // something.
-  uint32_t lastDone() const override { return 0; }
-  Wire::DoneReason lastDoneReason() const override {
-    return Wire::DoneReason::kNone;
-  }
+  // ---- sprint 005 ticket 004: a REAL motion-completion signal (closes
+  // wire-motion-completion-signal.md, R-23) -- superseding the "no
+  // motion queue and no completion event on this adapter yet" decision
+  // sprint 003 ticket 012 recorded at this exact spot (that comment's
+  // own closing line called this "a natural candidate to revisit once a
+  // real use case needs lastDone()/lastDoneReason() to mean something"
+  // -- this sprint's closed-loop bench tooling is that use case).
+  //
+  // lastDone()/lastDoneReason() now report the accepted `id` and
+  // Wire::DoneReason of whichever motion verb most recently reached a
+  // terminal state, resolved FRESH on every call (S8.8 -- no cached
+  // copy on WireHandler; this class's OWN state below is not a "cache"
+  // in that sense, see the field comments). Two lease-style-resolvable
+  // groups:
+  //   - WHEELS_V/WHEELS_X/MOVE_V resolve done-vs-timeout-vs-superseded
+  //     entirely from this class's OWN existing
+  //     motionObligationActive_/motionObligationDeadlineMs_ bookkeeping
+  //     (already present for hasLiveMotionObligation()) -- no new
+  //     dependency.
+  //   - MOVE_X/GO_TO_R/GO_TO_W additionally need to know whether the
+  //     underlying MotionEngine move is still active when the lease
+  //     deadline is reached, to distinguish "reached its own stop
+  //     condition early" (kStop) from "ran out the clock" (kTimeout).
+  //     This is the ONE genuinely new read: engineMoveActive()
+  //     (wire_adapter.cpp's own forward declaration), a thin, read-only
+  //     bridge matching engineWheelsX()'s own convention exactly. This
+  //     class still holds NO stored reference to MotionEngine/Rig --
+  //     that boundary (this file's own header comment above) is
+  //     unchanged.
+  // `stall`/`estop` need NO new plumbing at all: both already reach
+  // this class through the SAME diagValue()/computeFlags() path
+  // STATUS's `flags=` and telemetry's `flags` column already use
+  // (`stall_halted`/`estopped` are two of its eight diagnostic
+  // booleans) -- see wire_adapter.cpp's resolvePendingReason().
+  //
+  // See wire_adapter.cpp's resolvePendingReason() (the pure
+  // resolution logic), resolvePendingIfDue() (the lazy commit these two
+  // accessors share), forceResolvePending() (the two edges -- a
+  // supersede, an explicit STOP -- that must be captured AT THE MOMENT
+  // they happen, from the six onXxx() handlers and onStop()), and
+  // armPendingMotion() (what every accepted motion verb arms).
+  uint32_t lastDone() const override;
+  Wire::DoneReason lastDoneReason() const override;
 
   // No registration table -- this project's actual by-name test trigger
   // is protocol.cpp's own MessageBus RUN bridge (runSlots_/handleRun()),
@@ -451,6 +467,60 @@ class WireAdapter : public Wire::Adapter {
   NowMsFn nowMs_ = nullptr;
   bool motionObligationActive_ = false;
   uint32_t motionObligationDeadlineMs_ = 0;  // [ms], nowMs_'s own scale
+
+  // ---- sprint 005 ticket 004: motion-completion tracking (S8.8) -----
+  // `pendingActive_`/`pendingId_`/`pendingGoalDirected_` track the most
+  // recently ACCEPTED motion verb not yet resolved to a terminal
+  // reason; `lastDoneId_`/`lastDoneReason_` are the most recently
+  // RESOLVED (committed) pair -- what lastDone()/lastDoneReason()
+  // actually return. All five are `mutable`: resolvePendingIfDue()
+  // (called from both of those const accessors) commits a
+  // lazily-discovered terminal reason from inside a const call, and it
+  // must stay committed afterward even if the diag/engine state that
+  // first revealed it later changes (a stall latch cleared via
+  // `stall_clear`, an estop cleared) -- this class reports what a
+  // motion ACTUALLY ended with, not the live diagnostic state at read
+  // time. Only armed/force-resolved with a real clock wired
+  // (nowMs_ != nullptr, matching motionObligationActive_'s own
+  // gating) -- with no clock, lastDone()/lastDoneReason() keep
+  // reporting the honest 0/kNone default forever, same as before this
+  // ticket. See wire_adapter.cpp for the full resolution logic.
+  mutable bool pendingActive_ = false;
+  mutable uint32_t pendingId_ = 0;
+  mutable bool pendingGoalDirected_ = false;
+  mutable uint32_t lastDoneId_ = 0;
+  mutable Wire::DoneReason lastDoneReason_ = Wire::DoneReason::kNone;
+
+  // Pure function of currently observable state (diagValue()'s estop/
+  // stall flags, hasLiveMotionObligation(), and -- for a goal-directed
+  // pending motion only -- engineMoveActive()); never mutates anything.
+  // Returns kNone whenever nothing is pending OR the pending motion has
+  // not yet reached a terminal state -- callers distinguish those two
+  // cases via pendingActive_ themselves.
+  Wire::DoneReason resolvePendingReason() const;
+
+  // Commits resolvePendingReason()'s result into lastDoneId_/
+  // lastDoneReason_ (and clears pendingActive_) iff it is no longer
+  // kNone; a no-op otherwise. Called from both lastDone() and
+  // lastDoneReason() so polling either one alone is enough to notice a
+  // newly terminal pending motion -- S8.8's "read fresh" contract.
+  void resolvePendingIfDue() const;
+
+  // Force-resolves a still-pending motion RIGHT NOW, at a call site
+  // that itself knows a reason (a supersede in one of the six onXxx()
+  // handlers, or an explicit STOP in onStop()) -- resolvePendingReason()
+  // still gets first refusal, so an already-stalled/estopped pending
+  // motion keeps THAT more specific reason instead of being overwritten
+  // by the caller's forced one. A no-op if nothing is pending.
+  void forceResolvePending(Wire::DoneReason forcedReason);
+
+  // Arms tracking for a freshly ACCEPTED motion verb -- call AFTER any
+  // supersede has already been resolved (forceResolvePending(kAborted))
+  // and AFTER motionObligationActive_/motionObligationDeadlineMs_ are
+  // set. `goalDirected`: true for MOVE_X/GO_TO_R/GO_TO_W (needs
+  // engineMoveActive() to resolve), false for WHEELS_V/WHEELS_X/MOVE_V
+  // (resolves purely from the deadline -- see resolvePendingReason()).
+  void armPendingMotion(uint32_t id, bool goalDirected);
 
   // ---- sprint 004 ticket 004: telemetry projection state -----------
   // `seq_` wraps at 0x7F (protocol.md S6.2); buildSnapshot() advances it
