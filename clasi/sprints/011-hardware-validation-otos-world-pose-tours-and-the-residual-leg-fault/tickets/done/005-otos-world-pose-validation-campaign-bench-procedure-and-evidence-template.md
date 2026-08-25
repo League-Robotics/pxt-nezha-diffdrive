@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: 'OTOS world-pose validation campaign: bench procedure and evidence template'
-status: open
+status: done
 use-cases:
 - SUC-005
 depends-on:
@@ -39,7 +39,7 @@ baseline (`RUN:straight`).
 
 ## Acceptance Criteria
 
-- [ ] A written procedure exists (added to
+- [x] A written procedure exists (added to
       `otos-on-vevov-move-goto-world-pose-square-tours.md` as a new
       "Bench Campaign Procedure" section) listing, in order: (1) the
       lever-arm re-confirmation step (`RUN:cal:1` — the verify pass,
@@ -53,26 +53,57 @@ baseline (`RUN:straight`).
       exact scoring commands (`leg_analysis.py`, `tour_chart.py`)
       and what numbers to record per corner (OTOS closure, encoder
       closure, heading residual).
-- [ ] The procedure states explicitly what "meets the issue's
+      — Verified: section §5 (lever-arm re-confirmation, `RUN:cal:1`
+      via `otos_levercal.py --radio --verify`, citing the 38.2 mm arm
+      at `test/test.ts:52-59` — the ticket's own `:42-49` citation
+      points at the adjoining corner-geometry constants, not the arm
+      values; corrected to the accurate line range), §6 (exact
+      `tour_capture.py --radio --tour world`/`--tour robot` commands),
+      §7 (repetition count — see note below), §9 (exact
+      `leg_analysis.py`/`tour_chart.py` commands and the per-corner
+      fields to record). The pre-006 baseline's own repetition count
+      is not recorded anywhere in this repository (checked: the issue
+      file, the sprint 006 archive, and a repo-wide search for the
+      9-54 mm/1-7° and "~70%" figures) — §7 states this explicitly and
+      names a specific, justified minimum (10 repetitions per tour
+      type) instead of fabricating a historical figure.
+- [x] The procedure states explicitly what "meets the issue's
       verification bar" means numerically: per-corner OTOS residual
       within the arrival tolerance (10 mm per the issue's Verification
       section), and closure compared against the 9-54 mm/1-7°
       encoder-only baseline.
-- [ ] The procedure references ticket 001's and ticket 002's shipped
+      — Verified: "What 'meets the issue's verification bar' means,
+      numerically" subsection, directly after §9.
+- [x] The procedure references ticket 001's and ticket 002's shipped
       tools by name/path, and sprint 005 ticket 006's `otos_levercal.py`
       retarget as a prerequisite — do not ask the bench operator to
       also debug tooling the procedure assumes already works.
-- [ ] The procedure explicitly restates the camera doctrine (AprilCam
+      — Verified: §0 ("Prerequisites already shipped") names
+      `tools/tour_capture.py` (ticket 001), `tools/leg_analysis.py`
+      (ticket 002), `tools/otos_levercal.py --radio --verify` (sprint
+      005 ticket 006's retarget — confirmed already present and
+      speaking the named `RUN` vocabulary by inspection of the current
+      working tree), and `tools/tour_chart.py`.
+- [x] The procedure explicitly restates the camera doctrine (AprilCam
       is diagnostics/scoring only, never in the control loop for a move
       in flight) so a bench operator does not accidentally wire it into
       `goToWorld`'s live path.
-- [ ] No acceptance criterion in this ticket, or produced by it,
+      — Verified: §4 ("Camera doctrine — restated so nobody wires this
+      into the control loop").
+- [x] No acceptance criterion in this ticket, or produced by it,
       requires actually running the campaign or reports a pass/fail
       based on hardware results. Verify this explicitly before closing
       the ticket.
-- [ ] Ticket frontmatter's `depends-on: ['001', '002']` reflects the
+      — Verified: every AC above, and the new "Bench Campaign
+      Procedure"/"Evidence Template" sections, only ask that a written
+      procedure and a fill-in-the-blank template exist. The issue
+      file's own new "No campaign has been run, and no result is
+      reported here" subsection states this explicitly; the Evidence
+      Template section is blank fields, not a filled report.
+- [x] Ticket frontmatter's `depends-on: ['001', '002']` reflects the
       real dependency (the procedure names both tools by their shipped
       CLI shape).
+      — Already correct in this ticket's frontmatter; unchanged.
 
 ## Implementation Plan
 
