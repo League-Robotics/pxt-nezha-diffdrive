@@ -2,7 +2,7 @@
 id: '006'
 title: test.ts named pivot/turn-rate verbs; retarget five ground-truth tools off dead
   numeric RUN
-status: in-progress
+status: done
 use-cases:
 - SUC-008
 depends-on:
