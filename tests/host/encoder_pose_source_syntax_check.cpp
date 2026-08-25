@@ -9,4 +9,4 @@
 // tests/host/motion_engine_shim.cpp for that (EncoderPoseSource is
 // exposed there alongside FakePoseSource, both feeding
 // MotionEngine::goToW()).
-#include "encoder_pose_source.h"
+#include "platform/encoder_pose_source.h"

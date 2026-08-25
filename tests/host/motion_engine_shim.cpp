@@ -19,7 +19,7 @@
 #include <cstdint>
 
 #include "core/diffdrive.h"
-#include "encoder_pose_source.h"
+#include "platform/encoder_pose_source.h"
 #include "fake_ports.h"
 #include "fake_pose_source.h"
 #include "motion/motion_engine.h"

@@ -5,7 +5,7 @@
 #pragma once
 
 #include "pxt.h"
-#include "core/diffdrive.h"
+#include "../core/diffdrive.h"
 
 namespace diffDrive {
 

@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-#include "core/heading_wrap.h"
+#include "../core/heading_wrap.h"
 
 namespace diffDrive {
 

@@ -37,7 +37,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "platform_ports.h"  // CodalFiberLauncher, CodalClock (reused, not reimplemented)
+#include "platform/platform_ports.h"  // CodalFiberLauncher, CodalClock (reused, not reimplemented)
 #include "radio_transport.h"  // radio transport -- now a full v6 sink too
 #include "serial_transport.h"
 #include "wire_adapter.h"
