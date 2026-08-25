@@ -20,7 +20,7 @@ mm/s, which is strictly better: no calibration constant, and it
 survives the radio where mid-move polling is forbidden outright.
 
 Usage:
-  python3 tools/tour_capture.py [PORT] [--radio] [--tour wheels]
+  python3 tools/tour_capture.py [PORT] [--radio] [--tour world|robot|wheels]
       [--timeout 60] [--out-prefix .tmp/tour]
 """
 import argparse
@@ -42,12 +42,13 @@ def main():
                          'playfield). The bench stand holds the wheels off '
                          'the ground, so any OTOS column is meaningless '
                          'there.')
-    ap.add_argument('--tour', default='wheels',
-                    help="named tour for RUN:tour:<name> — wheels, robot "
-                         "or world. On the BENCH STAND only 'wheels' is "
-                         "meaningful: the other two close their loops on "
-                         "an IMU that never rotates and an OTOS that "
-                         "never translates with the wheels off the ground.")
+    ap.add_argument('--tour', default='world',
+                    choices=['world', 'robot', 'wheels'],
+                    help="named tour for RUN:tour:<name>. On the BENCH "
+                         "STAND only 'wheels' is meaningful: the other two "
+                         "close their loops on an IMU that never rotates "
+                         "and an OTOS that never translates with the "
+                         "wheels off the ground.")
     ap.add_argument('--timeout', type=float, default=60.0)
     ap.add_argument('--out-prefix', default='.tmp/tour')
     a = ap.parse_args()
@@ -63,11 +64,13 @@ def main():
 
     pose, vel = [], []
     t0 = time.time()
-    # The tour announces itself with DBG:tour=<name>, and that receipt IS
-    # the delivery proof -- so a resend happens only when it never
-    # arrived. A blind repeat does NOT hit the firmware's re-entry
-    # guard: MessageBus events queue and run one after another, so a
-    # duplicate re-runs the whole tour.
+    # Wait for DBG:tour=<name>, which the tour emits as it STARTS -- not
+    # for `TOUR:`, whose only match is the TOUR:end line emitted ~28 s
+    # later when the whole tour has finished. Waiting on the end marker
+    # with tries=3/wait=6.0 guarantees two resends before the first run
+    # is anywhere near done, and a repeat does NOT hit the firmware's
+    # re-entry guard: MessageBus events queue and run one after another,
+    # so each resend runs the whole tour again.
     cmd = f'RUN:tour:{a.tour}'
     seen = link.send_until(cmd, 'DBG:tour=', tries=3, wait=6.0)
     if not any(x.startswith('DBG:tour=') for x in seen):

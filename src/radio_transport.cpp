@@ -56,7 +56,16 @@ void RadioTransport::onDatagram() {
   size_t len = d[2];
   if (static_cast<int>(kFrameHeaderBytes + len) > plen) return;
   if (len > 0 && d[kFrameHeaderBytes + len - 1] == kLineDelimiter) --len;
-  if (len > sizeof(rxLine_)) len = sizeof(rxLine_);
+  if (!radioRxLineFits(len, sizeof(rxLine_))) {
+    // Over-length: REJECT the whole frame -- never truncate it to a
+    // shorter, still-parseable prefix and deliver that prefix as if it
+    // were the complete line (radioRxLineFits()'s own doc comment,
+    // radio_transport.h, explains why truncate-and-accept was the
+    // actual hazard). rxReady_/rxLine_ are left untouched, exactly as
+    // an already-dropped MORE-flagged fragment above leaves them.
+    ++rxOversizeDropped_;
+    return;
+  }
   if (rxReady_) return;  // previous line unconsumed: drop (reference behavior)
   if (len > 0) memcpy(rxLine_, d + kFrameHeaderBytes, len);
   rxLen_ = len;

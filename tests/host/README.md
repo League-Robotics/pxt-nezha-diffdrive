@@ -48,7 +48,7 @@ plain Python — no compiler, no subprocess, no network. See its own
   DECISION `tickDrive()` used to make inline is a different story: it's
   been extracted into `MotionEngine::settleToRest()`, which *is*
   host-portable and *is* covered, by `test_motion_engine_settle.py`.)
-- **PXT/simulator behavior** (`src/main.ts`, `test/test.ts`,
+- **PXT/simulator behavior** (`src/*.ts`, `test/test.ts`,
   `test/testrig.ts`) — a separate MakeCode-side test surface, not this
   one.
 - **Target buildability, beyond language standard and manifest
