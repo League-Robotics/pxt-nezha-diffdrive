@@ -1,6 +1,6 @@
 # src — the DiffDrive extension
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** in-flux (as-built through sprint 008, closed and merged — wire hardening and tests that can fail: timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, and a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention closing the target-viability gap; sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint; sprint 012 detail-planned — splits the single `main.ts` into six cohesion-sized modules, `sim.ts`/`run.ts`/`pose.ts`/`stop.ts`/`world.ts`/`motion.ts`, replacing `main.ts`'s one entry in `pxt.json`'s and `tsconfig.json`'s `files` arrays; behaviour-neutral by design, not yet executed — gated on sprints 006/007 (closed, satisfied) and 009 (planned, not yet executed) landing first, see §15)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-25 · **Status:** in-flux (as-built through sprint 008, closed and merged — wire hardening and tests that can fail: timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, and a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention closing the target-viability gap; sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint; sprint 009 (comment cleanup, upstream re-diff) done; sprint 012 **executed and closing** — split the single `main.ts` into six cohesion-sized modules, `sim.ts`/`run.ts`/`pose.ts`/`stop.ts`/`world.ts`/`motion.ts` (`main.ts` retired, ticket 006), replacing `main.ts`'s one entry in `pxt.json`'s and `tsconfig.json`'s `files` arrays; block-surface content (captions/`group=`/param ranges) verified identical to the pre-split baseline, see §15)
 
 `src/` is flat — no subdirectories — so this one document carries the
 logical subsystem breakdown as sections. Global conventions (units
@@ -1792,14 +1792,22 @@ layering table). The two concrete risks, both addressed above: (1) the
 once known but silent if violated (the symptom would be a load-time
 `ReferenceError`/`undefined is not a function` on `_startProtocol`,
 the TS-side analog of the panic-980 class this project has already
-been bitten by once); (2) whether PXT's compiled-as-one-Program model
-actually honors TypeScript's documented multi-file-namespace merging
-for **non-exported** members the way the language spec says it should
-— nothing in this planning pass can verify that without running a real
-PXT build, so ticket 001 is designed to be the empirical test (see
-Design Rationale). Both risks are retired by evidence (a real build +
-a real simulator run), not by inspection, consistent with this
-sprint's Test Strategy in `sprint.md`.
+been bitten by once) — **retired: preserved via ticket 006's pure
+`git mv` rename; `sim.ts` precedes `motion.ts` in both `pxt.json`'s and
+`tsconfig.json`'s `files` arrays in the final tree** (unverified on
+actual hardware — no board was flashed with the split tree as part of
+this sprint, see ticket 007's handoff notes); (2) whether PXT's
+compiled-as-one-Program model actually honors TypeScript's documented
+multi-file-namespace merging for **non-exported** members the way the
+language spec says it should — **retired, and the answer was NO**:
+ticket 001's real build (confirmed independently by `tsc -p .`) showed
+29 `Cannot find name`-class errors on non-exported cross-file
+references; the scoped fallback (`export` added to exactly the 21
+symbols the compiler named, no others — see Design Rationale below)
+resolved it, confirmed by a return to the pre-split `tsc -p .` error
+count. Both risks retired by evidence (a real build across all six
+tickets), not by inspection, consistent with this sprint's Test
+Strategy in `sprint.md`.
 
 ### Design Rationale
 
@@ -1888,18 +1896,46 @@ confirmed, if minor, behavior-neutrality risk (new TS-reachable
 surface — this sprint's hardest constraint, "not one line of
 student-visible behavior... changes") for a risk that (b) can settle
 empirically at negligible cost by simply attempting the real thing
-first. Consequences: if ticket 001's build cannot resolve a specific
-non-exported cross-file reference, the fallback is scoped to exactly
-the failing symbols, recorded by name in that ticket's completion
-notes, not applied as a blanket policy to every shim function.
+first. **Outcome (resolved, ticket 001): the namespace merge did NOT
+hold for non-exported members** — the real `pxt build` (confirmed
+independently by `tsc -p .`) named 29 `Cannot find name`/`Did you
+mean` errors, one per non-exported `sim.ts` symbol referenced
+cross-file. The fallback was applied to exactly those, no others:
+`export` added to 21 named symbols in `src/sim.ts` —
+`_startProtocol`, `_setWheels`, `_driveTwist`, `_tickDrive`,
+`runCommandText`, `_startMove`, `_updateMove`, `_progress`,
+`_endMove`, `_poseX`, `_poseY`, `_poseHeading`, `_resetPose`,
+`_seedPose`, `_stopAll`, `_estopAll`, `_estopClear`, `_isStalled`,
+`_clearStallLatch`, `_setGeometry`, `_setKernelValue` (`simIntegrate()`
+and `_cycleStat()` were deliberately left non-exported — no cross-file
+caller). None of the 21 carries a `//% block=` caption, so none
+becomes a new toolbox block; the only behavior change is that these 21
+symbols become reachable from a student's TypeScript-mode program
+(`diffDrive._poseX()` etc.) — the exact, accepted tradeoff this
+Decision anticipated. Ticket 001's 21-symbol fallback turned out to be
+sufficient for the whole sprint: tickets 002-006 each confirmed by a
+real build (not assumed) that none of their own moved symbols needed a
+*new* export — every cross-file non-exported reference they made
+(`pose.ts`/`stop.ts`/`world.ts` into `sim.ts`, `world.ts` into
+`motion.ts`'s already-exported `startMove()`) resolved against the
+namespace-merge/export surface ticket 001 already established.
 
 ### Open Questions (sprint 012)
 
-- Does PXT's actual multi-file compile model resolve non-exported
+- ~~Does PXT's actual multi-file compile model resolve non-exported
   namespace members across files exactly as TypeScript's documented
-  namespace-merge semantics predict? Ticket 001 answers this
-  empirically (a real build + a real simulator/testrig run); this
-  planning pass cannot verify it without that build.
+  namespace-merge semantics predict?~~ **Resolved (ticket 001): no.**
+  The real `pxt build` (confirmed independently by `tsc -p .`) could
+  not resolve 29 non-exported cross-file references; the scoped
+  21-symbol export fallback in `src/sim.ts` (see Design Rationale
+  above) fixed it, and tickets 002-006 confirmed by their own real
+  builds that no further exports were needed. `test/test.ts`/
+  `test/testrig.ts` could not be run in the literal PXT simulator on
+  either tree (pre-existing, unrelated `TS9256` defect — see ticket
+  001's and ticket 007's completion notes); the substitute evidence
+  (byte-identical moved function bodies, a real `pxt build` accepting
+  every cross-file call site, `tsc -p .` returning to the pre-split
+  baseline error count) is recorded in those tickets' own notes.
 - Should this sprint also add a `test_tsconfig_completeness.py`
   mirroring `test_pxt_manifest_completeness.py`'s pattern for
   `tsconfig.json`'s `files` array, currently ungated by any host test?
