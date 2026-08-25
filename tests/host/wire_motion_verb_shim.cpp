@@ -52,7 +52,7 @@
 #include <cstring>
 #include <string>
 
-#include "diffdrive.h"
+#include "core/diffdrive.h"
 #include "fake_pose_source.h"
 #include "fake_ports.h"
 #include "motion_engine.h"

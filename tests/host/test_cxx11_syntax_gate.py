@@ -70,7 +70,7 @@ _TEST_DIR = pathlib.Path(__file__).resolve().parent
 # test_kernel_harness.py's existing -std=c++20 compile of the same
 # files.
 _CXX11_PORTABLE_SOURCES = [
-    _SRC_DIR / "diffdrive.cpp",
+    _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion_engine.cpp",
     _SRC_DIR / "wire_handler.cpp",
     _SRC_DIR / "wire_adapter.cpp",

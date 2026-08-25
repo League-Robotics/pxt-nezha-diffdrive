@@ -18,7 +18,7 @@
 // when a later ticket needs another MotionEngine entry point exposed.
 #include <cstdint>
 
-#include "diffdrive.h"
+#include "core/diffdrive.h"
 #include "encoder_pose_source.h"
 #include "fake_ports.h"
 #include "fake_pose_source.h"

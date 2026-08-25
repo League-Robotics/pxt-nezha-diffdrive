@@ -7,4 +7,4 @@
 // this file exists solely to be that translation unit for the gate. It
 // is NOT part of the ctypes-bound behavior-test surface; see
 // encoder_glitch_armor_shim.cpp for that.
-#include "encoder_glitch_armor.h"
+#include "core/encoder_glitch_armor.h"

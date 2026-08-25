@@ -32,7 +32,7 @@
 // getConfigValue/diagValue and the engine* wire forwards. Keep
 // signatures compatible with their forward-declaration blocks.
 #include "pxt.h"
-#include "diffdrive.h"
+#include "core/diffdrive.h"
 #include "encoder_pose_source.h"
 #include "motion_engine.h"
 #include "nezha_port.h"

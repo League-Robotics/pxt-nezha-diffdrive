@@ -11,7 +11,7 @@
 // radio-robot-lib/tests/protocol/protocol_shim.cpp's own shape exactly.
 #include <cstdint>
 
-#include "diffdrive.h"
+#include "core/diffdrive.h"
 #include "fake_ports.h"
 
 namespace {

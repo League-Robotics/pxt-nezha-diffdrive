@@ -23,7 +23,7 @@
 #include <cstdint>
 #include <functional>
 
-#include "diffdrive.h"
+#include "core/diffdrive.h"
 
 // ---------------------------------------------------------------------
 // FakeMotor -- implements DiffDrive::Motor.

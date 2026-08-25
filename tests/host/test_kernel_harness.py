@@ -36,7 +36,7 @@ _SRC_DIR = _REPO_ROOT / "src"
 _TEST_DIR = pathlib.Path(__file__).resolve().parent
 
 _SHIM_SOURCES = [
-    _SRC_DIR / "diffdrive.cpp",
+    _SRC_DIR / "core" / "diffdrive.cpp",
     _TEST_DIR / "kernel_shim.cpp",
 ]
 

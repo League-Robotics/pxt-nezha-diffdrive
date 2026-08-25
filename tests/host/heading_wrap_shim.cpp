@@ -16,7 +16,7 @@
 // write would produce.
 //
 // Test scaffolding only: nothing under src/ knows this file exists.
-#include "heading_wrap.h"
+#include "core/heading_wrap.h"
 
 #include <cmath>
 

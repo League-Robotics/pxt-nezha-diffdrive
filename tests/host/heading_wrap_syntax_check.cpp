@@ -7,4 +7,4 @@
 // file exists solely to be that translation unit for the gate. It is
 // NOT part of the ctypes-bound behavior-test surface; see
 // heading_wrap_shim.cpp for that.
-#include "heading_wrap.h"
+#include "core/heading_wrap.h"

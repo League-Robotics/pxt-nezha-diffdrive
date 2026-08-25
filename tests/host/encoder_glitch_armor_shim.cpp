@@ -10,7 +10,7 @@
 // Test scaffolding only: nothing under src/ knows this file exists.
 #include <cstdint>
 
-#include "encoder_glitch_armor.h"
+#include "core/encoder_glitch_armor.h"
 
 extern "C" {
 
