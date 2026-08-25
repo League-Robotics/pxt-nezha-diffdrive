@@ -15,8 +15,8 @@ The v6 telemetry frame already carries `vl`/`vr` per frame -- once DIAG
 is formally retired here too, that column supersedes this poll entirely.
 
 Usage:
-  python3 tools/tour_capture.py PORT [--run 1] [--timeout 60]
-      [--out-prefix .tmp/tour]
+  python3 tools/tour_capture.py PORT [--tour world|robot|wheels]
+      [--timeout 60] [--out-prefix .tmp/tour]
 """
 import argparse
 import csv
@@ -37,7 +37,8 @@ def main():
                          'playfield). The bench stand holds the wheels off '
                          'the ground, so any OTOS column is meaningless '
                          'there.')
-    ap.add_argument('--run', type=int, default=1)
+    ap.add_argument('--tour', default='world',
+                    choices=['world', 'robot', 'wheels'])
     ap.add_argument('--timeout', type=float, default=60.0)
     ap.add_argument('--out-prefix', default='.tmp/tour')
     a = ap.parse_args()
@@ -55,7 +56,7 @@ def main():
     t0 = time.time()
     # The tour marks itself in the stream; resend only if that receipt
     # never arrives (a duplicate RUN re-runs the whole tour).
-    link.send_until(f'RUN:{a.run}', 'TOUR:', tries=3, wait=6.0)
+    link.send_until(f'RUN:tour:{a.tour}', 'TOUR:', tries=3, wait=6.0)
     last_diag = 0.0
     egl = gap = None
     last_pose_change = time.time()
