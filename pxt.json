@@ -33,6 +33,7 @@
         "src/wire_adapter.cpp",
         "src/shims.cpp",
         "src/sim.ts",
+        "src/run.ts",
         "src/main.ts"
     ],
     "testFiles": [

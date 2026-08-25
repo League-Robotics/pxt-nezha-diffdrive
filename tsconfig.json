@@ -18,6 +18,7 @@
     "pxt_modules/core/input.ts",
     "pxt_modules/core/serial.ts",
     "src/sim.ts",
+    "src/run.ts",
     "src/main.ts",
     "test/test.ts",
     "test/testrig.ts"
