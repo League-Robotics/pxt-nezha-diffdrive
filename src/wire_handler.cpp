@@ -697,15 +697,29 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
   // incl. sign) joined the line -- 176 already had margin (the
   // previous worst case measures under 100 bytes), this just keeps
   // that margin honest rather than trimming it to the wire.
+  //
+  // Sprint 010 ticket 003: `cyc=%lu` joins `i2cf=` immediately after it
+  // (both are kernel-health-cousin fields -- see StatusFields::cyc's own
+  // doc comment, wire_handler.h). Re-verified against 200: the widest
+  // possible line is "status ready=1 active=1 connL=1 connR=1 otos=1 "
+  // "wedge=1 flags=ffffffff i2cf=-2147483648 cyc=4294967295 tlm=buffer "
+  // "next=4294967295\n" -- 8 single-digit bools (8B), an 8-hex-digit
+  // flags (15B incl. "flags="), an 11-char signed i2cf (17B incl.
+  // " i2cf="), a 10-digit unsigned cyc (15B incl. " cyc="), tlm's
+  // longest wire name "buffer" (11B incl. " tlm="), and a 10-digit
+  // next (16B incl. " next="), plus the "status " prefix (7B) and
+  // trailing '\n' (1B) -- measures well under 130 bytes total, so 200
+  // still keeps comfortable headroom; no bump needed.
   char buf[200];
   snprintf(buf, sizeof(buf),
                 "status ready=%d active=%d connL=%d connR=%d otos=%d "
-                "wedge=%d flags=%x i2cf=%ld tlm=%s next=%lu\n",
+                "wedge=%d flags=%x i2cf=%ld cyc=%lu tlm=%s next=%lu\n",
                 status.ready ? 1 : 0, status.active ? 1 : 0,
                 status.connLeft ? 1 : 0, status.connRight ? 1 : 0,
                 status.otos ? 1 : 0, status.wedge ? 1 : 0,
                 static_cast<unsigned int>(status.flags),
-                static_cast<long>(status.i2cf), status.tlm,
+                static_cast<long>(status.i2cf),
+                static_cast<unsigned long>(status.cyc), status.tlm,
                 static_cast<unsigned long>(expectedNext_));
   writeLine(buf);
 }

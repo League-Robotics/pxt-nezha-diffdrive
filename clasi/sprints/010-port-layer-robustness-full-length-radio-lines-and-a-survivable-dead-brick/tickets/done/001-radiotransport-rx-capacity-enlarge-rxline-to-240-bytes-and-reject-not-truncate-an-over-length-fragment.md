@@ -2,13 +2,13 @@
 id: '001'
 title: 'RadioTransport RX capacity: enlarge rxLine_ to 240 bytes and reject (not truncate)
   an over-length fragment'
-status: open
-use-cases: ['SUC-001']
+status: done
+use-cases:
+- SUC-001
 depends-on: []
 github-issue: ''
 issue: radio-rx-capacity-fragmentation.md
-completes_issue: false  # TX half + the three-numbers drift test land in
-  # ticket 002 -- that is the ticket that fully closes this issue.
+completes_issue: false
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -80,20 +80,20 @@ ceiling it should be able to carry whole.
 
 ## Acceptance Criteria
 
-- [ ] `rxLine_` is 240 bytes; the accept/reject predicate is a pure,
+- [x] `rxLine_` is 240 bytes; the accept/reject predicate is a pure,
       host-portable function declared and defined in `radio_transport.h`
       with no CODAL dependency.
-- [ ] `onDatagram()` rejects (drops, does not truncate-and-accept) any
+- [x] `onDatagram()` rejects (drops, does not truncate-and-accept) any
       single-fragment datagram whose declared `LEN` exceeds the buffer
       capacity, and increments `rxOversizeDropped_` when it does.
-- [ ] A ≤240-byte single-fragment datagram is still accepted and
+- [x] A ≤240-byte single-fragment datagram is still accepted and
       delivered whole, unchanged from today's behavior for in-range
       input.
-- [ ] A new host test file `#include`s `radio_transport.h` directly (no
+- [x] A new host test file `#include`s `radio_transport.h` directly (no
       link against `radio_transport.cpp`) and exercises the predicate at
       the boundary values: 0, 1, 240, 241, and the ~247-byte physical
       MTU ceiling.
-- [ ] No change to `radio_transport.cpp`'s MORE-flagged-fragment drop
+- [x] No change to `radio_transport.cpp`'s MORE-flagged-fragment drop
       path or any other existing behavior.
 
 ## Implementation Plan

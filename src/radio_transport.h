@@ -18,15 +18,43 @@
 //
 // TX (sendLine(), below) and RX (tryReceiveLine()/onDatagram(), below)
 // both use this framing. RX accepts only single-fragment messages (see
-// tryReceiveLine()'s own doc for the current capacity limit); no ACK
-// protocol either direction -- FLAG_ACK (0x10) is never set or
-// interpreted.
+// onDatagram()'s own doc for the current capacity limit and
+// radioRxLineFits(), just below, for the accept/reject predicate
+// itself); no ACK protocol either direction -- FLAG_ACK (0x10) is never
+// set or interpreted.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
 
 namespace diffDrive {
+
+// Pure accept/reject decision for an inbound RX fragment (sprint 010
+// ticket 001, radio-rx-capacity-fragmentation.md): true iff a fragment
+// whose payload declares `declaredLen` bytes (after
+// RadioTransport::onDatagram() has already stripped the trailing 0x0A
+// delimiter) fits WHOLE into a receive buffer of `bufferCapacity` bytes.
+// False means REJECT the frame in its entirety -- the caller must drop
+// it outright, exactly like an already-dropped MORE-flagged fragment,
+// and must NEVER truncate it to a shorter, still-parseable prefix and
+// deliver that prefix as if it were the complete line.
+//
+// Truncate-and-accept (the pre-fix behavior) was the actual hazard this
+// function exists to close: WireHandler::feed() cannot tell a truncated
+// line from a genuinely short one the host sent, so a truncated
+// over-length command could silently decode and EXECUTE as a different,
+// shorter, legal command. A dropped line is merely invisible; a
+// truncated-and-accepted one is dangerous -- see
+// radio-rx-capacity-fragmentation.md for the full defect writeup.
+//
+// No CODAL dependency (this header includes only <cstddef>/<cstdint>),
+// so this function is host-testable directly by #include-ing this
+// header -- no link against radio_transport.cpp, which requires pxt.h
+// and cannot be host-compiled at all. See
+// tests/host/test_radio_transport_rx_capacity.py.
+inline bool radioRxLineFits(size_t declaredLen, size_t bufferCapacity) {
+  return declaredLen <= bufferCapacity;
+}
 
 class RadioTransport {
  public:
@@ -78,6 +106,11 @@ class RadioTransport {
   // EmptyPacket refcounting), which is exactly why the reference never
   // polls. The handler copies a complete single-fragment line into
   // rxLine_ and sets rxReady_; tryReceiveLine() just consumes the flag.
+  // A single-fragment datagram whose declared LEN (after stripping the
+  // trailing 0x0A) exceeds rxLine_'s capacity is REJECTED whole --
+  // rxOversizeDropped_ counts it, rxReady_ is left untouched, and no
+  // prefix is copied -- see radioRxLineFits()'s own doc comment, above,
+  // for why this must never truncate-and-accept instead.
   void onDatagram();
 
   // Truncation bound for sendLine()'s `len` parameter, and this
@@ -165,7 +198,28 @@ class RadioTransport {
   bool sending_ = false;
   volatile bool rxReady_ = false;
   size_t rxLen_ = 0;
-  uint8_t rxLine_[64];
+
+  // RX line-buffer capacity, in bytes: the wire grammar's own 240-byte
+  // line ceiling (Wire::WireHandler::kMaxLineBytes, wire_handler.h),
+  // duplicated here as radio_transport.h's OWN independent constant
+  // rather than included by name -- src/DESIGN.md §1's layering table
+  // places Transports below the Wire grammar, so this header must not
+  // #include "wire_handler.h" (the same layering reason
+  // SerialTransport::kMaxLineBytes, serial_transport.h, already exists
+  // as ITS OWN independent 240 rather than including wire_handler.h
+  // either). MUST stay == both of those (see ticket 002's drift test).
+  // Sized off the wire grammar's line cap, NOT off the physical
+  // single-fragment MTU (~247 B: MICROBIT_RADIO_MAX_PACKET_SIZE (250,
+  // pxt.json) - kFrameHeaderBytes (3), see sendFragmented()'s kMtu in
+  // radio_transport.cpp) -- the MTU is comfortably larger, so this
+  // buffer's job is to carry one whole v6 line, not to reach radio's
+  // own physical ceiling. Was a bare `64` with no name of its own
+  // before sprint 010 ticket 001 (radio-rx-capacity-fragmentation.md);
+  // naming it lets radioRxLineFits() (above) and this ticket's own host
+  // test pin the real capacity by value instead of by an anonymous
+  // array bound.
+  static constexpr size_t kMaxLineBytes = 240;
+  uint8_t rxLine_[kMaxLineBytes];
 
  public:
   // RX diagnostics (bench): datagrams polled with nonzero length, and
@@ -173,6 +227,13 @@ class RadioTransport {
   // Protocol::formatDiag() for the DIAG surface.
   uint32_t rxFrames_ = 0;
   uint32_t rxAccepted_ = 0;
+  // Count of single-fragment datagrams REJECTED because their declared
+  // LEN exceeded rxLine_'s capacity (sprint 010 ticket 001,
+  // radio-rx-capacity-fragmentation.md) -- dropped whole, never
+  // truncated-and-accepted; see radioRxLineFits()'s own doc comment for
+  // why. Same bench-diagnostics convention as rxFrames_/rxAccepted_
+  // above.
+  uint32_t rxOversizeDropped_ = 0;
 
  private:
   uint8_t txSeq_ = 0;  // rolling RadioRelay §5 sequence number
