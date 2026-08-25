@@ -1,6 +1,6 @@
 # src — the DiffDrive extension
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** in-flux (as-built through sprint 008, closed and merged — wire hardening and tests that can fail: timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, and a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention closing the target-viability gap; sprint 011 (planned, not yet executed) characterizes `MotionEngine`'s `move_.deadline` duration math and `shims.cpp`'s first-move-after-boot state against the residual intermittent-leg-fault hunt — see §15 — landing a host-tested fix only if the investigation finds a real defect; sprint 005 executing concurrently, retrofitting bench tooling onto the v6 telemetry frame)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** in-flux (as-built through sprint 008, closed and merged — wire hardening and tests that can fail: timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, and a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention closing the target-viability gap; sprint 011 (tickets 001-007 done, ticket 008 build/verification checkpoint in progress) characterized `MotionEngine`'s `move_.deadline` duration math (ticket 003: clean boundary, no source change) and `shims.cpp`'s first-move-after-boot state (ticket 004: one real, confirmed-by-code-review mechanism found — the `kNeverWritten` slew-rate sentinel skips ramping on the first duty write of a boot — not fixed, pending bench confirmation) against the residual intermittent-leg-fault hunt — see §15; sprint 005 retrofitted bench tooling onto the v6 telemetry frame)
 
 `src/` is flat — no subdirectories — so this one document carries the
 logical subsystem breakdown as sections. Global conventions (units
@@ -1610,9 +1610,11 @@ no code here changes) and
 independent next-probes against this file's subsystem: `move_.deadline`'s
 duration math (ticket 003, **resolved this sprint — clean boundary, no
 source change**, see below and §3's inline annotation) and
-`shims.cpp`'s first-move-after-boot state (ticket 004, code-review only,
-outcome still pending as of this edit — `shims.cpp` is not
-host-testable, §1's layering table). `brick-reset-bench-measurement.md`,
+`shims.cpp`'s first-move-after-boot state (ticket 004, **resolved this
+sprint — one real, confirmed-by-code-review mechanism found; no source
+change landed**, see below — `shims.cpp` is not host-testable, §1's
+layering table, so the finding is a documented hypothesis pending bench
+confirmation, not a verified defect). `brick-reset-bench-measurement.md`,
 the third linked issue, touches no `src/` module this sprint didn't
 already close in sprint 006 — it is a bench-handoff-only concern,
 tracked entirely in `tools/DESIGN.md` (this overlay's sibling,
@@ -1635,17 +1637,28 @@ tracked entirely in `tools/DESIGN.md` (this overlay's sibling,
   host test (`tests/host/test_motion_engine_deadline_boundary.py`) is
   kept as a permanent regression guard, and the finding is recorded in
   `intermittent-cw-pivot-abort-wheel-reversal.md` as a ruled-out theory.
-- `shims.cpp` — **investigation only, no source change planned.**
-  Ticket 004 reviews boot-time state (encoder baseline, pose seed, any
-  cached filter/velocity state) ahead of the very first
-  `startMove()`/`serviceMove()` call after power-on, by inspection only
-  — `shims.cpp` includes `pxt.h` and is not host-testable (§1's layering
-  table), so this half of the investigation cannot carry a host test
-  the way ticket 003's can. The finding lands in
-  `intermittent-cw-pivot-abort-wheel-reversal.md`, not in a source
-  change, unless the review surfaces something concrete enough to
-  warrant its own follow-up ticket (not planned as part of this
-  sprint).
+- `shims.cpp` — **investigated, no source change landed.** Ticket 004
+  reviewed boot-time state (encoder baseline, pose seed, kernel filter
+  state) ahead of the very first `startMove()`/`serviceMove()` call
+  after power-on, by code inspection only — `shims.cpp` includes
+  `pxt.h` and is not host-testable (§1's layering table), so this half
+  of the investigation could not carry a host test the way ticket 003's
+  did. **Finding: one real, confirmed-by-code-review mechanism.**
+  `NezhaMotorPort::writeRawDuty()`'s `kNeverWritten` slew-rate sentinel
+  (`nezha_port.h`) means the very first duty write of a power cycle
+  skips slew-rate ramping, while every subsequent move that boot ramps
+  normally. Both wheels carry their own independent sentinel, so the
+  effect is symmetric — consistent with the issue's own "heading
+  usually still closes" signature — and distance/timing-only, not a
+  turning defect. **Not hardware-confirmed**: the finding is a
+  documented hypothesis, not a verified defect, pending ticket 006's
+  bench campaign, which now carries a dedicated first-move-after-boot
+  probe (step 4 of its procedure) built specifically to test it. No
+  source change lands this sprint — the low-risk candidate fix (seed
+  `lastWrittenPct_` to `0` instead of `kNeverWritten`) is deliberately
+  deferred until bench evidence confirms it matters, per ticket 004's
+  own acceptance criteria. Full finding recorded in
+  `intermittent-cw-pivot-abort-wheel-reversal.md`.
 - No other `src/` file is touched. `otos_port.{h,cpp}`'s lever-arm
   transform (§7) and `main.ts`'s `goToWorld()`/dual-pose seed (§9) are
   read during this sprint's campaign but not modified — the campaign
@@ -1713,10 +1726,14 @@ as though it were done is a document that can silently go stale.
   Sprint Changes above for the measured margin across all three leg
   shapes tested. Ticket 006 (the residual-fault campaign procedure) can
   proceed with `move_.deadline` ruled out as a cause of the residual
-  leg-truncation fault; the campaign's remaining candidate is whatever
-  ticket 004's first-move-after-boot review surfaces (see the next
-  bullet).
-- Whether ticket 004's first-move-after-boot review surfaces a concrete
-  enough mechanism to warrant its own follow-up ticket, inside or outside
-  this sprint, cannot be answered at planning time — flagged for the
-  team-lead if it happens during execution.
+  leg-truncation fault.
+- **Resolved (ticket 004):** the first-move-after-boot review found one
+  real, confirmed-by-code-review mechanism (the `kNeverWritten`
+  slew-rate sentinel — see Sprint Changes above) — concrete enough to
+  name a specific candidate fix, but per ticket 004's own scope that fix
+  is deliberately deferred rather than escalated into a follow-up ticket
+  this sprint: it is not hardware-confirmed, and ticket 006's bench
+  campaign (its own step 4) now carries the dedicated probe that would
+  confirm or rule it out. Whether it becomes a follow-up ticket depends
+  on that bench result, not on anything resolvable at this
+  planning/build-checkpoint stage.
