@@ -14,7 +14,7 @@
 // build with zero link against the CODAL-bound translation unit.
 //
 // Test scaffolding only: nothing under src/ knows this file exists.
-#include "radio_transport.h"
+#include "comms/radio_transport.h"
 
 extern "C" {
 

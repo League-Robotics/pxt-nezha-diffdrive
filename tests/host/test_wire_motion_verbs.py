@@ -56,8 +56,8 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "wire_handler.cpp",
-    _SRC_DIR / "wire_adapter.cpp",
+    _SRC_DIR / "comms" / "wire_handler.cpp",
+    _SRC_DIR / "comms" / "wire_adapter.cpp",
     _TEST_DIR / "wire_motion_verb_shim.cpp",
 ]
 

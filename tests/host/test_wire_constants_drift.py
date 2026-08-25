@@ -84,7 +84,7 @@ def _pxt_json_version():
 
 
 def _protocol_cpp_k_version():
-    text = _read("protocol.cpp")
+    text = _read("comms/protocol.cpp")
     match = re.search(r'constexpr const char\*\s*kVersion\s*=\s*"([^"]*)"', text)
     assert match, "protocol.cpp's kVersion declaration was not found by this test's regex"
     return match.group(1)
@@ -117,14 +117,14 @@ def test_k_version_matches_pxt_json_version():
 
 
 def _radio_transport_max_payload_bytes():
-    text = _read("radio_transport.h")
+    text = _read("comms/radio_transport.h")
     match = re.search(r"kMaxPayloadBytes\s*=\s*(\d+)", text)
     assert match, "radio_transport.h's kMaxPayloadBytes declaration was not found"
     return int(match.group(1))
 
 
 def _radio_transport_max_payload_bytes_is_public():
-    text = _read("radio_transport.h")
+    text = _read("comms/radio_transport.h")
     # Walk the class body's access-specifier sections in declaration
     # order and report which one kMaxPayloadBytes's declaration falls
     # under -- the same "which section owns this line" check a reviewer
@@ -189,7 +189,7 @@ def test_emit_line_clips_to_shared_constant_not_a_bare_literal():
     the emitLine() function body specifically, not the whole file, so
     an unrelated `200` elsewhere in protocol.cpp can't produce a false
     pass or false failure."""
-    text = _read("protocol.cpp")
+    text = _read("comms/protocol.cpp")
     match = re.search(
         r"void Protocol::emitLine\(const char\* text\) \{(.*?)\n\}",
         text,
@@ -221,7 +221,7 @@ def _radio_transport_max_payload_bytes_doc_comment():
     file (the same "scope the check to one function body" technique
     test_emit_line_clips_to_shared_constant_not_a_bare_literal, above,
     uses for protocol.cpp)."""
-    text = _read("radio_transport.h")
+    text = _read("comms/radio_transport.h")
     match = re.search(
         r"((?:^[ \t]*//[^\n]*\n)+)[ \t]*static constexpr size_t kMaxPayloadBytes",
         text,
@@ -285,7 +285,7 @@ def _radio_transport_rx_capacity():
     like this file's other checks, so a private member is no obstacle --
     see this file's own module docstring for why these are text-based
     drift tests in the first place."""
-    text = _read("radio_transport.h")
+    text = _read("comms/radio_transport.h")
     matches = re.findall(r"kMaxLineBytes\s*=\s*(\d+)", text)
     assert matches, (
         "radio_transport.h's kMaxLineBytes (RX capacity) declaration "
@@ -301,14 +301,14 @@ def _radio_transport_rx_capacity():
 
 
 def _wire_handler_max_line_bytes():
-    text = (_SRC_DIR / "wire_handler.h").read_text()
+    text = (_SRC_DIR / "comms" / "wire_handler.h").read_text()
     match = re.search(r"kMaxLineBytes\s*=\s*(\d+)", text)
     assert match, "wire_handler.h's kMaxLineBytes declaration was not found"
     return int(match.group(1))
 
 
 def _serial_transport_max_line_bytes():
-    text = (_SRC_DIR / "serial_transport.h").read_text()
+    text = (_SRC_DIR / "comms" / "serial_transport.h").read_text()
     match = re.search(r"kMaxLineBytes\s*=\s*(\d+)", text)
     assert match, "serial_transport.h's kMaxLineBytes declaration was not found"
     return int(match.group(1))
@@ -358,7 +358,7 @@ def _run_ts_run_event_source():
 
 
 def _protocol_cpp_k_run_event_source():
-    text = _read("protocol.cpp")
+    text = _read("comms/protocol.cpp")
     match = re.search(r"constexpr int kRunEventSource\s*=\s*(0x[0-9a-fA-F]+|\d+)", text)
     assert match, "protocol.cpp's kRunEventSource declaration was not found"
     return int(match.group(1), 0)
@@ -468,7 +468,7 @@ _KDIAG_EXPECTED_TOKEN = {
 
 
 def _wire_adapter_kdiag_ordinals():
-    text = _read("wire_adapter.cpp")
+    text = _read("comms/wire_adapter.cpp")
     return {
         name: int(value)
         for name, value in re.findall(

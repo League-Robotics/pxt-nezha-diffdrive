@@ -37,7 +37,7 @@ _TEST_DIR = pathlib.Path(__file__).resolve().parent
 _SRC_DIR = _TEST_DIR.parent.parent / "src"
 
 _SHIM_SOURCES = [
-    _SRC_DIR / "wire_handler.cpp",
+    _SRC_DIR / "comms" / "wire_handler.cpp",
     _TEST_DIR / "wire_grammar_shim.cpp",
 ]
 

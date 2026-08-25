@@ -86,7 +86,7 @@ def _column_map(snapshot):
 
 
 def test_otos_read_never_appears_in_wire_adapter_cpp():
-    text = (_SRC_DIR / "wire_adapter.cpp").read_text()
+    text = (_SRC_DIR / "comms" / "wire_adapter.cpp").read_text()
     assert "otosRead" not in text
 
 

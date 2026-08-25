@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-#include "wire_handler.h"
+#include "comms/wire_handler.h"
 #include "wire_mock_adapter.h"
 
 namespace {

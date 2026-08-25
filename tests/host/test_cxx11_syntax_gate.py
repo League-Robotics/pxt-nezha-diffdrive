@@ -72,8 +72,8 @@ _TEST_DIR = pathlib.Path(__file__).resolve().parent
 _CXX11_PORTABLE_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "wire_handler.cpp",
-    _SRC_DIR / "wire_adapter.cpp",
+    _SRC_DIR / "comms" / "wire_handler.cpp",
+    _SRC_DIR / "comms" / "wire_adapter.cpp",
     # Sprint 006 ticket 004: heading_wrap.h has no pxt.h dependency (it
     # is the extracted, host-portable half of OtosPort::setPose()'s
     # heading-wrap fix -- see src/heading_wrap.h's own header comment)

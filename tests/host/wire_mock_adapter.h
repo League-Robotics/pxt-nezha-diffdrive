@@ -22,7 +22,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "wire_handler.h"
+#include "comms/wire_handler.h"
 
 class WireMockAdapter : public Wire::Adapter {
  public:
