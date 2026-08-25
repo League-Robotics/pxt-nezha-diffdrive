@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: Retarget tour_capture.py off numeric RUN onto the named RUN:tour vocabulary
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on: []
