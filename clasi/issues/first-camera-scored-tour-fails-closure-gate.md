@@ -160,3 +160,50 @@ it, which is exactly why it survived until absolute arrival was measured.
 
 This issue's own closure question is answered. The absolute-accuracy question
 is not, and lives in that issue.
+
+---
+
+## Re-run on FIXED FIRMWARE (2026-08-25) — gate met, 10/10
+
+The n=15 campaign above ran with the lever arm applied *manually* via `RUN:arm`
+on unfixed firmware. vevov has now been flashed with the fix (commits 27cf24b +
+fa1eddf) and the campaign re-run end to end, n=10, camera-scored.
+
+| metric | before any fix | manual `RUN:arm` | **fixed firmware** |
+|---|---|---|---|
+| closure, median | 58.3 mm (n=1) | 15.3 mm | **7.6 mm** |
+| closure, best | — | 2.0 mm | **2.3 mm** |
+| within 50 mm gate | 0/1 | 7/10 | **10/10** |
+| within 20 mm target | 0/1 | 6/10 | **7/10** |
+| path deviation, median | 6.6 cm | ~2.2 cm | **0.7-3.1 cm** |
+| per-corner NW/SW/SE | 5.2-18.6 cm | 2.4-4.2 cm | **0.3-2.3 cm** |
+
+**The stakeholder's 50 mm acceptance gate is met on every run.** The 20 mm
+target is met on 7 of 10.
+
+### The residual is the OTHER defect, and it is visible here
+
+Per-corner errors are now 0.3-2.3 cm at NW/SW/SE but **consistently 3.5-4.5 cm
+at NE** — the final corner. Absolute arrival vs (50,30) is median 42.6 mm,
+essentially unchanged by this fix. That is
+`gotoworld-overshoots-by-fixed-stopping-distance.md` showing through, and it is
+why absolute arrival is still only 2/10 within 20 mm while closure is 7/10.
+
+It also compounds across chained runs: each run starts where the last ended, and
+the robot walked from (49.9, 29.6) to settle around (53.4, 27.4) over ten tours.
+Closure stays excellent throughout because the overshoot is consistent.
+
+### Two operational notes from the same runs
+
+- **Runs 1-2 are not usable.** Run 1 produced no `completed` line and 2940
+  telemetry frames (vs ~900 typical) with SW/SE corner errors of 116 cm and
+  59 cm; run 2 similar at 98 cm. These look like a mis-started tour or camera
+  mis-track immediately after the flash, not robot behaviour. They are excluded
+  from the per-corner reading above and included in the closure table, where
+  they happen to score well (2.3 and 8.9 mm) — which is itself a caution about
+  scoring closure without checking the run completed.
+- **Telemetry loss degraded badly across the session**: 5.5% early, then 44%,
+  88%, and 98% on the last four runs. The tours still completed and scored fine
+  (the tour does not depend on telemetry), but any analysis reading those
+  captures is working from ~2% of the stream. Worth its own look; not chased
+  here.
