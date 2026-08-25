@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: Investigate first-move-after-boot special-casing
-status: open
+status: done
 use-cases:
 - SUC-004
 depends-on: []
@@ -39,28 +39,28 @@ documented finding, not a verified one.
 
 ## Acceptance Criteria
 
-- [ ] A finding is written into
+- [x] A finding is written into
       `intermittent-cw-pivot-abort-wheel-reversal.md`: either a
       plausible mechanism identified (name the specific state and why
       it could produce a short/truncated first leg), or an explicit
       statement that no such mechanism was found after tracing the
       boot-to-first-move path.
-- [ ] The finding explicitly states it is a **code-review finding, not
+- [x] The finding explicitly states it is a **code-review finding, not
       a hardware-confirmed one** — ticket 006 (the residual-fault
       campaign procedure) is where any hypothesis from this ticket gets
       tested against reality, not this ticket.
-- [ ] No acceptance criterion in this ticket, or produced by it, claims
+- [x] No acceptance criterion in this ticket, or produced by it, claims
       test coverage for `shims.cpp`/`nezha_port.cpp` that does not
       exist — no fabricated or token test is added to `tests/host/`
       for a path that cannot actually be exercised there.
-- [ ] If the review surfaces a mechanism concrete enough to warrant a
+- [x] If the review surfaces a mechanism concrete enough to warrant a
       code change, do NOT make that change in this ticket — flag it in
       the finding and note it as a candidate for a follow-up ticket
       (inside this sprint, if the team-lead agrees to expand scope, or
       as a new issue otherwise). This ticket's own scope is
       characterization, matching this sprint's "instrumented and
       characterized, not fixed sight unseen" success criteria.
-- [ ] No robot required.
+- [x] No robot required.
 
 ## Implementation Plan
 
