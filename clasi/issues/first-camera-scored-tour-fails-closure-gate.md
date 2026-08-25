@@ -94,3 +94,69 @@ This is the third instance of the same pattern in two days:
   campaign procedure is the right vehicle for the repetitions this needs.
 - `i2c-fault-count-climbs-on-idle-bus.md` — `i2cf` rose 3 -> 17 during this
   single tour.
+
+---
+
+## RESOLVED (2026-08-25) — root cause found and fixed; n=1 replaced with n=15
+
+The "n=1, not established" caveats above are now answered. **The 58 mm closure
+was not drivetrain error. It was a missing lever-arm correction.**
+
+### Root cause
+
+`worldReady()` in `test/test.ts` returned `true` as soon as
+`worldTrackingReady()` said the chip was answering. That check is only
+`otosGet(7) -> connected_`, which any earlier `otosBegin()` sets — and
+`RUN:probe` calls `otosBegin()`. So the first `worldReady()` after a probe
+short-circuited and `applyArm()` never ran. The offsets stayed at their `0.0f`
+defaults, silently, for the entire session that produced the 58 mm run.
+
+With no arm the OTOS reports the SENSOR's path, not the centre's. Every
+in-place pivot injects `2 * 38.2mm * sin(theta/2)` of phantom translation —
+about 54 mm at each of the tour's four 90 deg corners.
+
+Measured directly against camera truth:
+
+| pivot | robot reported | camera actual |
+|---|---|---|
+| 84 deg, **no arm** | **52.0 mm** of travel | 2.5 mm |
+| 90 deg, **arm applied** | **1.2 mm** | agreed to 2.1 mm, heading 0.07 deg |
+
+The predicted swing for an uncorrected 38.2 mm arm over 84 deg is
+`2*38.2*sin(42) = 51.1 mm`. Measured 52.0 mm. That is the mechanism, not a
+correlation.
+
+Fixed in commit **27cf24b**.
+
+### Campaign after the fix — n=15 total, n=10 with full CSV capture
+
+| metric | before fix | after fix |
+|---|---|---|
+| path deviation, median | 6.6 cm | **~2.2 cm** |
+| path deviation, max | 10.1 cm | 5.4-7.2 cm (one 29.1 outlier) |
+| robot-vs-camera corner disagreement | 5.2-18.6 cm | **2.4-4.2 cm** |
+| closure, median | (58.3 mm, n=1) | **15.3 mm**, 6/10 inside the 20 mm target |
+
+**Closure now meets the stakeholder's gate**: 7/10 within 50 mm, 6/10 within
+20 mm, best runs 2.0 and 2.9 mm.
+
+### What this issue got RIGHT, and what it got wrong
+
+Right: the failure direction was toward false confidence, and the robot's
+self-reported 22.5 mm would have passed a gate it should have failed.
+
+Wrong: it implied the error was accumulated drift of unknown origin. It was a
+single deterministic bug with an exact closed-form signature, findable in one
+pivot against camera truth. The lesson is that **n=1 plus a mechanism beats
+n=20 without one** — the repetitions confirmed the fix, but the pivot
+measurement is what found it.
+
+### What remains — split out, not closed here
+
+Absolute arrival at the target corner is still **median 48.1 mm (0/10 within
+20 mm)**, and that is a separate, systematic defect now filed as
+`gotoworld-overshoots-by-fixed-stopping-distance.md`. Closure largely cancels
+it, which is exactly why it survived until absolute arrival was measured.
+
+This issue's own closure question is answered. The absolute-accuracy question
+is not, and lives in that issue.
