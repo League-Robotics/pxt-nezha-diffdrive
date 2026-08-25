@@ -1,6 +1,6 @@
 # tools — bench and diagnostic tooling
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** stable (sprint 005 ticket 003: `tools/camproc.py`/`tools/field.py` consolidate the camera/link-layer duplication and `pyproject.toml` now declares `pyserial`; host side of the retired cleartext vocabulary — see the telemetry note below; `make_deploy.py`'s `build()` is now triage-aware, see "Build checkpoint triage" below)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** stable (sprint 005: `tools/tlm.py` retrofits all six telemetry consumers onto the v6 `thdr`/`t` frame with fail-loud guards, `tools/camproc.py`/`tools/field.py` consolidate the camera/link-layer duplication, and the numeric-RUN-vocabulary and testFiles build-hygiene defects are fixed; `make_deploy.py`'s `build()` remains triage-aware, see "Build checkpoint triage" below)
 
 Host-side Python scripts for building, deploying, driving, measuring,
 and charting the robot. Flat root, no subsystems. Run under `uv`
@@ -46,6 +46,28 @@ Conventions (units, frames, camera doctrine) are in
   across the tour/ground-truth tools. Consumes `camlink.py`'s existing
   shared `Cam` (via `camproc.py`) rather than re-wrapping it.
 
+## Telemetry (`tlm.py`, sprint 005)
+
+- **`tlm.py`** — the single place any v6 telemetry scale factor is
+  written. `TlmStream` tracks the `thdr` column header (re-emitted by
+  firmware at ~1 Hz so a late-attaching consumer can resync) and feeds
+  `t` lines, exposing `frames`, `orphan_frames` (a `t` before any
+  header), `malformed` (a `t` whose value count disagrees with the
+  header — the defense against `RadioTransport`'s 200-byte line
+  truncation), and `dropped`/`loss_pct` (from `seq` gaps — a 7-bit
+  wrapping counter at 20 Hz). Unit-conversion helpers (`pose_cm`,
+  `otos_cm`, `wheels_mms`) live here too. Three fail-loud guards make
+  "the instrument returned nothing" a loud, immediate failure instead
+  of a silent empty CSV: `require_stream(link, timeout=3.0)` aborts
+  *before* a run is triggered if no `t` frame arrives; `write_tlm_csv()`
+  raises rather than writing a header-only CSV; a `<stem>_tlm.meta.json`
+  sidecar (frames/dropped/loss_pct/orphan_frames/malformed/columns/
+  duration) lets `tour_chart.py`/`practice_chart.py` refuse to plot a
+  zero-frame run. All six tour/ground-truth consumers listed below
+  import `tlm.py` instead of parsing wire lines themselves — see the
+  "Known limitation" section this replaced, kept below as a resolved
+  note for history.
+
 ## Build / deploy
 
 - **`make_deploy.py`** — builds a flashable hex in a scratch copy of
@@ -54,7 +76,20 @@ Conventions (units, frames, camera doctrine) are in
   `disablesVariants: ["mbdal"]` dropped (kept, it produces a hex that
   is dead on the device). Deletes the hex up front and verifies it
   exists afterwards, because the expected V1 `TS9283` error
-  nondeterministically deletes it.
+  nondeterministically deletes it. `test/testrig.ts` (the zeguz OTOS
+  rig, sprint 005) is a separate, mutually exclusive on-robot program
+  from `test.ts` -- each has its own top-level `basic.forever` loop and
+  button handlers, so the two must never both be promoted into one
+  scratch copy's `files`. `--testrig` builds/type-checks `testrig.ts`
+  alone in its own scratch copy (`.tmp/deploy-testrig/`), generated
+  fresh from `pxt.json`'s `testFiles` list on every run the same way
+  the primary deploy is -- this is what makes `testrig.ts` "built as
+  part of a routine, automated path" again, closing the build-hygiene
+  half of `testfiles-are-not-type-checked-testrig-is-broken.md` (its
+  old hand-curated scratch copy never contained the file at all, which
+  is how it sat uncompilable for weeks unnoticed). Produces no
+  flashable hex that matters -- it exists only to prove `testrig.ts`
+  compiles, so `--flash` is rejected together with `--testrig`.
 
 ### Build checkpoint triage (`make_deploy.py`, sprint 008)
 
@@ -146,11 +181,18 @@ and record what comes back.
 
 - **`tour_run.py`** — the canonical run: camera used exactly twice
   (seed at start, score at end); the robot drives all four legs on its
-  own sensors; no radio round-trips inside the tour.
+  own sensors; no radio round-trips inside the tour. Records via
+  `tlm.py`; aborts before starting if `require_stream()` finds no
+  telemetry.
 - **`tour_capture.py`** / **`tour_watch.py`** — telemetry recorders
-  (triggered vs. button-watch); write the pose/wheel CSVs.
+  (triggered vs. button-watch); write the pose/wheel CSVs plus the
+  `tlm.py` `.meta.json` sidecar (frames/dropped/loss_pct). Both tools'
+  own pre-sprint-005 field-count arity checks (`tour_watch.py:202`'s
+  `len(f) == 7`, `tour_capture.py:70`'s 7/4/3-length ladder) are gone —
+  `tlm.py` owns arity now.
 - **`tour_chart.py`** / **`practice_chart.py`** — the standard
-  matplotlib plots of those CSVs.
+  matplotlib plots of those CSVs; refuse to plot a run whose
+  `.meta.json` sidecar reports `frames == 0`.
 - **`tour_practice.py`** — repeated camera-scored runs from the start
   dot, repositioning between runs.
 - **`tour_square.py`**, **`tour_closedloop.py`** — earlier variants
@@ -162,12 +204,21 @@ and record what comes back.
 
 - **`pivot_truth.py`** / **`truth_check.py`** — camera vs. OTOS vs.
   odometry for rotations: is the robot misbehaving or the sensor
-  mis-reporting?
+  mis-reporting? Drive `test.ts`'s named `pivot`/`fix` RUN verbs
+  (sprint 005; previously sent dead numeric `RUN:2/4/5/10` offsets that
+  matched no handler on named-verb-only firmware).
 - **`rotation_check.py`** — commanded vs. gyro-measured rotation
-  (floor + radio only; on the bench the body never rotates).
+  (floor + radio only; on the bench the body never rotates). Same
+  named-verb retargeting as `pivot_truth.py`/`truth_check.py`.
 - **`turn_sweep.py`** — turn accuracy vs. yaw rate, camera-scored.
+  Drives `test.ts`'s named `turnrate`/`pivot` verbs (sprint 005;
+  previously `RUN:57000+rate`/`RUN:58360+deg`, also dead numeric
+  offsets).
 - **`otos_levercal.py`** — fits the OTOS lever arm from pivot circles
-  (produced the 38.2 mm arm baked into `test/test.ts`).
+  (produced the 38.2 mm arm baked into `test/test.ts`). Drives
+  `test.ts`'s already-named `RUN:cal`/`RUN:cal:1` (sprint 005; a
+  Python-side rename only — `RUN:8`/`RUN:14` never matched a handler,
+  but `cal` always did).
 - **`reposition.py`** — put the robot on a world point, camera-
   verified, seeding from measured truth rather than assumed placement.
 
@@ -176,22 +227,22 @@ and record what comes back.
 - **`otos_bench.py`** — chainable subcommands driving
   `test/testrig.ts`'s numeric `RUN:<n>` vocabulary on the zeguz drum
   rig (probe, zero, stream, calibrate, servo, drum speed, lever arm).
+  `testrig.ts`'s own two-arg `onRunCommand` dispatch bug (it stored the
+  always-zero `arg` instead of the parsed numeric `name`, so every
+  command silently reached no branch) is fixed as of sprint 005; this
+  tool's own commands are unchanged.
 
-## Known limitation — the telemetry gap
+## Resolved (sprint 005): the telemetry gap and the dead RUN vocabulary
 
-These tools speak the **old cleartext vocabulary** (`RUN:` commands
-in; `TLM:`/`DIAG`/`OCAL:`-style lines back). Sprint 003's v6 cutover
-retired the firmware's periodic `TLM:` stream with no v6 replacement
-yet, so the recorders' `TLM:` branch never fires against current
-firmware — pose columns record empty, silently. The `RUN:` cleartext
-*transport* still works (`protocol.cpp` forwards it), but the numeric
-`RUN:<n>` vocabulary has no handlers anywhere: `main.ts` dispatches RUN
-by exact name, `test/test.ts` registers only named handlers, and
-`testrig.ts`'s two-arg handler stores the argument, not the name — so
-every numeric command from `otos_bench.py`, `rotation_check.py`,
-`truth_check.py`, `pivot_truth.py`, `turn_sweep.py`, and
-`otos_levercal.py` is a silent no-op. Only named-verb `RUN:` commands
-and `emitLine()`-based result lines still work. Telemetry restored by
-the planned telemetry-frame work (sprint 004), not yet built; the
-numeric-vocabulary breakage is separate and unplanned (see
-docs/code-review/2026-08-23/, PY-01/BLK-04).
+~~These tools speak the old cleartext vocabulary (`RUN:` commands in;
+`TLM:`/`DIAG`/`OCAL:`-style lines back), and the numeric `RUN:<n>`
+vocabulary has no handlers anywhere on current firmware.~~ Both halves
+are fixed as of sprint 005: telemetry now flows through `tlm.py`'s
+`thdr`/`t` parser (see above), and every tool that used to send a
+numeric `RUN:<n>` offset now sends a real named verb (`test.ts` gained
+two new ones, `pivot` and `turnrate`, for exactly this purpose) or, for
+`otos_bench.py`/`testrig.ts`, has its dispatch bug fixed rather than
+its vocabulary ported. See `clasi/sprints/005-retrofit-bench-tooling-
+onto-the-v6-telemetry-stream/sprint.md`'s Architecture section for the
+full design rationale, including why `testrig.ts`'s vocabulary was
+restored rather than renamed.

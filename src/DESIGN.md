@@ -1,6 +1,6 @@
 # src — the DiffDrive extension
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** in-flux (as-built through sprint 008, closed and merged — wire hardening and tests that can fail: timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, and a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention closing the target-viability gap; sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** in-flux (as-built through sprint 005, closed and merged — sprint 008: wire hardening and tests that can fail (timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention); sprint 005: `WireAdapter::lastDone()`/`lastDoneReason()` report real motion-completion state for all six verbs instead of the permanently-inert default, backed by one new `shims.cpp` bridge read (`engineMoveActive()`) and a new `Wire::DoneReason::kStall` — see §5 and §10)
 
 `src/` is flat — no subdirectories — so this one document carries the
 logical subsystem breakdown as sections. Global conventions (units
@@ -383,33 +383,47 @@ a session with no subscriber (see §8's Fiber loop). `computeFlags()`
 `status()` and `buildSnapshot()` read, so STATUS's `flags=`/`i2cf=`
 and the telemetry `flags`/`i2cf` columns can never drift apart.
 
-**Real motion-completion signal (sprint 005 ticket 004, closing
-wire-motion-completion-signal.md/R-23).** `lastDone()`/`lastDoneReason()`
-are no longer the permanently inert `0`/`kNone` sprint 003 ticket 012
-left — they now report the accepted `id` and `Wire::DoneReason` of
-whichever motion verb most recently reached a terminal state, resolved
-fresh on every call (S8.8). `WHEELS_V`/`WHEELS_X`/`MOVE_V` resolve
-done-vs-timeout-vs-superseded entirely from this class's own existing
-lease-deadline bookkeeping; `MOVE_X`/`GO_TO_R`/`GO_TO_W` additionally
-read `engineMoveActive()` (the one new bridge function below) to
-distinguish "reached its own stop condition early" from "ran out the
-clock." `stall`/`estop` need no new plumbing — both already reach this
-class through the same `diagValue()`/`computeFlags()` path STATUS's
-`flags=` and telemetry's `flags` column already use. `DoneReason` gains
-`kStall` (wire spelling `"stall"`), purely additive. Two ordering
-hazards found and fixed while implementing this: (1) a lease-style
-verb's own dispatch (`setWheelsTimed()`/`engineWheelsX()`/
-`engineMoveV()`, all routing through `MotionEngine::wheelsV()`/
-`wheelsX()`, whose first act is `cancelMove()`) must resolve a
-still-pending PREVIOUS motion as superseded *before* that dispatch
-runs, or the cancellation reads as the old motion having reached its
-own stop condition; (2) `onEstop()` commits `kEstop` unconditionally,
-never through the "trust the natural resolution first" path every
-other force-resolve call site uses, because `estopAll()`'s own
-`engine.endMove()` already clears `engineMoveActive()` synchronously
-while `diagValue(kDiagEstopped)` is still stale (an `Output` field that
-only updates on the kernel's next `step()`) — a naive natural-first
-commit would misread that combination as `kStop`.
+**Real completion channel (sprint 005, resolving the prior "known inert
+surfaces" note).** `lastDone()`/`lastDoneReason()` now report real
+values for all six motion verbs rather than the permanently-inert
+`0`/`kNone` default sprint 003 ticket 012 deliberately left in place.
+Two lease-style verbs (WHEELS_V/WHEELS_X/MOVE_V) resolve
+done-vs-timeout-vs-superseded entirely from `WireAdapter`'s own
+pre-existing `motionObligationActive_`/`motionObligationDeadlineMs_`
+bookkeeping — no new dependency. The three goal-directed verbs
+(MOVE_X/GO_TO_R/GO_TO_W) additionally need to know whether the
+underlying `MotionEngine` move is still active when the lease deadline
+is reached, which is the one genuinely new read: `engineMoveActive()`,
+a thin, read-only, forward-declared `shims.cpp` bridge function
+matching the existing `engineWheelsX()`-style convention exactly —
+`WireAdapter` still holds no reference of its own to `MotionEngine`/
+`Rig`. `stall`/`estop` needed no new plumbing at all: both already
+reach `WireAdapter` through the `diagValue()`/`computeFlags()` path
+this class already uses for STATUS's `flags=`/telemetry's `flags`
+column (`stall_halted` and `estopped` are already two of its eight
+diagnostic booleans). `Wire::DoneReason` (`wire_handler.h`) gained one
+new enumerator, `kStall`, for this; `kAborted` ("the caller abandoned
+it") is read as "superseded" — a later motion verb replacing a
+still-live one — since `kStop` already covers both "reached its own
+stop condition" and an explicit `stop()` call. See sprint 005's
+`sprint.md` Design Rationale for the alternatives this ruled out (a
+live `MotionEngine` reference on `WireAdapter`; a stateful return value
+on all six bridge functions instead of the one needed).
+
+Two ordering hazards were found and fixed while implementing this:
+(1) a lease-style verb's own dispatch (`setWheelsTimed()`/
+`engineWheelsX()`/`engineMoveV()`, all routing through
+`MotionEngine::wheelsV()`/`wheelsX()`, whose first act is
+`cancelMove()`) must resolve a still-pending PREVIOUS motion as
+superseded *before* that dispatch runs, or the cancellation reads as
+the old motion having reached its own stop condition; (2) `onEstop()`
+commits `kEstop` unconditionally, never through the "trust the natural
+resolution first" path every other force-resolve call site uses,
+because `estopAll()`'s own `engine.endMove()` already clears
+`engineMoveActive()` synchronously while `diagValue(kDiagEstopped)` is
+still stale (an `Output` field that only updates on the kernel's next
+`step()`) — a naive natural-first commit would misread that
+combination as `kStop`.
 
 **Dependencies.** `wire_handler.h`; `shims.cpp` free functions by
 forward declaration only (`stopAll`, `estopAll`, `setWheelsTimed`,
@@ -904,10 +918,18 @@ hard way:
 
 ## 10. Open questions / known limitations
 
-- `tools/`'s bench scripts still parse the old cleartext `TLM:`
-  prefix (see §8's Telemetry gap paragraph); the v6 `thdr`/`t` frames
-  sprint 004 built are real but nothing in `tools/` consumes them yet
-  — that retrofit is sprint 005 (roadmapped, not yet detail-planned).
+- **(Resolved, sprint 005)** ~~`tools/`'s bench scripts still parse
+  the old cleartext `TLM:` prefix; the v6 `thdr`/`t` frames sprint 004
+  built are real but nothing in `tools/` consumes them yet.~~ Retrofit
+  complete: `tools/tlm.py` is the one shared parser, with fail-loud
+  guards (a dead instrument, a header-only CSV, and a zero-frame plot
+  all now abort loudly). See `tools/DESIGN.md`.
+- **(Resolved, sprint 005)** ~~`WireAdapter::lastDone()`/
+  `lastDoneReason()` permanently inert — hosts cannot observe motion
+  completion via the reliability channel.~~ Real values for all six
+  motion verbs and all five terminal reasons (done/superseded/timeout/
+  stall/estop), host-tested against the real `WireAdapter`. See §5's
+  "Real completion channel" note above.
 - Radio RX is a single 64-byte fragment slot with no multi-fragment
   reassembly (unchanged this sprint — sprint 004 closed the *grammar*
   question, not the *capacity* one). An inbound line longer than one
