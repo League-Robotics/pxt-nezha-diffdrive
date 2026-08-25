@@ -1,6 +1,10 @@
 ---
-status: pending
+status: in-progress
 sprint: '010'
+tickets:
+- 010-003
+- 010-004
+- 010-005
 ---
 
 # Unpowered Nezha brick wedges the whole program at first I2C touch

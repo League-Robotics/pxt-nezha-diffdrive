@@ -3,7 +3,7 @@ id: '010'
 title: 'Port-layer robustness: full-length radio lines and a survivable dead brick'
 status: ticketing
 branch: sprint/010-port-layer-robustness-full-length-radio-lines-and-a-survivable-dead-brick
-use-cases: []
+use-cases: ['SUC-001', 'SUC-002', 'SUC-003']
 issues:
 - radio-rx-capacity-fragmentation.md
 - unpowered-nezha-brick-wedges-program-at-boot.md
@@ -773,7 +773,18 @@ Before tickets can be created, all of the following must be true:
 
 ## Tickets
 
-| # | Title | Depends On |
-|---|-------|------------|
+| # | Title | Issue | Depends On |
+|---|-------|-------|------------|
+| 001 | RadioTransport RX capacity: enlarge `rxLine_` to 240 bytes and reject (not truncate) an over-length fragment | radio-rx-capacity-fragmentation.md | — |
+| 002 | RadioTransport TX capacity: raise `kMaxPayloadBytes` to 240 and drift-test the three line-capacity constants | radio-rx-capacity-fragmentation.md | 001 |
+| 003 | STATUS gains a `cyc` field so never-ticked is distinguishable from brick-unreachable | unpowered-nezha-brick-wedges-program-at-boot.md | — |
+| 004 | Nezha I2C bus-hang guard: investigation and best-effort implementation | unpowered-nezha-brick-wedges-program-at-boot.md | — |
+| 005 | Bench verification checklist: unreachable brick at boot and mid-session | unpowered-nezha-brick-wedges-program-at-boot.md | 003, 004 |
+| 006 | GET-path float-to-wire scaling: fix `formatConfigValue` overflow and sweep every config field | get-full-duty-velocity-returns-garbage.md | — |
+| 007 | Build checkpoint: flashable hex from this sprint's final state | — | 001, 002, 003, 004, 005, 006 |
 
-Tickets execute serially in the order listed.
+Tickets execute serially in the order listed. 001/002 (radio capacity),
+003/004/005 (dead-brick), and 006 (GET-path fix) are three independent
+clusters with no cross-cluster dependency — the listed order groups
+them by issue for readability, not because 003 must follow 002. 007 is
+always last, per the standing build-checkpoint convention.

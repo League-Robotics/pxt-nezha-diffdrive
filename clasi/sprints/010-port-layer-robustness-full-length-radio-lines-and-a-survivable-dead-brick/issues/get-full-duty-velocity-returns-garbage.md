@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '010'
+tickets:
+- 010-006
 ---
 
 # `GET full_duty_velocity` returns 4294.967040 where the firmware sets 10795.0
