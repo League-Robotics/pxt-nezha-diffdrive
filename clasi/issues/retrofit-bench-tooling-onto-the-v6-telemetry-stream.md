@@ -146,3 +146,45 @@ interpreter than the project's own test/dev environment. This is a concrete
 instance of `tools-link-layer-consolidation.md`'s stale-venv complaint and
 should be fixed as part of this sprint's link-layer consolidation — declaring
 `pyserial` in `pyproject.toml` is the obvious fix.
+
+## Realistic-value capture, tovez, 2026-08-24 (supersedes the all-zero caveat)
+
+The earlier capture's caveat is now discharged. With the kernel awake
+(`ready=1 connL=1 connR=1`) and the robot driving, a real `TLM FULL` frame:
+
+```
+t 25 988992 31 142 -16 11737 0 0 0 -122 126 3 101 286 3319 -1300 1800 0 0 0
+```
+
+- **75 bytes** — the widest observed with live values, against
+  `RadioTransport::kMaxPayloadBytes` = 200. Comfortable margin; the host
+  test's 138 B realistic-worst-case prediction remains the number to size
+  buffers against, and is not exceeded here.
+- Columns carry real magnitudes: `flags=31`, pose `x=142 y=-16 h=11737`
+  (centidegrees), velocities `vl=-122 vr=126`, `i2cf=3`, `cyc=101`,
+  encoder positions `posl=286 posr=3319`, duty `dutl=-1300 dutr=1800`.
+- `ox/oy/oh` are 0 — tovez has no OTOS, which is correct, not missing data.
+  A parser must not treat zero OTOS columns as a fault.
+
+`tlm.py` can now be written and validated against captured real frames rather
+than synthetic ones.
+
+## GO_TO_W confirmed working with no OTOS fitted
+
+Also confirmed this session, relevant to any tool that drives world-frame
+moves: `GO_TO_W 120 0 120 25 8000` over the wire **dispatched and drove** on
+tovez, which has no OTOS. Before sprint 006 ticket 007 this returned
+`err 6` (`kUnimplemented`) on every robot without one — i.e. most of the
+fleet. The `EncoderPoseSource` fallback works on real hardware.
+
+## Two wire-behaviour gotchas for the tooling
+
+1. **The v6 `RUN` verb is a deliberate stub.** `WireAdapter::onRun()` returns
+   `kUnknown` for every name ("no registration table"), so `RUN gap #1` fails
+   while the **legacy `RUN:gap` prefix works** and returns `GAP:0`. Any tool
+   that triggers on-robot routines must use the legacy colon form.
+2. **A freshly booted robot reports `ready=0 connL=0 connR=0 i2cf=0` until
+   something ticks the kernel** — identical to a robot with a dead brick. Tools
+   must not treat that state as a hardware fault; issue a block-path command
+   (e.g. `RUN:straight:15`) or a motion verb first. See
+   `unpowered-nezha-brick-wedges-program-at-boot.md`'s correction note.
