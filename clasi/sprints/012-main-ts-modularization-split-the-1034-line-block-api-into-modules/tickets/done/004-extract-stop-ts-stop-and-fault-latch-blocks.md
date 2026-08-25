@@ -1,9 +1,12 @@
 ---
 id: '004'
 title: 'Extract stop.ts: stop and fault-latch blocks'
-status: open
-use-cases: [SUC-001, SUC-002]
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '001'
 github-issue: ''
 issue: break-up-main-ts-into-modules.md
 completes_issue: false
@@ -30,22 +33,22 @@ force `motion.ts`'s purpose statement to need an "and."
 
 ## Acceptance Criteria
 
-- [ ] `src/stop.ts` created containing `stop`, `emergencyStop`,
+- [x] `src/stop.ts` created containing `stop`, `emergencyStop`,
       `clearEmergencyStop`, `isStalled`, `clearStallLatch`, each with
       JSDoc/`//%` annotations (`group="Drive"`) preserved verbatim.
-- [ ] `main.ts` no longer contains any of the five functions.
-- [ ] `pxt.json`'s `files` array: `src/stop.ts` inserted (no load-time
+- [x] `main.ts` no longer contains any of the five functions.
+- [x] `pxt.json`'s `files` array: `src/stop.ts` inserted (no load-time
       ordering constraint).
-- [ ] `tsconfig.json`'s `files` array: same insertion.
-- [ ] A real PXT build succeeds.
-- [ ] `test/test.ts`/`test/testrig.ts` simulator run matches the prior
+- [x] `tsconfig.json`'s `files` array: same insertion.
+- [x] A real PXT build succeeds.
+- [x] `test/test.ts`/`test/testrig.ts` simulator run matches the prior
       ticket's baseline exactly, including an emergency-stop-then-clear
       sequence (the UC-011 "forgot to clear" scenario sprint 007 fixed
       simulator parity for — confirm that fix's behavior is unaffected
       by this file move).
-- [ ] Full existing `tests/host/` suite passes unchanged.
-- [ ] `test_pxt_manifest_completeness.py` passes.
-- [ ] No acceptance criterion above requires a robot.
+- [x] Full existing `tests/host/` suite passes unchanged.
+- [x] `test_pxt_manifest_completeness.py` passes.
+- [x] No acceptance criterion above requires a robot.
 
 ## Implementation Plan
 
