@@ -1,7 +1,7 @@
 ---
 id: 008
 title: Shim and blocks comment cleanup (shims.cpp, main.ts)
-status: open
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -37,55 +37,68 @@ overwriting it with pre-008 prose.
 
 ## Acceptance Criteria
 
-- [ ] `shims.cpp` header (1-27) is compressed per the audit, keeping
+- [x] `shims.cpp` header (1-27) is compressed per the audit, keeping
       the four-bullet composition summary and the integer-boundary
       convention (load-bearing).
-- [ ] The three DELETE items — the orphaned first-pivots fragment
+- [x] The three DELETE items — the orphaned first-pivots fragment
       (77-85; **confirmed safe to delete**, per `verify-comments.md`
       D8 — its defect is filed and closed in
       `clasi/issues/done/first-move-after-idle-runs-at-full-duty.md`),
       the moved-state diff narration (130-137), and the thin-forwards
       narration (237-244) — are removed.
-  - [ ] "Second/Third/Fourth caller" narration (29-53) is replaced with
+  - [x] "Second/Third/Fourth caller" narration (29-53) is replaced with
       the audit's 3-line same-package-forward-declaration summary.
-- [ ] The watchdog-launch comment (201-205), `setWheelsTimed` banner
+- [x] The watchdog-launch comment (201-205), `setWheelsTimed` banner
       (264-279), `engineWheelsX` banner (299-317), `updateMove` comment
       (415/418-421), and `diagValue` comment (674-678 — confirmed
       still-stale per `verify-comments.md`'s "verified in passing":
       DIAG retired, `probe()` and `wire_adapter.cpp` both call
       `diagValue`, only duty is ×100) are rewritten per the audit.
-- [ ] The `tickDrive()` banner and settle-loop essay are re-derived
+- [x] The `tickDrive()` banner and settle-loop essay are re-derived
       from current code per the Description above — not pasted from
       the audit's pre-008 text.
-- [ ] The watchdog section (570-603, essentially KEEP — only "this
+- [x] The watchdog section (570-603, essentially KEEP — only "this
       sprint" phrases and the sprint.md citation drop), `getConfigValue`
       essay (788-809, confirmed stale per verify-comments.md), and
       `engineMoveV`/`engineGoToW` banners (850-863, 875-888) are
-      rewritten per the audit.
-- [ ] The `700-712` case-reordering item (move the "23/24" comment so
+      rewritten per the audit. (`engineGoToW`'s comment had itself gone
+      further stale than the audit knew — sprint 006 t007 replaced its
+      "honest kUnimplemented refusal" behavior with an encoder-odometry
+      PoseSource fallback after the audit was written — so this one was
+      re-derived from current code rather than pasted from the audit's
+      now-inapplicable text; see report.)
+- [x] The `700-712` case-reordering item (move the "23/24" comment so
       it sits above what it describes, confirmed by verify-comments.md)
-      is applied.
-- [ ] The fused `898-912` comment (probe()'s doc + setTaperWindows's
+      is applied. **Already done** — sprint 007 t007 (commit
+      `6f4b21e`) reordered case 25 before this ticket started; verified
+      current code already has the comment correctly placed. No-op.
+- [x] The fused `898-912` comment (probe()'s doc + setTaperWindows's
       doc + the PXT TS9200 shim-failure trap, confirmed fused by
       verify-comments.md) is split: probe()'s doc moves to sit above
       `probe()` (line ~946); setTaperWindows's doc and the TS9200 trap
       stay as their own block.
-- [ ] `main.ts`'s jumbled triple comment (52-72) is split and moved: the
+- [x] `main.ts`'s jumbled triple comment (52-72) is split and moved: the
       `_startProtocol()` doc relocates to sit above that statement
       (line ~86); the `runParts` semantics and no-initialiser
       PXT-init-order-trap comments stay in place.
-- [ ] The RUN comment (143-153), `startMove` doc (266-276), sim tick
+- [x] The RUN comment (143-153), `startMove` doc (266-276), sim tick
       comment (740-748), and `simIntegrate` clip comment (756-767) are
       rewritten per the audit.
-- [ ] `maxNudges` (546) — the dead variable and its comment — is
+- [x] `maxNudges` (546) — the dead variable and its comment — is
       **deleted together** (confirmed dead by verify-comments.md's D7:
-      grepped whole file, `goToWorld` is confirmed one-pass).
-- [ ] **N6**: `goToWorld`'s exported JSDoc (≈558-562, "Repeats until
+      grepped whole file, `goToWorld` is confirmed one-pass). **Already
+      done** — sprint 007 t006 (commit `be7e289`) deleted it before
+      this ticket started; verified current code has no `maxNudges`
+      reference at all. No-op.
+- [x] **N6**: `goToWorld`'s exported JSDoc (≈558-562, "Repeats until
       inside the arrival tolerance") is corrected in the same edit as
       the `maxNudges` deletion — it contradicts the function's own
       one-pass body comment; this is a real doc bug the audit's own
-      "Public-API bar check" missed, not an optional extra.
-- [ ] All KEEP blocks (`shims.cpp` ×25: vevov wiring block, init-order,
+      "Public-API bar check" missed, not an optional extra. **Already
+      done** — same sprint 007 t006 commit (`be7e289`) fixed the JSDoc
+      to "ONE PASS: drives the leg and stops..."; verified current text
+      already matches. No-op.
+- [x] All KEEP blocks (`shims.cpp` ×25: vevov wiring block, init-order,
       tovez defaults, TICK MODEL block, move-completion stop delivery,
       settle ticks, `startMove` dual-rate algebra, watchdog constants;
       `main.ts` ×49: file header, all student-facing JSDoc, world-pose
