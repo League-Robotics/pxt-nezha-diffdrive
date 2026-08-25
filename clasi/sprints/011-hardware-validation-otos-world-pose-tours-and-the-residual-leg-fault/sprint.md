@@ -1,7 +1,7 @@
 ---
 id: '011'
 title: 'Hardware validation: OTOS world-pose tours and the residual leg fault'
-status: roadmap
+status: planning-docs
 branch: sprint/011-hardware-validation-otos-world-pose-tours-and-the-residual-leg-fault
 use-cases: []
 issues:
@@ -323,40 +323,237 @@ of this sprint's deliverables. Methodology:
 
 ## Architecture
 
-(Architecture for this sprint's change, sized to the change — a
-one-paragraph note for a trivial sprint, a fuller write-up with
-component/data-model detail for a substantial one. May read "N/A —
-trivial" when the change has no architectural impact.)
+**Substantial** — this sprint touches two subsystems that don't share a
+dependency edge today (`tools/` bench tooling and `src/`'s motion kernel)
+across four independent responsibility groups (a stale tool retarget, new
+campaign-analysis tooling, a kernel timing/boot investigation, and three
+bench-handoff procedures), with the module count and cross-subsystem span
+clearing the "3+ modules" substantial-tier signal on their own. It is
+sized at the heavy end deliberately — a hardware-validation sprint that
+undersizes its own architecture pass is the same mistake as skipping the
+bench doctrine it exists to enforce.
 
-### Architecture Overview
-
-(High-level structure and component relationships, if applicable.)
-
-### Design Rationale
-
-(Significant decisions with alternatives considered and reasoning, if
-applicable.)
-
-### Migration Concerns
-
-(Data migration, backward compatibility, deployment sequencing — or
-"None" if not applicable.)
+This project has opted into the persistent per-subsystem design-doc
+overlay model (`design_docs: enabled`), so the full architecture
+write-up — the 7-step methodology, module table, Design Rationale,
+Migration Concerns, and Open Questions — lives in this sprint's `design/`
+overlay, not here: see
+[`design/tools-root-DESIGN.md`](design/tools-root-DESIGN.md) (the seeded
+copy of `tools/DESIGN.md`) for the campaign tooling and bench-handoff
+procedure content, and
+[`design/src-root-DESIGN.md`](design/src-root-DESIGN.md) (the seeded copy
+of `src/DESIGN.md`) for the kernel timing/boot-state investigation
+content. No diagram is included in either: nothing this sprint does adds
+a new caller/callee edge between existing modules (see the overlay's own
+"Why no diagram" note for the reasoning). `docs/design/design.md` (the
+system doc) is not touched — no new subsystem or source root is
+introduced.
 
 ## Use Cases
 
-(Use cases sized to the change — may read "N/A — trivial" for small
-sprints that don't warrant new or updated use cases.)
+Sized to the substantial tier: eight SUCs, one per ticket, tracing to
+either an existing stakeholder-facing UC (where the campaign is proving
+out already-shipped student-facing behavior) or `N/A` for bench/host/
+process use cases with no block-API surface, following the same
+convention sprints 006 and 008 already established.
 
-### SUC-001: (Title)
-Parent: UC-XXX
+### SUC-001: A tour telemetry recorder speaks the RUN vocabulary current firmware actually answers
+Parent: N/A (bench/host use case; closes the tool-retarget half of
+`otos-on-vevov-move-goto-world-pose-square-tours.md`)
 
-- **Actor**: (Who)
-- **Preconditions**: (What must be true before)
+- **Actor**: Bench operator running a capture session on vevov or tovez.
+- **Preconditions**: `tools/tlm.py` (sprint 005 ticket 001) and its
+  retrofit into `tour_capture.py` (sprint 005 ticket 002) have landed.
 - **Main Flow**:
-  1. (Step)
-- **Postconditions**: (What is true after)
+  1. Operator runs `tools/tour_capture.py` selecting a tour by name
+     (`world`/`robot`/`wheels`), not by number.
+  2. The tool sends `RUN:tour:<name>` over the configured link.
+  3. Firmware's named `onRun("tour", ...)` handler answers, and the tour
+     actually runs.
+- **Postconditions**: A capture that used to be a silent no-op against
+  current firmware now drives the robot and records a real telemetry CSV.
 - **Acceptance Criteria**:
-  - [ ] (Criterion)
+  - [ ] `tour_capture.py` sends `RUN:tour:world`/`RUN:tour:robot`/
+        `RUN:tour:wheels`, never a bare numeric `RUN:<n>`.
+  - [ ] Verified against a fake/mock link (string-level assertion on what
+        `send()`/`send_until()` receives) — no robot required.
+
+### SUC-002: A bench operator can see, per leg, what the robot believed versus what it was told to hit
+Parent: N/A (bench/host use case; closes the instrumentation half of
+`intermittent-cw-pivot-abort-wheel-reversal.md`)
+
+- **Actor**: Bench operator or a later analysis pass over a captured run.
+- **Preconditions**: A `tour_capture.py`-recorded CSV (pose + OTOS
+  columns) exists for a completed or truncated tour.
+- **Main Flow**:
+  1. Operator runs the new analysis tool against the capture.
+  2. For each leg, the tool reports the commanded target, the pose the
+     robot believed it reached at move end, and (once available) the
+     AprilCam ground truth.
+  3. The tool classifies each leg's outcome: on-target, straight-overrun,
+     or mid-leg-truncation, per the issue's own signature language.
+- **Postconditions**: A campaign's raw telemetry becomes a per-leg table
+  instead of a single end-of-tour pass/fail.
+- **Acceptance Criteria**:
+  - [ ] Given a synthetic CSV fixture with a known injected overrun and a
+        known injected truncation, the tool's classification matches by
+        construction.
+  - [ ] The tool's output distinguishes "heading closed, distance didn't"
+        from "heading also missed" — the issue's own signature
+        distinction between the fixed class and the residual one.
+  - [ ] Host-tested (`tests/tools/`) against fixtures only — no robot
+        required.
+
+### SUC-003: The moveDeadline duration math is characterized for a leg that truncates
+Parent: UC-006 (Drive a Curved Path to a Point)
+
+- **Actor**: Implementer reviewing `motion_engine.cpp`'s move-deadline
+  arithmetic; secondarily, a maintainer reading the resulting host test.
+- **Preconditions**: `motion_engine.{h,cpp}` (host-testable, no `pxt.h`)
+  reflects sprint 006's landed fixes.
+- **Main Flow**:
+  1. Implementer traces `move_.deadline`'s computation
+     (`nowMs() + timeoutMs`, both call sites) and its expiry check
+     (`static_cast<int32_t>(now - move_.deadline) >= 0`) against the
+     timeout values `test.ts`'s tours actually pass in.
+  2. Implementer writes host tests probing the boundary: a move whose
+     true completion time sits close to `timeoutMs` under realistic tick
+     cadence and rounding.
+  3. If a genuine truncation defect is found, it is fixed in
+     `motion_engine.cpp` with a host test pinning the fix; if not, the
+     boundary condition tested and found clean is recorded as a ruled-out
+     theory in `intermittent-cw-pivot-abort-wheel-reversal.md`.
+- **Postconditions**: The issue's `moveDeadline` next-probe is answered
+  with evidence either way — not left as an open guess.
+- **Acceptance Criteria**:
+  - [ ] A host test exists in `tests/host/` exercising the deadline-expiry
+        boundary for a move duration close to its timeout.
+  - [ ] The finding (defect-and-fix, or clean) is written into
+        `intermittent-cw-pivot-abort-wheel-reversal.md`.
+  - [ ] No robot required — entirely host-testable.
+
+### SUC-004: First-move-after-boot behavior is characterized
+Parent: N/A (bench/host use case; closes the boot-special-casing half of
+`intermittent-cw-pivot-abort-wheel-reversal.md`)
+
+- **Actor**: Implementer reviewing `shims.cpp`'s and the kernel's
+  boot-time state by inspection.
+- **Preconditions**: None beyond current `src/` state.
+- **Main Flow**:
+  1. Implementer traces what state (encoder baseline, pose seed, any
+     cached velocity/filter state) exists before the very first
+     `startMove()`/`serviceMove()` call after power-on, versus after a
+     robot has already completed at least one move.
+  2. Implementer documents whether any of that state plausibly produces a
+     short first leg, distinct from the steady-state behavior.
+- **Postconditions**: The issue's first-move-after-boot next-probe has a
+  written finding, not silence.
+- **Acceptance Criteria**:
+  - [ ] A finding (plausible mechanism identified, or none found) is
+        written into `intermittent-cw-pivot-abort-wheel-reversal.md`.
+  - [ ] Explicitly states this is a code-review finding, not a
+        hardware-confirmed one — the bench campaign (ticket 006) is where
+        it gets tested against reality.
+  - [ ] No robot required, and no test is claimed where none applies —
+        `shims.cpp` is not host-testable (`pxt.h` dependency).
+
+### SUC-005: OTOS world-pose accuracy is ready to be measured against the encoder-only baseline
+Parent: UC-009 (Read Robot Pose)
+
+- **Actor**: Stakeholder running the bench session on vevov.
+- **Preconditions**: Ticket 001 (tour_capture retarget), ticket 002
+  (leg-analysis tooling), and sprint 005 ticket 006 (otos_levercal.py
+  retarget) have all landed.
+- **Main Flow**:
+  1. Stakeholder follows the written procedure: re-confirm the lever-arm
+     calibration still holds (`RUN:cal:1`), run repeated `RUN:tour:world`
+     and `RUN:tour:robot` passes with AprilCam ground truth running
+     throughout (diagnostics only), capture via `tour_capture.py`.
+  2. Results are charted (`tour_chart.py`) and scored
+     (`leg_analysis.py`) against the issue's own verification bar and the
+     recorded 9-54 mm/1-7° encoder-only baseline.
+- **Postconditions**: The OTOS issue's Verification section has real
+  numbers on record, or an explicit statement of what still fails it.
+- **Acceptance Criteria**:
+  - [ ] A written procedure exists naming every command in sequence, what
+        to record, and what "meets the issue's bar" means numerically.
+  - [ ] The procedure is reviewable and complete without having been run —
+        this ticket's own acceptance criteria do not require a robot.
+
+### SUC-006: The residual leg fault is instrumented and characterized on post-006 hardware
+Parent: UC-006 (Drive a Curved Path to a Point)
+
+- **Actor**: Stakeholder running the bench session on vevov.
+- **Preconditions**: Tickets 002, 003, 004 have landed (analysis tooling,
+  moveDeadline finding, first-move-after-boot finding).
+- **Main Flow**:
+  1. Stakeholder follows the written procedure: enough repetitions of
+     `RUN:tour:world`/`RUN:tour:robot` to get a real failure rate, per-leg
+     believed-vs-target logged via ticket 002's tooling, explicitly
+     **not** re-testing any RETIRED THEORY.
+  2. Results are classified (straight-overrun vs. mid-leg-truncation,
+     rate, which legs) and compared against the pre-006 baseline.
+  3. The procedure states what "confirmed gone," "still present but
+     narrowed," and "a new signature" each look like, and instructs
+     filing a sharpened successor issue if the fault survives.
+- **Postconditions**: The issue either closes with the fault confirmed
+  fixed, or gets a sharpened successor recording what this campaign
+  additionally ruled out.
+- **Acceptance Criteria**:
+  - [ ] A written procedure exists covering repetition count, logging,
+        the RETIRED THEORIES do-not-retest list, and confirmed-vs-ruled-out
+        criteria.
+  - [ ] The procedure is reviewable and complete without having been run —
+        no robot required to close this ticket.
+
+### SUC-007: The brick-reset rebaseline is ready to be confirmed on hardware
+Parent: UC-009 (Read Robot Pose)
+
+- **Actor**: Stakeholder running the bench session on vevov.
+- **Preconditions**: Sprint 006's `EncoderGlitchArmor`/DIAG-27 fix is on
+  the flashed build; the sprint 006 checklist (archived at
+  `clasi/sprints/done/006-.../issues/brick-reset-odometry-teleport.md`)
+  exists.
+- **Main Flow**:
+  1. Stakeholder runs this sprint's combined bench session, folding in
+     the already-written sprint 006 checklist's four questions
+     (`probe(27)` fires? pose stays continuous? no false positives during
+     normal driving? rebaseline vs. reject distinguishable?).
+  2. Results are recorded back into `brick-reset-bench-measurement.md`.
+- **Postconditions**: The four questions have answers on record, or the
+  issue states plainly which remain open and why.
+- **Acceptance Criteria**:
+  - [ ] The existing sprint 006 checklist is confirmed still accurate
+        against current `src/` (DIAG ordinal 27, `kAcceptAsRebaseline`,
+        `EncoderGlitchArmor` — all re-checked, not assumed).
+  - [ ] The four questions are folded into this sprint's combined bench
+        session plan alongside SUC-005/SUC-006's procedures, since all
+        three run on the same robot in the same physical session.
+  - [ ] No robot required to close this ticket.
+
+### SUC-008: A sprint cannot close having promised a robot result it never produced
+Parent: N/A (bench/host use case; process use case matching sprint 008's
+SUC-006 precedent, applied to this sprint's own no-robot-required
+constraint)
+
+- **Actor**: Whoever closes this sprint.
+- **Preconditions**: Tickets 001-007 are done.
+- **Main Flow**:
+  1. The full host suite runs once, green.
+  2. If any ticket changed build-eligible `src/`, `tools/make_deploy.py`
+     produces a flashable hex (retrying once on the documented benign
+     abort shapes).
+  3. The checkpoint states explicitly, in writing, that no bench session
+     was performed as part of closing this sprint — matching sprint 004
+     ticket 005's and sprint 006 ticket 006's own explicit statements.
+- **Postconditions**: The sprint closes on a verified build/host-suite
+  state, with the three bench sessions clearly handed off, not silently
+  implied as done.
+- **Acceptance Criteria**:
+  - [ ] `uv run pytest` (full suite) is green.
+  - [ ] If `src/` changed, a flashable hex is produced.
+  - [ ] The checkpoint states explicitly that no hardware validation was
+        performed as part of this sprint's completion.
 
 ## GitHub Issues
 
