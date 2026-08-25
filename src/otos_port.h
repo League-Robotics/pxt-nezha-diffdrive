@@ -1,7 +1,8 @@
 // otos_port.h -- OtosPort: the SparkFun OTOS optical tracking odometry
-// sensor (I2C 0x17) for the MakeCode target, ported from
-// radio-robot-elite's battle-tested Hardware::RealOtos
-// (src/firm/hardware/generic/real_otos.{h,cpp}).
+// sensor (I2C 0x17) for the MakeCode target, ported from radio-robot's
+// battle-tested Hardware::RealOtos (src/firm/hardware/generic/
+// real_otos.{h,cpp}; src/DESIGN.md §2 has the authoritative upstream
+// repo/path statement).
 //
 // Ported verbatim: the register map, the LSB scales (the velocity
 // registers have their OWN full-scale ranges -- decoding them with the
@@ -14,23 +15,11 @@
 // shared-bus clearance between transactions (the Nezha brick shares
 // this bus and needs the spacing).
 //
-// NOT ported (yet): the software lever-arm transform (sensorToCentre/
-// centreToSensor). The zeguz bench rig measures the sensor itself, so
-// the arm is zero by construction; robot integration adds it back.
-//
 // Bus discipline: every method that touches I2C is synchronous and
 // must be called from the SAME fiber that ticks the drive kernel --
 // an OTOS transaction interposed in the Nezha encoder's select->read
 // settle window destroys the encoder sample (Phase F,
-// radio-robot-elite docs/design/encoder-refresh-characterization.md).
-//
-// Sprint 003 ticket 010: implements motion_engine.h's PoseSource port
-// (x()/y()/heading(), unchanged signatures below, now with `override`)
-// so MotionEngine::goToW() can read this sensor as its world-pose
-// authority when fitted (motion-api.md S3.6) -- additive only, no
-// behavioral change to this class. motion_engine.h itself has no
-// CODAL/PXT dependency; this file keeps its own pxt.h include for the
-// I2C/hardware methods below, unaffected by the added base class.
+// radio-robot docs/design/encoder-refresh-characterization.md).
 #pragma once
 
 #include "pxt.h"

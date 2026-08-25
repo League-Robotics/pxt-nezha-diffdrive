@@ -1,4 +1,4 @@
-// otos_port.cpp -- see otos_port.h. Faithful port of radio-robot-elite
+// otos_port.cpp -- see otos_port.h. Faithful port of radio-robot's
 // Hardware::RealOtos onto uBit.i2c, minus the lever-arm transform.
 #include "otos_port.h"
 

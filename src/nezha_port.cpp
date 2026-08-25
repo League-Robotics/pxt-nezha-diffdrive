@@ -96,7 +96,7 @@ void NezhaMotorPort::writeShapedDuty(float duty, uint32_t nowMs) {
   //    zero dwell. The old code cleared the sign history here, which
   //    shipped corner reversals ~20-30 ms after the zero -- inside the
   //    (20, 50] ms window the wedgelab campaign measured as 12/12
-  //    latching (radio-robot-elite docs/knowledge/2026-07-04-encoder-
+  //    latching (radio-robot docs/knowledge/2026-07-04-encoder-
   //    wedge.md). Bench signature this fixes: intermittent tour-corner
   //    encoder freezes -> leg overshoot / heading corruption.
   if (duty == 0.0f) {
@@ -202,7 +202,7 @@ void NezhaMotorPort::collect(uint64_t nowUs) {
     // Glitch/discontinuity plausibility decision, extracted to
     // encoder_glitch_armor.h (sprint 006 ticket 005 -- see that header
     // for the kMaxDeltaCounts derivation and code review R-07/KERN-07).
-    // Ported from the reference driver (see radio-robot-elite
+    // Ported from the reference driver (see radio-robot
     // docs/design/encoder-refresh-characterization.md Phase F: a sample
     // destroyed by interposed bus traffic reads as raw 0; other
     // corruption shows as a physically impossible jump). Bench capture

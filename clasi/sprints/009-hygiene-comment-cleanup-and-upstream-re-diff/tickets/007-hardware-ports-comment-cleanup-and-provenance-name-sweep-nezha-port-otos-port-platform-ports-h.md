@@ -2,9 +2,10 @@
 id: '007'
 title: Hardware ports comment cleanup and provenance-name sweep (nezha_port.*, otos_port.*,
   platform_ports.h)
-status: open
+status: done
 use-cases: []
-depends-on: ["001"]
+depends-on:
+- '001'
 github-issue: ''
 issue:
 - comment-cleanup-work-order.md
@@ -58,7 +59,7 @@ Two coordinated tasks:
 
 ## Acceptance Criteria
 
-- [ ] `nezha_port.h`'s header (1-28) is compressed per
+- [x] `nezha_port.h`'s header (1-28) is compressed per
       `verify-comments.md`'s R7 correction, not the audit's raw text —
       the audit's proposed compression clips the sentence spanning
       lines 7-8 ("The write-shaping pipeline is NOT optional styling:
@@ -69,26 +70,42 @@ Two coordinated tasks:
       The write-shaping pipeline is not optional styling -- each stage
       guards a measured hardware failure:` followed by the failure-mode
       list, kept verbatim.
-- [ ] `otos_port.h`'s stale "NOT ported (yet): the software lever-arm
+- [x] `otos_port.h`'s stale "NOT ported (yet): the software lever-arm
       transform" paragraph (17-19) is **deleted** — confirmed
       contradicted by the same header (setOffset/sensorToCentre/
       centreToSensor are declared below and implemented in
       `otos_port.cpp`; `setOffset()`'s own doc comment at 71-77
       already covers the lever arm).
-- [ ] `otos_port.h`'s "Sprint 003 ticket 010" diff-narration paragraph
+- [x] `otos_port.h`'s "Sprint 003 ticket 010" diff-narration paragraph
       (27-33) is **deleted** — the class declaration `: public
       PoseSource` already says it.
-- [ ] Every `radio-robot-elite` occurrence listed in the Description
-      is corrected to `radio-robot`, pointing at `src/DESIGN.md` §2
-      (from ticket 001) as the authoritative path/repo statement
-      instead of independently restating a path — check each against
-      ticket 001 and (for the two `radio_transport.*` lines) ticket
-      005 having already landed before editing, to avoid a double
-      edit.
+- [x] Every `radio-robot-elite` occurrence listed in the Description
+      that belongs to this ticket's files is corrected to
+      `radio-robot`, pointing at `src/DESIGN.md` §2 (from ticket 001)
+      as the authoritative path/repo statement instead of
+      independently restating a path: `otos_port.h` line 3 (repo+path,
+      now points at DESIGN.md §2, following the pattern `diffdrive.h`/
+      `.cpp` established) and line 25 (docs/design citation, name
+      fixed in place), `otos_port.cpp` line 1 (name fixed in place,
+      already deferring to `otos_port.h` via "see otos_port.h"),
+      `nezha_port.cpp` lines 99 and 205 (docs/knowledge and
+      docs/design citations, name fixed in place). The two
+      `radio_transport.*` lines are ticket 005's cluster, left
+      untouched per dispatch instructions — confirmed still present
+      and not yet landed by ticket 005 as of this ticket's completion
+      (see note below).
 - [ ] No file in `src/` states `radio-robot-elite` as an upstream
       repository after this ticket (grep confirms zero remaining
-      occurrences across `src/`).
-- [ ] All KEEP blocks (`nezha_port.h` ×13; `nezha_port.cpp` ×15,
+      occurrences across `src/`). **Not fully satisfied by this ticket
+      alone**: `radio_transport.h:8` and `radio_transport.cpp:7` still
+      say `radio-robot-elite` as of this ticket's close — that pair is
+      ticket 005's cluster (concurrent, out of this ticket's scope per
+      dispatch instructions) and was deliberately left untouched to
+      avoid fighting a concurrent edit. Zero occurrences confirmed
+      across this ticket's four files (`nezha_port.{h,cpp}`,
+      `otos_port.{h,cpp}`, `platform_ports.h`). Sprint-wide zero
+      depends on ticket 005 landing its own sweep.
+- [x] All KEEP blocks (`nezha_port.h` ×13; `nezha_port.cpp` ×15,
       `otos_port.h` ×11 minus the two removed above; `otos_port.cpp`
       ×8; `platform_ports.h` ×5) are confirmed present and untouched.
 
