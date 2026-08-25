@@ -76,3 +76,31 @@ module passes the flag (or only some) has not been checked.
 - `tests/host/test_pxt_manifest_completeness.py` — same family; its own
   non-recursive `iterdir()` would have silently stopped checking moved files
   until ticket 001 made it recursive.
+
+---
+
+## CORRECTION (2026-08-25): the rule is simpler than first written above
+
+The table above says cross-directory includes are "qualified relative to
+`src/`". That is **wrong for sibling directories** and cost ticket 002 a build
+cycle to discover. Ticket 002 moved `motion_engine.h` into `src/motion/` and its
+inherited `#include "core/diffdrive.h"` — correct while the file sat at `src/`
+root — failed with `fatal error: core/diffdrive.h: No such file or directory`.
+It needed `"../core/diffdrive.h"`.
+
+**The unified rule, which predicts all three observed cases:**
+
+> An `#include "..."` resolves **relative to the including file's own
+> directory**. Plain C quote-include behaviour. The real PXT build passes no
+> `-I src`, so there is no project-root base to qualify against.
+
+| includer | target | correct form |
+|---|---|---|
+| `src/otos_port.h` | `src/core/diffdrive.h` | `"core/diffdrive.h"` |
+| `src/core/diffdrive.cpp` | `src/core/diffdrive.h` | `"diffdrive.h"` |
+| `src/motion/motion_engine.h` | `src/core/diffdrive.h` | `"../core/diffdrive.h"` |
+
+This makes the proposed mechanical gate (option 2 above) both simpler and
+stronger: for every `#include "X"` in a file at directory D, assert that
+`(D / X)` resolves to a file that exists. One rule, no special cases, and it
+catches all three failure modes without a compiler.
