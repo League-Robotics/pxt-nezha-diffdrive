@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: testrig.ts dispatch fix and make_deploy.py testFiles build-hygiene
-status: open
+status: in-progress
 use-cases:
 - SUC-007
 depends-on: []
@@ -61,28 +61,28 @@ prove `testrig.ts` compiles clean.
 
 ## Acceptance Criteria
 
-- [ ] `test/testrig.ts`'s `onRunCommand` handler stores the parsed
+- [x] `test/testrig.ts`'s `onRunCommand` handler stores the parsed
       numeric verb (from `name`), not the always-zero `arg` — confirmed
       by tracing at least one documented vocabulary entry (e.g.
       `RUN:20` → `rigExec(20)` is reached, not `rigExec(0)`).
-- [ ] `testrig.ts`'s own numeric vocabulary (documented in its header
+- [x] `testrig.ts`'s own numeric vocabulary (documented in its header
       comment, `RUN:20`..`RUN:54180+deg`) is otherwise **unchanged** —
       this ticket is a dispatch fix, not a vocabulary port.
-- [ ] `make_deploy.py`'s testFiles handling ensures `testrig.ts` is
+- [x] `make_deploy.py`'s testFiles handling ensures `testrig.ts` is
       built/type-checked as part of some routine, automated path — it
       cannot again silently vanish the way it did before this ticket.
-- [ ] `test.ts` and `testrig.ts` are **not** both promoted into the
+- [x] `test.ts` and `testrig.ts` are **not** both promoted into the
       same scratch build's `files` — confirm the flashable deploy hex
       still contains only `test.ts`'s handlers (unchanged behavior from
       before this ticket).
-- [ ] A real `pxt build` (via whatever mechanism this ticket adds)
+- [x] A real `pxt build` (via whatever mechanism this ticket adds)
       against `testrig.ts` with the dispatch fix in place compiles
       clean, with no type error.
-- [ ] `tests/tools/test_make_deploy_triage.py` (or a new sibling)
+- [x] `tests/tools/test_make_deploy_triage.py` (or a new sibling)
       covers the testFiles-handling fix: given a `pxt.json` fixture
       listing both `test.ts` and `testrig.ts` in `testFiles`, confirm
       `testrig.ts` is included in whatever gets built/type-checked.
-- [ ] `uv run pytest` (full suite) passes.
+- [x] `uv run pytest` (full suite) passes.
 
 ## Implementation Notes
 
