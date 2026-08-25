@@ -1,6 +1,6 @@
 # tools — bench and diagnostic tooling
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** stable (host side of the retired cleartext vocabulary — see the telemetry note below, now partially superseded — see "Sprint 011 update" beneath it; `make_deploy.py`'s `build()` is now triage-aware, see "Build checkpoint triage" below; sprint 011 (planned, not yet executed) adds a per-leg believed-vs-target analysis tool and retargets `tour_capture.py`'s RUN vocabulary — see "Campaign tooling and bench-handoff procedures (sprint 011)" below)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** stable (host side of the retired cleartext vocabulary — see the telemetry note below, now partially superseded — see "Sprint 011 update" beneath it; `make_deploy.py`'s `build()` is now triage-aware, see "Build checkpoint triage" below; sprint 011 (tickets 001/002 done) added a per-leg believed-vs-target analysis tool (`leg_analysis.py`) and retargeted `tour_capture.py`'s RUN vocabulary onto named verbs — see "Campaign tooling and bench-handoff procedures (sprint 011)" below; ticket 008's build/verification checkpoint in progress)
 
 Host-side Python scripts for building, deploying, driving, measuring,
 and charting the robot. Flat root, no subsystems. Run under `uv`
@@ -126,16 +126,16 @@ and record what comes back.
   own sensors; no radio round-trips inside the tour.
 - **`tour_capture.py`** / **`tour_watch.py`** — telemetry recorders
   (triggered vs. button-watch); write the pose/wheel CSVs. **Sprint 011
-  (planned):** `tour_capture.py` still selects its tour with a numeric
-  `RUN:<n>` verb (`--run N` → `RUN:{a.run}`) that no handler in current
-  firmware answers — the one tool sprint 005's own retargeting work
-  (ticket 006's six-tool list) does not cover. Retargeted onto
+  (ticket 001, done):** `tour_capture.py` used to select its tour with a
+  numeric `RUN:<n>` verb (`--run N` → `RUN:{a.run}`) that no handler in
+  current firmware answered — the one tool sprint 005's own retargeting
+  work (ticket 006's six-tool list) did not cover. Retargeted onto
   `RUN:tour:world`/`RUN:tour:robot`/`RUN:tour:wheels` (`--tour
   {world,robot,wheels}`), matching `tour_run.py`'s already-current
   vocabulary.
 - **`tour_chart.py`** / **`practice_chart.py`** — the standard
   matplotlib plots of those CSVs.
-- **`leg_analysis.py`** (sprint 011, planned) — turns a `tour_capture.py`
+- **`leg_analysis.py`** (sprint 011, ticket 002, done) — turns a `tour_capture.py`
   recording into a per-leg believed-vs-target table: commanded target,
   believed pose at move end, AprilCam ground truth where available, and
   a classification (on-target / straight-overrun / mid-leg-truncation)
@@ -187,21 +187,20 @@ the planned telemetry-frame work (sprint 004), not yet built; the
 numeric-vocabulary breakage is separate and unplanned (see
 docs/code-review/2026-08-23/, PY-01/BLK-04).
 
-**Sprint 011 update.** By the time sprint 011 executes, most of this
-section will already be stale — sprint 004 shipped the v6 telemetry
-frame, sprint 005 ticket 001 built `tools/tlm.py` as its host-side
-parser, sprint 005 ticket 002 retrofits the tour/ground-truth consumers
-onto it, and sprint 005 ticket 006 retargets `otos_bench.py`,
-`pivot_truth.py`, `truth_check.py`, `rotation_check.py`,
-`turn_sweep.py`, and `otos_levercal.py` off the dead numeric vocabulary.
-Sprint 011 does not rewrite this section (that rewrite belongs to
-whichever sprint lands last among 005/011, or sprint 009's hygiene
-pass) — it adds the one piece sprint 005 does not cover:
-`tour_capture.py`'s numeric tour-selection verb, retargeted per the
-"Tour family" section above. Read this section as describing the
-**pre-005** state; by sprint 011's own close, every tool in this file
-except `testrig.ts`'s console (`otos_bench.py`, out of scope here) will
-speak named verbs.
+**Sprint 011 update.** By sprint 011's own close, most of this section
+is stale — sprint 004 shipped the v6 telemetry frame, sprint 005 ticket
+001 built `tools/tlm.py` as its host-side parser, sprint 005 ticket 002
+retrofitted the tour/ground-truth consumers onto it, and sprint 005
+ticket 006 retargeted `otos_bench.py`, `pivot_truth.py`,
+`truth_check.py`, `rotation_check.py`, `turn_sweep.py`, and
+`otos_levercal.py` off the dead numeric vocabulary. Sprint 011 does not
+rewrite this section (that rewrite belongs to whichever sprint lands
+last among 005/011, or a future hygiene pass) — it added the one piece
+sprint 005 did not cover: `tour_capture.py`'s numeric tour-selection
+verb, retargeted per the "Tour family" section above (ticket 001, done).
+Read this section as describing the **pre-005** state; every tool in
+this file except `testrig.ts`'s console (`otos_bench.py`, out of scope
+here) now speaks named verbs.
 
 ## Campaign tooling and bench-handoff procedures (sprint 011)
 

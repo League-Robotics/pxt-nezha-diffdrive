@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Per-leg believed-vs-target analysis tooling for tour telemetry
-status: open
+status: done
 use-cases:
 - SUC-002
 depends-on: []
@@ -38,30 +38,49 @@ pass/fail.
 
 ## Acceptance Criteria
 
-- [ ] Given a synthetic CSV fixture with a known injected straight-leg
+- [x] Given a synthetic CSV fixture with a known injected straight-leg
       overrun (distance traveled exceeds the commanded leg length by a
       set margin, heading close to target), the tool classifies that
       leg as `straight-overrun`.
-- [ ] Given a synthetic CSV fixture with a known injected mid-leg
+- [x] Given a synthetic CSV fixture with a known injected mid-leg
       truncation (distance short of target, move ends before the
       commanded distance), the tool classifies that leg as
       `mid-leg-truncation`.
-- [ ] Given a synthetic CSV fixture where both distance and heading are
+- [x] Given a synthetic CSV fixture where both distance and heading are
       within tolerance, the tool classifies that leg as `on-target`.
-- [ ] The per-leg output separately reports heading error and distance
+- [x] The per-leg output separately reports heading error and distance
       error, so "heading closed, distance didn't" (the residual
       signature) is distinguishable from "heading also missed" (the
       already-fixed class) — not collapsed into one pass/fail bit.
-- [ ] Host-tested (`tests/tools/test_leg_analysis.py`) against
+- [x] Host-tested (`tests/tools/test_leg_analysis.py`) against
       synthetic fixtures only — no robot, no real capture file,
       required to pass this ticket's tests.
-- [ ] The tool's CLI accepts a `tour_capture.py`-produced pose CSV
+- [x] The tool's CLI accepts a `tour_capture.py`-produced pose CSV
       (and, where present, the corresponding `_tlm.csv`/`.meta.json`
       sidecar from `tools/tlm.py`'s `write_tlm_csv()`) and a simple
       per-corner target list (matching `test.ts`'s own four-corner
       tour geometry, `CORNERS_X`/`CORNERS_Y` in `test/test.ts:38-39`,
       or an equivalent CLI-supplied target list for other tours).
-- [ ] `uv run pytest` (full suite) passes.
+- [x] `uv run pytest` (full suite) passes.
+
+**Mid-implementation addendum (bench finding, folded in during this
+ticket).** A real, camera-verified bench run on vevov found the
+telemetry `ox`/`oy`/`oh` columns frozen (byte-identical) across a
+whole move on at least one firmware build (older 12-column POSE
+frame; not confirmed either way on current master's 20-column FULL
+frame). `otos_cm()` is never trusted as ground truth here —
+`classify_leg()`'s `believed` pose is always encoder-derived, and a
+new pure `detect_otos_staleness()` cross-checks the OTOS columns
+against the encoder movement over the same leg, flagging
+(`otos_stale`, carried through to every `LegRow`, the CSV `--out`, and
+the printed table) a leg whose OTOS pose is frozen at a genuine
+(non-null) fix while the encoders clearly moved. A robot with no OTOS
+fitted (`ox`/`oy`/`oh` legitimately `(0,0,0)`, per `tlm.py`'s own
+documented contract) is explicitly NOT flagged — confirmed by a
+dedicated regression test after an initial draft of the detector
+falsely flagged every OTOS-less leg. Covered by
+`tests/tools/test_leg_analysis.py`'s `detect_otos_staleness()` unit
+tests and the `analyze_pose_csv()`/CLI-level OTOS-stale fixtures.
 
 ## Implementation Plan
 

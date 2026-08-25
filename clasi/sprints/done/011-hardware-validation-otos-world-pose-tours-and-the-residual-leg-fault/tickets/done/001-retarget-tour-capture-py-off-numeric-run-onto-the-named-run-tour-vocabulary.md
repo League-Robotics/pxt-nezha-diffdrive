@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: Retarget tour_capture.py off numeric RUN onto the named RUN:tour vocabulary
-status: open
+status: done
 use-cases:
 - SUC-001
 depends-on: []
@@ -53,20 +53,25 @@ racing another sprint's in-flight ticket on a shared file.
 
 ## Acceptance Criteria
 
-- [ ] `tour_capture.py` gains a `--tour {world,robot,wheels}` argument
+- [x] `tour_capture.py` gains a `--tour {world,robot,wheels}` argument
       (matching `tour_run.py`'s existing flag shape) replacing `--run
       N`.
-- [ ] The tool sends `RUN:tour:world` / `RUN:tour:robot` /
+- [x] The tool sends `RUN:tour:world` / `RUN:tour:robot` /
       `RUN:tour:wheels` — never a bare numeric `RUN:<n>`.
-- [ ] Verified against a fake/mock link: a unit test in `tests/tools/`
+- [x] Verified against a fake/mock link: a unit test in `tests/tools/`
       asserts the exact string passed to `send_until()` for each of the
       three tour names — no robot required.
-- [ ] No change to the file's telemetry-parsing logic (the `tlm`
+- [x] No change to the file's telemetry-parsing logic (the `tlm`
       import, `require_stream()`, `write_tlm_csv()` calls) beyond
       whatever sprint 005 ticket 002 has already landed — this ticket's
       diff should be small and confined to argument parsing and the
       `RUN:` verb construction.
-- [ ] `uv run pytest` (full suite) passes.
+- [x] `uv run pytest` (full suite) passes. (Ticket-scoped verification:
+      `uv run pytest tests/tools/` — 108 passed, 0 failed. Per current
+      process policy (`.claude/rules/source-code.md`, the programmer
+      agent's Test Execution section), the full suite runs once per
+      sprint inside `close_sprint`, not redundantly per ticket; that
+      full-suite gate will run at sprint 011's close.)
 
 ## Implementation Plan
 

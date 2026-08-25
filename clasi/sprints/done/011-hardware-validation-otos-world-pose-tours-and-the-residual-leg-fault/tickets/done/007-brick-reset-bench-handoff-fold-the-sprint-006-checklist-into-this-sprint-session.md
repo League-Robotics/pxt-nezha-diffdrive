@@ -2,7 +2,7 @@
 id: '007'
 title: 'Brick-reset bench handoff: fold the sprint 006 checklist into this sprint
   session'
-status: open
+status: done
 use-cases:
 - SUC-007
 depends-on: []
@@ -34,7 +34,7 @@ acceptance criterion below requires a robot.**
 
 ## Acceptance Criteria
 
-- [ ] Re-verify, against current `src/`, that the checklist's cited
+- [x] Re-verify, against current `src/`, that the checklist's cited
       symbols still exist and mean what the checklist says: DIAG
       ordinal 27 (`probe(27)`), `EncoderGlitchArmor::evaluate()`'s
       `kAccept`/`kAcceptAsRebaseline`/`kRejectPending` outcomes,
@@ -43,21 +43,70 @@ acceptance criterion below requires a robot.**
       ticket's own notes if anything has drifted since sprint 006
       closed (expected: nothing, since no sprint between 006 and 011
       has touched these files — confirm rather than assume).
-- [ ] A short section is added to `brick-reset-bench-measurement.md`
+- [x] A short section is added to `brick-reset-bench-measurement.md`
       (not a rewrite of the archived checklist — a pointer plus
       sequencing) stating: run this alongside tickets 005/006's
       procedures in one combined bench session, and restating the four
       questions from that issue inline so a bench operator sees them
       without following two links.
-- [ ] The four questions (does the armor fire on a real reset? does
+- [x] The four questions (does the armor fire on a real reset? does
       pose stay continuous? no false positives during normal driving?
       are rebaseline and reject distinguishable via `probe(27)` vs.
       `probe(23)`/`probe(24)`?) are each restated with what a
       confirmed vs. ruled-out answer looks like, matching the level of
       specificity the archived sprint 006 checklist already used.
-- [ ] No acceptance criterion in this ticket, or produced by it,
+- [x] No acceptance criterion in this ticket, or produced by it,
       requires actually running the experiment or reports a pass/fail
       based on hardware results.
+
+## Notes (verification results, 2026-08-25)
+
+Re-verified all four cited symbols against `src/` at commit `940f997`
+on this sprint branch — each read directly, not assumed:
+
+- **DIAG ordinal 27 / `probe(27)`** — confirmed. `src/shims.cpp:812-814`,
+  `diagValue()`'s `case 27`, returns
+  `left.rebaselineCount_ + right.rebaselineCount_`; the `probe(int)`
+  shim at `shims.cpp:1078` forwards to `diagValue()` unchanged.
+- **`EncoderGlitchArmor::evaluate()`'s three outcomes** — confirmed.
+  `src/encoder_glitch_armor.h:50-60` declares the
+  `kAccept`/`kAcceptAsRebaseline`/`kRejectPending` enum exactly as
+  described; `:107-130` is `evaluate()`'s body, and the two-strike
+  logic (first implausible read -> `kRejectPending`, second
+  self-consistent implausible read -> `kAcceptAsRebaseline`) matches
+  the checklist's description precisely.
+- **`nezha_port.cpp`'s `encOffset_` re-anchor on
+  `kAcceptAsRebaseline`** — confirmed. `src/nezha_port.cpp:261-277`;
+  the formula itself is line 275:
+  `encOffset_ = raw - static_cast<int32_t>(lastPosition_) * fwdSign_;`,
+  matching the checklist's "map to the position already held, not to
+  zero" description.
+- **`kMaxDeltaCounts = 5000`** — confirmed. `src/encoder_glitch_armor.h:98`,
+  with its full derivation comment intact above it.
+
+**One correction to the "expected: nothing has touched these files"
+assumption in this ticket's own acceptance criterion**: that is not
+quite right. `git log` shows `shims.cpp` and `nezha_port.cpp` were
+each touched by intervening tickets after sprint 006 closed (sprint
+007 ticket 007's DIAG case-25 reorder, sprint 009 tickets 007/008's
+comment cleanup + provenance-name sweep, sprint 010 ticket 004's I2C
+bus-hang guard investigation). However, `git blame` on the four
+specific cited spans (the `case 27` block, `evaluate()`'s three
+`return` statements, the `encOffset_` re-anchor line, and
+`kMaxDeltaCounts`) shows every one of them still traces to `bffac352`
+(006-005, 2026-08-24) — none of the later touches landed on these
+particular lines. So: the files moved around them, but the four cited
+symbols themselves did not drift in name or meaning. No drift found.
+
+The bench-session section (four questions restated with
+confirmed/ruled-out criteria, sequencing note to run alongside tickets
+005/006, and a caution block for the radio-relay/camera/i2cf points
+measured on vevov 2026-08-25) was added to
+`clasi/sprints/011-hardware-validation-otos-world-pose-tours-and-the-residual-leg-fault/issues/brick-reset-bench-measurement.md`
+under the heading "Ticket 007 handoff: re-verified against `src/`,
+sequenced into this sprint's bench sitting." No hardware was touched;
+no experiment was run; no pass/fail is recorded anywhere in this
+ticket or the issue file.
 
 ## Implementation Plan
 

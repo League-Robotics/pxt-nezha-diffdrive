@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: 'Residual leg-fault campaign: bench procedure and evidence template'
-status: open
+status: done
 use-cases:
 - SUC-006
 depends-on:
@@ -38,7 +38,7 @@ THEORY" rule.
 
 ## Acceptance Criteria
 
-- [ ] A written procedure exists (added to
+- [x] A written procedure exists (added to
       `intermittent-cw-pivot-abort-wheel-reversal.md` as a new "Bench
       Campaign Procedure" section) specifying: (1) a repetition count
       sufficient for a real failure rate, not a single pass/fail —
@@ -54,30 +54,55 @@ THEORY" rule.
       confirming that failure mode is gone; if ticket 004 surfaced a
       first-move hypothesis, the campaign explicitly logs whether the
       first move of each session differs from subsequent ones).
-- [ ] The RETIRED THEORIES list is restated inline in the procedure
+      **Done:** repetition count is 20 runs per tour type (derived
+      from the 2026-08-20 campaign's own recorded ~30% failure rate,
+      since no raw N is preserved in the repo — see "Repetition count"
+      step); exact `tour_capture.py --radio` commands given; per-leg
+      `leg_analysis.py` logging specified with both distance and
+      heading error always recorded; ticket 003 (RULED OUT, not fixed
+      — no defect was found) and ticket 004 (code-review-only,
+      dedicated first-move-after-boot probe) both fed into named
+      "what to watch for" steps.
+- [x] The RETIRED THEORIES list is restated inline in the procedure
       (not just referenced), with an explicit instruction: if a
       symptom looks like one of them again, record that as a finding,
       do not re-run the original experiment.
-- [ ] The procedure states explicit confirmed-vs-ruled-out criteria:
+      **Done:** all five restated with their evidence, plus the
+      explicit do-not-re-run instruction.
+- [x] The procedure states explicit confirmed-vs-ruled-out criteria:
       what result counts as "the fault is fixed" (e.g. failure rate
       drops to noise level across the sample), what counts as "still
       present but narrowed" (e.g. one failure mode gone, another
       persists), and what counts as "a new signature" not covered by
       either prior theory set.
-- [ ] The procedure instructs: if the fault is confirmed fixed, close
+      **Done:** three named buckets (CONFIRMED FIXED / STILL PRESENT
+      BUT NARROWED / NEW SIGNATURE), each with a stated numeric or
+      structural bar tied to the sample size's own statistics
+      (rule-of-three noise floor), not an arbitrary threshold.
+- [x] The procedure instructs: if the fault is confirmed fixed, close
       `intermittent-cw-pivot-abort-wheel-reversal.md` directly,
       recording the campaign's numbers. If not, file a sharpened
       successor issue stating plainly what this campaign additionally
       ruled out (building on this issue's own already-retired list)
       and what it narrowed the remaining suspects to — matching this
       sprint's Success Criteria.
-- [ ] No acceptance criterion in this ticket, or produced by it,
+      **Done:** Close-out subsection covers both branches explicitly.
+- [x] No acceptance criterion in this ticket, or produced by it,
       requires actually running the campaign or reports a pass/fail
       based on hardware results. Verify this explicitly before closing
       the ticket.
-- [ ] Ticket frontmatter's `depends-on: ['002', '003', '004']`
+      **Verified:** the procedure's own closing subsection ("Verification
+      that this ticket needed no robot") states this explicitly; every
+      number cited in the procedure is either prior evidence already in
+      the issue file (cited by reference) or ticket 003's own host-test
+      result (not a robot result). No campaign was run by this ticket.
+- [x] Ticket frontmatter's `depends-on: ['002', '003', '004']`
       reflects the real dependency (the procedure names all three
       tickets' tooling/findings by name).
+      **Verified:** frontmatter already listed all three; the
+      procedure names `leg_analysis.py` (002), the moveDeadline
+      RULED-OUT finding (003), and the first-move-after-boot finding
+      (004) by ticket number and content throughout.
 
 ## Implementation Plan
 

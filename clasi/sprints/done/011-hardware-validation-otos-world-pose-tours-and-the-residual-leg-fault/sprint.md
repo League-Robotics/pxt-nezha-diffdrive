@@ -1,7 +1,7 @@
 ---
 id: '011'
 title: 'Hardware validation: OTOS world-pose tours and the residual leg fault'
-status: ticketing
+status: done
 branch: sprint/011-hardware-validation-otos-world-pose-tours-and-the-residual-leg-fault
 use-cases:
 - SUC-001
