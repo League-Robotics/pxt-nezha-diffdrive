@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Per-leg believed-vs-target analysis tooling for tour telemetry
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on: []
