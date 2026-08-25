@@ -43,9 +43,16 @@ let rigOffYaw = 0    // [deg]
 
 // onRunCommand answers EVERY run command and so takes the verb name as
 // well as the argument. This rig predates the named-verb dispatch and
-// still wants only the number.
-diffDrive.onRunCommand(function (name: string, n: number) {
-    rigPending = n
+// still wants only the number -- but that number IS `name`: a bare
+// `RUN:20` has no second colon-part, so the dispatcher's split-on-":"
+// puts "20" in `name` and leaves `arg` at its always-zero default (no
+// argument present). Parsing `arg` here (the old bug) reads 0 for
+// every command, none of which matches a branch in rigExec(). The
+// verb lives in `name` and must be parsed from there; `arg` is
+// unused. A non-numeric `name` parses to NaN, which matches no
+// rigExec() branch and is silently dropped -- harmless.
+diffDrive.onRunCommand(function (name: string, arg: number) {
+    rigPending = parseInt(name)
 })
 
 // Lever-arm test hook. On this rig the servo rotates the sensor about

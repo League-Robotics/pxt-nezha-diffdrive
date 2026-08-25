@@ -26,10 +26,8 @@ import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
-
-# Commanded rotation [deg] -> the RUN verb that performs it.
-PIVOT_VERB = {180: 4, -180: 5, 360: 2}
-
+from field import wrap
+import tlm
 
 # The CLI talks to whichever daemon these point at. The playfield
 # daemon runs on TCP 5280 here (mDNS discovery does not find it, and
@@ -78,7 +76,7 @@ def cam_yaw(cam, tag=53, samples=5):
 
 def otos_fix(link):
     """Live OTOS fix -> (x_mm, y_mm, heading_deg) or None."""
-    for s in link.send_until('RUN:10', 'OCAL:now', tries=2, wait=5.0,
+    for s in link.send_until('RUN:fix', 'OCAL:now', tries=2, wait=5.0,
                              echo=False):
         if s.startswith('OCAL:now'):
             p = s.split(':')
@@ -86,25 +84,37 @@ def otos_fix(link):
     return None
 
 
-def enc_heading(link, wait=2.0):
-    h = None
+def send_pivot(link, deg):
+    """Command a relative pivot of `deg` and wait for it to finish.
+
+    RUN:pivot:<deg> takes an arbitrary signed degree value directly --
+    unlike the old dead numeric PIVOT_VERB table, every commanded angle
+    (not just 180/-180/360) now has a real verb.
+    """
+    return link.send_until(f'RUN:pivot:{int(deg)}', 'GAP:', tries=1,
+                           wait=abs(deg) / 45.0 + 12.0, echo=False)
+
+
+def enc_heading(link, stream, wait=2.0):
+    """Latest encoder-odometry heading [deg] decoded during THIS wait
+    window on `stream` (the same tools/tlm.py TlmStream the caller keeps
+    feeding across the whole run, already primed by require_stream()) --
+    or None if no `t` frame decodes within `wait`.
+
+    Deliberately does NOT fall back to an older frame already sitting in
+    `stream.frames` from a previous call: a stale heading read as fresh
+    is exactly the fabricated-value failure mode this retrofit removes.
+    The caller must treat None as "abort this measurement," not
+    substitute a cached or zero value.
+    """
+    latest = None
     for s in link.lines(wait):
-        if s.startswith('TLM:'):
-            f = s[4:].split(':')
-            if len(f) >= 4:
-                try:
-                    h = int(f[3]) / 100.0
-                except ValueError:
-                    pass
-    return h
-
-
-def wrap(d):
-    while d <= -180.0:
-        d += 360.0
-    while d > 180.0:
-        d -= 360.0
-    return d
+        row = stream.feed(s)
+        if row is not None:
+            latest = row
+    if latest is None:
+        return None
+    return tlm.pose_cm(latest)['h']
 
 
 def total_turn(before, after, commanded):
@@ -127,19 +137,19 @@ def main():
                          'inside the field of view?')
 
     link = open_link(radio=True)
+    # --- fail loud: a dead instrument must not cost a run (SUC-001) ---
+    try:
+        stream = tlm.require_stream(link, timeout=3.0)
+    except tlm.DeadTelemetryError as e:
+        raise SystemExit(str(e))
     print(f"{'commanded':>10} {'CAMERA':>9} {'gyro':>9} {'wheels':>9}"
           f" {'cam/cmd':>8} {'gyro/cam':>9}")
     rows = []
     for commanded in a.pivots:
-        verb = PIVOT_VERB.get(int(commanded))
-        if verb is None:
-            print(f'  no RUN verb for {commanded} deg -- skipping')
-            continue
-
         c0 = cam_yaw(a.cam, a.tag)
         o0 = otos_fix(link)
-        e0 = enc_heading(link)
-        if c0 is None or o0 is None:
+        e0 = enc_heading(link, stream)
+        if c0 is None or o0 is None or e0 is None:
             print('  lost a reading before the pivot -- skipping')
             continue
 
@@ -162,22 +172,20 @@ def main():
 
         th = threading.Thread(target=sampler, daemon=True)
         th.start()
-        link.send_until(f'RUN:{verb}', 'GAP:', tries=1,
-                        wait=abs(commanded) / 45.0 + 12.0, echo=False)
+        send_pivot(link, commanded)
         time.sleep(2.0)
         stop.set()
         th.join(timeout=5.0)
 
         o1 = otos_fix(link)
-        e1 = enc_heading(link)
-        if o1 is None:
+        e1 = enc_heading(link, stream)
+        if o1 is None or e1 is None:
             print('  lost the robot reading after the pivot -- skipping')
             continue
 
         cam = cam_total[0]
         gyro = total_turn(o0[2], o1[2], commanded)
-        wheels = (total_turn(e0, e1, commanded)
-                  if None not in (e0, e1) else float('nan'))
+        wheels = total_turn(e0, e1, commanded)
         rows.append((commanded, cam, gyro))
         print(f"{commanded:10.1f} {cam:9.1f} {gyro:9.1f} {wheels:9.1f}"
               f" {cam / commanded:8.3f} {gyro / cam:9.3f}")

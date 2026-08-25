@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OTOS lever-arm calibration -- drives test.ts RUN:8 and fits the arm.
+"""OTOS lever-arm calibration -- drives test.ts RUN:cal and fits the arm.
 
 RUN THIS OVER RADIO, WITH THE ROBOT ON THE FLOOR (--radio). The USB
 cable only reaches the bench stand, where the wheels spin in the air:
@@ -72,7 +72,7 @@ def main():
                          'stand the wheels are off the ground, so the robot '
                          'never physically turns and every fix is identical.')
     ap.add_argument('--verify', action='store_true',
-                    help='run RUN:14 instead: the same sweep with the '
+                    help='run RUN:cal:1 instead: the same sweep with the '
                          'MEASURED arm applied. A correct arm collapses '
                          'the circle to a point, so the fitted arm here '
                          'should come back near ZERO -- that is the '
@@ -82,9 +82,9 @@ def main():
 
     link = open_link(a.port, radio=a.radio)
     # OCAL:begin is the delivery receipt -- resend only if it never
-    # arrives, never blindly (a duplicate RUN:8 runs the whole
+    # arrives, never blindly (a duplicate RUN:cal runs the whole
     # calibration again).
-    verb = 'RUN:14' if a.verify else 'RUN:8'
+    verb = 'RUN:cal:1' if a.verify else 'RUN:cal'
     started = link.send_until(verb, 'OCAL:begin', tries=3, wait=6.0)
     if not any(s.startswith('OCAL:begin') for s in started):
         raise SystemExit(f'robot never acknowledged {verb} -- is it awake '

@@ -6,30 +6,23 @@
 """
 import csv
 import math
+import os
 import sys
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-DOTS = {'NW': (-50.0, 30.0), 'NE': (50.0, 30.0),
-        'SE': (50.0, -30.0), 'SW': (-50.0, -30.0)}
-ORDER = ['NW', 'SW', 'SE', 'NE']
-RECT = [DOTS['NE'], DOTS['NW'], DOTS['SW'], DOTS['SE'], DOTS['NE']]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tlm
+from field import DOTS, ORDER, RECT, wrap, score_corners, closure
+
 TRACK_CM = 12.0
 TITLES = {'robot': 'Tour A — robot-relative (local frame, IMU heading)',
           'world': 'Tour B — world goToWorld (camera-seeded, OTOS-guided)',
           'wheels': 'Tour A+B — wheels (open loop)'}
 S1, S2 = '#2a78d6', '#eb6834'
 INK, INK2, MUTED, BG = '#0b0b0b', '#52514e', '#b9b7b0', '#fcfcfb'
-
-
-def wrap(d):
-    while d <= -180.0:
-        d += 360.0
-    while d > 180.0:
-        d -= 360.0
-    return d
 
 
 def rd(path):
@@ -71,34 +64,20 @@ def wheel_speeds(pose, hdr):
 
 def score(cam):
     """Closest approach to each dot -- but ONLY where the camera was
-    actually watching.
+    actually watching -- plus closure/end-heading and tracked-time %.
 
     Tracking drops out over parts of this field (measured: 25% of run
     time, concentrated in the north, where two of the four dots are).
-    A "closest approach" computed across a blind stretch is not the
-    robot's error, it is where tracking happened to die -- one run
-    reported SW 31.3 cm when the camera had been blind for 24 s and the
-    robot had already been and gone. Corners whose closest sample sits
-    beside a gap are reported as UNOBSERVED rather than scored.
+    Corner scoring itself is tools/field.py's score_corners() -- the
+    same gap-aware algorithm every tour/ground-truth tool now calls,
+    so a console report and this chart (drawn from the same recorded
+    run) cannot disagree about which corners were actually observed
+    the way they used to (one run reported SW 31.3 cm on the console
+    when the camera had been blind for 24 s and the robot had already
+    been and gone, while this chart correctly reported SW=unobserved).
     """
-    res, used = {}, 0
-    gaps = [(a[0], b[0]) for a, b in zip(cam, cam[1:]) if b[0] - a[0] > 0.4]
-    for tag in ORDER:
-        dx, dy = DOTS[tag]
-        best, besti = None, used
-        for i in range(used, len(cam)):
-            d = math.hypot(cam[i][1] - dx, cam[i][2] - dy)
-            if best is None or d < best:
-                best, besti = d, i
-        # If the best sample abuts a tracking gap, we never saw the
-        # approach: refuse to score it.
-        t = cam[besti][0]
-        blind = any(g0 - 0.5 <= t <= g1 + 0.5 for g0, g1 in gaps)
-        res[tag] = None if (blind and best > 3.0) else best
-        used = besti
-    res['closure'] = math.hypot(cam[-1][1] - cam[0][1],
-                                cam[-1][2] - cam[0][2])
-    res['endhdg'] = wrap(cam[-1][3] - 180.0)
+    res = score_corners(cam)
+    res['closure'], res['endhdg'] = closure(cam, 180.0)
     span = cam[-1][0] - cam[0][0]
     lost = sum(b[0] - a[0] for a, b in zip(cam, cam[1:]) if b[0] - a[0] > 0.4)
     res['tracked'] = 100.0 * (1 - lost / span) if span > 0 else 0.0
@@ -107,6 +86,19 @@ def score(cam):
 
 def main():
     name, run, campath, posepath, out = sys.argv[1:6]
+
+    # SUC-002: refuse to plot a run whose capture recorded zero telemetry
+    # frames -- a chart drawn from an empty capture is exactly the
+    # confident-wrong-conclusion failure mode this sprint's fail-loud
+    # guards exist to prevent. A MISSING sidecar (older capture, or a
+    # source that never wrote one) is not itself refused here.
+    meta = tlm.read_meta_sidecar(posepath)
+    if meta is not None and meta.get('frames', 0) == 0:
+        raise SystemExit(
+            f'refusing to plot {posepath}: its capture\'s telemetry '
+            f'sidecar reports frames=0 -- no telemetry was recorded for '
+            f'this run')
+
     _, cam = rd(campath)
     phdr, pose = rd(posepath)
     sc = score(cam) if cam else None

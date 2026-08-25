@@ -11,12 +11,22 @@
 //   buttons A+B   RUN:tour:wheels  open loop: leg, then turn left
 //
 // Other named commands: RUN:cal (lever-arm calibration; RUN:cal:1
-// verifies it), RUN:fix, RUN:seed, RUN:probe, RUN:arm, RUN:gap.
+// verifies it), RUN:fix, RUN:seed, RUN:probe, RUN:arm, RUN:gap,
+// RUN:pivot:<deg> (relative in-place pivot, encoder/gyro only -- no
+// OTOS), RUN:turnrate:<deg/s> (sets the yaw rate the NEXT RUN:pivot
+// uses).
 //
 // Every move runs as an explicit startMove + driveTick() loop in THIS
 // file, so the tick loop stays visible, instrumentable test code.
 let touring = false
 let maxGapMs = 0
+// The yaw rate the NEXT RUN:pivot uses -- set by RUN:turnrate, so
+// turn_sweep.py's rate-then-angle two-step (RUN:turnrate:<rate> then
+// RUN:pivot:<deg>) mirrors its old two-RUN-command shape. RUN:pivot
+// always applies this explicitly (never leaves it at whatever an
+// unrelated handler last set), so a bare RUN:pivot with no preceding
+// RUN:turnrate is still deterministic.
+let pivotYawRate = 90
 
 function tickedMove(d: number, y: number) {
     diffDrive.startMove(d, y)
@@ -402,5 +412,32 @@ diffDrive.onRun("face", function (arg: number) {
     logFix("faced")
     diffDrive.emitLine("FACE:end")
     touring = false
+})
+
+// Relative in-place pivot: RUN:pivot:<deg>. Encoder/gyro only -- no
+// OTOS, no world frame, deliberately no worldReady()/readWorld() call
+// anywhere in this handler. rotation_check.py, pivot_truth.py,
+// truth_check.py and turn_sweep.py all use this over radio on the
+// floor, replacing the old dead numeric PIVOT_VERB offsets (2/4/5).
+diffDrive.onRun("pivot", function (arg: number) {
+    if (touring) return
+    touring = true
+    diffDrive.setTaperWindows(400, 180)
+    diffDrive.setTaperFloors(25, 12)
+    diffDrive.setRampMs(400)
+    diffDrive.setDefaultYawRate(pivotYawRate)
+    maxGapMs = 0
+    tickedMove(0, diffDrive.runArg(0))
+    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("PIVOT:end")
+    touring = false
+})
+
+// Sets the yaw rate the NEXT RUN:pivot command uses: RUN:turnrate:<deg/s>.
+// turn_sweep.py sweeps rate against angle with this then RUN:pivot in
+// a two-step call, mirroring the old dead numeric two-step shape
+// (RUN:57000+rate then RUN:58360+deg). Does not move the robot itself.
+diffDrive.onRun("turnrate", function (arg: number) {
+    pivotYawRate = diffDrive.runArg(0)
 })
 

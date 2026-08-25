@@ -9,10 +9,13 @@ opens it. Then it goes back to waiting, so all three tours can be run
 back to back without touching the host.
 
 Deliberately passive: it never sends a motion command, so nothing here
-can perturb a run. Telemetry is NOT polled either -- a request/reply
-round-trip inside a move over the link is measured to collapse a
-197.5 mm leg to 0.3 mm; TLM streams unprompted and the camera is an
-independent process.
+can perturb a run -- the one exception is the single `TLM POSE`
+subscribe tools/tlm.py's require_stream() sends once at startup (a
+subscribe, not a poll; v6 telemetry needs it, unlike the old v5 line,
+which streamed unprompted). Telemetry itself is not polled after that --
+a request/reply round-trip inside a move over the link is measured to
+collapse a 197.5 mm leg to 0.3 mm; the thdr/t stream flows unprompted
+once subscribed, and the camera is an independent process.
 
   python3 tools/tour_watch.py [--outdir .tmp/tours]
 """
@@ -22,20 +25,13 @@ import math
 import os
 import subprocess
 import sys
-import threading
 import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
-
-VENV = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
-CAMLINK = __file__.rsplit('/', 1)[0] + '/camlink.py'
-
-# The playfield's four orange dots (main-playfield, A1-centred, cm) --
-# the rectangle every tour is trying to trace.
-DOTS = {'NW': (-50.0, 30.0), 'NE': (50.0, 30.0),
-        'SE': (50.0, -30.0), 'SW': (-50.0, -30.0)}
-RECT = [DOTS['NE'], DOTS['NW'], DOTS['SW'], DOTS['SE'], DOTS['NE']]
+from camproc import Cam
+from field import DOTS, RECT
+import tlm
 
 TOUR_TITLE = {
     'robot': 'Tour A — robot-relative goTo (encoder only)',
@@ -43,44 +39,6 @@ TOUR_TITLE = {
     'worldarc': 'Tour B′ — world, arc computed in test code',
     'wheels': 'Tour A+B — wheels square (open loop)',
 }
-
-
-class Cam(threading.Thread):
-    """Camera samples in the background, timestamped, always running."""
-
-    def __init__(self, tag=53, hz=20.0):
-        super().__init__(daemon=True)
-        self.samples = []          # (t, x_cm, y_cm, yaw_deg)
-        self.err = None
-        self.lock = threading.Lock()
-        self.p = subprocess.Popen(
-            [VENV, CAMLINK, '--tag', str(tag), '--hz', str(hz)],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            bufsize=1)
-        self.start()
-
-    def run(self):
-        for line in self.p.stdout:
-            line = line.strip()
-            if line.startswith('ERR'):
-                with self.lock:
-                    self.err = line
-                return
-            if line == 'NOTAG':
-                continue
-            try:
-                yaw, x, y = (float(v) for v in line.split())
-            except ValueError:
-                continue
-            with self.lock:
-                self.samples.append((time.time(), x, y, yaw))
-
-    def since(self, t0):
-        with self.lock:
-            return [s for s in self.samples if s[0] >= t0]
-
-    def close(self):
-        self.p.terminate()
 
 
 def chart(name, pose, vel, fixes, cam, path):
@@ -176,40 +134,40 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
 
-    cam = Cam(a.tag)
-    time.sleep(1.5)
+    # camproc.Cam's own constructor already waits (up to 15s) for a
+    # first sample or an ERR, so no extra fixed sleep is needed here.
+    cam = Cam(tag=a.tag)
     if cam.err:
         raise SystemExit(f'camera not usable: {cam.err}')
     link = open_link(radio=True)
+    # --- fail loud: no point waiting indefinitely for button-triggered
+    # tours if telemetry is dead -- subscribed once, here, since this
+    # tool never itself sends a RUN:tour: to hang the check off of
+    # (SUC-001, applied to a passive watcher instead of a triggered run).
+    try:
+        tlm.require_stream(link, timeout=3.0)
+    except tlm.DeadTelemetryError as e:
+        raise SystemExit(str(e))
     print('watching for a tour -- press A, B or A+B on the robot '
           '(ctrl-C to stop)')
 
     run = 0
     while True:
         name = None
+        stream = tlm.TlmStream()
         pose, vel, fixes = [], [], []
         t0 = None
         for s in link.lines(3600):
             if s.startswith('DBG:tour='):
                 name = s.split('=', 1)[1].strip()
                 t0 = time.time()
+                stream = tlm.TlmStream()
                 pose, vel, fixes = [], [], []
                 print(f'\n>>> {name} started, recording...')
                 continue
             if name is None:
                 continue
-            if s.startswith('TLM:'):
-                f = s[4:].split(':')
-                if len(f) == 7:
-                    try:
-                        pose.append({'t': time.time(), 'dev': int(f[0]),
-                                     'x': int(f[1])/10, 'y': int(f[2])/10,
-                                     'h': int(f[3])/100,
-                                     'ox': int(f[4])/10, 'oy': int(f[5])/10,
-                                     'oh': int(f[6])/100})
-                    except ValueError:
-                        pass
-            elif s.startswith('DIAG:'):
+            if s.startswith('DIAG:'):
                 i = s.find('vel=')
                 if i >= 0:
                     try:
@@ -223,11 +181,31 @@ def main():
                 fixes.append(s)
             elif s.startswith('TOUR:end'):
                 break
+            else:
+                row = stream.feed(s)
+                if row is not None:
+                    enc = tlm.pose_cm(row)
+                    otos = tlm.otos_cm(row)
+                    pose.append({'t': time.time(), 'dev': row['now'],
+                                 'x': enc['x'], 'y': enc['y'], 'h': enc['h'],
+                                 'ox': otos['x'], 'oy': otos['y'],
+                                 'oh': otos['h']})
 
         if name is None:
             continue
         run += 1
         stamp = f'{a.outdir}/{run:02d}-{name}'
+        # SUC-002: an instrument that returned nothing must be a loud,
+        # immediate failure, not a header-only CSV or a chart drawn from
+        # zero telemetry -- refuse the whole run's outputs, not just the
+        # tlm.py-owned CSV, when this happens.
+        try:
+            meta = tlm.write_tlm_csv(stream, stamp + '_tlm.csv')
+        except tlm.EmptyCaptureError as e:
+            print(f'    NO TELEMETRY CAPTURED FOR THIS RUN -- refusing '
+                  f'to write a pose CSV or chart: {e}')
+            print('watching for the next tour...')
+            continue
         camrows = cam.since(t0)
         with open(stamp + '_pose.csv', 'w') as f:
             w = csv.writer(f)
@@ -246,6 +224,8 @@ def main():
         closure = chart(name, pose, vel, fixes, camrows, png)
         print(f'    {len(pose)} telemetry, {len(camrows)} camera samples, '
               f'{len(fixes)} corner fixes')
+        print(f'    telemetry: {meta["frames"]} frames, '
+              f'{meta["dropped"]} dropped ({meta["loss_pct"]:.1f}% loss)')
         if closure is not None:
             print(f'    closure {closure:.1f} cm (camera)')
         print(f'    -> {png}')

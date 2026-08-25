@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """Square Tour capture — the standard telemetry recorder.
 
-Sends RUN:<n> over the robot's USB serial, records the TLM pose stream
-(device-timestamped: TLM:t_ms:x:y:h) and wheel speeds (DIAG polled at
-~8 Hz), and writes the two CSVs tools/tour_chart.py plots.
+Sends RUN:<n> over the robot's USB serial and records the v6 thdr/t
+telemetry stream via tools/tlm.py (device-timestamped pose, in wire
+units: mm/cdeg), writing the pose CSV tools/tour_chart.py plots plus
+tlm.py's own <out-prefix>_tlm.csv/.meta.json capture-quality sidecar.
+
+The wheel-speed poll below (DIAG, ~8 Hz, wired only) targets a verb
+retired in the v6 cutover (sprint 003) -- it is a documented, currently
+inert no-op on this firmware (`_vel.csv` will be empty), kept rather
+than removed because fixing/retiring it is outside this ticket's scope
+(sprint 005 ticket 002; see the ticket's own report for the finding).
+The v6 telemetry frame already carries `vl`/`vr` per frame -- once DIAG
+is formally retired here too, that column supersedes this poll entirely.
 
 Usage:
   python3 tools/tour_capture.py PORT [--run 1] [--timeout 60]
@@ -16,6 +25,7 @@ import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
+import tlm
 
 
 def main():
@@ -35,6 +45,12 @@ def main():
     link = open_link(a.port, radio=a.radio)
     p = link.p
 
+    # --- fail loud: a dead instrument must not cost a run (SUC-001) ---
+    try:
+        stream = tlm.require_stream(link, timeout=3.0)
+    except tlm.DeadTelemetryError as e:
+        raise SystemExit(str(e))
+
     pose, vel = [], []
     t0 = time.time()
     # The tour marks itself in the stream; resend only if that receipt
@@ -53,9 +69,12 @@ def main():
         # NEVER poll during a move over the wireless link: a
         # request/reply round-trip inside a move is actively dangerous
         # there -- measured upstream, polling telemetry mid-move cut a
-        # leg from 197.5 mm to 0.3 mm. TLM streams unprompted, so the
-        # pose track survives; wheel speeds are simply unavailable
-        # untethered, and the per-corner OCAL fixes carry the scoring.
+        # leg from 197.5 mm to 0.3 mm. The v6 thdr/t stream flows
+        # unprompted once subscribed (require_stream() above already
+        # sent TLM POSE), so the pose track survives; wheel speeds via
+        # DIAG are simply unavailable untethered (and, on this firmware,
+        # unavailable wired too -- see the module docstring), so the
+        # per-corner OCAL fixes carry the scoring.
         if not a.radio and now - last_diag > 0.12:
             link.send('DIAG')
             last_diag = now
@@ -65,25 +84,17 @@ def main():
         s = line.decode('ascii', errors='replace').strip()
         if s.startswith('< '):
             s = s[2:]          # relay control-plane prefix
-        if s.startswith('TLM:'):
-            parts = s[4:].split(':')
-            try:
-                ox = oy = oh = 0
-                if len(parts) == 7:      # dual-pose: encoder + OTOS
-                    t_dev, x, y, h, ox, oy, oh = (int(v) for v in parts)
-                elif len(parts) == 4:    # device-timestamped, encoder only
-                    t_dev, x, y, h = (int(v) for v in parts)
-                elif len(parts) == 3:    # legacy, host time only
-                    t_dev = -1
-                    x, y, h = (int(v) for v in parts)
-                else:
-                    continue
-                pose.append((round(now, 3), t_dev, x, y, h, ox, oy, oh))
-                if (x, y, h) != last_pose_vals:
-                    last_pose_vals = (x, y, h)
-                    last_pose_change = time.time()
-            except ValueError:
-                pass
+        row = stream.feed(s)
+        if row is not None:
+            # x/y/ox/oy already mm, h/oh already cdeg on the wire -- no
+            # scale factor of this tool's own (tlm.py owns the one place
+            # any wire-to-engineering-unit conversion happens).
+            pose.append((round(now, 3), row['now'], row['x'], row['y'],
+                         row['h'], row['ox'], row['oy'], row['oh']))
+            vals = (row['x'], row['y'], row['h'])
+            if vals != last_pose_vals:
+                last_pose_vals = vals
+                last_pose_change = time.time()
         elif s.startswith('DIAG:'):
             i = s.find('vel=')
             if i >= 0:
@@ -110,9 +121,15 @@ def main():
         w = csv.writer(f)
         w.writerow(['t_host', 'vel_l_counts', 'vel_r_counts'])
         w.writerows(vel)
+    # tlm.py's own raw-wire-unit CSV + capture-quality sidecar --
+    # require_stream() above guarantees `stream` already has at least
+    # one frame, so this cannot raise EmptyCaptureError here.
+    meta = tlm.write_tlm_csv(stream, a.out_prefix + '_tlm.csv')
     final = pose[-1] if pose else None
     print(f"captured {len(pose)} pose / {len(vel)} vel rows; "
-          f"final {final}; {egl}; {gap}")
+          f"final {final}; {egl}; {gap}; "
+          f"telemetry {meta['frames']} frames, {meta['dropped']} dropped "
+          f"({meta['loss_pct']:.1f}% loss)")
 
 
 if __name__ == '__main__':

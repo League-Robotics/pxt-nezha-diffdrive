@@ -69,9 +69,26 @@ RESULT_UNKNOWN = 1
 RESULT_BADARG = 2
 RESULT_RANGE = 3
 
-# Wire::DoneReason's DECLARATION-ORDER ordinal.
+# Wire::DoneReason's DECLARATION-ORDER ordinal (wire_handler.h). Sprint
+# 005 ticket 004 (closing wire-motion-completion-signal.md/R-23): the
+# real WireAdapter now actually PRODUCES every one of these (previously
+# only DONE_NONE was ever reachable through this fixture, since
+# lastDone()/lastDoneReason() were permanently inert) -- see
+# test_wire_motion_completion.py for the tests driving each one.
 DONE_NONE = 0
-_DONE_REASON_NAME = {DONE_NONE: "none"}
+DONE_STOP = 1
+DONE_TIMEOUT = 2
+DONE_ESTOP = 3
+DONE_ABORTED = 4
+DONE_STALL = 5
+_DONE_REASON_NAME = {
+    DONE_NONE: "none",
+    DONE_STOP: "stop",
+    DONE_TIMEOUT: "timeout",
+    DONE_ESTOP: "estop",
+    DONE_ABORTED: "aborted",
+    DONE_STALL: "stall",
+}
 
 # DiffDrive::DifferentialDrive::Status's DECLARATION order (src/diffdrive.h).
 STATUS_OK = 0
@@ -216,6 +233,15 @@ def _bind(lib):
     lib.waBegin.restype = ctypes.c_int
     lib.waStep.argtypes = [ctypes.c_void_p]
     lib.waStep.restype = None
+    # Sprint 005 ticket 004: engine.serviceMove() and FakeMotor position
+    # arming -- lets a test drive a move-engine move to a REAL completion
+    # (goal reached / deadline expired / stalled), not just its first tick.
+    lib.waServiceMove.argtypes = [ctypes.c_void_p]
+    lib.waServiceMove.restype = ctypes.c_int
+    lib.waArmMotorPosition.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_uint64,
+    ]
+    lib.waArmMotorPosition.restype = None
     lib.waMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.waMotorLastStagedDuty.restype = ctypes.c_float
 
@@ -237,6 +263,12 @@ def _bind(lib):
     lib.waSetNowMs.restype = None
     lib.waHasLiveMotionObligation.argtypes = [ctypes.c_void_p]
     lib.waHasLiveMotionObligation.restype = ctypes.c_int
+    # Sprint 005 ticket 004: the real WireAdapter::lastDone()/
+    # lastDoneReason() -- polls the completion channel directly.
+    lib.waLastDone.argtypes = [ctypes.c_void_p]
+    lib.waLastDone.restype = ctypes.c_uint32
+    lib.waLastDoneReason.argtypes = [ctypes.c_void_p]
+    lib.waLastDoneReason.restype = ctypes.c_int
     lib.waSetPose.argtypes = [
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
     ]
@@ -505,6 +537,23 @@ class WireAdapterHandle:
     def step(self):
         self._lib.waStep(self._handle)
 
+    def service_move(self):
+        """MotionEngine::serviceMove() (sprint 005 ticket 004) -- unlike
+        step() above (kernel.step() only), this is the OTHER half of
+        production's tickDrive() pair, needed to drive a move-engine
+        move (MOVE_X/GO_TO_R/GO_TO_W) to a real completion. Returns
+        whether the move is still active after this call."""
+        return bool(self._lib.waServiceMove(self._handle))
+
+    def arm_motor_position(self, side, position_counts, sample_time_us=1):
+        """Directly arms a FakeMotor's NEXT step()'s committed position
+        (fake_ports.h's own armed-then-committed contract) -- lets a
+        test simulate 'the wheel has physically reached this encoder
+        count' without a duty-to-position physics model. Mirrors
+        test_motion_engine_reductions.py's own Engine.arm_motor_position()."""
+        self._lib.waArmMotorPosition(
+            self._handle, side, position_counts, sample_time_us)
+
     def motor_last_staged_duty(self, side):
         return self._lib.waMotorLastStagedDuty(self._handle, side)
 
@@ -539,6 +588,17 @@ class WireAdapterHandle:
 
     def has_live_motion_obligation(self):
         return bool(self._lib.waHasLiveMotionObligation(self._handle))
+
+    def last_done(self):
+        """The real WireAdapter::lastDone() -- polled directly, without
+        needing a subsequent sequenced verb's own ack/nack to observe
+        it (sprint 005 ticket 004)."""
+        return self._lib.waLastDone(self._handle)
+
+    def last_done_reason(self):
+        """The real WireAdapter::lastDoneReason(), as Wire::DoneReason's
+        DECLARATION-ORDER ordinal (see this file's own DONE_* constants)."""
+        return self._lib.waLastDoneReason(self._handle)
 
     def set_pose(self, x, y, heading):
         self._lib.waSetPose(self._handle, x, y, heading)
@@ -2433,19 +2493,33 @@ def test_stall_clear_wire_field_clears_latch_and_reads_back(wa):
     wa.set_now_ms(1600)  # +600ms > stall_window -> latches this step()
     wa.step()
 
+    # Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/
+    # R-23): the REAL stall latch this step() just tripped is exactly
+    # what WireAdapter's own completion channel now observes for the
+    # still-pending WHEELS_V (#4) -- resolvePendingReason() checks
+    # diagValue(stallHalted) before anything else, so THIS ack is the
+    # first one to report it: (4, stall), not the inert (0, none) every
+    # ack reported before this ticket.
     wa.feed(b"GET stall_clear #6\n")
     reply = wa.take_sink()
-    prefix = _ack(6) + b"get stall_clear "
+    prefix = _ack(6, 4, DONE_STALL) + b"get stall_clear "
     assert reply.startswith(prefix)
     assert float(reply[len(prefix):]) == pytest.approx(1.0, abs=1e-3)
 
+    # Once resolved, WHEELS_V #4's outcome is FROZEN (it reports what
+    # the motion actually ended with, not the live diagValue() state) --
+    # `SET stall_clear 1` clearing the latch below does not retroactively
+    # turn this back into "none": the completion channel and the
+    # stall_clear wire field are two independent things this test
+    # exercises together, and clearing one must not un-resolve the
+    # other.
     wa.feed(b"SET stall_clear 1 #7\n")
-    assert wa.take_sink() == _ack(7)
+    assert wa.take_sink() == _ack(7, 4, DONE_STALL)
     wa.step()  # consumes the clearStallReq_ handshake
 
     wa.feed(b"GET stall_clear #8\n")
     reply = wa.take_sink()
-    prefix = _ack(8) + b"get stall_clear "
+    prefix = _ack(8, 4, DONE_STALL) + b"get stall_clear "
     assert reply.startswith(prefix)
     assert float(reply[len(prefix):]) == pytest.approx(0.0, abs=1e-3)
 

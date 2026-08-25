@@ -20,82 +20,14 @@ import math
 import os
 import subprocess
 import sys
-import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
+from camproc import Cam
+from field import DOTS, ORDER as LAP
 
-VENV = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
-CAMLINK = os.path.dirname(os.path.abspath(__file__)) + '/camlink.py'
 LIGHTS_ON = 'http://192.168.1.122/rpc/switch.set?id=0&on=true'
-
-DOTS = {'NW': (-50.0, 30.0), 'SW': (-50.0, -30.0),
-        'SE': (50.0, -30.0), 'NE': (50.0, 30.0)}
-LAP = ['NW', 'SW', 'SE', 'NE']          # counter-clockwise from NE
-
-
-def wrap(d):
-    while d <= -180.0:
-        d += 360.0
-    while d > 180.0:
-        d -= 360.0
-    return d
-
-
-class Cam(threading.Thread):
-    def __init__(self, hz=20.0):
-        super().__init__(daemon=True)
-        self.p = subprocess.Popen([VENV, CAMLINK, '--hz', str(hz)],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True,
-                                  bufsize=1)
-        self.latest = None
-        self.samples = []
-        self.notag = 0
-        self.err = None
-        self.lock = threading.Lock()
-        self.start()
-        deadline = time.time() + 15
-        while time.time() < deadline and self.latest is None and not self.err:
-            time.sleep(0.2)
-
-    def run(self):
-        for line in self.p.stdout:
-            line = line.strip()
-            with self.lock:
-                if line.startswith('ERR'):
-                    self.err = line
-                    return
-                if line == 'NOTAG':
-                    self.notag += 1
-                    continue
-                try:
-                    yaw, x, y = (float(v) for v in line.split())
-                except ValueError:
-                    continue
-                self.notag = 0
-                self.latest = (x, y, yaw)
-                self.samples.append((time.time(), x, y, yaw))
-
-    def fix(self, n=8):
-        vals = []
-        for _ in range(n):
-            with self.lock:
-                r = self.latest
-                lost = self.notag
-            if lost > 40:            # ~2 s with no tag
-                return None
-            if r:
-                vals.append(r)
-            time.sleep(0.06)
-        if not vals:
-            return None
-        med = lambda i: sorted(v[i] for v in vals)[len(vals) // 2]
-        return med(0), med(1), med(2)
-
-    def close(self):
-        self.p.terminate()
 
 
 class Robot:
@@ -204,10 +136,7 @@ def main():
             w.writerow(['t', 'x_cm', 'y_cm', 'yaw_deg'])
             w.writerows([[round(s[0] - t_start, 3), round(s[1], 2),
                           round(s[2], 2), round(s[3], 2)]
-                         for s in cam.since_all()] if hasattr(cam, 'since_all')
-                        else [[round(s[0] - t_start, 3), round(s[1], 2),
-                               round(s[2], 2), round(s[3], 2)]
-                              for s in cam.samples])
+                         for s in cam.samples])
         cam.close()
 
     if rows:

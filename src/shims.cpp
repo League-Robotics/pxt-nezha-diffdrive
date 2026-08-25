@@ -418,6 +418,25 @@ float engineDefaultCruiseMmS() {
   return ensure().defaultCruiseMmS_;
 }
 
+// Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/R-23):
+// the ONE genuinely new read WireAdapter's own motion-completion
+// resolution needs (wire_adapter.cpp's forward declaration, its own
+// header comment there) -- true iff MotionEngine's move-engine state
+// (MOVE_X/GO_TO_R/GO_TO_W's own tracked segment) is currently active.
+// Mirrors moving()'s exact body (further down, this file's `//%`
+// block-API surface) but is deliberately its OWN function, not a call
+// to moving(): this is a wire-shaped bridge (no `//%`, same
+// same-package forward-declaration convention as engineWheelsX() et
+// al. above), and must not depend on a block-API function's own
+// continued existence or shape -- same rationale setWheelsTimed() gives
+// for staying separate from the block API's own setWheels(). `rig ==
+// nullptr` (no kernel ever composed -- e.g. a wire session with no
+// prior motion verb at all) answers false, same honest "nothing is
+// active" default moving() gives.
+bool engineMoveActive() {
+  return rig != nullptr && rig->engine.isMoveActive();
+}
+
 // ---- move engine ----------------------------------------------------
 
 //%

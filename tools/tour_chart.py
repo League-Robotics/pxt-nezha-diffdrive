@@ -19,10 +19,15 @@ Run under uv (the user-level matplotlib install is broken):
 """
 import argparse
 import csv
+import os
+import sys
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import tlm
 
 # dataviz reference palette (validated pair): series1 blue, series2 orange
 S1, S2 = '#2a78d6', '#eb6834'
@@ -48,6 +53,18 @@ def main():
     ap.add_argument('--travel-calib', type=float, default=0.8102)
     ap.add_argument('--title', default='Square Tour')
     a = ap.parse_args()
+
+    # SUC-002: refuse to plot a run whose capture recorded zero telemetry
+    # frames -- a chart drawn from an empty capture is exactly the
+    # confident-wrong-conclusion failure mode this sprint's fail-loud
+    # guards exist to prevent. A MISSING sidecar (older capture, or a
+    # source that never wrote one) is not itself refused here.
+    meta = tlm.read_meta_sidecar(a.pose_csv)
+    if meta is not None and meta.get('frames', 0) == 0:
+        raise SystemExit(
+            f'refusing to plot {a.pose_csv}: its capture\'s telemetry '
+            f'sidecar reports frames=0 -- no telemetry was recorded for '
+            f'this run')
 
     pose_all = read_csv(a.pose_csv)
     vel_all = read_csv(a.vel_csv)            # t, vel_l_counts, vel_r_counts

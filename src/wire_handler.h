@@ -235,18 +235,32 @@ enum class TlmMode : uint8_t {
   kBuffer,
 };
 
-// The reliability layer's completion-reason vocabulary (S8.8): the four
+// The reliability layer's completion-reason vocabulary (S8.8): the
 // reasons a motion can finish, plus kNone for "nothing has completed
 // yet" -- the wire spelling "none" is what lastDone() == 0 pairs with.
 // Carried here even though this ticket wires up no motion verb yet,
 // because every sequenced verb's ack/nack piggybacks this pair (S8.8),
 // not only the motion ones.
+//
+// kStall (sprint 005 ticket 004, closing wire-motion-completion-
+// signal.md/R-23): purely additive -- no existing wire consumer reads
+// it, since nothing ever produced it before this ticket. Wire spelling
+// "stall", matching the kernel's own stall-latch semantics
+// (`stallHalted`/`stall_clear`, sprint 007 ticket 001) rather than
+// inventing a second notion of "stalled" -- see
+// diffDrive::WireAdapter::resolvePendingReason() (wire_adapter.cpp) for
+// where this is actually produced. Deliberately NOT folded into
+// kAborted (a stalled drivetrain and a superseded command are different
+// failure classes a host needs to tell apart) or kEstop (stall is
+// drivetrain-local, not the same safety condition) -- sprint.md's own
+// Design Rationale.
 enum class DoneReason : uint8_t {
   kNone,     // -> "none"    -- lastDone() == 0, nothing completed yet
   kStop,     // -> "stop"    -- the stop condition was met, or stop() ended it
   kTimeout,  // -> "timeout" -- the backstop fired
   kEstop,    // -> "estop"   -- a panic stop ended it
   kAborted,  // -> "aborted" -- the caller abandoned it
+  kStall,    // -> "stall"   -- the kernel's stall latch halted the drivetrain
 };
 
 // Adapter -- the seam behind every verb this file currently dispatches:
