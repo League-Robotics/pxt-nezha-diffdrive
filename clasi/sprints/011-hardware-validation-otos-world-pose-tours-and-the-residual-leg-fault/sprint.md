@@ -16,6 +16,7 @@ issues:
 - otos-on-vevov-move-goto-world-pose-square-tours.md
 - intermittent-cw-pivot-abort-wheel-reversal.md
 - brick-reset-bench-measurement.md
+- tour-corner-fixes-are-stale-cache.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
