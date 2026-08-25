@@ -2,7 +2,7 @@
 id: '007'
 title: 'Final build checkpoint: hex and block-surface parity, flashable hex, handoff
   notes'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-003
