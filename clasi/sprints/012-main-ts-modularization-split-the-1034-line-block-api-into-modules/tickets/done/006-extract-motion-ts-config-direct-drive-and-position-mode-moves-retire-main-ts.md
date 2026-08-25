@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: 'Extract motion.ts: config, direct drive, and position-mode moves; retire main.ts'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
