@@ -410,13 +410,28 @@ stop condition" and an explicit `stop()` call. See sprint 005's
 live `MotionEngine` reference on `WireAdapter`; a stateful return value
 on all six bridge functions instead of the one needed).
 
+Two ordering hazards were found and fixed while implementing this:
+(1) a lease-style verb's own dispatch (`setWheelsTimed()`/
+`engineWheelsX()`/`engineMoveV()`, all routing through
+`MotionEngine::wheelsV()`/`wheelsX()`, whose first act is
+`cancelMove()`) must resolve a still-pending PREVIOUS motion as
+superseded *before* that dispatch runs, or the cancellation reads as
+the old motion having reached its own stop condition; (2) `onEstop()`
+commits `kEstop` unconditionally, never through the "trust the natural
+resolution first" path every other force-resolve call site uses,
+because `estopAll()`'s own `engine.endMove()` already clears
+`engineMoveActive()` synchronously while `diagValue(kDiagEstopped)` is
+still stale (an `Output` field that only updates on the kernel's next
+`step()`) — a naive natural-first commit would misread that
+combination as `kStop`.
+
 **Dependencies.** `wire_handler.h`; `shims.cpp` free functions by
 forward declaration only (`stopAll`, `estopAll`, `setWheelsTimed`,
 `setKernelValue`, `getConfigValue`, `diagValue`, `engineWheelsX`,
 `engineMoveX`, `engineDefaultCruiseMmS`, `engineMoveV`, `engineGoToR`,
-`engineGoToW`, `engineMoveActive` (sprint 005), and — sprint 004 ticket
-004 — `poseX`, `poseY`, `poseHeading`, `otosGet`, `wheelSpeed`). Holds
-no kernel/engine/Rig reference of its own.
+`engineGoToW`, `engineMoveActive` — sprint 005 ticket 004 — and —
+sprint 004 ticket 004 — `poseX`, `poseY`, `poseHeading`, `otosGet`,
+`wheelSpeed`). Holds no kernel/engine/Rig reference of its own.
 
 ## 6. Transports — `serial_transport.*`, `radio_transport.*`
 

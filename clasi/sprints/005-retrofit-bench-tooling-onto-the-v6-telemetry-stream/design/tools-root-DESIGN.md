@@ -6,10 +6,11 @@ Host-side Python scripts for building, deploying, driving, measuring,
 and charting the robot. Flat root, no subsystems. Run under `uv`
 (`uv run python tools/<script>.py`) — including `robotlink.py`, now
 that `pyproject.toml` declares `pyserial` (sprint 005; previously only
-the system interpreter had it); `camlink.py` still runs under the
-aprilcam pipx venv, its interpreter resolved once by `camproc.py`
-rather than hardcoded per spawn site. Conventions (units, frames,
-camera doctrine) are in
+the system interpreter had it, so every bench tool ran only under a
+different interpreter than the project's own test/dev environment);
+`camlink.py` still runs under the aprilcam pipx venv, its interpreter
+resolved once by `camproc.py` rather than hardcoded per spawn site.
+Conventions (units, frames, camera doctrine) are in
 [`docs/design/design.md`](../docs/design/design.md).
 
 ## Link layer — what everything talks through
@@ -27,16 +28,23 @@ camera doctrine) are in
   round (`mount_yaw_rad = -pi/2`) — an unregistered tag reports a
   plausible but wrong position.
 - **`camproc.py`** (sprint 005) — owns camera-subprocess lifecycle:
-  resolves the AprilTags interpreter once (not six hardcoded spawn
-  sites), surfaces a spawned camera's `ERR` lines to the calling tool
-  instead of discarding them, and invalidates a cached pose once the
-  stream is marked dead — a mid-session camera death is now a visible
-  failure, not a silently frozen pose fed back into `place()`/`fix()`.
+  resolves the AprilTags interpreter once via `resolve_venv()` (the
+  `APRILTAGS_VENV` env var, defaulting to the historically-correct
+  path — not six hardcoded spawn sites, two of which pointed at a
+  stale venv where `import aprilcam` no longer worked), surfaces a
+  spawned camera's `ERR` lines to the calling tool instead of
+  discarding them, and invalidates a cached pose (`.latest`/`.fix()`
+  both go `None`) once the stream is marked dead — a mid-session
+  camera death is now a visible failure, not a silently frozen pose
+  fed back into `place()`/`fix()`.
 - **`field.py`** (sprint 005) — owns playfield geometry: the dot/corner
-  constants, `wrap()`, and corner scoring that used to be copied into
-  seven separate `Cam` wrapper scaffolds (with two incompatible
-  `latest` tuple orders) across the tour/ground-truth tools. Consumes
-  `camlink.py`'s existing shared `Cam` rather than re-wrapping it.
+  constants, `wrap()`, `score_corners()` (gap-aware corner scoring),
+  and `path_deviation()` that used to be copied into seven separate
+  `Cam` wrapper scaffolds (with two incompatible `latest` tuple orders
+  — now unified to `(x_cm, y_cm, yaw_deg)`, documented in the module's
+  own docstring) and 4 disagreeing corner-scoring implementations
+  across the tour/ground-truth tools. Consumes `camlink.py`'s existing
+  shared `Cam` (via `camproc.py`) rather than re-wrapping it.
 
 ## Telemetry (`tlm.py`, sprint 005)
 

@@ -1,7 +1,7 @@
 ---
-id: "007"
-title: "Build/verification checkpoint and bench handoff"
-status: open
+id: '007'
+title: Build/verification checkpoint and bench handoff
+status: done
 use-cases:
 - SUC-001
 - SUC-003
@@ -13,22 +13,9 @@ depends-on:
 - '004'
 - '005'
 - '006'
-github-issue: ""
-issue: ""
-# completes_issue: Controls whether linked issues are archived when this ticket
-# is moved to done. Default: true (archive when all referencing tickets are done).
-# Set to false (scalar) to suppress archival for ALL linked issues on this ticket.
-# Set to a mapping {filename.md: false} to suppress archival per issue filename.
-# Use false for tickets that partially address a multi-sprint umbrella issue.
+github-issue: ''
+issue: ''
 completes_issue: true
-# exception: Written by a lower agent when it cannot proceed (see architecture §exception-protocol).
-# exception:
-#   thrown_by: "programmer"          # "programmer" | "sprint-planner"
-#   thrown_at: "2026-05-07T14:23:00Z"
-#   attempted: |
-#     Description of what was attempted before giving up.
-#   conflict: "architecture-update.md §3 — reason the agent is blocked"
-#   surface: "internal"              # "user-visible" | "internal"
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -60,25 +47,25 @@ criteria for this ticket itself.
 
 ## Acceptance Criteria
 
-- [ ] `uv run pytest` (full suite) passes as a precondition — this
+- [x] `uv run pytest` (full suite) passes as a precondition — this
       ticket's own build run should follow a green host suite, not
       substitute for one.
-- [ ] A real, non-scratch run of `tools/make_deploy.py` against this
+- [x] A real, non-scratch run of `tools/make_deploy.py` against this
       sprint's own final state (tickets 001-006 landed) produces a
       flashable hex, with `classify_attempt()` reporting `SUCCESS`
       (after at most the documented bounded retry for a known-benign
       abort shape) and no compile diagnostic from any file.
-- [ ] `testrig.ts` (ticket 005's fix) compiles clean via whatever
+- [x] `testrig.ts` (ticket 005's fix) compiles clean via whatever
       mechanism ticket 005 added, with no type error — confirmed as
       part of this same checkpoint run, not assumed from ticket 005's
       own testing alone.
-- [ ] `test.ts`'s two new named verbs (ticket 006) are present in the
+- [x] `test.ts`'s two new named verbs (ticket 006) are present in the
       flashable hex's compiled output with no compile diagnostic.
-- [ ] `test.ts` and `testrig.ts` are confirmed **not** combined into
+- [x] `test.ts` and `testrig.ts` are confirmed **not** combined into
       one hex — the flashable deploy hex's `files` still lists only
       `test.ts` (per ticket 005's own acceptance criteria; re-confirm
       here as part of the final combined state, not only in isolation).
-- [ ] This sprint's `design/` overlay (`clasi/sprints/005-*/design/`)
+- [x] This sprint's `design/` overlay (`clasi/sprints/005-*/design/`)
       is re-read against what actually shipped across all six prior
       tickets; if any ticket's implementation deviated from what the
       overlay describes (verb names, module boundaries, the
@@ -89,9 +76,9 @@ criteria for this ticket itself.
       brief. If no deviation occurred, note that explicitly (no edit
       needed, matching sprint 008 ticket 006's own precedent for this
       exact situation).
-- [ ] `validate_design(overlay_dir=...)` (or the equivalent check) still
+- [x] `validate_design(overlay_dir=...)` (or the equivalent check) still
       returns `ok: true` after any such overlay updates.
-- [ ] No robot, no flashing, no live telemetry capture is performed or
+- [x] No robot, no flashing, no live telemetry capture is performed or
       required by this ticket's own acceptance criteria — producing a
       hex needs network access to the cloud compiler, not hardware.
 
@@ -101,6 +88,48 @@ The items below are `sprint.md`'s own Success Criteria / Test Strategy
 real-hardware checks. Record results here (or in a follow-up note) once
 run; do not block moving this ticket to done on them, consistent with
 this sprint's no-robot-in-acceptance-criteria constraint.
+
+**Read this before running any of the checks below.** Two hardware
+facts measured on tovez this session change how to interpret what you
+see, and one is a trap that produces *false confidence*, not a visible
+failure:
+
+1. **A newly-flashed or freshly-booted robot reports
+   `ready=0 connL=0 connR=0 otos=0 i2cf=0` until something ticks the
+   kernel or initialises the OTOS** — this is indistinguishable from
+   dead hardware by inspection alone. Tick it first (e.g.
+   `RUN:straight:15`) before diagnosing any of the checks below as a
+   failure. This cost real bench time on tovez; do not re-spend it.
+2. **The square tour's corner fixes are currently stale — a
+   suspiciously perfect closure number is fiction, not success.**
+   `RUN:tour:wheels` on tovez reported 0.6 mm closure while
+   simultaneous telemetry proved the robot genuinely drove
+   (`posl +34,834`, `posr +44,306`, 1,055 kernel cycles, ~52 mm real
+   closure by odometry) — every OTOS corner fix (`OCAL:c0`..`c4`) sat
+   at the seeded pose instead of updating. The OTOS itself is healthy
+   (`RUN:probe` → `OPROBE:95:1`); the bug is in the tour's own corner
+   `logFix()` caching. Filed as
+   `clasi/issues/tour-corner-fixes-are-stale-cache.md`, linked to
+   sprint 011. **Any tool below that derives a measurement from a
+   corner fix (`tour_run.py`'s closure figure in particular) is
+   reporting fiction right now — the failure direction is toward false
+   confidence, so do not trust an implausibly good closure number as
+   evidence any of this sprint's tooling works.** Telemetry-based
+   measurements (posl/posr, wheel speeds, `tlm.py`'s own parsed
+   fields) are unaffected — they come from the live `t` frame, not the
+   corner-fix cache.
+
+Other facts from this session worth having on hand while running these
+checks: `ver 1.0.10`, `default_cruise 150`, `rotational_slip 0.952`;
+`TLM BUFFER` with no arg returns `err 6`; `WHEELS_X` with `timeout=0`
+returns `err 3`; `GO_TO_W` drives correctly with **no OTOS** present
+(sprint 006's `EncoderPoseSource` fallback), confirmed live; the v6
+`RUN` verb (no colon) is a deliberate stub — only the legacy `RUN:`
+colon form works; `GET` misreports any config field whose magnitude
+reaches ~4295 (`formatConfigValue()`'s `uint32_t` overflow — e.g.
+`full_duty_velocity` read back `4294.967040` instead of `10795`) —
+sprint 010 ticket 006 fixes this, until then do not trust `GET` for
+large-magnitude fields during any of the checks below.
 
 - [ ] `tour_run.py --tour world` against a real, awake robot (tick the
       kernel first, e.g. `RUN:straight:15`, before trusting
@@ -145,6 +174,123 @@ this sprint's no-robot-in-acceptance-criteria constraint.
   ticket's change is responsible and fix it there (reopening if
   already marked done), consistent with this project's
   "tests that can fail" theme applied to the whole sprint.
+
+### Build checkpoint results (2026-08-24, this ticket)
+
+- **Precondition:** `uv run pytest` — **528 passed**, matching the
+  sprint's stated baseline (no regression across tickets 001-006).
+- **Primary deploy** (`uv run python tools/make_deploy.py`, no
+  `--flash`): `classify_attempt()` returned **SUCCESS on attempt 1**.
+  Hex: `.tmp/deploy-head/built/mbcodal-binary.hex`, **1,411,091
+  bytes**. The log contains the expected known-benign V1
+  `bbc-microbit-classic-gcc` `srec_cat: ... contradictory` hex-merge
+  failure and a `TS9200` packaging-abort line from the SAME attempt —
+  neither triggered the triage's retry because the codal-microbit-v2
+  hex already existed by the time `classify_attempt()` ran; no `.cpp`/
+  `.h` compile diagnostic appears anywhere in the log (checked by the
+  same regex `classify_attempt()` itself uses). The scratch copy's
+  generated `pxt.json` `files` list was inspected directly and
+  contains `test/test.ts` and no other `test/*.ts` entry — confirms
+  `test.ts`/`testrig.ts` mutual exclusivity for the flashable hex.
+- **`--testrig` build** (`uv run python tools/make_deploy.py
+  --testrig`): also **SUCCESS on attempt 1**. Hex (not meant to be
+  flashed, per ticket 005): `.tmp/deploy-testrig/built/
+  mbcodal-binary.hex`, **1,389,401 bytes**. Same known-benign log
+  shapes, no compile diagnostic. Its own generated `pxt.json` `files`
+  list contains `test/testrig.ts` and no other `test/*.ts` entry —
+  this is the first sprint where this build has actually been run;
+  `testrig.ts` is now confirmed buildable, not just believed to be.
+- **`test.ts`'s named verbs**: `RUN:pivot:<deg>` and
+  `RUN:turnrate:<deg/s>` (both `diffDrive.onRun(...)` handlers) are
+  present in `test/test.ts` source and were copied verbatim into the
+  primary deploy scratch copy that built clean — confirmed via direct
+  grep of both the repo source and the scratch copy, not inferred from
+  the build succeeding alone.
+- **`tsc -p .`** (repo root, global `tsc`, not `npx tsc` — this repo's
+  `node_modules` has no local `tsc` binary): **1 pre-existing error**,
+  `pxt_modules/core/basic.ts(17,29): error TS2339: Property
+  'roundWithPrecision' does not exist on type 'Math'.` — matches the
+  stated baseline exactly; ticket 005/006's changes add no new `tsc`
+  diagnostic.
+
+### Design overlay reconciliation (this ticket)
+
+Re-reading the `design/` overlay against what tickets 001-006 actually
+shipped found two classes of real deviation, both now fixed:
+
+1. **Tickets 003 and 004 wrote their design-doc updates directly to
+   the LIVE canonical docs (`tools/DESIGN.md`, `src/DESIGN.md`)
+   instead of to this sprint's own overlay copies**
+   (`tools-root-DESIGN.md`, `src-root-DESIGN.md`). Since
+   `close_sprint`'s `design_overlay_apply` step does a raw
+   `shutil.copyfile()` of each overlay file over its canonical target
+   (`clasi.design.overlay.apply()`), the overlay — not the live doc —
+   is what survives close. The overlay already carried most of each
+   ticket's intended content (written during detail-planning), but two
+   pieces of genuinely more-accurate, implementation-derived detail
+   existed ONLY in the live docs and would have been silently lost at
+   close: `src/DESIGN.md`'s "Two ordering hazards" paragraph (the
+   lease-verb-dispatch-vs-supersede race and `onEstop()`'s forced
+   commit, both found while implementing ticket 004) and
+   `tools/DESIGN.md`'s more precise `camproc.py` bullet (the
+   `APRILTAGS_VENV` env var specifically, the stale-venv detail,
+   `score_corners()`/`path_deviation()` by name). Both are now merged
+   into the overlay copies. This also resolves sprint.md's Open
+   Question 2 (interpreter-resolution mechanism) explicitly in the
+   overlay: an env var (`APRILTAGS_VENV`), not a config file.
+2. **`tests/tools/DESIGN.md`'s overlay copy (`tools-DESIGN.md`) never
+   documented three of the sprint's five new test files** —
+   `test_camproc.py`, `test_field.py` (ticket 003, 37 tests total
+   between camproc/field consolidation work per that ticket's own
+   commit) and `test_run_verbs.py` (ticket 006) existed, were
+   committed, and pass (confirmed: `uv run pytest tests/tools/
+   test_camproc.py tests/tools/test_field.py tests/tools/
+   test_run_verbs.py tests/tools/test_tlm.py tests/tools/
+   test_make_deploy_triage.py` → 103 passed), but only
+   `test_make_deploy_triage.py` and `test_tlm.py` had any coverage in
+   the doc. Added full Purpose/Orientation/Constraints/Interfaces/
+   Coverage entries for all three, matching the existing files' depth.
+
+All other overlay/live-doc differences checked (`design.md`,
+`test-root-DESIGN.md`, `tests-root-DESIGN.md`) are the expected
+direction — the overlay is already more complete/accurate than the
+stale live doc it will overwrite at close — and needed no edit.
+Verb names, module boundaries (`camproc.py`/`field.py` staying two
+files), and the RUN strings the five retargeted tools send were spot-
+checked directly against the shipped code (`grep` on `tools/*.py`,
+`test/test.ts`) and match the overlay's descriptions exactly.
+
+`.diff.md` files were regenerated for every overlay `.md` file with
+real content changes (`design.md` itself was untouched, so its
+`.diff.md` was left as-is rather than regenerated to generic
+boilerplate) using the actual installed `clasi.design.overlay
+.generate_diffs()` function (via the CLASI venv's own Python
+interpreter) so each `source_hash`/diff body is byte-correct, then
+each `.diff.md`'s prose description was hand-written/restored to
+describe the real content change (the raw function only emits a
+generic "Comparison of..." line) — matching the doc-quality bar the
+existing hand-written descriptions set. `validate_design(overlay_dir=
+"clasi/sprints/005-retrofit-bench-tooling-onto-the-v6-telemetry-stream/
+design")` returns `ok: true`, `messages: []` after all edits.
+
+### Other findings
+
+- `tools/robotlink.py:12`'s module docstring example still reads
+  `link.send('RUN:8')` — `RUN:8` matches no handler on `test.ts`
+  (named-verb-only dispatch); it is only meaningful, if at all, on
+  `testrig.ts`'s separate numeric vocabulary, and even there is not
+  the module this docstring is actually about. Not fixed here — sprint
+  009 owns comment cleanup — but flagged here so it is not mistaken
+  for a live, working example by a future reader.
+- **No robot was flashed, connected, or driven, and no live telemetry
+  was captured, as part of this ticket's own completion.** Both build
+  runs above used only network access to the cloud `pxt build`
+  compiler. The "Bench handoff checklist" section above is the
+  real-hardware verification path, explicitly deferred to a
+  stakeholder with bench access, per this sprint's own
+  no-robot-in-acceptance-criteria constraint (precedent: sprint 004
+  ticket 005, sprint 006 ticket 006, sprint 007 ticket 008, sprint 008
+  ticket 006).
 
 ## C++11 Gate Coverage
 
