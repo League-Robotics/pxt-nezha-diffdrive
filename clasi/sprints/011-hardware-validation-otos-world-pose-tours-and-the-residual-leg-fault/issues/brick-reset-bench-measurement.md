@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '011'
+tickets:
+- 011-007
 ---
 
 # Brick-reset rebaseline: confirm on hardware that the ~4 m teleport is gone

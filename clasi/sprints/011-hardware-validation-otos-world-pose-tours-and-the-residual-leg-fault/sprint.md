@@ -1,9 +1,17 @@
 ---
 id: '011'
 title: 'Hardware validation: OTOS world-pose tours and the residual leg fault'
-status: planning-docs
+status: ticketing
 branch: sprint/011-hardware-validation-otos-world-pose-tours-and-the-residual-leg-fault
-use-cases: []
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+- SUC-005
+- SUC-006
+- SUC-007
+- SUC-008
 issues:
 - otos-on-vevov-move-goto-world-pose-square-tours.md
 - intermittent-cw-pivot-abort-wheel-reversal.md
@@ -571,7 +579,26 @@ Before tickets can be created, all of the following must be true:
 
 ## Tickets
 
-| # | Title | Depends On |
-|---|-------|------------|
+| # | Title | Depends On | Issue |
+|---|-------|------------|-------|
+| 001 | Retarget tour_capture.py off numeric RUN onto the named RUN:tour vocabulary | — | otos-on-vevov-... |
+| 002 | Per-leg believed-vs-target analysis tooling for tour telemetry | — | intermittent-cw-pivot-... |
+| 003 | Investigate moveDeadline duration math for truncating legs | — | intermittent-cw-pivot-... |
+| 004 | Investigate first-move-after-boot special-casing | — | intermittent-cw-pivot-... |
+| 005 | OTOS world-pose validation campaign: bench procedure and evidence template | 001, 002 | otos-on-vevov-... |
+| 006 | Residual leg-fault campaign: bench procedure and evidence template | 002, 003, 004 | intermittent-cw-pivot-... |
+| 007 | Brick-reset bench handoff: fold the sprint 006 checklist into this sprint session | — | brick-reset-bench-measurement.md |
+| 008 | Final build and verification checkpoint for sprint 011 | 001, 002, 003, 004, 005, 006, 007 | — |
 
-Tickets execute serially in the order listed.
+Tickets execute serially in the order listed. 001-004 are independent
+foundation work (tooling + investigations); 005-007 turn that
+foundation into bench-handoff procedures (no ticket in this sprint
+requires a robot to close); 008 is the standing final build/
+verification checkpoint, depending on everything.
+
+**Not ticketed in this sprint, verified during planning:**
+`otos_levercal.py`'s numeric `RUN:8`/`RUN:14` retarget is already
+claimed by sprint 005 ticket 006 (open, not yet executed) — re-ticketing
+it here would duplicate ownership of the same two lines. Ticket 005
+above lists it as an external prerequisite instead of re-implementing
+it.

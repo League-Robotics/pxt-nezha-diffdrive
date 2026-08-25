@@ -1,6 +1,11 @@
 ---
-status: pending
+status: in-progress
 sprint: '011'
+tickets:
+- 011-002
+- 011-003
+- 011-004
+- 011-006
 ---
 
 # Residual intermittent leg fault in square tours (successor issue)
