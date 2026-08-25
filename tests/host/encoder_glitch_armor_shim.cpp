@@ -1,7 +1,7 @@
 // encoder_glitch_armor_shim.cpp -- extern "C" ctypes surface for
-// src/encoder_glitch_armor.h (sprint 006 ticket 005). EncoderGlitchArmor
-// is small but stateful (the two-strike gate needs to remember the last
-// accepted/rejected raw counts across calls), so this shim follows the
+// src/encoder_glitch_armor.h. EncoderGlitchArmor is small but stateful
+// (the two-strike gate needs to remember the last accepted/rejected raw
+// counts across calls), so this shim follows the
 // handle-plus-free-functions shape (tests/host/DESIGN.md S2) rather than
 // heading_wrap_shim.cpp's plain-function shape -- the same convention
 // kernel_shim.cpp/motion_engine_shim.cpp use ("egaXxx", mirroring their

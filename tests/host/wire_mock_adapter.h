@@ -1,21 +1,20 @@
 // wire_mock_adapter.h -- Wire::Adapter test double for the wire host
-// test harness (sprint 003 ticket 003, widened ticket 004). Records
-// which methods fired and with what arguments so a ctypes shim can read
-// them back; canned return values are plain public fields a test sets
-// before feed()ing a line. Test scaffolding only: nothing under src/
-// knows this file exists, and it is never linked into anything but this
-// test's own shared library. Mirrors radio-robot-lib/tests/protocol/
-// mock_adapter.h's own shape (its own scope note applies here verbatim).
+// test harness. Records which methods fired and with what arguments so
+// a ctypes shim can read them back; canned return values are plain
+// public fields a test sets before feed()ing a line. Test scaffolding
+// only: nothing under src/ knows this file exists, and it is never
+// linked into anything but this test's own shared library. Mirrors
+// radio-robot-lib/tests/protocol/mock_adapter.h's own shape (its own
+// scope note applies here verbatim).
 //
-// Ticket 004 widens this file with the six motion methods
-// Wire::Adapter now declares (onWheelsV/onWheelsX/onMoveX/onMoveV/
-// onGoToR/onGoToW) -- one canned Result + call count + last-args record
-// per verb, same pattern as onStop/onSet/onTlm/onRun above. This class
-// is NOT src/wire_adapter.h's WireAdapter (the production adapter,
-// which gives WHEELS_V real effect and answers the other five
-// kUnknown) -- it is a generic recording double any wire_handler.cpp
-// test can canned-answer however it needs, independent of what any one
-// concrete Adapter actually does.
+// The six motion methods Wire::Adapter declares (onWheelsV/onWheelsX/
+// onMoveX/onMoveV/onGoToR/onGoToW) each get one canned Result + call
+// count + last-args record, same pattern as onStop/onSet/onTlm/onRun
+// above. This class is NOT src/wire_adapter.h's WireAdapter (the
+// production adapter, which gives all six motion verbs real effect) --
+// it is a generic recording double any wire_handler.cpp test can
+// canned-answer however it needs, independent of what any one concrete
+// Adapter actually does.
 #pragma once
 
 #include <cstddef>
@@ -43,12 +42,10 @@ class WireMockAdapter : public Wire::Adapter {
                                     // same contract as every other
                                     // canned string field on this mock
 
-  // The six motion verbs (ticket 004) -- one canned Result per verb, so
-  // a test can exercise both the "WHEELS_V real effect" shape (this
-  // mock has no kernel of its own to drive -- see
-  // tests/host/wire_motion_verb_shim.cpp's SEPARATE WireAdapter+FakeMotor
-  // handle for that) and the "five verbs answer kUnknown" shape, purely
-  // at the wire-dispatch level.
+  // One canned Result per motion verb -- this mock has no kernel of its
+  // own to drive (see tests/host/wire_motion_verb_shim.cpp's SEPARATE
+  // WireAdapter+FakeMotor handle for that); a test arms whatever Result
+  // it needs and exercises decode/dispatch purely at the wire level.
   Wire::Result wheelsVResult = Wire::Result::kOk;
   Wire::Result wheelsXResult = Wire::Result::kUnknown;
   Wire::Result moveXResult = Wire::Result::kUnknown;

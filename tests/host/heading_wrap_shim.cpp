@@ -1,6 +1,6 @@
-// heading_wrap_shim.cpp -- extern "C" ctypes surface for src/heading_wrap.h
-// (sprint 006 ticket 004). heading_wrap.h is one pure, free function (no
-// class, no state) -- smaller in scope than the handle-plus-free-functions
+// heading_wrap_shim.cpp -- extern "C" ctypes surface for src/heading_wrap.h.
+// heading_wrap.h is one pure, free function (no class, no state) --
+// smaller in scope than the handle-plus-free-functions
 // shims this directory otherwise uses (kernel_shim.cpp,
 // motion_engine_shim.cpp), so this shim is just two free functions, no
 // opaque handle needed.

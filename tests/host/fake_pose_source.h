@@ -1,10 +1,10 @@
 // fake_pose_source.h -- FakePoseSource: a test double for
 // diffDrive::PoseSource (src/motion_engine.h), settable by a test to an
-// arbitrary (x, y, heading) -- sprint 003 ticket 010's own AC. Same shape
-// as fake_ports.h's FakeMotor/FakeClock/FakeSleeper/FakeFiberLauncher: a
-// plain test double with public "canned response" state a test arms
-// before calling MotionEngine::goToW(), nothing more -- "no timer, no
-// clock, deterministic, caller-driven" (fake_ports.h's own phrase).
+// arbitrary (x, y, heading). Same shape as fake_ports.h's
+// FakeMotor/FakeClock/FakeSleeper/FakeFiberLauncher: a plain test double
+// with public "canned response" state a test arms before calling
+// MotionEngine::goToW(), nothing more -- "no timer, no clock,
+// deterministic, caller-driven" (fake_ports.h's own phrase).
 //
 // Test scaffolding only: nothing under src/ knows this file exists, and
 // it is compiled only into this test tree's own throwaway shared

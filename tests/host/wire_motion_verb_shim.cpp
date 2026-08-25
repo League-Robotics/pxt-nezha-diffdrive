@@ -5,27 +5,6 @@
 // under src/ knows this file exists, and it is compiled only into this
 // test's own throwaway shared library.
 //
-// Sprint 003 ticket 012 extends the WaHandle surface three ways, all
-// additive:
-//   - `waCreate()` now wires a REAL nowMs (waNowMs(), reading this
-//     handle's own FakeClock) into the WireAdapter it constructs,
-//     settable via waSetNowMs() -- every host test before this ticket
-//     left nowMs nullptr, so hasLiveMotionObligation() always answered
-//     false; this is what makes ticket 012's own obligation-arming bug
-//     fix (armed by all six motion verbs now, not just WHEELS_V --
-//     wire_adapter.h's own header comment) observable from a test, via
-//     the new waHasLiveMotionObligation().
-//   - engineMoveV()/engineGoToR()/engineGoToW() test-double definitions,
-//     mirroring shims.cpp's own ticket-012 additions field-for-field,
-//     completing WHEELS_X/MOVE_X's own ticket-011 precedent for all six
-//     verbs.
-//   - A `FakePoseSource` member plus a settable "available" flag
-//     (waSetPose()/waSetPoseSourceAvailable()) standing in for
-//     shims.cpp's own gOtos/otosRef() -- lets a test drive GO_TO_W's
-//     real effect (a set pose) AND its "no pose source" refusal
-//     (unavailable), both through the wire, with no OTOS/I2C anywhere
-//     in this link.
-//
 // Two handles, two different jobs, mirroring wire_grammar_shim.cpp's own
 // one-shim-several-concerns shape:
 //
@@ -119,8 +98,8 @@ struct WvHandle {
 // exactly like protocol.cpp's own wireNowMs() reads its Protocol
 // instance's clock_ through the same kind of singleton indirection a
 // plain, non-capturing function pointer requires. This is what makes
-// ticket 012's own obligation-arming fix observable from a host test --
-// see this file's own header comment.
+// the every-accepted-verb-arms-a-motion-obligation invariant
+// (wire_adapter.h's own header comment) observable from a host test.
 uint32_t waNowMs();
 
 struct WaHandle {
@@ -130,20 +109,20 @@ struct WaHandle {
   FakeSleeper sleeper;
   FakeFiberLauncher launcher;
   DiffDrive::DifferentialDrive kernel;
-  // sprint 003 ticket 011: the same MotionEngine WHEELS_X/MOVE_X's real
-  // dispatch needs, constructed over `kernel`/`clock` above exactly like
-  // shims.cpp's own Rig::engine (see engineWheelsX()/engineMoveX()/
+  // The same MotionEngine WHEELS_X/MOVE_X's real dispatch needs,
+  // constructed over `kernel`/`clock` above exactly like shims.cpp's own
+  // Rig::engine (see engineWheelsX()/engineMoveX()/
   // engineDefaultCruiseMmS() below, the test-double mirrors of the
   // production forward-declared functions wire_adapter.cpp calls for
   // these two verbs). Declared AFTER kernel/clock: member init order
   // follows declaration order, not the initializer list below -- same
   // rule shims.cpp's own Rig documents for its `engine` member.
   diffDrive::MotionEngine engine;
-  // sprint 003 ticket 012: GO_TO_W's own PoseSource test double, mirror
-  // of shims.cpp's own gOtos/otosRef() -- see engineGoToW() below.
-  // `poseSourceAvailable` stands in for OtosPort::connected(): a test
-  // that wants to exercise GO_TO_W's "no pose source" refusal sets this
-  // false via waSetPoseSourceAvailable() instead of needing an actual
+  // GO_TO_W's own PoseSource test double, mirror of shims.cpp's own
+  // gOtos/otosRef() -- see engineGoToW() below. `poseSourceAvailable`
+  // stands in for OtosPort::connected(): a test that wants to exercise
+  // GO_TO_W's "no pose source" refusal sets this false via
+  // waSetPoseSourceAvailable() instead of needing an actual
   // disconnected-sensor test double.
   FakePoseSource pose;
   bool poseSourceAvailable = true;
@@ -224,11 +203,11 @@ struct WaHandle {
 // single-threaded execution.
 WaHandle* g_activeWaHandle = nullptr;
 
-// sprint 003 ticket 012: the real nowMs backing g_activeWaHandle's own
-// WireAdapter -- see this function's own forward-declaration comment
-// above. Same "operates against the single process-wide active handle"
-// contract as setWheelsTimed()/etc. below (a plain NowMsFn cannot carry
-// a handle parameter any more than those can).
+// The real nowMs backing g_activeWaHandle's own WireAdapter -- see this
+// function's own forward-declaration comment above. Same "operates
+// against the single process-wide active handle" contract as
+// setWheelsTimed()/etc. below (a plain NowMsFn cannot carry a handle
+// parameter any more than those can).
 uint32_t waNowMs() {
   if (g_activeWaHandle == nullptr) return 0;
   return static_cast<uint32_t>(g_activeWaHandle->clock.nowMicros() /
@@ -397,8 +376,8 @@ int getConfigValue(int field) {
 }
 
 // Mirrors shims.cpp's real engineWheelsX()/engineMoveX()/
-// engineDefaultCruiseMmS() exactly (sprint 003 ticket 011) -- these are
-// what WHEELS_X's/MOVE_X's real dispatch (WireAdapter::onWheelsX()/
+// engineDefaultCruiseMmS() exactly -- these are what WHEELS_X's/MOVE_X's
+// real dispatch (WireAdapter::onWheelsX()/
 // onMoveX(), wire_adapter.cpp) forward-declares and calls; `engine`
 // here is the SAME real MotionEngine class production code uses, wired
 // to this handle's own real kernel/FakeMotor pair (this file's own
@@ -433,8 +412,8 @@ float engineDefaultCruiseMmS() {
 }
 
 // Mirrors shims.cpp's real engineMoveV()/engineGoToR()/engineGoToW()
-// exactly (sprint 003 ticket 012) -- what WireAdapter::onMoveV()/
-// onGoToR()/onGoToW() (wire_adapter.cpp) forward-declares and calls.
+// exactly -- what WireAdapter::onMoveV()/onGoToR()/onGoToW()
+// (wire_adapter.cpp) forward-declares and calls.
 // `omegaRad` arrives already converted from the wire's milliradian
 // integer, same as engineMoveX()'s `rotationRad` above. `poseSource`
 // stands in for shims.cpp's own gOtos/otosRef() -- see this handle's
@@ -875,8 +854,8 @@ int waEngineMoveActive(void* handle) {
   return static_cast<WaHandle*>(handle)->engine.isMoveActive() ? 1 : 0;
 }
 
-// ---- sprint 003 ticket 012: the real nowMs + motion-obligation
-// tracking, and GO_TO_W's FakePoseSource -------------------------------
+// ---- the real nowMs + motion-obligation tracking, and GO_TO_W's
+// FakePoseSource ---------------------------------------------------
 
 // Sets this handle's own FakeClock, which waNowMs() (the WireAdapter's
 // wired-in NowMsFn) reads -- lets a test prove hasLiveMotionObligation()
