@@ -12,37 +12,27 @@ commanded.
   r.go(50, 30, 180)
 """
 import math
-import time
+import os
+import sys
 
-
-def wrap(d):
-    while d <= -180.0:
-        d += 360.0
-    while d > 180.0:
-        d -= 360.0
-    return d
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from field import wrap
 
 
 class Repositioner:
-    def __init__(self, link, cam, tag=53, tol_cm=3.0, tol_deg=5.0):
+    def __init__(self, link, cam, tol_cm=3.0, tol_deg=5.0):
         self.link = link
         self.cam = cam
-        self.tag = tag
         self.tol_cm = tol_cm
         self.tol_deg = tol_deg
 
     def fix(self, samples=8):
-        """Median camera pose (x_cm, y_cm, yaw_deg), or None."""
-        vals = []
-        for _ in range(samples):
-            r = self.cam.read(self.tag)
-            if r is not None:
-                vals.append(r)
-            time.sleep(0.08)
-        if not vals:
-            return None
-        med = lambda i: sorted(v[i] for v in vals)[len(vals) // 2]
-        return med(1), med(2), med(0)
+        """Median camera pose (x_cm, y_cm, yaw_deg), or None -- delegates
+        to tools/camproc.py's Cam.fix(), which already does exactly this
+        median-of-N sampling (and, critically, already returns None once
+        the stream has died rather than a frozen pre-death pose -- see
+        camproc.py's stale-pose-invalidation contract)."""
+        return self.cam.fix(n=samples)
 
     def _seed(self, pose):
         self.link.send(f'RUN:seedxy:{pose[0]:.1f}:{pose[1]:.1f}:{pose[2]:.1f}')

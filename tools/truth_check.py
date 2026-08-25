@@ -26,6 +26,7 @@ import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
+from field import wrap
 import tlm
 
 # Commanded rotation [deg] -> the RUN verb that performs it.
@@ -107,14 +108,6 @@ def enc_heading(link, stream, wait=2.0):
     if latest is None:
         return None
     return tlm.pose_cm(latest)['h']
-
-
-def wrap(d):
-    while d <= -180.0:
-        d += 360.0
-    while d > 180.0:
-        d -= 360.0
-    return d
 
 
 def total_turn(before, after, commanded):

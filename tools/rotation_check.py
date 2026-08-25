@@ -25,6 +25,7 @@ import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
+from field import wrap
 import tlm
 
 # RUN verb -> commanded rotation [deg]
@@ -59,15 +60,6 @@ def encoder_heading(link, stream, wait=2.0):
     if latest is None:
         return None
     return tlm.pose_cm(latest)['h']
-
-
-def unwrap(delta):
-    """Map a heading difference into (-180, 180]."""
-    while delta <= -180.0:
-        delta += 360.0
-    while delta > 180.0:
-        delta -= 360.0
-    return delta
 
 
 def main():
@@ -107,8 +99,8 @@ def main():
             # heading cannot show: trust the commanded magnitude to
             # pick the revolution, measure the remainder.
             revs = round(commanded / 360.0)
-            gyro = revs * 360.0 + unwrap(after[2] - before[2] - revs * 360.0)
-            wheels = '%9.1f' % unwrap(enc1 - enc0)
+            gyro = revs * 360.0 + wrap(after[2] - before[2] - revs * 360.0)
+            wheels = '%9.1f' % wrap(enc1 - enc0)
             drift = ((after[0] - before[0]) ** 2
                      + (after[1] - before[1]) ** 2) ** 0.5
             ratio = gyro / commanded

@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: 'Link-layer consolidation: pyserial fix, tools/camproc.py, tools/field.py'
-status: open
+status: done
 use-cases:
 - SUC-004
 - SUC-005
@@ -60,29 +60,29 @@ collected into one place anyway.
 
 ## Acceptance Criteria
 
-- [ ] `pyproject.toml` declares `pyserial`; `uv run python -c "import
+- [x] `pyproject.toml` declares `pyserial`; `uv run python -c "import
       sys; sys.path.insert(0, 'tools'); import robotlink"` exits zero.
-- [ ] No `tools/*.py` file hardcodes the AprilTags venv path directly —
+- [x] No `tools/*.py` file hardcodes the AprilTags venv path directly —
       every camera spawn site routes through `tools/camproc.py`'s
       single resolution point (grep for the venv path string across
       `tools/` to confirm zero hardcoded occurrences outside
       `camproc.py` itself).
-- [ ] A simulated camera `ERR` line reaches the calling tool (observed
+- [x] A simulated camera `ERR` line reaches the calling tool (observed
       via a test double), not silently discarded.
-- [ ] A cached pose is invalidated once the camera stream is marked
+- [x] A cached pose is invalidated once the camera stream is marked
       dead — a tool cannot observe a "fresh" pose after the stream
       death, verified against a fake/mocked stream.
-- [ ] The 7 copied `Cam` wrapper scaffolds are gone; every consumer
+- [x] The 7 copied `Cam` wrapper scaffolds are gone; every consumer
       uses `camlink.py`'s shared `Cam` directly or through
       `tools/camproc.py`.
-- [ ] The two incompatible `latest` tuple orders are unified to one
+- [x] The two incompatible `latest` tuple orders are unified to one
       (document the chosen order in `tools/field.py`'s own docstring);
       every consumer that reads `latest` is updated to match.
-- [ ] Corner-scoring logic lives in `tools/field.py` alone; the 4
+- [x] Corner-scoring logic lives in `tools/field.py` alone; the 4
       corner scorers whose outputs previously disagreed for the same
       run now agree (verified with a shared test fixture, not just
       code inspection).
-- [ ] `uv run pytest` (full suite) passes.
+- [x] `uv run pytest` (full suite) passes.
 
 ## Implementation Notes
 

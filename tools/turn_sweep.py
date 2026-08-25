@@ -20,78 +20,43 @@ as its own process under the AprilTags venv.
 """
 import argparse
 import csv
-import subprocess
+import os
 import sys
-import threading
 import time
 
-sys.path.insert(0, __file__.rsplit('/', 1)[0])
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
-
-VENV = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
-CAMLINK = __file__.rsplit('/', 1)[0] + '/camlink.py'
-
-
-def wrap(d):
-    while d <= -180.0:
-        d += 360.0
-    while d > 180.0:
-        d -= 360.0
-    return d
+from camproc import Cam
+from field import wrap
 
 
-class CamStream:
-    """Continuously-unwrapped tag yaw from a subprocess.
+def _yaw_mark(cam):
+    """(total unwrapped yaw turned so far, sample count, err) --
+    computed fresh from `cam`'s own recorded samples each call,
+    mirroring the old CamStream.mark()'s (total, n, err) shape so
+    one_turn() below needs no other change. `cam` is a
+    tools/camproc.py Cam.
 
-    Unwrapping as it goes is what makes turns beyond 180 deg (and
-    multi-turn 360s) measurable at all: a before/after pair cannot tell
-    +180 from -180, and cannot see a full revolution whatsoever.
+    Unwrapping this way is what makes turns beyond 180 deg (and
+    multi-turn 360s) measurable at all: a before/after pair cannot
+    tell +180 from -180, and cannot see a full revolution whatsoever.
     """
-
-    def __init__(self, tag=53, hz=20.0):
-        self.p = subprocess.Popen(
-            [VENV, CAMLINK, '--tag', str(tag), '--hz', str(hz)],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            bufsize=1)
-        self.total = 0.0
-        self.n = 0
-        self.err = None
-        self._prev = None
-        self._lock = threading.Lock()
-        threading.Thread(target=self._pump, daemon=True).start()
-        time.sleep(1.5)
-
-    def _pump(self):
-        for line in self.p.stdout:
-            line = line.strip()
-            with self._lock:
-                if line.startswith('ERR'):
-                    self.err = line
-                    return
-                if line == 'NOTAG':
-                    continue
-                try:
-                    yaw = float(line.split()[0])
-                except (ValueError, IndexError):
-                    continue
-                if self._prev is not None:
-                    self.total += wrap(yaw - self._prev)
-                self._prev = yaw
-                self.n += 1
-
-    def mark(self):
-        with self._lock:
-            return self.total, self.n, self.err
-
-    def close(self):
-        self.p.terminate()
+    with cam.lock:
+        samples = list(cam.samples)
+        err = cam.err
+    total, prev = 0.0, None
+    for _, _, _, yaw in samples:
+        if prev is not None:
+            total += wrap(yaw - prev)
+        prev = yaw
+    return total, len(samples), err
 
 
 def one_turn(link, cam, deg, rate, settle):
     """Command one pivot; return a result row or None if unmeasurable."""
     link.send(f'RUN:{57000 + int(rate)}')
     time.sleep(0.4)
-    t0, n0, err = cam.mark()
+    t0, n0, err = _yaw_mark(cam)
     if err:
         return None, err
 
@@ -103,7 +68,7 @@ def one_turn(link, cam, deg, rate, settle):
         if s.startswith('TRN:'):
             trn = s
     time.sleep(settle)
-    t1, n1, err = cam.mark()
+    t1, n1, err = _yaw_mark(cam)
     if err:
         return None, err
     if n1 - n0 < 8:
@@ -137,8 +102,8 @@ def main():
     ap.add_argument('--csv', default=None)
     a = ap.parse_args()
 
-    cam = CamStream()
-    if cam.err or cam.n == 0:
+    cam = Cam()
+    if cam.err or not cam.samples:
         raise SystemExit(f'camera not usable: {cam.err or "no tag seen"}')
     link = open_link(radio=True)
 

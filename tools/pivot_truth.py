@@ -11,74 +11,41 @@ prints camera / gyro / wheels side by side. Camera yaw is sampled
 CONTINUOUSLY and unwrapped, because a single before/after pair cannot
 resolve a 180 deg turn -- it lands exactly on the wrap boundary.
 
-Run under the AprilTags venv (it has the aprilcam package):
-  /Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3 \
-      tools/pivot_truth.py [--reps 3]
+Run under the project's own venv (not the AprilTags one -- the camera
+runs as its own subprocess via tools/camproc.py, so this file only
+ever needs pyserial):
+  python3 tools/pivot_truth.py [--reps 3]
 """
 import argparse
 import math
-import subprocess
+import os
 import sys
-import threading
 import time
 
-sys.path.insert(0, '/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tools')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
-
-VENV_PY = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
-CAMLINK = '/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tools/camlink.py'
-
-
-class CamStream:
-    """Camera samples from a subprocess (see camlink._stream).
-
-    aprilcam and pyserial live in different interpreters here, so the
-    camera runs as its own process and streams `yaw x y` lines.
-    """
-
-    def __init__(self, tag=53, hz=20.0):
-        self.p = subprocess.Popen(
-            [VENV_PY, CAMLINK, '--tag', str(tag), '--hz', str(hz)],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            bufsize=1)
-        self.latest = None
-        self.total = 0.0          # unwrapped cumulative yaw [deg]
-        self._prev = None
-        self._lock = threading.Lock()
-        threading.Thread(target=self._pump, daemon=True).start()
-        for _ in range(50):       # wait for the first sample
-            if self.latest is not None:
-                break
-            time.sleep(0.1)
-
-    def _pump(self):
-        for line in self.p.stdout:
-            try:
-                yaw, x, y = (float(v) for v in line.split())
-            except ValueError:
-                continue
-            with self._lock:
-                if self._prev is not None:
-                    self.total += wrap(yaw - self._prev)
-                self._prev = yaw
-                self.latest = (yaw, x, y)
-
-    def mark(self):
-        with self._lock:
-            return self.total, self.latest
-
-    def close(self):
-        self.p.terminate()
+from camproc import Cam
+from field import wrap
 
 PIVOT_VERB = {180: 4, -180: 5, 360: 2}
 
 
-def wrap(d):
-    while d <= -180.0:
-        d += 360.0
-    while d > 180.0:
-        d -= 360.0
-    return d
+def _yaw_mark(cam):
+    """(total unwrapped yaw turned so far, latest (x, y, yaw) pose) --
+    computed fresh from `cam`'s own recorded samples each call (cheap
+    enough for a session's worth of pivot samples), mirroring the old
+    CamStream.mark()'s shape so the rest of this file needs no other
+    change. `cam` is a tools/camproc.py Cam; its samples are already
+    `(t, x_cm, y_cm, yaw_deg)`.
+    """
+    with cam.lock:
+        samples = list(cam.samples)
+    total, prev = 0.0, None
+    for _, _, _, yaw in samples:
+        if prev is not None:
+            total += wrap(yaw - prev)
+        prev = yaw
+    return total, cam.latest
 
 
 def otos_fix(link):
@@ -96,7 +63,7 @@ def main():
     ap.add_argument('--tag', type=int, default=53)
     a = ap.parse_args()
 
-    cam = CamStream(a.tag)
+    cam = Cam(tag=a.tag)
     if cam.latest is None:
         raise SystemExit(f'camera cannot see tag {a.tag}')
     link = open_link(radio=True)
@@ -106,7 +73,7 @@ def main():
     results = []
     for rep in range(a.reps):
         for commanded in (180.0, -180.0):
-            t0, r0 = cam.mark()
+            t0, r0 = _yaw_mark(cam)
             o0 = otos_fix(link)
             if r0 is None or o0 is None:
                 print('  lost a reading -- skipping')
@@ -117,7 +84,7 @@ def main():
                             echo=False)
             time.sleep(1.5)
 
-            t1, r1 = cam.mark()
+            t1, r1 = _yaw_mark(cam)
             o1 = otos_fix(link)
             if r1 is None or o1 is None:
                 print('  lost a reading after the pivot -- skipping')
@@ -133,7 +100,10 @@ def main():
                 for cand in (gyro, gyro + 360.0, gyro - 360.0):
                     if abs(cand - camdeg) < abs(gyro - camdeg):
                         gyro = cand
-            drift = math.hypot(r1[1] - r0[1], r1[2] - r0[2])
+            # r0/r1 are camproc.Cam's (x_cm, y_cm, yaw_deg) -- x, y are
+            # indices 0, 1 (NOT 1, 2 -- that was the old CamStream's
+            # (yaw, x, y) order this file used to read).
+            drift = math.hypot(r1[0] - r0[0], r1[1] - r0[1])
             ok = abs(camdeg - commanded) < 20.0
             results.append((commanded, camdeg, gyro, drift, ok))
             print(f"{commanded:6.0f} {camdeg:8.1f} {gyro:8.1f}"

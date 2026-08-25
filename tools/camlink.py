@@ -1,7 +1,11 @@
 """Fast overhead-camera access: one persistent gRPC stream.
 
-Runs under the venv that actually has the aprilcam package:
-  /Volumes/Cache/User-Eric/.local/pipx/venvs/aprilcam/bin/python
+Runs under the venv that actually has the aprilcam package -- resolved
+ONCE, in tools/camproc.py's resolve_venv() (the APRILTAGS_VENV env var,
+defaulting to the pipx aprilcam venv). Every tools/*.py camera spawn
+site goes through that single resolution point now; this file's own
+imports below only work under that interpreter, whichever process
+spawns it.
 
 THE DAEMON DOES THE CORRECTING, AND ONLY IF YOU TELL IT TO.
 Tag mount parameters are NOT persisted across a daemon restart. An

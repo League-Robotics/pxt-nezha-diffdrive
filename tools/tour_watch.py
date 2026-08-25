@@ -25,21 +25,13 @@ import math
 import os
 import subprocess
 import sys
-import threading
 import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
+from camproc import Cam
+from field import DOTS, RECT
 import tlm
-
-VENV = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
-CAMLINK = __file__.rsplit('/', 1)[0] + '/camlink.py'
-
-# The playfield's four orange dots (main-playfield, A1-centred, cm) --
-# the rectangle every tour is trying to trace.
-DOTS = {'NW': (-50.0, 30.0), 'NE': (50.0, 30.0),
-        'SE': (50.0, -30.0), 'SW': (-50.0, -30.0)}
-RECT = [DOTS['NE'], DOTS['NW'], DOTS['SW'], DOTS['SE'], DOTS['NE']]
 
 TOUR_TITLE = {
     'robot': 'Tour A — robot-relative goTo (encoder only)',
@@ -47,44 +39,6 @@ TOUR_TITLE = {
     'worldarc': 'Tour B′ — world, arc computed in test code',
     'wheels': 'Tour A+B — wheels square (open loop)',
 }
-
-
-class Cam(threading.Thread):
-    """Camera samples in the background, timestamped, always running."""
-
-    def __init__(self, tag=53, hz=20.0):
-        super().__init__(daemon=True)
-        self.samples = []          # (t, x_cm, y_cm, yaw_deg)
-        self.err = None
-        self.lock = threading.Lock()
-        self.p = subprocess.Popen(
-            [VENV, CAMLINK, '--tag', str(tag), '--hz', str(hz)],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
-            bufsize=1)
-        self.start()
-
-    def run(self):
-        for line in self.p.stdout:
-            line = line.strip()
-            if line.startswith('ERR'):
-                with self.lock:
-                    self.err = line
-                return
-            if line == 'NOTAG':
-                continue
-            try:
-                yaw, x, y = (float(v) for v in line.split())
-            except ValueError:
-                continue
-            with self.lock:
-                self.samples.append((time.time(), x, y, yaw))
-
-    def since(self, t0):
-        with self.lock:
-            return [s for s in self.samples if s[0] >= t0]
-
-    def close(self):
-        self.p.terminate()
 
 
 def chart(name, pose, vel, fixes, cam, path):
@@ -180,8 +134,9 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
 
-    cam = Cam(a.tag)
-    time.sleep(1.5)
+    # camproc.Cam's own constructor already waits (up to 15s) for a
+    # first sample or an ERR, so no extra fixed sleep is needed here.
+    cam = Cam(tag=a.tag)
     if cam.err:
         raise SystemExit(f'camera not usable: {cam.err}')
     link = open_link(radio=True)

@@ -20,77 +20,14 @@ import argparse
 import csv
 import math
 import os
-import subprocess
 import sys
-import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
+from camproc import Cam
+from field import ORDER, wrap, score_corners, path_deviation
 import tlm
-
-VENV = '/Volumes/Cache/User-Eric/.local/pipx/venvs/aprilcam/bin/python'
-CAMLINK = os.path.dirname(os.path.abspath(__file__)) + '/camlink.py'
-DOTS = {'NW': (-50.0, 30.0), 'SW': (-50.0, -30.0),
-        'SE': (50.0, -30.0), 'NE': (50.0, 30.0)}
-ORDER = ['NW', 'SW', 'SE', 'NE']
-
-
-def wrap(d):
-    while d <= -180.0:
-        d += 360.0
-    while d > 180.0:
-        d -= 360.0
-    return d
-
-
-class Cam(threading.Thread):
-    def __init__(self, hz=20.0):
-        super().__init__(daemon=True)
-        self.p = subprocess.Popen([VENV, CAMLINK, '--hz', str(hz)],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True,
-                                  bufsize=1)
-        self.latest = None
-        self.samples = []
-        self.lock = threading.Lock()
-        self.start()
-        d = time.time() + 15
-        while time.time() < d and self.latest is None:
-            time.sleep(0.2)
-
-    def run(self):
-        for line in self.p.stdout:
-            line = line.strip()
-            if line in ('NOTAG', '') or line.startswith('ERR'):
-                continue
-            try:
-                yaw, x, y = (float(v) for v in line.split())
-            except ValueError:
-                continue
-            with self.lock:
-                self.latest = (x, y, yaw)
-                self.samples.append((time.time(), x, y, yaw))
-
-    def fix(self, n=8):
-        v = []
-        for _ in range(n):
-            with self.lock:
-                r = self.latest
-            if r:
-                v.append(r)
-            time.sleep(0.06)
-        if not v:
-            return None
-        m = lambda i: sorted(q[i] for q in v)[len(v) // 2]
-        return m(0), m(1), m(2)
-
-    def since(self, t):
-        with self.lock:
-            return [s for s in self.samples if s[0] >= t]
-
-    def close(self):
-        self.p.terminate()
 
 
 def analyse(cam_rows):
@@ -126,31 +63,13 @@ def analyse(cam_rows):
         speeds.append(v)
         if v > 3:
             moving += 1
-    # closest approach to each dot, in visit order
-    corners = {}
-    used = 0
-    for tag in ORDER:
-        dx, dy = DOTS[tag]
-        best, besti = None, used
-        for i in range(used, len(cam_rows)):
-            d = math.hypot(cam_rows[i][1] - dx, cam_rows[i][2] - dy)
-            if best is None or d < best:
-                best, besti = d, i
-        corners[tag] = best
-        used = besti
+    # closest approach to each dot, in visit order (tools/field.py --
+    # the ONE corner-scoring algorithm every tour/ground-truth tool
+    # calls now, so this console report and a chart drawn from the
+    # same run cannot disagree the way they used to)
+    corners = score_corners(cam_rows)
     # how far the path strays from the ideal rectangle
-    segs = [((50, 30), (-50, 30)), ((-50, 30), (-50, -30)),
-            ((-50, -30), (50, -30)), ((50, -30), (50, 30))]
-    devs = []
-    for _, x, y, _ in cam_rows:
-        best = 1e9
-        for (x1, y1), (x2, y2) in segs:
-            dx, dy = x2 - x1, y2 - y1
-            L = dx * dx + dy * dy
-            t = max(0.0, min(1.0, ((x - x1) * dx + (y - y1) * dy) / L))
-            best = min(best, math.hypot(x - (x1 + t * dx), y - (y1 + t * dy)))
-        devs.append(best)
-    devs.sort()
+    devs = path_deviation(cam_rows)
     return {'span': span, 'duty': 100.0 * moving / total if total else 0,
             'vmed': sorted(speeds)[len(speeds) // 2] if speeds else 0,
             'corners': corners,
@@ -285,7 +204,8 @@ def main():
               f'{r["span"]:.0f}s, moving {r["duty"]:.0f}% of it, '
               f'median speed {r["vmed"]:.0f} cm/s')
         print('  corners: ' + '  '.join(
-            f'{t} {r["corners"][t]:.1f}cm' for t in ORDER))
+            (f'{t} {r["corners"][t]:.1f}cm' if r['corners'][t] is not None
+             else f'{t} unobserved') for t in ORDER))
         print(f'  path deviation from the rectangle: median '
               f'{r["dev_med"]:.1f} cm, 90th {r["dev_90"]:.1f}, '
               f'max {r["dev_max"]:.1f}')

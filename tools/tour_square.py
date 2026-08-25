@@ -13,78 +13,18 @@ that is the robot's own OTOS, not the overhead camera.
 
   python3 tools/tour_square.py [--laps 1]
 """
-import argparse, csv, math, os, subprocess, sys, threading, time
+import argparse, csv, math, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
+from camproc import Cam
+from field import DOTS, ORDER, score_corners, path_deviation
 
-VENV = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
-CAMLINK = os.path.dirname(os.path.abspath(__file__)) + '/camlink.py'
-DOTS = {'NW': (-50.0, 30.0), 'SW': (-50.0, -30.0),
-        'SE': (50.0, -30.0), 'NE': (50.0, 30.0)}
-ORDER = ['NW', 'SW', 'SE', 'NE']
-
-
-class Cam(threading.Thread):
-    def __init__(self, hz=20.0):
-        super().__init__(daemon=True)
-        self.p = subprocess.Popen([VENV, CAMLINK, '--hz', str(hz)],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True, bufsize=1)
-        self.latest = None; self.samples = []; self.lock = threading.Lock()
-        self.deaths = []; self.stopping = False
-        self.start()
-        d = time.time() + 15
-        while time.time() < d and self.latest is None:
-            time.sleep(0.2)
-
-    def run(self):
-        # The camera subprocess can DIE mid-run (daemon hiccup, and its
-        # stream exits on a CamDown). Silence then reads as "the robot
-        # stopped moving", and a score computed over the surviving
-        # samples is fiction -- measured tonight as phantom 53 and 69 cm
-        # corner errors when the robot had actually arrived. So: respawn
-        # it, and record WHEN it was blind so the score can be refused.
-        while True:
-            for line in self.p.stdout:
-                line = line.strip()
-                if line in ('NOTAG', '') or line.startswith('ERR'):
-                    continue
-                try:
-                    yaw, x, y = (float(v) for v in line.split())
-                except ValueError:
-                    continue
-                with self.lock:
-                    self.latest = (x, y, yaw)
-                    self.samples.append((time.time(), x, y, yaw))
-            with self.lock:
-                self.deaths.append(time.time())
-            if self.stopping:
-                return
-            time.sleep(0.5)
-            self.p = subprocess.Popen(
-                [VENV, CAMLINK, '--hz', '20'], stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, text=True, bufsize=1)
-
-    def fix(self, n=10):
-        v = []
-        for _ in range(n):
-            with self.lock:
-                r = self.latest
-            if r:
-                v.append(r)
-            time.sleep(0.06)
-        if not v:
-            return None
-        m = lambda i: sorted(q[i] for q in v)[len(v) // 2]
-        return m(0), m(1), m(2)
-
-    def since(self, t):
-        with self.lock:
-            return [s for s in self.samples if s[0] >= t]
-
-    def close(self):
-        self.stopping = True
-        self.p.terminate()
+# The camera subprocess can DIE mid-run (daemon hiccup, and its stream
+# exits on a CamDown). Silence then reads as "the robot stopped
+# moving", and a score computed over the surviving samples is fiction
+# -- measured as phantom 53 and 69 cm corner errors when the robot had
+# actually arrived. So: respawn=True below, and cam.deaths records WHEN
+# it was blind so the score can be flagged untrustworthy.
 
 
 def robot_pose(link):
@@ -107,13 +47,13 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
-    cam = Cam()
+    cam = Cam(respawn=True)
     if cam.latest is None:
         raise SystemExit('camera cannot see the robot')
     link = open_link(radio=True)
 
     # --- camera use 1 of 2: seed once ---
-    p = cam.fix()
+    p = cam.fix(n=10)
     link.send(f'RUN:seedxy:{p[0]:.1f}:{p[1]:.1f}:{p[2]:.1f}')
     for s in link.lines(6):
         if s.startswith('OCAL:seeded'):
@@ -177,28 +117,12 @@ def main():
         tot += 1
         if v > 3:
             moving += 1
-    used = 0; corner = {}
-    for tag in ORDER:
-        dx, dy = DOTS[tag]
-        best, bi = None, used
-        for i in range(used, len(rows)):
-            d = math.hypot(rows[i][1] - dx, rows[i][2] - dy)
-            if best is None or d < best:
-                best, bi = d, i
-        corner[tag] = best; used = bi
-    segs = [((50,30),(-50,30)),((-50,30),(-50,-30)),
-            ((-50,-30),(50,-30)),((50,-30),(50,30))]
-    devs = []
-    for _, x, y, _ in rows:
-        b = 1e9
-        for (x1,y1),(x2,y2) in segs:
-            ddx, ddy = x2-x1, y2-y1; L = ddx*ddx+ddy*ddy
-            t = max(0.0, min(1.0, ((x-x1)*ddx+(y-y1)*ddy)/L))
-            b = min(b, math.hypot(x-(x1+t*ddx), y-(y1+t*ddy)))
-        devs.append(b)
-    devs.sort()
+    corner = score_corners(rows)
+    devs = path_deviation(rows)
     print(f'\n{span:.0f}s, moving {100*moving/tot if tot else 0:.0f}%')
-    print('corners: ' + '  '.join(f'{t} {corner[t]:.1f}cm' for t in ORDER))
+    print('corners: ' + '  '.join(
+        (f'{t} {corner[t]:.1f}cm' if corner[t] is not None
+         else f'{t} unobserved') for t in ORDER))
     print(f'path deviation: median {devs[len(devs)//2]:.1f} cm, '
           f'90th {devs[int(len(devs)*0.9)]:.1f}, max {devs[-1]:.1f}')
     with open(a.out + '/cam.csv', 'w') as f:

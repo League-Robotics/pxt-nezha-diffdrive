@@ -25,79 +25,21 @@ import math
 import os
 import subprocess
 import sys
-import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
-from reposition import Repositioner, wrap
+from reposition import Repositioner
+from camproc import Cam
+from field import ORDER, wrap, score_corners, closure
 import tlm
 
-VENV = '/Volumes/Proj/proj/RobotProjects/AprilTags/.venv/bin/python3'
-CAMLINK = os.path.dirname(os.path.abspath(__file__)) + '/camlink.py'
-
-DOTS = {'NW': (-50.0, 30.0), 'NE': (50.0, 30.0),
-        'SE': (50.0, -30.0), 'SW': (-50.0, -30.0)}
-# Visit order from the NE dot, counter-clockwise.
-ORDER = ['NW', 'SW', 'SE', 'NE']
-RECT = [DOTS['NE'], DOTS['NW'], DOTS['SW'], DOTS['SE'], DOTS['NE']]
 START = (50.0, 30.0, 180.0)
 TRACK_CM = 12.0          # effective track (114.2 mm / 0.952 scrub)
 
 TITLES = {'robot': 'Tour A — robot-relative (encoder only)',
           'world': 'Tour B — world goToWorld (OTOS-guided)',
           'wheels': 'Tour A+B — wheels (open loop)'}
-
-
-class CamProc:
-    """Overhead camera in its own process, timestamped samples."""
-
-    def __init__(self, hz=20.0):
-        self.p = subprocess.Popen([VENV, CAMLINK, '--hz', str(hz)],
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True,
-                                  bufsize=1)
-        self.samples = []
-        self.latest = None
-        self.err = None
-        self.lock = threading.Lock()
-        threading.Thread(target=self._pump, daemon=True).start()
-        # The camera subprocess has to spawn python, import aprilcam and
-        # open a gRPC channel before its first sample -- a fixed 1.5 s
-        # was sometimes short, and reported as "no tag" when the tag was
-        # in plain view.
-        deadline = time.time() + 15.0
-        while time.time() < deadline:
-            if self.latest is not None or self.err:
-                break
-            time.sleep(0.2)
-
-    def _pump(self):
-        for line in self.p.stdout:
-            line = line.strip()
-            with self.lock:
-                if line.startswith('ERR'):
-                    self.err = line
-                    return
-                if line == 'NOTAG':
-                    continue
-                try:
-                    yaw, x, y = (float(v) for v in line.split())
-                except ValueError:
-                    continue
-                self.latest = (yaw, x, y)
-                self.samples.append((time.time(), x, y, yaw))
-
-    def read(self, tag=53):
-        with self.lock:
-            return self.latest
-
-    def since(self, t0):
-        with self.lock:
-            return [s for s in self.samples if s[0] >= t0]
-
-    def close(self):
-        self.p.terminate()
 
 
 def record_tour(link, cam, name, timeout=120):
@@ -168,24 +110,18 @@ def wheel_speeds(pose):
 
 
 def score(camrows):
-    """Closest approach to each dot, in visit order, plus closure."""
+    """Closest approach to each dot, in visit order, plus closure.
+
+    Corner scoring itself lives in tools/field.py (score_corners()) --
+    the same gap-aware algorithm every tour/ground-truth tool now
+    calls, so this console report and practice_chart.py's chart (drawn
+    from the same recorded run, in a separate subprocess) cannot
+    disagree about which corners were actually observed.
+    """
     if not camrows:
         return None
-    res = {}
-    used = 0
-    for tag in ORDER:
-        dx, dy = DOTS[tag]
-        best, besti = None, used
-        for i in range(used, len(camrows)):
-            d = math.hypot(camrows[i][1] - dx, camrows[i][2] - dy)
-            if best is None or d < best:
-                best, besti = d, i
-        res[tag] = best
-        used = besti
-    sx, sy = camrows[0][1], camrows[0][2]
-    ex, ey = camrows[-1][1], camrows[-1][2]
-    res['closure'] = math.hypot(ex - sx, ey - sy)
-    res['end_heading_err'] = wrap(camrows[-1][3] - START[2])
+    res = score_corners(camrows)
+    res['closure'], res['end_heading_err'] = closure(camrows, START[2])
     return res
 
 
@@ -229,7 +165,7 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
 
-    cam = CamProc()
+    cam = Cam()
     if cam.err or cam.latest is None:
         raise SystemExit(f'camera not usable: {cam.err or "no tag"}')
     link = open_link(radio=True)
@@ -286,7 +222,8 @@ def main():
             meta = tlm.write_tlm_csv(stream, stem + '_tlm.csv')
             results.append((name, run, sc))
             print(f'  corners: ' + '  '.join(
-                f'{t} {sc[t]:.1f}cm' for t in ORDER))
+                (f'{t} {sc[t]:.1f}cm' if sc[t] is not None
+                 else f'{t} unobserved') for t in ORDER))
             print(f'  closure {sc["closure"]:.1f} cm, end heading '
                   f'{sc["end_heading_err"]:+.1f} deg, '
                   f'{len(pose)} tlm / {len(camrows)} cam samples')
@@ -302,9 +239,12 @@ def main():
         print('\n===== summary (camera-scored) =====')
         print(f"{'tour':8} {'run':>3} " + ' '.join(f'{t:>7}' for t in ORDER)
               + f" {'closure':>8} {'endhdg':>7}")
+        def fmt7(v):
+            return f'{v:7.1f}' if v is not None else f'{"n/a":>7}'
+
         for name, run, sc in results:
             print(f'{name:8} {run:>3} '
-                  + ' '.join(f'{sc[t]:7.1f}' for t in ORDER)
+                  + ' '.join(fmt7(sc[t]) for t in ORDER)
                   + f' {sc["closure"]:8.1f} {sc["end_heading_err"]:+7.1f}')
 
 
