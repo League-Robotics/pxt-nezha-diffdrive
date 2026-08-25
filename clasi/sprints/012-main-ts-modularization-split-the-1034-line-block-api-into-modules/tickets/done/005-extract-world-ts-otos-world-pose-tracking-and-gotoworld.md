@@ -1,9 +1,12 @@
 ---
 id: '005'
 title: 'Extract world.ts: OTOS world-pose tracking and goToWorld'
-status: open
-use-cases: [SUC-001, SUC-002]
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '001'
 github-issue: ''
 issue: break-up-main-ts-into-modules.md
 completes_issue: false
@@ -39,7 +42,7 @@ student's own program calls.
 
 ## Acceptance Criteria
 
-- [ ] `src/world.ts` created containing every function/state variable
+- [x] `src/world.ts` created containing every function/state variable
       listed in the Description, each with JSDoc/`//%` annotations
       (`group="World"`) preserved verbatim, including the doctrine
       comment above the World section ("The OTOS optical tracking
@@ -47,19 +50,19 @@ student's own program calls.
       extensive inline design-rationale comments (pivot-first
       threshold, curvature cap, "ONE PASS" doctrine) — these are
       load-bearing documentation, not filler, and must travel intact.
-- [ ] `main.ts` no longer contains any of the moved code.
-- [ ] `pxt.json`'s `files` array: `src/world.ts` inserted (no
+- [x] `main.ts` no longer contains any of the moved code.
+- [x] `pxt.json`'s `files` array: `src/world.ts` inserted (no
       load-time ordering constraint on this module itself; it may be
       listed before or after `main.ts`/`motion.ts` — its one call to
       `startMove()` is a function-body reference, safe regardless of
       file order).
-- [ ] `tsconfig.json`'s `files` array: same insertion.
-- [ ] A real PXT build succeeds.
-- [ ] `test/test.ts`/`test/testrig.ts` simulator run matches the prior
+- [x] `tsconfig.json`'s `files` array: same insertion.
+- [x] A real PXT build succeeds.
+- [x] `test/test.ts`/`test/testrig.ts` simulator run matches the prior
       ticket's baseline exactly.
-- [ ] Full existing `tests/host/` suite passes unchanged.
-- [ ] `test_pxt_manifest_completeness.py` passes.
-- [ ] No acceptance criterion above requires a robot (this ticket
+- [x] Full existing `tests/host/` suite passes unchanged.
+- [x] `test_pxt_manifest_completeness.py` passes.
+- [x] No acceptance criterion above requires a robot (this ticket
       moves `goToWorld()`'s code, not its hardware validation — that
       is sprint 011's job, unaffected by this file move).
 
