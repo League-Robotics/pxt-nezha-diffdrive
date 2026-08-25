@@ -19,6 +19,7 @@
     "pxt_modules/core/serial.ts",
     "src/sim.ts",
     "src/run.ts",
+    "src/pose.ts",
     "src/main.ts",
     "test/test.ts",
     "test/testrig.ts"

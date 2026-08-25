@@ -1,9 +1,12 @@
 ---
 id: '003'
 title: 'Extract pose.ts: local pose readback'
-status: open
-use-cases: [SUC-001, SUC-002]
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '001'
 github-issue: ''
 issue: break-up-main-ts-into-modules.md
 completes_issue: false
@@ -33,25 +36,23 @@ through these four **exported** functions (`whileMoving`/
 safely across files regardless of load order. Pose earns its own file
 on the cohesion test alone.
 
-## Acceptance Criteria
-
-- [ ] `src/pose.ts` created containing `poseX`, `poseY`, `heading`,
+- [x] `src/pose.ts` created containing `poseX`, `poseY`, `heading`,
       `resetPose`, each with JSDoc/`//%` annotations (`group="Pose"`)
       preserved verbatim.
-- [ ] `main.ts` no longer contains any of the four functions; any
+- [x] `main.ts` no longer contains any of the four functions; any
       caller inside the remaining `main.ts` content (`whileMoving`/
       `whileGoingTo`) now calls `poseX()`/`poseY()`/`heading()`
       cross-file, unchanged in name/signature.
-- [ ] `pxt.json`'s `files` array: `src/pose.ts` inserted (no load-time
+- [x] `pxt.json`'s `files` array: `src/pose.ts` inserted (no load-time
       ordering constraint — position anywhere after `sim.ts`).
-- [ ] `tsconfig.json`'s `files` array: same insertion.
-- [ ] A real PXT build succeeds.
-- [ ] `test/test.ts`/`test/testrig.ts` simulator run matches the prior
+- [x] `tsconfig.json`'s `files` array: same insertion.
+- [x] A real PXT build succeeds.
+- [x] `test/test.ts`/`test/testrig.ts` simulator run matches the prior
       ticket's baseline exactly (pose values in particular — this is
       the module most directly checkable against a numeric trace).
-- [ ] Full existing `tests/host/` suite passes unchanged.
-- [ ] `test_pxt_manifest_completeness.py` passes.
-- [ ] No acceptance criterion above requires a robot.
+- [x] Full existing `tests/host/` suite passes unchanged.
+- [x] `test_pxt_manifest_completeness.py` passes.
+- [x] No acceptance criterion above requires a robot.
 
 ## Implementation Plan
 
