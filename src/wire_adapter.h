@@ -1,111 +1,20 @@
 // wire_adapter.h -- diffDrive::WireAdapter: the concrete Wire::Adapter
-// (src/wire_handler.h) that closes the seam for THIS robot -- this
-// project's analogue of radio-robot-lib's Protocol::DiffDriveAdapter
-// (radio-robot-lib/docs/design/protocol.md S5), except this project's
-// own motion issue requires ALL SIX motion verbs to have real effect,
-// unlike DiffDriveAdapter's own deliberate "WHEELS_V real, five
-// kUnknown" posture. Sprint 003 ticket 004: WHEELS_V. Ticket 011:
-// WHEELS_X/MOVE_X, routed onto motion_engine.h's MotionEngine (tickets
-// 006/007) via shims.cpp's engineWheelsX()/engineMoveX() forward
-// declarations (wire_adapter.cpp). Ticket 012 (this file, now):
-// MOVE_V/GO_TO_R/GO_TO_W, completing the six-verb motion surface --
-// MOVE_V is a plain wheelsV reduction (engineMoveV()); GO_TO_R forwards
-// onto MotionEngine::goToR() (engineGoToR()); GO_TO_W additionally needs
-// a live PoseSource (ticket 010) -- engineGoToW() bridges to shims.cpp's
-// own OTOS lazy singleton (gOtos/otosRef()) and reports back whether one
-// was actually available (see onGoToW()'s own doc comment below for what
-// this class answers when it is not). Every one of the six motion verbs
-// now has real effect on this class -- the DiffDriveAdapter-style "no
-// planner" kUnknown no longer applies to any of them (onRun() below is
-// the only remaining honest kUnknown on this class, for an unrelated
-// reason -- see its own doc comment).
-//
-// Sprint 003 ticket 005 (the hardware transport-seam cutover) extends
-// this class with a real clock (see now()'s own comment below) and
-// motion-obligation tracking (hasLiveMotionObligation()) that clock
-// makes possible -- no wire-visible behavior changes; both are for
-// protocol.cpp's fiber loop to consume. Ticket 004 armed this ONLY from
-// onWheelsV(); ticket 012 arms it from every one of the six motion
-// handlers below -- see hasLiveMotionObligation()'s own comment for a
-// real bug ticket 011 left behind, and how this ticket fixes it.
-//
-// STOP/ESTOP/GET/SET call straight through to shims.cpp's EXISTING
-// hardware-facing primitives (stopAll/estopAll/setKernelValue/
-// getConfigValue/diagValue) via the same same-package C++
-// forward-declaration convention protocol.cpp already uses to reach
-// shims.cpp (that file has no header of its own -- see wire_adapter.cpp's
-// own forward-declaration block, which must stay signature-compatible
-// with shims.cpp's real definitions, exactly like protocol.cpp's). This
-// class therefore holds NO reference to a kernel, motion engine, or Rig
-// of its own: every piece of real state lives behind a forward-declared
-// free function, exactly like every OTHER caller of those functions
-// (protocol.cpp's own binary verb handlers). It adds no NEW entry point
-// to shims.cpp -- every function it calls already existed before this
-// ticket.
-//
+// for this robot. All six motion verbs have real effect. STOP/ESTOP/
+// GET/SET and the engine* calls reach shims.cpp via same-package
+// forward declarations (shims.cpp has no header of its own --
+// wire_adapter.cpp's own forward-declaration block must stay
+// signature-compatible with shims.cpp's real definitions). This class
+// holds no reference of its own to a kernel or motion engine.
 // Host-portable by construction: no pxt.h, no CODAL type, anywhere in
-// this file or wire_adapter.cpp -- see tests/host/wire_motion_verb_shim.cpp
-// for how the host test harness supplies its OWN definitions of the
-// forward-declared shims.cpp functions (a FakeMotor-backed kernel
-// standing in for the real Rig/NezhaMotorPort composition), so this
-// class links and is exercised end to end with no micro:bit involved.
-//
-// identity() is wired for real via a caller-supplied Wire::Identity at
-// construction (borrowed pointers, same contract as Wire::Identity's own
-// doc comment in wire_handler.h) -- DiffDriveAdapter's own pattern --
-// rather than reading microbit_friendly_name()/microbit_serial_number()
-// directly, which are CODAL globals this class must never touch.
-//
-// now(): sprint 003 ticket 005 (the hardware transport-seam cutover)
-// wires a REAL clock read in, supplied at COMPOSITION TIME as a plain
-// function pointer (`NowMsFn` below) -- a CODAL-facing composition root
-// (protocol.cpp) passes one backed by a real clock; a caller with
-// nothing to offer (every host test before ticket 012's own waNowMs())
-// passes nothing at all and gets the default nullptr, so now() keeps
-// returning the same honest 0 it always has. This is a plain C function
-// pointer, not a CODAL type, so this file's own "no pxt.h, no CODAL
-// type" contract holds -- see wire_adapter.cpp's
-// now()/hasLiveMotionObligation() for how it's used.
-//
-// The same clock backs this ticket's other new piece of state: with the
-// kernel's own background fiber long gone (shims.cpp, sprint 002 ticket
-// 001), NONE of the six motion verbs' accepted commands are ever
-// actually stepped unless something keeps calling tickDrive() while one
-// is outstanding -- exactly the problem sprint 002's protocol.cpp
-// already solved once for the old binary WHEELS verb (see that file's
-// own "motion-obligation tracking" history). This class is the one
-// place that sees every ACCEPTED motion verb, with its own duration or
-// timeout, so it tracks the resulting deadline here
-// (hasLiveMotionObligation(), private motionObligationDeadlineMs_) and
-// exposes it for protocol.cpp's fiber loop to poll -- that loop still
-// owns the actual tickDrive() call, a CODAL-fiber concern this
-// host-portable class must never touch. With no clock wired (nowMs_ ==
-// nullptr, every host test before ticket 012), hasLiveMotionObligation()
-// always answers false -- honest, since there is no way to know an
-// elapsed-time answer without one.
-//
-// Ticket 004/005 armed this ONLY from onWheelsV() -- correct as far as
-// it went (WHEELS_V's own `duration` IS the kernel's own lease,
-// motion-api.md S3.2). Ticket 011 then added WHEELS_X/MOVE_X's real
-// dispatch WITHOUT also arming this flag from either handler -- a real
-// bug, found while implementing this ticket: with the flag armed only
-// by WHEELS_V, protocol.cpp's fiber loop (see that file's own run())
-// never calls tickDrive() for any other motion verb, so on hardware a
-// WHEELS_X/MOVE_X/MOVE_V/GO_TO_R/GO_TO_W accepted by this class is
-// committed to the kernel and then never serviced by anything except
-// the starvation watchdog's ~100-150 ms port-level stop (shims.cpp's
-// own "Move-completion stop delivery" comment) -- the move aborts
-// almost immediately instead of actually running. Ticket 012 fixes this
-// entirely INSIDE this class (no protocol.cpp change needed): every one
-// of onWheelsX()/onMoveX()/onMoveV()/onGoToR()/onGoToW() now arms the
-// SAME obligation the way onWheelsV() always has, using its own
-// `timeout` (the X-forms/GO_TO-forms) or `duration` (the V-forms) as
-// the deadline. For the X-forms/GO_TO-forms this is a conservative
-// overestimate of how long the move actually needs (their `timeout` is
-// a backstop, not the move's real duration) -- protocol.cpp's fiber may
-// keep ticking a little past actual completion, which is harmless
-// (serviceMove() is a cheap no-op once the move-engine is idle again),
-// not a correctness problem.
+// this file or wire_adapter.cpp -- host tests supply their own
+// definitions of the forward-declared shims.cpp functions. Identity
+// fields are borrowed pointers (see the constructor's own doc comment).
+// now() is backed by a NowMsFn supplied at composition time; with none
+// supplied (nullptr), now() stays 0 and hasLiveMotionObligation()
+// always answers false. Every ACCEPTED motion verb arms a
+// motion-obligation deadline (`duration` for the V-forms, `timeout` for
+// the X-forms/GO_TO-forms -- a conservative overestimate, harmless)
+// that protocol.cpp's fiber loop polls to keep ticking the kernel.
 //
 // Sprint 004 ticket 004: telemetry projection joins this class's
 // existing session/motion/safety/config seams. `buildSnapshot()`
@@ -140,15 +49,9 @@ namespace diffDrive {
 
 class WireAdapter : public Wire::Adapter {
  public:
-  // WHEELS_V's documented ceiling (motion-api.md S1, protocol.md S5
-  // point 1): "duration [ms] required, ceiling 5000 -- a dead host
-  // cannot mean a runaway." wire_handler.h's own Adapter contract holds
-  // no bounds table of its own (protocol.md S7's "the library stores
-  // none" spirit, extended to bounds); this is that enforcement, on
-  // this adapter. Shared by MOVE_V (sprint 003 ticket 012) -- the
-  // identical "duration IS the lease" V-form rationale applies
-  // (motion-api.md S3.4: "duration is required and is the lease,
-  // exactly as in wheels_v").
+  // [ms] WHEELS_V/MOVE_V duration ceiling (motion-api.md S1): duration
+  // IS the lease -- a dead host cannot mean a runaway. Enforced here;
+  // the handler holds no bounds table.
   static constexpr uint32_t kWheelsVDurationCeiling = 5000;  // [ms]
 
   // WIRE-08 (code review 2026-08-23): the widest magnitude this class
@@ -205,114 +108,58 @@ class WireAdapter : public Wire::Adapter {
   uint32_t now() const override;
   void status(Wire::StatusFields& out) const override;
 
-  // Sprint 003 ticket 005: lets a composition root supply a PLACEHOLDER
-  // Wire::Identity() at construction time (safe -- every field defaults
-  // to "", no caller-owned storage borrowed yet) and fill in the real
-  // one later, once it is actually safe to read (protocol.cpp calls
-  // this from its own fiber body, not from this adapter's own
-  // constructor, precisely so a CODAL identity read never happens
-  // before uBit.init() has run -- see protocol.cpp's run() for why that
-  // timing matters). Same borrowed-pointer contract as the constructor.
+  // Placeholder-at-construction, real identity later -- a CODAL identity
+  // read is unsafe before uBit.init() (protocol.cpp calls this from its
+  // fiber body). Same borrowed-pointer contract as the constructor.
   void setIdentity(const Wire::Identity& identity);
 
   // ---- Wire::Adapter: motion ----
 
-  // WHEELS_V: real effect -- maps onto shims.cpp's existing
-  // setWheelsTimed(left, right, durationMs), which already computes
-  // velocity=(left+right)/2 and twist=(right-left)/2 (half-differential,
-  // CCW-positive), scaled by the Rig's own countsPerLength, and drives
-  // the kernel with `duration` as the lease (protocol.md S5). This class
-  // only enforces the wire's own duration ceiling before forwarding --
-  // setWheelsTimed() returns void, so there is no adapter-observable
-  // refusal path from the kernel side (kernel.drive()'s own Status is
-  // already discarded by that existing function, unchanged by this
-  // ticket). WIRE-08 (code review 2026-08-23): `left`/`right` are also
-  // refused (kRange) outside +-kWireBoundaryCastCeiling before either
-  // ever reaches setWheelsTimed()'s own static_cast<int> -- see that
-  // constant's own doc comment above for the float-round-trip UB this
-  // closes.
+  // WHEELS_V: forwards to setWheelsTimed() (velocity=(l+r)/2,
+  // twist=(r-l)/2 CCW+, duration = lease); only the duration ceiling is
+  // enforced here -- no kernel refusal is observable (setWheelsTimed
+  // returns void). WIRE-08: `left`/`right` are also refused (kRange)
+  // outside +-kWireBoundaryCastCeiling before either reaches
+  // setWheelsTimed()'s own static_cast<int> -- see that constant's own
+  // doc comment above for the float-round-trip UB this closes.
   Wire::Result onWheelsV(float left, float right, uint32_t duration,
                          uint32_t id) override;
 
-  // WHEELS_X: real effect (sprint 003 ticket 011) -- forwards onto
-  // motion_engine.h's MotionEngine::wheelsX(left, right, cruise,
-  // timeoutMs) via shims.cpp's engineWheelsX() (same same-package
-  // forward-declaration convention as setWheelsTimed() above). No unit
-  // conversion needed here: WHEELS_X's wire fields are already
-  // mm/mm/mm-per-s/ms, MotionEngine's own native units -- motion-api.md
-  // S9.1's mrad<->rad conversion applies only to MOVE_X's `rotation`,
-  // below. `cruise` < 0 is refused outright (kRange): a speed ceiling
-  // has no sign. `cruise` == 0 is motion-api.md S1.1's documented "pass
-  // 0 for the configured default" sentinel, resolved via shims.cpp's
-  // engineDefaultCruiseMmS() (this robot's own configured full-duty
-  // velocity, converted to mm/s); if that is ALSO unconfigured (a fresh
-  // robot that has never had one set), the resolved cruise is still
-  // <= 0 and this refuses with kRange too, rather than silently
-  // commanding a zero-speed "move" nobody asked for.
+  // WHEELS_X: wire fields already mm/mm/mm-per-s/ms; `cruise` < 0
+  // refused kRange (a ceiling has no sign); `cruise` == 0 -> configured
+  // default via engineDefaultCruiseMmS(), refused kRange if that too is
+  // unconfigured.
   Wire::Result onWheelsX(float left, float right, float cruise,
                          uint32_t timeout, uint32_t id) override;
 
-  // MOVE_X: real effect (sprint 003 ticket 011) -- forwards onto
-  // MotionEngine::moveX(distance, rotationRad, cruise, timeoutMs) via
-  // shims.cpp's engineMoveX(). `cruise`'s <0/==0 handling is identical
-  // to onWheelsX() above. `rotation` is the ONE place in this codebase
-  // where the wire's milliradian-integer angle becomes MotionEngine's
-  // native radians (motion-api.md S9.1: "degrees at the API and
-  // milliradian integers on the wire ... the conversion lives in the
-  // binding, in one place") -- see wire_adapter.cpp's mradToRad() and
-  // that file's own comment on why this one multiply gets a dedicated
-  // test.
+  // MOVE_X: same cruise <0/==0 handling as onWheelsX() above. `rotation`
+  // is THE mrad->rad seam (wire_adapter.cpp's mradToRad(), tested both
+  // signs).
   Wire::Result onMoveX(float distance, float rotation, float cruise,
                        uint32_t timeout, uint32_t id) override;
 
-  // MOVE_V: real effect (sprint 003 ticket 012) -- the plain wheelsV
-  // reduction (motion-api.md S2: move_v(v_x, omega) == wheels_v(v_x -
-  // omega*b/2, v_x + omega*b/2)), forwarded onto motion_engine.h's
-  // MotionEngine::moveV() via shims.cpp's engineMoveV() (same
-  // forward-declaration convention as engineWheelsX()/engineMoveX()
-  // above). `omega` is the wire's OTHER milliradian-integer angle field
-  // (motion-api.md S9.1: degrees at the API, milliradians on the wire,
-  // for any angle or angular RATE) -- converted via the SAME
-  // mradToRad() seam MOVE_X's `rotation` uses (wire_adapter.cpp).
-  // `duration` shares WHEELS_V's own ceiling (kWheelsVDurationCeiling)
-  // and identical "duration IS the lease, a dead host cannot mean a
-  // runaway" rationale -- move_v is a V-form exactly like wheels_v
-  // (motion-api.md S3.4).
+  // MOVE_V: plain wheelsV reduction; `omega` through the same mrad seam
+  // as MOVE_X's `rotation`; `duration` shares kWheelsVDurationCeiling.
   Wire::Result onMoveV(float v_x, float omega, uint32_t duration,
                        uint32_t id) override;
 
-  // GO_TO_R: real effect (sprint 003 ticket 012) -- forwards onto
-  // MotionEngine::goToR() via shims.cpp's engineGoToR(). `speed` plays
-  // the same role for go_to_r's underlying moveX() call that `cruise`
-  // plays for onWheelsX()/onMoveX() above (motion_engine.h: "speed is
-  // the resulting moveX() call's cruise") -- identical <0/==0 handling:
-  // refused outright (kRange) if negative, substituted with
-  // engineDefaultCruiseMmS() if zero, refused (kRange) if that
-  // substitution is ALSO unconfigured. `arrive`/`timeout` pass straight
-  // through unmodified -- MotionEngine::goToR() itself ignores `arrive`
-  // (a single-shot reduction, not the supervisory re-solving loop
-  // motion-api.md S3.5 describes; sprint.md's own Design Rationale) and
-  // uses `timeout` as moveX()'s own real backstop, same as MOVE_X.
+  // GO_TO_R: `speed` plays cruise's role (same <0/==0 handling); `arrive`
+  // passes through unused (single-shot reduction); `timeout` is moveX's
+  // backstop.
   Wire::Result onGoToR(float x, float y, float speed, float arrive,
                        uint32_t timeout, uint32_t id) override;
 
-  // GO_TO_W: real effect (sprint 003 ticket 012) -- the world-frame
-  // counterpart, forwarded onto MotionEngine::goToW() via shims.cpp's
-  // engineGoToW(). Same `speed` <0/==0 handling as onGoToR() above.
-  // SPRINT 006 TICKET 007: engineGoToW() now SELECTS its own PoseSource
-  // (OtosPort when connected(), the encoder-odometry EncoderPoseSource
-  // fallback otherwise -- motion-api.md S3.6, closing
-  // no-encoder-odometry-posesource-fallback.md) and always dispatches
-  // onto MotionEngine::goToW(), so its bool return is now
-  // unconditionally true. The `!engineGoToW(...)` refusal below is
-  // therefore dead code under the current implementation -- kept only
-  // because the bool CONTRACT itself ("was a live pose actually
-  // available to dispatch with") is unchanged, not because
-  // kUnimplemented is still reachable. GO_TO_W's own return value still
-  // does not distinguish "served by OTOS" from "served by drifting
-  // encoder odometry" -- a caller that needs to know reads STATUS's
-  // `otos=` flag before calling (motion-api.md S3.6's own documented
-  // caveat).
+  // GO_TO_W: the world-frame counterpart, forwarded onto
+  // MotionEngine::goToW() via shims.cpp's engineGoToW(). Same `speed`
+  // <0/==0 handling as onGoToR() above. engineGoToW() selects its own
+  // PoseSource (OtosPort when connected(), else the encoder-odometry
+  // fallback -- motion-api.md S3.6) and always dispatches, so its bool
+  // return is now unconditionally true; the `!engineGoToW(...)` refusal
+  // below is dead code, kept only because the bool CONTRACT ("was a live
+  // pose actually available") is unchanged. The return still does not
+  // distinguish OTOS from drifting encoder odometry -- a caller that
+  // needs to know reads STATUS's `otos=` flag first (motion-api.md
+  // S3.6's own documented caveat).
   Wire::Result onGoToW(float x, float y, float speed, float arrive,
                        uint32_t timeout, uint32_t id) override;
 
@@ -321,18 +168,14 @@ class WireAdapter : public Wire::Adapter {
   Wire::Result onStop(bool immediate, uint32_t id) override;  // -> stopAll()
 
   // ---- Wire::Adapter: configuration -- a small field-name table
-  // replacing the old binary CONFIG/SET_FIELD/GET_CONFIG verbs'
-  // ConfigField ordinal one-for-one (sprint.md Migration Concerns: "the
-  // old multi-pair CONFIG batch verb is not reintroduced"). See
-  // wire_adapter.cpp's kFields table for the full name<->ordinal
-  // mapping onto shims.cpp's existing setKernelValue()/getConfigValue()
-  // field numbers. onSet() additionally refuses (kRange) when `value *
-  // 1000.0f` -- the exact product setKernelValue()'s own x1000
-  // convention passes to std::lround() -- falls outside
-  // +-kWireBoundaryCastCeiling (WIRE-08, code review 2026-08-23): an
-  // unclamped `SET pid_kp 3000000` produces a 3e9 product, overflowing
-  // `long`'s 32-bit range on the target before lround() ever runs (see
-  // kWireBoundaryCastCeiling's own doc comment above). ----
+  // replacing the old ordinal verbs one-for-one; see wire_adapter.cpp's
+  // kFields for the name<->ordinal mapping onto shims.cpp's
+  // setKernelValue()/getConfigValue() field numbers. onSet() additionally
+  // refuses (kRange) when `value * 1000.0f` -- the exact product passed
+  // to std::lround() -- falls outside +-kWireBoundaryCastCeiling
+  // (WIRE-08): an unclamped `SET pid_kp 3000000` would overflow `long`'s
+  // 32-bit range before lround() ever runs (see kWireBoundaryCastCeiling's
+  // own doc comment above). ----
   bool onGet(const char* name, float& out) const override;
   Wire::Result onSet(const char* name, float value, uint32_t id) override;
   size_t fieldCount() const override;
@@ -396,13 +239,8 @@ class WireAdapter : public Wire::Adapter {
   // Snapshot is ever built for a session with no subscriber).
   bool telemetryEnabled() const;
 
-  // ---- sprint 003 ticket 005 (armed by every one of the six motion
-  // verbs as of ticket 012 -- see this file's header comment for the
-  // full rationale, including the bug ticket 011 left and ticket 012
-  // fixed): NOT part of Wire::Adapter's own interface. True iff the
-  // most recently ACCEPTED motion verb's own duration/timeout window,
-  // per the clock supplied at construction, has not yet elapsed; always
-  // false with no clock wired (nowMs == nullptr).
+  // True iff the most recently ACCEPTED motion verb's own window has not
+  // elapsed; always false with no clock wired.
   bool hasLiveMotionObligation() const;
 
   // ---- sprint 005 ticket 004: a REAL motion-completion signal (closes
@@ -462,8 +300,7 @@ class WireAdapter : public Wire::Adapter {
   Wire::Identity identity_;
   Wire::TlmMode mode_ = Wire::TlmMode::kOff;
 
-  // ---- sprint 003 ticket 005: real clock + motion-obligation state
-  // (armed by every one of the six motion verbs as of ticket 012) ----
+  // ---- real clock + motion-obligation state ----
   NowMsFn nowMs_ = nullptr;
   bool motionObligationActive_ = false;
   uint32_t motionObligationDeadlineMs_ = 0;  // [ms], nowMs_'s own scale

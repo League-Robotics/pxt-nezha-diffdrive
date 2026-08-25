@@ -1,7 +1,4 @@
-// wire_adapter.cpp -- see wire_adapter.h for the class contract and the
-// documented scope decisions (why five motion verbs answer kUnknown, why
-// now()/onRun() are inert on this adapter, the borrowed-Identity
-// contract).
+// wire_adapter.cpp -- see wire_adapter.h for the class contract.
 #include "wire_adapter.h"
 
 #include <cmath>
@@ -9,16 +6,20 @@
 
 namespace diffDrive {
 
-// ---- shims.cpp entry points (sprint 003 ticket 004) --------------------
-// shims.cpp has no header of its own (see its own file comment) and
-// main.ts's `//% shim=diffDrive::...` mechanism is the TS-facing binding,
-// not a C++ one -- these are plain same-namespace C++ forward
-// declarations, exactly like protocol.cpp's own block reaching the same
-// file. Must stay signature-compatible with shims.cpp's real
-// definitions; every one of these already existed before this ticket --
-// this file adds no new entry point to shims.cpp, keeping ticket
-// 006/007's motion_engine extraction free to replace every one of these
-// call sites later without this file's own public interface changing.
+// ---- shims.cpp entry points: plain same-namespace forward
+// declarations (that file has no header of its own), kept
+// signature-compatible with shims.cpp's real definitions -- same
+// convention protocol.cpp uses to reach the same file. `rotationRad`
+// (engineMoveX()) and `omegaRad` (engineMoveV()) arrive ALREADY
+// converted from the wire's milliradian integers -- see mradToRad()
+// below. `cruise`/`speed`'s wire "0 means configured default" sentinel
+// is resolved by the onXxx() handlers below, via
+// engineDefaultCruiseMmS(), BEFORE any of these functions is ever
+// called -- none of them ever sees the sentinel itself. engineGoToW()
+// selects its own PoseSource (OtosPort when connected(), else the
+// encoder-odometry fallback -- motion-api.md S3.6) and always
+// dispatches; its bool return -- "was a live pose available" -- is now
+// unconditionally true, kept for contract stability.
 void stopAll();
 void estopAll();
 void setWheelsTimed(int left, int right, uint32_t durationMs);
@@ -26,42 +27,12 @@ void setKernelValue(int field, int value);
 int getConfigValue(int field);
 int diagValue(int what);
 
-// ---- shims.cpp entry points (sprint 003 ticket 011) --------------------
-// WHEELS_X/MOVE_X's own route onto motion_engine.h's MotionEngine.
-// wire_adapter.cpp has no reference of its own to the Rig-owned `engine`
-// singleton -- sprint.md's Design Rationale keeps that composition
-// inside shims.cpp, reached from here only through forward-declared free
-// functions, same convention as the six declarations above -- so these
-// three thin, wire-shaped forwards are the seam. `rotationRad` arrives
-// at engineMoveX() ALREADY converted from the wire's milliradian
-// integer -- see mradToRad() below, this file's ONE such conversion
-// (motion-api.md S9.1). `cruise` <= 0 passed to engineWheelsX()/
-// engineMoveX() is MotionEngine's own existing "nothing to command"
-// no-op (motion_engine.h); the wire's "0 means the configured default"
-// substitution (motion-api.md S1.1) is resolved by onWheelsX()/onMoveX()
-// below, via engineDefaultCruiseMmS(), BEFORE either of these is ever
-// called -- neither one ever sees the sentinel itself.
 void engineWheelsX(float left, float right, float cruise,
                    uint32_t timeoutMs);
 void engineMoveX(float distance, float rotationRad, float cruise,
                  uint32_t timeoutMs);
 float engineDefaultCruiseMmS();
 
-// ---- shims.cpp entry points (sprint 003 ticket 012) --------------------
-// MOVE_V/GO_TO_R/GO_TO_W's own route onto motion_engine.h's MotionEngine,
-// completing the six-verb motion surface -- same forward-declaration
-// convention as engineWheelsX()/engineMoveX()/engineDefaultCruiseMmS()
-// above. `omegaRad` arrives at engineMoveV() ALREADY converted from the
-// wire's milliradian integer, same seam as engineMoveX()'s `rotationRad`
-// (mradToRad() below). `speed`'s <0/==0 handling for engineGoToR()/
-// engineGoToW() is resolved by onGoToR()/onGoToW() below, via
-// engineDefaultCruiseMmS(), BEFORE either is ever called -- identical
-// convention to `cruise` above. SPRINT 006 TICKET 007: engineGoToW()
-// selects its own PoseSource internally (OtosPort when connected, the
-// encoder-odometry fallback otherwise -- motion-api.md S3.6) and now
-// always dispatches onto MotionEngine::goToW(); its bool return is
-// unconditionally true under the current implementation, kept only to
-// preserve the existing "was a live pose available" contract.
 void engineMoveV(float vx, float omegaRad, uint32_t durationMs);
 void engineGoToR(float x, float y, float speed, float arrive,
                  uint32_t timeoutMs);
@@ -120,15 +91,10 @@ namespace {
 // The `ConfigField` enum entries (main.ts) mapped onto
 // setKernelValue()/getConfigValue()'s existing field ordinals
 // (shims.cpp) -- one wire NAME per field, replacing the old binary
-// CONFIG/SET_FIELD/GET_CONFIG verbs' bare ordinal one-for-one (sprint.md
-// Migration Concerns: "GET/SET address the same DifferentialDrive::
-// Config/Rig fields that exist today, under new wire names, with
-// nothing to convert"). Declaration order matches ConfigField's own
-// declaration order so a bare GET's dump reads in the same order a
-// human reading main.ts would expect. 15 entries through sprint 006;
-// 17 as of sprint 007 ticket 003 (`default_cruise` joins `stall_clear`);
-// 18 as of sprint 007 ticket 005, which fills in `rotational_slip`
-// (ordinal 16) between them.
+// CONFIG/SET_FIELD/GET_CONFIG verbs' bare ordinal one-for-one.
+// Declaration order matches ConfigField's own declaration order so a
+// bare GET's dump reads in the same order a human reading main.ts would
+// expect. See each entry below for its own ordinal provenance.
 struct FieldEntry {
   const char* name;  // wire key
   int ordinal;        // shims.cpp's setKernelValue()/getConfigValue() field
@@ -325,10 +291,7 @@ void WireAdapter::status(Wire::StatusFields& out) const {
   // block for why that distinction is load-bearing).
   out.otos = otosGet(kOtosConnected) != 0;
   out.wedge = diagValue(kDiagWedgeLeft) != 0 || diagValue(kDiagWedgeRight) != 0;
-  // "active" here means "a motion command is currently in effect" -- the
-  // closest reading of this robot's WHEELS_V-only, planner-free command
-  // surface can produce (mirrors DiffDriveAdapter::status()'s own
-  // reasoning).
+  // "active": ready, not halted, and a wheel is measurably moving.
   out.active = out.ready && !estopped && !leaseExpired && !stallHalted &&
                (diagValue(kDiagVelocityLeft) != 0 ||
                 diagValue(kDiagVelocityRight) != 0);
@@ -369,10 +332,8 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
   // session's first motion verb, or no clock is wired).
   if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   setWheelsTimed(static_cast<int>(left), static_cast<int>(right), duration);
-  // sprint 003 ticket 005: record the resulting deadline so
-  // hasLiveMotionObligation() can tell protocol.cpp's fiber loop to keep
-  // ticking the kernel until it elapses -- see this file's header
-  // comment. A no-op (never "active") with no clock wired.
+  // Record the resulting deadline so protocol.cpp's fiber loop keeps
+  // ticking the kernel until it elapses; a no-op with no clock wired.
   if (nowMs_ != nullptr) {
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + duration;
@@ -402,14 +363,8 @@ Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
   // rationale.
   if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   engineWheelsX(left, right, resolvedCruise, timeout);
-  // sprint 003 ticket 012: arm the SAME motion-obligation tracking
-  // onWheelsV() above always has -- see wire_adapter.h's own header
-  // comment for the bug this fixes (ticket 011 dispatched real effect
-  // here without arming it, so protocol.cpp's fiber never ticked the
-  // kernel for this verb on hardware). `timeout` is a backstop, not
-  // this move's real duration, so this is a conservative deadline: the
-  // fiber may keep ticking a little past actual completion, which is
-  // harmless.
+  // timeout is a backstop, not the real duration -- conservative
+  // deadline; ticking a little past completion is harmless.
   if (nowMs_ != nullptr) {
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + timeout;
@@ -437,7 +392,6 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
   // The wire's ONE milliradian->radian conversion seam (motion-api.md
   // S9.1) -- see mradToRad()'s own comment above.
   engineMoveX(distance, mradToRad(rotation), resolvedCruise, timeout);
-  // sprint 003 ticket 012: see onWheelsX()'s identical comment above.
   if (nowMs_ != nullptr) {
     // GOAL-DIRECTED: this class's own resolvePendingReason() also reads
     // engineMoveActive() for this one -- see wire_adapter.h.
@@ -462,8 +416,7 @@ Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
   // S9.1) -- `omega` is angle-shaped exactly like MOVE_X's `rotation`;
   // see mradToRad()'s own comment above.
   engineMoveV(v_x, mradToRad(omega), duration);
-  // sprint 003 ticket 012: see onWheelsX()'s identical comment above --
-  // here `duration` IS the lease already, same as onWheelsV().
+  // duration IS the lease already, same as onWheelsV().
   if (nowMs_ != nullptr) {
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + duration;
@@ -485,7 +438,6 @@ Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
   // GOAL-DIRECTED, same as MOVE_X.
   if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   engineGoToR(x, y, resolvedSpeed, arrive, timeout);
-  // sprint 003 ticket 012: see onWheelsX()'s identical comment above.
   if (nowMs_ != nullptr) {
     motionObligationActive_ = true;
     motionObligationDeadlineMs_ = nowMs_() + timeout;
@@ -509,7 +461,6 @@ Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
   if (!engineGoToW(x, y, resolvedSpeed, arrive, timeout)) {
     return Wire::Result::kUnimplemented;
   }
-  // sprint 003 ticket 012: see onWheelsX()'s identical comment above --
   // only armed on the path that actually dispatched a move.
   if (nowMs_ != nullptr) {
     // sprint 005 ticket 004: GOAL-DIRECTED, same as MOVE_X/GO_TO_R --
@@ -606,7 +557,7 @@ Wire::Result WireAdapter::onStop(bool /*immediate*/, uint32_t /*id*/) {
   // has no engineMoveActive() signal of its own to fall back on) as
   // kTimeout instead of kStop.
   forceResolvePending(Wire::DoneReason::kStop);
-  // sprint 003 ticket 005: see onEstop()'s identical comment above.
+  // see onEstop()'s identical comment above.
   motionObligationActive_ = false;
   return Wire::Result::kOk;
 }
@@ -700,6 +651,8 @@ Wire::DoneReason WireAdapter::lastDoneReason() const {
 bool WireAdapter::onGet(const char* name, float& out) const {
   const FieldEntry* entry = findField(name);
   if (entry == nullptr) return false;
+  // config values cross the shim boundary as x1000-scaled ints
+  // (shims.cpp convention).
   out = static_cast<float>(getConfigValue(entry->ordinal)) * 0.001f;
   return true;
 }
