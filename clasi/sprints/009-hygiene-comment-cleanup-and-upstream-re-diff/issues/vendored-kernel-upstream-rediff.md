@@ -1,6 +1,10 @@
 ---
-status: pending
+status: in-progress
 sprint: 009
+tickets:
+- 009-001
+- 009-007
+- 009-012
 ---
 
 # Upstream re-diff of the vendored kernel: five truncated comments and a repo name that does not resolve

@@ -1,6 +1,19 @@
 ---
-status: pending
+status: in-progress
 sprint: 009
+tickets:
+- 009-001
+- 009-002
+- 009-003
+- 009-004
+- 009-005
+- 009-006
+- 009-007
+- 009-008
+- 009-009
+- 009-010
+- 009-011
+- 009-012
 ---
 
 # Comment cleanup: apply the audited work order (135 items, with corrections)

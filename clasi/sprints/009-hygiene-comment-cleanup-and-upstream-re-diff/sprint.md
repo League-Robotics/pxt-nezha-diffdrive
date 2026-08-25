@@ -1,9 +1,11 @@
 ---
 id: 009
 title: 'Hygiene: comment cleanup and upstream re-diff'
-status: roadmap
+status: ticketing
 branch: sprint/009-hygiene-comment-cleanup-and-upstream-re-diff
-use-cases: []
+use-cases:
+- SUC-001
+- SUC-002
 issues:
 - comment-cleanup-work-order.md
 - vendored-kernel-upstream-rediff.md
@@ -191,40 +193,302 @@ against actual coverage gaps once tickets are scoped.
 
 ## Architecture
 
-(Architecture for this sprint's change, sized to the change — a
-one-paragraph note for a trivial sprint, a fuller write-up with
-component/data-model detail for a substantial one. May read "N/A —
-trivial" when the change has no architectural impact.)
+**Sizing: Substantial** — by module count alone: this sprint's comment
+work order and upstream re-diff touch every layer of `src/DESIGN.md`'s
+layer map (kernel, motion engine, wire grammar, wire adapter,
+transports, hardware ports, protocol composition, shim + blocks) plus
+`test/`, `tests/host/`, and `tools/` — 59 files audited, ~20 more
+touched incidentally by the provenance sweep and guidelines update.
+That clears the "3+ modules touched" substantial-tier signal by a wide
+margin. But — mirroring sprint 020's own precedent — **no component,
+ERD, or dependency-graph diagram is included**: this sprint introduces
+no new module, no new or changed cross-module dependency, no
+dependency-direction change, and no data-model change. It rewrites and
+deletes comments (behavior-neutral by construction) and, in one
+narrowly-scoped exception, fixes only those `diffdrive.{h,cpp}`
+divergences the upstream re-diff proves accidental. A diagram would
+show the same layer map `src/DESIGN.md` §1 already draws, unchanged;
+it would clarify nothing this sprint actually does.
 
 ### Architecture Overview
 
-(High-level structure and component relationships, if applicable.)
+**What changed.** Two coordinated efforts, both landing in
+`src/diffdrive.h`/`.cpp` first because they share those two files:
+
+1. **Vendored-kernel re-diff and restoration**
+   (`vendored-kernel-upstream-rediff.md`). `diffdrive.h`'s five
+   comments truncated mid-sentence during a lossy vendoring step are
+   restored verbatim from the upstream text `verify-comments.md` §3
+   already fetched and confirmed against `League-Robotics/radio-robot`'s
+   current tree (kernel now at `src/firm/diffdrive/`, not the stale
+   `src/firm/control/` path several local comments and both design
+   docs still name). The full pair is re-diffed against that upstream
+   location; any divergence beyond comments is catalogued as
+   deliberate or fixed if proven accidental. `src/DESIGN.md` gains one
+   authoritative provenance statement (current repo, current path,
+   maintenance boundary) that per-file headers point at instead of
+   each restating a path that goes stale — closing the exact failure
+   mode that let `src/firm/control/` survive as long as it did.
+   `overview.md` §Provenance and `specification.md` §12 — which
+   already *flag* the README/source discrepancy without resolving it —
+   get resolved, pointing at `src/DESIGN.md` as the one place path
+   details live.
+
+2. **Comment-hygiene work order** (`comment-cleanup-work-order.md`).
+   `comment-audit.md`'s 135-item work order (11 DELETE, 123 REWRITE, 1
+   ADD) applies across 59 files, corrected wherever
+   `verify-comments.md`'s adversarial spot-check overrides it — 8 of
+   16 sampled REWRITEs would otherwise have destroyed load-bearing
+   content, so every REWRITE not among the 16 sampled gets the same
+   "does the replacement preserve every invariant, unit, measured
+   value, and derivation" check before landing, not just the sampled
+   ones. `docs/code-review/guidelines.md`'s existing comment-hygiene
+   dimension gains a short section distilling the audit's five
+   recurring anti-patterns, written after the cleanup lands so it can
+   point at what was actually removed.
+
+**Why this shape.** The audit and its corrections are both roughly
+five months stale relative to `src/`'s current state — sprints
+006/007/008 rewrote large parts of exactly the files this work order
+targets (`shims.cpp`, `wire_handler.*`, `wire_adapter.*`, `protocol.*`,
+the settle-tick loop) after the audit ran. Two consequences drive every
+ticket's plan, not just a general caution:
+
+- **Line numbers are stale.** Every ticket re-anchors its items by
+  content match against current source, not by the audit's line
+  numbers, which have shifted or no longer exist.
+- **Some audited comments have been superseded by better ones.** Six
+  confirmed instances — three named in the sprint charter, three more
+  found while cross-referencing `src/DESIGN.md`'s own sprint 006-008
+  change-summary sections during planning:
+  - `motion_engine.h`'s `rotationalSlip_` comment (audit lines
+    335-346) — sprint 007 ticket 005 already expanded it with the
+    full measurement-to-constant derivation chain and an explicit
+    "do not set `rotationalSlip_` to 0.915" caution. The audit's own
+    REWRITE (and even `verify-comments.md`'s R9 correction) predates
+    that expansion and would shorten it back. **Ticket 002 verifies
+    this item is already satisfied — it does not overwrite it.**
+  - `shims.cpp`'s `tickDrive()` banner and the settle-loop essay
+    (audit lines 427-447, 501-519) — sprint 008 replaced the inline
+    settle loop with a call into a new `MotionEngine` helper and
+    rewrote this region; the audit's proposed text describes the
+    *pre-008* inline loop. **Ticket 008 re-derives this comment from
+    current code**, keeping the audit's anti-pattern guidance (drop
+    ticket refs, state the KNOWN GAP crisply) without pasting stale
+    prose over a newer, correct one.
+  - `wire_handler.cpp`'s motion-verb decode region (audit lines
+    433-437, 741-749) — sprint 008 added the shared decode-time
+    `duration`/`timeout` clamp (WIRE-02/KERN-06/WIRE-10) in this exact
+    area. **Ticket 003 confirms the current comment already documents
+    the clamp before applying any audit text.**
+  - `radio_transport.h`'s `kMaxPayloadBytes` comment (audit lines
+    118-125; `verify-comments.md`'s R14 correction) — both the audit
+    and R14 assume the comment still claims equality with
+    `SerialTransport`'s cap. Sprint 008 already rewrote this exact
+    comment to state the true (tighter-cap) relationship as part of
+    its own WIRE-05/R-21 single-sourcing fix. **Ticket 005 reads the
+    live comment first**; if sprint 008's fix already meets the
+    dimension-6 bar, this item is a no-op.
+  - `protocol.cpp`'s identity-constants essay (audit lines 30-63)
+    describes `kVersion` as "a manually-synced mirror... the sync is
+    currently broken (1.0.0 vs 1.0.10)" — sprint 008 fixed that exact
+    drift (`kVersion` is now single-sourced or drift-tested against
+    `pxt.json`). **Ticket 006 must not reintroduce the "currently
+    broken" claim.**
+  - `protocol.h`'s retired-TLM note (audit lines 47-61) describes v6
+    as having "no data-bearing telemetry frame yet" — sprint 004
+    built that frame. **Ticket 006 corrects this to reflect the
+    shipped telemetry projection**, leaving only the `tools/` retrofit
+    gap (still real, still sprint 005's scope) as the KNOWN GAP.
+- **New files the audit never saw**: `heading_wrap.h`,
+  `encoder_glitch_armor.h`, `encoder_pose_source.h` (sprint 006), and
+  the sprint 006-008 `tests/host/test_*.py`/shim files. **Decision:
+  out of the 135-item work order** — nothing in the audit names them,
+  so there is nothing to "apply" — but tickets 009/010 spot-check them
+  against the new comment-standards section for the same five
+  anti-patterns, fixing only unambiguous instances (a stray ticket
+  tag) rather than opening a second full audit. These files were
+  written after dimension-6 review became routine and read clean in
+  the sampling done during planning.
+
+**Provenance-name sweep beyond `diffdrive.*`.** The re-diff issue's
+problem statement is broader than its own "What to do" list: "both
+this repo's vendoring comments **and** two of the comment audit's
+proposed replacements name the unresolvable repo." Reading current
+source during planning confirms this: `otos_port.h` (×2),
+`otos_port.cpp`, `radio_transport.h`, `radio_transport.cpp`, and
+`nezha_port.cpp` (×2) all currently say `radio-robot-elite` in live,
+unaudited, KEEP-tagged comments — not just the audit's proposed
+`diffdrive.{h,cpp}` rewrites. `nezha_port.h`'s own header already says
+the correct `radio-robot`, so the tree is internally inconsistent
+about its own upstream's name. Ticket 007 sweeps all of these to point
+at `src/DESIGN.md`'s new authoritative statement, consistent with the
+issue's stated goal even though its own numbered action list names
+only `diffdrive.*` explicitly.
+
+**Behavior-neutral, proven two ways.** No ticket changes wire grammar,
+motion math, or hardware timing, with one narrow exception (ticket
+001's accidental-divergence fix, if the re-diff finds one — verified
+against the specific upstream contract it restores, e.g. the
+`fullDutyVelocity == 0` refusal). Every ticket scopes its test run to
+the modules it touches; ticket 012 is the mandatory final
+build-checkpoint (per `src/DESIGN.md` §11's standing convention since
+sprint 008) that runs the full host suite and produces a flashable hex
+via `make_deploy.py` — the host suite proves no host-visible output
+changed, the checkpoint proves the files `test_cxx11_syntax_gate.py`
+doesn't cover (`protocol.*`, `*_transport.*`, the hardware ports,
+`shims.cpp`) still link for the real target. Neither alone is
+sufficient; both run.
+
+**Deliberately out of scope, with the disposition stated so it isn't
+silently dropped:**
+- `tools/otos_levercal.py` still sends `RUN:8`/`RUN:14`, which current
+  firmware doesn't answer (the real trigger is
+  `RUN:cal`/`RUN:cal:1`). The audit calls this a code bug, not a
+  comment problem; fixing it would violate this sprint's
+  behavior-neutral constraint (bench tooling is still project
+  behavior, just not robot firmware). Ticket 010 corrects the
+  *comment* to state the mismatch honestly and leaves the call in
+  place, noting the audit's broader "handoff-2" class (several tools
+  speak a retired wire vocabulary) in its completion notes for the
+  team-lead to file as a follow-up issue.
+- `wire_adapter.cpp`'s DIAG-has-no-v6-equivalent note (the audit's own
+  "file it as an issue" instruction) — ticket 004 keeps the compressed
+  comment the audit specifies and notes the filing request in its
+  completion notes rather than creating a new issue mid-execution.
 
 ### Design Rationale
 
-(Significant decisions with alternatives considered and reasoning, if
-applicable.)
+**Decision: partition tickets by `src/DESIGN.md`'s own layer map,
+kernel first.** *Context*: 135 items need to land in units small
+enough to review but few enough to plan. *Alternatives*: one ticket
+per audited file (59 — too fine-grained, most files are a handful of
+lines); one ticket per DELETE/REWRITE/ADD risk class (3 — too coarse,
+mixes unrelated files with wildly different superseded-content risk).
+*Why this choice*: the codebase's own layer map already groups files
+by "changes for the same reason" — the cohesion test this process
+applies to architecture — so reusing it for ticket boundaries means
+each ticket's reviewer only needs one layer's mental model loaded, and
+the kernel (highest stakes: the re-diff, the 0.952/0.915 near-miss
+precedent) goes first so the riskiest work isn't discovered last.
+*Consequences*: 12 tickets rather than a smaller number — acceptable
+per this sprint's own "135 items is a lot for one ticket" instruction;
+ticket 007 (hardware ports) is the one ticket that depends on ticket
+001, since it points several files' provenance comments at the
+authoritative statement ticket 001 writes.
+
+**Decision: treat the new sprint-006/007/008 files as out of the
+135-item work order, not silently folded into it.** *Context*:
+sprint.md requires an explicit in/out decision for files the audit
+never saw. *Alternatives*: fold them into the nearest layer ticket and
+audit them fresh; ignore them entirely. *Why this choice*: the
+135-item count is a specific, sized, reviewed work order; silently
+expanding it either invents unaudited work with no `verify-comments.md`
+coverage to check it against, or silently drops newer files from a
+sprint whose whole theme is "the written record catches up to the
+code." A bounded spot-check against the same five anti-patterns
+threads that needle without opening a second full audit.
+*Consequences*: tickets 009/010 carry a small, explicitly-bounded
+extra task; a spot-check finding real noise gets fixed only where
+unambiguous, with anything larger noted for a future sprint rather
+than expanding scope mid-execution.
+
+**Decision: no diagram.** *Context*: substantial tier by module count
+normally warrants one. *Alternatives*: draw the layer map anyway for
+completeness. *Why this choice*: sprint 020's own precedent — a
+diagram earns its place by clarifying composition, and this sprint
+composes nothing new; `src/DESIGN.md` §1's existing layer-map table
+already is that diagram, unchanged. *Consequences*: none — the
+existing table remains the reference; this sprint touches §2's prose
+only, to correct the kernel's provenance path.
 
 ### Migration Concerns
 
-(Data migration, backward compatibility, deployment sequencing — or
-"None" if not applicable.)
+None. No data migration, no wire-format change, no deployment
+sequencing beyond the ordinary flash cycle ticket 012's checkpoint
+exercises. The one class of change with any runtime effect — an
+accidental-divergence fix in `diffdrive.{h,cpp}` the re-diff might
+surface — is scoped narrowly (ticket 001) and gets its own targeted
+verification against the specific upstream contract it restores, per
+the Test Strategy above.
 
 ## Use Cases
 
-(Use cases sized to the change — may read "N/A — trivial" for small
-sprints that don't warrant new or updated use cases.)
+No student-facing or robot-behavior use case is added or changed —
+this sprint is comment- and documentation-only by construction (one
+narrow, re-diff-justified exception scoped to ticket 001). The two
+sprint-level use cases below describe the *maintainer's* experience,
+which is what this sprint actually changes; neither parents a UC-XXX
+from `docs/design/usecases.md`, since none of those describe reading
+or trusting source comments.
 
-### SUC-001: (Title)
-Parent: UC-XXX
+### SUC-001: A contributor reads a vendored kernel comment and trusts it
+Parent: N/A — maintainability, not a functional use case
 
-- **Actor**: (Who)
-- **Preconditions**: (What must be true before)
+- **Actor**: A future contributor re-syncing or debugging the vendored
+  kernel.
+- **Preconditions**: `diffdrive.h`/`.cpp` carry comments truncated
+  during a past lossy vendoring step, and the provenance comment names
+  a repository that does not resolve.
 - **Main Flow**:
-  1. (Step)
-- **Postconditions**: (What is true after)
+  1. The contributor opens `diffdrive.h` to check a config field's
+     contract (e.g., `maxDuty`, `fullDutyVelocity`).
+  2. The comment states the complete contract, including sentinel
+     meanings, without needing to cross-reference `checkCommandable()`
+     to guess what a truncated comment might have meant.
+  3. The contributor follows the provenance comment to
+     `src/DESIGN.md`'s one authoritative statement of the current
+     upstream repo and path, instead of hitting a dead repository
+     name or a path upstream no longer uses.
+- **Postconditions**: The five truncated comments read complete
+  upstream text; `src/diffdrive.h`/`.cpp` have been diffed against
+  current upstream with every divergence catalogued; the provenance
+  statement resolves, not merely flags, the README/source discrepancy
+  `specification.md` §12 previously left open.
 - **Acceptance Criteria**:
-  - [ ] (Criterion)
+  - [ ] Lines 81, 84, 90, 91, and 125 of `diffdrive.h` read complete
+        upstream sentences, not paraphrases.
+  - [ ] `src/DESIGN.md`, `overview.md` §Provenance, and
+        `specification.md` §12 all name `League-Robotics/radio-robot`
+        and `src/firm/diffdrive/` and state the maintenance boundary.
+  - [ ] No file in `src/` states `radio-robot-elite` as the upstream
+        repository.
+
+### SUC-002: A reviewer trusts a kept comment reflects current behavior
+Parent: N/A — maintainability, not a functional use case
+
+- **Actor**: A code reviewer or future agent editing wire-layer,
+  motion-engine, or shim code.
+- **Preconditions**: `comment-audit.md`'s 135-item work order has not
+  yet been applied; roughly 16% of audited comment blocks are noise
+  (ticket archaeology, stale cross-layer claims, diff restatement,
+  reviewer-justification essays, orphaned fragments), concentrated in
+  the wire-layer headers.
+- **Main Flow**:
+  1. The reviewer reads a comment in `wire_adapter.cpp`,
+     `wire_handler.h`, `motion_engine.h`, or `shims.cpp`.
+  2. The comment states the *current* contract — post sprints
+     006-008 — not a claim that predates them (e.g., not "the other
+     five verbs answer kUnknown" when all six now dispatch).
+  3. The comment carries no ticket-archaeology header, no
+     reviewer-justification essay, no stale cross-layer claim, no diff
+     restatement, and sits immediately above the code it describes.
+- **Postconditions**: All 135 audited items are applied, corrected
+  wherever `verify-comments.md` overrides the audit, with every
+  unsampled REWRITE checked against the same "preserves every
+  invariant, unit, measured value, and derivation" test before
+  landing. `docs/code-review/guidelines.md`'s comment-hygiene
+  dimension documents the five anti-patterns so future work doesn't
+  regenerate them.
+- **Acceptance Criteria**:
+  - [ ] Zero load-bearing content (invariant, unit, measured value, or
+        derivation) is lost across all 135 items.
+  - [ ] The `motion_engine.h` `rotationalSlip_` comment still carries
+        the full 0.915→120.0mm→0.952 derivation chain and the
+        "do not set to 0.915" caution (verified unchanged, not
+        rewritten).
+  - [ ] `docs/code-review/guidelines.md` names the five anti-patterns
+        with the concrete examples this sprint found.
 
 ## GitHub Issues
 
@@ -244,5 +508,23 @@ Before tickets can be created, all of the following must be true:
 
 | # | Title | Depends On |
 |---|-------|------------|
+| 001 | Kernel re-diff and provenance restoration (diffdrive.h/.cpp, src/DESIGN.md, overview.md, specification.md) | — |
+| 002 | Motion engine comment cleanup (motion_engine.h/.cpp) | — |
+| 003 | Wire grammar comment cleanup (wire_handler.h/.cpp) | — |
+| 004 | Wire adapter comment cleanup (wire_adapter.h/.cpp) | — |
+| 005 | Transports comment cleanup (serial_transport.*, radio_transport.*) | — |
+| 006 | Protocol composition comment cleanup (protocol.h/.cpp) | — |
+| 007 | Hardware ports comment cleanup and provenance-name sweep (nezha_port.*, otos_port.*, platform_ports.h) | 001 |
+| 008 | Shim and blocks comment cleanup (shims.cpp, main.ts) | — |
+| 009 | Host test harness comment cleanup (tests/host/*.h/.cpp, README.md) | — |
+| 010 | Test programs, Python test suite, and tooling doc cleanup (test/*.ts, tests/host/test_*.py, tools/*.py) | — |
+| 011 | Comment-standards section in docs/code-review/guidelines.md | 001-010 |
+| 012 | Final build checkpoint (host suite + flashable hex) | 001-011 |
 
-Tickets execute serially in the order listed.
+Tickets execute serially in the order listed. Partitioned by
+`src/DESIGN.md`'s own layer map, kernel first (highest stakes: the
+re-diff, the 0.952/0.915 near-miss precedent) — see Architecture
+§Design Rationale for why. Ticket 007 has a genuine dependency on 001
+(it points several files' provenance comments at the authoritative
+statement 001 writes); 011 and 012 are written to run after the
+cleanup work they describe/verify, per each ticket's own rationale.
