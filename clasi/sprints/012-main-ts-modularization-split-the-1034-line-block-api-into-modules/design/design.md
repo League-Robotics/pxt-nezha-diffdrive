@@ -56,7 +56,7 @@ boundaries, nowhere else.
 
 | Layer | Units |
 |---|---|
-| Blocks (`main.ts`, student-facing) | cm, cm/s, degrees, degrees/s |
+| Blocks (`src/motion.ts`/`pose.ts`/`stop.ts`/`world.ts`/`run.ts`, student-facing — sprint 012 split these out of a single `main.ts`; see `src/DESIGN.md` §9/§15) | cm, cm/s, degrees, degrees/s |
 | TS→C++ shim boundary | **integers only**: mm, mm/s, centidegrees, centidegrees/s |
 | Kernel config across the shim boundary | value × 1000 as an integer (the ×1000 fixed-point convention; `setKernelValue`/`getConfigValue` in `shims.cpp`) |
 | MotionEngine | mm, mm/s, radians, ms |

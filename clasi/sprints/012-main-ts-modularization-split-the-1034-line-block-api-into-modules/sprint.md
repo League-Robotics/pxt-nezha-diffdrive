@@ -1,7 +1,7 @@
 ---
 id: '012'
 title: 'main.ts modularization: split the 1034-line block API into modules'
-status: roadmap
+status: ticketing
 branch: sprint/012-main-ts-modularization-split-the-1034-line-block-api-into-modules
 use-cases: []
 issues:
@@ -244,32 +244,103 @@ type-checks is not sufficient evidence for this sprint's goal.
 
 ## Architecture
 
-N/A — roadmap phase. Sizing and architecture detail (this will very
-likely land as a **compact-to-substantial** decision — module count is
-7ish, which crosses the substantial-tier module-count signal, but there is
-no new cross-module dependency, no dependency-direction change, and no
-data-model change, which are the substantial tier's other signals; Detail
-Mode should make this call explicitly rather than default to either tier)
-are written during Detail Mode planning.
+**Substantial/structural.** `src/main.ts` splits into six cohesion-sized
+modules (`sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`,
+`motion.ts`) — 3+ modules touched clears the substantial-tier
+module-count signal on its own, and the split introduces a genuine new
+cross-module dependency class: previously-implicit, same-file
+references between these responsibilities become explicit,
+compile-order-sensitive, cross-file references within one TypeScript
+namespace (the roadmap's "compact-to-substantial" framing is resolved
+here, explicitly, as substantial). No dependency-direction change and
+no data-model change — the other two substantial-tier signals don't
+independently apply, but the module count and the new cross-module
+dependency are each independently sufficient.
 
-### Architecture Overview
+Per the `design_docs` overlay convention (this project has opted in),
+the full write-up — Sprint Changes, the component/dependency diagram,
+Migration Concerns, Risk, Design Rationale, and Open Questions — lives
+in this sprint's `design/` overlay, not here:
+[`design/src-root-DESIGN.md`](design/src-root-DESIGN.md) §9 (current
+module structure) and §15 (the sprint 012 record), and
+[`design/design.md`](design/design.md) (one units-ladder table cell,
+`main.ts` → the five new block-API files). Both overlay files'
+`.diff.md` siblings are hand-written (no `generate_diffs` tool in this
+project) and `validate_design` returns `ok: true` against this
+overlay directory as of this planning pass.
 
-(Deferred to Detail Mode.)
-
-### Design Rationale
-
-(Deferred to Detail Mode.)
-
-### Migration Concerns
-
-(Deferred to Detail Mode.)
+The one line worth restating here without reading the overlay: this
+sprint's entire technical risk is PXT-specific compile/load behavior
+outside any host test's reach (§1's layering table places `main.ts`'s
+successors outside the C++11 gate and `tests/host/` entirely) — the
+sprint is sequenced (sim.ts first) so that its first ticket's build
+doubles as the empirical proof the rest of the split relies on, rather
+than asserting the split is safe from inspection alone. See the
+overlay's Design Rationale for the full reasoning.
 
 ## Use Cases
 
-N/A — roadmap phase. This sprint changes no use-case-visible behavior by
-design; Detail Mode should confirm no use case needs updating (a
-restructuring sprint that turns out to need a use-case change has scope
-creep worth flagging, not silently absorbing).
+Confirmed against `docs/design/usecases.md` (UC-001 through UC-016):
+none needs a content change from this sprint — the file's own use-case
+prose describes student-visible behavior, never file/line structure
+(the one internal cross-reference, UC-007's "see `startMove`'s doc
+comment in `main.ts`," is a pointer that stays accurate in spirit once
+that doc comment moves to `motion.ts`, and is exactly the kind of
+stale-pointer detail this sprint's doc-update tickets track). This
+sprint adds no new SUC in the "a new capability now exists" sense
+sprint 011's SUCs had — its point is that UC-001 through UC-016 all
+continue to hold, unchanged, which is itself the scenario worth
+stating explicitly rather than skipping:
+
+### SUC-001: Every existing use case behaves identically before and after the split
+
+A student (or the host-side test programs standing in for one) runs
+any of UC-001 through UC-016 — install the extension, drive at a
+constant speed, drive a straight distance, pivot, drive an arc, drive
+a curved path to a point, start a move without blocking, run code
+while moving, read pose, reset pose, stop/emergency-stop, clear an
+emergency stop, calibrate the chassis, tune default speed/turn rate,
+use the config escape hatch, develop in the browser simulator — and
+observes no difference in behavior, block appearance, or generated-hex
+output attributable to this sprint. This is the sprint's success
+criterion restated as a use case: the six new files change where code
+lives, never what it does. Evidence is the Test Strategy already in
+this document (build/hex comparison, block-surface comparison,
+simulator/test-program parity, the existing host suite as a regression
+fence) plus each ticket's own build-and-simulator-run acceptance
+criteria — not an assertion that "the diff only moves code."
+
+### SUC-002: A future contributor can change one motion concern without reading the whole file
+
+Today, editing anything in `main.ts` — a Pose fix, a World tuning
+constant, a Setup default — means opening a single 1128-line (as of
+this planning pass) file that also holds the RUN dispatcher and a
+200+-line browser simulator, none of which the edit touches. After
+this sprint, editing `pose.ts` means opening a ~40-line file whose
+purpose is stated in one sentence with no "and." This is the
+motivating use case behind the issue and the code review's DES-05
+finding, restated concretely: sprints 009 (comment hygiene, already
+planned) and any future sprint touching motion/pose/world/stop/RUN
+code get smaller, single-concern diffs instead of a diff against a
+file most of whose lines are unrelated to the change. Not independently
+tested by this sprint (there is no "file is easier to read" test) —
+served by the module boundaries themselves, reviewed for cohesion in
+this sprint's own architecture self-review (see the overlay's Design
+Rationale for how each boundary was chosen and re-checked against the
+real file rather than assumed from the issue's proposal).
+
+### SUC-003: A student opening the Blocks editor sees the same toolbox
+
+The Drive/Move/Pose/World/Setup toolbox groups, their block captions,
+and their parameter ranges are unchanged — a student who already knows
+where `set wheel speeds` or `go to world x %x cm y %y cm` lives in the
+toolbox finds it in the same place after this sprint ships, because
+`//%` annotations (including `group=`) travel verbatim with their
+functions into the new files (Success Criteria; verified per-ticket
+via block-surface comparison, not asserted from the fact that the
+annotation text itself is unchanged — PXT toolbox layout also depends
+on load order and file structure in ways worth actually checking, not
+assuming).
 
 ## GitHub Issues
 
