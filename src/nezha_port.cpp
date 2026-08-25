@@ -49,13 +49,55 @@ void NezhaMotorPort::begin() {
   // The 0x46 register sits frozen at 0 until its first select+read.
   // Median-of-3 atomic reads -> software offset, so position() starts
   // at zero without ever device-resetting the counter.
+  //
+  // Bus-hang guard (sprint 010 ticket 004 investigation -- see
+  // clasi/sprints/010-.../tickets/004-...md for the full written
+  // finding). This project's actual resolved build (codal-microbit-v2
+  // v0.3.5, confirmed via .tmp/deploy-head/built/codal.json after a
+  // real `pxt build`) pins codal-nrf52 commit 1fbb724, which is a
+  // confirmed descendant of BOTH upstream fixes the issue's research
+  // flagged: "NRF52I2C: Introduce transaction timeout" (2021-06-30) and
+  // "NRF52I2C::waitForStop: recover from hang" (2022-01/04). So
+  // writeFrame()/readEncoderRaw() below can no longer hang forever --
+  // codal-nrf52's own NRF52I2C::waitForStop() bounds one stuck
+  // transaction to ~NRF52I2C_TIMEOUT10US (1,000,000 x 10us = ~10s)
+  // before it force-recovers the bus, plus up to
+  // ~NRF52I2C_TIMEOUT10US_STOP (~1s) waiting for that recovery's own
+  // STOP to land -- roughly 11s worst case PER CALL, not infinite. That
+  // is a real, confirmed platform-level bound; it is NOT confirmed to
+  // be the exact path a genuinely unpowered (vs. mid-transaction-wedged)
+  // brick hits in practice -- an unpowered device more plausibly NACKs
+  // fast (NRF_TWIM_EVENT_ERROR fires immediately, checked every spin),
+  // which is a separate, much cheaper failure path through the same
+  // function. Only a bench check with a real dead brick (ticket 005)
+  // can settle which path fires.
+  //
+  // Given that ~11s-per-call ceiling is real either way, the original
+  // loop's "try all 3 samples regardless of an earlier failure" shape
+  // multiplies a bad worst case: up to 3 sequential hard failures per
+  // motor (~33s), up to 6 across both wheels in
+  // DifferentialDrive::begin() (~66s) before ever reporting
+  // connected()==false. Stopping at the FIRST hard failure (write or
+  // read) caps this motor's own worst case to one attempt (~11-22s)
+  // instead of three -- a real, bounded, honest delay, not the
+  // "silent, unbounded hang" the issue described, though still not
+  // fast. Trade-off, stated plainly: this also removes the old loop's
+  // tolerance for a single transient blip mid-sequence (e.g. sample 1
+  // NACKs on a cold-boot brownout but samples 2-3 would have been
+  // fine) -- previously that still produced a good median-of-2 boot;
+  // now it reports connected()==false on that motor. No bench evidence
+  // either way yet; ticket 005 should watch for it.
   int32_t samples[3] = {0, 0, 0};
   int good = 0;
   for (int i = 0; i < 3; ++i) {
-    if (!writeFrame(0x00, kRegEncoder, 0x00)) continue;
+    if (!writeFrame(0x00, kRegEncoder, 0x00)) break;  // hard failure --
+                                                        // don't multiply a
+                                                        // wedged-bus delay
+                                                        // by trying more
     fiber_sleep(4);  // [ms] select -> read settle
     int32_t raw = 0;
-    if (readEncoderRaw(&raw)) samples[good++] = raw;
+    if (!readEncoderRaw(&raw)) break;  // same reasoning
+    samples[good++] = raw;
   }
   if (good > 0) {
     // median of what we got
