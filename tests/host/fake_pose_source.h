@@ -11,7 +11,7 @@
 // libraries (see motion_engine_shim.cpp).
 #pragma once
 
-#include "motion_engine.h"
+#include "motion/motion_engine.h"
 
 class FakePoseSource : public diffDrive::PoseSource {
  public:

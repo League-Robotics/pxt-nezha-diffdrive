@@ -121,7 +121,7 @@
 
 #include <cstdint>
 
-#include "core/diffdrive.h"
+#include "../core/diffdrive.h"
 
 namespace diffDrive {
 

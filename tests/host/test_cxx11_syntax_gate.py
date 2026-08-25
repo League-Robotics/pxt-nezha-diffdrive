@@ -71,7 +71,7 @@ _TEST_DIR = pathlib.Path(__file__).resolve().parent
 # files.
 _CXX11_PORTABLE_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "motion_engine.cpp",
     _SRC_DIR / "wire_handler.cpp",
     _SRC_DIR / "wire_adapter.cpp",
     # Sprint 006 ticket 004: heading_wrap.h has no pxt.h dependency (it

@@ -22,7 +22,7 @@
 #include "encoder_pose_source.h"
 #include "fake_ports.h"
 #include "fake_pose_source.h"
-#include "motion_engine.h"
+#include "motion/motion_engine.h"
 
 namespace {
 

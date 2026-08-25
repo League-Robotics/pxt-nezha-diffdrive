@@ -34,7 +34,7 @@
 #include "pxt.h"
 #include "core/diffdrive.h"
 #include "encoder_pose_source.h"
-#include "motion_engine.h"
+#include "motion/motion_engine.h"
 #include "nezha_port.h"
 #include "otos_port.h"
 #include "platform_ports.h"

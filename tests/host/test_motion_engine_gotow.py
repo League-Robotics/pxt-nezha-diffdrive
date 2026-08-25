@@ -54,7 +54,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "motion_engine.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 

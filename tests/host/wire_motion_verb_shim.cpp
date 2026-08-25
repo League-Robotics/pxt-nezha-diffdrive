@@ -55,7 +55,7 @@
 #include "core/diffdrive.h"
 #include "fake_pose_source.h"
 #include "fake_ports.h"
-#include "motion_engine.h"
+#include "motion/motion_engine.h"
 #include "wire_adapter.h"
 #include "wire_handler.h"
 #include "wire_mock_adapter.h"
