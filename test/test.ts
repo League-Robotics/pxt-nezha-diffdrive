@@ -58,14 +58,40 @@ let armX = -3.82      // [cm] +forward
 let armY = -0.07      // [cm] +left
 let armYaw = 0.89     // [deg]
 
+let armApplied = false
+
 function applyArm() {
     diffDrive.setWorldSensorOffset(armX, armY, armYaw)
+    armApplied = true
     diffDrive.emitLine("ARM:" + Math.round(armX * 100)
         + ":" + Math.round(armY * 100) + ":" + Math.round(armYaw * 100))
 }
 
 function worldReady(): boolean {
-    if (diffDrive.worldTrackingReady()) return true
+    // MEASURED BUG, vevov 2026-08-25: this fast path used to `return
+    // true` outright. worldTrackingReady() only asks "is the chip
+    // answering" (otosGet(7) -> connected_), and ANY earlier
+    // otosBegin() -- RUN:probe is enough -- makes it true. So the very
+    // first worldReady() after a probe short-circuited here and the
+    // lever arm was NEVER applied, silently, for the whole session.
+    //
+    // The sensor then reports the SENSOR's path, not the centre's, so
+    // every in-place pivot injects a phantom translation of
+    // 2 * 38.2mm * sin(theta/2) into the world pose. Measured against
+    // overhead-camera truth: an 84 deg pivot with no arm reported
+    // 52 mm of travel while the robot physically moved 2.5 mm. With the
+    // arm applied, an identical 90 deg pivot reported 1.2 mm and agreed
+    // with the camera to 2.1 mm. Four corners per tour turned that into
+    // a 58 mm closure error that the robot itself scored as 22 mm.
+    //
+    // armApplied (not the chip's state) is the guard: otosBegin() does
+    // NOT clear OtosPort's offsetX_/offsetY_/offsetYaw_ members, so
+    // once applied the arm survives a re-begin; the flag only stops
+    // this from re-emitting the ARM: line on every call.
+    if (diffDrive.worldTrackingReady()) {
+        if (!armApplied) applyArm()
+        return true
+    }
     if (diffDrive.startWorldTracking()) {
         applyArm()          // begin() re-inits the chip; re-apply
         return true
