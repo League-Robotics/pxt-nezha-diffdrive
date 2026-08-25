@@ -2,7 +2,7 @@
 id: '004'
 title: 'Move src/comms/ (wire protocol stack: protocol, transports, wire grammar/adapter)
   and its cross-file references'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
