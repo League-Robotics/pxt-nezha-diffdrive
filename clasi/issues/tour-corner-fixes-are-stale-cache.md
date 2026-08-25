@@ -292,3 +292,52 @@ this has NOT been confirmed. Leave it open.
 - [ ] Campaign procedures (tickets 005/006) bracket every tour with camera
       fixes at start and end — permitted by the standing rule (camera at tour
       start and end only, never during) and the only way to catch this class.
+
+---
+
+## MECHANISM PINNED (2026-08-25) — the refresh trigger is `logFix()`, and only `logFix()`
+
+Follow-up on vevov, stationary, no motion involved:
+
+```
+1. telemetry cache, before any live fix
+   ox/oy/oh = (229, 0, 102)
+2. force a live fix
+   RUN:fix -> OCAL:now:6724:397:14490
+3. telemetry cache immediately after
+   ox/oy/oh = (672, 39, 14490)      <- adopted the live fix exactly
+```
+
+The cache took the live fix's value verbatim: `6724` and `397` are OCAL's
+0.1 mm units, `672` and `39` are the telemetry columns' mm units, and the
+heading `14490` cdeg matches to the digit.
+
+**Therefore:** `ox`/`oy`/`oh` are a write-through cache whose *only* writer is
+an explicit `logFix()` / `RUN:fix`. Motion never refreshes them. A move updates
+the encoder odometry (`x`/`y`/`h`) and leaves the OTOS columns holding whatever
+the last explicit fix wrote — which is precisely the mechanism the original
+issue described, applied to the path that actually has it.
+
+This closes the diagnostic question. The remaining work is the fix, not more
+measurement:
+
+- Refresh the projection where it is safe to do so on the tick fiber, **or**
+- stamp the frame so a consumer can tell a fresh value from a repeated one
+  (a sequence number or an age field on the OTOS columns). Repeating the last
+  value with nothing marking it as old is what makes this dangerous — a frozen
+  source and a stationary robot are byte-identical today.
+
+### Also observed, and probably worth its own issue
+
+`i2cf` climbed **60 -> 107** across a few minutes of light activity on vevov,
+including while the robot sat still. That is a steadily accumulating I2C fault
+count on an idle bus, not a burst tied to motion. Nothing in this issue depends
+on it, but it should not be left unexamined.
+
+### Second consecutive `RUN:fix` does not answer
+
+Two `RUN:fix` commands sent in quick succession: the first returns `OCAL`, the
+second returns nothing (observed twice). Consistent with a re-entry guard or the
+single-slot RUN dispatch in `test.ts` rather than a sensor problem — noted so a
+campaign script does not read the silence as a failed fix and retry into a
+different state.
