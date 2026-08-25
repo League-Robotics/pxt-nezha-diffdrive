@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: 'Extract run.ts: the RUN command dispatcher'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
