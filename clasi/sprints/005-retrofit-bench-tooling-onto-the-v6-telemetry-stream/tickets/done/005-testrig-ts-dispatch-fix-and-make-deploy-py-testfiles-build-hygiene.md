@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: testrig.ts dispatch fix and make_deploy.py testFiles build-hygiene
-status: in-progress
+status: done
 use-cases:
 - SUC-007
 depends-on: []
