@@ -1,7 +1,7 @@
 ---
 id: '017'
 title: "The gates that should have caught it \u2014 docs, lint, and drift guards"
-status: executing
+status: done
 branch: sprint/017-the-gates-that-should-have-caught-it-docs-lint-and-drift-guards
 use-cases: []
 issues:
