@@ -67,6 +67,29 @@ serial sessions). Plan bench scripts as one serial session per
 experiment, and never assume state (pose, taper/floor config, stall
 latch) survives a port close.
 
+## The robot is OFF — check this first
+
+If the robot is **visible on the field**, **answers the protocol** normally, and
+**reports believed motion in its own odometry**, but the **camera shows it has
+not moved** — the robot is switched off. Check that before slip, stiction, the
+taper window, breakaway, or wheels-off-the-ground.
+
+Measured on tovez 2026-08-26: `RUN:straight:4` then `RUN:straight:15` reported
+4.20 cm then 15.00 cm of odometry (19.2 cm believed), while the camera held the
+tag within **0.7 mm** of its start across all three reads, pixel position
+unchanged to a fraction of a pixel.
+
+**`connL=1` / `connR=1` is NOT proof the motors have power.** Those reflect
+whether the encoder I2C transaction succeeded, and the brick's logic can answer
+I2C while the motor drive is dead. `cyc` advancing only proves the kernel is
+ticking. On the run above, STATUS read `ready=1 connL=1 connR=1 cyc=21 i2cf=0`
+on a robot that was off — that line looks perfectly healthy and means nothing
+about motion.
+
+Odometry cannot detect its own failure to move: it integrates encoder deltas and
+will report the full commanded distance. **Only an external instrument — the
+overhead camera, or a tape — can confirm real motion.**
+
 USB reaches only the bench stand; anything needing real motion runs
 untethered over the zavaz relay (channel 4 — never retune getez's
 channel 3).
