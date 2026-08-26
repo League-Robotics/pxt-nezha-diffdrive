@@ -471,7 +471,18 @@ counter is exposed at diag ordinal 26 (`probe(26)`/`diagValue(26)`,
 **RadioTransport.** Frames wire lines for the fleet's RADIOBRIDGE
 relay: `[SEQ][FLAGS][LEN][payload]` fragments (START/MORE/END flags),
 a TX-only port of the fleet's robot-side radio driver. Radio enable is
-lazy (group 10, channel 4 — vevov's fleet assignment — power 7). RX is
+lazy (group 10 by default, channel 4 — vevov's fleet assignment —
+power 7). Group is the one field a student program can change, via
+`setGroup()`/the blocks layer's "set radio group" block (sprint 021
+ticket 005). The supported path is calling it from `on start`, before
+the radio has come up: `setGroup()` just stores the value, and
+`ensureRadioReady()` reads it during lazy bring-up. Calling it after
+the radio is already armed re-applies immediately via
+`uBit.radio.setGroup()` so the call is not a silent no-op, but whether
+that re-apply actually changes what an already-armed radio receives on
+is UNVERIFIED on this hardware — no test of that path has been run.
+Channel and power stay fixed constexpr values with no settable
+surface. RX is
 a single-fragment command plane: `tryReceiveLine()` consumes a flag
 set by the MICROBIT_RADIO_EVT_DATAGRAM handler — `datagram.recv()` is
 **only** called inside that handler because polling an empty queue

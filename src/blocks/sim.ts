@@ -502,4 +502,18 @@ namespace diffDrive {
         simY = y
         simHeading = heading / 100 * Math.PI / 180
     }
+
+    // Recorded so the "set radio group" block (blocks/run.ts) is
+    // observable in the simulator; there is no radio in the browser,
+    // so this has no other in-sim effect to model. Real (if trivial)
+    // body, not a bare `{}` -- an empty body is emitted by pxt as
+    // native-only, and no pxsim implementation exists, which crashes
+    // the simulator at the call site (the exact defect fixed elsewhere
+    // in this file).
+    let simRadioGroup = 10
+
+    //% shim=diffDrive::setRadioGroup
+    export function _setRadioGroup(group: number): void {
+        simRadioGroup = group
+    }
 }

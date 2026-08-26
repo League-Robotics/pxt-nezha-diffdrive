@@ -31,6 +31,12 @@ group; `calibrateWorldSensor`/`setWorldSensorOffset`/
 Setup group. Pose/Setup/ENUM were untouched by this reorganization and
 still deliberately carry no explicit weight.
 
+**Sprint 021 ticket 005 update.** `setRadioGroup` (the new "set radio
+group" block, `blocks/run.ts`) was added to the end of the Remote
+group, at a weight (170) below `onRun` (190) and `onRunCommand` (180)
+-- the toolbox is now 40 visible blocks total (39 + this one), matching
+`radio-group-setup-block.md`'s approved shape.
+
 **Why a test, not just the weight= annotations.** The weights repair
 today's instance; nothing stops a future refactor (a new file, a
 reordered `pxt.json`, a moved function) from silently reintroducing
@@ -88,7 +94,7 @@ _BASELINE_GROUP_ORDER = {
         "readWorld", "worldX", "worldY", "worldHeading", "goToWorld",
     ],
     "Pose": ["poseX", "poseY", "heading", "resetPose"],
-    "Remote": ["onRun", "onRunCommand"],
+    "Remote": ["onRun", "onRunCommand", "setRadioGroup"],
     "World Setup": [
         "calibrateWorldSensor", "setWorldSensorOffset",
         "setArrivalTolerance",

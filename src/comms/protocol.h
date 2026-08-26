@@ -89,6 +89,14 @@ class Protocol {
   // dependency scan).
   int serialDropCount() const;
 
+  // Forwards into RadioTransport::setGroup() -- the ONE write path
+  // student blocks gain into RadioTransport's own configuration; see
+  // that method's own doc comment (radio_transport.h) for the
+  // idempotent-apply contract. Exists because radioTransport_ (below)
+  // is private to this class; the free-function shim beside
+  // startProtocol() (protocol.cpp) is this method's only caller.
+  void setRadioGroup(uint8_t group);
+
  private:
   static void fiberEntry(void* self);
   void run();
