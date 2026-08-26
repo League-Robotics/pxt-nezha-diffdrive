@@ -79,8 +79,18 @@ namespace diffDrive {
         simHeading += stepYawRate * stepDt
     }
 
+    // Fixed stand-ins for motion_engine.h's trackWidth_/rotationalSlip_
+    // (caliper-measured 114.2 mm; camera-derived 0.952 slip correction).
+    // setGeometry() is a no-op in the simulator (see _setGeometry below),
+    // so there is no live value to read -- these are the simulator's own
+    // copies, kept as two named constants (not one derived literal) so a
+    // future geometry/slip bake update can't silently reopen the gap
+    // between this divisor and effectiveTrackWidth()'s.
+    const kSimTrackWidthMm = 114.2
+    const kSimRotationalSlip = 0.952
+
     //% shim=diffDrive::setWheels
-    export function _setWheels(left: int32, right: int32): void {
+    export function _setWheels(left: number, right: number): void {
         simIntegrate()
         if (simEstopped) return
         simVel = (left + right) / 2
@@ -88,20 +98,27 @@ namespace diffDrive {
         // v_left) [mm/s] / trackWidth [mm] -- the same relation
         // _driveTwist() below applies in reverse (its hardware shim
         // computes `twistMmS = yawRad * 0.5 * effectiveTrackWidth()`,
-        // shims.cpp), and the divisor hardware itself uses via
-        // effectiveTrackWidth() (motion_engine.h). 115 here is this
-        // simulator's fixed stand-in for the caliper-measured
-        // trackWidth_ (114.2 mm, motion_engine.h) -- setGeometry() is
-        // a no-op in the simulator (see _setGeometry below), so there
-        // is no live value to read. (Previously divided by 10 first
-        // as well, an erroneous effective 1150 mm track that turned
-        // 10x too slowly -- R-12/BLK-06.)
-        simYawRate = (right - left) / 115  // [rad/s]
+        // shims.cpp). Hardware's own divisor is NOT trackWidth_ alone:
+        // it is effectiveTrackWidth() = trackWidth_ / rotationalSlip_
+        // (motion_engine.h), and _driveTwist() below already reproduces
+        // that exactly. The simulator's contract is exact parity on
+        // *observable* kinematic output, not a physical model of
+        // hardware's calibration mechanism -- rotationalSlip_ corrects
+        // for a real wheel imperfection this idealized simulator has no
+        // equivalent of -- so this divides by the same two constituent
+        // constants (kSimTrackWidthMm / kSimRotationalSlip, just above)
+        // rather than growing its own "slip" concept. (Previously
+        // divided by trackWidth_ alone via a bare 115 literal -- a 4.3%
+        // discrepancy against hardware and against _driveTwist() below.
+        // Before that, divided by 10 first as well, an erroneous
+        // effective 1150 mm track that turned 10x too slowly --
+        // R-12/BLK-06.)
+        simYawRate = (right - left) / (kSimTrackWidthMm / kSimRotationalSlip)  // [rad/s]
         simMoveActive = false
     }
 
     //% shim=diffDrive::driveTwist
-    export function _driveTwist(speed: int32, yawRate: int32): void {
+    export function _driveTwist(speed: number, yawRate: number): void {
         simIntegrate()
         if (simEstopped) return
         simVel = speed
@@ -110,8 +127,8 @@ namespace diffDrive {
     }
 
     //% shim=diffDrive::startMove
-    export function _startMove(distance: int32, yaw: int32, speed: int32,
-        yawRate: int32): void {
+    export function _startMove(distance: number, yaw: number, speed: number,
+        yawRate: number): void {
         simIntegrate()
         if (simEstopped) return
         simMoveRemainMm = Math.abs(distance)
@@ -149,7 +166,14 @@ namespace diffDrive {
     //% shim=diffDrive::engineSetGoToDeadline
     export function _setGoToDeadline(timeoutMs: number): void {
         // Simulator: no-op. `timeoutMs` is a hardware-only deadline
-        // backstop; nothing can strand a move in this simulator.
+        // backstop; nothing can strand a move in this simulator. The
+        // explicit `return` below is load-bearing, not decorative: a
+        // body with zero statements -- even one containing only this
+        // comment -- is indistinguishable, to pxt, from a bare `{}`.
+        // Both are emitted as a native-only shim call with no pxsim
+        // implementation, crashing the simulator exactly like this
+        // file's other previously-empty-bodied shims.
+        return
     }
 
     // [mm] [mm] [mm/s] [mm] -- simulator stand-in for
@@ -165,14 +189,12 @@ namespace diffDrive {
     // fifth (`timeout`, a hardware-only deadline backstop -- nothing
     // can strand a move in this simulator) moved to _setGoToDeadline()
     // immediately above, matching shims.cpp's native-side split.
-    // Params typed `number`, not `int32` like this file's older
-    // shim-fallback functions -- int32 locals/params on a function with
-    // a TS body fail the JS->Blocks decompiler with TS9256; the native
-    // shim ABI is governed by the C++ signature, not this declaration,
-    // so `number` here is hardware-safe (int32-sim-params-break-blocks-
-    // conversion.md, which still needs to sweep this file's existing
-    // int32 functions -- out of scope here, but no reason to add one
-    // more).
+    // Params typed `number`, matching the rest of this file's
+    // shim-fallback functions now that none of them declares an int32
+    // local/parameter -- int32 locals/params on a function with a TS
+    // body fail the JS->Blocks decompiler with TS9256. The native shim
+    // ABI is governed by the C++ signature, not this declaration, so
+    // `number` here is hardware-safe.
     //% shim=diffDrive::engineGoToRArmed
     export function _goToR(x: number, y: number, speed: number,
         arrive: number): void {
@@ -255,7 +277,7 @@ namespace diffDrive {
     // counters (kept for parity with hardware's field layout) rather
     // than measured timing.
     //% shim=diffDrive::cycleStat
-    function _cycleStat(which: int32): int32 {
+    function _cycleStat(which: number): int32 {
         switch (which) {
             case 0: return kSimTickPeriodMs * 1000  // nominal period [us]
             case 1: return 0                        // busy [us]: not modeled
@@ -301,9 +323,14 @@ namespace diffDrive {
     // Stall latch clear/readback (sprint 007 ticket 001): no-ops in the
     // simulator -- there is no stall model in the browser, matching
     // this file's existing precedent for setGeometry/setKernelValue's
-    // simulator fallbacks (specification.md §5).
+    // simulator fallbacks (specification.md §5). Real (if trivial) body
+    // below, not a bare `{}`: pxt emits an empty-bodied shim as
+    // native-only, and no pxsim implementation exists, so the simulator
+    // crashes at the call site.
     //% shim=diffDrive::clearStall
-    export function _clearStallLatch(): void { }
+    export function _clearStallLatch(): void {
+        return
+    }
 
     //% shim=diffDrive::isStalled
     export function _isStalled(): boolean { return false }
@@ -334,14 +361,39 @@ namespace diffDrive {
         simHeading = 0
     }
 
+    // Simulator: geometry/kernel-tuning setters stay no-ops on purpose
+    // (Architecture Design Rationale) -- _setWheels()'s divisor above is
+    // a fixed stand-in, not a live-read value, so there is nothing for
+    // either call to actually change. Recorded into otherwise-unread
+    // module variables so each has a real body: an empty `{}` body is
+    // emitted by pxt as native-only, and no pxsim implementation exists
+    // for either, so the simulator crashes at the call site.
+    let simLastGeometryTrackWidth = 0
+    let simLastGeometryCalib = 0
+    let simLastKernelField = 0
+    let simLastKernelValue = 0
+
     //% shim=diffDrive::setGeometry
-    export function _setGeometry(trackWidth: int32, calib: int32): void { }
+    export function _setGeometry(trackWidth: number, calib: number): void {
+        simLastGeometryTrackWidth = trackWidth
+        simLastGeometryCalib = calib
+    }
 
     //% shim=diffDrive::setKernelValue
-    export function _setKernelValue(field: int32, value: int32): void { }
+    export function _setKernelValue(field: number, value: number): void {
+        simLastKernelField = field
+        simLastKernelValue = value
+    }
+
+    // Recorded so a bare project's on-start sequence is observable in
+    // the simulator; hardware's real startProtocol() bring-up has no
+    // other in-sim effect to model.
+    let simProtocolStarted = false
 
     //% shim=diffDrive::startProtocol
-    export function _startProtocol(): void { }
+    export function _startProtocol(): void {
+        simProtocolStarted = true
+    }
 
     // ---- OTOS (zeguz bench bring-up) -- shim-only surface, no blocks.
     // Call only from the fiber that calls driveTick(): an OTOS I2C
@@ -357,21 +409,32 @@ namespace diffDrive {
      * suspicion.
      */
     //% shim=diffDrive::probe
-    export function probe(what: int32): number { return 0 }
+    export function probe(what: number): number { return 0 }
 
     /**
      * End-of-move shaping. Bigger tapers and lower floors trade time
      * for accuracy; a closed-loop caller that takes a fresh fix before
      * every move should spend far less time on it. 0 leaves unchanged.
+     * Simulator: no taper/floor/ramp shaping model exists in the
+     * browser, so these are no-ops -- real (if trivial) bodies below,
+     * not bare `{}`, so pxt doesn't treat them as native-only shims
+     * (no pxsim implementation exists for any of the three, so an
+     * empty body would crash the simulator at the call site).
      */
     //% shim=diffDrive::setTaperWindows
-    export function setTaperWindows(distCounts: int32, yawCounts: int32): void { }
+    export function setTaperWindows(distCounts: number, yawCounts: number): void {
+        return
+    }
 
     //% shim=diffDrive::setTaperFloors
-    export function setTaperFloors(distPct: int32, turnPct: int32): void { }
+    export function setTaperFloors(distPct: number, turnPct: number): void {
+        return
+    }
 
     //% shim=diffDrive::setRampMs
-    export function setRampMs(ms: int32): void { }
+    export function setRampMs(ms: number): void {
+        return
+    }
 
     //% shim=diffDrive::otosBegin
     export function otosBegin(): number { return 0 }
@@ -385,16 +448,27 @@ namespace diffDrive {
      * 7=connected 8=IMU-cal samples remaining
      */
     //% shim=diffDrive::otosGet
-    export function otosGet(what: int32): number { return 0 }
+    export function otosGet(what: number): number { return 0 }
 
+    // Sim fallbacks below report a sensor that is absent (see this
+    // section's header comment); real (if trivial) bodies, not bare
+    // `{}`, so pxt doesn't treat them as native-only shims (no pxsim
+    // implementation exists for any of the three, so an empty body
+    // would crash the simulator at the call site).
     //% shim=diffDrive::otosZero
-    export function otosZero(): void { }
+    export function otosZero(): void {
+        return
+    }
 
     //% shim=diffDrive::otosCalibrate
-    export function otosCalibrate(samples: int32): void { }
+    export function otosCalibrate(samples: number): void {
+        return
+    }
 
     //% shim=diffDrive::otosSetOffset
-    export function otosSetOffset(x: int32, y: int32, yaw: int32): void { }
+    export function otosSetOffset(x: number, y: number, yaw: number): void {
+        return
+    }
 
     /**
      * Write a line to BOTH transports -- USB serial and the wireless
@@ -417,12 +491,12 @@ namespace diffDrive {
     // the slot protocol.cpp parked it in). The simulator has no wire, so
     // no run event ever fires there and this body is never reached.
     //% shim=diffDrive::runCommandText
-    export function runCommandText(slot: int32): string {
+    export function runCommandText(slot: number): string {
         return ""
     }
 
     //% shim=diffDrive::seedPose
-    export function _seedPose(x: int32, y: int32, heading: int32): void {
+    export function _seedPose(x: number, y: number, heading: number): void {
         simIntegrate()
         simX = x
         simY = y
