@@ -125,6 +125,30 @@ so the tool runs to completion, prints numbers, and the robot never
 moved. See `tests/tools/test_run_verbs.py`, which pins the exact
 strings.
 
+## `mbdeploy probe`'s ROLE column is a cached registry, not a live read
+
+`probe` is authoritative for **ports** and **CONN**, and NOT for what
+firmware a board is running. Its COMMON NAME / ROLE columns come from a
+registry keyed by UID and go stale the moment a board is reflashed to a
+different role.
+
+Measured on vevov, 2026-08-26, minutes apart:
+
+| source | says |
+|---|---|
+| `mbdeploy probe` | `vevov  relay  RADIOBRIDGE` |
+| `HELLO` over USB | `device NEZHA2 robot vevov 1198504156` |
+
+The board was running robot firmware the whole time. Reading the probe
+column as "vevov is still a radio bridge" would have started a hunt for a
+flash that had in fact succeeded.
+
+**`HELLO` is the only identity authority** -- it derives from
+`microbit_friendly_name()`, burned into the chip. Note `ID` is NOT: its
+middle field is `kProfile`, build provenance that on 2026-08-26 read
+`tovez` on vevov. Same rule as everywhere else on this rig: trust the
+instrument physically coupled to the thing you are measuring.
+
 ## Camera
 
 - The overhead camera is the **OV9782** (`open_camera(pattern="arducam")`
