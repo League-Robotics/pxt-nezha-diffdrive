@@ -1,8 +1,9 @@
 ---
 id: '003'
 title: src/DESIGN.md S10 truthfulness pass; three stale status headers; overview.md
-status: open
-use-cases: [SUC-001]
+status: done
+use-cases:
+- SUC-001
 depends-on: []
 github-issue: ''
 issue: design-docs-assert-fixed-limitations.md
@@ -73,18 +74,25 @@ in the same sections). Do not touch any `src/**/*.{h,cpp,ts}` file.
 
 ## Acceptance Criteria
 
-- [ ] `src/DESIGN.md` S10's three false limitations are corrected (not
+- [x] `src/DESIGN.md` S10's three false limitations are corrected (not
       deleted wholesale where partially true, per the radio-cap case above).
-- [ ] `docs/design/design.md`, `src/DESIGN.md`, and `docs/design/overview.md`
+- [x] `docs/design/design.md`, `src/DESIGN.md`, and `docs/design/overview.md`
       status headers reflect sprints through the actual latest closed
       sprint, not a stale checkpoint.
-- [ ] `docs/design/overview.md` gains a `Last reviewed:` header.
-- [ ] `docs/design/specification.md` S4.3 carries a one-sentence caveat
+- [x] `docs/design/overview.md` gains a `Last reviewed:` header.
+- [x] `docs/design/specification.md` S4.3 carries a one-sentence caveat
       about the 50-degree threshold (or is skipped with a note if
-      `block-go-to-misses-its-target.md` is already resolved).
-- [ ] No claim in `src/DESIGN.md` S10 or any of the three status headers is
+      `block-go-to-misses-its-target.md` is already resolved). Deviation:
+      the issue was resolved (sprint 015), but via a bigger change than
+      anticipated -- `startGoTo` no longer reduces to distance+yaw at
+      all, it calls `goToR()` directly -- so a one-sentence caveat would
+      have left the section wrong in a new way; S4.3 (and the matching
+      `usecases.md` UC-006 step 2, found during this pass, same stale
+      mechanism) were corrected to describe the current call path
+      instead of skipped.
+- [x] No claim in `src/DESIGN.md` S10 or any of the three status headers is
       contradicted by the current code.
-- [ ] No firmware source file is touched.
+- [x] No firmware source file is touched.
 
 ## Testing
 

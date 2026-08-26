@@ -7,7 +7,7 @@ source_paths:
 ---
 # DiffDrive — System Design
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (as-built through sprint 008, closed and merged — sprints 004, 006, 007 and 008 all closed and merged: radio speaks full v6 with a `thdr`/`t` telemetry frame; motion correctness (goTo geometry, cross-fiber stop delivery, continuous-mode odometry, OTOS heading wrap, encoder-reset rebaseline, encoder `PoseSource` fallback for GO_TO_W); student API (stall-latch clear and readback, the `driveTick()` contract, the wire `cruise == 0` sentinel, simulator parity, a `rotationalSlip` setter); and wire hardening with a standing per-sprint build-checkpoint convention. Sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-26 · **Status:** in-flux (as-built through sprint 016 — sprints 004-016 all closed and merged: radio speaks full v6 with a `thdr`/`t` telemetry frame and a resolved motion-completion channel; motion correctness (goTo geometry, cross-fiber stop delivery, continuous-mode odometry, OTOS heading wrap, encoder-reset rebaseline, encoder `PoseSource` fallback for GO_TO_W); student API (stall-latch clear and readback, the `driveTick()` contract, the wire `cruise == 0` sentinel, simulator parity, a `rotationalSlip` setter); wire/radio hardening (raised payload cap, reject-not-clamp over-length RX) with a standing per-sprint build-checkpoint convention; `src/` regrouped into five dependency-layer subdirectories. See `src/DESIGN.md` for current section-by-section detail.)
 
 ## What the system is
 

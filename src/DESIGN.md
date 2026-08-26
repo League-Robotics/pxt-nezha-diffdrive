@@ -1,6 +1,6 @@
 # src — the DiffDrive extension
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-25 · **Status:** in-flux (as-built through sprint 008, closed and merged — wire hardening and tests that can fail: timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, and a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention closing the target-viability gap; sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint; sprint 009 (comment cleanup, upstream re-diff) done; sprint 012 **executed and closing** — split the single `main.ts` into six cohesion-sized modules, `sim.ts`/`run.ts`/`pose.ts`/`stop.ts`/`world.ts`/`motion.ts` (`main.ts` retired, ticket 006), replacing `main.ts`'s one entry in `pxt.json`'s and `tsconfig.json`'s `files` arrays; block-surface content (captions/`group=`/param ranges) verified identical to the pre-split baseline, see §15)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-26 · **Status:** in-flux (as-built through sprint 016 — sprints 004-016 all closed and merged. Wire hardening and tests that can fail (sprint 008): timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, and a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention closing the target-viability gap. The wire's motion-completion channel resolved, §5 (sprint 005). `main.ts` split into six cohesion-sized modules under `blocks/` (sprint 012), then `src/` regrouped into five dependency-layer subdirectories (sprint 013) — see §1.)
 
 `src/` is grouped into five subdirectories by dependency layer —
 `core/`, `motion/`, `platform/`, `comms/`, `blocks/` — plus `shims.cpp`
@@ -400,10 +400,22 @@ a session with no subscriber (see §8's Fiber loop). `computeFlags()`
 `status()` and `buildSnapshot()` read, so STATUS's `flags=`/`i2cf=`
 and the telemetry `flags`/`i2cf` columns can never drift apart.
 
-**Known inert surfaces (deliberate, documented):** `lastDone()`/
-`lastDoneReason()` always report `0`/`kNone` — no completion channel
-is threaded back through the void bridge functions; a wire host cannot
-yet observe motion completion through acks.
+**Motion-completion resolution (sprint 005 ticket 004).**
+`lastDone()`/`lastDoneReason()` are the wire's completion channel, not
+an inert surface: `armPendingMotion(id, goalDirected)` arms on every
+accepted motion verb; `resolvePendingReason()` is the pure decision
+(an estop/stall diag flag wins outright regardless of verb kind;
+otherwise a goal-directed verb — MOVE_X/GO_TO_R/GO_TO_W — resolves
+once `engineMoveActive()` goes false, `kStop` if the wire-side lease
+was still live at that point or `kTimeout` if it had already elapsed;
+a non-goal-directed verb resolves purely from that same lease);
+`resolvePendingIfDue()` commits the result into `lastDoneId_`/
+`lastDoneReason_` lazily, the moment either accessor is next polled;
+`forceResolvePending()` handles the two edges a fresh command's own
+arming can't wait for (an explicit STOP, or a later command
+superseding a still-pending earlier one — `kAborted`). Both accessors
+call `resolvePendingIfDue()` before returning, so polling either one
+alone is enough to notice a completion.
 
 **Dependencies.** `wire_handler.h`; `shims.cpp` free functions by
 forward declaration only (`stopAll`, `estopAll`, `setWheelsTimed`,
@@ -691,17 +703,19 @@ call made during ticket execution, per this sprint's Design Rationale,
 host is actually talking to, restoring the `mbdeploy` → `VER`
 deploy-verification flow's own precondition.
 
-**Telemetry gap (closed, sprint 004).** The old periodic cleartext
-`TLM:` line was retired with v5 and had no v6 replacement through
-sprint 003. Sprint 004 built the replacement: ticket 003 added the
-`thdr`/`t` frame mechanics (§4's `emitTelemetry()`/`emitReliability()`
-split); ticket 004 wired the real projection (§5's
-`WireAdapter::buildSnapshot()`) so a `t` frame actually carries live
-pose/OTOS/wheel-speed/fault-count data once a host subscribes via
-`TLM`. `tools/`'s existing scripts still parse the *old* `TLM:`
-prefix, though, and this firmware never emits that prefix again — they
-will see nothing until they are retrofit onto the new frame (sprint
-005, roadmapped, not yet detail-planned).
+**Telemetry gap (closed, sprint 004; consumer retrofit closed, sprint
+005).** The old periodic cleartext `TLM:` line was retired with v5 and
+had no v6 replacement through sprint 003. Sprint 004 built the
+replacement: ticket 003 added the `thdr`/`t` frame mechanics (§4's
+`emitTelemetry()`/`emitReliability()` split); ticket 004 wired the
+real projection (§5's `WireAdapter::buildSnapshot()`) so a `t` frame
+actually carries live pose/OTOS/wheel-speed/fault-count data once a
+host subscribes via `TLM`. `tools/tlm.py` (sprint 005) now decodes
+this frame directly — header tracking, seq-gap loss counting with
+7-bit wraparound, orphan-frame accounting, CSV + meta sidecar output,
+two fail-loud guards — with its own test suite
+(`tests/tools/test_tlm.py`); this firmware never emits the old `TLM:`
+prefix again, and nothing in `tools/` still depends on it.
 
 ## 9. Shim + blocks — `shims.cpp`, `blocks/sim.ts`, `blocks/run.ts`, `blocks/pose.ts`, `blocks/stop.ts`, `blocks/world.ts`, `blocks/motion.ts`
 
@@ -981,21 +995,35 @@ lives in):
 
 ## 10. Open questions / known limitations
 
-- `tools/`'s bench scripts still parse the old cleartext `TLM:`
-  prefix (see §8's Telemetry gap paragraph); the v6 `thdr`/`t` frames
-  sprint 004 built are real but nothing in `tools/` consumes them yet
-  — that retrofit is sprint 005 (roadmapped, not yet detail-planned).
-- `WireAdapter::lastDone()`/`lastDoneReason()` permanently inert —
-  hosts cannot observe motion completion via the reliability channel.
+- **(Resolved, sprint 005)** ~~`tools/`'s bench scripts still parse the
+  old cleartext `TLM:` prefix (see §8's Telemetry gap paragraph); the
+  v6 `thdr`/`t` frames sprint 004 built are real but nothing in
+  `tools/` consumes them yet.~~ `tools/tlm.py` is a 430-line `thdr`/`t`
+  decoder with its own 522-line test suite (`tests/tools/test_tlm.py`)
+  — see §8.
+- **(Resolved, sprint 005)** ~~`WireAdapter::lastDone()`/
+  `lastDoneReason()` permanently inert — hosts cannot observe motion
+  completion via the reliability channel.~~ The resolution machine
+  (`armPendingMotion`, `resolvePendingReason`, `resolvePendingIfDue`,
+  `forceResolvePending`, `engineMoveActive`) is built; hosts observe
+  motion completion via `lastDone()`/`lastDoneReason()` — see §5.
 - Radio RX is a single 64-byte fragment slot with no multi-fragment
-  reassembly (unchanged this sprint — sprint 004 closed the *grammar*
-  question, not the *capacity* one). An inbound line longer than one
-  fragment is clamped to a parseable prefix rather than reassembled or
-  rejected, which can execute as a different, shorter, legal command,
-  not merely drop one — and radio's own TX cap (`kMaxPayloadBytes` =
-  200) is already provably exceedable by a legal, if pathological,
-  telemetry frame (up to 239 bytes measured). Filed as
-  `clasi/issues/radio-rx-capacity-fragmentation.md`, claimed by sprint
+  reassembly (sprint 004 closed the *grammar* question, not the
+  *capacity* one). **(Resolved, sprint 010)** ~~An inbound line longer
+  than one fragment is clamped to a parseable prefix rather than
+  reassembled or rejected, which can execute as a different, shorter,
+  legal command, not merely drop one — and radio's own TX cap
+  (`kMaxPayloadBytes` = 200) is already provably exceedable by a
+  legal, if pathological, telemetry frame (up to 239 bytes
+  measured).~~ An inbound line longer than one fragment is now
+  REJECTED outright (`radioRxLineFits()`, `radio_transport.h`), never
+  clamped to a shorter, silently-executable prefix; `kMaxPayloadBytes`
+  was raised from 200 to 240 and is drift-tested against the wire's
+  own line ceiling (`tests/host/test_wire_constants_drift.py`). The
+  239-byte pathological worst case that used to exceed the old 200
+  now fits under 240 — with exactly 1 byte of headroom, thin, not
+  comfortable (`tests/host/test_wire_telemetry_frame.py`). Filed as
+  `clasi/issues/radio-rx-capacity-fragmentation.md`, closed by sprint
   010.
 - **(Resolved, sprint 008)** ~~The post-move settle loop is
   hardware-only-tested.~~ Its bounded-iteration/break-on-rest decision
