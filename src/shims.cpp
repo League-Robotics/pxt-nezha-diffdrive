@@ -742,7 +742,17 @@ int progress() {  // [0..1000]
 //%
 void endMove() {
   if (rig == nullptr) return;
+  // "stop move" is a full stop, not move-engine bookkeeping alone
+  // (stakeholder decision, 2026-08-26): engine.endMove() only stages
+  // kernel.neutral() when a move-engine move (startMove/startGoTo) is
+  // active. After a continuous-drive command (setWheelSpeeds/
+  // driveTwist) no move-engine move is active, so without the explicit
+  // kernel.neutral() below nothing disarms the kernel's held commanded
+  // velocity mode (up to kLeaseMax, one hour) -- deliverStopNow()'s
+  // port-level zero is momentary and the very next step() re-commands
+  // the duty. Same three-call shape stopAll() already uses.
   rig->engine.endMove();
+  rig->kernel.neutral();
   // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop move"
   // block's own entry point -- see deliverStopNow()'s comment above.
   deliverStopNow(*rig);
