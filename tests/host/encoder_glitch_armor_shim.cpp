@@ -1,5 +1,5 @@
 // encoder_glitch_armor_shim.cpp -- extern "C" ctypes surface for
-// src/encoder_glitch_armor.h. EncoderGlitchArmor is small but stateful
+// src/core/encoder_glitch_armor.h. EncoderGlitchArmor is small but stateful
 // (the two-strike gate needs to remember the last accepted/rejected raw
 // counts across calls), so this shim follows the
 // handle-plus-free-functions shape (tests/host/DESIGN.md S2) rather than
@@ -10,7 +10,7 @@
 // Test scaffolding only: nothing under src/ knows this file exists.
 #include <cstdint>
 
-#include "encoder_glitch_armor.h"
+#include "core/encoder_glitch_armor.h"
 
 extern "C" {
 

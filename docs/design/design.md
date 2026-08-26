@@ -28,8 +28,10 @@ test programs (`test/`).
 
 - [`src/DESIGN.md`](../../src/DESIGN.md) — the extension itself:
   C++ kernel, motion engine, v6 wire stack, transports, hardware
-  ports, and the TypeScript block API. `src/` is flat, so that one doc
-  carries the logical subsystem breakdown as sections.
+  ports, and the TypeScript block API. `src/` is grouped into
+  `core/`/`motion/`/`platform/`/`comms/`/`blocks/` subdirectories by
+  dependency layer (sprint 013), but that grouping is coarse, so that
+  one doc still carries the logical subsystem breakdown as sections.
 - [`tools/DESIGN.md`](../../tools/DESIGN.md) — host-side Python bench
   and diagnostic tooling: robot/camera links, deploy builds, tour
   runners/recorders/charts, ground-truth and calibration scripts.
@@ -56,7 +58,7 @@ boundaries, nowhere else.
 
 | Layer | Units |
 |---|---|
-| Blocks (`src/motion.ts`/`pose.ts`/`stop.ts`/`world.ts`/`run.ts`, student-facing — sprint 012 split these out of a single `main.ts`; see `src/DESIGN.md` §9/§15) | cm, cm/s, degrees, degrees/s |
+| Blocks (`src/blocks/motion.ts`/`pose.ts`/`stop.ts`/`world.ts`/`run.ts`, student-facing — sprint 012 split these out of a single `main.ts`, sprint 013 grouped them into `blocks/`; see `src/DESIGN.md` §9/§15/§16) | cm, cm/s, degrees, degrees/s |
 | TS→C++ shim boundary | **integers only**: mm, mm/s, centidegrees, centidegrees/s |
 | Kernel config across the shim boundary | value × 1000 as an integer (the ×1000 fixed-point convention; `setKernelValue`/`getConfigValue` in `shims.cpp`) |
 | MotionEngine | mm, mm/s, radians, ms |

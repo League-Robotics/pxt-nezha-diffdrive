@@ -67,8 +67,8 @@ def _load_manifest_files():
 
 def _src_files_on_disk():
     return sorted(
-        f"src/{p.name}"
-        for p in _SRC_DIR.iterdir()
+        f"src/{p.relative_to(_SRC_DIR).as_posix()}"
+        for p in _SRC_DIR.rglob("*")
         if p.is_file() and p.suffix in _SOURCE_SUFFIXES
     )
 

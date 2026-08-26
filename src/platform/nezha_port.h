@@ -27,8 +27,8 @@
 #pragma once
 
 #include "pxt.h"
-#include "diffdrive.h"
-#include "encoder_glitch_armor.h"
+#include "../core/diffdrive.h"
+#include "../core/encoder_glitch_armor.h"
 
 namespace diffDrive {
 

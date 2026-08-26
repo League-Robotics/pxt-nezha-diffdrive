@@ -70,7 +70,7 @@
 // encoder_glitch_armor.h/heading_wrap.h.
 #pragma once
 
-#include "motion_engine.h"
+#include "../motion/motion_engine.h"
 
 namespace diffDrive {
 

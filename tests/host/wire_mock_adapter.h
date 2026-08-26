@@ -10,7 +10,7 @@
 // The six motion methods Wire::Adapter declares (onWheelsV/onWheelsX/
 // onMoveX/onMoveV/onGoToR/onGoToW) each get one canned Result + call
 // count + last-args record, same pattern as onStop/onSet/onTlm/onRun
-// above. This class is NOT src/wire_adapter.h's WireAdapter (the
+// above. This class is NOT src/comms/wire_adapter.h's WireAdapter (the
 // production adapter, which gives all six motion verbs real effect) --
 // it is a generic recording double any wire_handler.cpp test can
 // canned-answer however it needs, independent of what any one concrete
@@ -22,7 +22,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include "wire_handler.h"
+#include "comms/wire_handler.h"
 
 class WireMockAdapter : public Wire::Adapter {
  public:

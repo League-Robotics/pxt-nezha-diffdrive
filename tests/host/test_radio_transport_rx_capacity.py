@@ -1,5 +1,5 @@
 """tests/host/test_radio_transport_rx_capacity.py -- host test for
-src/radio_transport.h's radioRxLineFits() (sprint 010 ticket 001,
+src/comms/radio_transport.h's radioRxLineFits() (sprint 010 ticket 001,
 radio-rx-capacity-fragmentation.md): the pure accept/reject predicate
 that replaces RadioTransport::onDatagram()'s old silent
 truncate-and-accept of an over-length inbound line.

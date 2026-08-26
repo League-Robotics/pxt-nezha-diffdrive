@@ -1,9 +1,9 @@
 """tests/host/test_kernel_harness.py -- the native host test harness for
-DiffDrive::DifferentialDrive (src/diffdrive.h/.cpp).
+DiffDrive::DifferentialDrive (src/core/diffdrive.h/.cpp).
 
 Its whole job is to prove the host-compile + fake-port + pytest pipeline
 works end to end against code that already exists and is already
-portable -- `src/diffdrive.h`/`.cpp` depend on nothing but
+portable -- `src/core/diffdrive.h`/`.cpp` depend on nothing but
 `<cstdint>`/`<cmath>`/`<algorithm>` and their own four ports
 (Motor/Clock/Sleeper/FiberLauncher). It does NOT touch the wire grammar
 or the motion engine -- other test files extend this same harness
@@ -36,11 +36,11 @@ _SRC_DIR = _REPO_ROOT / "src"
 _TEST_DIR = pathlib.Path(__file__).resolve().parent
 
 _SHIM_SOURCES = [
-    _SRC_DIR / "diffdrive.cpp",
+    _SRC_DIR / "core" / "diffdrive.cpp",
     _TEST_DIR / "kernel_shim.cpp",
 ]
 
-# DiffDrive::DifferentialDrive::Status's DECLARATION order (src/diffdrive.h)
+# DiffDrive::DifferentialDrive::Status's DECLARATION order (src/core/diffdrive.h)
 # -- the shim passes/returns this ordinal, never anything else. Mirrors
 # radio-robot-lib/tests/protocol/test_protocol_harness.py's own RESULT_*
 # constants pattern.

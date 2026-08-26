@@ -1,5 +1,5 @@
 """tests/host/test_encoder_glitch_armor.py -- host test for
-src/encoder_glitch_armor.h's EncoderGlitchArmor (sprint 006 ticket 005,
+src/core/encoder_glitch_armor.h's EncoderGlitchArmor (sprint 006 ticket 005,
 clasi/issues/brick-reset-odometry-teleport.md /
 clasi/sprints/006-*/issues/brick-reset-odometry-teleport.md, code review
 R-07 / KERN-07 -- annex detail in
@@ -21,7 +21,7 @@ instead of integrating the jump as a ~4 m teleport.
 
 **Why this is the only host-testable proxy for the fix.** `nezha_port.h`
 includes pxt.h unconditionally, so `NezhaMotorPort` -- the actual call
-site (`NezhaMotorPort::collect()`, src/nezha_port.cpp) -- cannot be
+site (`NezhaMotorPort::collect()`, src/platform/nezha_port.cpp) -- cannot be
 compiled into any host test at all. `encoder_glitch_armor.h` carries the
 ENTIRE plausibility decision that fix needs: a pure, hardware-free
 function of the raw-counts stream. This suite exercises it directly.
@@ -48,12 +48,12 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 
 _SHIM_SOURCES = [_TEST_DIR / "encoder_glitch_armor_shim.cpp"]
 
-# EncoderGlitchArmor::Decision's DECLARATION order (src/encoder_glitch_armor.h).
+# EncoderGlitchArmor::Decision's DECLARATION order (src/core/encoder_glitch_armor.h).
 K_ACCEPT = 0
 K_ACCEPT_AS_REBASELINE = 1
 K_REJECT_PENDING = 2
 
-# src/encoder_glitch_armor.h's own kMaxDeltaCounts -- duplicated here
+# src/core/encoder_glitch_armor.h's own kMaxDeltaCounts -- duplicated here
 # purely to size this test's own boundary cases (not to reimplement the
 # decision: that lives in encoder_glitch_armor_shim.cpp, calling the
 # real evaluate()). See that header for the full derivation from the

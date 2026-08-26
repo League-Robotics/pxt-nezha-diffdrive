@@ -84,8 +84,8 @@ radio-robot-lib's `tests/protocol` harness.
 ## 3. Constraints and Invariants
 
 - **Only portable sources compile here.** A shim's source list may
-  include `src/diffdrive.cpp`, `motion_engine.cpp`,
-  `wire_handler.cpp`, `wire_adapter.cpp` — never a `pxt.h`-including
+  include `src/core/diffdrive.cpp`, `motion/motion_engine.cpp`,
+  `comms/wire_handler.cpp`, `comms/wire_adapter.cpp` — never a `pxt.h`-including
   file. If a link fails because a "portable" file grew a CODAL
   dependency, the *file* is wrong, not the harness: this suite is the
   enforcement mechanism for `src/DESIGN.md` §1's layering table.

@@ -32,12 +32,12 @@ Two traps this script exists to avoid, both of which cost hours:
 * `disablesVariants: ["mbdal"]` is dropped. In a top-level project it
   produces a hex that is DEAD ON THE DEVICE. The repo keeps it (it is
   an extension, where it is fine and skips a pointless V1 build); the
-  deploy copy must not. The price is a V1 `TS9283 program too big`
-  error, which is expected and harmless.
-* That TS9283 error aborts packaging NONDETERMINISTICALLY, and when it
-  does it DELETES the hex rather than leaving a stale one. The hex is
-  removed up front and its existence checked afterwards, so a failed
-  package can never be mistaken for a good build.
+  deploy copy must not.
+* Packaging can still abort NONDETERMINISTICALLY (the `TS9283`/
+  `TS9043`/`TS9200` shape below), and when it does it DELETES the hex
+  rather than leaving a stale one. The hex is removed up front and its
+  existence checked afterwards, so a failed package can never be
+  mistaken for a good build.
 
 **Build checkpoint triage (sprint 008).** `build()` used to only check
 "does a hex exist" -- no distinction between "a `.cpp` failed to
@@ -49,13 +49,9 @@ script is now the standing per-sprint build-checkpoint tool, and it
 judges on "did any `.cpp`/`.h` fail to compile" (a real GCC/Clang
 diagnostic naming a source file and a line), not on the packaging
 abort's error code, which varies run to run and is not the defect
-signal itself. Two abort shapes are known-benign and retried once,
+signal itself. One abort shape is known-benign and retried once,
 automatically, before being reported as anything:
 
-* The legacy V1 `bbc-microbit-classic-gcc` variant's own hex-merge step
-  failing after a successful compile (`srec_cat: ... contradictory ...
-  value`) -- this variant is not used to flash this hardware; only the
-  codal-microbit-v2 variant's hex matters.
 * The nondeterministic packaging abort, always after a pxt-core
   cache-write `TypeError [ERR_INVALID_ARG_TYPE]`, seen as `TS9283`
   ("program too big"), `TS9043` ("hex file is not available"), or
@@ -63,7 +59,20 @@ automatically, before being reported as anything:
 
 The retry is bounded, not infinite: if the same benign shape recurs on
 the retry and still produces no hex, that IS reported as a failure --
-the two shapes are expected to be transient, not chronic. See
+the shape is expected to be transient, not chronic.
+
+**Sprint 014: V1 is no longer built at all.**
+`PXT_COMPILE_SWITCHES=csv-mbcodal` (set unconditionally in
+`_run_pxt_build()`'s subprocess environment) selects
+`appTargetVariant=mbcodal` before any variant-dependency filtering
+runs, so the legacy V1 `bbc-microbit-classic-gcc` variant is never
+compiled under this script -- see
+`clasi/issues/never-build-the-v1-mbdal-variant.md` for the measured
+mechanism. Its old hex-merge failure (`srec_cat: ... contradictory ...
+value`) is therefore no longer a known-benign shape: if it is ever seen
+again, `classify_attempt()` reports it as `UNKNOWN` (a hard failure,
+no retry), because it can now only mean the switch silently failed to
+take effect, not an expected, transient trap. See
 `tools/DESIGN.md`'s "Build checkpoint triage" section for the full
 decision table (what is a hard failure, what is retried, and why), and
 `classify_attempt()` below, which is unit-tested against saved/
@@ -82,13 +91,18 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEPLOY = os.path.join(REPO, '.tmp', 'deploy-head')
-HEX = os.path.join(DEPLOY, 'built', 'mbcodal-binary.hex')
+# Single-variant output path: PXT_COMPILE_SWITCHES=csv-mbcodal (see
+# _run_pxt_build()) makes pxt-core produce built/binary.hex, not the
+# old multi-variant built/mbcodal-binary.hex. See build()'s block-
+# marker assertion below -- this filename alone does not prove which
+# kind of hex (plain V2 vs. universal V1+V2) actually landed here.
+HEX = os.path.join(DEPLOY, 'built', 'binary.hex')
 
 # testrig.ts's own scratch copy -- NEVER the same directory as DEPLOY.
 # See sync_testrig()/build_testrig() and the module docstring's mutual-
 # exclusivity note.
 DEPLOY_TESTRIG = os.path.join(REPO, '.tmp', 'deploy-testrig')
-HEX_TESTRIG = os.path.join(DEPLOY_TESTRIG, 'built', 'mbcodal-binary.hex')
+HEX_TESTRIG = os.path.join(DEPLOY_TESTRIG, 'built', 'binary.hex')
 
 ELITE = '/Volumes/Proj/proj/RobotProjects/radio-robot-elite'
 
@@ -96,9 +110,9 @@ ELITE = '/Volumes/Proj/proj/RobotProjects/radio-robot-elite'
 #
 # A genuine GCC/Clang compile diagnostic names a source file and a line,
 # e.g.:
-#   src/wire_adapter.cpp:12:10: fatal error: heading_wrap.h: No such
+#   src/comms/wire_adapter.cpp:12:10: fatal error: heading_wrap.h: No such
 #     file or directory
-#   src/wire_handler.cpp:214:37: error: no matching function for call
+#   src/comms/wire_handler.cpp:214:37: error: no matching function for call
 #     to 'Wire::Column::Column(<brace-enclosed initializer list>)'
 # This also catches a `pxt.json` manifest omission: a missing header
 # fails as "file not found" at the #include site, in the same
@@ -109,11 +123,6 @@ _COMPILE_ERROR_RE = re.compile(
     r'(?:fatal error|error):',
     re.MULTILINE,
 )
-
-# The legacy V1 bbc-microbit-classic-gcc variant's own hex-merge step
-# fails after a successful compile -- srec_cat rejects two regions that
-# disagree. This variant is not used to flash this hardware.
-_V1_HEXMERGE_RE = re.compile(r'srec_cat:.*contradictory', re.IGNORECASE)
 
 # The nondeterministic packaging abort, always after a pxt-core
 # cache-write `TypeError [ERR_INVALID_ARG_TYPE]`; the abort code itself
@@ -141,11 +150,18 @@ def classify_attempt(output, hex_exists):
     of whether a hex happens to exist -- a hex from one build variant
     plus a compile error in another is still a hard failure, not a
     success. Only once no compile diagnostic is present does hex
-    existence, then the two known-benign abort shapes, decide the rest.
+    existence, then the known-benign abort shape, decide the rest.
     An output that matches none of these (no hex, no compile
     diagnostic, no known benign shape) is UNKNOWN -- treated as a
     failure and NOT retried, deliberately failing closed rather than
-    risk silently retrying past a real, just-unrecognized defect. See
+    risk silently retrying past a real, just-unrecognized defect. This
+    is also where a resurrected legacy V1 `bbc-microbit-classic-gcc`
+    hex-merge failure (`srec_cat: ... contradictory ... value`) now
+    lands: under `PXT_COMPILE_SWITCHES=csv-mbcodal` V1 is never built,
+    so that shape is no longer an expected, retry-worthy trap -- it can
+    only mean the switch silently failed to take effect, which must
+    fail hard, not retry
+    (`clasi/issues/never-build-the-v1-mbdal-variant.md`). See
     tools/DESIGN.md for the honesty note this implies.
     """
     m = _COMPILE_ERROR_RE.search(output)
@@ -160,14 +176,34 @@ def classify_attempt(output, hex_exists):
         return HARD_FAILURE, 'compile error: ' + output[line_start:line_end].strip()
     if hex_exists:
         return SUCCESS, ''
-    if _V1_HEXMERGE_RE.search(output):
-        return (BENIGN,
-                'legacy V1 hex-merge failure (srec_cat contradictory value)')
     if _PACKAGING_ABORT_RE.search(output):
         return (BENIGN,
                 'nondeterministic packaging abort (TS9283/TS9043/TS9200)')
     return (UNKNOWN,
             'no hex, no compile diagnostic, no known benign shape matched')
+
+
+# `built/binary.hex` is ambiguous by filename alone once
+# PXT_COMPILE_SWITCHES=csv-mbcodal is in play: a universal (V1+V2) hex
+# from the old multi-variant build and a plain V2 hex from the
+# single-variant build are byte-for-byte different artifacts that share
+# this one path. A universal hex brackets each variant's program data
+# with a `:0400000A` extended-linear-address record (one pair per
+# variant); a plain single-variant hex has none. See build()'s use of
+# this below and tools/DESIGN.md.
+_UNIVERSAL_HEX_BLOCK_MARKER = ':0400000A'
+
+
+def _count_universal_hex_blocks(hex_text):
+    """Pure function, no I/O: counts `:0400000A` universal-hex
+    block-start markers in a hex file's already-read text. 0 means a
+    plain V2 hex; a nonzero count means a universal hex slipped through
+    -- PXT_COMPILE_SWITCHES=csv-mbcodal did not take effect. Mirrors
+    classify_attempt()/_select_promoted()'s separation of pure logic
+    from the I/O that feeds it, so this is directly unit-testable
+    against fixture text with no build, no subprocess, no filesystem
+    (`tests/tools/test_make_deploy_triage.py`)."""
+    return hex_text.count(_UNIVERSAL_HEX_BLOCK_MARKER)
 
 
 def _select_promoted(manifest, promote_name):
@@ -251,15 +287,35 @@ def _run_pxt_build(deploy_dir=None, hex_path=None):
     also capturing it for classify_attempt(). Removes any pre-existing
     hex first, so a build that aborts mid-package can never be mistaken
     for a stale-but-good one (see the TS9283 note in this file's module
-    docstring)."""
+    docstring).
+
+    Sets an explicit subprocess environment (sprint 014,
+    `clasi/issues/never-build-the-v1-mbdal-variant.md`) rather than
+    relying on the caller's shell:
+
+    * `PXT_COMPILE_SWITCHES=csv-mbcodal` is forced unconditionally --
+      never overridable by the ambient environment. V1 (`mbdal`) is
+      categorically unsupported hardware for this project, so there is
+      no legitimate reason for this to ever be anything else. This is
+      what makes `pxt-core` select `appTargetVariant=mbcodal` up front
+      and never build V1 at all.
+    * `PXT_FORCE_LOCAL` defaults to `'1'` (local Docker compile) but
+      honors an already-set ambient value -- e.g. `PXT_FORCE_LOCAL=0`
+      opts back into the MakeCode cloud compiler. This is what makes a
+      bare `uv run python tools/make_deploy.py` compile locally with no
+      env-var prefix required.
+    """
     if deploy_dir is None:
         deploy_dir = DEPLOY
     if hex_path is None:
         hex_path = HEX
     if os.path.exists(hex_path):
         os.remove(hex_path)
+    env = dict(os.environ)
+    env['PXT_COMPILE_SWITCHES'] = 'csv-mbcodal'
+    env.setdefault('PXT_FORCE_LOCAL', '1')
     proc = subprocess.Popen(
-        ['pxt', 'build'], cwd=deploy_dir,
+        ['pxt', 'build'], cwd=deploy_dir, env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     lines = []
@@ -279,7 +335,16 @@ def build(run_fn=None, hex_path=None, label=''):
     (`tests/tools/test_make_deploy_triage.py`) is unaffected;
     `build_testrig()` passes the testrig-scratch equivalents instead.
     `classify_attempt()` itself -- the triage -- is untouched by this;
-    this only wires which build output/hex path it judges."""
+    this only wires which build output/hex path it judges.
+
+    After a SUCCESS verdict, before the hex is ever reported as ready,
+    also asserts it is a plain V2 hex, not a universal (V1+V2) one --
+    see `_count_universal_hex_blocks()` and the module docstring's
+    "Sprint 014" note. `built/binary.hex` is ambiguous by filename
+    alone; a nonzero block count means
+    `PXT_COMPILE_SWITCHES=csv-mbcodal` silently failed to take effect,
+    which is a hard failure, not a shape `build()` can treat as
+    flashable."""
     if run_fn is None:
         run_fn = _run_pxt_build
     if hex_path is None:
@@ -302,6 +367,15 @@ def build(run_fn=None, hex_path=None, label=''):
     if verdict != SUCCESS:
         sys.exit(f'\n{label}BUILD FAILED on attempt {attempt}: {reason}\n'
                  'See the raw pxt output above for detail.')
+    with open(hex_path) as f:
+        block_count = _count_universal_hex_blocks(f.read())
+    if block_count != 0:
+        sys.exit(
+            f'\n{label}BUILD FAILED: {hex_path} is a universal (V1+V2) hex '
+            f'({block_count} :0400000A block markers) instead of a plain V2 '
+            "hex -- PXT_COMPILE_SWITCHES=csv-mbcodal did not take effect. "
+            "See tools/DESIGN.md's \"Build checkpoint triage\" section."
+        )
     print(f'\n{label}hex: {hex_path}  ({os.path.getsize(hex_path)} bytes)  [attempt {attempt}]')
 
 

@@ -32,12 +32,12 @@
 // getConfigValue/diagValue and the engine* wire forwards. Keep
 // signatures compatible with their forward-declaration blocks.
 #include "pxt.h"
-#include "diffdrive.h"
-#include "encoder_pose_source.h"
-#include "motion_engine.h"
-#include "nezha_port.h"
-#include "otos_port.h"
-#include "platform_ports.h"
+#include "core/diffdrive.h"
+#include "platform/encoder_pose_source.h"
+#include "motion/motion_engine.h"
+#include "platform/nezha_port.h"
+#include "platform/otos_port.h"
+#include "platform/platform_ports.h"
 
 #include <cmath>
 

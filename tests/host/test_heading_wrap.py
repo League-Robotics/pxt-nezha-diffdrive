@@ -1,4 +1,4 @@
-"""tests/host/test_heading_wrap.py -- host test for src/heading_wrap.h's
+"""tests/host/test_heading_wrap.py -- host test for src/core/heading_wrap.h's
 wrapRadians() (sprint 006 ticket 004,
 clasi/issues/otos-seed-heading-clamp.md / code review KERN-05: seeding
 the OTOS with |heading| > 180 deg silently CLAMPED instead of wrapping,
@@ -6,7 +6,7 @@ up to ~170 deg of seed error).
 
 **Why this is the only host-testable proxy for the fix.** `otos_port.h`
 includes pxt.h unconditionally, so `OtosPort` -- the actual call site
-(`OtosPort::setPose()`, src/otos_port.cpp) -- cannot be compiled into
+(`OtosPort::setPose()`, src/platform/otos_port.cpp) -- cannot be compiled into
 any host test at all. `heading_wrap.h` carries the one piece of that
 fix's logic that CAN be: the pure wrap math. This suite exercises it
 directly (`headingWrapWrapRadians()`) and also proves the exact LSB

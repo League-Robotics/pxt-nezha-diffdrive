@@ -74,7 +74,7 @@ import pathlib
 
 # --- wire-format constants --------------------------------------------
 
-# seq_ wraps (seq_ + 1) & 0x7F -- src/wire_adapter.cpp:580. A 7-bit
+# seq_ wraps (seq_ + 1) & 0x7F -- src/comms/wire_adapter.cpp:580. A 7-bit
 # counter at the 20 Hz frame rate is unambiguous up to (128 / 20) =
 # 6.4 s of continuous loss; anything longer aliases as a smaller gap
 # (or none), a known limitation of a 7-bit counter, not a bug here.
@@ -247,7 +247,7 @@ class TlmStream:
 
 # --- unit-conversion helpers --------------------------------------------
 # The only place any wire -> engineering-unit scale factor is written.
-# Wire units, confirmed against src/wire_adapter.cpp's buildSnapshot()
+# Wire units, confirmed against src/comms/wire_adapter.cpp's buildSnapshot()
 # and tests/host/golden_telemetry.py:
 #   x, y, ox, oy   -- already millimetres (poseX()/poseY() are [mm];
 #                     otosGet() is 0.1 mm and buildSnapshot() itself

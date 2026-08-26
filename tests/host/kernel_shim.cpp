@@ -11,7 +11,7 @@
 // radio-robot-lib/tests/protocol/protocol_shim.cpp's own shape exactly.
 #include <cstdint>
 
-#include "diffdrive.h"
+#include "core/diffdrive.h"
 #include "fake_ports.h"
 
 namespace {
@@ -85,7 +85,7 @@ void kdSetStall(void* handle, float speed, float demand, float window) {
 
 // ---- commands --------------------------------------------------------
 // Every Status-returning call returns DifferentialDrive::Status's
-// DECLARATION-ORDER ordinal (src/diffdrive.h) -- see
+// DECLARATION-ORDER ordinal (src/core/diffdrive.h) -- see
 // test_kernel_harness.py's STATUS_* constants, which mirror that order.
 
 int kdBegin(void* handle) {
@@ -121,7 +121,7 @@ int kdLastError(void* handle) {
 
 // ---- output readback --------------------------------------------------
 // One function per Output field a host test currently needs -- extend
-// this list (mirroring DifferentialDrive::Output, src/diffdrive.h) as
+// this list (mirroring DifferentialDrive::Output, src/core/diffdrive.h) as
 // later tickets need more of it rather than exposing the whole struct
 // at once.
 

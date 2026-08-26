@@ -1,5 +1,5 @@
 """tests/host/test_motion_engine_reductions.py -- tests
-src/motion_engine.h/.cpp's move engine -- moveX/moveV/goToR, and the
+src/motion/motion_engine.h/.cpp's move engine -- moveX/moveV/goToR, and the
 taper/ramp/wrong-way-abort shaping ported from shims.cpp's former
 Rig::startMove()/serviceMove(), built on top of the wheelsX/wheelsV
 primitives.
@@ -42,8 +42,8 @@ _TEST_DIR = pathlib.Path(__file__).resolve().parent
 _SRC_DIR = _TEST_DIR.parent.parent / "src"
 
 _SHIM_SOURCES = [
-    _SRC_DIR / "diffdrive.cpp",
-    _SRC_DIR / "motion_engine.cpp",
+    _SRC_DIR / "core" / "diffdrive.cpp",
+    _SRC_DIR / "motion" / "motion_engine.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 

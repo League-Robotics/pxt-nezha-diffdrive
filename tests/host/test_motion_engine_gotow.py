@@ -1,10 +1,10 @@
 """tests/host/test_motion_engine_gotow.py --
-src/motion_engine.h/.cpp's world-frame reduction, goToW(), and the
+src/motion/motion_engine.h/.cpp's world-frame reduction, goToW(), and the
 PoseSource port it reads (a minimal x()/y()/heading() interface,
 implemented for tests by FakePoseSource -- tests/host/fake_pose_source.h).
 
 Sprint 006 ticket 007 extends this file with the production
-EncoderPoseSource implementation (src/encoder_pose_source.h) and
+EncoderPoseSource implementation (src/platform/encoder_pose_source.h) and
 selectPoseSource(), the host-testable stand-in for engineGoToW()'s own
 OtosPort-vs-EncoderPoseSource selection rule (shims.cpp) -- see the
 "sprint 006 ticket 007" section near the end of this file.
@@ -53,8 +53,8 @@ _TEST_DIR = pathlib.Path(__file__).resolve().parent
 _SRC_DIR = _TEST_DIR.parent.parent / "src"
 
 _SHIM_SOURCES = [
-    _SRC_DIR / "diffdrive.cpp",
-    _SRC_DIR / "motion_engine.cpp",
+    _SRC_DIR / "core" / "diffdrive.cpp",
+    _SRC_DIR / "motion" / "motion_engine.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 

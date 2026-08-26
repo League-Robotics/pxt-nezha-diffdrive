@@ -24,7 +24,7 @@
 
 #include "pxt.h"
 
-#include "motion_engine.h"
+#include "../motion/motion_engine.h"
 
 namespace diffDrive {
 

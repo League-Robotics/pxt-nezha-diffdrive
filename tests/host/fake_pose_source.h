@@ -1,5 +1,5 @@
 // fake_pose_source.h -- FakePoseSource: a test double for
-// diffDrive::PoseSource (src/motion_engine.h), settable by a test to an
+// diffDrive::PoseSource (src/motion/motion_engine.h), settable by a test to an
 // arbitrary (x, y, heading). Same shape as fake_ports.h's
 // FakeMotor/FakeClock/FakeSleeper/FakeFiberLauncher: a plain test double
 // with public "canned response" state a test arms before calling
@@ -11,7 +11,7 @@
 // libraries (see motion_engine_shim.cpp).
 #pragma once
 
-#include "motion_engine.h"
+#include "motion/motion_engine.h"
 
 class FakePoseSource : public diffDrive::PoseSource {
  public:

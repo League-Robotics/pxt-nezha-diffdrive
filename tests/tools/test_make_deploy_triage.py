@@ -134,6 +134,27 @@ Error: connect ETIMEDOUT 140.82.112.3:443
     at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1601:16)
 """
 
+# Synthetic hex-file text fixtures for _count_universal_hex_blocks()
+# (sprint 014). Not meant to be flashable -- close enough to real
+# Intel-hex shape to exercise the `:0400000A` extended-linear-address
+# block-marker count, which is all the counting function looks at. A
+# universal (V1+V2) hex brackets EACH variant's program data with one
+# such marker; a plain single-variant hex (csv-mbcodal's own output)
+# has none.
+PLAIN_V2_HEX_FIXTURE = """\
+:020000040000FA
+:10000000AABBCCDDEEFF00112233445566778899C2
+:00000001FF
+"""
+
+UNIVERSAL_HEX_FIXTURE = """\
+:0400000A0000F0FA
+:10000000AABBCCDDEEFF0011223344556677889912
+:0400000A0001F0F9
+:10000000112233445566778899AABBCCDDEEFF0034
+:00000001FF
+"""
+
 
 # --- classify_attempt() ----------------------------------------------------
 
@@ -181,12 +202,17 @@ def test_manifest_omission_is_hard_failure_via_the_same_path():
     assert "heading_wrap.h" in reason
 
 
-def test_v1_hexmerge_failure_is_benign():
+def test_v1_hexmerge_failure_is_now_unknown_not_benign():
+    """Regression pin (sprint 014): under
+    PXT_COMPILE_SWITCHES=csv-mbcodal, V1 never builds, so its old
+    hex-merge failure is no longer an expected, retry-worthy shape --
+    it can now only mean the switch silently failed to take effect,
+    which must fail hard, not retry. See sprint.md's Design Rationale
+    and clasi/issues/never-build-the-v1-mbdal-variant.md."""
     verdict, reason = make_deploy.classify_attempt(
         V1_HEXMERGE_LOG, hex_exists=False
     )
-    assert verdict == make_deploy.BENIGN
-    assert "hex-merge" in reason
+    assert verdict == make_deploy.UNKNOWN
 
 
 def test_packaging_abort_9283_is_benign():
@@ -228,6 +254,23 @@ def test_no_hex_and_clean_output_is_unknown():
     (e.g. a truncated log) must not be misread as success."""
     verdict, reason = make_deploy.classify_attempt("", hex_exists=False)
     assert verdict == make_deploy.UNKNOWN
+
+
+# --- _count_universal_hex_blocks() (sprint 014) -----------------------------
+#
+# Pure function, no I/O -- directly unit-testable against fixture text,
+# mirroring classify_attempt()/_select_promoted()'s separation of pure
+# logic from the I/O that feeds it. build()'s own use of this (read the
+# hex, hard-fail on a nonzero count) is exercised further down by the
+# integration-level test alongside the other build() wiring tests.
+
+
+def test_count_universal_hex_blocks_is_zero_for_plain_v2_hex():
+    assert make_deploy._count_universal_hex_blocks(PLAIN_V2_HEX_FIXTURE) == 0
+
+
+def test_count_universal_hex_blocks_counts_both_markers_in_a_universal_hex():
+    assert make_deploy._count_universal_hex_blocks(UNIVERSAL_HEX_FIXTURE) == 2
 
 
 # --- testFiles promotion (the build-hygiene half of this ticket) ----------
@@ -339,23 +382,28 @@ def test_sync_and_sync_testrig_never_share_a_promoted_file(tmp_path, monkeypatch
 # --- build()'s retry-then-report wiring ------------------------------------
 
 
-def test_build_retries_once_on_benign_then_succeeds(monkeypatch, capsys):
+def test_build_retries_once_on_benign_then_succeeds(monkeypatch, capsys, tmp_path):
     """The documented shape: attempt 1 hits a benign abort, attempt 2
-    succeeds -- build() must retry automatically and not raise."""
+    succeeds -- build() must retry automatically and not raise. Attempt
+    1 uses the nondeterministic-packaging-abort shape, not the old V1
+    hex-merge one -- under sprint 014's triage, V1 hex-merge is UNKNOWN
+    (hard failure, no retry), not benign, so it can no longer stand in
+    for "a benign shape" here. Sprint 014's block-marker check reads
+    the hex's actual content, so attempt 2 writes a real temp hex file
+    (0-marker, plain-V2 fixture) rather than relying on a faked
+    os.path.exists()."""
+    hex_path = tmp_path / "binary.hex"
     attempts = {"n": 0}
 
     def fake_run():
         attempts["n"] += 1
-        return V1_HEXMERGE_LOG if attempts["n"] == 1 else CLEAN_SUCCESS_LOG
+        if attempts["n"] == 1:
+            return PACKAGING_ABORT_LOG_9283
+        hex_path.write_text(PLAIN_V2_HEX_FIXTURE)
+        return CLEAN_SUCCESS_LOG
 
-    hex_present_by_attempt = {1: False, 2: True}
     monkeypatch.setattr(make_deploy, "_run_pxt_build", fake_run)
-    monkeypatch.setattr(
-        make_deploy.os.path, "exists",
-        lambda path: hex_present_by_attempt.get(attempts["n"], False)
-        if path == make_deploy.HEX else True,
-    )
-    monkeypatch.setattr(make_deploy.os.path, "getsize", lambda path: 123456)
+    monkeypatch.setattr(make_deploy, "HEX", str(hex_path))
 
     make_deploy.build()  # must not raise / sys.exit
 
@@ -399,14 +447,36 @@ def test_build_reports_hard_failure_immediately_no_retry(monkeypatch):
     assert calls["n"] == 1
 
 
+def test_build_hard_fails_when_hex_is_universal_not_plain_v2(monkeypatch, tmp_path):
+    """Sprint 014's own new assertion: even when classify_attempt()
+    itself returns SUCCESS (a hex exists, no compile diagnostic), a hex
+    containing universal-hex block markers must not be reported as
+    flashable -- it means PXT_COMPILE_SWITCHES=csv-mbcodal silently
+    failed to take effect. Analogous in shape to
+    test_build_reports_failure_when_benign_shape_recurs above: build()
+    must exit non-zero rather than trust the filename alone."""
+    hex_path = tmp_path / "binary.hex"
+    hex_path.write_text(UNIVERSAL_HEX_FIXTURE)
+
+    monkeypatch.setattr(make_deploy, "_run_pxt_build",
+                         lambda: CLEAN_SUCCESS_LOG)
+    monkeypatch.setattr(make_deploy, "HEX", str(hex_path))
+
+    with pytest.raises(SystemExit):
+        make_deploy.build()
+
+
 # --- build_testrig()'s wiring: testrig's own scratch, own hex path --------
 
 
-def test_build_testrig_uses_its_own_scratch_dir_and_hex_path(monkeypatch, capsys):
+def test_build_testrig_uses_its_own_scratch_dir_and_hex_path(monkeypatch, capsys, tmp_path):
     """build_testrig() must never touch the primary DEPLOY/HEX -- it
     runs `pxt build` against DEPLOY_TESTRIG and classifies against
     HEX_TESTRIG, not HEX. The mutual-exclusivity constraint applies to
-    the build step too, not just sync()."""
+    the build step too, not just sync(). Real temp hex file (0-marker,
+    plain-V2 fixture), per the sprint 014 block-marker check."""
+    hex_path = tmp_path / "binary.hex"
+    hex_path.write_text(PLAIN_V2_HEX_FIXTURE)
     calls = []
 
     def fake_run(deploy_dir=None, hex_path=None):
@@ -414,18 +484,14 @@ def test_build_testrig_uses_its_own_scratch_dir_and_hex_path(monkeypatch, capsys
         return CLEAN_SUCCESS_LOG
 
     monkeypatch.setattr(make_deploy, "_run_pxt_build", fake_run)
-    monkeypatch.setattr(
-        make_deploy.os.path, "exists",
-        lambda path: path == make_deploy.HEX_TESTRIG,
-    )
-    monkeypatch.setattr(make_deploy.os.path, "getsize", lambda path: 654321)
+    monkeypatch.setattr(make_deploy, "HEX_TESTRIG", str(hex_path))
 
     make_deploy.build_testrig()  # must not raise / sys.exit
 
-    assert calls == [(make_deploy.DEPLOY_TESTRIG, make_deploy.HEX_TESTRIG)]
+    assert calls == [(make_deploy.DEPLOY_TESTRIG, str(hex_path))]
     out = capsys.readouterr().out
     assert "testrig hex:" in out
-    assert make_deploy.HEX_TESTRIG in out
+    assert str(hex_path) in out
 
 
 def test_build_testrig_reports_hard_failure_like_the_primary_build(monkeypatch):

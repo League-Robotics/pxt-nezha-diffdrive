@@ -10,10 +10,10 @@ targets (legacy mbed-classic/yotta bbc-microbit-classic-gcc and
 codal-microbit-v2) compile at -std=c++11, baked into the pxt-microbit
 target's own yotta/CMake toolchain files and not overridable from this
 project's pxt.json. `Wire::Column`'s default member initializers
-(src/wire_handler.h, ticket 004) are legal C++20 but disqualify it from
+(src/comms/wire_handler.h, ticket 004) are legal C++20 but disqualify it from
 being a C++11 aggregate -- so the ~20 `columns_[i++] = {...}`
 brace-assignment sites in WireAdapter::buildSnapshot()
-(src/wire_adapter.cpp) compiled clean against 253 passing host tests
+(src/comms/wire_adapter.cpp) compiled clean against 253 passing host tests
 while being uncompilable for the actual robot. This test would have
 caught that before it cost a bench checkpoint to surface.
 
@@ -70,20 +70,20 @@ _TEST_DIR = pathlib.Path(__file__).resolve().parent
 # test_kernel_harness.py's existing -std=c++20 compile of the same
 # files.
 _CXX11_PORTABLE_SOURCES = [
-    _SRC_DIR / "diffdrive.cpp",
-    _SRC_DIR / "motion_engine.cpp",
-    _SRC_DIR / "wire_handler.cpp",
-    _SRC_DIR / "wire_adapter.cpp",
+    _SRC_DIR / "core" / "diffdrive.cpp",
+    _SRC_DIR / "motion" / "motion_engine.cpp",
+    _SRC_DIR / "comms" / "wire_handler.cpp",
+    _SRC_DIR / "comms" / "wire_adapter.cpp",
     # Sprint 006 ticket 004: heading_wrap.h has no pxt.h dependency (it
     # is the extracted, host-portable half of OtosPort::setPose()'s
-    # heading-wrap fix -- see src/heading_wrap.h's own header comment)
+    # heading-wrap fix -- see src/core/heading_wrap.h's own header comment)
     # but no natural .cpp of its own, so this dedicated translation
     # unit exists solely to give this gate something to compile.
     _TEST_DIR / "heading_wrap_syntax_check.cpp",
     # Sprint 006 ticket 005: encoder_glitch_armor.h has no pxt.h
     # dependency (it is the extracted, host-portable half of
     # NezhaMotorPort::collect()'s rebaseline-on-discontinuity fix --
-    # see src/encoder_glitch_armor.h's own header comment) but no
+    # see src/core/encoder_glitch_armor.h's own header comment) but no
     # natural .cpp of its own, so this dedicated translation unit
     # exists solely to give this gate something to compile.
     _TEST_DIR / "encoder_glitch_armor_syntax_check.cpp",
