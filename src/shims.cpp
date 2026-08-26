@@ -45,6 +45,15 @@ using namespace pxt;
 
 namespace diffDrive {
 
+// Boundary convention's cdeg<->rad conversion (see this file's own
+// header comment above: "mm, mm/s, centidegrees, centidegrees/s"). The
+// wire/TS-facing shim surface is centidegree-scaled; the kernel/motion-
+// engine math beneath it is radian-scaled. Named once here so every
+// crossing site defers to the same constant instead of open-coding the
+// formula independently.
+constexpr float kCdegToRad = 0.01f * 3.14159265f / 180.0f;
+constexpr float kRadToCdeg = 1.0f / kCdegToRad;
+
 // Forward declaration: the starvation watchdog fiber entry point is
 // defined in its own clearly delineated section further down (see
 // "starvation watchdog"); ensure() launches it via the same
@@ -286,8 +295,7 @@ void setWheels(int left, int right) {  // [mm/s] [mm/s]
 //%
 void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   Rig& r = ensure();
-  const float yawRad =
-      static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
+  const float yawRad = static_cast<float>(yawRate) * kCdegToRad;
   const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
   const float speedMmS = static_cast<float>(speed);
   r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS,
@@ -314,8 +322,7 @@ void setWheelsTimed(int left, int right,
 void driveTwistTimed(int speed, int yawRate,
                      uint32_t durationMs) {  // [mm/s] [cdeg/s] [ms]
   Rig& r = ensure();
-  const float yawRad =
-      static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
+  const float yawRad = static_cast<float>(yawRate) * kCdegToRad;
   const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
   const float speedMmS = static_cast<float>(speed);
   r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS, durationMs);
@@ -399,8 +406,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   Rig& r = ensure();
   odomUpdate(r);
   const float distanceMm = static_cast<float>(distance);
-  const float rotationRad =
-      static_cast<float>(yaw) * 0.01f * 3.14159265f / 180.0f;
+  const float rotationRad = static_cast<float>(yaw) * kCdegToRad;
 
   // This shim predates MotionEngine::moveX()'s single-`cruise` wire-
   // shaped signature (motion-api.md S2: move_x(distance,rot) ==
@@ -427,8 +433,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   const float speedCounts =
       static_cast<float>(speed > 0 ? speed : 1) * cpm;    // [counts/s]
   const float yawRadPerS =
-      static_cast<float>(yawRate > 0 ? yawRate : 1) * 0.01f *
-      3.14159265f / 180.0f;
+      static_cast<float>(yawRate > 0 ? yawRate : 1) * kCdegToRad;
   const float twistCounts = yawRadPerS * 0.5f * b * cpm;  // [counts/s]
 
   // One duration covers both axes -> simultaneous arc completion. This
@@ -892,8 +897,7 @@ int poseY() {  // [mm]
 int poseHeading() {  // [cdeg]
   Rig& r = ensure();
   odomUpdate(r);
-  return static_cast<int>(
-      std::lround(r.heading * 180.0f / 3.14159265f * 100.0f));
+  return static_cast<int>(std::lround(r.heading * kRadToCdeg));
 }
 
 //%
@@ -1191,7 +1195,6 @@ bool otosRead() { return otosRef().read(); }
 //%
 int otosGet(int what) {
   OtosPort& o = otosRef();
-  constexpr float kRadToCdeg = 18000.0f / 3.14159265f;
   switch (what) {
     case 0: return static_cast<int>(std::lround(o.x() * 10.0f));  // [0.1 mm]
     case 1: return static_cast<int>(std::lround(o.y() * 10.0f));  // [0.1 mm]
@@ -1253,7 +1256,7 @@ String runCommandText(int slot) {
 void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]
   otosRef().setOffset(static_cast<float>(x) * 0.1f,
                       static_cast<float>(y) * 0.1f,
-                      static_cast<float>(yaw) * 0.01f * 3.14159265f / 180.0f);
+                      static_cast<float>(yaw) * kCdegToRad);
 }
 
 // V6 SEED (protocol-v6-spec.md 5.5): declare the world pose from an
@@ -1264,7 +1267,7 @@ void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]
 void seedPose(int x, int y, int heading) {  // [mm] [mm] [cdeg]
   Rig& r = ensure();
   odomUpdate(r);  // consume pending deltas before overwriting
-  const float h = static_cast<float>(heading) * 0.01f * 3.14159265f / 180.0f;
+  const float h = static_cast<float>(heading) * kCdegToRad;
   r.x = static_cast<float>(x);
   r.y = static_cast<float>(y);
   r.heading = h;

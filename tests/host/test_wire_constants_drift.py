@@ -546,3 +546,116 @@ def test_shims_cpp_diag_value_switch_matches_kdiag_ordinals():
         f"numbers still line up, but the meaning behind them has "
         f"drifted, e.g. from two cases' bodies being reordered."
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. kCdegToRad / kRadToCdeg (shims.cpp): the merge side of the mirrored-
+#    constant rule -- eight sites (driveTwist(), driveTwistTimed(),
+#    startMove() x2, otosSetOffset(), seedPose(), poseHeading(),
+#    otosGet()'s own local re-declaration) used to open-code the
+#    centidegree<->radian boundary conversion (`0.01f * 3.14159265f /
+#    180.0f`, or its inverse) independently. All eight now defer to two
+#    named constants defined once at file scope, beside shims.cpp's own
+#    "Boundary convention" header comment. This is a "merge", not a
+#    "drift test between two files" -- the guard against regression is a
+#    single-file check that the pi literal has not crept back in
+#    anywhere except the two definitions themselves.
+# ---------------------------------------------------------------------------
+
+
+def _shims_cpp_text():
+    return _read("shims.cpp")
+
+
+def test_shims_cpp_pi_literal_only_in_kcdegtorad_definition():
+    """The literal `3.14159265f` must appear exactly once in shims.cpp:
+    inside `kCdegToRad`'s own definition. `kRadToCdeg` is derived from
+    `kCdegToRad` (`1.0f / kCdegToRad`), not from a second copy of pi, so
+    a correctly-merged file has exactly one occurrence. A future edit
+    that open-codes a ninth cdeg<->rad conversion site (or re-adds
+    otosGet()'s old local `kRadToCdeg = 18000.0f / 3.14159265f`) raises
+    this count and fails here instead of silently reintroducing the
+    duplication this ticket removed."""
+    text = _shims_cpp_text()
+    occurrences = [
+        line_no
+        for line_no, line in enumerate(text.splitlines(), start=1)
+        if "3.14159265f" in line
+    ]
+    assert occurrences == [] or len(occurrences) == 1, (
+        f"shims.cpp's pi literal (3.14159265f) appears on lines "
+        f"{occurrences}, expected exactly one occurrence (kCdegToRad's "
+        f"own definition) -- an open-coded cdeg<->rad conversion site "
+        f"has crept back in. Use the shared kCdegToRad/kRadToCdeg "
+        f"constants instead of a fresh literal."
+    )
+    if occurrences:
+        line = text.splitlines()[occurrences[0] - 1]
+        assert "kCdegToRad" in line, (
+            f"shims.cpp's sole remaining pi literal is on line "
+            f"{occurrences[0]} (\"{line.strip()}\"), which is not the "
+            f"kCdegToRad definition -- an open-coded conversion site has "
+            f"replaced the named constant."
+        )
+
+
+def test_shims_cpp_defines_kcdegtorad_and_kradtocdeg_exactly_once():
+    """kCdegToRad and kRadToCdeg must each be defined exactly once, as
+    file-scope constexpr floats -- not re-declared locally inside a
+    function (the exact defect otosGet()'s old local kRadToCdeg was)."""
+    text = _shims_cpp_text()
+    cdeg_to_rad_defs = re.findall(
+        r"constexpr float kCdegToRad\s*=", text
+    )
+    rad_to_cdeg_defs = re.findall(
+        r"constexpr float kRadToCdeg\s*=", text
+    )
+    assert len(cdeg_to_rad_defs) == 1, (
+        f"Expected exactly one `constexpr float kCdegToRad = ...` "
+        f"definition in shims.cpp, found {len(cdeg_to_rad_defs)}."
+    )
+    assert len(rad_to_cdeg_defs) == 1, (
+        f"Expected exactly one `constexpr float kRadToCdeg = ...` "
+        f"definition in shims.cpp, found {len(rad_to_cdeg_defs)} -- "
+        f"otosGet() must not re-declare its own local copy."
+    )
+
+
+def test_shims_cpp_conversion_sites_use_named_constants():
+    """Each of the eight known cdeg<->rad boundary-conversion call sites
+    must reference the shared kCdegToRad/kRadToCdeg constant by name.
+    Scoped per-function (like this file's other case-body checks) so an
+    unrelated open-coded formula elsewhere can't produce a false pass."""
+    text = _shims_cpp_text()
+
+    def body_of(signature_pattern):
+        match = re.search(
+            signature_pattern + r"\s*\{(.*?)\n\}", text, re.DOTALL
+        )
+        assert match, f"Function body not found for pattern: {signature_pattern}"
+        return match.group(1)
+
+    forward_sites = {
+        "driveTwist": r"void driveTwist\(int speed, int yawRate\)",
+        "driveTwistTimed": r"void driveTwistTimed\(int speed, int yawRate,\n\s*uint32_t durationMs\)",
+        "startMove": r"void startMove\(int distance, int yaw, int speed, int yawRate\)",
+        "otosSetOffset": r"void otosSetOffset\(int x, int y, int yaw\)",
+        "seedPose": r"void seedPose\(int x, int y, int heading\)",
+    }
+    for name, pattern in forward_sites.items():
+        body = body_of(pattern)
+        assert "kCdegToRad" in body, (
+            f"{name}() no longer references kCdegToRad by name -- has "
+            f"an open-coded conversion crept back in?"
+        )
+
+    inverse_sites = {
+        "poseHeading": r"int poseHeading\(\)",
+        "otosGet": r"int otosGet\(int what\)",
+    }
+    for name, pattern in inverse_sites.items():
+        body = body_of(pattern)
+        assert "kRadToCdeg" in body, (
+            f"{name}() no longer references kRadToCdeg by name -- has "
+            f"an open-coded conversion crept back in?"
+        )
