@@ -413,14 +413,19 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
       3.14159265f / 180.0f;
   const float twistCounts = yawRadPerS * 0.5f * b * cpm;  // [counts/s]
 
-  // One duration covers both axes -> simultaneous arc completion.
-  float duration = 0.0f;  // [s]
+  // One duration covers both axes -> simultaneous arc completion. This
+  // max()-based `duration` is also what derives `cruiseMmS` below
+  // (unaffected by the split-aware budget fix further down) -- it is
+  // the legacy dual-rate reconciliation the header comment above
+  // describes, correct regardless of whether moveX() ends up splitting.
+  float distDuration = 0.0f;  // [s]
   if (distTargetCounts != 0.0f)
-    duration = std::fabs(distTargetCounts) / speedCounts;
-  if (yawTargetCounts != 0.0f) {
-    const float yawDuration = std::fabs(yawTargetCounts) / twistCounts;
-    if (yawDuration > duration) duration = yawDuration;
-  }
+    distDuration = std::fabs(distTargetCounts) / speedCounts;
+  float yawDuration = 0.0f;  // [s]
+  if (yawTargetCounts != 0.0f)
+    yawDuration = std::fabs(yawTargetCounts) / twistCounts;
+  const float duration = distDuration > yawDuration ? distDuration
+                                                      : yawDuration;
   if (duration <= 0.0f) return;  // nothing to do
 
   const float leftCounts = distTargetCounts - yawTargetCounts;
@@ -429,12 +434,33 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   const float absRight = std::fabs(rightCounts);
   const float dominantCounts = absLeft > absRight ? absLeft : absRight;
   const float cruiseMmS = (dominantCounts / duration) / cpm;  // [mm/s]
-  // Backstop allows for the end-of-move taper (serviceMove): the last
-  // ~15 deg / ~40 mm run at reduced rate, adding up to ~1 s. This is
-  // moveX()'s own `timeout` -- a REAL backstop the wire's own MOVE_X
-  // carries as a required field, not an internally re-derived one.
+
+  // moveX() (motion_engine.cpp) splits a nonzero distance combined with
+  // a large enough rotation into pivot-then-straight -- two SEQUENTIAL
+  // segments sharing the one deadline this call sets (motion_engine.h:
+  // "NOT reset across a pivot-to-straight phase transition") -- rather
+  // than one blended segment where both axes finish together. Budget
+  // the SUM of both axes' durations for that case; max() only covers
+  // the genuinely simultaneous (non-split) move. Read the split
+  // threshold from MotionEngine itself (turnFirstAngleRad(), the public
+  // accessor for its own private kTurnFirstAngleRad) rather than
+  // retyping the 50 deg constant here, so this decision can never drift
+  // from moveX()'s own.
+  const bool willSplit =
+      distanceMm != 0.0f &&
+      std::fabs(rotationRad) >= MotionEngine::turnFirstAngleRad();
+  const float budgetDuration =
+      willSplit ? (distDuration + yawDuration) : duration;
+
+  // Backstop: for a single segment, this covers the end-of-move taper
+  // (serviceMove) -- the last ~15 deg / ~40 mm run at reduced rate,
+  // adding up to ~1 s. When the split above fires, it is ALSO the only
+  // thing paying for the SECOND phase's own ramp/taper overhead, since
+  // one deadline spans both phases. This is moveX()'s own `timeout` --
+  // a REAL backstop the wire's own MOVE_X carries as a required field,
+  // not an internally re-derived one.
   const uint32_t timeoutMs =
-      static_cast<uint32_t>(duration * 1000.0f) + 1500u;
+      static_cast<uint32_t>(budgetDuration * 1000.0f) + 1500u;
 
   r.engine.moveX(distanceMm, rotationRad, cruiseMmS, timeoutMs);
 }

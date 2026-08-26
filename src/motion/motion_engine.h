@@ -247,6 +247,14 @@ class MotionEngine {
   // in-flight moveX()/goToR() move first, same as wheelsV() above.
   void wheelsX(float left, float right, float cruise, uint32_t timeoutMs);
 
+  // [rad] the |rotation| threshold moveX() (below) uses to decide
+  // pivot-then-straight vs one blended segment -- the single source of
+  // truth for `kTurnFirstAngleRad` (private, below), exposed here so a
+  // caller that must mirror moveX()'s own split decision (e.g.
+  // shims.cpp's startMove(), budgeting a caller-supplied timeout) reads
+  // it from this class instead of re-typing the constant a second time.
+  static constexpr float turnFirstAngleRad() { return kTurnFirstAngleRad; }
+
   // ---- move engine (motion-api.md S3.3-S3.5) -- see this file's header
   // comment for the shape of each reduction. ----
 
