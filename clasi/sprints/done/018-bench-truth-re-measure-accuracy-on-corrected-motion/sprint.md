@@ -1,7 +1,7 @@
 ---
 id: 018
 title: 'Bench truth: re-measure accuracy on corrected motion'
-status: executing
+status: done
 branch: sprint/018-bench-truth-re-measure-accuracy-on-corrected-motion
 use-cases: []
 issues:
