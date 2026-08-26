@@ -64,8 +64,8 @@ Three kinds of file, one pattern:
   way the `WHEELS_X`/`MOVE_X` tests already do, not merely re-tuned to
   keep passing. And its config-rounding double matches
   `std::lround(v * 1000.0)` instead of a truncating
-  `static_cast<int>(v * 1000.0f)` — see `src/DESIGN.md`'s own §14 for
-  why each was wrong and what production actually does.
+  `static_cast<int>(v * 1000.0f)`, matching what production actually
+  does.
   `motion_engine_shim.cpp` (or `kernel_shim.cpp`, whichever the
   extraction ticket judges the better home — the settle helper needs
   only `kernel.step()`/`kernel.output()`, already exposed by
@@ -178,7 +178,7 @@ hardware-only — its bounded-iteration/break-on-rest *decision* is now a
 `MotionEngine` method, host-tested directly; what remains hardware-only
 is `odomUpdate(r)`'s actual encoder-driven pose fold and the loop's
 real `kernel.step()` calls against physical motors, which stay in
-`shims.cpp` unmoved (see `src/DESIGN.md` §9/§14 for the exact boundary
+`shims.cpp` unmoved (see `src/DESIGN.md` §9 for the exact boundary
 this extraction drew).
 
 **Target-viability reminder (sprint 008).** Every test in this
@@ -190,7 +190,7 @@ this sprint, since the settle helper landed on an already-covered
 file). None of it is evidence that `protocol.cpp`, `radio_transport.h`,
 or `shims.cpp`'s changed call site actually link for either real
 target — that is what this sprint's own mandatory build-checkpoint
-ticket proves instead (see `src/DESIGN.md` §11/§14 and
+ticket proves instead (see `src/DESIGN.md` §11 and
 `docs/design/design.md`'s matching convention). This directory's own
 tests and a real target build are complementary, not substitutes for
 each other, and this sprint is the one that made that relationship a

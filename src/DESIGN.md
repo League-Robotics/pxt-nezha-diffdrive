@@ -37,7 +37,7 @@ dependency), so treat them as invariants:
 | Transports | `comms/serial_transport.*`, `comms/radio_transport.*` | CODAL (`pxt.h` in the .cpp) — know bytes and framing, **nothing** about verbs, grammar, or motion |
 | Hardware ports | `platform/nezha_port.*`, `platform/otos_port.*`, `platform/platform_ports.h` | `pxt.h` + the port interfaces they implement — know I2C/CODAL, nothing about blocks or the wire; `nezha_port.cpp` additionally calls into `encoder_glitch_armor.h` and `otos_port.cpp` into `heading_wrap.h`, both above (a dependency on a lower, host-portable layer, not membership in this one) |
 | Protocol composition | `comms/protocol.h/.cpp` | everything above — the CODAL fiber that plumbs transports into the wire stack |
-| Shim + blocks | `shims.cpp`, `blocks/sim.ts`, `blocks/run.ts`, `blocks/pose.ts`, `blocks/stop.ts`, `blocks/world.ts`, `blocks/motion.ts` (sprint 012: split from a single `main.ts` — see §9/§15; sprint 013: `.ts` files grouped into `blocks/` — see §16) | everything — the composition root and the student-facing API |
+| Shim + blocks | `shims.cpp`, `blocks/sim.ts`, `blocks/run.ts`, `blocks/pose.ts`, `blocks/stop.ts`, `blocks/world.ts`, `blocks/motion.ts` (sprint 012: split from a single `main.ts` — see §9; sprint 013: `.ts` files grouped into `blocks/`) | everything — the composition root and the student-facing API |
 
 Cross-cutting convention: `shims.cpp` has **no header**. Its C++
 callers (`protocol.cpp`, `wire_adapter.cpp`) reach it via same-package
@@ -45,6 +45,15 @@ forward declarations that must stay signature-compatible with the real
 definitions; the host harness supplies its own test-double definitions
 of the same signatures. This is what keeps `wire_adapter.cpp` and
 `shims.cpp` decoupled while sharing one `MotionEngine` singleton.
+
+**Include-path rule (sprint 013).** Every `#include "X"` naming a file
+under one of these subdirectories is qualified relative to `src/`'s
+root (e.g. `motion_engine.h` including the kernel needs
+`#include "../core/diffdrive.h"`, not a bare `#include "diffdrive.h"`)
+— the project's builds (`-I src` in both the PXT cloud build and
+`tests/host/`'s syntax-gate/shared-lib helpers) resolve
+`#include "..."` relative to the including file's own directory, not
+the project root.
 
 ## 2. Kernel — `core/diffdrive.h/.cpp` (`DiffDrive::DifferentialDrive`)
 
@@ -225,8 +234,8 @@ handler, is deliberate: every downstream consumer (`WireAdapter`'s own
 obligation-window math, `MotionEngine::wheelsX()`'s lease-clamp
 arithmetic, the kernel's `drive()` lease) now only ever sees an
 in-range value, so none of them individually needs to reason about `0`
-or overflow — see this sprint's Design Rationale (§14) for why reject
-(not clamp) was chosen for the `0` case specifically.
+or overflow — reject (not clamp) was the deliberate choice for the `0`
+case specifically (sprint 008).
 
 **Reliability layer.** Every sequenced verb carries a mandatory
 trailing `#<id>`, strictly incrementing from 1. Handler state is
@@ -392,8 +401,8 @@ exactly, so no wire-visible change), while `TlmMode::kBuffer` refuses
 at the `TLM` verb itself (`kUnimplemented`) rather than silently
 emitting POSE's columns — no buffering mechanism exists anywhere in
 this codebase to give "buffer" real, narrower semantics yet, and
-refusing is more honest than emitting a column set no one specified
-(see §14's Design Rationale). `telemetryEnabled()` (`mode_ !=
+refusing is more honest than emitting a column set no one specified.
+`telemetryEnabled()` (`mode_ !=
 TlmMode::kOff`) lets protocol.cpp skip building a Snapshot at all for
 a session with no subscriber (see §8's Fiber loop). `computeFlags()`
 (wire_adapter.cpp, anonymous namespace) is now the single source both
@@ -642,7 +651,7 @@ parks the payload in a 4-slot ring (MessageBus events queue; a
 one-minute test handler must not have its text overwritten by the next
 burst) and raises event source 0x2001 with the slot as the value;
 `run.ts` reads it back via `runCommandText()` (sprint 012: this shim
-body itself lives in `sim.ts`, called cross-file — see §9/§15) and
+body itself lives in `sim.ts`, called cross-file — see §9) and
 dispatches by name on the handler's own fiber. 3 s same-text dedupe
 absorbs hosts repeating commands to survive the single-slot radio
 buffer (measured: one 3×-repeated RUN ran three consecutive pivots).
@@ -692,14 +701,13 @@ call site lives in `motion.ts` (formerly `main.ts`); the shim body it
 calls lives in `sim.ts`. This is the one load-time file-order
 constraint the sprint 012 split has to satisfy — `sim.ts` must be
 listed before `motion.ts` in `pxt.json`'s `files` array, or this call
-resolves to nothing the moment the namespace loads (see §15). Identity
+resolves to nothing the moment the namespace loads. Identity
 constants: drivetrain "diffdrive", profile "tovez", version. **Sprint
 008**: `kVersion` no longer hand-mirrors `pxt.json`'s version as a
 literal that can silently drift (it had, by ten version bumps —
 WIRE-01/MOD-01/BLK-09, R-17) — it is now single-sourced or drift-tested
 against `pxt.json` (the specific mechanism is a build-time-feasibility
-call made during ticket execution, per this sprint's Design Rationale,
-§14) so `ID`/`VER`'s wire reply can no longer misreport the build a
+call made during ticket execution) so `ID`/`VER`'s wire reply can no longer misreport the build a
 host is actually talking to, restoring the `mbdeploy` → `VER`
 deploy-verification flow's own precondition.
 
@@ -794,8 +802,7 @@ Pieces the kernel deliberately does not contain:
   `appliedDutyLeft/Right` to zero before this function returns, so the
   documented "a move's final tick still returns false, ending the loop
   on the same call that finishes the move" behavior is preserved with
-  no new logic. No doc site's prose changes meaning — see §13's Design
-  Rationale.
+  no new logic. No doc site's prose changes meaning.
 - **Stall latch clear + readback** (new, sprint 007): the kernel's
   `clearStallLatch()` and `Output.stallHalted` already existed and were
   already correct (R-01/API-02's finding was a **missing caller**, not
@@ -809,8 +816,11 @@ Pieces the kernel deliberately does not contain:
   — and, on the wire, `stall_clear`'s new `kFields`/`ConfigField`
   ordinal (§5) reaches the same `clearStallLatch()` call via
   `setKernelValue()`'s ordinal 17. Deliberately **not** folded into
-  `clearEmergencyStop()`/`ESTOP` — see §13's Design Rationale for why
-  the two latches stay separate.
+  `clearEmergencyStop()`/`ESTOP` — same principle sprint 006 established
+  for `deliverStopNow()` deliberately not touching `estopLatch_`: the
+  stall latch and the e-stop latch are semantically distinct fault
+  classes, and blurring their clear paths would reintroduce the
+  ambiguity that decision fixed for a different pair.
 - **Stop delivery** (sprint 006, new): `stopAll()`/`endMove()`
   (`stop`/`stop move`) and `updateMove()`'s own move-completion branch
   (the `isMoving()`/`move progress` poller's path, which can end a move
@@ -874,8 +884,7 @@ Pieces the kernel deliberately does not contain:
 (groups Drive, Move, Pose, World, Setup), the browser-simulator
 fallback bodies (a kinematic stand-in that mirrors the tick engine's
 24 ms pacing), and the RUN dispatcher. **Sprint 012** split this out of
-a single `main.ts` into six cohesion-sized modules — see §15 for the
-full sprint record, sizing decision, and diagram. Current structure:
+a single `main.ts` into six cohesion-sized modules. Current structure:
 
 - **`motion.ts`** — the `ConfigField` enum, the two movement-default
   `let`s (`defaultSpeed`/`defaultYawRate`) and their Setup-group
@@ -901,9 +910,9 @@ full sprint record, sizing decision, and diagram. Current structure:
   block (`runParts`/`runNames`/`runHandlers`/`runAnyHandlers`/
   `runWired`), `ensureRunState()`, `RUN_EVENT_SOURCE`,
   `wireRunDispatch()`, `onRun`/`onRunCommand` (Move group in the
-  toolbox, despite being dispatch machinery — see §15's Design
-  Rationale for why block `group=` and module boundary diverge here),
-  and the block-hidden `runArg`/`runArgText`/`runArgCount`. Fully
+  toolbox, despite being dispatch machinery — the block `group=` and
+  the module boundary diverge here), and the block-hidden
+  `runArg`/`runArgText`/`runArgCount`. Fully
   self-contained: nothing outside this file reads or writes its state.
 - **`sim.ts`** — every `//% shim=`-annotated function's TypeScript
   body: the kinematic browser-simulator state (`simX`/`simY`/
@@ -921,7 +930,7 @@ full sprint record, sizing decision, and diagram. Current structure:
   separate `shims.ts` row; verified against the real file, that
   boundary does not exist — nearly every `//% shim=` function's body
   *is* the simulator fallback, interleaved throughout, not two
-  contiguous halves — so they are one module here (see §15).
+  contiguous halves — so they are one module here.
 
 Notable design points, all measured the hard way and unchanged by the
 sprint 012 split (module attribution updated to the file each now
@@ -989,9 +998,9 @@ lives in):
   `motion.ts` loads, so `sim.ts`'s `_startProtocol` definition must
   already exist — `sim.ts` must be listed before `motion.ts` in
   `pxt.json`'s `files` array. No other cross-file reference in this
-  split has a load-time ordering requirement. See §15's Design
-  Rationale for how this is verified (ticket 001 IS the empirical
-  test) and the fallback if it is not.
+  split has a load-time ordering requirement. Verified empirically
+  during sprint 012 (ticket 001's own real `pxt build`), not merely
+  argued for.
 
 ## 10. Open questions / known limitations
 
@@ -1046,7 +1055,7 @@ lives in):
   contract.
 - **(New, sprint 008)** The target-viability gap
   (`host-tests-compile-newer-standard-than-target.md`) is addressed by
-  a standing per-sprint build-checkpoint-ticket *convention* (§11, §14;
+  a standing per-sprint build-checkpoint-ticket *convention* (§11;
   `docs/design/design.md`'s matching update), not by a hard automated
   gate in `close_sprint` — that tool is CLASI-server code outside this
   project's own source tree, so no ticket here can wire a gate into it.
@@ -1086,7 +1095,7 @@ lives in):
   ordinal 2 / `stall_clear` GET, §5/§9; the settle loop's own
   stop-delivery fix, sprint 006) — a future sprint would design the
   aggregation, not invent readbacks from scratch. **(Update, sprint
-  016)** §17 now documents all five underlying stop mechanisms
+  016)** §12 now documents all five underlying stop mechanisms
   (including the two this entry didn't originally name — the
   port-level immediate write and lease expiry) and which entry points
   deliver each. That is a documented enumeration, not the aggregation
@@ -1175,8 +1184,8 @@ accident (their own last ticket happened to run `make_deploy.py`, and
 each time that accident is what caught the sprint's own defect). This
 sprint makes the accident a rule: every sprint that touches
 build-eligible source now includes a mandatory, always-last
-build-checkpoint ticket (see `docs/design/design.md`'s matching update
-and §14 below), and `tools/make_deploy.py` itself gains the triage
+build-checkpoint ticket (see `docs/design/design.md`'s matching
+update), and `tools/make_deploy.py` itself gains the triage
 this section's own "known-benign, tolerate a retry" caveats needed —
 distinguishing a real `.cpp` compile failure from the legacy V1
 hex-merge failure and the nondeterministic `TS9283`/`TS9043`/`TS9200`
@@ -1186,910 +1195,7 @@ syntax validity for four portable files plus their extracted-header
 siblings; the checkpoint proves the whole package actually links for
 both real targets. Both are needed; neither substitutes for the other.
 
-## 12. Sprint 006 — architecture diagram and change summary
-
-Substantial-tier sprint update (see `sprint.md`'s Architecture section
-for the sizing decision and rationale). Six issues from the 2026-08-23
-code review's motion-correctness cluster, five CONFIRMED defects plus
-one capability gap sharing the same `PoseSource`/heading-wrap seam.
-Three new host-portable modules are introduced (`heading_wrap.h`,
-`EncoderGlitchArmor`, `EncoderPoseSource`); the kernel
-(`diffdrive.{h,cpp}`) stays byte-unchanged throughout, so no cross-repo
-(radio-robot firmware) resync is triggered by this sprint.
-
-**Sprint Changes (recap — module level; see §3/§7/§9 above for detail):**
-
-- `motion_engine.cpp` — `goToR()` owns its own pivot-split decision
-  (bearing-pivot + chord, not inherited from `moveX`'s generic split);
-  theta normalized to the short arc; `arrive` honored as a radial
-  no-op gate.
-- `shims.cpp` — `tickDrive()` folds `odomUpdate()` unconditionally
-  into every tick (continuous-mode odometry fix); `stopAll()`/
-  `endMove()`/`updateMove()`'s completion branch each add an immediate
-  port-level stop (cross-fiber settle-window fix); `engineGoToW()`
-  selects `OtosPort` or `EncoderPoseSource` in one place instead of
-  refusing without an OTOS.
-- `otos_port.cpp` — `setPose()` wraps the heading channel via
-  `heading_wrap.h` before quantizing (seed-heading clamp fix).
-- `nezha_port.cpp` — `collect()`'s two-strike acceptance now routes
-  through `EncoderGlitchArmor` and rebaselines on a detected
-  discontinuity instead of integrating it as motion.
-- `heading_wrap.h` (new) — extracted, host-portable heading-wrap pure
-  function (the only host-testable surface for `otos_port.cpp`'s fix —
-  `OtosPort` itself includes `pxt.h` and cannot be host-compiled at
-  all).
-- `encoder_glitch_armor.h` (new) — extracted, host-portable
-  plausibility/rebaseline decision.
-- `encoder_pose_source.h` (new) — `PoseSource` over existing Rig
-  odometry, for OTOS-less robots.
-- `motion_engine.h` — `PoseSource::heading()` contract comment
-  clarified (wrap convention is implementation-defined; consume only
-  via cos/sin).
-
-```mermaid
-flowchart LR
-    WA[WireAdapter<br/>wire_adapter.cpp] -->|"engineGoToW() / engineGoToR()"| RIG
-    RIG[Rig<br/>shims.cpp composition root] -->|composes| KERNEL[DifferentialDrive<br/>diffdrive.cpp — unchanged]
-    RIG -->|composes| ME[MotionEngine<br/>motion_engine.cpp]
-    RIG -->|"odomUpdate() every tick (NEW: unconditional)"| RIG
-    KERNEL -->|Motor port| NEZHA[NezhaMotorPort<br/>nezha_port.cpp]
-    NEZHA -->|"NEW: delegates plausibility decision"| GLITCH[EncoderGlitchArmor<br/>encoder_glitch_armor.h — NEW]
-    RIG -->|"NEW: wraps Rig x/y/heading as PoseSource"| ENCPOSE[EncoderPoseSource<br/>encoder_pose_source.h — NEW]
-    RIG -->|"selects: OTOS if connected, else encoder"| OTOS[OtosPort<br/>otos_port.cpp]
-    OTOS -->|"NEW: delegates heading wrap"| HWRAP[heading_wrap.h — NEW]
-    ME -->|"goToW() reads pose.x/y/heading()"| OTOS
-    ME -->|"goToW() reads pose.x/y/heading()"| ENCPOSE
-    RIG -->|"stopAll()/endMove()/updateMove():<br/>NEW immediate port-level stop"| NEZHA
-```
-
-No entity-relationship diagram: no persistent data model exists in
-this embedded package, and none of the six issues introduces one. No
-separate dependency-direction graph beyond the diagram above: dependency
-direction is unchanged (Presentation/wire → MotionEngine → Kernel/ports,
-Kernel at the bottom); the three new modules sit at the bottom of the
-stack (host-portable, zero outward dependencies) with exactly one
-caller each (`NezhaMotorPort` for `EncoderGlitchArmor`, `OtosPort` for
-`heading_wrap.h`, `Rig` for `EncoderPoseSource`) — no cycle is
-introduced.
-
-**Migration concerns.** None requiring data migration or a deployment
-sequencing change. Two behavior changes are visible to an existing
-caller and worth flagging explicitly rather than treating as purely
-internal: (1) GO_TO_W becomes more permissive — a caller that
-previously received `kUnimplemented` on an OTOS-less robot now receives
-`kOk` and an encoder-driven move; this is a strict widening (nothing
-that worked before stops working), but any caller-side logic that
-specifically branched on `kUnimplemented` to mean "this robot has no
-world-pose capability at all" will observe different behavior. (2)
-`stop`/`stop move` now deliver a hardware-level zero write immediately
-in addition to the pre-existing staged neutral, which changes worst-case
-stop latency (better) but not documented behavior (UC-011's postcondition
-already promised "further Drive/Move commands work normally" — this
-sprint makes that true sooner, not differently).
-
-**Risk (known, pre-existing, not newly introduced by this sprint):**
-the new immediate port-level write in `stopAll()`/`endMove()`/
-`updateMove()` shares the same I2C bus as the Nezha brick's encoder
-settle window (§7's bus discipline note) — if it lands on a *different*
-fiber than the one currently inside `kernel.step()`'s ~4 ms-per-wheel
-settle sleep, it is exactly the kind of "other I2C traffic during the
-settle window" `diffdrive.h`'s own kernel invariant warns can corrupt a
-sample. This exposure already exists today in the starvation
-watchdog's own port-level writes (same primitive, same bus, no
-fiber coordination); this sprint's fix increases how *often* the
-collision window can be hit (any cross-fiber stop, not only a fully
-abandoned tick loop), not its consequence. Consequence, if it happens:
-`refreshSample()`'s existing fault path already treats a corrupted
-collect as a failed sample — position/velocity hold at their last good
-value and `i2cFaultCount_` increments — precisely because the robot is
-stopping in that same tick, a stale encoder reading for one cycle is
-low-consequence. No design change is proposed to close this fully (that
-would mean serializing all port writes through the tick fiber, a larger
-change than this sprint's scope); ticket 002 should add a host test
-confirming a corrupted collect during this window is counted, not
-silently accepted as a valid sample.
-
-## 13. Sprint 007 — architecture diagram and change summary
-
-Substantial-tier sprint update (see `sprint.md`'s Architecture section
-for the sizing decision). Six issues from the 2026-08-23 code review's
-API-contract cluster, sharing one boundary: student-observable surface
-(blocks, wire verbs, the browser simulator, and the doc sites that
-describe all of it). No new module is introduced; the vendored kernel
-(`diffdrive.{h,cpp}`) stays byte-unchanged throughout, so no cross-repo
-resync is triggered.
-
-**Sprint Changes (recap — module level; see §3/§4/§5/§9/§10 above for
-detail):**
-
-- `shims.cpp` — two new thin kernel forwards (`clearStall()`,
-  `isStalled()`); a new `defaultCruiseMmS_` Rig field + accessors
-  replacing `engineDefaultCruiseMmS()`'s old `fullDutyVelocity`
-  derivation; `tickDrive()`'s return expression changes to
-  `commandLooksActive(r)`; three new `setKernelValue()`/
-  `getConfigValue()` ordinals (15/16/17); `diagValue()`'s spliced
-  `case 25` reordered; two wire-boundary casts clamped (WIRE-08).
-- `motion_engine.h` — `MotionEngine::setRotationalSlip(float)`,
-  validated `>0`.
-- `wire_adapter.cpp`/`.h` — `kFields` grows 15→18
-  (`default_cruise`/`rotational_slip`/`stall_clear`); no forward
-  declarations added.
-- `wire_handler.h`/`.cpp` — `kCommandTable`'s size becomes derived
-  (`kVerbCount` + `static_assert`) instead of hand-counted; no verb
-  added, removed, or reordered.
-- `main.ts` — two new Drive-group blocks (`clearStallLatch`,
-  `isStalled`); three new `ConfigField` entries; `runArgCount()`'s
-  null guard; `_setWheels`'s corrected yaw-rate formula; a new
-  `simEstopped` latch gating three sim bodies; `_tickDrive()`'s return
-  expression fixed in step with `tickDrive()`'s; `maxNudges` deleted;
-  `goToWorld()`'s JSDoc corrected.
-- `tsconfig.json` — gains `pxt_modules/core/serial.ts`.
-- `tests/host/wire_motion_verb_shim.cpp` — `engineDefaultCruiseMmS()`'s
-  test double updated in lockstep with the real one (required, not
-  optional — see Migration Concerns).
-
-**No new component/module diagram.** Every edge this sprint uses
-already exists and is already drawn in §1 (`wire_adapter.cpp` →
-`shims.cpp` forward declarations; `shims.cpp` → `MotionEngine`;
-`main.ts` → `shims.cpp` via `//%` shims). Nothing new is composed —
-three named fields join an existing flat table, one return expression
-changes, one array becomes derived-size. A diagram would redraw the
-current module graph with no new nodes or edges, which clarifies
-nothing beyond what §1 already shows (the same reasoning sprint 020's
-own architecture doc used to omit its diagram).
-
-**No entity-relationship diagram** — no persistent data model exists
-in this embedded package (nothing survives a power cycle), and this
-sprint doesn't change that. The wire protocol's *field* model does
-change; shown as a table instead of an ERD, since `kFields`/
-`ConfigField` is a flat name→ordinal list, not an entity graph:
-
-| Ordinal | Wire name | Enum member | Backing store | New? |
-|---|---|---|---|---|
-| 0–14 | (existing 15) | (existing) | `kernel.config()` | no |
-| 15 | `default_cruise` | `DefaultCruise` | `shims.cpp` Rig field | **yes** |
-| 16 | `rotational_slip` | `RotationalSlip` | `MotionEngine` field | **yes** |
-| 17 | `stall_clear` | `StallClear` | kernel action (no storage) | **yes** |
-
-Ordinal 17's GET side is a convenience readback of `stallHalted`, not
-a stored value — it is an action wearing a config-field's clothes (see
-Design Rationale below).
-
-**No dependency-direction graph** beyond the statement above:
-dependency direction is unchanged (Presentation/wire → MotionEngine →
-Kernel/ports, kernel at the bottom); every new call this sprint adds
-travels an edge that already existed in that direction.
-
-**Migration concerns.** One real wire-behavior change, not internal:
-a bench host or Python tool that has learned to send `cruise 0`
-*because* it wants full-duty speed will get ~150 mm/s instead once
-`default_cruise` ships — the entire point of the fix. No in-tree tool
-sends a literal `cruise 0` for that reason today (not exhaustively
-checked — grepping `tools/` for a literal `0` fourth-field pattern is
-cheap due diligence before merging, not a blocker). No other verb's
-wire-visible behavior changes: the four motion verbs' refusal-on-`<=0`
-logic is untouched, only the value it reads changed.
-`tests/host/wire_motion_verb_shim.cpp`'s `engineDefaultCruiseMmS()`
-test double **must** be updated in the same ticket that changes the
-real one, or `test_wheels_x_cruise_zero_uses_configured_default` and
-its `MOVE_X`/`GO_TO_R` siblings keep silently validating the OLD,
-wrong contract forever — the single highest-risk item in this sprint,
-because a missed test-double update produces a fully green suite that
-proves nothing about the actual fix. No data persists across power
-cycles anywhere in this system today, so the two new configured fields
-carry no migration question beyond "what do they default to" (answered
-above).
-
-**Design Rationale (selected decisions — see `sprint.md`'s own
-Architecture section for the condensed version a reader of that file
-alone would need):**
-
-*Decision: `tickDrive()`'s contract is "return whether anything still
-looks commanded," not a new `driveHold()` idiom.* Alternatives were (a)
-redefine the return to `commandLooksActive()` [chosen] or (b) add a
-`driveHold()`/similar idiom and leave `driveTick()`'s return as
-move-progress-only, rewriting all four doc sites. (a) requires zero
-doc-text rewrites — the README, spec §4.2, and UC-002 already describe
-this exact contract; they were aspirational, not wrong, before the
-code caught up — and reuses a helper already proven correct in
-production by the starvation watchdog, with the settle loop (§9)
-already driving `appliedDuty` to zero exactly when a position-mode
-move's final tick needs the loop to end. (b) would add a second
-continuous-mode idiom to teach and contradict `testrig.ts`'s existing
-bare-tick usage, for no behavioral gain over (a). Consequence: doc
-sites need confirmation edits (a cross-reference to the new regression
-test), not content rewrites.
-
-*Decision: the stall latch gets a dedicated block + a SET-able wire
-field, not a new top-level verb, and is not folded into
-`clearEmergencyStop()`.* Folding in is rejected on the same principle
-sprint 006 established for `deliverStopNow()` deliberately not
-touching `estopLatch_` — the stall latch and the e-stop latch are
-semantically distinct fault classes; blurring their clear paths
-reintroduces exactly the ambiguity that decision fixed for a different
-pair. A brand-new top-level wire verb is rejected because this project
-has no existing precedent for a wire-level "clear a latch" verb at all
-(even `estopClear()` is block-only today), and this sprint is already
-resizing `kCommandTable` for WIRE-09 in the same sprint — adding a row
-to a table this sprint is simultaneously trying to make less fragile
-is avoidable risk for no gain over the SET-action route the review's
-own remedy text names as sufficient. Consequence: `stall_clear` shows
-up in the generic `set config` dropdown alongside the dedicated block
-— a minor, accepted UI redundancy, not a defect.
-
-*Decision: `default_cruise` is a new, independent field, not a
-reinterpretation of `fullDutyVelocity`.* The wire's "0 = configured
-default" convenience sentinel and the kernel's unrelated "0 =
-uncalibrated, refuse" sentinel on `fullDutyVelocity` are two different
-meanings of zero that never need to coexist in one read — they're
-consumed in unrelated code paths (`checkCommandable()`'s calibration
-gate vs. `engineDefaultCruiseMmS()`'s substitution). Splitting them is
-the review's own stated remedy and requires no change to the four verb
-handlers' existing, already-correct refusal-on-`<=0` logic — only the
-value `engineDefaultCruiseMmS()` returns changes.
-
-*Decision: `rotationalSlip` gets the generic `ConfigField` escape
-hatch, not a dedicated "set turn slip" block.* This is a one-time
-chassis-calibration constant for a teacher/builder setting up a
-non-reference kit, not a value tuned as routinely as
-`trackWidth`/`travelCalib` (which chose the dedicated-block route
-precisely because they are the common case). The review's own text
-accepts "at minimum... `ConfigField`" as sufficient. Consequence: the
-measurement-derivation comment travels with the field, corrected per
-`verify-comments.md`'s CHALLENGE (the 0.915 ratio → 120.0 mm effective
-track → 0.952 slip bridge, previously missing from the in-tree
-comment) so a future re-measurer does not "fix" 0.952 back to 0.915.
-
-**Risk (known, not newly introduced):** none specific to this sprint's
-own changes — every kernel primitive this sprint reaches
-(`clearStallLatch()`, `Output.stallHalted`, `checkCommandable()`)
-already existed and was already correct, and `tickDrive()`'s settle
-loop (sprint 006) already produces the exact zero-duty state the new
-return expression depends on. The one item worth tracking is
-procedural, not architectural: a ticket that changes
-`engineDefaultCruiseMmS()` without also updating
-`tests/host/wire_motion_verb_shim.cpp`'s mirror leaves a fully green
-host suite that has stopped testing the real contract — called out
-above and in the corresponding ticket's acceptance criteria.
-
-## 14. Sprint 008 — architecture diagram and change summary
-
-Substantial-tier sprint update (see `sprint.md`'s Architecture section
-for the sizing decision). Six issues from the 2026-08-23 code review's
-"tests must be able to fail" cluster, spanning the wire layer, the host
-test harness, and the project's own build-verification process. No new
-module is introduced in the sense sprint 006's three headers were (new
-files with no prior home); the settle-loop extraction (issue 4) adds a
-new *method* to the existing `MotionEngine` class instead. The vendored
-kernel (`diffdrive.{h,cpp}`) stays byte-unchanged throughout, so no
-cross-repo resync is triggered.
-
-**Sprint Changes (recap — module level; see §4/§5/§6/§8/§9/§11 above
-for detail):**
-
-- `wire_handler.h`/`.cpp` — one shared decode-time clamp for all six
-  motion verbs' `timeout`/`duration` fields: reject `0` (`kRange`),
-  clamp values above 2^31−1 down to it.
-- `wire_adapter.cpp`/`.h` — no handler-level logic change for timeout
-  (the values they read are now pre-bounded); `TlmMode::kAuto` is
-  documented as a `TlmMode::kPose` alias, `TlmMode::kBuffer` refuses
-  (`kUnimplemented`) instead of falling through to POSE's columns.
-- `protocol.cpp` — `kVersion` single-sourced or drift-tested against
-  `pxt.json`; `emitLine()`'s cap now names
-  `RadioTransport::kMaxPayloadBytes` instead of a bare `200` literal;
-  the `0x2001` RUN event-source literal is drift-tested against
-  `main.ts`'s `RUN_EVENT_SOURCE`.
-- `radio_transport.h` — `kMaxPayloadBytes`'s doc comment corrected
-  (deliberately the tighter cap, not "equal" to serial's); value
-  unchanged.
-- `main.ts` — no functional change; `RUN_EVENT_SOURCE` is now the
-  drift-tested half of the `0x2001` pair above.
-- `motion_engine.h`/`.cpp` — new settle-to-rest method consuming only
-  the existing `kernel_` reference and `DiffDrive::DifferentialDrive`'s
-  already-portable `step()`/`output()` surface; no geometry, no
-  odometry.
-- `shims.cpp` — `tickDrive()`'s inline settle loop replaced by a call to
-  the new `MotionEngine` method, followed by the existing, unmoved
-  `odomUpdate(r)` call; no other behavior change.
-- `tools/make_deploy.py` — `build()` gains triage: distinguishes a real
-  `.cpp` compile failure from the two documented benign abort shapes
-  and retries the latter once automatically, instead of only checking
-  "does a hex exist."
-- `tests/host/` — boundary-value timeout tests across all six motion
-  verbs; a `kVersion`/`pxt.json` drift test; an `emitLine`/transport
-  line-cap test; a `RUN_EVENT_SOURCE` drift test; the `WaHandle` wedge/
-  `setWheelsTimed`/config-rounding re-sync plus a demonstrated drift
-  test; a new settle-helper shim (`motion_engine_shim.cpp`/`fake_ports.h`
-  extension, reusing `FakeSleeper::onSleep`) and its host test; `TLM
-  AUTO`/`BUFFER` `thdr`/`err` pinning tests.
-
-```mermaid
-flowchart LR
-    HOST["Wire host"] -->|"6 motion verbs"| WH["WireHandler<br/>wire_handler.cpp<br/>NEW: shared timeout clamp"]
-    WH -->|"decoded, bounded fields"| WA["WireAdapter<br/>wire_adapter.cpp<br/>NEW: TLM AUTO/BUFFER semantics"]
-    WA -->|"engineWheelsX() / engineMoveX() / ..."| RIG["Rig<br/>shims.cpp composition root"]
-    RIG -->|composes| ME["MotionEngine<br/>motion_engine.cpp<br/>NEW: settleToRest()"]
-    ME -->|"kernel_.drive() / step() / output()"| KERNEL["DifferentialDrive<br/>diffdrive.cpp — unchanged"]
-    RIG -->|"tickDrive(): calls settleToRest(), then odomUpdate()"| ME
-    HOSTTEST["tests/host new shim<br/>NEW"] -->|"exercises settleToRest() directly"| ME
-```
-
-The new edge worth naming explicitly: `tests/host/`'s new shim becomes
-a direct consumer of `MotionEngine`'s new method — the same kind of
-edge `WaHandle`'s existing shims already have to `wire_adapter.cpp`, not
-a new *kind* of dependency, but a genuine new instance of one, which is
-why this sprint clears the "new cross-module dependency" substantial-tier
-signal on its own even before counting module totals.
-
-No entity-relationship diagram: no persistent data model exists in this
-embedded package, and none of the six issues introduces one — the wire
-protocol's field set (`kFields`, `TlmMode`, the six motion verbs' own
-fields) is unchanged; only field-level *semantics* (timeout 0, `TLM
-AUTO`/`BUFFER`) are defined more precisely. No separate dependency-
-direction graph beyond the diagram above: dependency direction is
-unchanged (Presentation/wire → MotionEngine → Kernel/ports, kernel at
-the bottom); the one new edge (`tests/host` → the new `MotionEngine`
-method) travels the same direction test shims already travel toward
-production code, and the settle-helper's own dependency
-(`MotionEngine` → `DifferentialDrive`, via the existing `kernel_`
-reference) already existed — no cycle is introduced.
-
-**Migration concerns.** Three real wire-behavior changes, all detailed
-in `sprint.md`'s own Architecture section and repeated here for the
-overlay's own completeness: (1) every motion verb refuses `timeout`/
-`duration` `0` instead of the two disagreeing prior behaviors (a strict
-behavior change, but both prior meanings were bugs the review confirmed,
-not features anything should depend on); (2) a `timeout`/`duration`
-above 2^31−1 is now clamped and the move runs, instead of wrapping
-negative and dying early (a strict improvement); (3) `TLM BUFFER` now
-refuses instead of silently emitting POSE's columns (a behavior change
-for any host relying on the undocumented fall-through — none known to
-exist in-tree). No data persists across power cycles anywhere in this
-system, so none of the three carries a data-migration question beyond
-the behavior changes themselves.
-
-**Risk (known, not newly introduced by this sprint).** The settle-loop
-extraction's call-site change in `shims.cpp::tickDrive()` is, like every
-`shims.cpp` change, invisible to the C++11 syntax gate and every host
-test by construction (§1's layering table) — only this sprint's own
-build-checkpoint ticket proves that call site still compiles and links
-against the new `MotionEngine` method signature. This is not a new risk
-class; it is this sprint's own riskiest single change landing exactly
-in the gap issue 6 exists to describe, which is why the build-checkpoint
-ticket is ordered last and depends on every other ticket in this
-sprint — it is meant to catch exactly this kind of change, not only
-future sprints' changes.
-
-**Design Rationale (selected decisions):**
-
-*Decision: reject `timeout`/`duration == 0`, don't clamp it to a small
-minimum.* Alternatives were (a) reject outright [chosen], (b) clamp `0`
-up to some small nonzero minimum (e.g. 1 ms), (c) keep two different
-per-verb meanings but document them explicitly. (a) needs no new
-"minimum" constant to invent and justify, matches the existing
-precedent that a nonsensical input is refused rather than silently
-reinterpreted (`cruise <= 0` already refuses this way on every
-X/GO_TO verb), and gives a host an unambiguous signal (`err 3`) instead
-of a magic-number substitution it would have to know about out of band.
-(c) was rejected because the review's own finding is that today's two
-meanings are *both* bugs — WHEELS_X's stale-lease lurch and MOVE_X's
-silent no-op are not two intentional designs worth preserving side by
-side. Consequence: any host that was deliberately sending `timeout 0`
-to mean "instant no-op" (MOVE_X's old behavior) must send a very small
-positive value instead; no in-tree tool does this today.
-
-*Decision: clamp (not reject) values above 2^31−1.* A host sending an
-oversized timeout is asking for "a very long time," and the practical
-intent — run for as long as it takes, bounded generously — is served by
-capping rather than refusing. Rejecting would force every host that
-uses a sentinel-like "very large number" pattern for "no real timeout"
-to learn this project's specific ceiling; clamping serves that intent
-transparently. Consequence: `GET`/wire replies never need a new error
-code for this case, and 2^31−1 ms (~24.8 days) is generous enough that
-no legitimate caller's intent is frustrated by the clamp.
-
-*Decision: `TLM AUTO` becomes an alias for `TLM POSE`; `TLM BUFFER`
-becomes a refusal, not a narrower column set.* Alternatives for AUTO
-were (a) alias to POSE [chosen], (b) build real "robot chooses cadence"
-semantics. (b) is a real feature with its own design surface (what
-signal picks the cadence? does it change mid-session?) that this
-Low-priority housekeeping issue does not warrant opening in a hardening
-sprint — (a) matches today's actual behavior exactly, so it is a
-zero-risk documentation fix, not a feature. Alternatives for BUFFER were
-(a) refuse until real semantics exist [chosen], (b) also alias to POSE,
-(c) invent a narrower column set now. (b) was rejected because "buffer"
-implies a distinct transport-level behavior (accumulating frames before
-a batched send) that does not exist anywhere in this codebase today —
-aliasing it to POSE would document a lie, not a decision. (c) was
-rejected because inventing column semantics with no consumer or
-transport mechanism to validate them against is exactly the kind of
-speculative generality this project's own architecture principles warn
-against. (a) is honest about the gap and matches the issue's own stated
-preference ("answering err is better than emitting a column set no one
-specified"). Consequence: a future sprint that builds real buffering
-gets to define BUFFER's semantics without inheriting an accidental
-column-set contract nobody chose.
-
-*Decision: the settle-loop's extracted logic becomes a `MotionEngine`
-method, not a new standalone header.* Alternatives were (a) a new
-header in the `heading_wrap.h`/`encoder_glitch_armor.h`/
-`encoder_pose_source.h` mold [rejected], (b) a method on the existing
-`MotionEngine` class [chosen]. Those three sprint-006 precedents were
-extracted *from* CODAL-bound files (`otos_port.cpp`, `nezha_port.cpp`)
-that had no portable home at all — a new header was the only way to
-gain any host-test coverage. The settle loop's situation is different:
-`motion_engine.cpp` is already host-portable, already gate-covered, and
-already composes the exact `kernel_` reference the settle decision
-needs (§3's Dependencies) — there is no missing home to build. Adding a
-method to an existing, already-correct-layer class is simpler than
-inventing a new file and gains gate coverage for free (no new syntax-
-check translation unit to register). Consequence: `shims.cpp::tickDrive()`
-calls one new `MotionEngine` method instead of running its own loop;
-`odomUpdate(r)` stays exactly where it was, called once, immediately
-after, by `shims.cpp` itself — the fold-coast-counts-into-odometry
-concern this extraction deliberately does not move.
-
-*Decision: close the target-viability gap with a mandatory per-sprint
-build-checkpoint ticket, not a hard gate in `close_sprint`.* Covered in
-full in `sprint.md`'s own Architecture section (the centerpiece
-decision) and `docs/design/design.md`'s matching convention update;
-restated here in Design Rationale form. Alternatives were (a) compile
-the whole host suite at `-std=c++11` [Option 1 in the issue], (b) widen
-the existing syntax gate further [Option 2, already partially done by
-sprint 004/006 and this sprint's shared-clamp addition to `wire_handler.cpp`
-in §4], (c) a hard automated build gate wired into `close_sprint`
-[Option 3, hard-gate variant], (d) a mandatory per-sprint
-build-checkpoint ticket [Option 3, ticket variant — chosen]. (a) was
-not attempted this sprint: the issue itself flags "existing test-side
-code... may use newer features deliberately, so this may not be a
-one-line change — measure before committing to it," and this sprint's
-own scope is already substantial without absorbing that measurement and
-its fallout. (b) narrows one defect class (language-standard mismatches)
-but the issue's own evidence table shows it is structurally incapable
-of catching class 2 (`-Woverflow`-only defects) or class 3 (`pxt.json`
-manifest omissions) — no amount of widening the syntax gate closes
-those, because the gate never reads `pxt.json` and never runs the real
-target's warning set. (c) was rejected because `close_sprint` is
-CLASI-server code outside this project's own repository, so no ticket
-here can implement it, and because the two documented benign-abort
-shapes make a naive pass/fail gate unreliable in exactly the way that
-would erode trust in it over time. (d) is what sprints 004 and 007
-already did *by accident* — this sprint's contribution is making it a
-named, written-down convention (`design.md`, `src/DESIGN.md` §11) plus
-giving `tools/make_deploy.py` the triage logic that was missing (today
-it only checks "does a hex exist," with no distinction between "the
-compiler rejected a `.cpp`" and "packaging aborted for a known, benign,
-retriable reason"). Consequence: target viability is now proven once
-per sprint by construction of the planning process (every future
-sprint-planner is expected to include this ticket), not by which ticket
-happened to run a real build first — but it remains a *process*
-guarantee, not a *mechanical* one, since nothing currently prevents a
-sprint from being planned without its checkpoint ticket. Flagged as an
-open question for the team-lead/stakeholder below.
-
-**Open Questions (sprint 008):**
-
-- Should the mandatory build-checkpoint-ticket convention be enforced
-  mechanically (e.g., a CLASI-level check that a sprint cannot close
-  without a ticket that ran `make_deploy.py`) rather than relying on
-  every future sprint-planner remembering to include one? This sprint
-  cannot answer that — enforcing it would mean changing CLASI's own
-  `close_sprint`/`sprint-planner` behavior, outside this project's
-  authority — but flags it as the natural next escalation if a sprint
-  ever does ship without its checkpoint.
-- The `kVersion`/`pxt.json` single-sourcing mechanism (build-time
-  substitution vs. a drift test) is left to ticket-execution-time
-  measurement of what the pxt/yotta build toolchain actually allows —
-  this sprint's architecture states the requirement (never drift again)
-  without pre-committing to a mechanism that might not survive contact
-  with the actual build pipeline.
-- The `kDiag*` ordinal set shared, by convention only, between
-  `wire_adapter.cpp`'s named constants and `shims.cpp`'s raw numeric
-  `case` labels is a softer instance of the same "single source of
-  truth" problem as `kVersion` — this sprint pins it with a drift test
-  (§4/§8's pattern) rather than restructuring `shims.cpp` to include
-  `wire_adapter.h` for the shared constants, since that coupling change
-  is a real design choice (see `src/DESIGN.md` §1's deliberate
-  `shims.cpp`-has-no-header convention) better made deliberately in its
-  own review than folded into a Minor here.
-
-## 15. Sprint 012 — architecture diagram and change summary
-
-**Sizing: substantial/structural.** Six new-or-changed modules
-(`sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`, `motion.ts`,
-replacing the single `main.ts`) clears the 3+-modules signal on its
-own, and the split introduces a genuine new cross-module dependency
-class that did not exist before: previously-implicit, same-file
-references between these responsibilities become explicit,
-compile-order-sensitive, cross-*file* references within one TS
-namespace. No dependency-direction change (Presentation/Blocks →
-composition → hardware-or-simulator is unchanged) and no data-model
-change (no persistent data model exists in this embedded package, and
-this sprint doesn't touch the wire protocol's field set). Full
-7-step methodology used, diagram included — this is the same tier the
-component diagram itself exists to clarify, not a sprint where "many
-existing modules touched independently" (sprint 020's exception)
-applies: this sprint *does* compose something new (the six-file
-dependency graph below), even though every function's behavior stays
-byte-for-byte identical.
-
-### Sprint Changes (module level)
-
-- **`src/sim.ts`** (new) — every `//% shim=`-annotated function's
-  TypeScript body: simulator kinematic state + `simIntegrate()` +
-  motion/pose/stop shim bodies + the no-op OTOS/taper/diagnostic
-  stand-ins + `emitLine`/`runCommandText`. Absorbs the issue's
-  separately-proposed `sim.ts` and `shims.ts` rows into one module —
-  see Design Rationale below for why that boundary doesn't survive
-  contact with the real file.
-- **`src/run.ts`** (new) — the RUN command dispatcher: no-initialiser
-  state, `ensureRunState()`, `RUN_EVENT_SOURCE`, `wireRunDispatch()`,
-  `onRun`/`onRunCommand`/`runArg`/`runArgText`/`runArgCount`. Fully
-  self-contained (no cross-file state reference in or out).
-- **`src/pose.ts`** (new) — `poseX`/`poseY`/`heading`/`resetPose`.
-  Calls `sim.ts`'s pose shims cross-file.
-- **`src/stop.ts`** (new) — `stop`/`emergencyStop`/
-  `clearEmergencyStop`/`isStalled`/`clearStallLatch`. Calls `sim.ts`'s
-  stop/latch shims cross-file.
-- **`src/world.ts`** (new) — OTOS world-pose tracking + `goToWorld` +
-  `tickedMove`. Calls `sim.ts`'s OTOS shims and `motion.ts`'s
-  `startMove()` cross-file.
-- **`src/motion.ts`** (new, formerly `src/main.ts`) — `ConfigField`
-  enum, config state/setters, continuous-mode drive, position-mode
-  move, and the top-level `_startProtocol()` call. Calls `sim.ts`'s
-  motion shims cross-file; is called by `world.ts`.
-- **`pxt.json`** — `files` array: `src/main.ts`'s one entry replaced
-  by six entries, in the order `sim.ts, run.ts, pose.ts, stop.ts,
-  world.ts, motion.ts` (the one hard constraint: `sim.ts` before
-  `motion.ts`, see below).
-- **`tsconfig.json`** — same six-file substitution in its own `files`
-  array (currently ungated by any host test — see Open Questions).
-- **`docs/design/specification.md`** — `main.ts` references (its
-  files-array table, the "public surface" paragraph, the `startMove`
-  doc-comment cross-reference, the shim-boundary paragraph) updated to
-  the new module list — execution-time doc work, tracked as ticket
-  acceptance criteria, not part of this overlay (`specification.md` is
-  not part of the canonical `design_docs` set this overlay covers).
-- **`shims.cpp`** and every `.h`/`.cpp` file — **unchanged**. This
-  sprint is TypeScript/manifest-only.
-
-```mermaid
-flowchart LR
-    STUDENT["Student program<br/>(Blocks or TypeScript)"]
-    MOTION["motion.ts<br/>config + continuous/<br/>position-mode drive"]
-    POSE["pose.ts<br/>local pose readback"]
-    STOP["stop.ts<br/>stop + fault latches"]
-    WORLD["world.ts<br/>OTOS world pose<br/>+ goToWorld"]
-    RUN["run.ts<br/>RUN command dispatch"]
-    SIM["sim.ts<br/>every //% shim= body<br/>(browser fallback)"]
-    HW["shims.cpp<br/>hardware — unchanged"]
-
-    STUDENT -->|"block/TS calls"| MOTION
-    STUDENT -->|"block/TS calls"| POSE
-    STUDENT -->|"block/TS calls"| STOP
-    STUDENT -->|"block/TS calls"| WORLD
-    STUDENT -->|"onRun()/onRunCommand()"| RUN
-    MOTION -->|"_setWheels()/_driveTwist()/<br/>_startMove()/_tickDrive()/…"| SIM
-    POSE -->|"_poseX()/_poseY()/<br/>_poseHeading()/_resetPose()"| SIM
-    STOP -->|"_stopAll()/_estopAll()/<br/>_estopClear()/_isStalled()/…"| SIM
-    WORLD -->|"otosBegin()/otosRead()/<br/>otosGet()/_seedPose()/…"| SIM
-    WORLD -->|"startMove() (exported)"| MOTION
-    MOTION -.->|"_startProtocol() — TOP-LEVEL,<br/>load-time: sim.ts must<br/>be listed first in pxt.json"| SIM
-    MOTION -.->|"target=hardware: same<br/>//% shim= call sites compile<br/>against shims.cpp instead"| HW
-```
-
-This diagram **is** this sprint's dependency graph — no separate one
-follows. Every edge above is new only in the sense of becoming an
-explicit cross-*file* reference; none is a new logical dependency (the
-call already existed within the single `main.ts`). No cycles: `sim.ts`
-has no outgoing edges (it is the leaf every other module reaches into,
-plus the hardware-target alternative shown for context), `motion.ts`
-is the only module `world.ts` calls into, and nothing calls back into
-`world.ts`, `pose.ts`, `stop.ts`, or `run.ts` from elsewhere in this
-graph. No entity-relationship diagram: no persistent data model exists
-in this embedded package, and this sprint's changes are confined to
-TypeScript module boundaries and two build manifests — no field-level
-change to the wire protocol or any other data shape.
-
-### Migration Concerns
-
-This is a pure internal restructuring with no student-visible surface
-change by design, so "migration" here means "these six files must
-compile and behave exactly as the one file did," not any data or API
-migration:
-
-- **File-order dependency.** `sim.ts` must precede `motion.ts` in both
-  `pxt.json`'s and `tsconfig.json`'s `files` arrays (`motion.ts`'s
-  top-level `_startProtocol()` call needs `sim.ts`'s definition to
-  already exist at load time). No other pair has a load-time ordering
-  requirement — see §9's new bullet and the Design Rationale below.
-- **The no-initialiser pattern must travel intact.** `run.ts`'s
-  `runParts`/`runNames`/`runHandlers`/`runAnyHandlers`/`runWired`
-  keep zero initialisers, created on first use via `ensureRunState()`
-  — this is a same-file, self-contained pattern in the new layout
-  (unlike the file-order item above), so the split does not make it
-  *harder* to preserve, but it remains the single highest-consequence
-  detail to get right (its violation is the documented panic-980
-  silent boot death).
-- **`//%` annotation adjacency and `group=` values travel with their
-  function, verbatim**, into whichever new file that function lands
-  in — this is mechanical (cut-paste-preserve-comment-order) but easy
-  to get subtly wrong when a function's JSDoc and `//%` lines are
-  separated from a *shared* comment block that also covers unrelated
-  code (see the dual-purpose comment at old `main.ts` lines 58-78,
-  called out explicitly in ticket 002's acceptance criteria).
-- **The `tsconfig.json` manifest is currently ungated.**
-  `test_pxt_manifest_completeness.py` (sprint 007 ticket 006) only
-  reads `pxt.json`; nothing today checks `tsconfig.json`'s `files`
-  array the same way. A file added to `pxt.json` but missed in
-  `tsconfig.json` fails silently at `tsc -p .` time only, the same
-  defect class sprint 007 ticket 006 found and fixed for `pxt.json` —
-  flagged as an Open Question, not mandated as new test-writing work
-  (out of this sprint's stated scope).
-- **Two docs go stale if not updated as part of this sprint's
-  tickets**: `docs/design/specification.md`'s files-array table and
-  its five `main.ts` prose references (lines ~5, 35, 70, 76, 151, 269,
-  765 as of this planning pass) become actively wrong once `main.ts`
-  no longer exists — tracked as ticket 006 acceptance criteria, not
-  this overlay (out of the canonical `design_docs` set).
-
-### Risk
-
-The whole risk surface of this sprint is PXT-specific compile/load
-behavior that no host test reaches (`main.ts`/its successors are
-outside the C++11 gate and outside `tests/host/` entirely — §1's
-layering table). The two concrete risks, both addressed above: (1) the
-`sim.ts`-before-`motion.ts` file-order constraint, mechanically simple
-once known but silent if violated (the symptom would be a load-time
-`ReferenceError`/`undefined is not a function` on `_startProtocol`,
-the TS-side analog of the panic-980 class this project has already
-been bitten by once) — **retired: preserved via ticket 006's pure
-`git mv` rename; `sim.ts` precedes `motion.ts` in both `pxt.json`'s and
-`tsconfig.json`'s `files` arrays in the final tree** (unverified on
-actual hardware — no board was flashed with the split tree as part of
-this sprint, see ticket 007's handoff notes); (2) whether PXT's
-compiled-as-one-Program model actually honors TypeScript's documented
-multi-file-namespace merging for **non-exported** members the way the
-language spec says it should — **retired, and the answer was NO**:
-ticket 001's real build (confirmed independently by `tsc -p .`) showed
-29 `Cannot find name`-class errors on non-exported cross-file
-references; the scoped fallback (`export` added to exactly the 21
-symbols the compiler named, no others — see Design Rationale below)
-resolved it, confirmed by a return to the pre-split `tsc -p .` error
-count. Both risks retired by evidence (a real build across all six
-tickets), not by inspection, consistent with this sprint's Test
-Strategy in `sprint.md`.
-
-### Design Rationale
-
-*Decision: merge the issue's proposed `sim.ts` and `shims.ts` rows
-into one module.* Context: the filed issue proposed `sim.ts` (~200
-lines, "the simulator, which nothing on hardware needs") and a
-separate `shims.ts` (~50 lines, "the `//%` shim declarations") as two
-rows. Verified against the real, current `src/main.ts`: from the
-"internal shims" section onward, almost every `//% shim=`-annotated
-function's body *is* the simulator fallback (`_setWheels`,
-`_tickDrive`, `_poseX`, …), and the no-op stand-ins that aren't
-(`_clearStallLatch`, the OTOS/taper stubs) are physically interleaved
-with the real-state functions, not two contiguous blocks — e.g.
-`_seedPose` (real sim state) sits *after* the OTOS no-op stubs at the
-very end of the file. Alternatives: (a) force the two-row split
-anyway, reordering functions to make two contiguous halves [rejected];
-(b) one module for the whole shim surface [chosen]. Why: (a) adds pure
-reordering risk (more diff surface for a behavior-neutral sprint to
-get subtly wrong) for a boundary that isn't real — both halves already
-pass a single cohesion test ("every `//% shim=`-annotated function's
-TypeScript body") more honestly than two artificial ones would.
-Consequences: `sim.ts` is closer to ~370 lines than the roadmap's
-"~200 lines" estimate, but its risk profile (zero hardware coupling,
-first/lowest-risk extraction) is unaffected by line count.
-
-*Decision: split `pose.ts` out on its own, diverging from the
-roadmap's DES-05 recommendation to keep config/motion/pose in one
-file.* Context: DES-05's stated concern was that config, motion, and
-pose "share the `defaultSpeed`/`defaultYawRate` state, and splitting
-them apart risks separating a value from the functions that read it."
-Verified: `defaultSpeed`/`defaultYawRate` are read by exactly one
-function, `motion.ts`'s own `startMove()`, as bare non-exported
-`let`s — pose's four functions never reference them. Pose is reached
-by motion (`whileMoving`/`whileGoingTo` call `poseX()`/`poseY()`/
-`heading()`) exclusively through **exported** functions, which resolve
-safely across files regardless of load order — a categorically safer
-reference than a bare cross-file `let` read. Alternatives: (a) config
-+ motion + pose in one file, per DES-05 literally [rejected]; (b)
-config + motion together, pose separate [chosen]; (c) split config
-away from motion too [rejected]. Why: (a) over-applies a caution that
-is genuinely earned for config/motion (a real non-exported `let`
-reference) to pose (which has no such reference) — pose.ts on its own
-cleanly passes the one-sentence cohesion test ("report and reset the
-robot's local pose") and gains nothing from staying bundled. (c) would
-split `defaultSpeed`/`defaultYawRate` from `startMove()`'s direct
-non-exported read of them, which is exactly the risk DES-05 correctly
-flagged. Consequences: six modules instead of a strict five-module
-reading of DES-05; each still passes the cohesion test on its own
-merits, so the count reflects a real extra distinguishable concern
-(fault-latch handling, in `stop.ts`, separated from movement
-commanding), not fragmentation for its own sake.
-
-*Decision: sequence `sim.ts` as ticket 001, and let its build serve as
-the empirical proof of cross-file non-exported namespace visibility,
-rather than a separate throwaway spike ticket.* Context: nearly every
-cross-file call this split needs is a reference to a **non-exported**
-function (`_poseX`, `_stopAll`, `_seedPose`, …) — safe under
-TypeScript's documented multi-file-namespace-merging semantics, but
-unverifiable by this planning pass, which has no PXT build tooling
-available to it. Alternatives: (a) a dedicated ticket 000 adding two
-throwaway dummy files to `pxt.json` purely to test the pattern, then
-reverting them [rejected]; (b) let the first real extraction (`sim.ts`,
-called into by everything still left in the file at that point) serve
-as the test [chosen]. Why: (a) spends a whole ticket proving nothing
-shippable; (b) gets identical evidence for free from real, otherwise-
-necessary work, and keeps the roadmap's independently-argued
-"simulator first" sequencing (lowest risk, zero hardware coupling)
-intact rather than displacing it. Consequences: ticket 001's
-acceptance criteria carry more evidentiary weight than the other
-extraction tickets' — its build success is the proof every later
-ticket's identical cross-file pattern relies on, not only proof that
-`sim.ts` itself works.
-
-*Decision: primary mitigation for the cross-file reference question is
-"rely on the namespace merge, verified by ticket 001's build";
-exporting a currently-private shim function is a fallback, not a
-default.* Context: exporting a function like `_poseX` would make it
-callable from a student's TypeScript-mode program
-(`diffDrive._poseX(...)`) — not reachable today, even though it would
-carry no `//% block=` annotation and so never become a block.
-Alternatives: (a) export every function that crosses a file boundary,
-unconditionally, up front [rejected]; (b) keep everything non-exported
-as today, prove the merge via ticket 001's real build, export only
-whatever a real compile failure names [chosen]. Why: (a) trades a
-confirmed, if minor, behavior-neutrality risk (new TS-reachable
-surface — this sprint's hardest constraint, "not one line of
-student-visible behavior... changes") for a risk that (b) can settle
-empirically at negligible cost by simply attempting the real thing
-first. **Outcome (resolved, ticket 001): the namespace merge did NOT
-hold for non-exported members** — the real `pxt build` (confirmed
-independently by `tsc -p .`) named 29 `Cannot find name`/`Did you
-mean` errors, one per non-exported `sim.ts` symbol referenced
-cross-file. The fallback was applied to exactly those, no others:
-`export` added to 21 named symbols in `src/sim.ts` —
-`_startProtocol`, `_setWheels`, `_driveTwist`, `_tickDrive`,
-`runCommandText`, `_startMove`, `_updateMove`, `_progress`,
-`_endMove`, `_poseX`, `_poseY`, `_poseHeading`, `_resetPose`,
-`_seedPose`, `_stopAll`, `_estopAll`, `_estopClear`, `_isStalled`,
-`_clearStallLatch`, `_setGeometry`, `_setKernelValue` (`simIntegrate()`
-and `_cycleStat()` were deliberately left non-exported — no cross-file
-caller). None of the 21 carries a `//% block=` caption, so none
-becomes a new toolbox block; the only behavior change is that these 21
-symbols become reachable from a student's TypeScript-mode program
-(`diffDrive._poseX()` etc.) — the exact, accepted tradeoff this
-Decision anticipated. Ticket 001's 21-symbol fallback turned out to be
-sufficient for the whole sprint: tickets 002-006 each confirmed by a
-real build (not assumed) that none of their own moved symbols needed a
-*new* export — every cross-file non-exported reference they made
-(`pose.ts`/`stop.ts`/`world.ts` into `sim.ts`, `world.ts` into
-`motion.ts`'s already-exported `startMove()`) resolved against the
-namespace-merge/export surface ticket 001 already established.
-
-### Open Questions (sprint 012)
-
-- ~~Does PXT's actual multi-file compile model resolve non-exported
-  namespace members across files exactly as TypeScript's documented
-  namespace-merge semantics predict?~~ **Resolved (ticket 001): no.**
-  The real `pxt build` (confirmed independently by `tsc -p .`) could
-  not resolve 29 non-exported cross-file references; the scoped
-  21-symbol export fallback in `src/sim.ts` (see Design Rationale
-  above) fixed it, and tickets 002-006 confirmed by their own real
-  builds that no further exports were needed. `test/test.ts`/
-  `test/testrig.ts` could not be run in the literal PXT simulator on
-  either tree (pre-existing, unrelated `TS9256` defect — see ticket
-  001's and ticket 007's completion notes); the substitute evidence
-  (byte-identical moved function bodies, a real `pxt build` accepting
-  every cross-file call site, `tsc -p .` returning to the pre-split
-  baseline error count) is recorded in those tickets' own notes.
-- Should this sprint also add a `test_tsconfig_completeness.py`
-  mirroring `test_pxt_manifest_completeness.py`'s pattern for
-  `tsconfig.json`'s `files` array, currently ungated by any host test?
-  Flagged, not mandated — a natural, cheap follow-on this sprint's own
-  six-way file split makes more valuable than it was for one file, but
-  outside the issue's and this sprint's stated scope.
-- Where should the file-header doc comment (old `main.ts` lines 1-12,
-  the extension-level `/** DiffDrive — ... */` block) live once
-  `main.ts` no longer exists? Recommend `motion.ts` (the largest
-  direct descendant of the original file), but this is a low-stakes
-  call the ticket 006 programmer can make either way with no behavior
-  consequence (doc comments have no runtime effect).
-- `docs/design/overview.md` (one `main.ts` mention) and
-  `tools/DESIGN.md` (one `main.ts` mention, in a sentence that remains
-  true in substance after the split) carry minor, non-load-bearing
-  stale references this sprint's doc pass could touch up; recommend
-  bundling them into ticket 007's handoff notes on a time-permitting
-  basis rather than gating the sprint on them — unlike
-  `specification.md`'s files-array table, neither becomes actively
-  false.
-
-## 16. Sprint 013 — architecture diagram and change summary
-
-Substantial-tier sprint update by module-count (all 30 files under
-`src/` touched, one `#include`/manifest/test-literal update apiece),
-not by complexity: no module's responsibility, interface, or
-dependency direction changes anywhere, and no data model is touched.
-This sprint gives five of the eleven layers §1 already named a real
-directory, replacing the flat `src/` this document's own opening
-paragraph used to describe:
-
-| New directory | Files | Existing layer(s), per §1 |
-|---|---|---|
-| `core/` | `diffdrive.h/.cpp`, `heading_wrap.h`, `encoder_glitch_armor.h` | Kernel; Heading wrap; Encoder glitch armor |
-| `motion/` | `motion_engine.h/.cpp` | Motion engine |
-| `platform/` | `platform_ports.h`, `nezha_port.h/.cpp`, `otos_port.h/.cpp`, `encoder_pose_source.h` | Hardware ports; Encoder pose source |
-| `comms/` | `protocol.h/.cpp`, `serial_transport.h/.cpp`, `radio_transport.h/.cpp`, `wire_handler.h/.cpp`, `wire_adapter.h/.cpp` | Wire grammar; Wire adapter; Transports; Protocol composition |
-| `blocks/` | `sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`, `motion.ts` | Shim + blocks (TS half) |
-| `src/` (unchanged) | `shims.cpp`, `DESIGN.md` | Shim + blocks (C++ half) |
-
-`heading_wrap.h`/`encoder_glitch_armor.h` group with `core/` by what
-they *are* (dependency-free math, consumed only by `platform/`), not
-by who calls them; `encoder_pose_source.h` groups with `platform/` by
-*role* (an alternate `PoseSource` backend alongside `otos_port`)
-despite its one dependency on `motion/motion_engine.h`. The `.ts`
-files get their own `blocks/` directory rather than joining a C++
-group — different manifest (`tsconfig.json`), different compile
-model, and it keeps `motion/motion_engine.*` (C++) and
-`blocks/motion.ts` (TS) from sharing a directory.
-
-```mermaid
-graph TD
-    core["src/core/&#10;diffdrive, heading_wrap,&#10;encoder_glitch_armor"]
-    motion["src/motion/&#10;motion_engine"]
-    platform["src/platform/&#10;platform_ports, nezha_port,&#10;otos_port, encoder_pose_source"]
-    comms["src/comms/&#10;protocol, serial_transport,&#10;radio_transport, wire_handler,&#10;wire_adapter"]
-    shims["src/shims.cpp&#10;(composition root, no header)"]
-    blocks["src/blocks/&#10;sim, run, pose, stop, world, motion (.ts)"]
-
-    motion -->|"#include"| core
-    platform -->|"#include"| core
-    platform -->|"#include"| motion
-    comms -->|"#include (protocol.h -> platform_ports.h)"| platform
-    shims -->|"#include"| core
-    shims -->|"#include"| motion
-    shims -->|"#include"| platform
-    comms -.->|"forward-declared calls"| shims
-    blocks -.->|"//% shim= calls"| shims
-```
-
-**What changed, and what didn't.** Physical file location and every
-reference to it (`#include`s, `pxt.json`, `tsconfig.json`,
-`tests/host/` path literals, `tools/`/`docs/design/` prose, this
-table and the §2-9 headings above). No class/function signature
-changed, no dependency direction changed, no file was created or
-deleted (each of the 30 files moved, not rewritten) — the dependency
-graph above is the same graph §1's layer table already described, now
-labeled by directory instead of by layer name.
-
-**Include-path rule established by this sprint.** Every `#include "X"`
-naming a moved file is qualified relative to `src/`'s root (e.g.
-`motion_engine.h` including the kernel needs
-`#include "../core/diffdrive.h"`, not a bare `#include "diffdrive.h"`)
-— the project's builds (`-I src` in both the PXT cloud build and
-`tests/host/`'s syntax-gate/shared-lib helpers) resolve
-`#include "..."` relative to the including file's own directory, not
-the project root, so a same-directory move and a cross-directory move
-follow the identical rule.
-
-**Migration concerns.** None in the data/deployment sense — a pure
-file move, verified end to end by a real `make_deploy.py`/`--testrig`
-build producing a flashable hex from the fully reorganized tree (see
-ticket 006's own completion notes for the hex path/size). The
-unverified piece is hardware boot: as of this sprint's close, no
-post-reorg hex has been flashed to a robot — a clean, working build
-does not by itself prove a working load order (`blocks/motion.ts`'s
-top-level `_startProtocol()` call needs `blocks/sim.ts` compiled
-first, and PXT compiles in manifest order; both manifests preserve
-that order, but this project has shipped a load-order-clean-build/
-dead-on-device split before). Boot verification is this sprint's
-explicit hand-off to the team-lead, not something this sprint claims.
-
-## 17. Sprint 016 — stop taxonomy
+## 12. Sprint 016 — stop taxonomy
 
 Five "make it stop" mechanisms exist across three layers (kernel,
 motion engine, shim/wire); each is individually defensible, but

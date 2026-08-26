@@ -1,9 +1,11 @@
 ---
 id: '004'
 title: Remove src/DESIGN.md S12-S16; stop the per-sprint append
-status: open
-use-cases: [SUC-001]
-depends-on: ["003"]
+status: done
+use-cases:
+- SUC-001
+depends-on:
+- '003'
 github-issue: ''
 issue: src-design-md-is-half-sprint-history.md
 completes_issue: true
@@ -63,17 +65,50 @@ tickets conflicting inside the same file.
 
 ## Acceptance Criteria
 
-- [ ] `src/DESIGN.md` S12-S16 are removed; the document contains only
+- [x] `src/DESIGN.md` S12-S16 are removed; the document contains only
       S1-S11 (renumbered if the removal leaves a numbering gap -- check
       whether S1-S11 cross-reference each other by number and fix if so).
-- [ ] The mechanism that appended one section per sprint is identified and
+      Note: former S17 ("Sprint 016 -- stop taxonomy," a cross-cutting
+      reference table, not sprint archaeology -- kept per this ticket's
+      own instructions) is renumbered to S12. All `§12`-`§17`
+      cross-references found throughout `src/DESIGN.md`, plus three
+      dangling ones in `docs/design/design.md` and `tests/host/DESIGN.md`
+      that pointed into the deleted sections, were fixed or dropped (a
+      few carried genuinely load-bearing detail -- e.g. the sprint-013
+      `#include` path-qualification rule, the stall-latch-vs-e-stop-latch
+      separation rationale -- migrated into S1/S9 rather than lost).
+- [x] The mechanism that appended one section per sprint is identified and
       is either disabled for `src/DESIGN.md` or reconfigured so a future
-      `close_sprint` does not regrow this pattern. State in the ticket's
-      completion notes what the mechanism was and what change stops it.
-- [ ] `docs/design/design.md` records the "S1-S11 is the contract, sprint
+      `close_sprint` does not regrow this pattern. **Mechanism**: the
+      CLASI-package `architecture-authoring` skill's Mode 2a (used when
+      `design_docs_opt_in` is true, as it is here) instructs a sprint's
+      architecture author to open the seeded canonical-doc overlay copy
+      and "write a complete, updated copy... reflecting the sprint's
+      planned changes," reusing Mode 1's from-scratch section list
+      (Module Design, Dependency Graph, Migration Concerns, Risk, Design
+      Rationale, "Sprint Changes") and diagram requirement. Confirmed by
+      reading the sprint 006/007/008/012 overlay `.diff.md` files
+      directly: each shows genuine in-place edits to the real sections
+      **plus** an appended dated "Sprint NNN -- architecture diagram and
+      change summary" block, both committed at `close_sprint`'s
+      `design_overlay_apply` step. Sprint 013's instance predates that
+      sprint ever seeding an overlay -- a ticket hand-wrote the same
+      pattern directly, imitating the visible convention sprints
+      006-012 had already established. `.claude/skills/
+      architecture-authoring/SKILL.md` is confirmed byte-identical to
+      the installed CLASI package's own copy (`diff` returns no
+      difference), so it is CLASI-server code outside this project's
+      source tree -- no ticket here can change its instructions. Change
+      that stops it: the rule is recorded in `docs/design/design.md`'s
+      new "Subsystem-doc contract: content, not sprint history"
+      subsection for a future sprint's architecture author (human or
+      agent) to read and follow instead -- edit sections in place, do
+      not add a new dated section, in the overlay or directly in the
+      canonical doc.
+- [x] `docs/design/design.md` records the "S1-S11 is the contract, sprint
       history lives in `clasi/sprints/`" decision.
-- [ ] `clasi design validate` still returns `ok: true` after the deletion.
-- [ ] No firmware source file is touched.
+- [x] `clasi design validate` still returns `ok: true` after the deletion.
+- [x] No firmware source file is touched.
 
 ## Testing
 
