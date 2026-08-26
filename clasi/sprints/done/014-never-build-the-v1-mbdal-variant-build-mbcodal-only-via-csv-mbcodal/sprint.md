@@ -1,7 +1,7 @@
 ---
 id: '014'
 title: "Never build the V1 (mbdal) variant \u2014 build mbcodal only via csv-mbcodal"
-status: executing
+status: done
 branch: sprint/014-never-build-the-v1-mbdal-variant-build-mbcodal-only-via-csv-mbcodal
 use-cases:
 - SUC-001
