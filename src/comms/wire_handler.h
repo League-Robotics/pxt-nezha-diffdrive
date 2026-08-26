@@ -97,7 +97,11 @@ class Sink {
 // and must keep it alive at least until the identity() call that
 // requested it returns. Mirrors radio-robot-lib's own Protocol::Identity
 // (adapter.h) -- drivetrain/profile/version join name/serial, which
-// ID/VER read alongside HELLO's own banner fields.
+// ID/VER read alongside HELLO's own banner fields. ID now reads `name`
+// too (a fourth, appended wire field) -- see wire_handler.cpp's
+// execId() for the wire-format reasoning and protocol.cpp's own
+// kProfile comment for why `name`, not `profile`, is this struct's
+// authoritative board-identity field.
 struct Identity {
   const char* name = "";
   const char* serial = "";

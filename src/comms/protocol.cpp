@@ -27,9 +27,10 @@ namespace {
 //     fixed string here would stomp the registry across the fleet.
 //   - serial: microbit_serial_number() -- genuinely unique per device.
 //   - kDrivetrain = this extension's kinematic type (matches the
-//     package name); kProfile = the robot's own fleet identity (radio-
-//     robot-lib's per-robot config filename stem, e.g. "vevov" or
-//     "tovez" -- matches the elite reference design's
+//     package name); kProfile = which robot's config this hex was
+//     BUILT AGAINST -- deploy-time build-target selection, NOT board
+//     identity (radio-robot-lib's per-robot config filename stem, e.g.
+//     "vevov" or "tovez" -- matches the elite reference design's
 //     Config::kRobotProfileName, "baked from the robot JSON's own ...
 //     filename stem"). Injected per-robot at DEPLOY time, into the
 //     SCRATCH COPY only, by tools/make_deploy.py's _inject_profile() --
@@ -41,8 +42,18 @@ namespace {
 //     mistaken for, or impersonate, any board on the fleet. (Before
 //     this injection existed, kProfile was a hand-written constant
 //     frozen fleet-wide at "tovez" -- every board, including vevov,
-//     reported "tovez" over ID. That was the defect; this is the fix.
-//     Note this decouples kProfile from shims.cpp's Rig tuning
+//     reported "tovez" over ID. That was the defect this injection
+//     fixes for BUILD PROVENANCE; it does not make kProfile board
+//     identity -- `name` above (identity.name) is the wire's sole
+//     authoritative board identity, because it is read from silicon at
+//     call time and cannot be stale, whereas `profile` is only ever as
+//     correct as the build that produced it. `profile` and `name` can
+//     legitimately disagree on one ID reply: `profile` says which
+//     robot's config the hex targeted, `name` says which physical
+//     board is actually answering. That disagreement IS the
+//     diagnostic -- it means this board was flashed with the wrong
+//     robot's build -- so never "fix" it by forcing the two to match.
+//     Note this also decouples kProfile from shims.cpp's Rig tuning
 //     defaults -- which bake those constants are actually measured
 //     from is a separate, currently-contradictory question, tracked as
 //     its own issue, not settled by this constant.)
