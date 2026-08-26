@@ -88,6 +88,16 @@ void MotionEngine::wheelsX(float left, float right, float cruise,
 void MotionEngine::cancelMove() {
   move_.active = false;
   move_.hasPending = false;
+  // A caller (wheelsX()/wheelsV()) can cancel a split move mid-handoff --
+  // after phase 1 finished and staged kernel_.neutral() but before the
+  // NEXT serviceMove() call actually starts phase 2 (see
+  // move_.awaitingHandoffNeutral's own comment). active becomes false
+  // here, so a stale true would sit inert until some LATER moveX() sets
+  // active back to true for an unrelated new move -- at which point
+  // serviceMove()'s handoff check would fire on stale pendingDistance/
+  // pendingCruise and silently skip that new move's own phase 1. Clearing
+  // it here, alongside hasPending, is what keeps that from happening.
+  move_.awaitingHandoffNeutral = false;
 }
 
 void MotionEngine::endMove() {
@@ -155,6 +165,13 @@ void MotionEngine::moveX(float distance, float rotation, float cruise,
   // startSegment()'s own comment on the initial kernel_.drive() lease).
   move_.deadline = nowMs() + timeoutMs;
   move_.hasPending = false;
+  // Starting a fresh move must not inherit a stale mid-handoff wait left
+  // over from a PREVIOUS split move that was cancelled between its own
+  // phase 1 and phase 2 (see cancelMove()'s own comment) -- otherwise
+  // serviceMove()'s handoff check would fire immediately on this move's
+  // very first tick, using leftover pendingDistance/pendingCruise, and
+  // skip this move's own phase 1 entirely.
+  move_.awaitingHandoffNeutral = false;
 
   // motion-api.md S3.3's measured table: a rotation this large combined
   // with an actual translation is NOT one blended segment -- pivot to
@@ -220,6 +237,9 @@ void MotionEngine::goToR(float x, float y, float speed, float arrive,
     // have crossed moveX()'s own threshold (see header comment).
     move_.deadline = nowMs() + timeoutMs;
     move_.hasPending = false;
+    // See moveX()'s identical reset for why: a fresh move must not
+    // inherit a stale mid-handoff wait from a cancelled previous one.
+    move_.awaitingHandoffNeutral = false;
     const float chord = std::hypot(x, y);  // [mm] >= 0
     queuePivotThenStraight(bearingRaw, chord, speed);
   } else {
@@ -268,6 +288,28 @@ void MotionEngine::goToW(const PoseSource& pose, float x, float y,
 
 bool MotionEngine::serviceMove() {
   if (!move_.active) return false;
+
+  // Second half of the phase 1 -> phase 2 handoff (see the branch below
+  // that sets this flag for the full mechanism). The PREVIOUS
+  // serviceMove() call staged kernel_.neutral() and returned without
+  // touching move_.distTarget/yawTarget -- the caller (tickDrive()/
+  // updateMove()) then ran exactly one real kernel_.step(), which is what
+  // actually delivers that neutral and disarms the kernel's twist-hold
+  // reference. Only NOW, on this call, is it safe to stage phase 2's
+  // kernel_.drive() (via startSegment()) -- staging it any earlier, in
+  // the same tick as the neutral, would silently overwrite the staged
+  // neutral before any step() ever consumed it. Return immediately,
+  // before the taper/progress math below (which still reads phase 1's
+  // now-stale distTarget/yawTarget and would otherwise fall through to
+  // the "move complete" branch and end the whole call one phase early).
+  if (move_.awaitingHandoffNeutral) {
+    move_.awaitingHandoffNeutral = false;
+    const float pendingDistance = move_.pendingDistance;
+    const float pendingCruise = move_.pendingCruise;
+    startSegment(pendingDistance, 0.0f, pendingCruise);
+    return move_.active;
+  }
+
   const DiffDrive::DifferentialDrive::Output out = kernel_.output();
   const float dLeft = out.positionLeft - move_.posLeft0;    // [counts]
   const float dRight = out.positionRight - move_.posRight0;  // [counts]
@@ -350,10 +392,40 @@ bool MotionEngine::serviceMove() {
   // leg run blind.
   if (distDone && yawDone && !expired && !out.stallHalted && !wrongWay &&
       move_.hasPending) {
-    const float pendingDistance = move_.pendingDistance;
-    const float pendingCruise = move_.pendingCruise;
+    // DifferentialDrive's twist-hold servo (diffdrive.cpp, vendored)
+    // keeps an integrated reference of commanded differential and trims
+    // the wheels toward it every velocity-mode step; that reference is
+    // disarmed in exactly two kernel modes -- neutral and raw-duty -- and
+    // NOT by a velocity-mode drive() call, no matter how much the
+    // commanded twist changes. Going straight from this pivot's
+    // startSegment() call into phase 2's startSegment() (both stage
+    // kernel_.drive()) would therefore leave the reference armed with
+    // phase 1's PRE-PIVOT origin and its fully-accumulated pivot value;
+    // phase 2 commands twist = 0, so the reference stops growing but the
+    // measured twist position still carries the whole pivot, and the
+    // servo actively drives the wheels to unwind it -- fast, right at
+    // this transition, with the robot essentially in place (measured on
+    // hardware: a pivot that peaked past its commanded angle then lost
+    // ~17 degrees of it before the straight leg ever moved). Calling
+    // kernel_.neutral() here reproduces the state a real gap between two
+    // separate commands already proves is correct -- it disarms the
+    // reference so phase 2 re-arms fresh, at the post-pivot origin, with
+    // zero accumulated error.
+    //
+    // kernel_.neutral() only STAGES the neutral command, though --
+    // delivery (and the disarm above) happens on the kernel's NEXT
+    // step(), which this class never calls itself (see class header
+    // comment: step() is always the caller's, once per tick, before
+    // serviceMove()). Calling startSegment() -- which stages
+    // kernel_.drive() -- in this SAME call would overwrite the staged
+    // neutral before any step() ever saw it, silently reproducing the
+    // exact bug this exists to fix. So phase 2 does not start here:
+    // move_.awaitingHandoffNeutral defers startSegment() to the NEXT
+    // serviceMove() call, by which point the caller's own step() has run
+    // and the disarm has actually happened.
     move_.hasPending = false;
-    startSegment(pendingDistance, 0.0f, pendingCruise);
+    kernel_.neutral();
+    move_.awaitingHandoffNeutral = true;
     return move_.active;
   }
 

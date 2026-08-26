@@ -77,6 +77,8 @@ def _bind(lib):
     lib.meSetMaxDuty.restype = None
     lib.meSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meSetFullDutyVelocity.restype = None
+    lib.meSetTwistHoldGain.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetTwistHoldGain.restype = None
     lib.meBegin.argtypes = [ctypes.c_void_p]
     lib.meBegin.restype = ctypes.c_int
     lib.meStep.argtypes = [ctypes.c_void_p]
@@ -193,6 +195,9 @@ class Engine:
 
     def set_full_duty_velocity(self, v):
         self._lib.meSetFullDutyVelocity(self._handle, v)
+
+    def set_twist_hold_gain(self, v):
+        self._lib.meSetTwistHoldGain(self._handle, v)
 
     def begin(self):
         return self._lib.meBegin(self._handle)
@@ -487,7 +492,17 @@ def test_move_x_pivot_then_straight_phase_transition(motion_lib):
     """The queued second phase actually runs: once the pivot (phase 1)
     completes cleanly, moveX() advances to a fresh straight segment
     (phase 2, rotation == 0) for the remaining distance -- a single
-    caller-visible moveX() call, still active across the transition."""
+    caller-visible moveX() call, still active across the transition.
+
+    The handoff itself now lands a REAL neutral tick first (see
+    motion_engine.cpp's own comment on the twist-hold hazard this
+    guards against): the service_move() call that detects the pivot
+    done stages kernel_.neutral() and returns still-active WITHOUT
+    starting phase 2 yet; phase 2's own drive() is only staged on the
+    FOLLOWING service_move() call, once a step() has actually delivered
+    that neutral. So this test now expects one extra (zero-duty)
+    step()/service_move() pair at the boundary before phase 2's first
+    real duty lands."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
@@ -512,8 +527,119 @@ def test_move_x_pivot_then_straight_phase_transition(motion_lib):
         assert still_active  # phase 2 queued, not a full stop
         assert e.is_move_active()
 
+        # The interposed neutral tick: a step() must land it before phase
+        # 2 is allowed to start (see docstring above) -- both wheels read
+        # zero staged duty here, one tick earlier than phase 2's own
+        # first real command.
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0, abs=1e-6)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0, abs=1e-6)
+        still_active = e.service_move()
+        assert still_active  # phase 2 now staged, not a full stop
+        assert e.is_move_active()
+
         e.step()  # lands phase 2's own initial (floor-scaled) duty
 
+        expected_left, expected_right = _expected_duty_pair(
+            distance, 0.0, cruise, cpm, b, fdv, scale=0.25)
+        assert expected_left == pytest.approx(expected_right, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            expected_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            expected_right, rel=_DUTY_REL)
+
+
+def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
+    """Pins the mechanism motion_engine.cpp's own handoff-branch comment
+    describes: DifferentialDrive's twist-hold servo (diffdrive.cpp,
+    vendored) integrates a REFERENCE from the COMMANDED twist and trims
+    the wheels toward it every velocity-mode step, but only disarms that
+    reference on a neutral (or raw-duty) step -- never on a velocity-mode
+    drive() call alone, no matter how much the commanded twist changes.
+    Every OTHER test in this file leaves twistHoldGain at its 0.0 (off)
+    default (this file's own `_bind()`/Engine setup, and
+    motion_engine_shim.cpp's own comment on why), so none of them can
+    see this at all; this is the one test in the tree that turns the
+    gain on to exercise it.
+
+    CAVEAT on how the mismatch is induced (read before trusting this
+    test's numbers): with genuinely ideal wheels -- duty applied exactly
+    as commanded, no coast, no lag -- the integrated reference and the
+    measured twist position never diverge in the first place, so the
+    real bug (measured running ahead of reference through the end-of-
+    pivot taper, see the handoff branch's own comment in
+    motion_engine.cpp) does not reproduce through this harness's
+    physics-free FakeMotor at all. This test does not attempt to
+    simulate that coast. Instead it exploits two properties this file's
+    existing tests already rely on: (1) this harness's FakeClock is
+    never advanced (no test in this file calls set_clock during a move),
+    so DifferentialDrive::step()'s own `dt` is 0 on every tick, which
+    means twistRef_.reference -- which only grows via `scaledTwist * dt`
+    -- stays pinned at the 0 it armed with for the ENTIRE test; (2)
+    arm_motor_position() teleports the encoders straight to the pivot's
+    target in one tick (the same technique
+    test_move_x_pivot_then_straight_phase_transition, above, already
+    uses), which jumps the MEASURED twist position straight to the full
+    yaw target. Reference-stays-0 versus measured-jumps-to-target is a
+    cruder mismatch than hardware's own gradual coast-through-taper, but
+    it is the same mismatch in kind (reference lags measured), it is
+    trivially reproducible without hand-modeling wheel physics, and its
+    consequence -- a stale twistRef_ that phase 2 must not inherit -- is
+    exactly what the fix disarms. What this test proves: phase 2's first
+    real tick is symmetric (no twist trim) once the fix disarms the
+    stale reference at the handoff. What it does NOT prove: the exact
+    magnitude of the real hardware taper-coast mismatch, or that this
+    specific induction method matches hardware's own numbers -- only
+    that SOME nonzero reference/measured mismatch surviving the handoff
+    corrupts phase 2, and the fix clears it regardless of how the
+    mismatch got there.
+    """
+    with Engine(motion_lib) as e:
+        fdv = _ready(e)
+        e.set_twist_hold_gain(2.0)  # matches the gain measured on hardware
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        rotation = 60.0 * math.pi / 180.0  # >= 50 deg -> pivot first
+        distance = 300.0
+        cruise = 100.0
+
+        e.move_x(distance, rotation, cruise, 10_000)
+        e.step()  # arms twistRef_: dt == 0 on this first-ever step, so
+        # reference == 0 and the origin is the (0, 0) starting position.
+
+        # Teleport straight to the pivot's target, exactly as
+        # test_move_x_pivot_then_straight_phase_transition does -- see
+        # this test's own docstring for why that alone, with the clock
+        # never advancing, is enough to leave a large reference/measured
+        # mismatch (reference stuck at 0, measured now the full target).
+        yaw_target_counts = rotation * 0.5 * b * cpm
+        e.arm_motor_position(LEFT, -yaw_target_counts)
+        e.arm_motor_position(RIGHT, yaw_target_counts)
+        e.step()
+        assert e.service_move()  # still active: phase 1 complete
+
+        # Handoff tick: a real neutral must land here (zero duty on both
+        # wheels) before phase 2 is allowed to start -- see
+        # test_move_x_pivot_then_straight_phase_transition's docstring
+        # for the same two-tick mechanism, unrelated to twist-hold.
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0, abs=1e-6)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0, abs=1e-6)
+        assert e.service_move()  # still active: phase 2 now staged
+
+        e.step()  # phase 2's own first real tick
+
+        # The fix's own proof: phase 2 commands twist == 0, so an intact
+        # (unwound) twist-hold reference would trim the wheels apart by a
+        # large, saturated-or-near-saturated amount driven by the
+        # mismatch engineered above -- left and right would land far from
+        # equal. With the stale reference disarmed at the handoff and
+        # re-armed fresh (reference == measured == 0 at the moment it
+        # re-arms, since both are captured from the SAME position), this
+        # tick is the same symmetric, twist-free duty pair a fresh
+        # straight segment produces with no twist-hold contribution at
+        # all -- identical to every other test in this file, which never
+        # turns the gain on in the first place.
         expected_left, expected_right = _expected_duty_pair(
             distance, 0.0, cruise, cpm, b, fdv, scale=0.25)
         assert expected_left == pytest.approx(expected_right, rel=_DUTY_REL)
@@ -727,6 +853,17 @@ def test_go_to_r_pivot_split_reaches_target_above_threshold(motion_lib):
         assert e.service_move()  # still active: phase 2 queued
         assert e.is_move_active()
 
+        # The handoff lands a real neutral tick before phase 2 is allowed
+        # to start (motion_engine.cpp's own comment on the twist-hold
+        # hazard this avoids) -- see
+        # test_move_x_pivot_then_straight_phase_transition's docstring
+        # for the full mechanism this same two-phase pattern shares.
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0, abs=1e-6)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0, abs=1e-6)
+        assert e.service_move()  # still active: phase 2 now staged
+        assert e.is_move_active()
+
         e.step()  # phase 2's own initial (floor-scaled) duty
         chord_left, chord_right = _expected_duty_pair(
             chord, 0.0, speed, cpm, b, fdv, scale=0.25)
@@ -790,6 +927,17 @@ def test_go_to_r_behind_robot_splits_into_bounded_pivot(motion_lib):
         e.arm_motor_position(LEFT, -yaw_target_counts)
         e.arm_motor_position(RIGHT, yaw_target_counts)
         e.step()
+        assert e.service_move()
+        assert e.is_move_active()
+
+        # The handoff lands a real neutral tick before phase 2 is allowed
+        # to start (motion_engine.cpp's own comment on the twist-hold
+        # hazard this avoids) -- see
+        # test_move_x_pivot_then_straight_phase_transition's docstring
+        # for the same two-phase pattern.
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0, abs=1e-6)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0, abs=1e-6)
         assert e.service_move()
         assert e.is_move_active()
 

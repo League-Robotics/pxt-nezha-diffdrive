@@ -184,12 +184,17 @@ namespace diffDrive {
 
         let bx = Math.cos(ph) * dx + Math.sin(ph) * dy
         let by = -Math.sin(ph) * dx + Math.cos(ph) * dy
-        let bearing = Math.atan2(by, bx)
+        const bearing = Math.atan2(by, bx)
 
         // A target well off the bow needs a pivot first -- an arc to a
         // point abeam is a semicircle that leaves the field. This is
         // the ONE re-measure in the pass, and only because the pivot
-        // itself changes the geometry the drive is planned from.
+        // itself changes the geometry the drive is planned from. This
+        // stays even though startGoTo()/goToR() below can reach any
+        // bearing on its own: it is a SENSING decision, not a geometry
+        // one -- re-planning (bx, by) from a fresh OTOS fix after the
+        // pivot moves the robot -- and goToR() cannot do that for
+        // itself, since it reads its pose once, by contract.
         if (Math.abs(bearing) >= turnFirstDeg * Math.PI / 180) {
             tickedMove(0, bearing * 180 / Math.PI)
             readWorld()
@@ -198,33 +203,16 @@ namespace diffDrive {
             dy = y - worldY()
             bx = Math.cos(ph) * dx + Math.sin(ph) * dy
             by = -Math.sin(ph) * dx + Math.cos(ph) * dy
-            bearing = Math.atan2(by, bx)
         }
 
-        // Curve out the residual bearing -- but CAP THE CURVATURE.
-        //
-        // theta = 2*bearing, so a bearing still large after the pivot
-        // becomes a half-circle: measured on vevov, a leg with 55 deg
-        // of residual drove a 110 deg arc and finished 23 cm from where
-        // it started while the target was 60 cm away. Legs that began
-        // nearly on-bearing were fine, which is exactly this signature.
-        //
-        // Capping keeps the leg a gentle curve that covers the straight
-        // line distance to the target. Any bearing beyond the cap is
-        // simply left for the next hop to absorb, which is the same
-        // principle as not pivoting twice.
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        const kMaxArc = 25 * Math.PI / 180
-        let b = bearing
-        if (b > kMaxArc) b = kMaxArc
-        if (b < -kMaxArc) b = -kMaxArc
-        if (Math.abs(b) < 0.01) {
-            tickedMove(dist, 0)
-        } else {
-            // Chord `dist` subtending 2b: R = dist / (2 sin b), arc = R*2b
-            const radius = dist / (2 * Math.sin(b))
-            tickedMove(radius * 2 * b, 2 * b * 180 / Math.PI)
-        }
+        // Drive the residual leg through startGoTo() (motion.ts), which
+        // calls goToR() directly: it owns its own pivot-vs-blend split
+        // and short-arc wrap, so it reaches (bx, by) exactly for ANY
+        // residual bearing. No cap is needed here any more -- a capped
+        // arc could only curve toward the straight-line distance and
+        // leave a large residual short of the target; goToR has nothing
+        // left for a cap to protect against.
+        tickedGoTo(bx, by)
     }
 
     // Shared runner for goToWorld's legs: start the move, then tick it
@@ -233,6 +221,15 @@ namespace diffDrive {
     function tickedMove(distance: number, yaw: number): void {
         if (distance == 0 && yaw == 0) return
         startMove(distance, yaw)
+        while (_tickDrive());
+    }
+
+    // goTo-shaped sibling of tickedMove, above: startGoTo() (motion.ts)
+    // only ARMS the move (see its own doc comment) -- something must
+    // still tick it, and that has to be THIS fiber, same OTOS-fiber
+    // constraint as tickedMove.
+    function tickedGoTo(x: number, y: number): void {
+        startGoTo(x, y)
         while (_tickDrive());
     }
 }
