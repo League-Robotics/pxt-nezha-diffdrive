@@ -248,11 +248,12 @@ namespace diffDrive {
     }
 
     /**
-     * End the current move now (no-op if none). Note: under the tick
-     * model, a move started with startMove()/startGoTo() and never
-     * paired with a driveTick() loop will not have progressed anyway
-     * (see startMove()'s doc comment) -- this just clears the
-     * move-engine state.
+     * Stop the robot now -- including a continuous drive command in
+     * progress (setWheelSpeeds()/driveTwist()), the same full-stop
+     * contract stop() has (stop.ts). A no-op if the robot was already
+     * idle. Note: under the tick model, a move started with
+     * startMove()/startGoTo() and never paired with a driveTick() loop
+     * will not have progressed anyway (see startMove()'s doc comment).
      */
     //% block="stop move"
     //% group="Move" weight=110

@@ -144,8 +144,14 @@ void MotionEngine::startSegment(float distance, float rotation,
       static_cast<int32_t>(move_.deadline - now) > 0
           ? (move_.deadline - now)
           : 0u;
-  kernel_.drive(move_.velCmd * 0.25f, move_.twistCmd * 0.25f, remainingMs);
-  move_.active = true;
+  // A refused drive() (kRefusedUnconfigured/kRefusedNotBegun/
+  // kRefusedEstopped/kRefusedNonFinite) must not arm move_.active --
+  // otherwise this move reports progress, spins to its own deadline, and
+  // resolves as kStop on the wire, indistinguishable from a move that
+  // actually ran.
+  const DiffDrive::DifferentialDrive::Status driveStatus = kernel_.drive(
+      move_.velCmd * 0.25f, move_.twistCmd * 0.25f, remainingMs);
+  move_.active = (driveStatus == DiffDrive::DifferentialDrive::Status::kOk);
 }
 
 void MotionEngine::queuePivotThenStraight(float pivotRotation,
@@ -429,7 +435,18 @@ bool MotionEngine::serviceMove() {
     return move_.active;
   }
 
-  if ((distDone && yawDone) || expired || out.stallHalted || wrongWay) {
+  // out.estopped joins stallHalted/expired/wrongWay here: it is the same
+  // kind of published, latched refusal (the kernel forces neutral under
+  // the e-stop latch, same as it does under the stall latch) -- without
+  // it, isMoveActive() stays true and every `while (driveTick())` loop
+  // spins to the deadline even though the wheels are already safe
+  // (measured: 1230 further ticks / 29.5 s after the latch, on a 30 s
+  // move). This was previously masked only by shims.cpp's estopAll()
+  // calling engine.endMove() BEFORE kernel.estop() -- an ordering this
+  // class must not depend on, since kernel.emergencyStopMotors() latches
+  // the e-stop as a side effect that bypasses that ordering entirely.
+  if ((distDone && yawDone) || expired || out.stallHalted || wrongWay ||
+      out.estopped) {
     if (wrongWay) ++wrongWayCount_;
     kernel_.neutral();
     move_.active = false;

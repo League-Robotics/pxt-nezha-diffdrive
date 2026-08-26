@@ -14,7 +14,11 @@
 // always answers false. Every ACCEPTED motion verb arms a
 // motion-obligation deadline (`duration` for the V-forms, `timeout` for
 // the X-forms/GO_TO-forms -- a conservative overestimate, harmless)
-// that protocol.cpp's fiber loop polls to keep ticking the kernel.
+// that protocol.cpp's fiber loop polls to keep ticking the kernel. That
+// obligation clears on whichever comes first: an explicit STOP/ESTOP, or
+// (sprint 016 ticket 003) the pending motion being lazily discovered to
+// have already resolved on its own -- see resolvePendingIfDue()'s own
+// doc comment below.
 //
 // Sprint 004 ticket 004: telemetry projection joins this class's
 // existing session/motion/safety/config seams. `buildSnapshot()`
@@ -239,8 +243,20 @@ class WireAdapter : public Wire::Adapter {
   // Snapshot is ever built for a session with no subscriber).
   bool telemetryEnabled() const;
 
-  // True iff the most recently ACCEPTED motion verb's own window has not
-  // elapsed; always false with no clock wired.
+  // True iff a motion is genuinely outstanding, as far as this class has
+  // NOTICED: the most recently ACCEPTED motion verb's own window has not
+  // elapsed, AND nothing has since resolved it to a terminal reason.
+  // Sprint 016 ticket 003 (closing wire-motion-obligation-never-clears.md):
+  // resolvePendingIfDue()/forceResolvePending() now clear the underlying
+  // `motionObligationActive_` themselves as soon as they commit a
+  // resolution -- not only on an explicit STOP/ESTOP as before -- so a
+  // goal-directed move (MOVE_X/GO_TO_R/GO_TO_W) that reaches its own goal
+  // long before its declared `timeout` stops reading "live" as soon as
+  // something next polls lastDone()/lastDoneReason(), instead of staying
+  // true until that full timeout elapses. This is still a LAZY signal --
+  // see resolvePendingIfDue()'s own doc comment below for exactly which
+  // calls trigger the check -- not a push notification the instant the
+  // engine itself finishes. Always false with no clock wired.
   bool hasLiveMotionObligation() const;
 
   // ---- sprint 005 ticket 004: a REAL motion-completion signal (closes
@@ -302,7 +318,12 @@ class WireAdapter : public Wire::Adapter {
 
   // ---- real clock + motion-obligation state ----
   NowMsFn nowMs_ = nullptr;
-  bool motionObligationActive_ = false;
+  // `mutable`, same reason as the pendingActive_ family below: sprint 016
+  // ticket 003 has resolvePendingIfDue() (a const method, called from the
+  // const accessors lastDone()/lastDoneReason()) clear this the moment it
+  // lazily discovers a pending motion has resolved, not only on an
+  // explicit STOP/ESTOP as before.
+  mutable bool motionObligationActive_ = false;
   uint32_t motionObligationDeadlineMs_ = 0;  // [ms], nowMs_'s own scale
 
   // ---- sprint 005 ticket 004: motion-completion tracking (S8.8) -----
@@ -341,6 +362,10 @@ class WireAdapter : public Wire::Adapter {
   // kNone; a no-op otherwise. Called from both lastDone() and
   // lastDoneReason() so polling either one alone is enough to notice a
   // newly terminal pending motion -- S8.8's "read fresh" contract.
+  // Sprint 016 ticket 003: also clears `motionObligationActive_` on that
+  // same commit -- this is the natural-completion clearing point that
+  // was missing before (only onEstop()/onStop() cleared it), the actual
+  // gap wire-motion-obligation-never-clears.md names.
   void resolvePendingIfDue() const;
 
   // Force-resolves a still-pending motion RIGHT NOW, at a call site
@@ -348,7 +373,17 @@ class WireAdapter : public Wire::Adapter {
   // handlers, or an explicit STOP in onStop()) -- resolvePendingReason()
   // still gets first refusal, so an already-stalled/estopped pending
   // motion keeps THAT more specific reason instead of being overwritten
-  // by the caller's forced one. A no-op if nothing is pending.
+  // by the caller's forced one. A no-op if nothing is pending. Sprint 016
+  // ticket 003: also clears `motionObligationActive_` on that same
+  // commit, covering the "a later verb supersedes a still-live earlier
+  // one" (kAborted) path -- this runs BEFORE the *new* verb re-arms
+  // `motionObligationActive_ = true` a few lines later in the same
+  // onXxx() handler, so ordering stays correct. onStop()'s own explicit
+  // `motionObligationActive_ = false;` (wire_adapter.cpp) is now
+  // redundant with this for the STOP path specifically, but is left in
+  // place -- harmless (idempotent), and onEstop() still needs its own
+  // explicit clear regardless since it deliberately does not call this
+  // method at all (see onEstop()'s own comment).
   void forceResolvePending(Wire::DoneReason forcedReason);
 
   // Arms tracking for a freshly ACCEPTED motion verb -- call AFTER any

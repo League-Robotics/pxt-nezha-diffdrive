@@ -154,7 +154,7 @@ polling.
 | `start go to x %x cm y %y cm` *(advanced)* | `startGoTo(x, y)` | same as `goTo` | Starts a go-to without waiting; computes the arc (see §4.3) and calls `startMove` internally. |
 | `moving?` | `isMoving()` | — | Returns whether a move is currently running (`_updateMove()`; this call also advances the move state machine — see §9). |
 | `move progress` *(advanced)* | `moveProgress()` | — | Fraction of the current move completed, 0 to 1 (`_progress() / 1000`). |
-| `stop move` | `stopMove()` | — | Ends the current move now; no-op if none is active (`_endMove`). |
+| `stop move` | `stopMove()` | — | Stops the robot now, including a continuous drive command in progress (`setWheelSpeeds`/`driveTwist`) — same full-stop contract as `stop` (§4.2); no-op if the robot was already idle (`_endMove`). |
 
 ### 4.5 Move group — loop ("while") forms
 

@@ -110,6 +110,20 @@ void meStep(void* handle) { static_cast<Handle*>(handle)->kernel.step(); }
 int meOutLeaseExpired(void* handle) {
   return static_cast<Handle*>(handle)->kernel.output().leaseExpired ? 1 : 0;
 }
+// Output.estopped readback -- mirrors kernel_shim.cpp's own
+// kdOutEstopped export (test_cross_fiber_stop_settle_window.py's
+// k.out_estopped property is the precedent this follows).
+int meOutEstopped(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().estopped ? 1 : 0;
+}
+// Latches the kernel's e-stop directly (kernel.estop()) -- lets a test
+// force Output.estopped WITHOUT going through anything resembling
+// shims.cpp's estopAll() ordering (engine.endMove() called BEFORE
+// kernel.estop()), which is exactly what masks serviceMove() not
+// checking out.estopped on its own.
+void meKernelEstop(void* handle) {
+  static_cast<Handle*>(handle)->kernel.estop();
+}
 
 // Regression guard (post-move neutral delivery, commit 3e919e5):
 // exposes the kernel's own MEASURED velocity (diffdrive.h Output.
@@ -275,6 +289,42 @@ int meIsMoveActive(void* handle) {
 }
 void meEndMove(void* handle) {
   static_cast<Handle*>(handle)->engine.endMove();
+}
+
+// ---- stop-move sequence mirrors (ticket: `stop move` must stop a
+// continuous drive) ------------------------------------------------------
+// shims.cpp cannot be host-compiled (includes pxt.h -- see this test
+// tree's own README.md and test_cross_fiber_stop_settle_window.py's
+// header comment for the standing convention on that boundary), so these
+// two functions hand-mirror shims.cpp's endMove() free function's exact
+// call sequence, before and after this ticket's fix, using the same
+// host-portable primitives (a real DiffDrive::DifferentialDrive kernel +
+// diffDrive::MotionEngine over FakeMotor) shims.cpp itself composes.
+// Keep these in sync BY HAND with shims.cpp::endMove() -- there is no
+// compiler link between the two.
+
+// Pre-fix sequence: engine.endMove() (a no-op after a continuous-drive
+// command -- no move-engine move is active, since wheelsV()/wheelsX()
+// call cancelMove() on the way in) plus deliverStopNow()'s port-level
+// zero write, WITHOUT kernel.neutral(). Regression pin: this leaves the
+// kernel's commanded velocity mode armed (up to kLeaseMax), so the very
+// next step() re-commands the pre-stop duty.
+void meEndMoveOldStopSequence(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMove();
+  h->left.emergencyStop();
+  h->right.emergencyStop();
+}
+
+// Post-fix sequence: adds kernel.neutral() between engine.endMove() and
+// the port-level zero write, so the kernel's commanded mode is disarmed
+// too -- the next step() computes zero duty instead of re-commanding.
+void meEndMoveFixedStopSequence(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMove();
+  h->kernel.neutral();
+  h->left.emergencyStop();
+  h->right.emergencyStop();
 }
 int meProgress(void* handle) {
   return static_cast<Handle*>(handle)->engine.progress();

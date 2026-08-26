@@ -1,6 +1,6 @@
 ---
 status: pending
-sprint: ''
+sprint: 018
 ---
 
 # `i2cf` climbs steadily on a largely idle I2C bus
@@ -134,3 +134,71 @@ projection exists on current firmware — was NOT answered. It needs:
   stand a frozen OTOS reading is *correct* behaviour and the test cannot
   distinguish the two — the exact ambiguity that produced the fabricated
   0.6 mm closure).
+
+---
+
+## Related observation (2026-08-26): re-checked against sprint 016's motion-obligation fix — mechanism real, does not explain this issue's own evidence
+
+Sprint 016 ticket 003 fixed a real bug: `WireAdapter::motionObligationActive_`
+(the flag `protocol.cpp`'s fiber polls to decide whether to keep calling
+`tickDrive()`/`kernel.step()` at ~24 ms cadence) used to stay armed for a
+motion verb's ENTIRE declared `timeout` even after the move itself
+finished early, clearing only on an explicit `STOP`/`ESTOP`. Sprint 016
+ticket 004 was tasked with re-checking that fix against THIS issue's own
+`i2cf` climb, per `wire-motion-obligation-never-clears.md`'s framing of it
+as "a concrete candidate mechanism." Full detail, including the host test
+and the deferred bench protocol below, is in
+`clasi/sprints/016-stops-that-stop-and-honest-refusals/tickets/done/004-re-check-the-idle-i2c-issue-against-the-obligation-fix-record-the-result-either-way.md`
+(or `tickets/` if not yet archived).
+
+**Host-level result (proven, via a new test,
+`tests/host/test_wire_motion_completion.py::test_obligation_window_narrows_after_natural_completion`)**:
+the fix is real and quantifiable — for a representative wide-timeout
+`MOVE_X` (10000 ms declared) reaching its own goal at ~50 ms, the
+obligation window now closes at that same ~50 ms mark (as soon as
+something next polls `lastDone()`/`lastDoneReason()`) instead of staying
+armed for the remaining 9950 ms, avoiding 414 otherwise-unnecessary
+`tickDrive()`/`kernel.step()` calls in that scenario.
+
+**Critical caveat — this mechanism cannot explain THIS issue's own "What
+was observed" session**: `motionObligationActive_` is armed in exactly
+six places in the codebase, all inside `wire_adapter.cpp`'s six v6
+wire-protocol motion-verb handlers (`onWheelsV`/`onWheelsX`/`onMoveX`/
+`onMoveV`/`onGoToR`/`onGoToW`) — confirmed by `grep -rn
+"motionObligationActive_ = true" src/`. The session documented above used
+`RUN:straight:20` and `RUN:fix`/`RUN:probe` — the cleartext `RUN:` bridge
+(`protocol.cpp`'s `handleRun()`, a separate, unsequenced MessageBus path).
+Reading `test/test.ts` in full confirms every RUN handler that actually
+moves the robot calls `diffDrive.startMove()`/`startGoTo()`/`goToWorld()`
+directly (CODAL motion blocks), never touching `WireAdapter`'s six onXxx()
+handlers at all. So the session that produced this issue's own `i2cf`
+climb almost certainly never armed the obligation flag in the first
+place — the mechanism this fix closes could not have been responsible for
+what was observed here.
+
+**A second limitation, independent of the above**: even for a session
+that DOES use the v6 protocol, `resolvePendingIfDue()`/
+`forceResolvePending()` (where ticket 003 added the clear) are reached
+only via `lastDone()`/`lastDoneReason()`, which in production are called
+only from `WireHandler::replyAck()`/`replyNack()` — i.e. on the host's
+NEXT wire line of any kind. A host that issues one wide-timeout motion
+verb and then goes fully silent (TLM streaming alone does not count —
+telemetry emission never calls `replyAck()`/`replyNack()`) gets zero
+benefit from the fix: the obligation stays armed for the full declared
+timeout regardless. The fix only helps when the host keeps sending SOME
+wire-protocol line after the motion finishes.
+
+**Hardware measurement**: not performed (autonomous execution context, no
+bench access). A precise, ready-to-run protocol is recorded in ticket
+004's own Verdict section (three ~12-minute runs — no motion verb at all;
+a wide-timeout `MOVE_X` followed by total silence; the same `MOVE_X`
+followed by `STATUS` polls every ~30 s — comparing `Δi2cf`/`Δcyc` across
+all three via bare `STATUS #<id>` reads of `diagValue(8)`/`diagValue(16)`)
+for whoever next has bench access under this issue's own sprint (018) to
+run directly.
+
+**Net**: "no change observed / not applicable" for the specific evidence
+this issue documents, "not determined without hardware" for whether the
+mechanism matters under v6-protocol-driven usage generally. Both are
+recorded here as real, useful results — this issue's actual cause remains
+open.
