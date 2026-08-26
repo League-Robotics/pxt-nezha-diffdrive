@@ -1,6 +1,6 @@
 ---
 status: pending
-sprint: ''
+sprint: '021'
 ---
 
 # `make_deploy.py`'s triage accepts a silently-incomplete but error-free hex
