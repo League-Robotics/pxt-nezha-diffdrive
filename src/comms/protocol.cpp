@@ -27,9 +27,25 @@ namespace {
 //     fixed string here would stomp the registry across the fleet.
 //   - serial: microbit_serial_number() -- genuinely unique per device.
 //   - kDrivetrain = this extension's kinematic type (matches the
-//     package name); kProfile = the tuning bake shims.cpp's Rig
-//     defaults are measured from (see shims.cpp's "tovez-measured
-//     defaults" comment on Rig::travelCalib/trackWidth).
+//     package name); kProfile = the robot's own fleet identity (radio-
+//     robot-lib's per-robot config filename stem, e.g. "vevov" or
+//     "tovez" -- matches the elite reference design's
+//     Config::kRobotProfileName, "baked from the robot JSON's own ...
+//     filename stem"). Injected per-robot at DEPLOY time, into the
+//     SCRATCH COPY only, by tools/make_deploy.py's _inject_profile() --
+//     the same scratch-copy-only substitution _inject_radio_channel()
+//     performs for radio_transport.h's kChannel. This repo's own
+//     checked-in literal below is therefore never a real fleet robot
+//     name: it is the UN-BAKED default, so a build run with no
+//     --robot (or built outside make_deploy.py entirely) cannot be
+//     mistaken for, or impersonate, any board on the fleet. (Before
+//     this injection existed, kProfile was a hand-written constant
+//     frozen fleet-wide at "tovez" -- every board, including vevov,
+//     reported "tovez" over ID. That was the defect; this is the fix.
+//     Note this decouples kProfile from shims.cpp's Rig tuning
+//     defaults -- which bake those constants are actually measured
+//     from is a separate, currently-contradictory question, tracked as
+//     its own issue, not settled by this constant.)
 //   - kVersion: manually-synced mirror of pxt.json's "version" (no
 //     build-time injection in this repo's C++ build) -- bump together.
 //     Pinned by tests/host/test_wire_constants_drift.py, which reads
@@ -38,7 +54,7 @@ namespace {
 //     that test existed) -- same "read both as text" shape as this
 //     file's own kRunEventSource/RUN_EVENT_SOURCE pairing below.
 constexpr const char* kDrivetrain = "diffdrive";
-constexpr const char* kProfile = "tovez";
+constexpr const char* kProfile = "unbaked";
 constexpr const char* kVersion = "1.0.10";  // keep in sync with pxt.json --
                                              // drift-tested, see above
 

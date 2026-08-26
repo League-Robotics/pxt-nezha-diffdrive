@@ -45,6 +45,22 @@ in this repo -- radio-robot-lib's JSON is the only place a channel
 number is read from, and a missing/unreadable/incomplete config fails
 the build loudly rather than falling back to any default.
 
+The same seam also carries the target robot's own NAME into the
+SCRATCH COPY's `src/comms/protocol.cpp` `kProfile` constant -- see
+`_inject_profile()` below. Unlike the channel, this ENDS the "no
+`--robot` is byte-equivalent to before" property: `protocol.cpp`'s
+checked-in `kProfile` is deliberately an un-baked placeholder, not any
+fleet robot's name (see that file's own comment), so every build --
+including the `DEFAULT_ROBOT` one -- now differs from the checked-in
+source once baked. That is the fix: before this existed, `kProfile`
+was a hand-written constant frozen fleet-wide at `"tovez"`, so every
+board (including vevov) reported `"tovez"` over the wire `ID` verb.
+`_inject_profile()` confirms the target robot has a real config file in
+radio-robot-lib before baking (same loud-failure posture as
+`_read_robot_radio_channel()`), but reads no field out of it -- the
+value baked is the config's own filename stem, per the reference design
+in `radio-robot-elite/src/firm/main.cpp`.
+
 The same scratch-copy substitution mechanism also carries this repo's
 own version (read from `pyproject.toml`'s `0.YYYYMMDD.n`, reformatted
 to the on-device `DD.RR` banner string) and the target robot's name
@@ -322,8 +338,8 @@ def sync_testrig():
 # The scratch copy sync() just populated (DEPLOY) is the injection seam:
 # it keeps the repo's own checked-in src/ robot-agnostic while still
 # letting the actual build carry one robot's own facts. main() calls
-# _inject_radio_channel() AFTER sync(), BEFORE build() -- see main()'s
-# own call site, below.
+# _inject_radio_channel(), _inject_profile(), and _inject_boot_banner()
+# AFTER sync(), BEFORE build() -- see main()'s own call site, below.
 
 
 def _robot_config_path(robot):
@@ -387,6 +403,78 @@ def _inject_radio_channel(deploy_dir, robot):
     with open(path, 'w') as f:
         f.write(new_text)
     return channel
+
+
+# Matches protocol.cpp's own single kProfile declaration. kDrivetrain
+# and kVersion sit right next to it in the same anonymous namespace but
+# are deliberately outside this pattern's reach -- this substitutes the
+# quoted string literal following the literal text `kProfile = `, and
+# nothing else that also happens to be a quoted `constexpr const char*`.
+_K_PROFILE_RE = re.compile(
+    r'(constexpr const char\* kProfile = ")[^"]*(";)')
+
+
+def _read_robot_profile(robot):
+    """Confirm radio-robot-lib's own per-robot config for `robot`
+    exists and is readable JSON -- the same fleet-canonical file
+    `_read_robot_radio_channel()` reads. Unlike that function, no field
+    is read out of it: per the reference design
+    (`radio-robot-elite/src/firm/main.cpp`, `Config::kRobotProfileName`
+    "baked from the robot JSON's own ... filename stem"), the profile
+    baked into a build IS the robot JSON's own filename stem -- `robot`
+    itself.
+
+    Still consulted, not skipped: this exists so a typo'd or
+    unconfigured `--robot` FAILS LOUDLY (sys.exit, naming both the
+    robot and the exact path tried) here, on a missing file or
+    unreadable JSON, exactly like `_read_robot_radio_channel()` does --
+    rather than silently baking a plausible-looking but unconfigured
+    name into `kProfile`. A silent fallback here is the exact defect
+    this function exists to close (this repo's own `kProfile` bug: a
+    hand-written `"tovez"` constant baked fleet-wide, so every board --
+    including vevov -- reported `"tovez"` over the wire `ID` verb)."""
+    path = _robot_config_path(robot)
+    if not os.path.exists(path):
+        sys.exit(f"make_deploy: no robot config for robot '{robot}' -- "
+                  f"tried {path}")
+    try:
+        with open(path) as f:
+            json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.exit(f"make_deploy: could not read robot config for robot "
+                  f"'{robot}' at {path}: {exc}")
+
+
+def _inject_profile(deploy_dir, robot):
+    """Substitute `deploy_dir`'s own copy of `src/comms/protocol.cpp`'s
+    `kProfile` constant with `robot`'s own fleet name (after confirming
+    `robot` is a real, configured fleet member via
+    `_read_robot_profile()`, above). Mutates ONLY the scratch copy at
+    `deploy_dir` -- the same scratch-copy-only substitution
+    `_inject_radio_channel()` performs for `kChannel`; see that
+    function's own docstring for why that is what keeps the repo's own
+    checked-in `protocol.cpp` robot-agnostic.
+
+    Unlike the channel injection, this ENDS sprint 022's "a build with
+    no --robot is byte-equivalent to before" property for this file:
+    `protocol.cpp`'s checked-in `kProfile` default is deliberately not
+    any fleet robot's own name (see that file's own comment), so every
+    build -- including the `DEFAULT_ROBOT` one -- now differs from the
+    checked-in source once baked. That is intentional: an
+    unparameterized build must not be able to impersonate a robot on
+    the fleet, which a byte-equivalent-to-checked-in default would
+    allow."""
+    _read_robot_profile(robot)
+    path = os.path.join(deploy_dir, 'src', 'comms', 'protocol.cpp')
+    text = open(path).read()
+    new_text, n = _K_PROFILE_RE.subn(rf'\g<1>{robot}\g<2>', text)
+    if n != 1:
+        sys.exit(f"make_deploy: expected exactly one kProfile constant in "
+                  f"{path}, found {n} -- protocol.cpp's shape has "
+                  f"changed, update _K_PROFILE_RE")
+    with open(path, 'w') as f:
+        f.write(new_text)
+    return robot
 
 
 # This repo's own version source -- pyproject.toml's [project] version,
@@ -594,9 +682,11 @@ def main():
     ap.add_argument('--flash', action='store_true')
     ap.add_argument('--robot', default=DEFAULT_ROBOT,
                      help="target robot name -- selects the flash "
-                          "target AND the radio channel compiled into "
-                          "the hex (read from radio-robot-lib's "
-                          "config/robots/<robot>.json, substituted "
+                          "target, the radio channel, and the wire ID "
+                          "profile compiled into the hex (channel read "
+                          "from radio-robot-lib's "
+                          "config/robots/<robot>.json; profile is that "
+                          "config's own filename stem; both substituted "
                           "into the scratch copy before build)")
     ap.add_argument('--testrig', action='store_true',
                      help="build/type-check test/testrig.ts alone, in "
@@ -615,6 +705,7 @@ def main():
     for f in sync():
         print(f'  {f}')
     _inject_radio_channel(DEPLOY, a.robot)
+    _inject_profile(DEPLOY, a.robot)
     _inject_boot_banner(DEPLOY, a.robot)
     build()
     if a.flash:

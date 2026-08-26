@@ -702,7 +702,10 @@ calls lives in `sim.ts`. This is the one load-time file-order
 constraint the sprint 012 split has to satisfy — `sim.ts` must be
 listed before `motion.ts` in `pxt.json`'s `files` array, or this call
 resolves to nothing the moment the namespace loads. Identity
-constants: drivetrain "diffdrive", profile "tovez", version. **Sprint
+constants: drivetrain "diffdrive", profile injected per-robot at deploy
+time by `tools/make_deploy.py` (the checked-in literal is an un-baked
+placeholder, never a real fleet robot name -- see `protocol.cpp`'s own
+`kProfile` comment), version. **Sprint
 008**: `kVersion` no longer hand-mirrors `pxt.json`'s version as a
 literal that can silently drift (it had, by ten version bumps —
 WIRE-01/MOD-01/BLK-09, R-17) — it is now single-sourced or drift-tested
