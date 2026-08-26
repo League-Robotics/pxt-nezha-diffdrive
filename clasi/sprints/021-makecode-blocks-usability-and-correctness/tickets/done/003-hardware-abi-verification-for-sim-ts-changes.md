@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: Hardware ABI verification for sim.ts changes
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
