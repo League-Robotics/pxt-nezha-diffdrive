@@ -134,7 +134,25 @@ namespace diffDrive {
         return simMoveActive
     }
 
-    // [mm] [mm] [mm/s] [mm] [ms] -- simulator stand-in for
+    // [ms] -- pre-arms the NEXT _goToR() call's deadline. Split out of
+    // what used to be a single five-parameter _goToR()/engineGoToR()
+    // shim pair (sprint 015 ticket 006): a real PXT build of that
+    // version reproduced "TS9200: Assertion failed" deterministically,
+    // surviving make_deploy.py's own retry for the benign packaging-
+    // abort shape tools/DESIGN.md documents under the same error code
+    // -- so this was the arity, not a nondeterministic abort. See
+    // shims.cpp's engineSetGoToDeadline()/engineGoToRArmed() for the
+    // native side of this same split. `timeout` was always a
+    // hardware-only deadline backstop the simulator never used (see
+    // _goToR()'s own comment below), so this is a genuine no-op here
+    // -- nothing to store, nothing for _goToR() below to read.
+    //% shim=diffDrive::engineSetGoToDeadline
+    export function _setGoToDeadline(timeoutMs: number): void {
+        // Simulator: no-op. `timeoutMs` is a hardware-only deadline
+        // backstop; nothing can strand a move in this simulator.
+    }
+
+    // [mm] [mm] [mm/s] [mm] -- simulator stand-in for
     // MotionEngine::goToR()'s arc reduction (motion_engine.cpp): bearing
     // = atan2(y, x), turn angle theta = 2*bearing wrapped to the short
     // arc (|theta| <= pi, same wrap goToR() applies, KERN-03) so a
@@ -143,9 +161,10 @@ namespace diffDrive {
     // constraint forcing goToR()'s own >=50 deg pivot-then-straight
     // split (KERN-02) -- blending the whole arc as one segment, the same
     // way _startMove() already blends distance+yaw, reaches (x, y)
-    // exactly, so no split is needed here. `timeout` is a hardware-only
-    // deadline backstop (MotionEngine::goToR()'s header comment);
-    // nothing can strand a move in this simulator, so it is unused.
+    // exactly, so no split is needed here. FOUR params, not five: the
+    // fifth (`timeout`, a hardware-only deadline backstop -- nothing
+    // can strand a move in this simulator) moved to _setGoToDeadline()
+    // immediately above, matching shims.cpp's native-side split.
     // Params typed `number`, not `int32` like this file's older
     // shim-fallback functions -- int32 locals/params on a function with
     // a TS body fail the JS->Blocks decompiler with TS9256; the native
@@ -154,9 +173,9 @@ namespace diffDrive {
     // conversion.md, which still needs to sweep this file's existing
     // int32 functions -- out of scope here, but no reason to add one
     // more).
-    //% shim=diffDrive::engineGoToR
+    //% shim=diffDrive::engineGoToRArmed
     export function _goToR(x: number, y: number, speed: number,
-        arrive: number, timeout: number): void {
+        arrive: number): void {
         simIntegrate()
         if (simEstopped) return
         const chord = Math.sqrt(x * x + y * y)

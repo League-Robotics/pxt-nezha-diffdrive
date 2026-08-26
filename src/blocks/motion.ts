@@ -183,13 +183,17 @@ namespace diffDrive {
     //% block="start go to x %x cm y %y cm"
     //% group="Move" advanced=true weight=140
     export function startGoTo(x: number, y: number): void {
-        // Calls goToR() directly (the //%-exposed engineGoToR shim)
-        // instead of reducing to (distance, yaw) and going through
-        // startMove()/moveX(): moveX()'s own >=50 deg split reissues an
-        // arc-length/arc-angle pair as pivot-then-straight, which lands
-        // at a DIFFERENT point than the arc that pair was computed for.
-        // goToR() owns its own bearing-then-chord split and short-arc
-        // wrap instead (motion_engine.cpp), reaching (x, y) exactly.
+        // Calls goToR() directly (the //%-exposed engineGoToRArmed/
+        // engineSetGoToDeadline shim pair -- split in two, sprint 015
+        // ticket 006, because a single five-parameter shim crashes the
+        // PXT packager with TS9200; see sim.ts's _setGoToDeadline()/
+        // _goToR() comments) instead of reducing to (distance, yaw) and
+        // going through startMove()/moveX(): moveX()'s own >=50 deg
+        // split reissues an arc-length/arc-angle pair as
+        // pivot-then-straight, which lands at a DIFFERENT point than
+        // the arc that pair was computed for. goToR() owns its own
+        // bearing-then-chord split and short-arc wrap instead
+        // (motion_engine.cpp), reaching (x, y) exactly.
         if (x == 0 && y == 0) return
         const xMm = Math.round(x * 10)
         const yMm = Math.round(y * 10)
@@ -208,7 +212,11 @@ namespace diffDrive {
         const pivotS = 180 / defaultYawRate
         const straightS = chordCm / defaultSpeed
         const timeoutMs = Math.round((pivotS + straightS) * 1000) + 1500
-        _goToR(xMm, yMm, speedMmS, arriveMm, timeoutMs)
+        // Must precede _goToR() immediately -- see
+        // Rig::pendingGoToDeadlineMs_'s comment (shims.cpp) for the
+        // one-shot handoff contract this pair relies on.
+        _setGoToDeadline(timeoutMs)
+        _goToR(xMm, yMm, speedMmS, arriveMm)
     }
 
     /**

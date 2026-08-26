@@ -143,6 +143,24 @@ struct Rig {
   // `defaultSpeed` (15 cm/s, main.ts) -- NOT derived from any kernel
   // constant, and NOT the duty ceiling.
   float defaultCruiseMmS_ = 150.0f;  // [mm/s]
+
+  // Sprint 015 ticket 006 (build checkpoint): one-shot handoff from
+  // engineSetGoToDeadline() to engineGoToRArmed() (both below), the
+  // block layer's own go-to entry point split across two `//%` shims.
+  // A real PXT build of the ORIGINAL single five-parameter
+  // engineGoToR() shim reproduced "TS9200: Assertion failed"
+  // deterministically -- twice, non-benign, surviving make_deploy.py's
+  // one retry for the shape tools/DESIGN.md documents under the same
+  // error code -- confirming the risk setTaperWindows()'s own comment
+  // already recorded from an earlier incident. NOT a sticky
+  // MotionEngine config field like setRampMs()/setTaperWindows()/
+  // setTaperFloors() above (those intentionally persist across many
+  // moves); this is read-once, for the VERY NEXT engineGoToRArmed()
+  // call only, and both halves have exactly one caller between them
+  // (sim.ts's _setGoToDeadline()/_goToR() pair, called back-to-back by
+  // motion.ts's startGoTo()) so there is nowhere for a stale value to
+  // leak in from.
+  uint32_t pendingGoToDeadlineMs_ = 0;  // [ms]
 };
 
 static Rig* rig = nullptr;
@@ -1015,23 +1033,52 @@ void engineMoveV(float vx, float omegaRad, uint32_t durationMs) {
   r.engine.moveV(vx, omegaRad, durationMs);
 }
 
-// `//%`-annotated -- the block layer's own entry point onto the SAME
-// goToR() the wire's GO_TO_R verb already reaches via this identical
-// forward. Wire-shaped units (mm, mm/s, ms); cm-to-mm conversion stays
-// the TS caller's job, exactly as startMove() already does for
-// _startMove(). Five parameters -- one more than any other `//%` shim in
-// this file (setTaperWindows()/setTaperFloors()'s own comment records a
-// single five-argument shim once crashing the PXT compiler with
-// "TS9200: Assertion failed"); tools/DESIGN.md's build triage separately
-// documents TS9200 as a nondeterministic pxt-core packaging abort that
-// retries clean, which is NOT the same claim as "arity caused it" -- no
-// PXT toolchain runs in the host test suite that adds this annotation,
-// so a real PXT build should confirm before this ships.
-//%
-void engineGoToR(float x, float y, float speed, float arrive,
-                 uint32_t timeoutMs) {
+// Deliberately NOT `//%`-annotated any more (sprint 015 ticket 006) --
+// this is now the WIRE layer's own private forward only, called
+// exclusively from wire_adapter.cpp's onGoToR() via that file's
+// same-package forward declaration (kept 5-parameter, matching this
+// definition exactly, per this file's own header comment). The block
+// layer reaches the identical `r.engine.goToR()` call through
+// engineGoToRArmed()/engineSetGoToDeadline() below instead -- see
+// those functions' comments for why the split exists. Wire-shaped
+// units (mm, mm/s, ms); cm-to-mm conversion stays the TS caller's job,
+// exactly as startMove() already does for _startMove().
+void engineGoToR(float x, float y, float speed, float arrive, uint32_t timeoutMs) {
   Rig& r = ensure();
   r.engine.goToR(x, y, speed, arrive, timeoutMs);
+}
+
+// `//%`-annotated -- pre-arms the NEXT engineGoToRArmed() call's
+// deadline. Split out of what used to be a single five-parameter
+// engineGoToR() shim (sprint 015 ticket 006): a real PXT build of that
+// version reproduced "TS9200: Assertion failed" deterministically --
+// twice, including after make_deploy.py's one automatic retry for the
+// benign packaging-abort shape tools/DESIGN.md documents under the
+// same error code, so this was the ARITY, not a nondeterministic
+// abort. setTaperWindows()'s own comment already recorded an earlier
+// incident with the identical symptom; this build is what confirmed
+// it. Every `//%` shim in this file now stays at <=4 params. See
+// Rig::pendingGoToDeadlineMs_ (above, in the struct) for the handoff
+// contract -- one caller only (sim.ts's _setGoToDeadline(), called by
+// motion.ts's startGoTo() immediately before _goToR()), so there is no
+// path for a stale deadline to reach an unrelated move.
+//%
+void engineSetGoToDeadline(uint32_t timeoutMs) {
+  ensure().pendingGoToDeadlineMs_ = timeoutMs;
+}
+
+// `//%`-annotated -- the block layer's own entry point onto the SAME
+// goToR() the wire's GO_TO_R verb reaches via engineGoToR() above,
+// just split to FOUR parameters (engineSetGoToDeadline() immediately
+// above supplies the fifth, `timeoutMs`, via
+// Rig::pendingGoToDeadlineMs_) -- see that function's comment for why.
+// Deliberately delegates to engineGoToR() above rather than calling
+// r.engine.goToR() directly a second time, so the actual move-engine
+// call site stays in exactly one place.
+//%
+void engineGoToRArmed(float x, float y, float speed, float arrive) {
+  Rig& r = ensure();
+  engineGoToR(x, y, speed, arrive, r.pendingGoToDeadlineMs_);
 }
 
 // GO_TO_W's own PoseSource selection: the ONE place this project
