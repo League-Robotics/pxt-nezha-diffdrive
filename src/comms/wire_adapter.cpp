@@ -623,6 +623,16 @@ void WireAdapter::resolvePendingIfDue() const {
   lastDoneId_ = pendingId_;
   lastDoneReason_ = reason;
   pendingActive_ = false;
+  // sprint 016 ticket 003 (closing wire-motion-obligation-never-clears.md):
+  // this commit already knows the motion is over -- the NATURAL-completion
+  // clearing point that was missing before (only onEstop()/onStop() ever
+  // cleared this flag). `reason` was computed by resolvePendingReason()
+  // just above, which itself reads the pre-clear value of
+  // motionObligationActive_ (via hasLiveMotionObligation()) for the
+  // lease-style branch -- so clearing it AFTER that read, not before, is
+  // required for correctness here too, same ordering rule onStop()'s own
+  // comment documents for forceResolvePending() below.
+  motionObligationActive_ = false;
 }
 
 void WireAdapter::forceResolvePending(Wire::DoneReason forcedReason) {
@@ -637,6 +647,19 @@ void WireAdapter::forceResolvePending(Wire::DoneReason forcedReason) {
   lastDoneId_ = pendingId_;
   lastDoneReason_ = reason;
   pendingActive_ = false;
+  // sprint 016 ticket 003: same clearing this method's own doc comment
+  // (wire_adapter.h) describes -- covers the "a later verb supersedes a
+  // still-live earlier one" (kAborted) path, which runs BEFORE the *new*
+  // verb re-arms motionObligationActive_ = true a few lines later in the
+  // same onXxx() handler (wire_adapter.cpp's six onWheelsV()/onWheelsX()/
+  // onMoveX()/onMoveV()/onGoToR()/onGoToW() bodies), so ordering stays
+  // correct. onStop() also reaches this method (with kStop) and then sets
+  // its own explicit motionObligationActive_ = false right after --
+  // redundant with this line for that one caller, but harmless
+  // (idempotent); onStop()'s own comment explains why that ordering
+  // (forceResolvePending() BEFORE its explicit clear) still matters
+  // independent of this method's own internal clear.
+  motionObligationActive_ = false;
 }
 
 void WireAdapter::armPendingMotion(uint32_t id, bool goalDirected) {

@@ -356,7 +356,15 @@ handler reads here is now guaranteed already in-range (nonzero, ≤
 2^31−1) by `wire_handler.cpp`'s shared decode-time clamp (§4) — no
 handler here changed its own logic; the values arriving at
 `motionObligationDeadlineMs_ = nowMs_() + timeout` simply can no longer
-be `0` or large enough to matter for wraparound.
+be `0` or large enough to matter for wraparound. **Sprint 016 ticket
+003**: this flag used to clear in exactly two places, `onEstop()` and
+`onStop()` — a goal-directed move (MOVE_X/GO_TO_R/GO_TO_W) that reached
+its own goal long before its declared `timeout` left it armed anyway,
+so protocol.cpp's fiber kept ticking the kernel for the rest of that
+window regardless. `resolvePendingIfDue()` and `forceResolvePending()`
+(the motion-completion machinery immediately below) now clear it too,
+the moment either one commits a resolution — the natural-completion
+path that was the actual gap.
 
 **Telemetry projection (sprint 004 ticket 004).** `buildSnapshot()`
 returns a `const Wire::Snapshot&` into a member (mirroring

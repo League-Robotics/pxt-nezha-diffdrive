@@ -106,6 +106,43 @@ def test_wheels_v_lease_elapses_with_nothing_superseding_reports_timeout(wa):
     assert wa.last_done_reason() == DONE_TIMEOUT
 
 
+def test_wheels_v_natural_timeout_then_poll_clears_the_obligation_flag(wa):
+    """sprint 016 ticket 003 (closing wire-motion-obligation-never-clears.md):
+    resolvePendingIfDue() must clear the underlying motionObligationActive_
+    flag itself when it commits a resolution, not just rely on
+    hasLiveMotionObligation()'s own time gate to mask a flag left armed
+    forever.
+
+    For a LEASE-STYLE verb like WHEELS_V, natural completion coincides
+    exactly with the lease deadline elapsing, so hasLiveMotionObligation()
+    already reads false the instant `now` passes that deadline -- with or
+    without this ticket's fix, since its time check dominates whenever
+    `now` is at or past the deadline. The pre-fix bug is that the
+    INTERNAL flag itself stays armed forever after that (only an explicit
+    STOP/ESTOP ever cleared it) -- latent, but real: hasLiveMotionObligation()
+    does `motionObligationActive_ && (now - deadline) < 0`
+    (wire_adapter.cpp's own wraparound-safe signed-difference idiom), so
+    setting the clock back to a value that is again "before" the stale
+    deadline -- the same numeric effect a real millis() wraparound
+    eventually produces on an uptime long enough to matter -- makes it
+    read true again pre-fix. Post-fix, resolvePendingIfDue()'s own commit
+    (triggered by last_done_reason() below) already cleared the flag, so
+    it reads false regardless of what the clock does afterward.
+    """
+    _ready(wa)
+    wa.set_now_ms(1000)
+
+    wa.feed(b"WHEELS_V 100 100 1000 #1\n")  # deadline 2000
+    assert wa.take_sink() == _ack(1)
+
+    wa.set_now_ms(2001)  # past the deadline -- naturally timed out
+    assert wa.last_done_reason() == DONE_TIMEOUT  # polls resolvePendingIfDue()
+
+    # Jump the clock back inside the ORIGINAL lease window (1000..2000).
+    wa.set_now_ms(1500)
+    assert not wa.has_live_motion_obligation()
+
+
 def test_move_x_deadline_elapses_before_reaching_goal_reports_timeout(wa):
     """GOAL-DIRECTED verb, the OTHER half of kTimeout: MOVE_X's own
     deadline elapses while MotionEngine's move-engine state is STILL
@@ -175,6 +212,52 @@ def test_move_x_reaching_its_own_goal_early_reports_stop(wa):
     assert wa.has_live_motion_obligation()
     assert wa.last_done() == 1
     assert wa.last_done_reason() == DONE_STOP
+
+
+def test_move_x_reaching_its_own_goal_early_then_poll_clears_the_obligation_flag(wa):
+    """sprint 016 ticket 003 (closing wire-motion-obligation-never-clears.md):
+    the GOAL-DIRECTED counterpart of
+    test_wheels_v_natural_timeout_then_poll_clears_the_obligation_flag
+    above, and the scenario this ticket actually exists for -- unlike a
+    lease-style verb, a goal-directed move can reach its own goal LONG
+    before its declared `timeout`. Pre-fix, motionObligationActive_ stayed
+    armed until that full declared timeout elapsed (or an explicit
+    STOP/ESTOP) even though the move had already finished -- so
+    protocol.cpp's fiber loop (`hasLiveMotionObligation()` is its own tick
+    gate, protocol.cpp:355) kept ticking the kernel at 24 ms for the rest
+    of that window for no reason. Post-fix, polling last_done_reason()
+    (which observes the early kStop via engineMoveActive() going false)
+    also clears the obligation immediately, well before the 5000ms
+    deadline -- no clock trickery needed here, unlike the lease-style
+    test above, because this early-completion gap is directly observable
+    with `now` never advancing past the real deadline at all."""
+    _ready(wa)
+    wa.set_now_ms(1000)
+    cpm = wa.counts_per_mm()
+
+    distance_mm = 200.0
+    dist_target_counts = distance_mm * cpm
+    wa.feed(b"MOVE_X 200 0 150 5000 #1\n")  # generous 5000ms timeout
+    assert wa.take_sink() == _ack(1)
+    assert wa.engine_move_active()
+
+    wa.arm_motor_position(LEFT, dist_target_counts, sample_time_us=1)
+    wa.arm_motor_position(RIGHT, dist_target_counts, sample_time_us=1)
+    wa.step()
+    still_active = wa.service_move()
+    assert not still_active
+    assert not wa.engine_move_active()
+
+    # Nowhere near the 5000ms deadline (now is still ~1000-1050ms).
+    assert wa.has_live_motion_obligation()
+    assert wa.last_done_reason() == DONE_STOP  # polls resolvePendingIfDue()
+
+    # The declared timeout has NOT elapsed -- pre-fix, the internal flag
+    # stayed armed regardless, so hasLiveMotionObligation()'s time gate
+    # alone would still read true here. Post-fix, resolvePendingIfDue()'s
+    # own commit (triggered by last_done_reason() just above) already
+    # cleared it.
+    assert not wa.has_live_motion_obligation()
 
 
 def test_explicit_stop_ends_a_pending_lease_style_motion_as_stop(wa):
