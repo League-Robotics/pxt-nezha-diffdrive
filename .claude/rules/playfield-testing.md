@@ -61,6 +61,12 @@ On the bench stand the wheels are off the ground. That means:
   rotated rectangle in pure odometry that the same firmware does not
   produce on the floor.
 
+Opening or reopening the USB serial port RESETS the target program
+(measured on tovez 2026-08-26: pose re-zeroed between two scripted
+serial sessions). Plan bench scripts as one serial session per
+experiment, and never assume state (pose, taper/floor config, stall
+latch) survives a port close.
+
 USB reaches only the bench stand; anything needing real motion runs
 untethered over the zavaz relay (channel 4 — never retune getez's
 channel 3).

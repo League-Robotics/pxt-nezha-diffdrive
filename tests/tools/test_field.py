@@ -206,3 +206,98 @@ def test_closure_heading_error_is_none_without_start_heading():
     dist, herr = field.closure(rows)
     assert dist == pytest.approx(5.0)
     assert herr is None
+
+
+# --- LIMITS/MARGIN: pinned against the rule file's own numbers -----------
+
+def test_limits_and_margin_match_the_playfield_rule_file():
+    """Drift guard: `.claude/rules/playfield-testing.md` is the source
+    of truth for these two numbers (134.3 x 89.3 cm field, A1-centred,
+    ±67.15/±44.65 cm limits, 12 cm margin). If the rule file's numbers
+    ever change without this module being updated to match (or vice
+    versa), this test must fail -- it reads the rule file itself
+    rather than duplicating its literals blind.
+    """
+    rule_path = (_REPO_ROOT / '.claude' / 'rules' / 'playfield-testing.md')
+    text = rule_path.read_text()
+    assert '67.15' in text, 'rule file no longer states the x limit'
+    assert '44.65' in text, 'rule file no longer states the y limit'
+    assert '12 cm margin' in text, 'rule file no longer states the margin'
+    assert field.LIMITS == (67.15, 44.65)
+    assert field.MARGIN == 12.0
+
+
+# --- clears_margin(): recorder-side, after-the-fact check -----------------
+
+def test_clears_margin_empty_rows_trivially_clears():
+    assert field.clears_margin([]) is True
+
+
+def test_clears_margin_the_tour_rectangle_clears_comfortably():
+    """The 100x60 cm tour rectangle (+/-50/+/-30) is well inside
+    LIMITS - MARGIN (+/-55.15/+/-32.65) -- 17 x 15 cm of raw spare to
+    the field edge, comfortably past the 12cm margin requirement. A
+    good sanity-check pass case."""
+    rows = [_row(i * 0.1, x, y) for i, (x, y) in enumerate(field.RECT)]
+    assert field.clears_margin(rows) is True
+
+
+def test_clears_margin_a_row_outside_the_margin_fails():
+    rows = [_row(0.0, 0.0, 0.0), _row(0.1, 60.0, 0.0)]   # 60 > 55.15
+    assert field.clears_margin(rows) is False
+
+
+def test_clears_margin_checks_y_independently_of_x():
+    rows = [_row(0.0, 0.0, 40.0)]   # x fine, but 40 > 32.65
+    assert field.clears_margin(rows) is False
+
+
+# --- check_path(): planner-side pre-flight check, full projected path ----
+
+def test_check_path_empty_waypoints_returns_no_offenders():
+    assert field.check_path([]) == []
+
+
+def test_check_path_the_tour_rectangle_clears_the_margin():
+    """Same rectangle as the clears_margin() sanity check above, but
+    exercised as a planner's projected path (waypoints + segments)
+    rather than recorded rows."""
+    assert field.check_path(field.RECT) == []
+
+
+def test_check_path_a_single_waypoint_outside_the_margin_is_caught():
+    offenders = field.check_path([(0.0, 0.0), (60.0, 0.0)])
+    assert offenders, 'a waypoint past LIMITS - MARGIN must be flagged'
+    assert any(x == pytest.approx(60.0) and y == pytest.approx(0.0)
+               for x, y in offenders), (
+        'the far (unsafe) endpoint itself must be among the offenders')
+
+
+def test_check_path_a_multi_leg_route_safe_at_both_ends_but_not_through_an_intermediate_waypoint():
+    """The route's overall start and end both clear the margin, but an
+    intermediate waypoint (and therefore the segments touching it)
+    does not -- this must still be caught. `closure()` elsewhere in
+    this module deliberately looks only at the first and last row; a
+    `check_path()` that made the same simplification would silently
+    wave a route with an unsafe middle leg through pre-flight."""
+    waypoints = [(0.0, 0.0), (60.0, 0.0), (0.0, 10.0)]
+    offenders = field.check_path(waypoints)
+    assert offenders, 'the unsafe intermediate waypoint must be caught'
+    assert any(x == pytest.approx(60.0) and y == pytest.approx(0.0)
+               for x, y in offenders)
+
+
+def test_check_path_flags_the_whole_unsafe_stretch_of_a_segment_not_just_its_endpoint():
+    """The straight-line SEGMENT is what's checked, not merely the two
+    listed waypoints: once a leg crosses out of the margin it stays
+    out for a whole stretch approaching the far (unsafe) endpoint, and
+    check_path() must report that stretch (multiple interpolated
+    points), not only the single flagged waypoint -- proving the
+    segment is actually walked, not just its endpoints looked up."""
+    offenders = field.check_path([(50.0, 0.0), (60.0, 0.0)])
+    assert len(offenders) > 1, (
+        'a segment that dips outside the margin should surface more '
+        'than just its bad endpoint -- otherwise nothing distinguishes '
+        'segment-walking from an endpoints-only check')
+
+

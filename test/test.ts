@@ -71,6 +71,93 @@ function tickedGoTo(x: number, y: number) {
     tickToCompletion()
 }
 
+// ---- RUN:arc trajectory sampling --------------------------------------
+// A request/reply round trip DURING a move is dangerous (src/shims.cpp's
+// probe() doc comment: a 197.5 mm leg collapsed to 0.3 mm), and
+// subscribing v6 POSE telemetry then sending a cleartext RUN: line hangs
+// the link outright (clasi/issues/cleartext-run-hangs-the-link-under-
+// active-telemetry.md) -- so RUN:arc's heading trajectory cannot be read
+// live off the wire at all. Instead this samples diffDrive.heading()
+// itself, once per tick, on THIS fiber while the move runs -- the same
+// "a test program samples into arrays and dumps afterwards instead"
+// pattern probe()'s own comment already prescribes for exactly this
+// class of problem -- and dumps the trajectory as ARCT: lines after the
+// move completes. No telemetry subscription is ever needed, so the link
+// hang above cannot trigger.
+//
+// A 180 deg arc runs about 2.8 s at ~24 ms/tick (roughly 120 ticks);
+// this cap leaves comfortable headroom above that and stops growing the
+// array unbounded if a tick stall ever makes a move run long.
+const ARC_SAMPLE_CAP = 200
+let hSamples: number[] = []
+let hSamplesCapped = false
+
+// Deliberately its own tick loop rather than a flag on the shared
+// tickToCompletion() above: every other caller of that function (both
+// tours, RUN:pivot, RUN:face, legToward()) stays completely untouched by
+// this ticket's change.
+function tickArcSampled(d: number, y: number) {
+    hSamples = []
+    hSamplesCapped = false
+    diffDrive.startMove(d, y)
+    let last = control.millis()
+    while (diffDrive.driveTick()) {
+        const now = control.millis()
+        if (now - last > maxGapMs) maxGapMs = now - last
+        last = now
+        if (hSamples.length < ARC_SAMPLE_CAP) {
+            hSamples.push(Math.round(diffDrive.heading() * 100))
+        } else {
+            hSamplesCapped = true
+        }
+        // See tickToCompletion()'s identical check: stop for real and
+        // return early rather than sampling this move to its own
+        // completion.
+        if (aborted) {
+            diffDrive.stopMove()
+            return
+        }
+    }
+    // One more sample after the loop exits. driveTick() already applied
+    // the FINAL tick's state before returning false, so that settled
+    // end-of-move heading is never seen by the `while` loop above (the
+    // same reason straightRun() and RUN:pivot only read heading() after
+    // their own tick loop has returned, not on the loop's last
+    // iteration).
+    if (hSamples.length < ARC_SAMPLE_CAP) {
+        hSamples.push(Math.round(diffDrive.heading() * 100))
+    } else {
+        hSamplesCapped = true
+    }
+}
+
+// Dump hSamples as ARCT: lines, chunked well under the wire's 240-byte
+// line cap (serial_transport.h/radio_transport.h's kMaxLineBytes and
+// protocol.cpp's Protocol::emitLine all share that one 240-byte clip).
+// 20 centidegree ints per line is a wide margin even at 6 digits + sign
+// + comma each.
+const ARCT_CHUNK = 20
+
+function emitTrajectory() {
+    // meta line first: total sample count and whether ARC_SAMPLE_CAP was
+    // hit (in which case the trajectory below is truncated, not the
+    // whole move) -- read this before trusting the chunk lines' count.
+    diffDrive.emitLine("ARCT:meta:" + hSamples.length
+        + ":" + (hSamplesCapped ? 1 : 0))
+    let chunk = 0
+    for (let i = 0; i < hSamples.length; i += ARCT_CHUNK) {
+        let csv = ""
+        const end = Math.min(i + ARCT_CHUNK, hSamples.length)
+        for (let j = i; j < end; j++) {
+            if (j > i) csv += ","
+            csv += hSamples[j]
+        }
+        diffDrive.emitLine("ARCT:" + chunk + ":" + csv)
+        chunk += 1
+    }
+    diffDrive.emitLine("ARCT:done")
+}
+
 // ---- the playfield's four orange dots -------------------------------
 // A1-centred, +x east, +y north:
 //   NW (-50, 30)   NE ( 50, 30)
@@ -158,6 +245,18 @@ function openLoopProfile() {
     diffDrive.setDefaultYawRate(90)
 }
 
+// Closed-loop profile: RUN:goto's fast shaping, for moves that get
+// re-measured and re-planned every leg (a sensor fix corrects whatever
+// this profile's speed costs in accuracy), unlike the open-loop tours
+// where every error is permanent.
+function closedLoopProfile() {
+    diffDrive.setTaperWindows(120, 80)
+    diffDrive.setTaperFloors(45, 35)
+    diffDrive.setRampMs(180)
+    diffDrive.setDefaultSpeed(40)
+    diffDrive.setDefaultYawRate(120)
+}
+
 // ---- tour A: robot-relative -----------------------------------------
 // "Robot-relative" means the tour never needs a WORLD position -- the
 // rectangle is expressed in a frame anchored where the robot started,
@@ -207,7 +306,7 @@ function tourRobot() {
     // frame's origin, and the IMU heading is zeroed to it.
     diffDrive.resetPose()
     diffDrive.seedPose(0, 0, 0)
-    diffDrive.emitLine("DBG:tour=robot")
+    diffDrive.emitLine("DBG:tour=robot:profile=open")
     logFix("c0")
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
@@ -239,7 +338,7 @@ function tourWheels() {
     maxGapMs = 0
     diffDrive.resetPose()
     diffDrive.seedPose(START_X, START_Y, START_H)
-    diffDrive.emitLine("DBG:tour=wheels")
+    diffDrive.emitLine("DBG:tour=wheels:profile=open")
     logFix("c0")
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
@@ -277,7 +376,7 @@ function straightRun(cm: number) {
     openLoopProfile()
     maxGapMs = 0
     diffDrive.resetPose()
-    diffDrive.emitLine("DBG:straight=" + cm)
+    diffDrive.emitLine("DBG:straight=" + cm + ":profile=open")
     tickedMove(cm, 0)
     diffDrive.emitLine("GAP:" + maxGapMs)
     // cm x100, so a 1 mm drift is still visible as an integer.
@@ -310,16 +409,12 @@ function tourWorld() {
     // Accuracy-tuned shaping restored: the earlier "taper too slow"
     // reading was actually the yaw-taper double-count bug
     // (MotionEngine::serviceMove) masking as a profile problem.
-    diffDrive.setTaperWindows(400, 180)
-    diffDrive.setTaperFloors(25, 12)
-    diffDrive.setRampMs(400)
-    diffDrive.setDefaultSpeed(20)
-    diffDrive.setDefaultYawRate(90)
+    openLoopProfile()
     maxGapMs = 0
     // NO seed here: the host has already seeded the true world pose
     // from the overhead camera (RUN:seedxy), so the robot can start
     // anywhere on the field and simply drive to the first dot.
-    diffDrive.emitLine("DBG:tour=world")
+    diffDrive.emitLine("DBG:tour=world:profile=open")
     logFix("c0")
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
@@ -478,11 +573,8 @@ diffDrive.onRun("goto", function (arg: number) {
     if (touring) return
     if (!worldReady()) return
     touring = true
-    diffDrive.setTaperWindows(120, 80)
-    diffDrive.setTaperFloors(45, 35)
-    diffDrive.setRampMs(180)
-    diffDrive.setDefaultSpeed(40)
-    diffDrive.setDefaultYawRate(120)
+    closedLoopProfile()
+    diffDrive.emitLine("DBG:goto:profile=closed")
     diffDrive.goToWorld(diffDrive.runArg(0), diffDrive.runArg(1))
     logFix("arrived")
     diffDrive.emitLine("GOTO:end")
@@ -495,7 +587,16 @@ diffDrive.onRun("face", function (arg: number) {
     if (touring) return
     if (!worldReady()) return
     touring = true
+    openLoopProfile()
+    // One-off override: anchor the yaw rate explicitly rather than
+    // inherit whatever profile the previous handler left behind (the
+    // bug this ticket fixes -- RUN:face used to set ONLY this value).
+    // Numerically a no-op today since openLoopProfile()'s own default
+    // yaw rate is already 90, but the accuracy profile -- not
+    // closedLoopProfile() -- is the right anchor: this handler's job
+    // is to close a heading loop precisely.
     diffDrive.setDefaultYawRate(90)
+    diffDrive.emitLine("DBG:face:profile=open")
     // Close the loop HERE, on the robot, against its own IMU heading.
     // Bouncing "measure, turn, measure" over the wireless link made the
     // host hunt: every round trip added latency and a fresh chance for
@@ -522,14 +623,49 @@ diffDrive.onRun("face", function (arg: number) {
 diffDrive.onRun("pivot", function (arg: number) {
     if (touring) return
     touring = true
-    diffDrive.setTaperWindows(400, 180)
-    diffDrive.setTaperFloors(25, 12)
-    diffDrive.setRampMs(400)
+    openLoopProfile()
+    // One-off override: pivotYawRate (set by RUN:turnrate) replaces
+    // openLoopProfile()'s own 90 deg/s. This also makes defaultSpeed
+    // deterministically 20 (from openLoopProfile()) instead of
+    // stale-inherited from whatever handler ran previously -- harmless
+    // for a pure in-place pivot, since pivots do not use defaultSpeed,
+    // but now deterministic rather than implicit.
     diffDrive.setDefaultYawRate(pivotYawRate)
+    diffDrive.emitLine("DBG:pivot:profile=open")
     maxGapMs = 0
     tickedMove(0, diffDrive.runArg(0))
     diffDrive.emitLine("GAP:" + maxGapMs)
     diffDrive.emitLine("PIVOT:end")
+    touring = false
+})
+
+// Split move: RUN:arc:<deg>. ONE combined tickedMove(20, deg) call --
+// 20 cm translation plus a rotation -- matching the shape
+// (`move(20, 180)`) that measured the sprint 015 ticket 005
+// phase-handoff defect (twistRef_ unwinding its own pivot at the
+// phase 1 -> phase 2 handoff) and its fix. moveX()'s own reduction
+// (src/blocks/motion.ts's startGoTo() doc comment) only splits into
+// pivot-then-straight for |deg| >= 50 -- below that this is a single
+// blended move and never exercises the split-move path at all, so a
+// meaningful confirmation run needs |deg| >= 50 (as firmware trusts
+// the caller here, same as RUN:pivot, this is not enforced below).
+// Deliberately no worldReady()/readWorld() -- same reasoning as
+// RUN:pivot: this measures encoder/gyro heading only, no OTOS.
+//
+// Uses tickArcSampled() (above), not tickedMove(): it captures the
+// heading trajectory itself, sampled on this fiber during the move, and
+// ARCT: lines after ARC:end dump it -- see that function's own comment
+// for why (a telemetry-subscribed capture of this deadlocks the link).
+diffDrive.onRun("arc", function (arg: number) {
+    if (touring) return
+    touring = true
+    openLoopProfile()
+    diffDrive.emitLine("DBG:arc:profile=open")
+    maxGapMs = 0
+    tickArcSampled(20, diffDrive.runArg(0))
+    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("ARC:end")
+    emitTrajectory()
     touring = false
 })
 

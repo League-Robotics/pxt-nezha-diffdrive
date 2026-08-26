@@ -18,9 +18,58 @@ import serial
 
 # zavaz is vevov's relay (channel 4). getez lives on channel 3 and
 # belongs to another robot -- never retune it here.
-ZAVAZ_PORT = '/dev/cu.usbmodem2121302'
 ZAVAZ_CHANNEL = 4
 ZAVAZ_GROUP = 10
+
+# DAPLink ports are hub-position-based: they change on every replug, so
+# a hard-coded /dev/cu.usbmodem path goes stale silently and the tool
+# dies with ENOENT halfway into a session. `mbdeploy probe` is the only
+# authority on where a board actually is -- config/devices.json carries
+# stale and duplicate entries and must not be used to infer a port.
+# The constant below is only a last-resort fallback for the error text.
+ZAVAZ_PORT_FALLBACK = '/dev/cu.usbmodem2121302'
+MBDEPLOY = '/Users/eric/.local/bin/mbdeploy'
+
+
+def _probe_once(name):
+    import subprocess
+    try:
+        out = subprocess.run([MBDEPLOY, 'probe'], capture_output=True,
+                             text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for line in out.splitlines():
+        cols = line.split()
+        if name not in cols:
+            continue
+        for c in cols:
+            if c.startswith('/dev/'):
+                return c
+    return None
+
+
+def probe_port(name, tries=8):
+    """The live port for a board NAME, via `mbdeploy probe`, or None.
+
+    `mbdeploy probe` re-enumerates USB, and a board that is genuinely
+    present intermittently comes back CONN=no with no port -- MEASURED
+    on 2026-08-26 at roughly 1 call in 5 for zavaz, which is enough to
+    kill a tour on startup about as often. It is markedly WORSE while
+    the overhead camera's `camlink.py` subprocess is running -- that is
+    a USB device too, and every tour starts the camera before opening
+    the radio link, so the flaky case is the normal case here. A single
+    miss means nothing; only a run of them does.
+
+    Returns None rather than raising when the board really is absent or
+    mbdeploy is unavailable -- the caller reports it with its own
+    context.
+    """
+    for _ in range(tries):
+        got = _probe_once(name)
+        if got is not None:
+            return got
+        time.sleep(0.8)
+    return None
 
 
 # v6 wire verbs (protocol.md S6.1). These are SEQUENCED: the handler
@@ -163,7 +212,12 @@ def open_link(port=None, radio=False):
     closes, so the handshake is redone on every open -- never cached.
     """
     if radio:
-        path = port or ZAVAZ_PORT
+        path = port or probe_port('zavaz')
+        if path is None:
+            raise SystemExit(
+                'zavaz relay not found by `mbdeploy probe` -- is it plugged '
+                'in? (never hard-code a port; it moves on replug. last known: '
+                + ZAVAZ_PORT_FALLBACK + ')')
         p = serial.Serial(path, 115200, timeout=0.3)
         time.sleep(1.8)          # DTR reset -> clean control plane
         p.reset_input_buffer()

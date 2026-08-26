@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint: 018
+status: in-progress
+sprint: '020'
+tickets:
+- 018-004
 ---
 
 # `goToWorld` overshoots its target by a fixed ~48 mm regardless of leg length
