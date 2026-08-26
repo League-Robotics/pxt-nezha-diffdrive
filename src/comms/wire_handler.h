@@ -463,6 +463,20 @@ class WireHandler {
   // blank/all-whitespace line.
   uint32_t malformedCount() const { return malformedCount_; }
 
+  // Builds "help" plus a space-separated `name` for every entry in
+  // `names` (`nameCount` entries) into `buf` (capacity `bufCap`),
+  // followed by '\n'. The terminator is written LAST but into a byte
+  // the content-filling loop is structurally forbidden to reach (its
+  // bound stops one byte short of the NUL as well as the '\n'), so it
+  // is always the LISTED NAMES that truncate if they would ever
+  // overflow `bufCap` -- never the terminator. Returns the number of
+  // bytes written, excluding the closing NUL. Public and static purely
+  // so a host test can drive it directly with a synthetic, arbitrarily
+  // long name list -- independent of kCommandTable, which today is far
+  // too small to ever exercise the truncation path this proves safe.
+  static size_t buildHelpLine(char* buf, size_t bufCap,
+                               const char* const* names, size_t nameCount);
+
  private:
   void appendByte(char c);
   void onLineComplete();

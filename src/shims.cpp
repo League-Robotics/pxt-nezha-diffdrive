@@ -45,6 +45,15 @@ using namespace pxt;
 
 namespace diffDrive {
 
+// Boundary convention's cdeg<->rad conversion (see this file's own
+// header comment above: "mm, mm/s, centidegrees, centidegrees/s"). The
+// wire/TS-facing shim surface is centidegree-scaled; the kernel/motion-
+// engine math beneath it is radian-scaled. Named once here so every
+// crossing site defers to the same constant instead of open-coding the
+// formula independently.
+constexpr float kCdegToRad = 0.01f * 3.14159265f / 180.0f;
+constexpr float kRadToCdeg = 1.0f / kCdegToRad;
+
 // Forward declaration: the starvation watchdog fiber entry point is
 // defined in its own clearly delineated section further down (see
 // "starvation watchdog"); ensure() launches it via the same
@@ -131,17 +140,28 @@ struct Rig {
                                   // cycleOverrunCount_, which only its
                                   // unused run() ever increments.
 
-  // Sprint 007 ticket 003 (closing R-11/BLK-03/API-03,
-  // cruise-zero-sentinel-full-duty-lunge.md): the wire's OWN "0 = use
-  // the configured default" convenience field, deliberately SEPARATE
-  // from kernel.config().fullDutyVelocity. Those are two unrelated
-  // meanings of zero that used to be collapsed onto one field: the
-  // wire layer's sentinel (this) vs. the kernel's own "0 = uncalibrated,
-  // refuse VELOCITY" gate (DifferentialDrive::checkCommandable()). See
-  // engineDefaultCruiseMmS() below, the wire-layer section, for the
-  // consumer. Seeded to 150.0f to match the block layer's own
-  // `defaultSpeed` (15 cm/s, `blocks/motion.ts`) -- NOT derived from any kernel
-  // constant, and NOT the duty ceiling.
+  // The wire's OWN "0 = use the configured default" convenience field,
+  // deliberately SEPARATE from kernel.config().fullDutyVelocity. Those
+  // are two unrelated meanings of zero that used to be collapsed onto
+  // one field: the wire layer's sentinel (this) vs. the kernel's own
+  // "0 = uncalibrated, refuse VELOCITY" gate
+  // (DifferentialDrive::checkCommandable()). See engineDefaultCruiseMmS()
+  // below, the wire-layer section, for the consumer. Seeded to 150.0f
+  // -- NOT derived from any kernel constant, and NOT the duty ceiling --
+  // chosen AT IMPLEMENTATION TIME to numerically match the block
+  // layer's own `defaultSpeed` (15 cm/s, `blocks/motion.ts`), which was
+  // 15 at the time.
+  //
+  // That match is NOT an enforced invariant and never has been: this
+  // field is independently settable over the wire (`default_cruise`,
+  // ordinal 15, setKernelValue()/getConfigValue() below), and
+  // `defaultSpeed` is independently settable from a block
+  // (`setDefaultSpeed()`, `blocks/motion.ts`) -- nothing keeps the two
+  // in sync, and either one changing alone silently breaks the match.
+  // A caller that needs the two to agree must set both explicitly; a
+  // future change that wants a real coupling would need the TS layer
+  // to read this field back over the wire before choosing its own
+  // default, not a comment asserting they match.
   float defaultCruiseMmS_ = 150.0f;  // [mm/s]
 
   // Sprint 015 ticket 006 (build checkpoint): one-shot handoff from
@@ -286,8 +306,7 @@ void setWheels(int left, int right) {  // [mm/s] [mm/s]
 //%
 void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   Rig& r = ensure();
-  const float yawRad =
-      static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
+  const float yawRad = static_cast<float>(yawRate) * kCdegToRad;
   const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
   const float speedMmS = static_cast<float>(speed);
   r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS,
@@ -314,8 +333,7 @@ void setWheelsTimed(int left, int right,
 void driveTwistTimed(int speed, int yawRate,
                      uint32_t durationMs) {  // [mm/s] [cdeg/s] [ms]
   Rig& r = ensure();
-  const float yawRad =
-      static_cast<float>(yawRate) * 0.01f * 3.14159265f / 180.0f;
+  const float yawRad = static_cast<float>(yawRate) * kCdegToRad;
   const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
   const float speedMmS = static_cast<float>(speed);
   r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS, durationMs);
@@ -399,8 +417,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   Rig& r = ensure();
   odomUpdate(r);
   const float distanceMm = static_cast<float>(distance);
-  const float rotationRad =
-      static_cast<float>(yaw) * 0.01f * 3.14159265f / 180.0f;
+  const float rotationRad = static_cast<float>(yaw) * kCdegToRad;
 
   // This shim predates MotionEngine::moveX()'s single-`cruise` wire-
   // shaped signature (motion-api.md S2: move_x(distance,rot) ==
@@ -427,8 +444,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   const float speedCounts =
       static_cast<float>(speed > 0 ? speed : 1) * cpm;    // [counts/s]
   const float yawRadPerS =
-      static_cast<float>(yawRate > 0 ? yawRate : 1) * 0.01f *
-      3.14159265f / 180.0f;
+      static_cast<float>(yawRate > 0 ? yawRate : 1) * kCdegToRad;
   const float twistCounts = yawRadPerS * 0.5f * b * cpm;  // [counts/s]
 
   // One duration covers both axes -> simultaneous arc completion. This
@@ -814,9 +830,11 @@ bool isStalled() { return ensure().kernel.output().stallHalted; }
 // this file.
 int protocolSerialDropCount();
 
-// Kernel Output accessor, one int per field: booleans 0/1, duty x100,
-// positions/velocities raw counts. Callers: wire_adapter.cpp status(),
-// probe() (TS).
+// Kernel Output accessor, one int per field: booleans 0/1, duty percent
+// x100 (10000 == full duty -- Output.appliedDutyLeft/Right already
+// arrives here as percent, per diffdrive.h; this multiplies by 100 a
+// SECOND time), positions/velocities raw counts. Callers:
+// wire_adapter.cpp status(), probe() (TS).
 int diagValue(int what) {
   const DiffDrive::DifferentialDrive::Output out = ensure().kernel.output();
   switch (what) {
@@ -890,8 +908,7 @@ int poseY() {  // [mm]
 int poseHeading() {  // [cdeg]
   Rig& r = ensure();
   odomUpdate(r);
-  return static_cast<int>(
-      std::lround(r.heading * 180.0f / 3.14159265f * 100.0f));
+  return static_cast<int>(std::lround(r.heading * kRadToCdeg));
 }
 
 //%
@@ -1175,7 +1192,9 @@ int wheelSpeed(int which) {
 int probe(int what) { return diagValue(what); }
 
 //%
-int otosBegin() {  // -> product id probed (0x5F == present)
+int otosBegin() {  // -> raw product id, for diagnostics only; readiness
+                    // is OtosPort::connected(), gated on otos_port.h's
+                    // kExpectedProductId -- not this return value
   OtosPort& o = otosRef();
   o.begin();
   return o.productId();
@@ -1187,7 +1206,6 @@ bool otosRead() { return otosRef().read(); }
 //%
 int otosGet(int what) {
   OtosPort& o = otosRef();
-  constexpr float kRadToCdeg = 18000.0f / 3.14159265f;
   switch (what) {
     case 0: return static_cast<int>(std::lround(o.x() * 10.0f));  // [0.1 mm]
     case 1: return static_cast<int>(std::lround(o.y() * 10.0f));  // [0.1 mm]
@@ -1249,7 +1267,7 @@ String runCommandText(int slot) {
 void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]
   otosRef().setOffset(static_cast<float>(x) * 0.1f,
                       static_cast<float>(y) * 0.1f,
-                      static_cast<float>(yaw) * 0.01f * 3.14159265f / 180.0f);
+                      static_cast<float>(yaw) * kCdegToRad);
 }
 
 // V6 SEED (protocol-v6-spec.md 5.5): declare the world pose from an
@@ -1260,7 +1278,7 @@ void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]
 void seedPose(int x, int y, int heading) {  // [mm] [mm] [cdeg]
   Rig& r = ensure();
   odomUpdate(r);  // consume pending deltas before overwriting
-  const float h = static_cast<float>(heading) * 0.01f * 3.14159265f / 180.0f;
+  const float h = static_cast<float>(heading) * kCdegToRad;
   r.x = static_cast<float>(x);
   r.y = static_cast<float>(y);
   r.heading = h;

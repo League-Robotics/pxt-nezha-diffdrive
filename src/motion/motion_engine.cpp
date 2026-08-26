@@ -55,7 +55,16 @@ void MotionEngine::wheelsX(float left, float right, float cruise,
   const float absLeft = std::fabs(left);
   const float absRight = std::fabs(right);
   const float dominant = absLeft > absRight ? absLeft : absRight;
-  if (dominant <= 0.0f || cruise <= 0.0f) return;  // nothing to command
+  if (dominant <= 0.0f || cruise <= 0.0f) {
+    // Nothing NEW to command -- but a previous wheelsV()/wheelsX() hold
+    // may still be driving on its own lease (cancelMove(), above, only
+    // clears the move engine's own bookkeeping and never touches the
+    // kernel). Stop it unconditionally, not gated on move_.active:
+    // wheelsV() never sets that flag, so a gated stop here would miss
+    // exactly the case this exists for.
+    kernel_.neutral();
+    return;
+  }
 
   // Normalize so the dominant wheel's own ratio is exactly +-1
   // (motion-api.md S4's control block: "uLeft, uRight normalized so
@@ -125,7 +134,15 @@ void MotionEngine::startSegment(float distance, float rotation,
   const float absRight = std::fabs(right);
   const float dominant = absLeft > absRight ? absLeft : absRight;
   if (dominant <= 0.0f || cruise <= 0.0f) {
-    move_.active = false;  // nothing to command -- same contract as wheelsX
+    // Nothing NEW to command -- same contract as wheelsX()'s own
+    // degenerate branch, including the stop: moveX()'s single-segment
+    // path reaches here WITHOUT ever calling cancelMove() first, so a
+    // prior wheelsV()/wheelsX() drive still holding its own lease would
+    // otherwise survive untouched. kernel_.neutral() runs unconditionally
+    // here, not gated on move_.active, for the same reason wheelsX()'s
+    // own stop is unconditional.
+    move_.active = false;
+    kernel_.neutral();
     return;
   }
 

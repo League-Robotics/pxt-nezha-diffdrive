@@ -350,6 +350,26 @@ def test_real_captured_full_frame_decodes_all_20_columns():
     assert stream.orphan_frames == 0
 
 
+def test_duty_pct_undoes_the_wire_double_x100_scale():
+    """The FULL frame's dutl/dutr are percent multiplied by 100 twice
+    over (see tlm.py's own header comment for the fraction -> percent
+    -> wire derivation) -- pinned against the real captured frame
+    above: -1300 -> -13.0%, 1800 -> 18.0%."""
+    stream = tlm.TlmStream()
+    stream.feed(FULL_THDR)
+    row = stream.feed(FULL_T_LIVE)
+
+    assert tlm.duty_pct(row) == {'dutl': -13.0, 'dutr': 18.0}
+
+
+def test_duty_pct_10000_is_full_duty():
+    """The documented anchor point: a raw wire value of 10000 (percent
+    x100) is true 100% duty."""
+    assert tlm.duty_pct({'dutl': 10000, 'dutr': -10000}) == {
+        'dutl': 100.0, 'dutr': -100.0,
+    }
+
+
 def test_real_captured_idle_pose_frame_zero_values_are_not_a_fault():
     """A zero-valued frame (no OTOS, kernel not yet driving) must
     decode as ordinary, valid data -- not raise, not count as

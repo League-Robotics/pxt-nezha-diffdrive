@@ -546,3 +546,49 @@ def test_wheels_x_non_positive_cruise_is_a_no_op(motion_lib):
         e.step()
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+# ---- degenerate wheels_x() must stop motion already in progress ---------
+#
+# The two tests above start from an idle kernel, where "nothing to
+# command" and "the motor reads zero duty" are indistinguishable -- they
+# would pass identically whether or not the degenerate branch touches
+# the kernel at all. These two instead establish a LIVE wheels_v() hold
+# first: cancelMove() (wheelsX()'s own first call) only clears the move
+# engine's own bookkeeping, never the kernel, so a degenerate wheels_x()
+# that doesn't also neutral the kernel would leave that hold running
+# under its own lease. kernel_.neutral() only STAGES the stop -- it
+# lands on the NEXT step(), same staged-vs-delivered contract
+# test_regression_post_move_neutral.py pins for the move engine.
+
+
+def test_wheels_x_zero_magnitude_stops_a_live_wheels_v_hold(motion_lib):
+    with Engine(motion_lib) as e:
+        _ready(e)
+        e.wheels_v(150.0, 150.0, 5000)
+        e.step()  # lands wheels_v()'s own nonzero duty
+        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
+
+        e.wheels_x(0.0, 0.0, 100.0, 5000)  # degenerate: zero magnitude
+        e.step()  # the staged neutral lands
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0), (
+            "A degenerate wheels_x() must stop a wheels_v() hold still "
+            "in progress -- WHEELS_X 0 0 100 1000 issued during a "
+            "WHEELS_V hold used to ack `ok` and leave the robot driving."
+        )
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_wheels_x_non_positive_cruise_stops_a_live_wheels_v_hold(motion_lib):
+    with Engine(motion_lib) as e:
+        _ready(e)
+        e.wheels_v(150.0, -150.0, 5000)
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
+
+        e.wheels_x(200.0, 200.0, 0.0, 5000)  # degenerate: cruise <= 0
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)

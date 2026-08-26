@@ -38,6 +38,57 @@ same shape `test_pxt_manifest_completeness.py` already uses for
 issue's own "What to do" section names explicitly ("a host test can
 read main.ts as text if need be -- cheap and effective").
 
+**Sprint 019's mirrored-constant sweep** (`duplicated-constants-across-
+the-shim-boundary.md`) extended this file with five more guarded
+cases, closing the loop this file's own docstring predicted --
+"every mirrored constant gets a drift test, or gets merged":
+
+5. **kCdegToRad / kRadToCdeg** (`shims.cpp`): a MERGE, not a
+   cross-file drift test -- see that section below for why it is a
+   single-file regression guard instead.
+6. **`defaultCruiseMmS_`'s seed comment** (`shims.cpp`) vs
+   `defaultSpeed` (`blocks/motion.ts`): NOT merged (the two are
+   independently settable by design -- one a wire sentinel default,
+   the other a block-layer move speed) -- the fix was correcting a
+   comment that asserted an unmaintained "match" as fact. Guarded by
+   pinning what the corrected comment must (and must not) say.
+7. **The 24 ms tick cadence**: `shims.cpp`'s `cfg.cyclePeriod = 24`
+   vs `blocks/sim.ts`'s `kSimTickPeriodMs = 24` -- two independently
+   editable copies of the same fiber/tick period, one per language,
+   with no shared boundary to merge them across.
+8. **`trackWidth` / `rotationalSlip`**: `motion_engine.h`'s
+   `trackWidth_`/`rotationalSlip_` defaults vs
+   `docs/design/specification.md`'s constants table -- code vs. doc,
+   not mergeable, guarded the same way `kVersion` guards code vs.
+   `pxt.json`.
+9. **`ConfigField` ordinals**: `blocks/motion.ts`'s `ConfigField` TS
+   enum vs `wire_adapter.cpp`'s `kFields` name/ordinal table vs
+   `shims.cpp`'s `setKernelValue()`/`getConfigValue()` switches --
+   the same "ordinal -> meaning mapping in two-or-more independently
+   maintained places" pattern case 4 above already guards for
+   `kDiag*`, found by this sweep to also apply here and previously
+   unguarded (case 4's own docstring had explicitly flagged this as
+   "an already-addressed, unrelated drift surface" -- it was named,
+   not yet fixed, until now).
+
+Two more constants this same sweep found are deliberately NOT guarded
+here:
+
+- **`travelCalib`** (0.7878 mm/deg): tracked by sprint 017 ticket 002
+  (`tests/tools/test_travel_calib_drift.py` guards the one remaining
+  live mirror, `tools/tour_chart.py`'s `--travel-calib` default;
+  `tools/tour_watch.py`'s old mirror was deleted outright, and
+  `src/DESIGN.md`/`docs/design/specification.md`/
+  `docs/design/usecases.md` were verified still consistent) -- listed
+  here only so this file's own enumeration is complete, not
+  re-implemented.
+- **The simulator's yaw-rate divisor** (`blocks/sim.ts:99`'s `/ 115`
+  vs hardware's `effectiveTrackWidth()` = 114.2 / 0.952 = 119.96, a
+  real ~4.3% VALUE discrepancy, not merely an unguarded-but-correct
+  duplicate): asserting equality here would pin something false.
+  Tracked as its own issue instead
+  (`simulator-yaw-rate-divisor-diverges-from-hardware-track-width.md`).
+
 `radio_transport.h` (unlike `radio_transport.cpp`) does NOT itself
 include `pxt.h` -- its public interface declares no CODAL types, only
 `<cstddef>`/`<cstdint>` -- so `kMaxPayloadBytes`'s value could in
@@ -66,6 +117,7 @@ import re
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _SRC_DIR = _REPO_ROOT / "src"
 _PXT_JSON = _REPO_ROOT / "pxt.json"
+_DOCS_DESIGN_DIR = _REPO_ROOT / "docs" / "design"
 
 
 def _read(name):
@@ -545,4 +597,412 @@ def test_shims_cpp_diag_value_switch_matches_kdiag_ordinals():
         f"(name, ordinal, expected token): {wrong_token} -- the ordinal "
         f"numbers still line up, but the meaning behind them has "
         f"drifted, e.g. from two cases' bodies being reordered."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5. kCdegToRad / kRadToCdeg (shims.cpp): the merge side of the mirrored-
+#    constant rule -- eight sites (driveTwist(), driveTwistTimed(),
+#    startMove() x2, otosSetOffset(), seedPose(), poseHeading(),
+#    otosGet()'s own local re-declaration) used to open-code the
+#    centidegree<->radian boundary conversion (`0.01f * 3.14159265f /
+#    180.0f`, or its inverse) independently. All eight now defer to two
+#    named constants defined once at file scope, beside shims.cpp's own
+#    "Boundary convention" header comment. This is a "merge", not a
+#    "drift test between two files" -- the guard against regression is a
+#    single-file check that the pi literal has not crept back in
+#    anywhere except the two definitions themselves.
+# ---------------------------------------------------------------------------
+
+
+def _shims_cpp_text():
+    return _read("shims.cpp")
+
+
+def test_shims_cpp_pi_literal_only_in_kcdegtorad_definition():
+    """The literal `3.14159265f` must appear exactly once in shims.cpp:
+    inside `kCdegToRad`'s own definition. `kRadToCdeg` is derived from
+    `kCdegToRad` (`1.0f / kCdegToRad`), not from a second copy of pi, so
+    a correctly-merged file has exactly one occurrence. A future edit
+    that open-codes a ninth cdeg<->rad conversion site (or re-adds
+    otosGet()'s old local `kRadToCdeg = 18000.0f / 3.14159265f`) raises
+    this count and fails here instead of silently reintroducing the
+    duplication this ticket removed."""
+    text = _shims_cpp_text()
+    occurrences = [
+        line_no
+        for line_no, line in enumerate(text.splitlines(), start=1)
+        if "3.14159265f" in line
+    ]
+    assert occurrences == [] or len(occurrences) == 1, (
+        f"shims.cpp's pi literal (3.14159265f) appears on lines "
+        f"{occurrences}, expected exactly one occurrence (kCdegToRad's "
+        f"own definition) -- an open-coded cdeg<->rad conversion site "
+        f"has crept back in. Use the shared kCdegToRad/kRadToCdeg "
+        f"constants instead of a fresh literal."
+    )
+    if occurrences:
+        line = text.splitlines()[occurrences[0] - 1]
+        assert "kCdegToRad" in line, (
+            f"shims.cpp's sole remaining pi literal is on line "
+            f"{occurrences[0]} (\"{line.strip()}\"), which is not the "
+            f"kCdegToRad definition -- an open-coded conversion site has "
+            f"replaced the named constant."
+        )
+
+
+def test_shims_cpp_defines_kcdegtorad_and_kradtocdeg_exactly_once():
+    """kCdegToRad and kRadToCdeg must each be defined exactly once, as
+    file-scope constexpr floats -- not re-declared locally inside a
+    function (the exact defect otosGet()'s old local kRadToCdeg was)."""
+    text = _shims_cpp_text()
+    cdeg_to_rad_defs = re.findall(
+        r"constexpr float kCdegToRad\s*=", text
+    )
+    rad_to_cdeg_defs = re.findall(
+        r"constexpr float kRadToCdeg\s*=", text
+    )
+    assert len(cdeg_to_rad_defs) == 1, (
+        f"Expected exactly one `constexpr float kCdegToRad = ...` "
+        f"definition in shims.cpp, found {len(cdeg_to_rad_defs)}."
+    )
+    assert len(rad_to_cdeg_defs) == 1, (
+        f"Expected exactly one `constexpr float kRadToCdeg = ...` "
+        f"definition in shims.cpp, found {len(rad_to_cdeg_defs)} -- "
+        f"otosGet() must not re-declare its own local copy."
+    )
+
+
+def test_shims_cpp_conversion_sites_use_named_constants():
+    """Each of the eight known cdeg<->rad boundary-conversion call sites
+    must reference the shared kCdegToRad/kRadToCdeg constant by name.
+    Scoped per-function (like this file's other case-body checks) so an
+    unrelated open-coded formula elsewhere can't produce a false pass."""
+    text = _shims_cpp_text()
+
+    def body_of(signature_pattern):
+        match = re.search(
+            signature_pattern + r"\s*\{(.*?)\n\}", text, re.DOTALL
+        )
+        assert match, f"Function body not found for pattern: {signature_pattern}"
+        return match.group(1)
+
+    forward_sites = {
+        "driveTwist": r"void driveTwist\(int speed, int yawRate\)",
+        "driveTwistTimed": r"void driveTwistTimed\(int speed, int yawRate,\n\s*uint32_t durationMs\)",
+        "startMove": r"void startMove\(int distance, int yaw, int speed, int yawRate\)",
+        "otosSetOffset": r"void otosSetOffset\(int x, int y, int yaw\)",
+        "seedPose": r"void seedPose\(int x, int y, int heading\)",
+    }
+    for name, pattern in forward_sites.items():
+        body = body_of(pattern)
+        assert "kCdegToRad" in body, (
+            f"{name}() no longer references kCdegToRad by name -- has "
+            f"an open-coded conversion crept back in?"
+        )
+
+    inverse_sites = {
+        "poseHeading": r"int poseHeading\(\)",
+        "otosGet": r"int otosGet\(int what\)",
+    }
+    for name, pattern in inverse_sites.items():
+        body = body_of(pattern)
+        assert "kRadToCdeg" in body, (
+            f"{name}() no longer references kRadToCdeg by name -- has "
+            f"an open-coded conversion crept back in?"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 6. defaultCruiseMmS_'s seed comment (shims.cpp) vs defaultSpeed
+#    (blocks/motion.ts) -- sprint 019 ticket 006, code review Q-05. The
+#    two are legitimately independent by design (a wire sentinel
+#    default vs. a block-layer move speed, both separately settable),
+#    so this is NOT a merge -- it's a correction of a comment that used
+#    to assert an unmaintained "match" as an enforced fact, plus a
+#    stale `main.ts` citation (main.ts was retired; see D-07 in the
+#    same review). This guards the CORRECTED comment's honesty, not a
+#    numeric equality (asserting defaultSpeed == defaultCruiseMmS_
+#    would itself be exactly the false-coupling claim this ticket
+#    removed -- the two are independently settable and free to
+#    diverge).
+# ---------------------------------------------------------------------------
+
+
+def _shims_cpp_default_cruise_seed_comment():
+    """The block of `//` comment lines directly above
+    `defaultCruiseMmS_`'s declaration, so the tests below can check
+    what this comment says without a false pass/fail from unrelated
+    text elsewhere in the file -- same technique
+    _radio_transport_max_payload_bytes_doc_comment() uses above."""
+    text = _read("shims.cpp")
+    match = re.search(
+        r"((?:^[ \t]*//[^\n]*\n|^[ \t]*//\n)+)[ \t]*float defaultCruiseMmS_",
+        text,
+        re.MULTILINE,
+    )
+    assert match, (
+        "No comment block was found directly above defaultCruiseMmS_'s "
+        "declaration in shims.cpp"
+    )
+    return match.group(1)
+
+
+def test_default_cruise_seed_comment_does_not_cite_retired_main_ts():
+    """The retired main.ts must not be cited as defaultSpeed's home --
+    sprint 012 moved the block API to blocks/motion.ts; a citation of
+    main.ts here would be exactly the stale-path class of drift
+    D-07 (code review 2026-08-26) found 16 live instances of."""
+    comment = _shims_cpp_default_cruise_seed_comment()
+    assert "main.ts" not in comment, (
+        "shims.cpp's defaultCruiseMmS_ seed comment still cites "
+        "main.ts, retired in sprint 012 -- defaultSpeed now lives in "
+        "blocks/motion.ts."
+    )
+
+
+def test_default_cruise_seed_comment_does_not_assert_an_enforced_match():
+    """The comment must not claim defaultCruiseMmS_ and defaultSpeed
+    are kept in agreement -- nothing enforces that, and they are
+    independently settable (default_cruise over the wire,
+    setDefaultSpeed() from a block). The comment must instead say so
+    plainly, so a future reader does not treat the 150.0f seed as a
+    maintained invariant."""
+    comment = _shims_cpp_default_cruise_seed_comment().lower()
+    assert "not an enforced invariant" in comment, (
+        "shims.cpp's defaultCruiseMmS_ seed comment no longer states "
+        "that its numeric match with blocks/motion.ts's defaultSpeed "
+        "is NOT an enforced invariant -- restore that caveat (or a "
+        "clearer replacement) so a future reader does not mistake the "
+        "150.0f seed for a maintained coupling."
+    )
+    assert "independently settable" in comment, (
+        "shims.cpp's defaultCruiseMmS_ seed comment no longer explains "
+        "that this field and blocks/motion.ts's defaultSpeed are each "
+        "independently settable (default_cruise over the wire, "
+        "setDefaultSpeed() from a block) -- that's the reason the two "
+        "are free to diverge, and why no equality is enforced."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 7. The 24 ms tick cadence: shims.cpp's cfg.cyclePeriod vs
+#    blocks/sim.ts's kSimTickPeriodMs -- sprint 019 ticket 006. Two
+#    independently-editable copies (one per language) of the same
+#    fiber/tick period, kept in sync so a simulator-run program's
+#    timing is observable the same way hardware's is (sim.ts's own
+#    comment, right above kSimTickPeriodMs). No shared boundary exists
+#    to merge them across (TypeScript vs C++), so this is a drift test,
+#    not a merge.
+# ---------------------------------------------------------------------------
+
+
+def _shims_cpp_cycle_period():
+    text = _read("shims.cpp")
+    match = re.search(r"cfg\.cyclePeriod\s*=\s*(\d+);", text)
+    assert match, "shims.cpp's cfg.cyclePeriod assignment was not found"
+    return int(match.group(1))
+
+
+def _sim_ts_tick_period_ms():
+    text = _read("blocks/sim.ts")
+    match = re.search(r"kSimTickPeriodMs\s*=\s*(\d+)", text)
+    assert match, "sim.ts's kSimTickPeriodMs declaration was not found"
+    return int(match.group(1))
+
+
+def test_sim_tick_period_matches_hardware_cycle_period():
+    """blocks/sim.ts's kSimTickPeriodMs must equal shims.cpp's
+    cfg.cyclePeriod exactly -- a mismatch would make simulator-observed
+    timing (e.g. how many ticks a fixed-duration move takes) diverge
+    from hardware's, defeating the parity sim.ts's own comment states
+    as the point of pacing to a fixed deadline at all."""
+    hardware = _shims_cpp_cycle_period()
+    simulator = _sim_ts_tick_period_ms()
+    assert hardware == simulator, (
+        f"shims.cpp's cfg.cyclePeriod ({hardware} ms) and blocks/sim.ts's "
+        f"kSimTickPeriodMs ({simulator} ms) have diverged -- simulator "
+        f"tick timing no longer matches hardware's fiber cadence."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. trackWidth / rotationalSlip: motion_engine.h's defaults vs
+#    docs/design/specification.md's constants table -- sprint 019
+#    ticket 006. Code vs. doc, not mergeable (a doc cannot #include a
+#    header), guarded the same way kVersion guards protocol.cpp against
+#    pxt.json.
+# ---------------------------------------------------------------------------
+
+
+def _motion_engine_h_text():
+    return _read("motion/motion_engine.h")
+
+
+def _motion_engine_h_track_width():
+    match = re.search(r"trackWidth_\s*=\s*([0-9.]+)f;", _motion_engine_h_text())
+    assert match, "motion_engine.h's trackWidth_ default was not found"
+    return float(match.group(1))
+
+
+def _motion_engine_h_rotational_slip():
+    match = re.search(
+        r"rotationalSlip_\s*=\s*([0-9.]+)f;", _motion_engine_h_text()
+    )
+    assert match, "motion_engine.h's rotationalSlip_ default was not found"
+    return float(match.group(1))
+
+
+def _specification_md_text():
+    return (_DOCS_DESIGN_DIR / "specification.md").read_text()
+
+
+def _specification_md_track_width():
+    match = re.search(
+        r"`trackWidth`[^|]*\|\s*([0-9.]+)\s*\|", _specification_md_text()
+    )
+    assert match, (
+        "docs/design/specification.md's trackWidth constants-table row "
+        "was not found"
+    )
+    return float(match.group(1))
+
+
+def _specification_md_rotational_slip():
+    match = re.search(
+        r"`rotationalSlip`[^|]*\|\s*([0-9.]+)\s*\|", _specification_md_text()
+    )
+    assert match, (
+        "docs/design/specification.md's rotationalSlip constants-table "
+        "row was not found"
+    )
+    return float(match.group(1))
+
+
+def test_specification_md_track_width_matches_motion_engine():
+    """docs/design/specification.md's constants table is the
+    authoritative reference doc (D-05, code review 2026-08-26, named
+    this exact table); it must not drift from motion_engine.h's real
+    trackWidth_ default the way it already drifted for travelCalib."""
+    code_value = _motion_engine_h_track_width()
+    doc_value = _specification_md_track_width()
+    assert code_value == doc_value, (
+        f"docs/design/specification.md's trackWidth table row "
+        f"({doc_value}) has drifted from motion_engine.h's trackWidth_ "
+        f"default ({code_value})."
+    )
+
+
+def test_specification_md_rotational_slip_matches_motion_engine():
+    """Same guard as the trackWidth test above, for rotationalSlip --
+    the only other MotionEngine geometry default this table publishes
+    alongside travelCalib (already guarded by
+    tests/tools/test_travel_calib_drift.py)."""
+    code_value = _motion_engine_h_rotational_slip()
+    doc_value = _specification_md_rotational_slip()
+    assert code_value == doc_value, (
+        f"docs/design/specification.md's rotationalSlip table row "
+        f"({doc_value}) has drifted from motion_engine.h's "
+        f"rotationalSlip_ default ({code_value})."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 9. ConfigField ordinals: blocks/motion.ts's ConfigField TS enum vs
+#    wire_adapter.cpp's kFields name/ordinal table vs shims.cpp's
+#    setKernelValue()/getConfigValue() switches -- sprint 019 ticket
+#    006. The same three-way "ordinal -> meaning in independently
+#    maintained places" pattern case 4 (above) guards for kDiag*; that
+#    case's own docstring explicitly flagged this ConfigField space as
+#    "an already-addressed, unrelated drift surface" (named, not
+#    fixed) -- this sweep found it still had no guard, so it gets one
+#    here. blocks/motion.ts's setConfigValue() passes the TS enum's
+#    numeric value straight into _setKernelValue() (the shim=
+#    diffDrive::setKernelValue binding) with no name-based translation
+#    at the crossing -- so an ordinal drift here is silent exactly the
+#    way the kDiag* case was.
+# ---------------------------------------------------------------------------
+
+
+def _motion_ts_config_field_ordinals():
+    text = _read("blocks/motion.ts")
+    match = re.search(r"enum ConfigField \{(.*?)\n\}", text, re.DOTALL)
+    assert match, "blocks/motion.ts's ConfigField enum was not found"
+    body = match.group(1)
+    return {
+        name: int(value)
+        for name, value in re.findall(r"(\w+)\s*=\s*(\d+)", body)
+    }
+
+
+def _wire_adapter_kfields_entries():
+    """Each kFields[] row as (wire_name, ordinal, ts_enum_name) --
+    the ts_enum_name comes from that row's own trailing `// ConfigField.
+    Name` comment, which wire_adapter.cpp already carries for every
+    entry (see that file's kFields[] definition)."""
+    text = _read("comms/wire_adapter.cpp")
+    match = re.search(r"kFields\[\]\s*=\s*\{(.*?)\n\};", text, re.DOTALL)
+    assert match, "wire_adapter.cpp's kFields[] table was not found"
+    body = match.group(1)
+    rows = re.findall(
+        r'\{"(\w+)",\s*(\d+)\}.*?//\s*ConfigField\.(\w+)', body
+    )
+    assert rows, "No kFields[] rows with a ConfigField.<Name> comment were found"
+    return [(name, int(ordinal), ts_name) for name, ordinal, ts_name in rows]
+
+
+def test_wire_adapter_kfields_ordinals_match_config_field_enum():
+    """Every wire_adapter.cpp kFields[] row's ordinal must equal the
+    numeric value blocks/motion.ts's ConfigField enum assigns to the
+    SAME name (per that row's own `// ConfigField.Name` comment) -- a
+    mismatch means SET/GET-by-name (wire_adapter.cpp) and
+    setConfigValue()-by-enum (motion.ts, over the same shim) would
+    silently address two different kernel/engine fields."""
+    ts_ordinals = _motion_ts_config_field_ordinals()
+    mismatches = []
+    for wire_name, wire_ordinal, ts_name in _wire_adapter_kfields_entries():
+        ts_ordinal = ts_ordinals.get(ts_name)
+        if ts_ordinal is None:
+            mismatches.append((wire_name, ts_name, "not found in ConfigField enum"))
+        elif ts_ordinal != wire_ordinal:
+            mismatches.append((wire_name, ts_name, f"{wire_ordinal} != {ts_ordinal}"))
+    assert not mismatches, (
+        f"wire_adapter.cpp's kFields[] and blocks/motion.ts's "
+        f"ConfigField enum have diverged on: {mismatches}"
+    )
+
+
+def test_shims_cpp_set_and_get_config_value_cover_every_config_field_ordinal():
+    """shims.cpp's setKernelValue() and getConfigValue() switches must
+    each have a `case N:` for every ordinal blocks/motion.ts's
+    ConfigField enum defines -- a missing case means
+    setConfigValue()/that field's GET silently falls through to a
+    default/no-op for that field, exactly the "ordinal wire_adapter.cpp
+    names with no matching shims.cpp case" failure mode case 4 (above)
+    guards diagValue() against."""
+    text = _read("shims.cpp")
+    ts_ordinals = _motion_ts_config_field_ordinals()
+    expected = set(ts_ordinals.values())
+
+    def case_numbers(function_signature_pattern):
+        match = re.search(
+            function_signature_pattern + r"\s*\{(.*?)\n\}", text, re.DOTALL
+        )
+        assert match, f"Function body not found: {function_signature_pattern}"
+        return {int(n) for n in re.findall(r"case (\d+):", match.group(1))}
+
+    set_cases = case_numbers(r"void setKernelValue\(int field, int value\)")
+    get_cases = case_numbers(r"int getConfigValue\(int field\)")
+
+    missing_set = expected - set_cases
+    missing_get = expected - get_cases
+    assert not missing_set, (
+        f"shims.cpp's setKernelValue() has no `case N:` for ConfigField "
+        f"ordinal(s) {sorted(missing_set)} -- a SET for that field would "
+        f"silently no-op."
+    )
+    assert not missing_get, (
+        f"shims.cpp's getConfigValue() has no `case N:` for ConfigField "
+        f"ordinal(s) {sorted(missing_get)} -- a GET for that field would "
+        f"silently fall through to whatever the default case returns."
     )
