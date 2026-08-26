@@ -29,8 +29,25 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   the repo with `test/test.ts` promoted into `files` (a `files`-listed
   test would run inside every student project) and
   `disablesVariants: ["mbdal"]` dropped (kept, it produces a hex that
-  is dead on the device). Deletes the hex up front and verifies it
-  exists afterwards, because the expected V1 `TS9283` error
+  is dead on the device). Sets `PXT_COMPILE_SWITCHES=csv-mbcodal`
+  unconditionally in the `pxt build` subprocess environment (sprint
+  014, `clasi/issues/never-build-the-v1-mbdal-variant.md`) — this makes
+  `pxt-core` select `appTargetVariant=mbcodal` up front, a different
+  mechanism from `disablesVariants` that means the legacy V1 (`mbdal`)
+  variant is never built at all, not just stripped of its dependencies.
+  Also defaults `PXT_FORCE_LOCAL=1` (honoring an ambient override, e.g.
+  `PXT_FORCE_LOCAL=0` to opt back into the MakeCode cloud compiler), so
+  a bare `uv run python tools/make_deploy.py` compiles locally via
+  Docker with no env-var prefix required. The resulting single-variant
+  hex lands at `built/binary.hex`, not the old multi-variant
+  `built/mbcodal-binary.hex` — but that filename alone is ambiguous: a
+  universal (V1+V2) hex from the old multi-variant build and a plain V2
+  hex from the single-variant build are byte-for-byte different
+  artifacts sharing one path. `build()` therefore counts `:0400000A`
+  universal-hex block-start markers in the produced hex and hard-fails,
+  before ever reporting it as ready, if the count is not exactly 0 (see
+  "Build checkpoint triage" below). Deletes the hex up front and
+  verifies it exists afterwards, because a packaging abort
   nondeterministically deletes it.
 
 ### Build checkpoint triage (`make_deploy.py`, sprint 008)
@@ -75,13 +92,7 @@ theme this project applies everywhere else. The verdict:
    output.
 2. **Benign — retried once, automatically, before being reported as
    anything.** Checked only once no compile diagnostic is present and
-   no hex exists. Two shapes, both observed repeatedly this session:
-   - The legacy V1 `bbc-microbit-classic-gcc` variant's own hex-merge
-     step failing after a successful compile (`srec_cat: ...
-     contradictory ... value`) — this variant is not used to flash
-     this hardware; only the codal-microbit-v2 variant's hex matters,
-     and this text appears in *every* build's log, benign, whether or
-     not that build ultimately succeeds.
+   no hex exists. One shape, observed repeatedly this session:
    - The nondeterministic packaging abort, always after a pxt-core
      cache-write `TypeError [ERR_INVALID_ARG_TYPE]`, surfaced as
      `TS9283` ("program too big"), `TS9043` ("hex file is not
@@ -90,16 +101,31 @@ theme this project applies everywhere else. The verdict:
      ("did any `.cpp` fail to compile", not the error code).
    The retry is **bounded, not infinite**: if the same benign shape
    recurs on the retry and still produces no hex, `build()` reports
-   that as a failure — the two shapes are expected to be transient,
-   not chronic.
+   that as a failure — the shape is expected to be transient, not
+   chronic.
 3. **Unknown — reported as a failure, deliberately not retried.** No
-   hex, no compile diagnostic, and neither benign shape matched. Fails
-   closed rather than risk silently retrying past a real, merely
-   unrecognized defect. **This is the triage's known gap, stated
-   plainly rather than overclaimed**: an abort shape that is genuinely
-   benign but not yet documented here is reported as a hard failure
-   requiring a human to look, exactly like a real defect would — the
-   cost of failing closed is a false alarm, never a false pass.
+   hex, no compile diagnostic, and the benign shape didn't match
+   either. Fails closed rather than risk silently retrying past a
+   real, merely unrecognized defect. **This is the triage's known
+   gap, stated plainly rather than overclaimed**: an abort shape that
+   is genuinely benign but not yet documented here is reported as a
+   hard failure requiring a human to look, exactly like a real defect
+   would — the cost of failing closed is a false alarm, never a false
+   pass. **As of sprint 014, this bucket also catches a resurrected
+   legacy V1 `bbc-microbit-classic-gcc` hex-merge failure**
+   (`srec_cat: ... contradictory ... value`): under
+   `PXT_COMPILE_SWITCHES=csv-mbcodal` (see the `make_deploy.py` bullet
+   above) V1 is never built at all, so this shape — formerly benign
+   and retried on *every* build regardless of outcome — is no longer
+   an expected, retry-worthy trap. Its only remaining meaning is "the
+   switch silently failed to take effect," which is a configuration
+   regression, not a transient flake, so it now falls through to
+   `UNKNOWN` and hard-fails on attempt 1 with no retry
+   (`clasi/issues/never-build-the-v1-mbdal-variant.md`). The
+   universal-vs-plain-V2 block-marker assertion (the `make_deploy.py`
+   bullet above) is the actual backstop for this scenario — failing
+   fast in `classify_attempt()` means the ordinary case never gets that
+   far.
 
 **Verified against real builds, this session (sprint 008 ticket 006).**
 Reintroducing an NSDMI-in-aggregate-init construct into a scratch copy
