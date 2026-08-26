@@ -824,8 +824,21 @@ def test_unrecognized_verb_with_id_is_a_decode_failure_not_silent(wg):
 def test_id_golden_vector(wg):
     wg.set_identity(b"testbot", b"SN001", b"diffdrive", b"nezha2", b"6.0.0")
     wg.feed(b"ID #1\n")
-    assert wg.take_sink() == _ack(1) + b"id diffdrive nezha2 6.0.0\n"
+    assert wg.take_sink() == _ack(1) + b"id diffdrive nezha2 6.0.0 testbot\n"
     assert wg.malformed_count == 0
+
+
+def test_id_name_and_profile_are_distinct_fields(wg):
+    # The regression this test exists to catch: `name` (field 3, the
+    # board's own machine name) and `profile` (field 1, which robot's
+    # config the hex was built against) are independent and can
+    # legitimately differ -- e.g. a board flashed with the wrong
+    # robot's build. Setting them to different values and asserting
+    # both appear, each in its own position, pins that the reply never
+    # collapses one into the other.
+    wg.set_identity(b"vevov", b"SN042", b"diffdrive", b"tovez", b"6.0.0")
+    wg.feed(b"ID #1\n")
+    assert wg.take_sink() == _ack(1) + b"id diffdrive tovez 6.0.0 vevov\n"
 
 
 def test_ver_golden_vector(wg):

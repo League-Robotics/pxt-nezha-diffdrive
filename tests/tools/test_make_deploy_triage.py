@@ -156,6 +156,48 @@ UNIVERSAL_HEX_FIXTURE = """\
 """
 
 
+# --- fixtures for the hex size floor / translation-unit presence check ----
+#
+# A build served (wholly or partly) from a stale build cache can print
+# a clean log and still produce a real, well-formed, but too-short hex
+# with none of its own `.cpp` files rebuilt -- neither classify_attempt()
+# nor _count_universal_hex_blocks() catches that; MIN_HEX_SIZE_BYTES and
+# EXPECTED_CPP_FILES (make_deploy.py) close the gap.
+
+
+def _building_cxx_line(rel_path):
+    """One synthetic `Building CXX object` log line, in the real shape
+    confirmed against captured build evidence: `[ NN%] Building CXX
+    object CMakeFiles/MICROBIT.dir/pxtapp/nezha-diffdrive/<rel_path>.obj`.
+    The expected repo-relative path is a substring of the `.obj` path
+    CMake actually prints, which is what `_check_translation_units()`
+    matches against."""
+    return (f'[ 93%] Building CXX object CMakeFiles/MICROBIT.dir/pxtapp/'
+            f'nezha-diffdrive/{rel_path}.obj')
+
+
+# A synthetic log naming ALL ten nezha-diffdrive translation units, on
+# top of an otherwise-ordinary clean build log -- what
+# _check_translation_units() must accept as complete, and what a
+# genuinely successful build() call should see.
+GENUINE_CLEAN_BUILD_LOG = CLEAN_SUCCESS_LOG + '\n'.join(
+    _building_cxx_line(f) for f in make_deploy.EXPECTED_CPP_FILES
+) + '\n'
+
+
+def _padded_plain_v2_hex(min_size=None):
+    """PLAIN_V2_HEX_FIXTURE, padded with filler bytes that never spell
+    out the `:0400000A` universal-hex marker, until it reaches at least
+    `min_size` (default MIN_HEX_SIZE_BYTES) bytes. Lets a test satisfy
+    the size-floor check without embedding a real ~1.3 MB fixture in
+    this file -- _check_hex_size() only ever looks at a byte count, not
+    real Intel-hex structure."""
+    if min_size is None:
+        min_size = make_deploy.MIN_HEX_SIZE_BYTES
+    pad = 'X' * max(0, min_size - len(PLAIN_V2_HEX_FIXTURE))
+    return PLAIN_V2_HEX_FIXTURE + pad
+
+
 # --- classify_attempt() ----------------------------------------------------
 
 
@@ -273,6 +315,75 @@ def test_count_universal_hex_blocks_counts_both_markers_in_a_universal_hex():
     assert make_deploy._count_universal_hex_blocks(UNIVERSAL_HEX_FIXTURE) == 2
 
 
+# --- _check_hex_size() (hex size floor) -------------------------------------
+#
+# Pure function, no I/O -- see make_deploy.py's own comment above
+# MIN_HEX_SIZE_BYTES for the measured band and why the floor sits where
+# it does.
+
+
+def test_check_hex_size_rejects_a_hex_below_the_floor():
+    assert make_deploy._check_hex_size(make_deploy.MIN_HEX_SIZE_BYTES - 1) is False
+
+
+def test_check_hex_size_accepts_a_hex_at_the_floor():
+    assert make_deploy._check_hex_size(make_deploy.MIN_HEX_SIZE_BYTES) is True
+
+
+def test_check_hex_size_accepts_a_hex_above_the_floor():
+    assert make_deploy._check_hex_size(make_deploy.MIN_HEX_SIZE_BYTES + 1) is True
+
+
+def test_check_hex_size_rejects_the_actual_truncated_size_measured():
+    """Regression pin: the actual byte count observed from the
+    stale-cache defect this check exists to catch must fail -- it sits
+    well below MIN_HEX_SIZE_BYTES, not just barely under it."""
+    assert make_deploy._check_hex_size(1_046_410) is False
+
+
+# --- _check_translation_units() (translation-unit presence check) ----------
+#
+# Pure function, no subprocess. The critical case: a build output with
+# ZERO `Building CXX object` lines (a build served entirely from a
+# stale cache) must report every expected file missing, not an empty,
+# vacuously-satisfied list -- see make_deploy.py's own docstring for
+# why the check is written expected-found, never found-in-expected.
+
+
+def test_check_translation_units_passes_when_all_ten_present():
+    assert make_deploy._check_translation_units(GENUINE_CLEAN_BUILD_LOG) == []
+
+
+def test_check_translation_units_names_a_single_missing_file():
+    present = [f for f in make_deploy.EXPECTED_CPP_FILES
+               if f != 'src/shims.cpp']
+    log = CLEAN_SUCCESS_LOG + '\n'.join(
+        _building_cxx_line(f) for f in present
+    )
+    assert make_deploy._check_translation_units(log) == ['src/shims.cpp']
+
+
+def test_check_translation_units_names_every_missing_file():
+    present = make_deploy.EXPECTED_CPP_FILES[:3]
+    expected_missing = make_deploy.EXPECTED_CPP_FILES[3:]
+    log = CLEAN_SUCCESS_LOG + '\n'.join(
+        _building_cxx_line(f) for f in present
+    )
+    assert make_deploy._check_translation_units(log) == expected_missing
+
+
+def test_check_translation_units_zero_lines_reports_all_ten_missing():
+    """The specific shape that keeps recurring: a build served entirely
+    from a stale cache logs no `Building CXX object` lines at all. This
+    must fail exactly like any other missing-subset case, naming all
+    ten files, not be special-cased as 'nothing needed rebuilding,
+    therefore fine' -- own test, not incidental to the missing-file
+    tests above."""
+    missing = make_deploy._check_translation_units(CLEAN_SUCCESS_LOG)
+    assert missing == make_deploy.EXPECTED_CPP_FILES
+    assert len(missing) == 10
+
+
 # --- testFiles promotion (the build-hygiene half of this ticket) ----------
 #
 # Regression coverage for the defect this ticket closes: sync()'s old
@@ -388,10 +499,11 @@ def test_build_retries_once_on_benign_then_succeeds(monkeypatch, capsys, tmp_pat
     1 uses the nondeterministic-packaging-abort shape, not the old V1
     hex-merge one -- under sprint 014's triage, V1 hex-merge is UNKNOWN
     (hard failure, no retry), not benign, so it can no longer stand in
-    for "a benign shape" here. Sprint 014's block-marker check reads
-    the hex's actual content, so attempt 2 writes a real temp hex file
-    (0-marker, plain-V2 fixture) rather than relying on a faked
-    os.path.exists()."""
+    for "a benign shape" here. The block-marker check reads the hex's
+    actual content, so attempt 2 writes a real temp hex file
+    (0-marker, plain-V2 fixture, padded to the size floor) rather than
+    relying on a faked os.path.exists(); the log on attempt 2 names all
+    ten translation units, so the presence check also passes."""
     hex_path = tmp_path / "binary.hex"
     attempts = {"n": 0}
 
@@ -399,8 +511,8 @@ def test_build_retries_once_on_benign_then_succeeds(monkeypatch, capsys, tmp_pat
         attempts["n"] += 1
         if attempts["n"] == 1:
             return PACKAGING_ABORT_LOG_9283
-        hex_path.write_text(PLAIN_V2_HEX_FIXTURE)
-        return CLEAN_SUCCESS_LOG
+        hex_path.write_text(_padded_plain_v2_hex())
+        return GENUINE_CLEAN_BUILD_LOG
 
     monkeypatch.setattr(make_deploy, "_run_pxt_build", fake_run)
     monkeypatch.setattr(make_deploy, "HEX", str(hex_path))
@@ -466,6 +578,83 @@ def test_build_hard_fails_when_hex_is_universal_not_plain_v2(monkeypatch, tmp_pa
         make_deploy.build()
 
 
+# --- build()'s new sprint-023 gate: size floor + translation-unit presence -
+
+
+def test_build_fails_when_hex_is_below_the_size_floor(monkeypatch, tmp_path):
+    """The core regression this ticket closes: a real, well-formed hex
+    (0 universal-hex markers, all ten translation units logged as
+    compiled) that is nonetheless too small must not reach the success
+    path."""
+    hex_path = tmp_path / "binary.hex"
+    hex_path.write_text(PLAIN_V2_HEX_FIXTURE)  # tiny -- far below the floor
+
+    monkeypatch.setattr(make_deploy, "_run_pxt_build",
+                         lambda: GENUINE_CLEAN_BUILD_LOG)
+    monkeypatch.setattr(make_deploy, "HEX", str(hex_path))
+
+    with pytest.raises(SystemExit) as exc:
+        make_deploy.build()
+    message = str(exc.value)
+    assert str(make_deploy.MIN_HEX_SIZE_BYTES) in message
+    assert "below" in message
+
+
+def test_build_fails_when_a_translation_unit_is_missing(monkeypatch, tmp_path):
+    """A build that logs nine of the ten units must fail, naming the
+    one that never compiled."""
+    hex_path = tmp_path / "binary.hex"
+    hex_path.write_text(_padded_plain_v2_hex())
+    present = [f for f in make_deploy.EXPECTED_CPP_FILES
+               if f != 'src/platform/otos_port.cpp']
+    log = CLEAN_SUCCESS_LOG + '\n'.join(
+        _building_cxx_line(f) for f in present
+    )
+
+    monkeypatch.setattr(make_deploy, "_run_pxt_build", lambda: log)
+    monkeypatch.setattr(make_deploy, "HEX", str(hex_path))
+
+    with pytest.raises(SystemExit) as exc:
+        make_deploy.build()
+    assert "src/platform/otos_port.cpp" in str(exc.value)
+
+
+def test_build_fails_when_zero_translation_units_compiled(monkeypatch, tmp_path):
+    """The recurring stale-cache shape: a clean log/hex with ZERO
+    `Building CXX object` lines must fail build() -- not pass as
+    'nothing needed rebuilding, therefore fine'. Own test, not
+    incidental to the missing-single-file test above."""
+    hex_path = tmp_path / "binary.hex"
+    hex_path.write_text(_padded_plain_v2_hex())
+
+    monkeypatch.setattr(make_deploy, "_run_pxt_build",
+                         lambda: CLEAN_SUCCESS_LOG)
+    monkeypatch.setattr(make_deploy, "HEX", str(hex_path))
+
+    with pytest.raises(SystemExit) as exc:
+        make_deploy.build()
+    assert "zero" in str(exc.value).lower()
+
+
+def test_build_succeeds_with_a_genuinely_complete_build(monkeypatch, capsys, tmp_path):
+    """Positive/regression: a hex at the size floor plus a log naming
+    all ten translation units must still reach build()'s success path
+    on attempt 1 -- proving the two new checks don't false-positive on
+    a real success."""
+    hex_path = tmp_path / "binary.hex"
+    hex_path.write_text(_padded_plain_v2_hex())
+
+    monkeypatch.setattr(make_deploy, "_run_pxt_build",
+                         lambda: GENUINE_CLEAN_BUILD_LOG)
+    monkeypatch.setattr(make_deploy, "HEX", str(hex_path))
+
+    make_deploy.build()  # must not raise / sys.exit
+
+    out = capsys.readouterr().out
+    assert "hex:" in out
+    assert "[attempt 1]" in out
+
+
 # --- build_testrig()'s wiring: testrig's own scratch, own hex path --------
 
 
@@ -474,14 +663,16 @@ def test_build_testrig_uses_its_own_scratch_dir_and_hex_path(monkeypatch, capsys
     runs `pxt build` against DEPLOY_TESTRIG and classifies against
     HEX_TESTRIG, not HEX. The mutual-exclusivity constraint applies to
     the build step too, not just sync(). Real temp hex file (0-marker,
-    plain-V2 fixture), per the sprint 014 block-marker check."""
+    plain-V2 fixture padded to the size floor) and a log naming all ten
+    translation units, per build()'s own gate checks -- build_testrig()
+    reuses build() unchanged, so it is subject to them too."""
     hex_path = tmp_path / "binary.hex"
-    hex_path.write_text(PLAIN_V2_HEX_FIXTURE)
+    hex_path.write_text(_padded_plain_v2_hex())
     calls = []
 
     def fake_run(deploy_dir=None, hex_path=None):
         calls.append((deploy_dir, hex_path))
-        return CLEAN_SUCCESS_LOG
+        return GENUINE_CLEAN_BUILD_LOG
 
     monkeypatch.setattr(make_deploy, "_run_pxt_build", fake_run)
     monkeypatch.setattr(make_deploy, "HEX_TESTRIG", str(hex_path))

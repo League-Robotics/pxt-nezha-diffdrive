@@ -1,9 +1,11 @@
 ---
 id: '023'
 title: Robot identity and build-gate integrity
-status: ticketing
+status: done
 branch: sprint/023-robot-identity-and-build-gate-integrity
-use-cases: [SUC-001, SUC-002]
+use-cases:
+- SUC-001
+- SUC-002
 issues:
 - id-verb-reports-a-baked-constant-not-the-machine-name.md
 - make-deploy-accepts-a-silently-incomplete-hex.md

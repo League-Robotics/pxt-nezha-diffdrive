@@ -707,9 +707,40 @@ void WireHandler::execId(char** fields, size_t fieldCount, uint32_t id,
   errCode = 0;
   Identity identity;
   adapter_.identity(identity);
-  char buf[96];
-  snprintf(buf, sizeof(buf), "id %s %s %s\n", identity.drivetrain,
-                identity.profile, identity.version);
+  // `name` appended as a FOURTH field --
+  // `id <drivetrain> <profile> <version> <name>`. Strictly additive:
+  // fields 0-2 are byte-identical to the 3-field reply radio-robot-lib
+  // pins outside this repo (its own wire-format spec, conformance
+  // fixture, and an independent handler implementation), so any
+  // positional consumer reading only fields 0..2 is unaffected. `name`
+  // is identity.name (Protocol::buildIdentity()'s
+  // microbit_friendly_name() read) -- see protocol.cpp's own kProfile
+  // comment for why `profile` (field 1) is deliberately NOT this verb's
+  // identity source anymore.
+  //
+  // Buffer bumped 96 -> 128 and re-verified against the worst case,
+  // since `profile` (kProfile) is not type-bounded -- it is either the
+  // checked-in "unbaked" placeholder or a deploy-time-baked robot
+  // config filename stem (tools/make_deploy.py's _inject_profile()),
+  // which has no code-enforced length cap. Every stem in
+  // radio-robot-lib/config/robots/ today is 5-11 chars (longest:
+  // "tovez_nocal"); budgeted here to 48 to leave real headroom past
+  // that. `version` (kVersion) is currently "1.0.10" (6 chars),
+  // drift-tested against pxt.json; budgeted to 24. `drivetrain`
+  // (kDrivetrain) is a fixed compile-time literal, currently
+  // "diffdrive" (9 chars) -- counted exactly, not budgeted, since it
+  // can only change via a code edit. `name` is NOT a budget either: a
+  // micro:bit friendly name is ALWAYS exactly MICROBIT_NAME_LENGTH (5)
+  // ASCII letters -- an algorithmic hardware fact
+  // (codal-microbit-v2/source/MicroBitDevice.cpp's
+  // microbit_friendly_name()), not a convention, so this field's
+  // contribution is exact. Worst case: "id " (3) + drivetrain (9) +
+  // " " (1) + profile budget (48) + " " (1) + version budget (24) +
+  // " " (1) + name (5, exact) + "\n" (1) + NUL (1) = 94, comfortably
+  // under 128.
+  char buf[128];
+  snprintf(buf, sizeof(buf), "id %s %s %s %s\n", identity.drivetrain,
+                identity.profile, identity.version, identity.name);
   writeLine(buf);
 }
 

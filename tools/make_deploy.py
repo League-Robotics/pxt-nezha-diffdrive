@@ -260,6 +260,87 @@ def _count_universal_hex_blocks(hex_text):
     return hex_text.count(_UNIVERSAL_HEX_BLOCK_MARKER)
 
 
+# --- hex size floor and translation-unit presence check --------------------
+#
+# Both close the same gap: `classify_attempt()` and
+# `_count_universal_hex_blocks()` judge a build from its LOG and its
+# hex's INTEL-HEX CONTENT, but a build served entirely (or partly) from
+# a stale `.tmp/deploy-head/built/dockercodal` cache can print a clean
+# log, exit 0, and still produce a real, well-formed, but SHORT hex --
+# nothing above catches that.
+#
+# Measured `built/binary.hex` sizes for a genuine, fully-compiled build,
+# read with `stat -f%z` (not inferred from the log), across a series of
+# build checkpoints over time: 1,423,241 / 1,434,671 / 1,442,546 /
+# 1,442,996 / 1,448,621 / 1,463,606 / 1,463,516 bytes -- a tight,
+# slowly-growing band: measured low 1,423,241, measured high 1,463,606.
+# The stale-cache defect this check exists to catch has produced a hex
+# of 1,046,410 bytes -- 27% short of the band, clean exit, nothing in
+# the log to flag it. The floor below is set roughly midway between
+# that truncated hex and the band's low end -- about 250 KB above the
+# former, about 120 KB below the latter -- so it has real margin on
+# both sides without having to track the band's slow growth release
+# over release.
+MIN_HEX_SIZE_BYTES = 1_300_000
+
+# The ten nezha-diffdrive translation units, as `find src -name
+# '*.cpp'` reports them (repo-relative, forward slashes). A literal
+# list, not a filesystem scan performed at check time: a real build log
+# is checked against what this repo is KNOWN to compile, so an 11th
+# `.cpp` file added without updating this list shows up as a gap
+# between what was expected and what compiled, worth noticing, rather
+# than the check silently widening to match whatever happens to be on
+# disk.
+EXPECTED_CPP_FILES = [
+    'src/comms/protocol.cpp',
+    'src/comms/radio_transport.cpp',
+    'src/comms/serial_transport.cpp',
+    'src/comms/wire_adapter.cpp',
+    'src/comms/wire_handler.cpp',
+    'src/core/diffdrive.cpp',
+    'src/motion/motion_engine.cpp',
+    'src/platform/nezha_port.cpp',
+    'src/platform/otos_port.cpp',
+    'src/shims.cpp',
+]
+
+
+def _check_hex_size(size_bytes, floor=MIN_HEX_SIZE_BYTES):
+    """Pure function, no I/O: True iff `size_bytes` (an already-read
+    `os.path.getsize()` result) meets `floor`. Mirrors
+    `_count_universal_hex_blocks()`'s separation of pure logic from the
+    I/O that feeds it -- `build()` reads the hex's size and hands the
+    plain int here, so this is directly unit-testable with no temp
+    files and no filesystem
+    (`tests/tools/test_make_deploy_triage.py`)."""
+    return size_bytes >= floor
+
+
+def _check_translation_units(output, expected_files=EXPECTED_CPP_FILES):
+    """Pure function, no subprocess: which of `expected_files` do NOT
+    appear in any of `output`'s `Building CXX object` lines. Returns a
+    list of missing files -- empty means every expected file was seen.
+
+    Matches on substring against the real log line shape, e.g.:
+      `[ 93%] Building CXX object CMakeFiles/MICROBIT.dir/pxtapp/
+       nezha-diffdrive/src/comms/protocol.cpp.obj`
+    -- the expected repo-relative path (`src/comms/protocol.cpp`) is a
+    substring of the `.obj` path CMake prints, so no path-shape
+    parsing is needed, only `in`.
+
+    Deliberately checks "is each EXPECTED file found", never the
+    reverse ("is each FOUND line one of the expected files"): the
+    reverse is vacuously true when nothing at all was built (an empty
+    found-set is trivially a subset of anything), which is exactly the
+    stale-cache shape this check exists to catch -- a build log with
+    ZERO `Building CXX object` lines must come back with all ten files
+    listed as missing, not as an empty, satisfied check."""
+    build_lines = '\n'.join(
+        line for line in output.splitlines() if 'Building CXX object' in line
+    )
+    return [f for f in expected_files if f not in build_lines]
+
+
 def _select_promoted(manifest, promote_name):
     """Pure function: which `testFiles` entries get promoted into
     `files` for one scratch copy. Matches on exact basename, not
@@ -621,7 +702,14 @@ def build(run_fn=None, hex_path=None, label=''):
     alone; a nonzero block count means
     `PXT_COMPILE_SWITCHES=csv-mbcodal` silently failed to take effect,
     which is a hard failure, not a shape `build()` can treat as
-    flashable."""
+    flashable.
+
+    Also asserts the hex meets `MIN_HEX_SIZE_BYTES` and that all
+    `EXPECTED_CPP_FILES` compiled (`_check_hex_size()` /
+    `_check_translation_units()`, above) -- closing the gap where a
+    build served entirely or partly from a stale
+    `.tmp/deploy-head/built/dockercodal` cache prints a clean log,
+    exits 0, and still produces a real but short/under-compiled hex."""
     if run_fn is None:
         run_fn = _run_pxt_build
     if hex_path is None:
@@ -653,7 +741,42 @@ def build(run_fn=None, hex_path=None, label=''):
             "hex -- PXT_COMPILE_SWITCHES=csv-mbcodal did not take effect. "
             "See tools/DESIGN.md's \"Build checkpoint triage\" section."
         )
-    print(f'\n{label}hex: {hex_path}  ({os.path.getsize(hex_path)} bytes)  [attempt {attempt}]')
+
+    # Scratch-copy dir this hex was built in (hex_path is always
+    # <deploy_dir>/built/binary.hex) -- named in the recovery message
+    # below so it points at the actual stale directory, not a guess.
+    deploy_dir = os.path.dirname(os.path.dirname(hex_path))
+
+    hex_size = os.path.getsize(hex_path)
+    if not _check_hex_size(hex_size):
+        sys.exit(
+            f'\n{label}BUILD FAILED: {hex_path} is {hex_size} bytes, below '
+            f'the {MIN_HEX_SIZE_BYTES}-byte floor -- likely served wholly '
+            'or partly from a stale build cache rather than a genuine '
+            'compile. Wipe the stale scratch copy and rebuild: Python '
+            f'shutil.rmtree({deploy_dir!r}) (rm -rf may be sandbox-denied), '
+            "then rerun this script. See tools/DESIGN.md's \"Build "
+            'checkpoint triage" section.'
+        )
+
+    missing = _check_translation_units(output)
+    if missing:
+        if len(missing) == len(EXPECTED_CPP_FILES):
+            what = ("zero 'Building CXX object' lines found in the "
+                     "captured build output -- nothing was compiled, most "
+                     "likely served entirely from a stale build cache")
+        else:
+            what = ("missing 'Building CXX object' lines for: " +
+                     ', '.join(missing))
+        sys.exit(
+            f'\n{label}BUILD FAILED: not all nezha-diffdrive translation '
+            f'units were compiled ({what}). Wipe the stale scratch copy and '
+            f'rebuild: Python shutil.rmtree({deploy_dir!r}) (rm -rf may be '
+            "sandbox-denied), then rerun this script. See tools/DESIGN.md's "
+            '"Build checkpoint triage" section.'
+        )
+
+    print(f'\n{label}hex: {hex_path}  ({hex_size} bytes)  [attempt {attempt}]')
 
 
 def build_testrig():

@@ -1,8 +1,9 @@
 ---
 id: '002'
 title: ID verb reports the machine name, not the baked profile constant
-status: open
-use-cases: [SUC-001]
+status: done
+use-cases:
+- SUC-001
 depends-on: []
 github-issue: ''
 issue: id-verb-reports-a-baked-constant-not-the-machine-name.md
@@ -55,28 +56,28 @@ or `tools/make_deploy.py --robot` itself.
 
 ## Acceptance Criteria
 
-- [ ] `ID`'s wire reply is `id <drivetrain> <profile> <version> <name>`
+- [x] `ID`'s wire reply is `id <drivetrain> <profile> <version> <name>`
       — a strict 4-field append, fields 0-2 byte-identical to today's
       3-field reply.
-- [ ] `<name>` is `identity.name`, sourced from
+- [x] `<name>` is `identity.name`, sourced from
       `Protocol::buildIdentity()`'s existing
       `identity.name = microbit_friendly_name();` — no new identity
       plumbing.
-- [ ] `execId`'s `snprintf` buffer (`buf[96]`) is confirmed to have
+- [x] `execId`'s `snprintf` buffer (`buf[96]`) is confirmed to have
       headroom for the added field (a micro:bit friendly name is a
       handful of characters; the existing 96-byte buffer already holds
       three fields plus the "id " prefix and trailing newline) — bump
       the buffer size if the implementer's check shows otherwise.
-- [ ] `protocol.cpp`'s `kProfile` doc comment (added by commit `90183f8`,
+- [x] `protocol.cpp`'s `kProfile` doc comment (added by commit `90183f8`,
       currently describing `profile` as "the robot's own fleet
       identity") is corrected to describe build-target selection, not
       identity.
-- [ ] `tests/host/test_wire_grammar.py::test_id_golden_vector` is
+- [x] `tests/host/test_wire_grammar.py::test_id_golden_vector` is
       updated to expect the 4-field reply (currently asserts
       `id diffdrive nezha2 6.0.0\n` after `wg.set_identity(b"testbot",
       b"SN001", b"diffdrive", b"nezha2", b"6.0.0")` — becomes
       `id diffdrive nezha2 6.0.0 testbot\n`).
-- [ ] No other golden-vector or grammar test regresses (`VER`, `HELLO`,
+- [x] No other golden-vector or grammar test regresses (`VER`, `HELLO`,
       `STATUS`, etc. are untouched by this ticket).
 
 ## Implementation Plan
