@@ -30,6 +30,11 @@ visible/teachable radio setup step in student programs.
 - Idempotent: before the lazy `ensureRadioReady()` runs it records the
   value; after the radio is up it re-applies via
   `uBit.radio.setGroup()`.
+- **2026-08-26 update:** sprint 022 is making the CHANNEL per-robot
+  (make_deploy injects each robot's radio_channel; vevov ch 4, tovez
+  ch 3, each on its own relay). 021's detail planning must read 022's
+  outcome before deciding how the block interacts with channel config —
+  the "channel is fixed at 4" assumption below is now stale.
 - Channel stays fixed on the fleet channel 4 (zavaz relay); if exposed
   at all, only as an advanced block. Never default anything onto
   channel 3 (getez).

@@ -27,9 +27,20 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
 
 - **`make_deploy.py`** — builds a flashable hex in a scratch copy of
   the repo with `test/test.ts` promoted into `files` (a `files`-listed
-  test would run inside every student project) and
-  `disablesVariants: ["mbdal"]` dropped (kept, it produces a hex that
-  is dead on the device). Sets `PXT_COMPILE_SWITCHES=csv-mbcodal`
+  test would run inside every student project). `--robot <name>`
+  (default `vevov`) selects more than the flash target: after `sync()`
+  populates the scratch copy, the target robot's `connection.
+  radio_channel` is read from radio-robot-lib's canonical per-robot
+  config (`radio-robot-lib/config/robots/<robot>.json`, never a table
+  in this repo) and substituted into the scratch copy's
+  `src/comms/radio_transport.h` before `build()` runs — the repo's own
+  checked-in source keeps one fixed default (vevov's own channel, 4),
+  so an unparameterised build stays byte-equivalent to before this
+  existed. A missing/unreadable config, or one with no `radio_channel`
+  field, fails the build loudly rather than falling back to a default.
+  Also drops `disablesVariants: ["mbdal"]` from the scratch copy (kept
+  in the repo's own `pxt.json`, it produces a hex that is dead on the
+  device). Sets `PXT_COMPILE_SWITCHES=csv-mbcodal`
   unconditionally in the `pxt build` subprocess environment (sprint
   014, `clasi/issues/never-build-the-v1-mbdal-variant.md`) — this makes
   `pxt-core` select `appTargetVariant=mbcodal` up front, a different

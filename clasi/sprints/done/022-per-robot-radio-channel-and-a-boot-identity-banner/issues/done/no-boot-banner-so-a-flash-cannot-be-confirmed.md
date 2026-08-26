@@ -1,6 +1,8 @@
 ---
-status: pending
+status: done
 sprint: '022'
+tickets:
+- 022-002
 ---
 
 # The robot shows nothing on boot, so there is no way to confirm which build is actually on it

@@ -21,11 +21,38 @@ therefore gets checked in its OWN scratch copy (`--testrig`), generated
 from the same `pxt.json` `testFiles` list, never combined with the
 primary deploy.
 
-  uv run python tools/make_deploy.py            # build
+  uv run python tools/make_deploy.py            # build (vevov, ch 4)
   uv run python tools/make_deploy.py --flash    # build, then flash vevov
+  uv run python tools/make_deploy.py --robot tovez --flash
+                                                 # build for tovez's own
+                                                 # radio channel, then
+                                                 # flash tovez
   uv run python tools/make_deploy.py --testrig  # build/type-check
                                                  # testrig.ts alone, in
                                                  # its own scratch copy
+
+`--robot` selects more than the flash target: after `sync()` populates
+the scratch copy, this script reads the target robot's own
+`connection.radio_channel` from radio-robot-lib's canonical per-robot
+config (`radio-robot-lib/config/robots/<robot>.json`) and substitutes
+it into the SCRATCH COPY's `src/comms/radio_transport.h` before
+`build()` runs -- see `_inject_radio_channel()` below. This repo's own
+checked-in source is never touched, so it keeps one fixed default
+(vevov's own channel, 4); a build invoked with no `--robot` is
+therefore byte-equivalent to a build invoked with `--robot vevov`, both
+before and after this behavior existed. No robot->channel table lives
+in this repo -- radio-robot-lib's JSON is the only place a channel
+number is read from, and a missing/unreadable/incomplete config fails
+the build loudly rather than falling back to any default.
+
+The same scratch-copy substitution mechanism also carries this repo's
+own version (read from `pyproject.toml`'s `0.YYYYMMDD.n`, reformatted
+to the on-device `DD.RR` banner string) and the target robot's name
+into `test/test.ts`'s scratch copy, so the boot banner it displays can
+report which build and which robot a flashed hex actually is -- see
+`_inject_boot_banner()` below. `test.ts` cannot read `pyproject.toml`
+at build time (no filesystem access once compiled), so this is the
+only place that string can come from.
 
 Two traps this script exists to avoid, both of which cost hours:
 
@@ -105,6 +132,17 @@ DEPLOY_TESTRIG = os.path.join(REPO, '.tmp', 'deploy-testrig')
 HEX_TESTRIG = os.path.join(DEPLOY_TESTRIG, 'built', 'binary.hex')
 
 ELITE = '/Volumes/Proj/proj/RobotProjects/radio-robot-elite'
+
+# radio-robot-lib's own per-robot config tree -- the fleet's one
+# canonical source for facts like a robot's assigned radio channel
+# (see _read_robot_radio_channel() below). A sibling checkout, same
+# convention as ELITE above.
+RADIO_ROBOT_LIB = '/Volumes/Proj/proj/RobotProjects/radio-robot-lib'
+
+# Matches sync()/main()'s own pre-existing default -- factored out so
+# _inject_radio_channel()'s tests and main()'s argparse default cannot
+# drift apart.
+DEFAULT_ROBOT = 'vevov'
 
 # --- build-output triage -------------------------------------------------
 #
@@ -279,6 +317,157 @@ def sync_testrig():
     return _sync_scratch(DEPLOY_TESTRIG, 'testrig.ts')
 
 
+# --- per-robot build-time injection ---------------------------------------
+#
+# The scratch copy sync() just populated (DEPLOY) is the injection seam:
+# it keeps the repo's own checked-in src/ robot-agnostic while still
+# letting the actual build carry one robot's own facts. main() calls
+# _inject_radio_channel() AFTER sync(), BEFORE build() -- see main()'s
+# own call site, below.
+
+
+def _robot_config_path(robot):
+    return os.path.join(RADIO_ROBOT_LIB, 'config', 'robots', f'{robot}.json')
+
+
+def _read_robot_radio_channel(robot):
+    """Read `connection.radio_channel` from radio-robot-lib's own
+    per-robot config for `robot` -- the fleet's one canonical source of
+    per-robot truth, already consulted by other tooling. No table of
+    robot->channel lives in this repo; this function is the only place
+    a channel number is read from, and it always goes through this one
+    file.
+
+    FAILS LOUDLY (sys.exit, naming both the robot and the exact path
+    tried) on a missing file, unreadable JSON, or a JSON file with no
+    `radio_channel` field -- a silent fallback here is the exact defect
+    this function exists to close: it is how one robot ended up
+    transmitting on another robot's channel with nothing in the build
+    log to say so."""
+    path = _robot_config_path(robot)
+    if not os.path.exists(path):
+        sys.exit(f"make_deploy: no radio config for robot '{robot}' -- "
+                  f"tried {path}")
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.exit(f"make_deploy: could not read radio config for robot "
+                  f"'{robot}' at {path}: {exc}")
+    channel = config.get('connection', {}).get('radio_channel')
+    if channel is None:
+        sys.exit(f"make_deploy: robot config at {path} has no "
+                  f"connection.radio_channel for robot '{robot}'")
+    return channel
+
+
+# Matches radio_transport.h's own single kChannel declaration. kGroup
+# (fleet-wide, never parameterised) and kTransmitPower are deliberately
+# outside this pattern's reach -- see this section's own top comment.
+_K_CHANNEL_RE = re.compile(r'(static constexpr int kChannel = )\d+(;)')
+
+
+def _inject_radio_channel(deploy_dir, robot):
+    """Substitute `deploy_dir`'s own copy of
+    `src/comms/radio_transport.h`'s `kChannel` constant with `robot`'s
+    configured radio channel (`_read_robot_radio_channel()`, above).
+    Mutates ONLY the scratch copy at `deploy_dir` -- the repo's own
+    checked-in `src/comms/radio_transport.h` is never touched, which is
+    what keeps a build invoked with no `--robot` byte-equivalent to
+    today's (`DEFAULT_ROBOT`, vevov, is already on channel 4, the
+    checked-in value)."""
+    channel = _read_robot_radio_channel(robot)
+    path = os.path.join(deploy_dir, 'src', 'comms', 'radio_transport.h')
+    text = open(path).read()
+    new_text, n = _K_CHANNEL_RE.subn(rf'\g<1>{channel}\g<2>', text)
+    if n != 1:
+        sys.exit(f"make_deploy: expected exactly one kChannel constant in "
+                  f"{path}, found {n} -- radio_transport.h's shape has "
+                  f"changed, update _K_CHANNEL_RE")
+    with open(path, 'w') as f:
+        f.write(new_text)
+    return channel
+
+
+# This repo's own version source -- pyproject.toml's [project] version,
+# `0.YYYYMMDD.n`. Read with a plain regex, not a TOML parser dependency,
+# since only this one field is ever needed.
+_PYPROJECT = os.path.join(REPO, 'pyproject.toml')
+_PYPROJECT_VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
+
+
+def _read_repo_version():
+    """Read this repo's own `0.YYYYMMDD.n` version straight out of
+    `pyproject.toml` -- deliberately NOT `pxt.json`'s own `1.0.10`-style
+    version, which has no day-of-month digit pair in its minor and does
+    not fit the `DD.RR` banner format (see `format_boot_version()`,
+    below). FAILS LOUDLY if the file is missing or has no `version =
+    "..."` line, same posture as `_read_robot_radio_channel()`."""
+    if not os.path.exists(_PYPROJECT):
+        sys.exit(f"make_deploy: repo version file not found: {_PYPROJECT}")
+    text = open(_PYPROJECT).read()
+    m = _PYPROJECT_VERSION_RE.search(text)
+    if not m:
+        sys.exit(f'make_deploy: no version = "..." line found in '
+                  f'{_PYPROJECT}')
+    return m.group(1)
+
+
+def format_boot_version(version):
+    """Pure function: this repo's own `0.YYYYMMDD.n` version string ->
+    the on-device boot-banner format -- the last two digits of the
+    minor (the day of the month) then a dot then the revision,
+    zero-padded to two digits. `0.20260826.5` -> `26.05`. Public (no
+    leading underscore) and pure, like `classify_attempt()`, so it is
+    directly unit-testable with no file I/O.
+
+    Raises `ValueError` (not `sys.exit` -- this function is pure; the
+    caller decides how to fail) if `version` is not shaped like
+    `MAJOR.YYYYMMDD.REVISION`."""
+    parts = version.split('.')
+    if len(parts) != 3:
+        raise ValueError(
+            f'expected MAJOR.YYYYMMDD.REVISION, got {version!r}')
+    _major, minor, revision = parts
+    if len(minor) < 2 or not minor.isdigit():
+        raise ValueError(
+            f'minor version is not day-of-month-shaped: {minor!r}')
+    if not revision.isdigit():
+        raise ValueError(f'revision is not numeric: {revision!r}')
+    day = minor[-2:]
+    return f'{day}.{int(revision):02d}'
+
+
+# Matches test.ts's own BOOT_VERSION/BOOT_ROBOT placeholder
+# declarations (see that file's own top-of-file comment for why they
+# exist as substitutable placeholders at all).
+_BOOT_VERSION_RE = re.compile(r'(const BOOT_VERSION = )"[^"]*"')
+_BOOT_ROBOT_RE = re.compile(r'(const BOOT_ROBOT = )"[^"]*"')
+
+
+def _inject_boot_banner(deploy_dir, robot):
+    """Substitute `deploy_dir`'s own copy of `test/test.ts`'s
+    `BOOT_VERSION`/`BOOT_ROBOT` placeholder constants with this build's
+    actual version (`_read_repo_version()` + `format_boot_version()`,
+    above) and target robot name. Same mechanism as
+    `_inject_radio_channel()`: a scratch-copy-only text substitution:
+    the repo's own checked-in `test/test.ts` keeps its placeholder
+    values, since `test.ts` cannot read `pyproject.toml` itself."""
+    version = format_boot_version(_read_repo_version())
+    path = os.path.join(deploy_dir, 'test', 'test.ts')
+    text = open(path).read()
+    text, n1 = _BOOT_VERSION_RE.subn(rf'\g<1>"{version}"', text)
+    text, n2 = _BOOT_ROBOT_RE.subn(rf'\g<1>"{robot}"', text)
+    if n1 != 1 or n2 != 1:
+        sys.exit(f"make_deploy: expected exactly one BOOT_VERSION and one "
+                  f"BOOT_ROBOT placeholder in {path}, found {n1} and {n2} "
+                  f"-- test.ts's shape has changed, update _BOOT_VERSION_RE"
+                  f"/_BOOT_ROBOT_RE")
+    with open(path, 'w') as f:
+        f.write(text)
+    return version
+
+
 def _run_pxt_build(deploy_dir=None, hex_path=None):
     """Run one `pxt build` attempt in `deploy_dir` against `hex_path`
     (both default to the primary flashable scratch, DEPLOY/HEX --
@@ -403,7 +592,12 @@ def flash(name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--flash', action='store_true')
-    ap.add_argument('--robot', default='vevov')
+    ap.add_argument('--robot', default=DEFAULT_ROBOT,
+                     help="target robot name -- selects the flash "
+                          "target AND the radio channel compiled into "
+                          "the hex (read from radio-robot-lib's "
+                          "config/robots/<robot>.json, substituted "
+                          "into the scratch copy before build)")
     ap.add_argument('--testrig', action='store_true',
                      help="build/type-check test/testrig.ts alone, in "
                           "its own scratch copy -- never combined with "
@@ -420,6 +614,8 @@ def main():
         return
     for f in sync():
         print(f'  {f}')
+    _inject_radio_channel(DEPLOY, a.robot)
+    _inject_boot_banner(DEPLOY, a.robot)
     build()
     if a.flash:
         flash(a.robot)

@@ -24,3 +24,9 @@ __pycache__/
 ._*
 .vscode/settings.json
 *.swp
+
+# --- Local MakeCode editor (pxt serve + ?ws=fs) droppings ---
+.header.json
+.simstate.json
+_history
+projects/

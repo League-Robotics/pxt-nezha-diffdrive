@@ -1,7 +1,7 @@
 ---
 id: '022'
 title: Per-robot radio channel and a boot identity banner
-status: roadmap
+status: done
 branch: sprint/022-per-robot-radio-channel-and-a-boot-identity-banner
 use-cases: []
 issues:
