@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: 'Build checkpoint: full build, flashable hex'
-status: in-progress
+status: done
 use-cases: []
 depends-on:
 - '001'
