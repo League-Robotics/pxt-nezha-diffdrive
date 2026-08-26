@@ -1,4 +1,35 @@
 {
+  // sprint 017 ticket 008: `pxt_modules/core/pxt-core.d.ts` (line 1) carries
+  // `/// <reference no-default-lib="true"/>` -- PXT's own signal that this
+  // package supplies its OWN foundational type surface for the restricted
+  // device runtime (its own `interface Array<T>`, `declare namespace Math`,
+  // etc. -- built from scratch, never meant to coexist with a real
+  // lib.d.ts). TypeScript treats the directive as absolute: it suppresses
+  // ALL automatic default-lib loading for the whole program, silently
+  // ignoring the "lib" option below entirely (confirmed empirically -- with
+  // pxt-core.d.ts in "files" and "lib" set, even `Array` and `Object` fail
+  // to resolve). Explicitly listing the REAL lib .d.ts files as root
+  // "files" entries bypasses that suppression (only *automatic* inference
+  // is suppressed) -- but doing so reintroduces a real `Math`/`Number`
+  // VALUE declaration, which conflicts with PXT's own from-scratch
+  // `declare namespace Math`/`const NaN`/`const Infinity` (namespace-to-
+  // value merging isn't how TS merges a namespace with a `var`, so this
+  // produces "Duplicate identifier" errors rather than a clean merge) --
+  // tried and reverted; see the sprint 017 ticket 008 completion notes.
+  //
+  // `pxt_modules/core/math.ts` and `pxt-helpers.ts` (both added to "files"
+  // below) already supply this project's actual device-side Math/Number
+  // surface (abs, max, min, clamp, sign, roundWithPrecision, isNaN,
+  // parseInt, PI, etc.) -- the same files PXT's own manifest
+  // (`pxt_modules/core/pxt.json`) lists but this tsconfig had never
+  // included, so nothing had ever actually resolved them until this
+  // ticket. `tsconfig-simulator-globals.d.ts` (repo root) supplies the two
+  // remaining, genuinely-missing pieces: `console` (used by
+  // `pxt_modules/core/control.ts`'s own `assert()`/`fail()`) and `Array`'s
+  // iterator protocol (used by `pxt-helpers.ts`'s `for...of` loops) --
+  // both real only in the browser simulator this project's `blocks/sim.ts`
+  // targets, never on-device, and declared nowhere in the device-only PXT
+  // ambient set. See that file's own header comment for the full case.
   "compilerOptions": {
     "target": "es2020",
     "lib": ["es2020", "dom"],
@@ -9,10 +40,13 @@
     "types": []
   },
   "files": [
+    "tsconfig-simulator-globals.d.ts",
     "pxt_modules/core/pxt-core.d.ts",
     "pxt_modules/core/dal.d.ts",
     "pxt_modules/core/enums.d.ts",
     "pxt_modules/core/shims.d.ts",
+    "pxt_modules/core/math.ts",
+    "pxt_modules/core/pxt-helpers.ts",
     "pxt_modules/core/basic.ts",
     "pxt_modules/core/control.ts",
     "pxt_modules/core/input.ts",
