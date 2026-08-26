@@ -53,6 +53,7 @@ enum ConfigField {
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"
+//% groups='["Move", "Drive", "Stop", "World", "Pose", "Remote", "World Setup", "Setup"]'
 namespace diffDrive {
     let defaultSpeed = 15      // [cm/s]
     let defaultYawRate = 90    // [deg/s]
@@ -70,9 +71,10 @@ namespace diffDrive {
     // ================= public API: velocity commands =================
 
     // weight= below (through whileGoingTo()) pins Drive/Move toolbox
-    // order to the pre-split baseline (sprint 012 ticket 007) -- without
-    // it, order ties break on file layout, which the module split
-    // changed.
+    // order -- without it, order ties break on file layout, which the
+    // module split (sprint 012 ticket 007) changed. Group assignment
+    // itself follows the approved layout in
+    // block-toolbox-groups-reorganization.md (sprint 021 ticket 004).
 
     /**
      * Set the two wheel speeds. Continuous-mode command: the robot only
@@ -122,7 +124,7 @@ namespace diffDrive {
      * (about 24 ms), so don't add your own pause() in the loop.
      */
     //% block="drive tick"
-    //% group="Move" weight=200
+    //% group="Drive" weight=180
     export function driveTick(): boolean {
         return _tickDrive()
     }

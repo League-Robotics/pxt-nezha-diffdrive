@@ -89,7 +89,7 @@ namespace diffDrive {
      * completely still for about a second.
      */
     //% block="calibrate world sensor" advanced=true
-    //% group="World"
+    //% group="World Setup"
     export function calibrateWorldSensor(): void {
         otosCalibrate(0)
         basic.pause(800)
@@ -101,7 +101,7 @@ namespace diffDrive {
      * Measured by the lever-arm calibration, then set once at startup.
      */
     //% block="set world sensor offset x %x cm y %y cm yaw %yaw deg"
-    //% group="World" advanced=true
+    //% group="World Setup" advanced=true
     export function setWorldSensorOffset(x: number, y: number,
         yaw: number): void {
         otosSetOffset(Math.round(x * 100), Math.round(y * 100),
@@ -134,7 +134,7 @@ namespace diffDrive {
      * @param tol eg: 1
      */
     //% block="set arrival tolerance %tol cm" advanced=true
-    //% group="World"
+    //% group="World Setup"
     export function setArrivalTolerance(tol: number): void {
         arriveTolCm = Math.max(0.1, tol)
     }

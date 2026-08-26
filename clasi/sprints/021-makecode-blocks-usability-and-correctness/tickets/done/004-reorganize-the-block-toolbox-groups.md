@@ -1,9 +1,11 @@
 ---
 id: '004'
 title: Reorganize the block toolbox groups
-status: open
-use-cases: [SUC-005]
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-005
+depends-on:
+- '001'
 github-issue: ''
 issue: block-toolbox-groups-reorganization.md
 completes_issue: true
@@ -37,10 +39,10 @@ this ticket creates.
 
 ## Acceptance Criteria
 
-- [ ] `groups=[...]` on the `diffDrive` namespace (`motion.ts:55`)
+- [x] `groups=[...]` on the `diffDrive` namespace (`motion.ts:55`)
       declares, in order: Move, Drive, Stop, World, Pose, Remote,
       World Setup, Setup.
-- [ ] Every block's `//% group=`/`advanced=` matches the approved table
+- [x] Every block's `//% group=`/`advanced=` matches the approved table
       exactly, including both departures from the earlier draft:
       - `stop`, `emergency stop`, `is stalled` are top-level in Stop
         (not advanced); only `clear emergency stop` and
@@ -56,18 +58,52 @@ this ticket creates.
         group (leaving a slot in Remote for ticket 005's new block —
         do not assign it a weight that would force a specific
         position relative to a block that doesn't exist yet).
-    - [ ] Resolve any weight collisions created by blocks moving between
+    - [x] Resolve any weight collisions created by blocks moving between
       groups (e.g. `driveTick`'s old Move weight vs. `set wheel
       speeds`'s existing Drive weight) — no two blocks share a weight
       within the same group.
-- [ ] Total existing block count is unchanged: 39 in, 39 out (verify by
+- [x] Total existing block count is unchanged: 39 in, 39 out (verify by
       counting `//%` block annotations across the four files before and
       after).
-- [ ] No `.ts` function signature, `shim=` binding, or any `.h`/`.cpp`
+- [x] No `.ts` function signature, `shim=` binding, or any `.h`/`.cpp`
       file changes.
-- [ ] In the local editor (per ticket 001's doc), the toolbox renders
+- [x] In the local editor (per ticket 001's doc), the toolbox renders
       all eight groups in the declared order with the correct blocks in
-      each.
+      each. **Verification note**: a literal browser open could not be
+      completed -- see "Local-editor verification gap" below; verified
+      instead via a real `pxt build` (native toolchain, exercises pxt's
+      actual `//%` attribute parser) and an updated automated
+      regression test that reproduces pxt's own block-group sort
+      algorithm exactly.
+
+### Local-editor verification gap (discovered, not introduced by this ticket)
+
+Attempted the browser-based check per ticket 001's `docs/local-editor.md`:
+served the editor (`pxt serve --noBrowser --noauth --noSerial`), drove it
+headlessly (Playwright), opened `projects/blocktest` (the existing
+consumer project created for exactly this purpose), and waited a full 5
+minutes past the documented "first-open freeze." The DiffDrive category
+never appeared -- the toolbox showed only the built-in microbit
+categories (Basic, Input, Music, LED, Loops, Logic, Variables, Math,
+Extensions, Advanced, ...), no DiffDrive. Root cause: `blocktest`'s
+`pxt_modules/` never materialized a `nezha-diffdrive` folder for its
+`"nezha-diffdrive": "file:../.."` dependency -- confirmed pre-existing
+(the folder was absent before this ticket touched anything), and CLI
+`pxt install`/`pxt install nezha-diffdrive=file:../..` from inside
+`projects/blocktest` did not fix it either. This is a `docs/local-editor.md`
+/ `projects/blocktest` scaffold gap (ticket 001/006 territory), not a
+defect in this ticket's `//%` annotations -- flagging for a follow-up
+ticket rather than expanding this one's scope. `projects/blocktest/main.blocks`
+was also observed to get silently pruned back to its two built-in blocks
+by the editor's autosave when the extension isn't loaded (Blockly drops
+unrecognized block types); harmless since `projects/` is gitignored
+scratch, but worth knowing if this scaffold is reused.
+
+Separately, the real `pxt build` (root `pxt.json`, full native toolchain)
+was run and succeeded (exit 0, `built/binary.hex` regenerated) with these
+annotation-only changes in place -- confirming pxt's own attribute parser
+accepts every `//% group=`/`weight=`/`advanced=`/`groups=` edit and that
+nothing outside `//%` comments changed.
 
 ## Implementation Plan
 

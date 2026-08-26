@@ -56,10 +56,11 @@ namespace diffDrive {
         })
     }
 
-    // weight= below (onRun/onRunCommand) pins Move group order to the
-    // pre-split baseline (sprint 012 ticket 007) -- see motion.ts's
-    // setWheelSpeeds() for the full rationale; this file supplies two
-    // members of the same group.
+    // Remote group (sprint 021 ticket 004, approved layout in
+    // block-toolbox-groups-reorganization.md): remote dispatch is not
+    // a move, so it gets its own group rather than sharing Move's
+    // weight range. Weights below leave room for ticket 005's new
+    // "set radio group" block without forcing its position.
 
     /**
      * Run code when the named command arrives over the wire protocol --
@@ -74,7 +75,7 @@ namespace diffDrive {
      */
     //% block="on run %name $arg"
     //% draggableParameters="reporter"
-    //% group="Move" weight=190
+    //% group="Remote" weight=190
     export function onRun(name: string, handler: (arg: number) => void): void {
         ensureRunState()
         wireRunDispatch()
@@ -89,7 +90,7 @@ namespace diffDrive {
      */
     //% block="on run command $name $arg"
     //% draggableParameters="reporter"
-    //% group="Move" weight=180
+    //% group="Remote" weight=180
     export function onRunCommand(
         handler: (name: string, arg: number) => void): void {
         ensureRunState()
