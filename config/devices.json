@@ -25,7 +25,7 @@
     "device_id": 2314287040,
     "device_name": "tovez",
     "enum": 2,
-    "port": "/dev/cu.usbmodem2121202",
+    "port": "/dev/cu.usbmodem2121102",
     "role": "NEZHA2",
     "serial": "2314287040",
     "uid": "9906360200052820a8fdb5e413abb276000000006e052820"
@@ -37,7 +37,7 @@
     "device_id": 1198504156,
     "device_name": "vevov",
     "enum": 3,
-    "port": "/dev/cu.usbmodem2121102",
+    "port": "/dev/cu.usbmodem2121202",
     "role": "NEZHA2",
     "serial": "1198504156",
     "uid": "9906360200052820b8e12372c44f4f67000000006e052820"
@@ -49,7 +49,7 @@
     "device_id": 4076631795,
     "device_name": "zavaz",
     "enum": 4,
-    "port": "/dev/cu.usbmodem2121302",
+    "port": "/dev/cu.usbmodem212202",
     "role": "RADIOBRIDGE",
     "serial": "4076631795",
     "uid": "9906360200052820e9d16c3809a44554000000006e052820"

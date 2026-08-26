@@ -1,4 +1,7 @@
 {
+  "env": {
+    "PXT_FORCE_LOCAL": "1"
+  },
   "hooks": {
     "UserPromptSubmit": [
       {

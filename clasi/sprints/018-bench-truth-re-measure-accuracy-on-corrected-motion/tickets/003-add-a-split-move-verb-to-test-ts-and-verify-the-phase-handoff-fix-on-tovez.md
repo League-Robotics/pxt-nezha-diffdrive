@@ -1,12 +1,48 @@
 ---
 id: '003'
 title: Add a split-move verb to test.ts and verify the phase-handoff fix on tovez
-status: in-progress
+status: exception
 use-cases: []
 depends-on: []
 github-issue: ''
 issue: confirm-the-handoff-fix-on-hardware.md
 completes_issue: true
+exception:
+  thrown_by: programmer
+  thrown_at: '2026-08-26T13:27:29.953489+00:00'
+  attempted: 'The code half is COMPLETE and committed: a RUN:arc:<deg> verb was added
+    to test/test.ts (issuing a single move(20, deg) so the >=50 deg split fires),
+    plus tools/arc_capture.py. Built and flashed tovez over USB successfully -- the
+    flash initially hit an erase-sector failure, mbdeploy''s own CTRL-AP mass-erase
+    recovery ran automatically, and the retry programmed 394,240 bytes with 0 identical,
+    i.e. a genuinely fresh image. Firmware identity was positively confirmed rather
+    than assumed: a bogus verb drew silence (consistent with this project''s string-keyed
+    RUN dispatch) while RUN:arc:180 answered DBG:arc:profile=open then GAP:26 / ARC:end
+    -- and RUN:arc exists in no earlier build. Standalone RUN:arc:180 runs completed
+    cleanly and reproducibly, ~2.8 s each. ENDPOINT DATA WAS COLLECTED: three trials
+    averaging +184.0 deg final heading, against the pre-fix measured +168.7 deg on
+    the same commanded 180 deg. That is strongly consistent with the phase-handoff
+    fix working.'
+  conflict: 'The ticket''s actual acceptance criterion -- capture the heading TRAJECTORY
+    h(t), not just the endpoint -- could not be met, because doing so requires telemetry
+    to be streaming while the RUN verb is triggered, and that combination reproducibly
+    hangs the link. Subscribing TLM POSE and then sending any cleartext RUN: line
+    makes tovez go completely silent (no reply AND telemetry stops) for 15+ seconds
+    with no recovery; 141 consecutive empty reads observed. Isolated over six controlled
+    tests: the pre-existing zero-motion RUN:gap verb reproduces it identically, so
+    it is NOT this ticket''s new verb; a v6 STATUS under the same conditions works
+    fine, so it is not general concurrency; and a sequenced v6 "RUN arc 180 #<id>"
+    does not hang but also does nothing, because WireAdapter::onRun() is a permanent
+    kUnknown stub by design -- meaning there is no non-hanging path to trigger a RUN
+    handler by name at all. This is a genuine, previously unknown firmware defect
+    discovered BY this ticket, filed as clasi/issues/cleartext-run-hangs-the-link-under-active-telemetry.md
+    with an isolation table, three ranked hypotheses and a one-reading first diagnostic
+    (probe(26), the serial two-writer drop counter). Fixing it is a src/comms/ change
+    well outside this measurement ticket''s scope. The endpoint-only evidence is recorded
+    and is favourable, but the trajectory measurement -- the thing that distinguishes
+    this fix from the four hypotheses it displaced -- stays open until either that
+    defect is fixed or a capture path that avoids it is built.'
+  surface: user-visible
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 

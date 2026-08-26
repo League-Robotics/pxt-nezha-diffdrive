@@ -122,3 +122,40 @@ stop unwinding may simply not have a leg problem.
 
 **Credit**: measured by the `blocks-local-codeserver-test` session on tovez
 across three campaigns; mechanism identified in `diffdrive.cpp` by this session.
+
+---
+
+## OPEN — hardware confirmation, deferred to 2026-08-26 morning
+
+The fix landed in sprint 015 ticket 005 (merged, v0.20260826.1): `serviceMove()`
+now defers `startSegment()` by one service call at the phase 1 -> phase 2
+handoff, so the caller's own `step(); serviceMove();` cadence delivers a real
+~24 ms neutral tick and the kernel's `twistRef_` re-arms.
+
+Note the naive fix does NOT work and was caught in implementation: a bare
+`kernel_.neutral()` immediately followed by `startSegment()` changes nothing,
+because both merely overwrite the kernel's `command_` and delivery happens on
+the next `step()` — which `MotionEngine` never calls itself.
+
+**Not yet confirmed on hardware.** No flash was attempted: a peer session's
+instrumented rig was on tovez and flashing would have destroyed it. That session
+has since ended.
+
+**The check**, when someone has the board: flash master's current hex, run a
+split move of the `move(20, 180)` shape, and capture the h(t) trajectory.
+
+| measure | before the fix (tovez, measured) | prediction after |
+|---|---:|---:|
+| peak heading during move | +185.5 deg | ~ +185 deg (overshoot is a separate, still-open finding) |
+| peak -> leg-start | **−17.2 deg** | **~0 deg** |
+| final heading | +168.7 deg | ~ +180 deg |
+
+The peer's `RUN:arc:<deg>` verbs in `projects/blocktest` are the right
+instrument; this repo's `test/test.ts` has no split-move verb (`RUN:pivot` is a
+pure pivot and the tours use separate commands), so either re-flash that rig or
+add an equivalent verb first.
+
+Still open regardless of this fix: the **~5.5 deg pivot overshoot** before the
+unwind, and `serviceMove()`'s heading-blindness during phase 2 (`yawTarget == 0`
+skips the whole yaw block), which is the enabling condition rather than the
+cause.
