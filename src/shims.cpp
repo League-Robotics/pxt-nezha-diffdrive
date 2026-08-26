@@ -140,7 +140,7 @@ struct Rig {
   // refuse VELOCITY" gate (DifferentialDrive::checkCommandable()). See
   // engineDefaultCruiseMmS() below, the wire-layer section, for the
   // consumer. Seeded to 150.0f to match the block layer's own
-  // `defaultSpeed` (15 cm/s, main.ts) -- NOT derived from any kernel
+  // `defaultSpeed` (15 cm/s, `blocks/motion.ts`) -- NOT derived from any kernel
   // constant, and NOT the duty ceiling.
   float defaultCruiseMmS_ = 150.0f;  // [mm/s]
 
@@ -404,8 +404,8 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
 
   // This shim predates MotionEngine::moveX()'s single-`cruise` wire-
   // shaped signature (motion-api.md S2: move_x(distance,rot) ==
-  // wheels_x(distance-rot*b/2, distance+rot*b/2)) -- main.ts's block API
-  // still passes two INDEPENDENT rate ceilings (speed for the distance
+  // wheels_x(distance-rot*b/2, distance+rot*b/2)) -- `blocks/motion.ts`'s
+  // block API still passes two INDEPENDENT rate ceilings (speed for the distance
   // axis, yawRate for the yaw axis), picking whichever axis takes
   // LONGER at its own ceiling as the move's shared duration. Reconciled
   // here, not by favoring one of the two legacy rates: derive the
@@ -793,10 +793,10 @@ void estopClear() { ensure().kernel.estopClear(); }
 // separate fault classes (same principle deliverStopNow() above
 // established for a different pair -- a stop must never silently
 // become a latch, and clearing one latch must never silently clear the
-// other). clearStall() is reachable from a dedicated main.ts block AND
-// (ticket 001) the wire's `stall_clear` SET-action ConfigField
+// other). clearStall() is reachable from a dedicated `blocks/stop.ts` block
+// AND (ticket 001) the wire's `stall_clear` SET-action ConfigField
 // (setKernelValue() case 17, below); isStalled() backs the matching
-// main.ts readback block, the STATUS `flags` bit 2, and the
+// `blocks/stop.ts` readback block, the STATUS `flags` bit 2, and the
 // pre-existing diagValue(2) -- three independent ways to read the same
 // bit, all sourced from this one Output field.
 //%
@@ -1128,7 +1128,8 @@ bool engineGoToW(float x, float y, float speed, float arrive,
 // spend far less of it. Zero or negative leaves a field unchanged.
 // NOTE: kept to TWO arguments each. A single five-argument shim made
 // the PXT compiler fail with "TS9200: Assertion failed" -- reported
-// against main.ts(1,1), nowhere near the real cause. The `//%` marker
+// against this project's single pre-sprint-012-split top-level file at
+// (1,1), nowhere near the real cause. The `//%` marker
 // must also sit IMMEDIATELY above the signature; a comment between
 // them makes the scanner miss the function entirely.
 //%

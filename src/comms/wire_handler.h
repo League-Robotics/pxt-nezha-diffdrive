@@ -141,7 +141,7 @@ struct StatusFields {
   // not a fault), nonzero means the kernel is running and every other
   // field means what it says. Sourced by WireAdapter::status() from the
   // SAME diagValue(16) call the telemetry `cyc` column already reads
-  // (src/wire_adapter.cpp), so the two can never disagree -- mirrors
+  // (src/comms/wire_adapter.cpp), so the two can never disagree -- mirrors
   // `i2cf` immediately above, sprint 004 ticket 004's identical
   // same-source guarantee. Unsigned and decimal on the wire
   // (execStatus()'s `cyc=%lu`): a cycle count never goes negative and
@@ -165,7 +165,7 @@ struct StatusFields {
 // target's own yotta/CMake toolchain files), while tests/host/ compiles
 // at -std=c++20 (test_kernel_harness.py), which is why 253 host tests
 // passed against `columns_[i++] = {"name", value, hex};` call sites
-// (WireAdapter::buildSnapshot(), src/wire_adapter.cpp) that could not
+// (WireAdapter::buildSnapshot(), src/comms/wire_adapter.cpp) that could not
 // actually be compiled for the robot. Explicit `Column() = default;`
 // plus this 3-argument converting constructor fix that WITHOUT dropping
 // the NSDMIs (dropping them would leave every default-constructed
@@ -273,7 +273,7 @@ enum class DoneReason : uint8_t {
 // (lastDone()/lastDoneReason(), polled fresh on every ack/nack, S8.8).
 //
 // This file only declares the CONTRACT: diffDrive::WireAdapter
-// (src/wire_adapter.h) is the production implementation, backed by this
+// (src/comms/wire_adapter.h) is the production implementation, backed by this
 // robot's real identity/config/shims.cpp surface; tests/host/
 // wire_mock_adapter.h's WireMockAdapter is the test double (a recording
 // stand-in, never linked into production code). See each motion

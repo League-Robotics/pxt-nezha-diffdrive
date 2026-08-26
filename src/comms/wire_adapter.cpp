@@ -88,13 +88,13 @@ bool engineMoveActive();
 
 namespace {
 
-// The `ConfigField` enum entries (main.ts) mapped onto
+// The `ConfigField` enum entries (`blocks/motion.ts`) mapped onto
 // setKernelValue()/getConfigValue()'s existing field ordinals
 // (shims.cpp) -- one wire NAME per field, replacing the old binary
 // CONFIG/SET_FIELD/GET_CONFIG verbs' bare ordinal one-for-one.
 // Declaration order matches ConfigField's own declaration order so a
-// bare GET's dump reads in the same order a human reading main.ts would
-// expect. See each entry below for its own ordinal provenance.
+// bare GET's dump reads in the same order a human reading `blocks/motion.ts`
+// would expect. See each entry below for its own ordinal provenance.
 struct FieldEntry {
   const char* name;  // wire key
   int ordinal;        // shims.cpp's setKernelValue()/getConfigValue() field
@@ -159,8 +159,10 @@ constexpr uint32_t kFlagWedgeRight = 1u << 7;
 
 // diagValue()'s own field-ordinal contract (shims.cpp) this file reads
 // from -- named here so status() below reads as prose, not magic
-// numbers. Only the subset status() actually needs; shims.cpp's DIAG
-// verb reads many more (protocol.cpp's formatDiag()).
+// numbers. Only the subset status() actually needs; shims.cpp's
+// probe() shim exposes many more diagValue() ordinals to the TS layer
+// for on-device instrumentation (the cleartext DIAG verb this table
+// used to back was retired).
 constexpr int kDiagReady = 0;
 constexpr int kDiagEstopped = 1;
 constexpr int kDiagStallHalted = 2;

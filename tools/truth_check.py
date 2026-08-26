@@ -141,7 +141,7 @@ def main():
     try:
         stream = tlm.require_stream(link, timeout=3.0)
     except tlm.DeadTelemetryError as e:
-        raise SystemExit(str(e))
+        raise SystemExit(str(e)) from e
     print(f"{'commanded':>10} {'CAMERA':>9} {'gyro':>9} {'wheels':>9}"
           f" {'cam/cmd':>8} {'gyro/cam':>9}")
     rows = []
@@ -162,12 +162,12 @@ def main():
         cam_total = [0.0]
         stop = threading.Event()
 
-        def sampler(prev=math.degrees(c0)):
-            while not stop.is_set():
+        def sampler(prev=math.degrees(c0)):  # noqa: B008 -- c0 is loop-fresh per pivot, not shared mutable state
+            while not stop.is_set():  # noqa: B023 -- stop/cam_total are redefined each iteration, but th.join() below always completes (or times out) before the next iteration reassigns them, so this closure never sees a stale binding
                 y = cam_yaw(a.cam, a.tag, samples=1)
                 if y is not None:
                     now = math.degrees(y)
-                    cam_total[0] += wrap(now - prev)
+                    cam_total[0] += wrap(now - prev)  # noqa: B023 -- same as above: joined before cam_total is rebound
                     prev = now
 
         th = threading.Thread(target=sampler, daemon=True)

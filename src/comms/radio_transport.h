@@ -193,8 +193,9 @@ class RadioTransport {
   // Send-path scratch buffers, deliberately MEMBERS not stack locals:
   // the protocol fiber's 2 KB stack cannot afford ~450 B of line+frame
   // buffers at the bottom of the deepest call chain (bench-measured:
-  // run()+formatDiag+sendLine+sendFragmented overflowed the fiber
-  // stack and hard-faulted ~1 s after boot). No longer single-fiber
+  // run()+the (since-retired) DIAG-surface formatter+sendLine+
+  // sendFragmented overflowed the fiber stack and hard-faulted ~1 s
+  // after boot). No longer single-fiber
   // use only as of sprint 004 ticket 002: two fibers now call
   // sendLine() (see its header comment), and sending_ below is what
   // keeps only one of them touching these buffers at a time.
@@ -236,8 +237,10 @@ class RadioTransport {
 
  public:
   // RX diagnostics (bench): datagrams polled with nonzero length, and
-  // frames accepted as complete single-fragment lines. Read by
-  // Protocol::formatDiag() for the DIAG surface.
+  // frames accepted as complete single-fragment lines. Bench-only
+  // counters; the cleartext DIAG verb that used to read them
+  // (Protocol::formatDiag()) was retired, and nothing in the current
+  // tree consumes these.
   uint32_t rxFrames_ = 0;
   uint32_t rxAccepted_ = 0;
   // Count of single-fragment datagrams REJECTED because their declared

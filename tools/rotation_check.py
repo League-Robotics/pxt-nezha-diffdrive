@@ -82,7 +82,7 @@ def main():
     try:
         stream = tlm.require_stream(link, timeout=3.0)
     except tlm.DeadTelemetryError as e:
-        raise SystemExit(str(e))
+        raise SystemExit(str(e)) from e
     print(f"{'commanded':>10} {'wheels':>9} {'gyro':>9} {'gyro/cmd':>9}"
           f" {'drift mm':>9}")
     ratios = []

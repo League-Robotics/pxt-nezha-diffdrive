@@ -10,8 +10,9 @@
 // nothing but <cstdint>/<cmath> and diffdrive.h -- no pxt.h, no CODAL
 // type, anywhere -- so the native host test harness (tests/host/) links
 // and exercises this class with no micro:bit involved. Both call paths
-// this codebase has -- main.ts's block API via shims.cpp's engine*
-// forwards, and the wire adapter (wire_adapter.cpp) via the same
+// this codebase has -- the TypeScript block API (`blocks/`) via
+// shims.cpp's engine* forwards, and the wire adapter (wire_adapter.cpp) via
+// the same
 // forwards -- share this one implementation instead of duplicating the
 // math.
 //
@@ -67,8 +68,8 @@
 //     supervisory re-solving loop motion-api.md S3.5 describes; a caller
 //     that wants that re-issues goToR itself. This heuristic-free
 //     reduction remains distinct from this project's own goToWorld() in
-//     main.ts, a separate, TS-level turn-first/capped-curvature call
-//     path (sprint.md Design Rationale: two paths sharing one primitive,
+//     `blocks/world.ts`, a separate, TS-level turn-first/capped-curvature
+//     call path (sprint.md Design Rationale: two paths sharing one primitive,
 //     not one implementation).
 //   goToW(pose, x, y, speed, arrive, timeout) -- the WORLD-frame
 //     counterpart: motion-api.md S3.6, "go_to_w(x, y) ==
@@ -132,7 +133,7 @@ namespace diffDrive {
 // S3.6's own `gopiv` example) can supply a trivial always-stale
 // implementation without breaking the interface, and the host test
 // harness can supply a fake with no OTOS anywhere in the link.
-// `OtosPort` (src/otos_port.h) implements this for hardware;
+// `OtosPort` (src/platform/otos_port.h) implements this for hardware;
 // `FakePoseSource` (tests/host/fake_pose_source.h) implements it for
 // tests.
 class PoseSource {
@@ -145,7 +146,7 @@ class PoseSource {
   // [rad] world frame, CCW+. Wrap convention is IMPLEMENTATION-DEFINED
   // -- this interface does NOT mandate wrapped or unwrapped, because
   // this project's two hardware implementations legitimately disagree
-  // by construction: `OtosPort` (src/otos_port.h) reports heading
+  // by construction: `OtosPort` (src/platform/otos_port.h) reports heading
   // WRAPPED to (-pi, pi] (the chip's own int16 register, full scale
   // +/-pi); a Rig-odometry-backed source (motion-api.md S3.6's
   // encoder fallback, `EncoderPoseSource`) is deliberately UNWRAPPED,

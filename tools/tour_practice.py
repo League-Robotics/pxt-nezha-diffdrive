@@ -221,7 +221,7 @@ def main():
             # EmptyCaptureError here.
             meta = tlm.write_tlm_csv(stream, stem + '_tlm.csv')
             results.append((name, run, sc))
-            print(f'  corners: ' + '  '.join(
+            print('  corners: ' + '  '.join(
                 (f'{t} {sc[t]:.1f}cm' if sc[t] is not None
                  else f'{t} unobserved') for t in ORDER))
             print(f'  closure {sc["closure"]:.1f} cm, end heading '

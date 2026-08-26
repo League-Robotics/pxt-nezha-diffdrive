@@ -64,18 +64,59 @@ def compile_shared_lib(tmp_path_factory, sources=None, include_dirs=None,
     factored out here (rather than inlined in a fixture) so a later
     ticket's own test file can import it and compile ITS OWN shim against
     a different source list without duplicating the subprocess plumbing.
+
+    Sprint 017 ticket 009 (host-harness-masks-include-path-errors.md):
+    each source is now compiled to its own object file with `-c` instead
+    of one combined `c++ ... file1.cpp file2.cpp` command line, because a
+    combined command applies the SAME include search path to every file
+    on it. The real PXT build never passes a project-root `-I` at all --
+    it stages every file at its own `pxt.json`-relative path and resolves
+    every `#include "..."` relative to the INCLUDING file's own
+    directory. Giving the whole combined command `-I src` (needed only so
+    a tests/host/ shim like kernel_shim.cpp can reach into `src/` with a
+    project-root-relative path of its own) used to also silently widen
+    what compiles for every production `src/` file compiled alongside it
+    in that same invocation -- exactly the masking this ticket exists to
+    close. Splitting into per-file `-c` compiles lets a production
+    `src/` source be compiled with NO `-I` at all (matching the real
+    build exactly, so a wrongly-spelled `src/`-internal include now fails
+    here the same way it fails the real build) while a tests/host/ shim
+    file -- host-only scaffolding nothing under `src/` ever includes --
+    still gets `include_dirs` so it can reach into `src/`. The object
+    files are then linked together, unchanged from before.
     """
-    sources = sources or _SHIM_SOURCES
+    sources = [pathlib.Path(s) for s in (sources or _SHIM_SOURCES)]
     include_dirs = include_dirs or [_SRC_DIR, _TEST_DIR]
+    resolved_src_dir = _SRC_DIR.resolve()
     build_dir = tmp_path_factory.mktemp("host_shim_build")
     lib_path = build_dir / out_name
-    cmd = ["/usr/bin/c++", "-std=c++20", "-Wall", "-Wextra", "-shared", "-fPIC"]
-    for d in include_dirs:
-        cmd += ["-I", str(d)]
-    cmd += [str(s) for s in sources] + ["-o", str(lib_path)]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    object_files = []
+    for index, source in enumerate(sources):
+        is_production_source = source.resolve().is_relative_to(resolved_src_dir)
+        obj_path = build_dir / f"{source.stem}.{index}.o"
+        cmd = ["/usr/bin/c++", "-std=c++20", "-Wall", "-Wextra", "-fPIC", "-c"]
+        if not is_production_source:
+            # Host-only test scaffolding (tests/host/*.cpp): the real
+            # build never compiles these, so it is fine -- and necessary
+            # -- for them to reach into src/ via an explicit search path.
+            for d in include_dirs:
+                cmd += ["-I", str(d)]
+        cmd += [str(source), "-o", str(obj_path)]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode == 0, (
+            f"host compile failed for {source}:\ncommand: {' '.join(cmd)}\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        object_files.append(obj_path)
+
+    link_cmd = (
+        ["/usr/bin/c++", "-shared", "-fPIC", "-o", str(lib_path)]
+        + [str(o) for o in object_files]
+    )
+    result = subprocess.run(link_cmd, capture_output=True, text=True)
     assert result.returncode == 0, (
-        f"host build failed:\ncommand: {' '.join(cmd)}\n"
+        f"host link failed:\ncommand: {' '.join(link_cmd)}\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     return lib_path

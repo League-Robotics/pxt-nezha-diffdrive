@@ -179,13 +179,17 @@ changed by approximately `yaw` degrees.
 **Main flow**:
 1. User places `go to x %x cm y %y cm`, giving a target point in the
    robot's **current** coordinate frame (x forward, y left).
-2. The TS layer computes a constant-curvature arc from the robot's
-   current heading through that point (turn angle
-   `theta = 2*atan2(y,x)`; straight line if `y` is ~0; otherwise a
-   signed-radius arc — see `specification.md` §4.3) and hands the
-   resulting distance+yaw to the same move engine as UC-005.
-3. Block blocks until the arc completes; robot ends at (approximately)
-   the requested point, facing along the arc's end tangent.
+2. The call reaches `MotionEngine::goToR()` directly — unlike UC-005,
+   it does **not** reduce to a distance+yaw pair for the move engine
+   (see `specification.md` §4.3). Below a ~50 deg turn-angle threshold
+   this is one constant-curvature arc (turn angle `theta =
+   2*atan2(y,x)`, short-arc wrapped; straight line if `y` is ~0,
+   otherwise a signed-radius arc); at or above it, `goToR()` pivots to
+   the target's line-of-sight bearing then drives the straight-line
+   chord — two sequential phases instead of one blended arc, but
+   reaching the same `(x, y)` either way.
+3. Block blocks until the move completes; robot ends at (approximately)
+   the requested point, facing along the final leg's end tangent.
 
 **Postconditions**: Same as UC-005, with the pose displacement matching
 the requested `(x, y)` point (subject to closed-loop tracking error).
@@ -407,7 +411,7 @@ right=M2 wiring (§ Wiring assumptions).
 **Postconditions**: The `MotionEngine`'s `trackWidth`/`travelCalib`/
 `rotationalSlip` reflect the new chassis; distances and turns land
 accurately for that chassis instead of the reference defaults
-(114.2 mm track, 0.8102 mm/deg, 0.952 rotational slip — the vevov
+(114.2 mm track, 0.7878 mm/deg, 0.952 rotational slip — the vevov
 bake).
 
 **Error flows**:

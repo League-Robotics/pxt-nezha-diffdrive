@@ -43,7 +43,7 @@ import pathlib
 import pytest
 
 from test_kernel_harness import compile_shared_lib
-from test_motion_engine_reductions import Engine, LEFT, RIGHT, _bind
+from test_motion_engine_reductions import Engine, _bind
 
 _TEST_DIR = pathlib.Path(__file__).resolve().parent
 _SRC_DIR = _TEST_DIR.parent.parent / "src"

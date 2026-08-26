@@ -147,7 +147,7 @@ def main():
     try:
         tlm.require_stream(link, timeout=3.0)
     except tlm.DeadTelemetryError as e:
-        raise SystemExit(str(e))
+        raise SystemExit(str(e)) from e
     print('watching for a tour -- press A, B or A+B on the robot '
           '(ctrl-C to stop)')
 
@@ -167,17 +167,17 @@ def main():
                 continue
             if name is None:
                 continue
-            if s.startswith('DIAG:'):
-                i = s.find('vel=')
-                if i >= 0:
-                    try:
-                        vl, vr = s[i+4:].split(',')[0].split('/')
-                        k = 0.8102/100
-                        vel.append({'t': time.time(), 'l': int(vl)*k,
-                                    'r': int(vr)*k})
-                    except ValueError:
-                        pass
-            elif s.startswith('OCAL:'):
+            # `vel` stays empty on this path: it used to be filled from a
+            # cleartext `DIAG:...vel=<l>/<r>` line (encoder counts/s,
+            # scaled by travelCalib), but the firmware no longer emits
+            # that verb at all, so the branch that parsed it could never
+            # fire and has been removed rather than re-pointed at a
+            # constant that would just as silently never run. Wheel
+            # speed IS available per-frame below (`row['vl']`/`row['vr']`,
+            # already mm/s -- see tools/tlm.py's wheels_mms()) but is not
+            # currently plumbed into `vel`; chart()'s "no wheel-speed
+            # samples" fallback covers this path until that's done.
+            if s.startswith('OCAL:'):
                 fixes.append(s)
             elif s.startswith('TOUR:end'):
                 break

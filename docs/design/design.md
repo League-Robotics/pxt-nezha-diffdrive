@@ -7,7 +7,7 @@ source_paths:
 ---
 # DiffDrive — System Design
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-23 · **Status:** in-flux (as-built through sprint 008, closed and merged — sprints 004, 006, 007 and 008 all closed and merged: radio speaks full v6 with a `thdr`/`t` telemetry frame; motion correctness (goTo geometry, cross-fiber stop delivery, continuous-mode odometry, OTOS heading wrap, encoder-reset rebaseline, encoder `PoseSource` fallback for GO_TO_W); student API (stall-latch clear and readback, the `driveTick()` contract, the wire `cruise == 0` sentinel, simulator parity, a `rotationalSlip` setter); and wire hardening with a standing per-sprint build-checkpoint convention. Sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-26 · **Status:** in-flux (as-built through sprint 016 — sprints 004-016 all closed and merged: radio speaks full v6 with a `thdr`/`t` telemetry frame and a resolved motion-completion channel; motion correctness (goTo geometry, cross-fiber stop delivery, continuous-mode odometry, OTOS heading wrap, encoder-reset rebaseline, encoder `PoseSource` fallback for GO_TO_W); student API (stall-latch clear and readback, the `driveTick()` contract, the wire `cruise == 0` sentinel, simulator parity, a `rotationalSlip` setter); wire/radio hardening (raised payload cap, reject-not-clamp over-length RX) with a standing per-sprint build-checkpoint convention; `src/` regrouped into five dependency-layer subdirectories. See `src/DESIGN.md` for current section-by-section detail.)
 
 ## What the system is
 
@@ -58,7 +58,7 @@ boundaries, nowhere else.
 
 | Layer | Units |
 |---|---|
-| Blocks (`src/blocks/motion.ts`/`pose.ts`/`stop.ts`/`world.ts`/`run.ts`, student-facing — sprint 012 split these out of a single `main.ts`, sprint 013 grouped them into `blocks/`; see `src/DESIGN.md` §9/§15/§16) | cm, cm/s, degrees, degrees/s |
+| Blocks (`src/blocks/motion.ts`/`pose.ts`/`stop.ts`/`world.ts`/`run.ts`, student-facing — sprint 012 split these out of a single `main.ts`, sprint 013 grouped them into `blocks/`; see `src/DESIGN.md` §9) | cm, cm/s, degrees, degrees/s |
 | TS→C++ shim boundary | **integers only**: mm, mm/s, centidegrees, centidegrees/s |
 | Kernel config across the shim boundary | value × 1000 as an integer (the ×1000 fixed-point convention; `setKernelValue`/`getConfigValue` in `shims.cpp`) |
 | MotionEngine | mm, mm/s, radians, ms |
@@ -180,9 +180,77 @@ the two benign abort shapes and retries the latter once automatically)
 and confirms a flashable hex results from the sprint's own final state.
 Sprint 004 ticket 005 and sprint 007 ticket 008 already did this
 informally; sprint 008 is where it became a named, standing practice —
-see `src/DESIGN.md` §11/§14 for the full detail and the tooling change.
+see `src/DESIGN.md` §11 for the full detail and the tooling change.
 
-### Provenance
+### Design-doc validation at sprint close
+
+`close_sprint`'s `design_overlay_apply` step re-runs `clasi design
+validate` automatically, but **only** when the closing sprint both has
+`design_docs_opt_in` set (`design_docs: enabled` in `.clasi/config.yaml`
+— true for this project) and carries its own `design/` overlay
+directory (`sprint.design_dir.exists()`). A sprint that touches
+`src/`/`tools/`/`tests/`/`test/` without ever seeding or writing a
+design overlay closes with **no** automatic validation at all — this is
+exactly how sprint 013 added five new `src/` subsystem directories,
+none with a `DESIGN.md`, and closed anyway (`design-doc-set-fails-
+validation.md`, fixed sprint 017).
+
+**Standing convention (sprint 017).** Because `close_sprint` itself is
+CLASI-server code this project's own tickets cannot change, and a
+naive "always require an overlay" rule would over-constrain trivial
+sprints, the gate is procedural rather than mechanical: `clasi design
+validate` (or the equivalent `validate_design` MCP tool) is an explicit
+step on the Phase 0 checklist in
+[`docs/code-review/guidelines.md`](../code-review/guidelines.md), to be
+run and confirmed `ok: true` before any sprint that adds, removes, or
+renames a declared source root or subsystem directory is closed —
+independent of whether that sprint happens to carry a design overlay.
+
+### Subsystem-doc contract: content, not sprint history
+
+Each canonical subsystem doc (`src/DESIGN.md` and its five thin
+per-directory siblings, `tools/DESIGN.md`, `tests/DESIGN.md`/
+`tests/host/DESIGN.md`/`tests/tools/DESIGN.md`, `test/DESIGN.md`)
+describes the system **as it stands** — its numbered/lettered sections
+are content, not a changelog. None of them narrates what a specific
+sprint changed; that belongs to the sprint's own record
+(`clasi/sprints/NNN-slug/sprint.md`, and — when the sprint opted into
+a `design/` overlay — that overlay's own `.diff.md` files, which are
+git history in a directly-readable form). `src/DESIGN.md` currently
+means S1-S12 by this contract (S12 is `docs/design/design.md`'s and
+`src/DESIGN.md`'s own cross-cutting stop-taxonomy reference table,
+sprint 016 — content, not narrative, so it stays).
+
+**Root cause (sprint 017 investigation).** Five sections violating this
+contract — "Sprint 006/007/008/012/013 — architecture diagram and
+change summary," 902 of `src/DESIGN.md`'s 2045 lines — were removed by
+sprint 017 ticket 004. Reading the sprints' own `design/` overlay diffs
+(e.g. `clasi/sprints/done/006-.../design/DESIGN.diff.md`) shows the
+mechanism: the `architecture-authoring` skill's Mode 2a instructs a
+sprint's architecture author to open the seeded canonical-doc copy and
+"write a complete, updated copy of that document reflecting the
+sprint's planned changes," reusing the same seven-step process (and
+section list — Module Design, Dependency Graph, Migration Concerns,
+Risk, Design Rationale, "Sprint Changes") Mode 1 uses to write a
+**fresh** architecture document from scratch. Applied to a doc that
+already has real, current content (as every subsystem `DESIGN.md` does
+after its first bootstrap), the natural reading is "also add a
+dated 'what this sprint changed' section" rather than "revise the
+existing sections in place and add nothing dated" — and for four of
+the five instances (sprints 006/007/008/012) the overlay diff shows
+exactly that: genuine in-place edits to the real sections, **plus** an
+appended dated section, both landing in the same `close_sprint`
+`design_overlay_apply` copy. (Sprint 013's instance predates that
+sprint ever seeding a `design/` overlay at all — a ticket hand-wrote
+the same pattern directly, evidently imitating what sprints
+006-012 had already established as the visible convention.) This
+skill is CLASI-server code (`.claude/skills/architecture-authoring/
+SKILL.md`, byte-identical to the installed package's own copy) outside
+this project's own source tree, so no ticket here can change its
+instructions — this section is the recorded rule a future sprint's
+architecture author (human or agent) is expected to read instead:
+**edit S1-S12 in place; do not add a new dated section, in the
+overlay or directly in the canonical doc.**
 
 `diffdrive.h/.cpp` is a vendored, byte-stable copy of the
 radio-robot firmware's control kernel — bugs are fixed in both repos

@@ -130,18 +130,30 @@ program flow continues.
 | Block | Function | Params | Behavior |
 |---|---|---|---|
 | `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. Setting both at once produces an arc. Internally: `startMove(distance, yaw)` then `while (_tickDrive())` — the blocking form ticks the control loop itself at the 24 ms cadence until the move ends. |
-| `go to x %x cm y %y cm` | `goTo(x, y)` | `x`: forward distance cm; `y`: leftward distance cm (robot frame) | Drives a curved (constant-curvature) path to a point in the robot's current coordinate frame, then stops. Blocks the same way as `move`. |
+| `go to x %x cm y %y cm` | `goTo(x, y)` | `x`: forward distance cm; `y`: leftward distance cm (robot frame) | Reaches a point in the robot's current coordinate frame exactly, then stops. Blocks the same way as `move`. |
 
-`goTo`'s arc math (in `startGoTo`, shared by the blocking and async
-forms): given target `(x, y)` in the robot frame with the robot
-starting at heading 0 along +x —
-- turn angle `theta = 2 * atan2(y, x)` radians, signed
-- if `|y| < 0.01`: straight line, arc length `s = x`
-- else: signed radius `radius = (x² + y²) / (2y)`, arc length
-  `s = radius * theta`
-- the resulting `(s, theta)` is handed to `startMove` as
-  distance-and-yaw.
-- `x == 0 && y == 0` is a no-op (returns immediately, no move issued).
+`goTo`'s reduction (in `startGoTo`, shared by the blocking and async
+forms) calls `MotionEngine::goToR()` directly, via the `_goToR()`/
+`_setGoToDeadline()` shim pair — unlike `move`, it does **not** reduce
+to distance-and-yaw and go through `startMove()`/`moveX()`. Given
+target `(x, y)` in the robot frame with the robot starting at heading
+0 along +x, `goToR()` (`motion_engine.cpp`) owns its own split:
+- turn angle `theta = 2 * atan2(y, x)` radians, signed, wrapped to the
+  short arc `(-pi, pi]` before anything below uses it.
+- below the same ~50 deg pivot-first threshold `move`'s own reduction
+  uses (`kTurnFirstAngleRad`): one blended constant-curvature arc — if
+  `|y| < 0.01`: straight line, arc length `s = x`; else signed radius
+  `radius = (x² + y²) / (2y)`, arc length `s = radius * theta`.
+- at or above that threshold: pivots to the line-of-sight bearing
+  (`atan2(y, x)`) then drives the straight-line chord (`hypot(x, y)`)
+  — reaching `(x, y)` exactly either way. This is deliberately
+  different from `move`'s own >=50 deg split, which reissues an
+  arc's `(s, theta)` as pivot-then-straight and lands at a different
+  point than the arc it was computed for — correct for `move`, which
+  never claims to reach a specific `(x, y)`, but not something `goTo`
+  can inherit.
+- `hypot(x, y) <= arrive` (the no-op radius passed by the caller —
+  1 mm for `goTo`/`startGoTo`) issues no move at all.
 
 ### 4.4 Move group — position-mode moves (async)
 
@@ -151,7 +163,7 @@ polling.
 | Block | Function | Params | Behavior |
 |---|---|---|---|
 | `start move %distance cm turning %yaw degrees` *(advanced)* | `startMove(distance, yaw)` | same as `move` | Starts a distance/yaw move without waiting. Uses the current `defaultSpeed` (default 15 cm/s) and `defaultYawRate` (default 90 deg/s) as the move's speed/turn-rate targets. Poll `isMoving()` / call `stopMove()`. **Known tick-model gap**: polling does not itself advance the move — without a concurrent `driveTick()` loop the move never progresses and the watchdog stops it within ~150 ms (see `startMove`'s doc comment in `motion.ts`). |
-| `start go to x %x cm y %y cm` *(advanced)* | `startGoTo(x, y)` | same as `goTo` | Starts a go-to without waiting; computes the arc (see §4.3) and calls `startMove` internally. |
+| `start go to x %x cm y %y cm` *(advanced)* | `startGoTo(x, y)` | same as `goTo` | Starts a go-to without waiting; calls `goToR()` directly (see §4.3), not `startMove`. |
 | `moving?` | `isMoving()` | — | Returns whether a move is currently running (`_updateMove()`; this call also advances the move state machine — see §9). |
 | `move progress` *(advanced)* | `moveProgress()` | — | Fraction of the current move completed, 0 to 1 (`_progress() / 1000`). |
 | `stop move` | `stopMove()` | — | Stops the robot now, including a continuous drive command in progress (`setWheelSpeeds`/`driveTwist`) — same full-stop contract as `stop` (§4.2); no-op if the robot was already idle (`_endMove`). |
@@ -691,7 +703,7 @@ original tovez numbers.
 
 | Field | Default | Units |
 |---|---|---|
-| `travelCalib` (MotionEngine, not Config) | 0.8102 | mm/deg |
+| `travelCalib` (MotionEngine, not Config) | 0.7878 | mm/deg |
 | `trackWidth` (MotionEngine, not Config) | 114.2 | mm (caliper-measured; never adjusted to fix a turn) |
 | `rotationalSlip` (MotionEngine, not Config) | 0.952 | — (camera-measured scrub; all rotational correction lives here) |
 | `maxDuty` | 100.0 | % |

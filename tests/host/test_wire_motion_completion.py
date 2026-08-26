@@ -35,8 +35,6 @@ Run with::
     uv run pytest tests/host/test_wire_motion_completion.py
 """
 
-import pytest
-
 from test_wire_motion_verbs import (  # noqa: F401 -- wa re-exported as a fixture
     DONE_ABORTED,
     DONE_ESTOP,

@@ -60,7 +60,7 @@ def main():
     try:
         stream = tlm.require_stream(link, timeout=3.0)
     except tlm.DeadTelemetryError as e:
-        raise SystemExit(str(e))
+        raise SystemExit(str(e)) from e
 
     pose, vel = [], []
     t0 = time.time()

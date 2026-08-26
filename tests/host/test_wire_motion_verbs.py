@@ -918,7 +918,7 @@ def test_stop_now_uppercase_is_decode_failure(wv):
 # "countsPerLength fixed at 1.0" shortcut for THIS verb either. The duty
 # numbers below were quietly WRONG relative to production before this
 # fix: they modeled an uncalibrated 1:1 mm/s->counts/s robot that does
-# not exist (travelCalib_'s real default is 0.8102 mm/deg, i.e.
+# not exist (travelCalib_'s real default is 0.7878 mm/deg, i.e.
 # countsPerMm() != 1.0) -- these tests were passing while describing a
 # robot production could never produce. `full_duty_velocity` is bumped
 # to `_WHEELS_V_FULL_DUTY_VELOCITY` (matching _WHEELS_X_FULL_DUTY_VELOCITY's

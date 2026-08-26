@@ -53,9 +53,10 @@ class Protocol {
   // DifferentialDrive::start()'s own idempotent guard.
   void start();
 
-  // Emit one caller-supplied text line on BOTH transports, the same way
-  // the old sendTelemetry()/sendDeviceBanner() used to mirror their own
-  // lines. Exists because the test programs' result lines (tour fixes,
+  // Emit one caller-supplied text line on BOTH transports -- this
+  // consolidates what used to be two separate single-transport emitters
+  // into the one path anything wanting both wires mirrored now uses.
+  // Exists because the test programs' result lines (tour fixes,
   // calibration data, timings) were written with TypeScript's
   // `serial.writeLine`, which reaches the USB cable only -- and the USB
   // cable only reaches the bench stand, where the wheels are off the
@@ -97,8 +98,8 @@ class Protocol {
   // comment for why it survives the v5 retirement) -----------------------
   // RUN:<name>[:<arg>...] (cleartext, e.g. "RUN:pivot:180") parks the
   // payload text in a slot and raises a MessageBus event carrying that
-  // slot as the event value. main.ts's run dispatcher registers a TS
-  // handler against the same source id, reads the text back through the
+  // slot as the event value. `blocks/run.ts`'s run dispatcher registers a
+  // TS handler against the same source id, reads the text back through the
   // runCommandText shim, and calls whichever handler test.ts bound to
   // that NAME -- so a wire command reads as the test it runs, not as a
   // magic number, and its arguments ride along as text instead of being
@@ -231,7 +232,7 @@ class Protocol {
 // Lazy singleton, mirroring shims.cpp's Rig/ensure() pattern:
 // constructed and started on first access, never from a global
 // constructor (which would run before uBit.init() brings up the CODAL
-// fiber scheduler -- see buildIdentity()). Called from main.ts's
+// fiber scheduler -- see buildIdentity()). Called from `blocks/motion.ts`'s
 // top-level `_startProtocol()` statement, so the boot banner
 // (Protocol::run()'s own) goes out without any host request.
 Protocol& protocol();

@@ -21,11 +21,8 @@ Run with::
 
     uv run pytest tests/tools/test_camproc.py
 """
-import os
 import pathlib
 import sys
-
-import pytest
 
 # tests/tools/test_camproc.py -> tools -> tests -> repo root
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]

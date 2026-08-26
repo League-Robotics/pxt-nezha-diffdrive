@@ -44,7 +44,7 @@ class Repositioner:
     def go(self, x, y, heading, tries=3, echo=True):
         """Drive to (x, y) then face `heading`. Returns the final camera
         pose, or None if the camera lost the robot."""
-        for attempt in range(tries):
+        for _attempt in range(tries):
             pose = self.fix()
             if pose is None:
                 return None

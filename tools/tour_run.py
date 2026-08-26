@@ -223,7 +223,7 @@ def main():
         # What did the robot believe at each corner, vs the camera?
         if fixes:
             print('  robot corner fixes vs camera at the same moment:')
-            for ft, tag, fx, fy, fh in fixes:
+            for ft, tag, fx, fy, _fh in fixes:
                 near = min(cam_rows, key=lambda c: abs(c[0] - t0 - ft))
                 d = math.hypot(fx - near[1], fy - near[2])
                 print(f'    {tag}: robot ({fx:6.1f},{fy:6.1f}) '

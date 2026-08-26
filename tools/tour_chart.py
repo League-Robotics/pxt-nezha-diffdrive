@@ -15,7 +15,7 @@ title, never allowed to destroy the axes.
 
 Run under uv (the user-level matplotlib install is broken):
   uv run --with numpy --with matplotlib python3 tools/tour_chart.py \
-      POSE_CSV VEL_CSV OUT_PNG [--side-mm 300] [--travel-calib 0.8102]
+      POSE_CSV VEL_CSV OUT_PNG [--side-mm 300] [--travel-calib 0.7878]
 """
 import argparse
 import csv
@@ -58,7 +58,7 @@ def main():
                     help='LEGACY: an origin-anchored SQUARE of this side '
                          'instead. Not the current tour; kept for old '
                          'captures only.')
-    ap.add_argument('--travel-calib', type=float, default=0.8102)
+    ap.add_argument('--travel-calib', type=float, default=0.7878)
     ap.add_argument('--title', default='Square Tour')
     a = ap.parse_args()
 

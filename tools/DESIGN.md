@@ -133,7 +133,7 @@ of `wire_handler.cpp` produced a real `error: could not convert
 '{1, true}' from '<brace-enclosed initializer list>' to
 'ScratchCxx14Probe'` diagnostic, classified `hard_failure` and reported
 on attempt 1 with no retry spent. Separately, dropping
-`src/heading_wrap.h` from a scratch copy of `pxt.json`'s `files`
+`src/core/heading_wrap.h` from a scratch copy of `pxt.json`'s `files`
 produced a real `fatal error: heading_wrap.h: No such file or
 directory` at `otos_port.cpp`'s `#include` site, classified the same
 way. A real build against this sprint's own final state hit the

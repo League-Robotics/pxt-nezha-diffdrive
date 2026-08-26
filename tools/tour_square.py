@@ -2,7 +2,7 @@
 """Drive the square with the firmware as it currently stands.
 
 The on-robot goToWorld commits to an arc of 2*bearing, so a leg that
-starts badly off-bearing drives a half-circle. main.ts's own
+starts badly off-bearing drives a half-circle. blocks/world.ts's own
 turnFirstDeg already pivots first beyond a 12 deg bearing error, but
 this tool still points at the target FIRST using the robot's own
 on-device face loop, so goto always starts nearly on-bearing and its
@@ -67,7 +67,7 @@ def main():
     # returns nothing -- so the pose read AFTER a leg is reused as the
     # pose BEFORE the next one.
     rp = robot_pose(link)
-    for lap in range(a.laps):
+    for _lap in range(a.laps):
         for tag in ORDER:
             tx, ty = DOTS[tag]
             if rp is None:

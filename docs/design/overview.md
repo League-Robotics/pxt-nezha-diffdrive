@@ -1,5 +1,7 @@
 # DiffDrive — Overview
 
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-26 · **Status:** in-flux (as-built through sprint 016 — sprints 004-016 all closed and merged; see the Status section below)
+
 ## What it is
 
 DiffDrive is a MakeCode extension for PXT/micro:bit that gives the
@@ -102,9 +104,13 @@ rather than restated independently here and in `specification.md` §12.
 
 v1.0.10, working, shipping as a GitHub-hosted MakeCode extension.
 Versioned to intentionally outrank the firmware's own
-`0.YYYYMMDD.n` tag scheme. Code reflects work through sprint 003
-(protocol v6, motion API, host test harness); sprints 004/005
-(telemetry frames, radio command plane) are planned, not built.
+`0.YYYYMMDD.n` tag scheme. Code reflects work through sprint 016 —
+sprints 004-016 are all closed and merged. Protocol v6 (motion API,
+host test harness) shipped in sprint 003; telemetry frames and the
+radio command plane, both built and in active bench use (not merely
+planned), shipped in sprint 004; hosts can observe motion completion
+over the wire since sprint 005; `src/` was regrouped into five
+dependency-layer subdirectories in sprint 013.
 
 This overview is additive context, not a replacement for
 `specification.md`, which is the authoritative, complete reference for

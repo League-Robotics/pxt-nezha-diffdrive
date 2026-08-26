@@ -19,7 +19,6 @@ Example -- gyro check (rotate servo mid-stream):
   python3 tools/otos_bench.py PORT begin zero streamon record 2 \
       servo 2000 record 3 servo 1000 record 3 streamoff --csv out.csv
 """
-import argparse
 import csv
 import sys
 import time
