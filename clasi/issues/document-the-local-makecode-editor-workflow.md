@@ -42,7 +42,104 @@ repo; the knowledge currently lives in one session's memory notes.
    library dispatch emits no receipt — prove behavior with
    `TLM POSE #1` pose frames or `diffDrive.emitLine()` receipts.
 
-A working `.claude/launch.json` codeserver entry and a populated
-`projects/` scaffold exist on the `claude/blocks-local-codeserver-test-bf93c6`
-branch to crib from. Deliverable: a doc under `docs/` (e.g.
-`docs/local-editor.md`) plus README pointer.
+The working scaffold from the original session is embedded below
+(the session branch is archived; these are the verified-working files).
+`.claude/launch.json` and the gitignore rules are already on master.
+Deliverable: a doc under `docs/` (e.g. `docs/local-editor.md`) plus a
+README pointer.
+
+### Scaffold: `.claude/launch.json`
+
+```json
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "codeserver",
+      "runtimeExecutable": "pxt",
+      "runtimeArgs": ["serve", "--noBrowser", "--noauth", "--noSerial"],
+      "port": 3232
+    }
+  ]
+}
+```
+
+### Scaffold: `projects/blocktest/pxt.json`
+
+The `nezha-diffdrive` dep points at the repo root relative to
+`projects/` (a symlink `projects/nezha-diffdrive -> ../` was used):
+
+```json
+{
+    "name": "blocktest",
+    "dependencies": {
+        "core": "*",
+        "nezha-diffdrive": "file:../nezha-diffdrive-patched",
+        "microphone": "*"
+    },
+    "files": [
+        "main.blocks",
+        "main.ts",
+        "README.md"
+    ],
+    "preferredEditor": "blocksprj"
+}
+```
+
+### Scaffold: `projects/blocktest/main.blocks`
+
+```xml
+<xml xmlns="https://developers.google.com/blockly/xml"><variables></variables><block type="pxt-on-start" x="20" y="20"><statement name="HANDLER"><block type="basic_show_icon"><field name="i">IconNames.Heart</field></block></statement></block><block type="device_button_event" x="263" y="20"><field name="NAME">Button.A</field><statement name="HANDLER"><block type="diffDrive_move"><value name="distance"><shadow type="math_number"><field name="NUM">20</field></shadow></value><value name="yaw"><shadow type="math_number"><field name="NUM">0</field></shadow></value></block></statement></block><block type="diffDrive_onRun" x="657" y="20"><value name="name"><shadow type="text"><field name="TEXT">go</field></shadow></value><value name="HANDLER_DRAG_PARAM_arg"><block type="argument_reporter_number" deletable="false"><field name="VALUE">arg</field></block></value><statement name="HANDLER"><block type="basic_show_icon"><field name="i">IconNames.Yes</field><next><block type="diffDrive_move"><value name="distance"><shadow type="math_number"><field name="NUM">20</field></shadow></value><value name="yaw"><shadow type="math_number"><field name="NUM">0</field></shadow></value><next><block type="basic_show_icon"><field name="i">IconNames.Happy</field></block></next></block></next></block></statement></block></xml>
+```
+
+### Scaffold: `projects/blocktest/main.ts` (the bench-rig RUN verbs)
+
+Includes the diagnostic verbs used in the 2026-08-26 split-pivot
+campaign (probe/clearstall — note the mandatory driveTick between
+clear and read — taper floors/windows):
+
+```ts
+diffDrive.onRun("go", function (arg) {
+    basic.showIcon(IconNames.Yes)
+    diffDrive.move(20, 0)
+    basic.showIcon(IconNames.Happy)
+})
+diffDrive.onRun("turn", function (arg) {
+    basic.showIcon(IconNames.Yes)
+    diffDrive.move(0, arg == 0 ? 180 : arg)
+    basic.showIcon(IconNames.Happy)
+})
+diffDrive.onRun("arc", function (arg) {
+    basic.showIcon(IconNames.Yes)
+    diffDrive.move(20, arg == 0 ? 180 : arg)
+    basic.showIcon(IconNames.Happy)
+})
+diffDrive.onRun("probe", function (arg) {
+    diffDrive.emitLine("PROBE:" + arg + "=" + diffDrive.probe(arg))
+})
+diffDrive.onRun("clearstall", function (arg) {
+    diffDrive.clearStallLatch()
+    diffDrive.driveTick()
+    diffDrive.emitLine("CLEARED:stalled=" + (diffDrive.isStalled() ? 1 : 0))
+})
+diffDrive.onRun("floors", function (arg) {
+    diffDrive.setTaperFloors(45, 35)
+    diffDrive.emitLine("FLOORS:45,35")
+})
+diffDrive.onRun("floorsdefault", function (arg) {
+    diffDrive.setTaperFloors(25, 12)
+    diffDrive.emitLine("FLOORS:25,12")
+})
+diffDrive.onRun("windows", function (arg) {
+    diffDrive.setTaperWindows(400, arg == 0 ? 1 : arg)
+    diffDrive.emitLine("WINDOWS:400," + (arg == 0 ? 1 : arg))
+})
+diffDrive.onRun("windowsdefault", function (arg) {
+    diffDrive.setTaperWindows(400, 180)
+    diffDrive.emitLine("WINDOWS:400,180")
+})
+input.onButtonPressed(Button.A, function () {
+    diffDrive.move(20, 0)
+})
+basic.showIcon(IconNames.Heart)
+```
