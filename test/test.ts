@@ -20,6 +20,13 @@
 // in THIS file, so the tick loop stays visible, instrumentable test
 // code.
 let touring = false
+// Set by RUN:abort (below); tickToCompletion() -- the single choke point
+// every tickedMove()/tickedGoTo() leg goes through -- checks this and
+// stops early. Each tour's own for loop also checks it after every
+// leg/corner and breaks, so a tour issues no further legs and no further
+// OCAL: corner fixes once an abort lands. Reset to false at the START of
+// each tour, so a previous abort does not poison the next run.
+let aborted = false
 let maxGapMs = 0
 // The yaw rate the NEXT RUN:pivot uses -- set by RUN:turnrate, so
 // turn_sweep.py's rate-then-angle two-step (RUN:turnrate:<rate> then
@@ -38,6 +45,16 @@ function tickToCompletion() {
         const now = control.millis()
         if (now - last > maxGapMs) maxGapMs = now - last
         last = now
+        // RUN:abort landed mid-leg -- stop() for real (stopMove(), a real
+        // stop since sprint 016 ticket 001) and return early instead of
+        // ticking this move to its own completion. The single choke point
+        // tickedMove()/tickedGoTo() (and therefore legToward() and every
+        // tour) shares, so no separate abort plumbing is needed in any of
+        // them for the CURRENT leg to stop promptly.
+        if (aborted) {
+            diffDrive.stopMove()
+            return
+        }
     }
 }
 
@@ -183,6 +200,7 @@ function tourRobot() {
     if (touring) return
     if (!worldReady()) return
     touring = true
+    aborted = false
     openLoopProfile()
     maxGapMs = 0
     // Anchor BOTH sources at the start: encoder pose is the local
@@ -194,10 +212,19 @@ function tourRobot() {
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
         legToward(RTX[i], RTY[i])
+        // Checked BEFORE logFix() below: an abort mid-leg must not emit a
+        // plausible-looking OCAL: fix for a corner the robot never
+        // reached.
+        if (aborted) break
         logFix("c" + (i + 1))
     }
     diffDrive.emitLine("GAP:" + maxGapMs)
-    diffDrive.emitLine("TOUR:end")
+    // How the tour ended: an abort takes priority even if e-stop also
+    // tripped at the same moment (the operator's actual intent), then
+    // e-stop (diffDrive.probe(1) -- Output.estopped, shims.cpp's
+    // diagValue() case 1, no new firmware surface), then a clean finish.
+    const reason = aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
+    diffDrive.emitLine("TOUR:end:" + reason)
     basic.showString("A")
     touring = false
 }
@@ -207,6 +234,7 @@ function tourWheels() {
     if (touring) return
     if (!worldReady()) return
     touring = true
+    aborted = false
     openLoopProfile()
     maxGapMs = 0
     diffDrive.resetPose()
@@ -216,11 +244,18 @@ function tourWheels() {
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
         tickedMove(LEG_CM[i], 0)     // straight leg
+        if (aborted) break           // don't also issue the turn below
         tickedMove(0, 90)            // then LEFT
+        // Checked BEFORE logFix() below: an abort mid-leg must not emit a
+        // plausible-looking OCAL: fix for a corner the robot never
+        // reached.
+        if (aborted) break
         logFix("c" + (i + 1))
     }
     diffDrive.emitLine("GAP:" + maxGapMs)
-    diffDrive.emitLine("TOUR:end")
+    // See tourRobot()'s identical comment above for the reason priority.
+    const reason = aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
+    diffDrive.emitLine("TOUR:end:" + reason)
     basic.showString("W")
     touring = false
 }
@@ -270,6 +305,7 @@ function tourWorld() {
         return
     }
     touring = true
+    aborted = false
     // 200 mm/s (stakeholder); 60 cm/s was near the drivetrain ceiling.
     // Accuracy-tuned shaping restored: the earlier "taper too slow"
     // reading was actually the yaw-taper double-count bug
@@ -287,11 +323,28 @@ function tourWorld() {
     logFix("c0")
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
+        // SCOPE BOUNDARY (sprint 016 ticket 005): goToWorld() runs its
+        // OWN internal `while (_tickDrive())` loop inside
+        // src/blocks/world.ts, which this sprint does not touch -- so a
+        // plain abort here cannot interrupt THIS leg mid-flight, only the
+        // next one, via the `if (aborted) break` immediately below. An
+        // e-stop, unlike abort, still interrupts the CURRENT leg promptly
+        // regardless: ticket 002's serviceMove() fix already makes
+        // _tickDrive() return false on the next tick once out.estopped is
+        // set, so world.ts's own loop exits on its own with no change
+        // needed here.
         diffDrive.goToWorld(CORNERS_X[i], CORNERS_Y[i])
+        // Checked BEFORE logFix() below: an abort must not emit a
+        // plausible-looking OCAL: fix for a corner the robot never
+        // reached (or only partially reached, for THIS leg specifically,
+        // per the scope-boundary note above).
+        if (aborted) break
         logFix("c" + (i + 1))
     }
     diffDrive.emitLine("GAP:" + maxGapMs)
-    diffDrive.emitLine("TOUR:end")
+    // See tourRobot()'s identical comment above for the reason priority.
+    const reason = aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
+    diffDrive.emitLine("TOUR:end:" + reason)
     basic.showString("B")
     touring = false
 }
@@ -341,6 +394,18 @@ input.onButtonPressed(Button.AB, function () {
 })
 
 // ---- named run commands ---------------------------------------------
+
+// RUN:abort -- unlike every other RUN handler here, this one does NOT
+// guard on `touring`: an abort sent while nothing is touring is a
+// harmless no-op (nothing ever reads `aborted` outside a tour/tickedMove
+// leg), and an abort sent WHILE a tour is running must land even though
+// that tour's own handler is mid-execution on its own fiber -- RUN
+// handlers already interleave (that is exactly why `touring` exists as a
+// re-entrancy guard for the MOVE-issuing handlers in the first place).
+diffDrive.onRun("abort", function (arg: number) {
+    aborted = true
+})
+
 diffDrive.onRun("tour", function (arg: number) {
     const which = diffDrive.runArgText(0)
     if (which == "robot") tourRobot()
