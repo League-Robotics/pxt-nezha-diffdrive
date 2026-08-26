@@ -1,6 +1,8 @@
 ---
-status: pending
+status: done
 sprint: '022'
+tickets:
+- 022-001
 ---
 
 # The firmware hardcodes one radio channel, but the fleet is on several — tovez has been on the wrong one

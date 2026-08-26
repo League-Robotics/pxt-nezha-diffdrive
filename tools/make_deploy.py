@@ -21,11 +21,29 @@ therefore gets checked in its OWN scratch copy (`--testrig`), generated
 from the same `pxt.json` `testFiles` list, never combined with the
 primary deploy.
 
-  uv run python tools/make_deploy.py            # build
+  uv run python tools/make_deploy.py            # build (vevov, ch 4)
   uv run python tools/make_deploy.py --flash    # build, then flash vevov
+  uv run python tools/make_deploy.py --robot tovez --flash
+                                                 # build for tovez's own
+                                                 # radio channel, then
+                                                 # flash tovez
   uv run python tools/make_deploy.py --testrig  # build/type-check
                                                  # testrig.ts alone, in
                                                  # its own scratch copy
+
+`--robot` selects more than the flash target: after `sync()` populates
+the scratch copy, this script reads the target robot's own
+`connection.radio_channel` from radio-robot-lib's canonical per-robot
+config (`radio-robot-lib/config/robots/<robot>.json`) and substitutes
+it into the SCRATCH COPY's `src/comms/radio_transport.h` before
+`build()` runs -- see `_inject_radio_channel()` below. This repo's own
+checked-in source is never touched, so it keeps one fixed default
+(vevov's own channel, 4); a build invoked with no `--robot` is
+therefore byte-equivalent to a build invoked with `--robot vevov`, both
+before and after this behavior existed. No robot->channel table lives
+in this repo -- radio-robot-lib's JSON is the only place a channel
+number is read from, and a missing/unreadable/incomplete config fails
+the build loudly rather than falling back to any default.
 
 Two traps this script exists to avoid, both of which cost hours:
 
@@ -105,6 +123,17 @@ DEPLOY_TESTRIG = os.path.join(REPO, '.tmp', 'deploy-testrig')
 HEX_TESTRIG = os.path.join(DEPLOY_TESTRIG, 'built', 'binary.hex')
 
 ELITE = '/Volumes/Proj/proj/RobotProjects/radio-robot-elite'
+
+# radio-robot-lib's own per-robot config tree -- the fleet's one
+# canonical source for facts like a robot's assigned radio channel
+# (see _read_robot_radio_channel() below). A sibling checkout, same
+# convention as ELITE above.
+RADIO_ROBOT_LIB = '/Volumes/Proj/proj/RobotProjects/radio-robot-lib'
+
+# Matches sync()/main()'s own pre-existing default -- factored out so
+# _inject_radio_channel()'s tests and main()'s argparse default cannot
+# drift apart.
+DEFAULT_ROBOT = 'vevov'
 
 # --- build-output triage -------------------------------------------------
 #
@@ -279,6 +308,78 @@ def sync_testrig():
     return _sync_scratch(DEPLOY_TESTRIG, 'testrig.ts')
 
 
+# --- per-robot build-time injection ---------------------------------------
+#
+# The scratch copy sync() just populated (DEPLOY) is the injection seam:
+# it keeps the repo's own checked-in src/ robot-agnostic while still
+# letting the actual build carry one robot's own facts. main() calls
+# _inject_radio_channel() AFTER sync(), BEFORE build() -- see main()'s
+# own call site, below.
+
+
+def _robot_config_path(robot):
+    return os.path.join(RADIO_ROBOT_LIB, 'config', 'robots', f'{robot}.json')
+
+
+def _read_robot_radio_channel(robot):
+    """Read `connection.radio_channel` from radio-robot-lib's own
+    per-robot config for `robot` -- the fleet's one canonical source of
+    per-robot truth, already consulted by other tooling. No table of
+    robot->channel lives in this repo; this function is the only place
+    a channel number is read from, and it always goes through this one
+    file.
+
+    FAILS LOUDLY (sys.exit, naming both the robot and the exact path
+    tried) on a missing file, unreadable JSON, or a JSON file with no
+    `radio_channel` field -- a silent fallback here is the exact defect
+    this function exists to close: it is how one robot ended up
+    transmitting on another robot's channel with nothing in the build
+    log to say so."""
+    path = _robot_config_path(robot)
+    if not os.path.exists(path):
+        sys.exit(f"make_deploy: no radio config for robot '{robot}' -- "
+                  f"tried {path}")
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.exit(f"make_deploy: could not read radio config for robot "
+                  f"'{robot}' at {path}: {exc}")
+    channel = config.get('connection', {}).get('radio_channel')
+    if channel is None:
+        sys.exit(f"make_deploy: robot config at {path} has no "
+                  f"connection.radio_channel for robot '{robot}'")
+    return channel
+
+
+# Matches radio_transport.h's own single kChannel declaration. kGroup
+# (fleet-wide, never parameterised) and kTransmitPower are deliberately
+# outside this pattern's reach -- see this section's own top comment.
+_K_CHANNEL_RE = re.compile(r'(static constexpr int kChannel = )\d+(;)')
+
+
+def _inject_radio_channel(deploy_dir, robot):
+    """Substitute `deploy_dir`'s own copy of
+    `src/comms/radio_transport.h`'s `kChannel` constant with `robot`'s
+    configured radio channel (`_read_robot_radio_channel()`, above).
+    Mutates ONLY the scratch copy at `deploy_dir` -- the repo's own
+    checked-in `src/comms/radio_transport.h` is never touched, which is
+    what keeps a build invoked with no `--robot` byte-equivalent to
+    today's (`DEFAULT_ROBOT`, vevov, is already on channel 4, the
+    checked-in value)."""
+    channel = _read_robot_radio_channel(robot)
+    path = os.path.join(deploy_dir, 'src', 'comms', 'radio_transport.h')
+    text = open(path).read()
+    new_text, n = _K_CHANNEL_RE.subn(rf'\g<1>{channel}\g<2>', text)
+    if n != 1:
+        sys.exit(f"make_deploy: expected exactly one kChannel constant in "
+                  f"{path}, found {n} -- radio_transport.h's shape has "
+                  f"changed, update _K_CHANNEL_RE")
+    with open(path, 'w') as f:
+        f.write(new_text)
+    return channel
+
+
 def _run_pxt_build(deploy_dir=None, hex_path=None):
     """Run one `pxt build` attempt in `deploy_dir` against `hex_path`
     (both default to the primary flashable scratch, DEPLOY/HEX --
@@ -403,7 +504,12 @@ def flash(name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--flash', action='store_true')
-    ap.add_argument('--robot', default='vevov')
+    ap.add_argument('--robot', default=DEFAULT_ROBOT,
+                     help="target robot name -- selects the flash "
+                          "target AND the radio channel compiled into "
+                          "the hex (read from radio-robot-lib's "
+                          "config/robots/<robot>.json, substituted "
+                          "into the scratch copy before build)")
     ap.add_argument('--testrig', action='store_true',
                      help="build/type-check test/testrig.ts alone, in "
                           "its own scratch copy -- never combined with "
@@ -420,6 +526,7 @@ def main():
         return
     for f in sync():
         print(f'  {f}')
+    _inject_radio_channel(DEPLOY, a.robot)
     build()
     if a.flash:
         flash(a.robot)
