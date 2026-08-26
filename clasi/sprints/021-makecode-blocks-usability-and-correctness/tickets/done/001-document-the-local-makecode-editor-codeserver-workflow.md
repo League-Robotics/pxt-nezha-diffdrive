@@ -1,8 +1,9 @@
 ---
 id: '001'
 title: Document the local MakeCode editor (codeserver) workflow
-status: open
-use-cases: [SUC-006]
+status: done
+use-cases:
+- SUC-006
 depends-on: []
 github-issue: ''
 issue: document-the-local-makecode-editor-workflow.md
@@ -30,7 +31,7 @@ anyway for traceability against SUC-006 and the linked issue.
 
 ## Acceptance Criteria
 
-- [ ] `docs/local-editor.md` exists and covers all seven points from
+- [x] `docs/local-editor.md` exists and covers all seven points from
       `document-the-local-makecode-editor-workflow.md`:
       1. Serving: `pxt serve --noBrowser --noauth --noSerial` from the
          repo root; note the harmless "scandir 'libs'" startup message.
@@ -57,15 +58,23 @@ anyway for traceability against SUC-006 and the linked issue.
          sequenced path is a different parser); library dispatch emits
          no receipt, so behavior is proved via `TLM POSE #1` frames or
          `diffDrive.emitLine()` receipts, not a RUN acknowledgment.
-- [ ] The scaffold embedded in the issue (`.claude/launch.json`,
+- [x] The scaffold embedded in the issue (`.claude/launch.json`,
       `projects/blocktest/pxt.json`, `main.blocks`, `main.ts`) is
       reflected in the doc, adjusted for whatever `projects/` actually
       contains today (see Open Question 3 in this sprint's Architecture
       section — confirm before writing whether `projects/` needs to be
       created by the reader or already exists, gitignored, on master).
-- [ ] README gets a pointer to `docs/local-editor.md` (a short link, not
+      Confirmed live: `.claude/launch.json` is tracked on master;
+      `projects/` is gitignored and empty on a fresh checkout — the doc
+      has the reader create it. The `pxt.json` dependency is adjusted
+      from the issue's `file:../nezha-diffdrive-patched` (a
+      session-local patched copy that no longer exists) to
+      `file:../..`, pointing straight at this repo's own root
+      `pxt.json` — confirmed live via `pxt serve`'s `/api/list` and a
+      `pxt install`/`pxt build` dependency-resolution pass.
+- [x] README gets a pointer to `docs/local-editor.md` (a short link, not
       a duplicate of its content).
-- [ ] A fresh reader (not the original 2026-08-25 session) can follow
+- [x] A fresh reader (not the original 2026-08-25 session) can follow
       the doc end-to-end: serve, see a disk project, build, and flash,
       without asking a question the doc doesn't already answer.
 

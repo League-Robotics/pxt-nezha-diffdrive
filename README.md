@@ -112,6 +112,13 @@ Left wheel on M2 (mirrored), right wheel on M1 — the standard two-motor
 chassis. The motor ports and directions are compile-time defaults in
 `src/shims.cpp`.
 
+## Local development
+
+Working on the extension itself (blocks, `sim.ts`, the toolbox layout)?
+See [`docs/local-editor.md`](docs/local-editor.md) for serving a local
+MakeCode editor against this repo, seeing it as a disk project, and
+building/flashing a plain V2 hex instead of the editor's own Download.
+
 ## Provenance
 
 The wheel kernel is vendored from the
