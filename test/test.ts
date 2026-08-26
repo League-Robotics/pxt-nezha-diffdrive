@@ -71,6 +71,93 @@ function tickedGoTo(x: number, y: number) {
     tickToCompletion()
 }
 
+// ---- RUN:arc trajectory sampling --------------------------------------
+// A request/reply round trip DURING a move is dangerous (src/shims.cpp's
+// probe() doc comment: a 197.5 mm leg collapsed to 0.3 mm), and
+// subscribing v6 POSE telemetry then sending a cleartext RUN: line hangs
+// the link outright (clasi/issues/cleartext-run-hangs-the-link-under-
+// active-telemetry.md) -- so RUN:arc's heading trajectory cannot be read
+// live off the wire at all. Instead this samples diffDrive.heading()
+// itself, once per tick, on THIS fiber while the move runs -- the same
+// "a test program samples into arrays and dumps afterwards instead"
+// pattern probe()'s own comment already prescribes for exactly this
+// class of problem -- and dumps the trajectory as ARCT: lines after the
+// move completes. No telemetry subscription is ever needed, so the link
+// hang above cannot trigger.
+//
+// A 180 deg arc runs about 2.8 s at ~24 ms/tick (roughly 120 ticks);
+// this cap leaves comfortable headroom above that and stops growing the
+// array unbounded if a tick stall ever makes a move run long.
+const ARC_SAMPLE_CAP = 200
+let hSamples: number[] = []
+let hSamplesCapped = false
+
+// Deliberately its own tick loop rather than a flag on the shared
+// tickToCompletion() above: every other caller of that function (both
+// tours, RUN:pivot, RUN:face, legToward()) stays completely untouched by
+// this ticket's change.
+function tickArcSampled(d: number, y: number) {
+    hSamples = []
+    hSamplesCapped = false
+    diffDrive.startMove(d, y)
+    let last = control.millis()
+    while (diffDrive.driveTick()) {
+        const now = control.millis()
+        if (now - last > maxGapMs) maxGapMs = now - last
+        last = now
+        if (hSamples.length < ARC_SAMPLE_CAP) {
+            hSamples.push(Math.round(diffDrive.heading() * 100))
+        } else {
+            hSamplesCapped = true
+        }
+        // See tickToCompletion()'s identical check: stop for real and
+        // return early rather than sampling this move to its own
+        // completion.
+        if (aborted) {
+            diffDrive.stopMove()
+            return
+        }
+    }
+    // One more sample after the loop exits. driveTick() already applied
+    // the FINAL tick's state before returning false, so that settled
+    // end-of-move heading is never seen by the `while` loop above (the
+    // same reason straightRun() and RUN:pivot only read heading() after
+    // their own tick loop has returned, not on the loop's last
+    // iteration).
+    if (hSamples.length < ARC_SAMPLE_CAP) {
+        hSamples.push(Math.round(diffDrive.heading() * 100))
+    } else {
+        hSamplesCapped = true
+    }
+}
+
+// Dump hSamples as ARCT: lines, chunked well under the wire's 240-byte
+// line cap (serial_transport.h/radio_transport.h's kMaxLineBytes and
+// protocol.cpp's Protocol::emitLine all share that one 240-byte clip).
+// 20 centidegree ints per line is a wide margin even at 6 digits + sign
+// + comma each.
+const ARCT_CHUNK = 20
+
+function emitTrajectory() {
+    // meta line first: total sample count and whether ARC_SAMPLE_CAP was
+    // hit (in which case the trajectory below is truncated, not the
+    // whole move) -- read this before trusting the chunk lines' count.
+    diffDrive.emitLine("ARCT:meta:" + hSamples.length
+        + ":" + (hSamplesCapped ? 1 : 0))
+    let chunk = 0
+    for (let i = 0; i < hSamples.length; i += ARCT_CHUNK) {
+        let csv = ""
+        const end = Math.min(i + ARCT_CHUNK, hSamples.length)
+        for (let j = i; j < end; j++) {
+            if (j > i) csv += ","
+            csv += hSamples[j]
+        }
+        diffDrive.emitLine("ARCT:" + chunk + ":" + csv)
+        chunk += 1
+    }
+    diffDrive.emitLine("ARCT:done")
+}
+
 // ---- the playfield's four orange dots -------------------------------
 // A1-centred, +x east, +y north:
 //   NW (-50, 30)   NE ( 50, 30)
@@ -564,15 +651,21 @@ diffDrive.onRun("pivot", function (arg: number) {
 // the caller here, same as RUN:pivot, this is not enforced below).
 // Deliberately no worldReady()/readWorld() -- same reasoning as
 // RUN:pivot: this measures encoder/gyro heading only, no OTOS.
+//
+// Uses tickArcSampled() (above), not tickedMove(): it captures the
+// heading trajectory itself, sampled on this fiber during the move, and
+// ARCT: lines after ARC:end dump it -- see that function's own comment
+// for why (a telemetry-subscribed capture of this deadlocks the link).
 diffDrive.onRun("arc", function (arg: number) {
     if (touring) return
     touring = true
     openLoopProfile()
     diffDrive.emitLine("DBG:arc:profile=open")
     maxGapMs = 0
-    tickedMove(20, diffDrive.runArg(0))
+    tickArcSampled(20, diffDrive.runArg(0))
     diffDrive.emitLine("GAP:" + maxGapMs)
     diffDrive.emitLine("ARC:end")
+    emitTrajectory()
     touring = false
 })
 

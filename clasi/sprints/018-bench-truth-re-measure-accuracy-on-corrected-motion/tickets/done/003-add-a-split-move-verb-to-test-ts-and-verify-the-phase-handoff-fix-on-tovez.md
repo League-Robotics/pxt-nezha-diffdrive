@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: Add a split-move verb to test.ts and verify the phase-handoff fix on tovez
-status: exception
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -199,37 +199,45 @@ against assuming rig placement from memory.
 ## Acceptance Criteria
 
 - [x] `RUN:arc:<deg>` exists in `test/test.ts`, issues a single
-      `tickedMove(20, deg)` call under the accuracy shaping profile,
-      and emits a `GAP:`/terminal line following this file's existing
-      handler conventions.
+      combined move (20 cm, the commanded degrees) under the accuracy
+      shaping profile, and emits a `GAP:`/terminal line following this
+      file's existing handler conventions. Now issued via
+      `tickArcSampled()` rather than `tickedMove()` -- the same single
+      `startMove(20, deg)` call, ticked to completion the same way,
+      but also sampling `diffDrive.heading()` once per tick (see the
+      repeat-session evidence below for why).
 - [x] `test/test.ts` still compiles (confirmed directly here with a
       quick build check, and again by ticket 006's full build
-      checkpoint).
+      checkpoint; re-confirmed again this session with
+      `tsc --noEmit -p tsconfig.json` after the `tickArcSampled()`
+      change, and by the real build `make_deploy.py` produced).
 - [x] tovez is flashed with this sprint's build; the flash is
       confirmed to have landed via a firmware-identity check (not just
-      "the board answered").
-- [ ] A full heading trajectory (not endpoint-only) is captured for at
-      least one `RUN:arc:180` run, using the `t` frame's `h` column at
-      native cadence. **BLOCKED this session** -- see Hardware
-      Evidence: a newly-discovered link hang (cleartext `RUN:` sent
-      while v6 POSE telemetry is actively subscribed) prevents the
-      documented capture order. Endpoint-only data was collected
-      instead as the closest safe substitute; it is NOT a substitute
-      for this criterion, which stays unchecked.
-- [ ] The measurement table above is filled in with this run's actual
+      "the board answered"). This session's own hardware access
+      shifted to vevov (`mbdeploy probe`: `tovez CONN=no`, `vevov
+      CONN=yes`) -- see the repeat-session evidence below; both are
+      the same NEZHA2 firmware target, and the flash/identity-check
+      discipline this criterion asks for was repeated in full on
+      vevov.
+- [x] A full heading trajectory (not endpoint-only) is captured for at
+      least one `RUN:arc:180` run, using per-tick `h` samples at
+      native cadence. **UNBLOCKED and captured this session** -- see
+      "Repeat session" below: the v6-telemetry capture path stays
+      blocked (link-hang defect unfixed, out of scope), but an
+      on-device sample-and-dump capture (no telemetry involved at all)
+      produced three complete trajectories.
+- [x] The measurement table above is filled in with this run's actual
       values and a stated verdict: does the peak-to-leg-start unwind
-      collapse toward ~0 deg as predicted, confirming the fix? Only
-      the final-heading row could be filled in (see table below); peak
-      and peak->leg-start require the trajectory this session could
-      not capture.
+      collapse toward ~0 deg as predicted, confirming the fix? Yes --
+      see "Repeat session" below: -17.2 deg (pre-fix) collapses to
+      -0.49 deg mean across three trials. Verdict: **CONFIRMED**.
 - [x] Completion notes explicitly address bench-stand discipline per
       "4" above -- no claim depending on real translation.
 - [x] Completion notes state whether the fix is CONFIRMED, and if not,
       what the data showed instead (do not silently drop a
-      disconfirming result). Verdict: NOT FORMALLY CONFIRMED (the
-      required trajectory data is missing), but the endpoint data
-      collected is strongly consistent with the fix working -- see
-      Hardware Evidence.
+      disconfirming result). Verdict: **CONFIRMED** by direct h(t)
+      trajectory measurement this session -- see "Repeat session"
+      below.
 
 ## Hardware Evidence
 
@@ -374,6 +382,119 @@ either working around this blocker or with the underlying `src/comms/`
 hang fixed is needed to move this from "consistent with" to
 "confirmed."
 
+### Repeat session -- vevov, full trajectory captured, fix CONFIRMED
+
+**Session**: vevov, USB, `/dev/cu.usbmodem2121102` (confirmed via
+`mbdeploy probe`: `vevov CONN=yes`; `tovez CONN=no` this session --
+getez and zavaz are relays, not robots, and irrelevant to which robot
+is measured). No relay was up; USB was the only reachable path, so
+this measurement is bench-stand (wheels off the ground) by the same
+reasoning the prior session already established. 2026-08-26.
+
+The link-hang blocker above was **not fixed** -- it remains open,
+filed at
+`clasi/issues/cleartext-run-hangs-the-link-under-active-telemetry.md`,
+and stays out of this ticket's scope. It was worked AROUND instead,
+using this project's own documented pattern for exactly this class of
+problem: `src/shims.cpp`'s `probe()` doc comment already states that a
+request/reply round trip during a move is dangerous and "a test
+program samples into arrays and dumps afterwards instead." `RUN:arc`
+(`test/test.ts`) now samples `diffDrive.heading()` itself, once per
+tick, on the SAME fiber that runs the move (`tickArcSampled()`, a
+dedicated tick loop kept separate from the shared `tickToCompletion()`
+so every other caller -- both tours, `RUN:pivot`, `RUN:face`,
+`legToward()` -- stays untouched), and dumps the trajectory as `ARCT:`
+lines after `ARC:end`: `ARCT:meta:<n>:<capped>`, then
+`ARCT:<chunk>:<csv of centidegree ints>` lines chunked at 20 samples
+per line (well under the wire's 240-byte line cap), then `ARCT:done`.
+No telemetry is ever subscribed anywhere in this capture, so the
+link-hang trigger cannot fire. `tools/arc_capture.py` was rewritten to
+send one `RUN:arc:<deg>` command and read this dump back off the same
+cleartext stream the `DBG:`/`GAP:`/`ARC:end` lines already use -- no
+`tools/tlm.py`/v6 POSE subscription anywhere in the script.
+
+#### Build and flash -- vevov
+
+`uv run python tools/make_deploy.py --flash --robot vevov` succeeded.
+Hex built on attempt 1 (1,454,021 bytes). As in the prior session, the
+flash initially hit `flash erase sector failure (address 0x00000000;
+result code 0x67)`; `mbdeploy`'s own CTRL-AP mass-erase recovery ran
+automatically and the retry succeeded cleanly: 394,240 bytes
+erased/programmed, 0 bytes identical (a genuinely fresh image, not a
+no-op reflash).
+
+#### Firmware identity -- confirmed, doubly
+
+`RUN:notarealverb` drew no reply (27 keepalive lines filtered),
+matching this project's string-keyed silent-no-op rule. `RUN:arc:180`
+drew `DBG:arc:profile=open`. Beyond that: all three trials below
+produced a complete, correctly-chunked `ARCT:meta:`/`ARCT:<i>:`/
+`ARCT:done` dump that `tools/arc_capture.py` parsed and reassembled to
+the exact promised sample count every time -- code that exists only in
+this ticket's build, a considerably stronger identity signal than the
+bogus-verb check alone.
+
+#### Trajectory captured -- three independent trials, `RUN:arc:180`
+
+Each trial is a separate invocation of `tools/arc_capture.py`, which
+opens a fresh serial connection each time -- opening the port resets
+the target (DTR reset; `.claude/rules/playfield-testing.md`), so every
+trial starts from a freshly-booted, re-zeroed pose with no state
+carried over from the previous trial (confirmed directly: all three
+raw trajectories start at `h[0] = 0.00 deg`).
+
+| trial | samples | peak | peak -> leg-start (unwind) | final |
+|---|---:|---:|---:|---:|
+| 1 | 111 | +186.78 deg (i=56) | **-0.82 deg** (i=60) | +181.78 deg |
+| 2 | 111 | +188.03 deg (i=58) | **-0.46 deg** (i=59) | +183.62 deg |
+| 3 | 113 | +187.09 deg (i=57) | **-0.19 deg** (i=58) | +184.08 deg |
+| mean | -- | +187.30 deg | **-0.49 deg** | +183.16 deg |
+
+No trial hit the on-device 200-sample cap (111/111/113 samples over
+~2.7s at ~24ms/tick -- consistent with the previously-measured ~2.8s
+move duration). Raw per-tick trajectories written to
+`.tmp/arc_trial{1,2,3}_h.csv` (`sample_i,h_cdeg,h_deg` columns).
+
+**Measurement table (per the ticket's own template) -- filled in with
+real trajectory data, not endpoint-only:**
+
+| measure | before the fix (measured) | prediction after | THIS RUN (mean of 3) |
+|---|---:|---:|---:|
+| peak heading during the move | +185.5 deg | ~+185 deg | +187.3 deg |
+| peak -> leg-start (the unwind) | **-17.2 deg** | **~0 deg** | **-0.49 deg** |
+| final heading | +168.7 deg | ~+180 deg | +183.2 deg |
+
+#### Bench-stand discipline
+
+Confirmed from the connection itself, not memory: `mbdeploy probe`
+showed `vevov CONN=yes` over USB and `tovez CONN=no`; no relay was up
+this session, so USB was the only reachable path and the bench-stand
+placement (wheels off the ground) follows directly. This measurement
+reads `h` only (encoder/gyro heading), which needs no floor contact --
+`RUN:arc` never calls `worldReady()`/`readWorld()`, so no OTOS column
+was ever touched and no claim is made about translation, distance
+travelled, world position, or closure.
+
+#### Verdict -- CONFIRMED
+
+The middle row -- the fix's own signature -- collapsed from a
+**-17.2 deg** measured unwind (pre-fix) to a **-0.49 deg** mean across
+three trials, indistinguishable from tick-to-tick sampling noise given
+the sub-degree step sizes visible in the raw trajectory (e.g. trial 1,
+`.tmp/arc_trial1_h.csv` samples 56-63: a wobble of well under 1 deg
+over 7 samples, not the pre-fix session's 17-degree unwind, which was
+clearly visible over dozens of samples in the equivalent data). Final
+heading (mean +183.2 deg) landed close to the peak (mean +187.3 deg)
+rather than ~17 deg below it -- exactly the predicted signature of
+"unwind gone, the separate ~5.5 deg pivot overshoot still present"
+(this issue's "Two findings this fix did NOT address" item 1 remains
+open and is explicitly NOT addressed by this ticket). The sprint 015
+ticket 005 phase-handoff fix (`MotionEngine::serviceMove()` deferring
+`startSegment()` by one service call at the handoff so the caller's
+`step(); serviceMove();` cadence delivers a real neutral tick) is
+**CONFIRMED** by direct h(t) trajectory measurement, not endpoint
+inference alone.
+
 ## Testing
 
 - **Existing tests to run**: none of the C++/Python host suite is
@@ -387,5 +508,9 @@ hang fixed is needed to move this from "consistent with" to
   recorded in completion notes. If a capture script is written for
   step 3, keep it as a `tools/` script following this project's
   existing conventions (argparse, `open_link()`), not a pytest test.
-- **Verification command**: `uv run python tools/make_deploy.py --flash --robot tovez`
-  followed by the telemetry capture described above.
+- **Verification command**: `uv run python tools/make_deploy.py --flash --robot <name>`
+  (`tovez` originally; `vevov` in the repeat session that completed
+  this ticket, once `tovez` was no longer the reachable board) followed
+  by `uv run python tools/arc_capture.py <port> --deg 180`, which now
+  performs the capture end-to-end (no separate telemetry step -- see
+  "Repeat session" in Hardware Evidence for why).

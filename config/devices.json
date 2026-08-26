@@ -37,7 +37,7 @@
     "device_id": 1198504156,
     "device_name": "vevov",
     "enum": 3,
-    "port": "/dev/cu.usbmodem2121202",
+    "port": "/dev/cu.usbmodem2121102",
     "role": "NEZHA2",
     "serial": "1198504156",
     "uid": "9906360200052820b8e12372c44f4f67000000006e052820"

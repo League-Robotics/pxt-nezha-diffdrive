@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 sprint: 018
 tickets:
 - 018-003
@@ -125,3 +125,39 @@ hypotheses it displaced, which is exactly this issue's own original
 caution. Ticket 003 stays `in-progress`; a repeat session either
 working around or fixing the newly-found comms hang is needed to
 reach an actual CONFIRMED verdict.
+
+## OUTCOME, repeat session -- vevov, 2026-08-26 -- CONFIRMED
+
+The link-hang blocker was worked around, not fixed (it remains open in
+`clasi/issues/cleartext-run-hangs-the-link-under-active-telemetry.md`):
+`RUN:arc` now samples `diffDrive.heading()` on-device, once per tick,
+and dumps the trajectory as `ARCT:` lines after the move completes,
+with no telemetry ever subscribed -- the exact "sample into arrays and
+dump afterwards" pattern `src/shims.cpp`'s `probe()` doc comment
+already prescribes for a request/reply round trip that is dangerous
+mid-move. `tools/arc_capture.py` sends one `RUN:arc:180` and reads this
+dump back.
+
+tovez was unreachable this session (`mbdeploy probe`: `CONN=no`);
+vevov was flashed and measured instead (same NEZHA2 firmware target,
+USB-only, bench stand, wheels off the ground). Three independent
+trials (fresh port reopen each, confirmed re-zeroed `h[0]=0.00 deg`
+every time):
+
+| measure | before the fix | prediction after | THIS RUN (mean of 3) |
+|---|---:|---:|---:|
+| peak heading during the move | +185.5 deg | ~+185 deg | +187.3 deg |
+| peak -> leg-start (the unwind) | **-17.2 deg** | **~0 deg** | **-0.49 deg** |
+| final heading | +168.7 deg | ~+180 deg | +183.2 deg |
+
+The middle row -- this fix's own signature -- collapsed from a
+measured -17.2 deg unwind to a -0.49 deg mean, indistinguishable from
+per-tick sampling noise. Final heading landed close to the peak rather
+than ~17 deg below it, exactly the predicted "unwind gone, the
+separate ~5.5 deg pivot overshoot (still open, see "Two findings this
+fix did NOT address" item 1 above) still present" signature. The
+sprint 015 ticket 005 phase-handoff fix is **CONFIRMED** by direct
+h(t) trajectory measurement. Full trial-by-trial data and raw CSVs are
+in ticket 003's own Hardware Evidence section ("Repeat session --
+vevov, full trajectory captured, fix CONFIRMED"). Ticket 003, and this
+issue, are both closed by this outcome.
