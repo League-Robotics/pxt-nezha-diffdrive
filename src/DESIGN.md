@@ -5,11 +5,14 @@
 `src/` is grouped into five subdirectories by dependency layer —
 `core/`, `motion/`, `platform/`, `comms/`, `blocks/` — plus `shims.cpp`
 and this document at the top level (sprint 013; see §1's table for the
-exact mapping and §16 for the change itself). The directory split is
-coarse (five buckets for eleven layers), so it doesn't carry the
-fine-grained per-file behavioral and design detail below — this
-document still carries the logical subsystem breakdown as sections.
-Global conventions (units
+exact mapping). The directory split is coarse (five buckets for eleven
+layers), so each subdirectory carries only a thin `DESIGN.md` pointing
+back into the matching section below — `src/core/DESIGN.md`,
+`src/motion/DESIGN.md`, `src/platform/DESIGN.md`,
+`src/comms/DESIGN.md`, `src/blocks/DESIGN.md` — while this document
+still carries the logical subsystem breakdown, and the fine-grained
+per-file behavioral and design detail, as sections. Global conventions
+(units
 ladder, CCW sign, mirroring, the ×1000 config convention, protocol
 versioning, the tick model) live in
 [`docs/design/design.md`](../docs/design/design.md) and are assumed

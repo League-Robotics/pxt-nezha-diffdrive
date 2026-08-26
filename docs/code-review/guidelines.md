@@ -31,6 +31,24 @@ any code is judged:
   tree.
 - The doc set must pass `clasi design validate`.
 
+**Sprint-close checklist (sprint 017).** `close_sprint` only re-runs
+`clasi design validate` automatically when the closing sprint carries
+its own `design/` overlay directory (see `docs/design/design.md`'s
+"Design-doc validation at sprint close" convention for why) — a sprint
+without one closes with no automatic check. So this is an explicit,
+checkable pre-close step, not implicit in the prose above:
+
+- [ ] Run `clasi design validate` (or the `validate_design` MCP tool)
+      and confirm `ok: true` before closing any sprint that adds,
+      removes, or renames a declared source root or `src/` subsystem
+      directory.
+
+Sprint 013 closed without this check and shipped five undocumented
+`src/` subsystem directories as a result
+(`design-doc-set-fails-validation.md`, fixed sprint 017) — this
+checklist item exists to make that failure mode structurally harder to
+repeat.
+
 **Repo-specific mapping.** This requires two config changes
 (`design_docs: enabled` and a `sources:` list — proposed:
 `[src, tools, tests, test]`). The source roots here are *flat* — `src/`

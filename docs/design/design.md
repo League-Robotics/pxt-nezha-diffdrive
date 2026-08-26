@@ -182,6 +182,30 @@ Sprint 004 ticket 005 and sprint 007 ticket 008 already did this
 informally; sprint 008 is where it became a named, standing practice —
 see `src/DESIGN.md` §11/§14 for the full detail and the tooling change.
 
+### Design-doc validation at sprint close
+
+`close_sprint`'s `design_overlay_apply` step re-runs `clasi design
+validate` automatically, but **only** when the closing sprint both has
+`design_docs_opt_in` set (`design_docs: enabled` in `.clasi/config.yaml`
+— true for this project) and carries its own `design/` overlay
+directory (`sprint.design_dir.exists()`). A sprint that touches
+`src/`/`tools/`/`tests/`/`test/` without ever seeding or writing a
+design overlay closes with **no** automatic validation at all — this is
+exactly how sprint 013 added five new `src/` subsystem directories,
+none with a `DESIGN.md`, and closed anyway (`design-doc-set-fails-
+validation.md`, fixed sprint 017).
+
+**Standing convention (sprint 017).** Because `close_sprint` itself is
+CLASI-server code this project's own tickets cannot change, and a
+naive "always require an overlay" rule would over-constrain trivial
+sprints, the gate is procedural rather than mechanical: `clasi design
+validate` (or the equivalent `validate_design` MCP tool) is an explicit
+step on the Phase 0 checklist in
+[`docs/code-review/guidelines.md`](../code-review/guidelines.md), to be
+run and confirmed `ok: true` before any sprint that adds, removes, or
+renames a declared source root or subsystem directory is closed —
+independent of whether that sprint happens to carry a design overlay.
+
 ### Provenance
 
 `diffdrive.h/.cpp` is a vendored, byte-stable copy of the
