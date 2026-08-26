@@ -2,8 +2,9 @@
 id: '002'
 title: Propagate travelCalib 0.7878 to three docs and two tools; drift-test or delete
   the mirrors
-status: open
-use-cases: [SUC-001]
+status: done
+use-cases:
+- SUC-001
 depends-on: []
 github-issue: ''
 issue: travel-calib-not-propagated-to-docs-and-tools.md
@@ -70,17 +71,17 @@ This ticket is doc/tool-only. It does not touch firmware C++ or TypeScript.
 
 ## Acceptance Criteria
 
-- [ ] No file in `src/`, `docs/design/`, or `tools/` cites `travelCalib`
+- [x] No file in `src/`, `docs/design/`, or `tools/` cites `travelCalib`
       0.8102 (except historically, in a sprint-history section if one is
       kept -- but see ticket 004, which removes those anyway).
-- [ ] `tools/tour_watch.py`'s conversion is either deleted (if redundant
+- [x] `tools/tour_watch.py`'s conversion is either deleted (if redundant
       with the wire's native mm/s) or updated to 0.7878 with a comment
       explaining why it's not redundant.
-- [ ] `tools/tour_chart.py --travel-calib` default is 0.7878.
-- [ ] At least the surviving tool-side constant(s) have a drift test against
+- [x] `tools/tour_chart.py --travel-calib` default is 0.7878.
+- [x] At least the surviving tool-side constant(s) have a drift test against
       `src/motion/motion_engine.h`'s `travelCalib_`.
-- [ ] The two stale test-comment references are corrected.
-- [ ] No firmware C++/TypeScript logic is changed.
+- [x] The two stale test-comment references are corrected.
+- [x] No firmware C++/TypeScript logic is changed.
 
 ## Testing
 

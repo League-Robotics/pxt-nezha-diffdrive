@@ -170,7 +170,7 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
 
 **Key state.** `MoveState` (segment targets in counts, ramp start,
 pending second phase, one `deadline` spanning both phases). Geometry
-defaults are the vevov bake: `travelCalib` 0.8102 mm/deg, `trackWidth`
+defaults are the vevov bake: `travelCalib` 0.7878 mm/deg, `trackWidth`
 114.2 mm, `rotationalSlip` 0.952 — each with the measurement history
 in the field comments.
 

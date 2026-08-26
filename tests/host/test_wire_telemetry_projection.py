@@ -198,8 +198,8 @@ def test_seq_wraps_127_to_0_over_130_frames(wa):
 #     commands full duty constantly, not just pathologically) reads
 #     back as 10000, not 100.
 #   - `vl`/`vr`: the tovez bake's default fullDutyVelocity (10795
-#     counts/s) times travelCalib_ (0.8102 mm/deg) times 0.1 deg/count
-#     caps real wheel speed at ~875 mm/s; -1000 stays a safely-rounded
+#     counts/s) times travelCalib_ (0.7878 mm/deg) times 0.1 deg/count
+#     caps real wheel speed at ~850 mm/s; -1000 stays a safely-rounded
 #     realistic ceiling above that measured bound.
 #   - `posl`/`posr`/`i2cf`/`cyc`: long-session magnitudes -- ~100 m of
 #     cumulative travel (~12.3 counts/mm), several hours of an

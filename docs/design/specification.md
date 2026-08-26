@@ -691,7 +691,7 @@ original tovez numbers.
 
 | Field | Default | Units |
 |---|---|---|
-| `travelCalib` (MotionEngine, not Config) | 0.8102 | mm/deg |
+| `travelCalib` (MotionEngine, not Config) | 0.7878 | mm/deg |
 | `trackWidth` (MotionEngine, not Config) | 114.2 | mm (caliper-measured; never adjusted to fix a turn) |
 | `rotationalSlip` (MotionEngine, not Config) | 0.952 | — (camera-measured scrub; all rotational correction lives here) |
 | `maxDuty` | 100.0 | % |

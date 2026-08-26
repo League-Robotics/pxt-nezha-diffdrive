@@ -407,7 +407,7 @@ right=M2 wiring (§ Wiring assumptions).
 **Postconditions**: The `MotionEngine`'s `trackWidth`/`travelCalib`/
 `rotationalSlip` reflect the new chassis; distances and turns land
 accurately for that chassis instead of the reference defaults
-(114.2 mm track, 0.8102 mm/deg, 0.952 rotational slip — the vevov
+(114.2 mm track, 0.7878 mm/deg, 0.952 rotational slip — the vevov
 bake).
 
 **Error flows**:
