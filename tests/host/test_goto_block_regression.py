@@ -287,3 +287,111 @@ def test_fixed_start_go_to_reaches_probe_targets_above_threshold(
 
         miss = math.hypot(e.probe_x() - x_mm, e.probe_y() - y_mm)
         assert miss < _LANDING_TOLERANCE_MM
+
+
+# ---- test/test.ts legToward(): the SAME defect, a second call site --------
+#
+# legToward()'s pre-fix reduction was ALGEBRAICALLY IDENTICAL to
+# _old_broken_block_arc_reduction_to_move_x() above: it computes a
+# body-frame residual (bx, by) to the target exactly the way that
+# helper's (x_cm, y_cm) is used, then hands the same
+# theta=2*atan2(by,bx)/s=R*theta pair to the same moveX() -- so the same
+# helper stands in for legToward's own math here rather than being
+# reimplemented. The difference from the two geometries above is where
+# the miss comes from: legToward only pre-pivoted when |bearing| >=
+# 50 deg, but a bearing well under that (e.g. 30 deg) still doubles to a
+# theta of 60 deg, which is ABOVE moveX()'s OWN >=50 deg split
+# (kTurnFirstAngleRad) -- so the routine, common case (not just an edge
+# case near the pre-pivot threshold) tripped this defect.
+#
+# tour-legs-share-the-arc-split-defect.md's worked example: bearing
+# 30 deg, distance d = 60 cm. Intended endpoint is (bx, by) itself
+# (0.866d, 0.500d) by construction; pure pivot-then-straight kinematics
+# for this geometry pivots to theta=60 deg then drives arc-length
+# s = radius*theta with radius = d/(2*sin(bearing)) = d (30 deg exactly
+# halves 60 deg), landing at (s*cos(theta), s*sin(theta)) =
+# (0.524d, 0.907d) -- a ~0.531d miss, matching the issue's own
+# measurement (~32 cm on this 60 cm leg).
+
+_LEG_TOWARD_BEARING_DEG = 30.0
+_LEG_TOWARD_DISTANCE_CM = 60.0
+
+
+def _leg_toward_target_cm():
+    """The body-frame target (bx, by), in cm, for the worked-example
+    bearing/distance above -- what legToward() would compute as its own
+    residual to a target sitting exactly there."""
+    bearing_rad = _LEG_TOWARD_BEARING_DEG * math.pi / 180.0
+    bx = _LEG_TOWARD_DISTANCE_CM * math.cos(bearing_rad)
+    by = _LEG_TOWARD_DISTANCE_CM * math.sin(bearing_rad)
+    return bx, by
+
+
+def _ideal_pivot_then_straight_endpoint_mm(bx_cm, by_cm):
+    """Pure kinematic prediction (no taper/ramp/tick shaping -- those
+    change the TIME profile, not the resting position) for where the
+    OLD moveX()-based reduction lands: pivot in place to theta =
+    2*atan2(by,bx), then drive s = radius*theta straight along the new
+    heading. Used only to derive this test's expected miss distance from
+    the geometry itself, rather than hand-typing a magic number."""
+    bearing = math.atan2(by_cm, bx_cm)
+    theta = 2.0 * bearing
+    radius = (bx_cm * bx_cm + by_cm * by_cm) / (2.0 * by_cm)
+    s_cm = radius * theta
+    return s_cm * math.cos(theta) * 10.0, s_cm * math.sin(theta) * 10.0
+
+
+def test_old_leg_toward_reduction_misses_worked_example(motion_lib):
+    """THIS IS WHAT THE BUG LOOKED LIKE at legToward()'s call site -- a
+    frozen regression pin, not a live code path (test/test.ts's
+    legToward() no longer computes this reduction). Reproduces
+    tour-legs-share-the-arc-split-defect.md's own worked example
+    (bearing 30 deg, distance 60 cm) through the real firmware's move
+    engine, on the SAME moveX()-based reduction
+    test_old_broken_block_arc_reduction_misses_probe_targets_above_threshold
+    above already pins for two other geometries -- this is the case
+    where the bearing itself (30 deg) is comfortably under legToward's
+    own 50 deg pre-pivot threshold, so the miss is not an edge case."""
+    bx_cm, by_cm = _leg_toward_target_cm()
+    target_mm_x, target_mm_y = bx_cm * 10.0, by_cm * 10.0
+    expected_x_mm, expected_y_mm = _ideal_pivot_then_straight_endpoint_mm(
+        bx_cm, by_cm)
+    expected_miss_mm = math.hypot(
+        expected_x_mm - target_mm_x, expected_y_mm - target_mm_y)
+
+    with ProbeEngine(motion_lib) as e:
+        _ready(e)
+        _old_broken_block_arc_reduction_to_move_x(
+            e, bx_cm, by_cm, _PROBE_SPEED_MM_S, _PROBE_TIMEOUT_MS)
+        e.run_to_completion()
+
+        miss = math.hypot(
+            e.probe_x() - target_mm_x, e.probe_y() - target_mm_y)
+
+        # Pin: matches the ideal pivot-then-straight geometry (a few mm
+        # of headroom for tick discretization against the ideal-wheels
+        # probe, same tolerance style as the file's other geometry
+        # pins), and separately confirms it is approximately the
+        # issue's own 0.531d ratio -- not merely "some" large miss.
+        assert miss == pytest.approx(expected_miss_mm, abs=5.0)
+        assert miss == pytest.approx(
+            0.531 * _LEG_TOWARD_DISTANCE_CM * 10.0, rel=0.05)
+
+
+def test_fixed_leg_toward_reduction_reaches_worked_example(motion_lib):
+    """legToward()'s FIXED reduction: the same body-frame (bx, by)
+    target, driven through startGoTo() -> goToR() directly (the same
+    entry point startGoTo() itself now uses) instead of moveX() --
+    lands within a few mm, same bar as
+    test_fixed_start_go_to_reaches_probe_targets_above_threshold above."""
+    bx_cm, by_cm = _leg_toward_target_cm()
+    target_mm_x, target_mm_y = bx_cm * 10.0, by_cm * 10.0
+
+    with ProbeEngine(motion_lib) as e:
+        _ready(e)
+        _fixed_start_go_to_to_go_to_r(e, bx_cm, by_cm)
+        e.run_to_completion()
+
+        miss = math.hypot(
+            e.probe_x() - target_mm_x, e.probe_y() - target_mm_y)
+        assert miss < _LANDING_TOLERANCE_MM

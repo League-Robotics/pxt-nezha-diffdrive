@@ -16,8 +16,9 @@
 // OTOS), RUN:turnrate:<deg/s> (sets the yaw rate the NEXT RUN:pivot
 // uses).
 //
-// Every move runs as an explicit startMove + driveTick() loop in THIS
-// file, so the tick loop stays visible, instrumentable test code.
+// Every move runs as an explicit startMove/startGoTo + driveTick() loop
+// in THIS file, so the tick loop stays visible, instrumentable test
+// code.
 let touring = false
 let maxGapMs = 0
 // The yaw rate the NEXT RUN:pivot uses -- set by RUN:turnrate, so
@@ -28,14 +29,29 @@ let maxGapMs = 0
 // RUN:turnrate is still deterministic.
 let pivotYawRate = 90
 
-function tickedMove(d: number, y: number) {
-    diffDrive.startMove(d, y)
+// Tick driveTick() to completion on this fiber, tracking the largest
+// gap between calls (maxGapMs) -- the shared runner behind
+// tickedMove/tickedGoTo below, so the tick loop itself is written once.
+function tickToCompletion() {
     let last = control.millis()
     while (diffDrive.driveTick()) {
         const now = control.millis()
         if (now - last > maxGapMs) maxGapMs = now - last
         last = now
     }
+}
+
+function tickedMove(d: number, y: number) {
+    diffDrive.startMove(d, y)
+    tickToCompletion()
+}
+
+// goTo-shaped sibling of tickedMove: startGoTo() only ARMS the move
+// (see its own doc comment in motion.ts) -- something must still tick
+// it on this fiber to make it progress.
+function tickedGoTo(x: number, y: number) {
+    diffDrive.startGoTo(x, y)
+    tickToCompletion()
 }
 
 // ---- the playfield's four orange dots -------------------------------
@@ -143,7 +159,9 @@ const RTY = [0, 60, 60, 0]       // x forward, y left
 
 function legToward(tx: number, ty: number) {
     // Plan from where we ACTUALLY are: encoder position for the
-    // translation, IMU heading for the rotation.
+    // translation, IMU heading for the rotation. Re-measured every
+    // attempt, so a leg that lands short (or long) gets replanned from
+    // where the robot actually ended up, not where it was aimed.
     for (let attempt = 0; attempt < 3; attempt++) {
         diffDrive.readWorld()
         const h = diffDrive.worldHeading() * Math.PI / 180
@@ -152,22 +170,12 @@ function legToward(tx: number, ty: number) {
         if (Math.sqrt(dx * dx + dy * dy) < 2) return      // arrived
         const bx = Math.cos(h) * dx + Math.sin(h) * dy
         const by = -Math.sin(h) * dx + Math.cos(h) * dy
-        const bearing = Math.atan2(by, bx)
-        // Only a genuinely large bearing gets a pivot -- an arc to a
-        // point 90 deg abeam is a semicircle bulging off the field.
-        // Small residuals fall through to the curve below.
-        if (Math.abs(bearing) >= 50 * Math.PI / 180) {
-            tickedMove(0, bearing * 180 / Math.PI)
-            continue        // re-measure, then curve out whatever is left
-        }
-        const theta = 2 * bearing
-        if (Math.abs(by) < 0.01) {
-            tickedMove(bx, 0)
-        } else {
-            tickedMove((bx * bx + by * by) / (2 * by) * theta,
-                theta * 180 / Math.PI)
-        }
-        return
+        // startGoTo() (motion.ts) owns the pivot-vs-blend split and
+        // short-arc wrap internally -- one call drives this leg's
+        // pivot, if any, then its residual chord, reaching (bx, by)
+        // for ANY bearing. No separate pivot-first branch is needed
+        // here any more.
+        tickedGoTo(bx, by)
     }
 }
 
