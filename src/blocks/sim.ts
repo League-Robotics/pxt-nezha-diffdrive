@@ -226,7 +226,7 @@ namespace diffDrive {
     // tests/host/test_continuous_drive_command_looks_active.py for the
     // host-side proof of the equivalent hardware condition (this
     // simulator body itself is not host-testable -- no automated check
-    // reaches main.ts; see this ticket's C++11 Gate Coverage).
+    // reaches this TypeScript layer; see this ticket's C++11 Gate Coverage).
     //% shim=diffDrive::tickDrive
     export function _tickDrive(): boolean {
         simIntegrate()

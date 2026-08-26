@@ -1135,8 +1135,8 @@ void WireHandler::execRun(char** fields, size_t fieldCount, uint32_t id,
                             // sent is the whole story.
 
   // Sanitize the ADAPTER's own returned text before it reaches the
-  // sink -- the same '\n'/'\r'-stripping rule sendDebug()-style text
-  // would get. kMaxRunResultBytes already guarantees the sanitized text
+  // sink -- the same '\n'/'\r'-stripping rule any debug text sent over
+  // the wire would get. kMaxRunResultBytes already guarantees the sanitized text
   // plus "ret "/" #<id>"/'\n' fits kMaxLineBytes, and sanitizing can
   // only shrink it further, never risk overflow.
   char sanitized[kMaxRunResultBytes];

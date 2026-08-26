@@ -58,10 +58,11 @@ constexpr uint32_t kReliabilityEmitPeriodMs = 50;
 constexpr uint32_t kPollIntervalMs = 5;
 
 // Custom MessageBus source id for the old-style RUN bridge -- must match
-// RUN_EVENT_SOURCE in main.ts. Chosen well above the MICROBIT_ID_* range.
-// Carried over unchanged from before this cutover. Sprint 008 ticket 002
-// (WIRE-01-adjacent minor, R-21/MOD-05): this literal and main.ts's own
-// RUN_EVENT_SOURCE are two independently hand-typed copies of the same
+// RUN_EVENT_SOURCE in `blocks/run.ts`. Chosen well above the MICROBIT_ID_*
+// range. Carried over unchanged from before this cutover. Sprint 008 ticket
+// 002 (WIRE-01-adjacent minor, R-21/MOD-05): this literal and
+// `blocks/run.ts`'s own RUN_EVENT_SOURCE are two independently hand-typed
+// copies of the same
 // MessageBus event id, with nothing but this comment keeping them
 // aligned -- pinned by tests/host/test_wire_constants_drift.py, which
 // reads both source files as text and fails if the two literals
@@ -127,7 +128,7 @@ int protocolSerialDropCount() { return protocol().serialDropCount(); }
 void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
   if (data == nullptr || dataLen == 0) return;
   // Strip one trailing '\r' (raw-terminal artifact, same tolerance the
-  // old parseLine() gave colon-less lines), then copy the payload
+  // old cleartext line parser gave colon-less lines), then copy the payload
   // verbatim. Anything outside printable ASCII -- or too long for a
   // slot -- is malformed: drop silently. The name/argument split is NOT
   // done here: this layer stays a transport for the text, and the TS
@@ -371,8 +372,8 @@ Protocol& protocol() {
 }
 
 // Boot-time auto-start wiring: called once from a top-level statement in
-// main.ts's `diffDrive` namespace (see protocol()'s doc comment in
-// protocol.h), so the protocol loop -- and its boot banner -- start as
+// `blocks/motion.ts`'s `diffDrive` namespace (see protocol()'s doc comment
+// in protocol.h), so the protocol loop -- and its boot banner -- start as
 // soon as this extension's compiled code loads, independent of whether
 // any block is ever placed in a user's program. `protocol()`'s own
 // lazy-singleton guard makes this call (and any other) idempotent.

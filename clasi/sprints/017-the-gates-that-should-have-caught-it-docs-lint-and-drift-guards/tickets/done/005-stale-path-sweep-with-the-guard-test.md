@@ -1,8 +1,9 @@
 ---
 id: '005'
 title: Stale-path sweep WITH the guard test
-status: open
-use-cases: [SUC-002]
+status: done
+use-cases:
+- SUC-002
 depends-on: []
 github-issue: ''
 issue: stale-paths-survived-the-sprint-013-sweep.md
@@ -102,18 +103,99 @@ was or wasn't added, so it's not silently assumed done.
 
 ## Acceptance Criteria
 
-- [ ] Zero `main.ts` references remain in live source (`src/**/*.{h,cpp,ts}`,
+- [x] Zero `main.ts` references remain in live source (`src/**/*.{h,cpp,ts}`,
       `tools/*.py`) except inside a deliberately-kept historical section, if
       any survives ticket 004's cleanup.
-- [ ] The 6 pre-013 include-path comment references are corrected.
-- [ ] The 5 dangling function-name references are corrected or removed.
-- [ ] A new host test under `tests/host/` greps `src/` and `docs/` for
+- [x] The 6 pre-013 include-path comment references are corrected.
+- [x] The 5 dangling function-name references are corrected or removed.
+- [x] A new host test under `tests/host/` greps `src/` and `docs/` for
       `src/<path>` references and fails if any named path doesn't exist on
       disk. It passes against the corrected tree.
-- [ ] The new test is added to the suite `close-sprint`/CI would run (no
+- [x] The new test is added to the suite `close-sprint`/CI would run (no
       special exclusion).
-- [ ] No firmware behavior is changed -- only comments, doc prose, and the
+- [x] No firmware behavior is changed -- only comments, doc prose, and the
       new test file.
+
+## Completion notes (2026-08-26)
+
+Re-measured against the current tree (post tickets 001-004) rather than
+trusting the briefing's line numbers, per its own instruction.
+
+- **`main.ts` in live source**: found 17 (briefing said "16"; the extra
+  was `motion/motion_engine.cpp:255`, apparently missed in the original
+  count) across `shims.cpp` (x5), `comms/protocol.h` (x2),
+  `comms/protocol.cpp` (x3), `comms/wire_adapter.cpp` (x2),
+  `motion/motion_engine.h` (x2), `motion/motion_engine.cpp` (x1),
+  `blocks/sim.ts` (x1), `tools/tour_square.py` (x1). All corrected --
+  most rewritten to name the current file (`blocks/motion.ts`,
+  `blocks/run.ts`, `blocks/world.ts`, `blocks/stop.ts` as appropriate,
+  confirmed by grepping each referenced symbol's actual current
+  location rather than guessing); the two describing a specific
+  historical event (a compiler-error report, a prior TS-side formula)
+  were reworded to drop the literal `main.ts` token while keeping the
+  historical fact intact.
+- **`src/DESIGN.md`**: 5 `main.ts` mentions remain, all inside
+  legitimately historical framing ("sprint 012: split from a single
+  `main.ts`", "formerly `main.ts`'s") in sections 1 and 9 -- these
+  describe the sprint-012 split in past tense and were left alone, per
+  the ticket's own guidance to only fix S1-S11 mentions that are NOT
+  already historical.
+- **6 pre-013 include paths**: all 6 corrected as specified
+  (`src/otos_port.h` -> `src/platform/otos_port.h` x3,
+  `src/wire_adapter.{h,cpp}` -> `src/comms/wire_adapter.{h,cpp}` x3)
+  plus `tools/DESIGN.md`'s `src/heading_wrap.h` ->
+  `src/core/heading_wrap.h`.
+- **5 dangling function references**: all corrected.
+  `formatDiag()` (3 sites) -- the wire_adapter.cpp:163 site was the
+  "live defect" the briefing called out (asserted as current); reworded
+  to point at `probe()`, the actual current TS-facing diagValue()
+  exposure, and to note the DIAG verb itself was retired (confirmed by
+  grep: no `"DIAG"` string handler exists anywhere in `src/`, and
+  `tools/tour_watch.py`'s own comment independently confirms "the
+  firmware no longer emits that verb at all"). `parseLine()`,
+  `sendDebug()`, `sendTelemetry()`/`sendDeviceBanner()` -- already
+  framed as historical ("the old X"); the dangling names were dropped
+  in favor of describing the pattern/role generically, per the
+  ticket's "otherwise just remove the dangling pointer" guidance.
+- **The guard**: `tests/host/test_no_stale_src_paths.py`, two
+  assertions. (1) `src/<path>.{h,cpp,ts}` existence check across
+  `src/`, `docs/`, `tools/` (including their `.md` files). (2) bare
+  `main.ts` mention check, scoped to live source only
+  (`src/**/*.{h,cpp,ts}`, `tools/*.py`) since `docs/**/*.md` may
+  legitimately narrate the sprint-012 split historically -- verified
+  this scoping choice is right by confirming `src/DESIGN.md`'s 5
+  remaining mentions above are exactly that. Three false-positive
+  shapes handled and documented in the test's own docstring: dated
+  audit snapshots under `docs/code-review/<YYYY-MM-DD>/` (excluded by
+  a directory-name-shaped regex, not a blanket exclusion --
+  `docs/code-review/guidelines.md` itself, undated, stays in scope for
+  ticket 006), two external-repo path prefixes (`src/firm/`, from the
+  upstream `radio-robot` kernel repo; `src/protocol/`, from
+  `radio-robot-lib`) that this project's own `src/` structurally never
+  uses, and fenced (` ``` `) code blocks in markdown, stripped before
+  scanning since an illustrative multi-line example isn't a claim of
+  existence. Verified the guard actually catches regressions by
+  injecting a temporary stale reference, confirming the test failed
+  with the exact offending path and line, then reverting and
+  re-confirming green.
+- **Dangling-function-reference guard (stretch goal): attempted, not
+  shipped.** Prototyped a comment-stripped-corpus version (name
+  followed by `()` in a comment, with no matching `name(` anywhere in
+  real code). Out of 240 distinct call-like names mentioned in
+  comments across `src/` and `tools/`, only 5 had zero code
+  occurrences -- but all 5 were false positives, each a different
+  class: `poseX()/Y()/heading()` shorthand (regex catching mid-
+  abbreviation `Y`, not a name), `uBit.init()` and
+  `NRF52I2C::waitForStop()` (real CODAL/nrf52 platform API this repo
+  doesn't define), `onXxx()` (a deliberate generic placeholder for
+  "any of the six `onWheelsV()`-shaped handlers"), and this ticket's
+  own reworded `formatDiag()` note (correctly past-tense, "was
+  retired"). A workable allowlist would have to keep growing exactly
+  when an engineer writes the kind of comment ticket 006's standard
+  wants more of -- a measured hardware/vendor-API fact
+  (`nezha_port.cpp`'s bus-hang guard citing
+  `NRF52I2C::waitForStop()` is literally the keep-list example). Not
+  shipped; the two checks above are.
 
 ## Testing
 

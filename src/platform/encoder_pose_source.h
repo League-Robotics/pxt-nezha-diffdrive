@@ -7,7 +7,7 @@
 // fitted, encoder odometry otherwise"). See this sprint's design overlay
 // S7/S9 for the full write-up this file implements.
 //
-// Same three-method shape as OtosPort (src/otos_port.h): holds const
+// Same three-method shape as OtosPort (src/platform/otos_port.h): holds const
 // float& references to the caller's already-computed x/y/heading and
 // returns them verbatim -- it does NOT compute odometry itself.
 // shims.cpp's odomUpdate() remains the only place that advances those

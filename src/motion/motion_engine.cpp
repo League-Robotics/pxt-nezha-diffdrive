@@ -252,7 +252,8 @@ void MotionEngine::goToR(float x, float y, float speed, float arrive,
     // Plain arc reduction (motion-api.md S3.5), unchanged below
     // threshold except that `theta` here is the SHORT-ARC-normalized
     // value (see above), not the raw 2*atan2(y, x) -- restated (matching
-    // this project's prior main.ts startGoTo()) via the signed circle
+    // this project's prior TypeScript-side startGoTo() implementation)
+    // via the signed circle
     // radius R = (x^2+y^2)/(2y), s = R*theta, which is the same formula
     // algebraically as arc length = radius*angle and avoids a sin() near
     // theta == 0.
