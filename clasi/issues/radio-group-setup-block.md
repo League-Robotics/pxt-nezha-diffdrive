@@ -1,6 +1,8 @@
 ---
 status: pending
 sprint: '021'
+tickets:
+- 021-005
 ---
 
 # Setup block to set the radio group (default 10)

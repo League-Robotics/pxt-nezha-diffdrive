@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '021'
+tickets:
+- 021-002
 ---
 
 # Simulator's `_setWheels()` turn-rate divisor is 4.3% off hardware's `effectiveTrackWidth()` — and off the simulator's own `_driveTwist()`

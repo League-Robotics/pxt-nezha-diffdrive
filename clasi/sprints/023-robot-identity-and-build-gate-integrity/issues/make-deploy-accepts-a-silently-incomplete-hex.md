@@ -1,6 +1,9 @@
 ---
-status: pending
-sprint: '021'
+status: in-progress
+sprint: '023'
+tickets:
+- 023-001
+- 023-003
 ---
 
 # `make_deploy.py`'s triage accepts a silently-incomplete but error-free hex

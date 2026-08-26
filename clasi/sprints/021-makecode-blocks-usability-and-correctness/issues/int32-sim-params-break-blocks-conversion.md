@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '021'
+tickets:
+- 021-002
 ---
 
 # int32-typed sim fallback params break JS→Blocks conversion (TS9256)

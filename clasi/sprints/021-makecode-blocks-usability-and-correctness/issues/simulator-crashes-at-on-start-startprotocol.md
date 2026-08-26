@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '021'
+tickets:
+- 021-002
 ---
 
 # Simulator crashes at on-start: "Cannot read properties of undefined (reading 'startProtocol')"
