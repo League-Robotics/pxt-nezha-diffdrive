@@ -2,8 +2,9 @@
 id: '001'
 title: 'Harden make_deploy.py''s build gate: hex size floor and translation-unit presence
   check'
-status: open
-use-cases: [SUC-002]
+status: done
+use-cases:
+- SUC-002
 depends-on: []
 github-issue: ''
 issue: make-deploy-accepts-a-silently-incomplete-hex.md
@@ -71,23 +72,23 @@ checkout by comparing the resolved `dockercodal` revision against the
 
 ## Acceptance Criteria
 
-- [ ] `MIN_HEX_SIZE_BYTES` is a named constant in `tools/make_deploy.py`
+- [x] `MIN_HEX_SIZE_BYTES` is a named constant in `tools/make_deploy.py`
       with the measured-checkpoint band recorded in a comment beside it.
-- [ ] `build()` fails with a specific, actionable message when
+- [x] `build()` fails with a specific, actionable message when
       `binary.hex` exists but is smaller than `MIN_HEX_SIZE_BYTES`.
-- [ ] `build()` fails with a specific, actionable message naming which
+- [x] `build()` fails with a specific, actionable message naming which
       of the ten `nezha-diffdrive` `.cpp` files are missing from the
       captured build output's `Building CXX object` lines.
-- [ ] A build output with **zero** `Building CXX object` lines fails the
+- [x] A build output with **zero** `Building CXX object` lines fails the
       same way (covered by its own test, not incidentally by the
       missing-files test).
-- [ ] A genuine clean-build fixture (all ten files present, hex at or
+- [x] A genuine clean-build fixture (all ten files present, hex at or
       above the floor) still passes `build()` — proving the new checks
       don't false-positive on a real success.
-- [ ] Both new checks are pure functions (no subprocess, no real build)
+- [x] Both new checks are pure functions (no subprocess, no real build)
       matching `classify_attempt()` / `_count_universal_hex_blocks()`'s
       existing testability pattern.
-- [ ] `tools/DESIGN.md`'s "Build checkpoint triage" section (referenced
+- [x] `tools/DESIGN.md`'s "Build checkpoint triage" section (referenced
       by `build()`'s own docstring/comments) is updated to describe the
       two new checks alongside the existing universal-hex-block check.
 
@@ -142,3 +143,37 @@ both into `build()` right after the existing
     then_succeeds` and friends already cover.
 - **Verification command**: `uv run pytest tests/tools/` and
   `uvx ruff check tools tests`.
+
+## Implementation Notes
+
+**`MIN_HEX_SIZE_BYTES` confirmed at the planning-time suggestion,
+1,300,000 bytes (Open Question 2).** Re-searched the sprint history for
+every measured `built/binary.hex` size at a build checkpoint: 1,423,241
+/ 1,434,671 / 1,442,546 / 1,442,996 / 1,448,621 / 1,463,606 / 1,463,516
+bytes — measured low 1,423,241, measured high 1,463,606, matching the
+band cited in the issue/ticket almost exactly (the issue's own
+1,423,241–1,463,606 range). The band has not shifted meaningfully since
+the planning-time read, so 1,300,000 stands: ~123 KB below the band's
+low end, ~254 KB above the 1,046,410-byte truncated hex that exposed
+this gap. Recorded as a comment beside the constant in
+`tools/make_deploy.py` (without sprint/ticket numbers per this
+project's comment-archaeology convention — the byte-value history is
+the load-bearing fact, not which sprint measured it).
+
+**Zero-`Building CXX object`-lines handling.** `_check_translation_units()`
+is written as "is each of the ten known files found in the output",
+never the reverse ("is each found line one of the ten") — the latter
+is vacuously true on an empty found-set, which is exactly the stale-
+cache defect shape. No special-casing was added for the zero-lines
+case; it naturally falls out of the same expected-found check (all ten
+come back missing), and is covered by its own dedicated test
+(`test_check_translation_units_zero_lines_reports_all_ten_missing` and
+`test_build_fails_when_zero_translation_units_compiled`) rather than
+relying on the missing-file test to cover it incidentally, per the
+ticket's own acceptance criterion.
+
+**Recovery message.** Both new failure messages name the stale scratch
+directory explicitly (derived from `hex_path`, so it is correct for
+both the primary deploy and `--testrig`) and instruct
+`shutil.rmtree(<dir>)` via Python, noting `rm -rf` may be
+sandbox-denied, per the ticket's own instruction.

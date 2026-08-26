@@ -59,7 +59,16 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   before ever reporting it as ready, if the count is not exactly 0 (see
   "Build checkpoint triage" below). Deletes the hex up front and
   verifies it exists afterwards, because a packaging abort
-  nondeterministically deletes it.
+  nondeterministically deletes it. **Sprint 023** added two more
+  post-triage assertions, closing a gap where a build served wholly or
+  partly from a stale `.tmp/deploy-head/built/dockercodal` cache could
+  print a clean log, exit 0, and still land a real but short/under-
+  compiled hex: `build()` hard-fails if `binary.hex` is smaller than
+  `MIN_HEX_SIZE_BYTES`, and hard-fails if any of the ten
+  `nezha-diffdrive` `.cpp` files (`EXPECTED_CPP_FILES`) is missing from
+  the captured output's `Building CXX object` lines — including the
+  case of **zero** such lines, which is not treated as "nothing needed
+  rebuilding" (see "Build checkpoint triage" below).
 
 ### Build checkpoint triage (`make_deploy.py`, sprint 008)
 
@@ -152,6 +161,47 @@ documented V1 hex-merge failure plus a `TS9200` packaging abort on
 attempt 1, retried automatically, and produced a genuine 1,397,816-byte
 flashable hex on attempt 2 — no code change required beyond the
 documented retry.
+
+**Post-triage: hex size floor and translation-unit presence (sprint
+023).** A `SUCCESS` verdict from `classify_attempt()` plus a
+zero-marker plain-V2 hex is still not proof the hex is *complete* — a
+build served wholly or partly from a stale
+`.tmp/deploy-head/built/dockercodal` cache can print a fully clean log,
+exit 0, and produce a real, well-formed, but short hex, because
+nothing above judges the hex's actual completeness. This recurred
+repeatedly: a build once produced a `binary.hex` 27% short of the
+correct size with a clean exit and nothing in the log to flag it, and
+separately, a build served entirely from cache has produced a clean
+log containing **zero** `Building CXX object` lines while still
+exiting 0 with a hex on disk. `build()` closes both, once triage and
+the block-marker check both pass, with two more assertions before a
+hex is ever printed as ready to flash:
+
+- **Size floor.** `os.path.getsize(hex_path)` must be at least
+  `MIN_HEX_SIZE_BYTES` (a named constant, with the measured checkpoint
+  band recorded in a comment beside it in `make_deploy.py`). The floor
+  sits well above the shortest truncated hex observed and well below
+  the measured band of genuine builds, so it has real margin on both
+  sides.
+- **Translation-unit presence.** All ten `nezha-diffdrive` `.cpp`
+  files (`EXPECTED_CPP_FILES`, a literal list, not a filesystem scan at
+  check time) must each appear as a `Building CXX object` line
+  somewhere in the captured build output. A build output with **zero**
+  such lines fails this exactly like any other missing-subset case —
+  the check is written as "is each expected file found", never "is
+  each found line one of the expected files", so an empty found-set
+  can never vacuously satisfy it.
+
+Both checks are pure functions with no subprocess or real build
+(`_check_hex_size()` / `_check_translation_units()` in
+`make_deploy.py`), unit-tested directly against synthetic size/log
+fixtures in `tests/tools/test_make_deploy_triage.py`, mirroring
+`classify_attempt()` / `_count_universal_hex_blocks()`'s own
+testability pattern. On failure, `build()` exits the same way an
+`UNKNOWN`/`HARD_FAILURE` triage verdict does, naming what was expected
+vs. found and pointing at the fix: wipe the stale scratch copy (Python
+`shutil.rmtree()` — `rm -rf` may be sandbox-denied in some
+environments) and rebuild from a genuinely clean copy.
 
 ## Tour family — run, record, chart, score
 
