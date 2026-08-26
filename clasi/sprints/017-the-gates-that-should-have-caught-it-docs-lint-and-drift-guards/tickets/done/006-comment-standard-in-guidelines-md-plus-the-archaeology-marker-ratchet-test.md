@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: Comment standard in guidelines.md plus the archaeology-marker ratchet test
-status: open
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -93,21 +93,53 @@ from 363, and note the discrepancy in the ticket's completion notes.
 
 ## Acceptance Criteria
 
-- [ ] `docs/code-review/guidelines.md` contains the write-time comment
+- [x] `docs/code-review/guidelines.md` contains the write-time comment
       standard, in the approved language above (verbatim or near-verbatim).
-- [ ] A new host test asserts the archaeology-marker count across
+- [x] A new host test asserts the archaeology-marker count across
       project-owned `src/` (excluding vendored `core/diffdrive.{h,cpp}`) is
       `<= ` the measured baseline, ratcheting down only -- raising the
       budget requires an explicit, reviewed change to the test's constant,
       not a silent increase.
-- [ ] The test passes against the current tree as of this ticket's
+- [x] The test passes against the current tree as of this ticket's
       completion.
-- [ ] No bulk comment cleanup is performed -- comment volume should be
+- [x] No bulk comment cleanup is performed -- comment volume should be
       approximately unchanged except for incidental edits from other
       tickets in this sprint.
-- [ ] `blocks/motion.ts`'s two wrong comments are explicitly NOT touched
+- [x] `blocks/motion.ts`'s two wrong comments are explicitly NOT touched
       here (confirm they're left for sprint 015).
-- [ ] No firmware behavior is changed.
+- [x] No firmware behavior is changed.
+
+## Completion notes (2026-08-26)
+
+- **Standard**: added verbatim as a new "Write-time standard"
+  subsection at the top of `docs/code-review/guidelines.md`'s existing
+  section 6 (Comment hygiene), ahead of the review-time delete/keep
+  rubric -- the write-time rule is what an author follows while
+  writing; the existing section is what a reviewer checks afterward.
+  Cross-referenced the ratchet test and the sprint-009-regrew-back
+  rationale inline, both requested as "worth including."
+- **Ratchet budget re-measured, not reused**: 388, not the briefing's
+  363. Replicated `comment-audit.md` section 5's own broader marker
+  regex (the one that produced 363, not section 9's narrower sketch)
+  against the CURRENT tree, scoped to project-owned `src/` excluding
+  vendored `core/diffdrive.{h,cpp}` (measured 2 marker lines there,
+  matching the audit's own count exactly -- confirms the methodology
+  replicates correctly). Per-file counts mostly match the audit
+  closely or exactly (`wire_handler.h` 47/47, `motion_engine.h` 37/37,
+  `radio_transport.h` 20/20, `serial_transport.h` 16/16,
+  `protocol.cpp` 14/14, `protocol.h` 5/5, `heading_wrap.h` 5/5,
+  `encoder_glitch_armor.h` 9/9, `encoder_pose_source.h` 6/6 all exact),
+  with the rest higher by a handful of lines each and `blocks/sim.ts`
+  roughly doubled (10 vs 5) -- consistent with ordinary comment edits
+  landing across sprints 015-017 between the 2026-08-26 audit and this
+  measurement, not a scanning discrepancy. Sanity-checked the test
+  itself both ways: confirmed it fails when the budget is set one
+  below the measured count (388 vs budget 387), and confirmed it
+  passes at 388, before settling on 388 as the committed budget.
+- **No cleanup performed**: this ticket added two new test files
+  (`test_archaeology_marker_budget.py`) and a guidelines.md section;
+  it made no edits to any `src/` comment. `blocks/motion.ts` was not
+  touched (its two wrong comments remain for sprint 015, as decided).
 
 ## Testing
 

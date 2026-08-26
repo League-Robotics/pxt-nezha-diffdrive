@@ -127,6 +127,35 @@ parse, and abbreviations that save keystrokes at the reader's expense.
 
 ### 6. Comment hygiene
 
+#### Write-time standard
+
+A comment must state something a competent reader cannot recover from the
+code in front of them: a unit, a sign convention, an invariant, a
+measured hardware fact, a wire layout, or a hazard.
+
+Sprint numbers, ticket numbers, issue filenames, code-review IDs, and
+"this used to be X" belong in the commit message. Git already stores
+them, and a reader who wants them can `git log -L`.
+
+If the comment is longer than the code it describes, it is a design-doc
+section wearing a comment's clothes. Move it, or cut it to the fact.
+
+What good looks like in practice: `motion_engine.h`'s `travelCalib_` and
+`rotationalSlip_` comments, and `nezha_port.cpp`'s bus-hang guard — each
+states a measured hardware fact a reader cannot recover from the code
+alone. See "What 'keep' looks like in practice" below for the fuller
+list; the same list serves as the standard's worked examples.
+
+This is a write-time rule, not a cleanup mandate — it governs what gets
+written from here forward. A mechanical ratchet
+(`tests/host/test_archaeology_marker_budget.py`) backstops it by
+counting sprint/ticket/finding-ID archaeology across `src/` and failing
+if the count ever goes up; it does not, by itself, clean up what's
+already there. Sprint 009 ran a dedicated cleanup sprint and cut ~470
+comment lines (8%) with no write-time rule behind it — by sprint 013,
+every file it touched had grown back past its pre-cleanup count. A
+cleanup without this standard provably does not hold.
+
 Comments are aids to future readers — **not historical documents**. The
 review produces a concrete delete/rewrite list, reducing comments to the
 minimal set that earns its place.
