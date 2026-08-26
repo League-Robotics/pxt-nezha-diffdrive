@@ -33,6 +33,57 @@ ORDER = ['NW', 'SW', 'SE', 'NE']
 # Closed rectangle (for plotting/deviation), NE -> NW -> SW -> SE -> NE.
 RECT = [DOTS['NE'], DOTS['NW'], DOTS['SW'], DOTS['SE'], DOTS['NE']]
 
+# Field boundary -- (x_cm, y_cm) half-extents of the 134.3 x 89.3 cm
+# field, A1-centred. Source of truth: `.claude/rules/playfield-testing.md`
+# ("Field is 134.3 x 89.3 cm, AprilTag-1-centred, so limits are
+# ±67.15 / ±44.65 cm. Keep a 12 cm margin.") -- keep these two numbers
+# in sync with that file; `tests/tools/test_field.py` pins both against
+# the rule file's own text as a drift guard.
+LIMITS = (67.15, 44.65)
+MARGIN = 12.0
+
+
+def _within_margin(x, y):
+    lx, ly = LIMITS
+    return abs(x) <= lx - MARGIN and abs(y) <= ly - MARGIN
+
+
+def clears_margin(rows):
+    """True if every row's `(x, y)` stays within `LIMITS` reduced by
+    `MARGIN` -- for RECORDERS, checking a captured path after the
+    fact. `rows` follows the module's usual `(t, x_cm, y_cm, yaw_deg)`
+    convention; an empty `rows` trivially clears (nothing to violate).
+    """
+    return all(_within_margin(row[1], row[2]) for row in rows)
+
+
+def check_path(waypoints, samples_per_segment=20):
+    """Check a planner's FULL projected path against `LIMITS` reduced
+    by `MARGIN`, before a run is armed -- each `(x_cm, y_cm)` waypoint
+    AND the straight-line segment between each consecutive pair, not
+    just the waypoints themselves, per
+    `.claude/rules/playfield-testing.md`'s "compute the full projected
+    path ... through every planned leg."
+
+    Returns the list of offending `(x, y)` points (waypoints and/or
+    interpolated segment points) -- empty if the whole path clears the
+    margin. A caller refuses to arm the run on any non-empty result.
+    """
+    offenders = []
+    if not waypoints:
+        return offenders
+    x0, y0 = waypoints[0]
+    if not _within_margin(x0, y0):
+        offenders.append((x0, y0))
+    for (x1, y1), (x2, y2) in zip(waypoints, waypoints[1:]):
+        for i in range(1, samples_per_segment + 1):
+            t = i / samples_per_segment
+            x = x1 + t * (x2 - x1)
+            y = y1 + t * (y2 - y1)
+            if not _within_margin(x, y):
+                offenders.append((x, y))
+    return offenders
+
 
 def wrap(d):
     """Wrap an angle in degrees into (-180, 180]."""

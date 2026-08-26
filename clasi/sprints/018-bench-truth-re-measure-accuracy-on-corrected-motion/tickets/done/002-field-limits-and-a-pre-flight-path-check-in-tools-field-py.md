@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Field limits and a pre-flight path check in tools/field.py
-status: open
+status: done
 use-cases:
 - SUC-002
 depends-on: []
@@ -79,22 +79,22 @@ completion notes.
 
 ## Acceptance Criteria
 
-- [ ] `tools/field.py` defines `LIMITS = (67.15, 44.65)` and
+- [x] `tools/field.py` defines `LIMITS = (67.15, 44.65)` and
       `MARGIN = 12.0`, matching `.claude/rules/playfield-testing.md`'s
       stated numbers, with a comment citing that rule file.
-- [ ] `clears_margin(rows)` is implemented, pure (no I/O), and follows
+- [x] `clears_margin(rows)` is implemented, pure (no I/O), and follows
       the module's existing `(t, x, y, yaw)` row convention.
-- [ ] `check_path(waypoints)` is implemented, pure, checks waypoints
+- [x] `check_path(waypoints)` is implemented, pure, checks waypoints
       AND the segments between them (not just endpoints), and its
       return value lets a caller refuse to arm a run.
-- [ ] Unit tests added to `tests/tools/test_field.py` (co-located with
+- [x] Unit tests added to `tests/tools/test_field.py` (co-located with
       the existing `field.py` tests) covering at minimum: a path fully
       inside the margin passes; a single waypoint outside
       `LIMITS - MARGIN` fails; a straight-line segment between two
       in-bounds waypoints that clips outside the margin is caught (the
       segment case, not just the endpoint case); the equivalent
       cases for `clears_margin(rows)` against recorded rows.
-- [ ] `LIMITS`/`MARGIN` numbers are unit-tested against the exact
+- [x] `LIMITS`/`MARGIN` numbers are unit-tested against the exact
       values in `.claude/rules/playfield-testing.md` (a drift guard --
       if the rule's numbers ever change, this test should force the
       module to be updated too, or vice versa).
@@ -102,6 +102,58 @@ completion notes.
       rule file is edited to remove the false "geofence" claim, and
       the ticket's completion notes state explicitly that SUC-002 is
       not satisfied by this path and why that was judged acceptable.
+      (Not taken -- the "build it" path was used instead; see
+      Completion Notes.)
+
+## Completion Notes
+
+- Built `LIMITS`, `MARGIN`, `clears_margin(rows)`, `check_path(waypoints)`
+  in `tools/field.py`, matching the module's existing pure-function,
+  no-I/O style and its `(t, x, y, yaw)` row convention.
+- `_within_margin(x, y)` is a small shared helper both public functions
+  call: `abs(x) <= LIMITS[0] - MARGIN and abs(y) <= LIMITS[1] - MARGIN`.
+- `check_path()` checks the first waypoint explicitly, then walks every
+  consecutive pair sampling 20 interpolated points per segment
+  (`t = 1/20 .. 1`, so `t=1` always lands exactly on the next waypoint
+  -- every waypoint after the first is therefore checked as part of
+  segment-walking, not as a separate pass). Returns the list of
+  offending `(x, y)` points (empty means clear), so a caller can
+  refuse to arm on any non-empty result.
+- **Geometric note, worth recording explicitly rather than leaving
+  implicit**: `LIMITS` reduced by `MARGIN` is an axis-aligned
+  rectangle, which is a convex region. By basic convexity, a straight
+  segment between two waypoints that EACH individually clear the
+  margin can never itself leave that region -- this was verified by
+  direct proof (a linear interpolation between two bounded points is
+  itself bounded by the same bounds on each axis), not just assumed.
+  So the acceptance criterion's literal "two in-bounds waypoints,
+  unsafe segment between them" scenario is not constructible for this
+  shape. `check_path()` still implements genuine per-segment
+  interpolation (not just endpoint lookups) because it is correct,
+  matches the ticket's spec text, and is defensive against the safe
+  region ever becoming non-rectangular (e.g. an obstacle carved out of
+  the field) -- but the tests demonstrate the REAL, constructible form
+  of this requirement instead: (a) a multi-leg route whose overall
+  start and end both clear the margin but an intermediate waypoint
+  does not, which `check_path()` must still catch (mirroring this same
+  module's `closure()`, which deliberately looks only at the first and
+  last row -- a `check_path()` with that same simplification would
+  silently pass an unsafe middle leg), and (b) a single leg that
+  crosses out of the margin reports the WHOLE unsafe stretch as
+  multiple interpolated offending points, not merely the one flagged
+  endpoint, proving the segment is actually walked.
+- Wiring `check_path()`/`clears_margin()` into any tour tool's call
+  path (e.g. `tour_capture.py`) is confirmed OUT OF SCOPE per the
+  ticket and left as a follow-up; no tour tool was touched.
+- `LIMITS`/`MARGIN` are pinned against
+  `.claude/rules/playfield-testing.md` by reading the file's own text
+  at test time (`test_limits_and_margin_match_the_playfield_rule_file`)
+  and asserting `'67.15'`, `'44.65'`, `'12 cm margin'` all appear in
+  it, in addition to comparing the module's constants -- a real drift
+  guard, not a duplicated literal.
+- Verification: `uv run pytest tests/tools/test_field.py` -- 33 passed
+  (24 pre-existing + 9 new). `uvx ruff check tools/field.py
+  tests/tools/test_field.py` -- clean.
 
 ## Testing
 
