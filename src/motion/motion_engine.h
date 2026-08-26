@@ -379,6 +379,16 @@ class MotionEngine {
     bool hasPending = false;     // a queued second (straight) phase
     float pendingDistance = 0.0f;  // [mm] phase 2's distance, if pending
     float pendingCruise = 0.0f;    // [mm/s] phase 2's cruise, if pending
+    // True for exactly one serviceMove() call: phase 1 just finished and
+    // kernel_.neutral() was staged this tick, but phase 2's startSegment()
+    // (which stages kernel_.drive()) must NOT run until a real
+    // kernel_.step() has consumed that staged neutral -- see
+    // serviceMove()'s own comment at both ends of this flag's lifetime for
+    // why. `step()` is always the CALLER's call (tickDrive()/updateMove()
+    // both run it once per tick, before serviceMove()), never this
+    // class's own, so the wait is expressed as "resume on the NEXT
+    // serviceMove() call" rather than a step the engine could take itself.
+    bool awaitingHandoffNeutral = false;
     float posLeft0 = 0.0f, posRight0 = 0.0f;  // [counts]
     float distTarget = 0.0f;  // [counts] mean-axis target (signed)
     float yawTarget = 0.0f;   // [counts] half-differential target (signed)

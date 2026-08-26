@@ -94,6 +94,15 @@ void meSetMaxDuty(void* handle, float v) {
 void meSetFullDutyVelocity(void* handle, float v) {
   static_cast<Handle*>(handle)->kernel.setFullDutyVelocity(v);
 }
+// twistHoldGain defaults to 0.0 (off) in every other test in this tree
+// (this file's own comment above), which is exactly why the phase 1 ->
+// phase 2 handoff's stale-twist-hold-reference hazard needs its own
+// test: only with this gain nonzero does the kernel's twist-hold trim
+// (diffdrive.cpp) contribute anything to staged duty at all. Mirrors
+// kernel_shim.cpp's kdSetTwistHoldGain.
+void meSetTwistHoldGain(void* handle, float v) {
+  static_cast<Handle*>(handle)->kernel.setTwistHoldGain(v);
+}
 int meBegin(void* handle) {
   return static_cast<int>(static_cast<Handle*>(handle)->kernel.begin());
 }
