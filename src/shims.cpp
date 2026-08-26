@@ -140,17 +140,28 @@ struct Rig {
                                   // cycleOverrunCount_, which only its
                                   // unused run() ever increments.
 
-  // Sprint 007 ticket 003 (closing R-11/BLK-03/API-03,
-  // cruise-zero-sentinel-full-duty-lunge.md): the wire's OWN "0 = use
-  // the configured default" convenience field, deliberately SEPARATE
-  // from kernel.config().fullDutyVelocity. Those are two unrelated
-  // meanings of zero that used to be collapsed onto one field: the
-  // wire layer's sentinel (this) vs. the kernel's own "0 = uncalibrated,
-  // refuse VELOCITY" gate (DifferentialDrive::checkCommandable()). See
-  // engineDefaultCruiseMmS() below, the wire-layer section, for the
-  // consumer. Seeded to 150.0f to match the block layer's own
-  // `defaultSpeed` (15 cm/s, `blocks/motion.ts`) -- NOT derived from any kernel
-  // constant, and NOT the duty ceiling.
+  // The wire's OWN "0 = use the configured default" convenience field,
+  // deliberately SEPARATE from kernel.config().fullDutyVelocity. Those
+  // are two unrelated meanings of zero that used to be collapsed onto
+  // one field: the wire layer's sentinel (this) vs. the kernel's own
+  // "0 = uncalibrated, refuse VELOCITY" gate
+  // (DifferentialDrive::checkCommandable()). See engineDefaultCruiseMmS()
+  // below, the wire-layer section, for the consumer. Seeded to 150.0f
+  // -- NOT derived from any kernel constant, and NOT the duty ceiling --
+  // chosen AT IMPLEMENTATION TIME to numerically match the block
+  // layer's own `defaultSpeed` (15 cm/s, `blocks/motion.ts`), which was
+  // 15 at the time.
+  //
+  // That match is NOT an enforced invariant and never has been: this
+  // field is independently settable over the wire (`default_cruise`,
+  // ordinal 15, setKernelValue()/getConfigValue() below), and
+  // `defaultSpeed` is independently settable from a block
+  // (`setDefaultSpeed()`, `blocks/motion.ts`) -- nothing keeps the two
+  // in sync, and either one changing alone silently breaks the match.
+  // A caller that needs the two to agree must set both explicitly; a
+  // future change that wants a real coupling would need the TS layer
+  // to read this field back over the wire before choosing its own
+  // default, not a comment asserting they match.
   float defaultCruiseMmS_ = 150.0f;  // [mm/s]
 
   // Sprint 015 ticket 006 (build checkpoint): one-shot handoff from
