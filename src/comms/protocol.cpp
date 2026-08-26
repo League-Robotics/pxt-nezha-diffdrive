@@ -150,6 +150,10 @@ int Protocol::serialDropCount() const {
 // 006) -- same boundary reason as protocolEmitLine() above.
 int protocolSerialDropCount() { return protocol().serialDropCount(); }
 
+void Protocol::setRadioGroup(uint8_t group) {
+  radioTransport_.setGroup(group);
+}
+
 // ---- the old-style cleartext RUN MessageBus bridge, unchanged --------
 
 void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
@@ -406,5 +410,19 @@ Protocol& protocol() {
 // lazy-singleton guard makes this call (and any other) idempotent.
 //%
 void startProtocol() { protocol(); }
+
+// Free-function entry point for the "set radio group" block's shim
+// (`_setRadioGroup`, `blocks/sim.ts`): same lazy-singleton Protocol&
+// access pattern as startProtocol() just above -- protocol()'s own
+// guard makes this call safe (and idempotent) regardless of whether
+// the protocol fiber has started yet. Forwards into
+// Protocol::setRadioGroup(), which forwards again into
+// RadioTransport::setGroup() -- see that method's own doc comment
+// (radio_transport.h) for the idempotent-apply contract this block
+// ultimately relies on.
+//%
+void setRadioGroup(int group) {
+  protocol().setRadioGroup(static_cast<uint8_t>(group));
+}
 
 }  // namespace diffDrive

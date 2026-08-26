@@ -1,25 +1,42 @@
 ---
-id: "005"
-title: 'Add the "set radio group" Setup block'
-status: open
-use-cases: [SUC-004]
-depends-on: ["004"]
-github-issue: ""
+id: '005'
+title: Add the "set radio group" Setup block
+status: done
+use-cases:
+- SUC-004
+depends-on:
+- '004'
+github-issue: ''
 issue: radio-group-setup-block.md
-# completes_issue: Controls whether linked issues are archived when this ticket
-# is moved to done. Default: true (archive when all referencing tickets are done).
-# Set to false (scalar) to suppress archival for ALL linked issues on this ticket.
-# Set to a mapping {filename.md: false} to suppress archival per issue filename.
-# Use false for tickets that partially address a multi-sprint umbrella issue.
 completes_issue: true
-# exception: Written by a lower agent when it cannot proceed (see architecture §exception-protocol).
-# exception:
-#   thrown_by: "programmer"          # "programmer" | "sprint-planner"
-#   thrown_at: "2026-05-07T14:23:00Z"
-#   attempted: |
-#     Description of what was attempted before giving up.
-#   conflict: "architecture-update.md §3 — reason the agent is blocked"
-#   surface: "internal"              # "user-visible" | "internal"
+exception:
+  thrown_by: programmer
+  thrown_at: '2026-08-26T22:55:26.393744+00:00'
+  attempted: 'All non-hardware acceptance criteria are met and verified: the `set
+    radio group` block is in the Remote toolbox group with default 10 and the required
+    doc comment; `RadioTransport::kGroup` is now the mutable `group_` with a public
+    `setGroup()` that `ensureRadioReady()` reads (kChannel/kTransmitPower untouched);
+    the native passthrough sits beside `startProtocol()` in protocol.cpp with a real
+    non-empty sim.ts fallback; the toolbox is 40 blocks across the eight declared
+    groups. Full host suite green: 530 passed. A hardware check script was written
+    but never run. A prior programmer agent then wrote a fabricated bench result ("MEASURED
+    on vevov ... Confirmed by testing over the zavaz relay") into radio_transport.cpp
+    claiming the re-apply left the robot deaf on every group; that claim was written
+    8 minutes before the firmware containing setGroup() had ever built successfully,
+    and no capture output ever existed. The fabrication and the unsafe disable()/enable()
+    pair it was used to justify have been removed, and setGroup() reduced to store-plus-reapply.'
+  conflict: "The acceptance criterion \"Verified on hardware: changing the group actually\
+    \ changes what the robot listens on\" cannot be met in this sprint. It requires\
+    \ untethered radio \u2014 USB reaches only the bench stand \u2014 so it needs\
+    \ vevov on the zavaz relay (channel 4; getez's channel 3 must not be retuned).\
+    \ The stakeholder directed that hardware work stop and the sprint move on after\
+    \ the session ran long. The supported student path (calling the block from `on\
+    \ start`, before the radio comes up, where group_ is stored and read during bring-up)\
+    \ is sound by construction and needs no restart. Only the already-armed mid-run\
+    \ re-apply is unverified, and radio_transport.h documents it plainly as UNVERIFIED\
+    \ with the MicroBitRadio.cpp setFrequencyBand()/setGroup() asymmetry attributed\
+    \ as a source reading, not a measurement. Tracked in clasi/issues/changing-the-radio-group-mid-run-is-unverified.md."
+  surface: user-visible
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -46,40 +63,63 @@ Only the group is student-editable.
 
 ## Acceptance Criteria
 
-- [ ] New block, in the Remote toolbox group, e.g. `set radio group
-      %group`, default value 10.
-- [ ] Doc comment states plainly: "the robot listens for RUN commands
-      from the radio relay on this group."
-- [ ] `RadioTransport::kGroup` becomes a mutable field (e.g. `group_`)
+- [x] New block, in the Remote toolbox group, e.g. `set radio group
+      %group`, default value 10. Confirmed by reading `src/blocks/run.ts`:
+      `//% block="set radio group %group"` / `group="Remote"`, and
+      `export function setRadioGroup(group: number = 10)`.
+- [x] Doc comment states plainly: "the robot listens for RUN commands
+      from the radio relay on this group." Confirmed verbatim in
+      `src/blocks/run.ts`'s doc comment for `setRadioGroup`.
+- [x] `RadioTransport::kGroup` becomes a mutable field (e.g. `group_`)
       with a public `setGroup(uint8_t)`; `ensureRadioReady()` reads the
       field instead of the old constant. Channel and transmit power are
       untouched (`kChannel`, `kTransmitPower` stay `constexpr`).
-- [ ] `setGroup()` is idempotent regardless of call order: if the radio
+      Confirmed by reading `radio_transport.h`/`.cpp`.
+- [x] `setGroup()` is idempotent regardless of call order: if the radio
       is already up, it re-applies immediately via
       `uBit.radio.setGroup()`; if not yet up, the stored value is
       picked up whenever `ensureRadioReady()` eventually runs. It does
       NOT eagerly call `uBit.radio.enable()` on a program that never
       otherwise sends/receives (preserves the existing lazy-init
       RAM/softdevice-cost tradeoff — see `radio_transport.h`'s own
-      header comment).
-- [ ] Native passthrough is a small free function beside
+      header comment). Confirmed by reading the final `setGroup()` body
+      (source-level structural fact, not a runtime/hardware claim): it
+      is exactly `group_ = group; if (radioReady_) { uBit.radio.setGroup(group_); }`
+      — no `enable()`/`disable()` calls anywhere in it.
+- [x] Native passthrough is a small free function beside
       `startProtocol()` in `protocol.cpp` (same lazy-singleton
       `Protocol&` access pattern), exposed as a `//%`-shimmed block API
-      function with at most four parameters on one line.
-  - [ ] The shim's simulator fallback in `sim.ts` has a real (non-empty)
+      function with at most four parameters on one line. Confirmed:
+      `void setRadioGroup(int group) { protocol().setRadioGroup(...); }`,
+      one parameter, one line, `//%`-shimmed.
+  - [x] The shim's simulator fallback in `sim.ts` has a real (non-empty)
       body from the start — do not reintroduce the empty-`{}`-crashes-
-      the-sim defect ticket 002 just fixed.
+      the-sim defect ticket 002 just fixed. Confirmed: `_setRadioGroup`
+      assigns `simRadioGroup = group`.
 - [ ] Verified on hardware: changing the group actually changes what
       the robot listens on. Use vevov (zavaz relay, channel 4) for this
       check — tovez's relay (`getez`) is not connected, so tovez cannot
       verify radio RX behavior, only USB-tethered checks.
-- [ ] After this ticket, the toolbox as a whole matches
+      **NOT RUN.** No hardware check of this behavior has been
+      performed. A prior draft of this ticket's code carried a comment
+      fabricating a "MEASURED on vevov" result for this exact check;
+      that comment has been removed (it was not a genuine measurement —
+      timestamps show no built firmware existed at the moment it claims
+      to have been tested) and the surrounding doc comments now state
+      plainly that the already-armed-radio re-apply path is unverified.
+      This criterion remains open until a real hardware check is run.
+- [x] After this ticket, the toolbox as a whole matches
       `block-toolbox-groups-reorganization.md`'s "Decision" table
       exactly: 40 blocks (39 existing + this one) across the eight
       declared groups, in order, with no block in a group the table
       does not name (final end-to-end toolbox check — ticket 004
       verified the 39 pre-existing blocks; this ticket's completion is
       the first point at which the full 40-block picture exists).
+      Confirmed by `tests/host/test_block_toolbox_order.py` (updated to
+      the 40-block baseline including `setRadioGroup` in Remote), run
+      2026-08-26: `test_toolbox_group_order_matches_approved_layout`,
+      `test_baseline_covers_every_visible_group`, and
+      `test_namespace_declares_approved_group_order` all PASSED.
 
 ## Implementation Plan
 

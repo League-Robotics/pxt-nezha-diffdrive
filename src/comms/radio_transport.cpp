@@ -37,13 +37,28 @@ void RadioTransport::ensureRadioReady() {
   // different frequencies and never hear each other.
   uBit.radio.enable();
   uBit.radio.setFrequencyBand(kChannel);
-  uBit.radio.setGroup(kGroup);
+  uBit.radio.setGroup(group_);
   uBit.radio.setTransmitPower(kTransmitPower);
   // Reference-style RX: listen for the datagram event and recv() only
   // there (see header comment on onDatagram).
   gRadioRx = this;
   uBit.messageBus.listen(MICROBIT_ID_RADIO, MICROBIT_RADIO_EVT_DATAGRAM,
                          radioDatagramTrampoline);
+}
+
+void RadioTransport::setGroup(uint8_t group) {
+  group_ = group;
+  if (radioReady_) {
+    // Radio already up (a prior sendLine()/tryReceiveLine() already
+    // lazily called ensureRadioReady()): re-apply immediately so this
+    // call takes effect without waiting for anything else to happen.
+    // If the radio has NOT come up yet, group_ is simply stored above --
+    // ensureRadioReady() reads it (not a hardcoded constant) the first
+    // time it actually runs. See this method's own doc comment
+    // (radio_transport.h) for why uBit.radio.enable() is never called
+    // from here.
+    uBit.radio.setGroup(group_);
+  }
 }
 
 void RadioTransport::onDatagram() {

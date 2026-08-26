@@ -56,10 +56,11 @@ namespace diffDrive {
         })
     }
 
-    // weight= below (onRun/onRunCommand) pins Move group order to the
-    // pre-split baseline (sprint 012 ticket 007) -- see motion.ts's
-    // setWheelSpeeds() for the full rationale; this file supplies two
-    // members of the same group.
+    // Remote group: remote dispatch is not a move, so it gets its own
+    // group rather than sharing Move's weight range. Weights on this
+    // group's three blocks (onRun, onRunCommand, and setRadioGroup
+    // below) are spaced 10 apart so a future fourth block can slot in
+    // without renumbering the existing three.
 
     /**
      * Run code when the named command arrives over the wire protocol --
@@ -74,7 +75,7 @@ namespace diffDrive {
      */
     //% block="on run %name $arg"
     //% draggableParameters="reporter"
-    //% group="Move" weight=190
+    //% group="Remote" weight=190
     export function onRun(name: string, handler: (arg: number) => void): void {
         ensureRunState()
         wireRunDispatch()
@@ -89,12 +90,27 @@ namespace diffDrive {
      */
     //% block="on run command $name $arg"
     //% draggableParameters="reporter"
-    //% group="Move" weight=180
+    //% group="Remote" weight=180
     export function onRunCommand(
         handler: (name: string, arg: number) => void): void {
         ensureRunState()
         wireRunDispatch()
         runAnyHandlers.push(handler)
+    }
+
+    /**
+     * The robot listens for RUN commands from the radio relay on this
+     * group. Safe to call any time -- before the radio has come up
+     * (typically from on start) or after: applied immediately if the
+     * radio is already up, picked up automatically the first time it
+     * comes up otherwise. Does not affect the fleet radio channel,
+     * which stays fixed per-robot.
+     * @param group radio group, eg: 10
+     */
+    //% block="set radio group %group"
+    //% group="Remote" weight=170
+    export function setRadioGroup(group: number = 10): void {
+        _setRadioGroup(Math.round(group))
     }
 
     /**

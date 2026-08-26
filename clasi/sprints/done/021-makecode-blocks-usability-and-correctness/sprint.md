@@ -1,7 +1,7 @@
 ---
 id: '021'
 title: MakeCode blocks usability and correctness
-status: ticketing
+status: done
 branch: sprint/021-makecode-blocks-usability-and-correctness
 use-cases: []
 issues:

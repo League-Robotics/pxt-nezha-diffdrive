@@ -66,10 +66,11 @@ class RadioTransport {
   // module's internal line-buffer capacity, mirroring SerialTransport's
   // own defensive truncation.
   //
-  // Lazily enables and configures the radio (uBit.radio.enable(), fixed
-  // group/channel/power -- see kGroup/kChannel/kTransmitPower below --
-  // matching the reference driver's own begin()) on the FIRST call,
-  // never at construction and never via a separate begin() step:
+  // Lazily enables and configures the radio (uBit.radio.enable(),
+  // group/channel/power -- see group_/kChannel/kTransmitPower below;
+  // group is student-settable via setGroup(), channel and power are
+  // fixed -- matching the reference driver's own begin()) on the FIRST
+  // call, never at construction and never via a separate begin() step:
   // uBit.radio.enable() has its own RAM/softdevice cost, so a
   // bench-only serial user who never calls sendLine() never pays it.
   //
@@ -97,6 +98,33 @@ class RadioTransport {
   // fragment inbound reassembly is deliberately out of scope; see
   // clasi/issues/radio-rx-command-plane-run-over-bridge.md).
   bool tryReceiveLine(uint8_t* outBuf, size_t outCap, size_t* outLen);
+
+  // Set the radio group this robot listens/transmits on -- the ONE
+  // write path the blocks layer gains into this class's configuration;
+  // channel and transmit power stay fixed constexpr values, below, and
+  // are NOT settable this way. Always stores `group` into group_
+  // unconditionally.
+  //
+  // Supported path: called from `on start`, before the radio has come
+  // up (radioReady_ == false). Nothing else happens here in that case --
+  // ensureRadioReady() reads group_ (not a hardcoded constant) the first
+  // time it actually runs, and brings the radio up already on the
+  // requested group. This is the student-facing path the block targets.
+  //
+  // If the radio has ALREADY come up (radioReady_ == true, e.g. a prior
+  // sendLine()/tryReceiveLine() already lazily called
+  // ensureRadioReady()), this re-applies the group immediately via
+  // uBit.radio.setGroup(group_) so the call does not silently no-op.
+  // Whether that re-apply actually changes what the already-armed radio
+  // receives on is UNVERIFIED on this hardware -- no test of this path
+  // has been run. As a source observation only (not a measurement): the
+  // vendored MicroBitRadio.cpp's setFrequencyBand() performs an explicit
+  // TASKS_DISABLE/TASKS_RXEN restart with the comment "We need to
+  // restart the radio for the frequency change to take effect", while
+  // its setGroup() only writes NRF_RADIO->PREFIX0 and returns, with no
+  // such restart. What that difference means for reception on
+  // already-armed hardware has not been observed either way.
+  void setGroup(uint8_t group);
 
   // Event-driven RX internals (public only for the static MessageBus
   // trampoline): mirrors the reference driver's design -- datagram.recv()
@@ -175,13 +203,24 @@ class RadioTransport {
   static constexpr int kFrameHeaderBytes = 3;  // [SEQ][FLAGS][LEN]
 
   // Fixed radio convention matching the fleet's RADIOBRIDGE relay:
-  // group 10 (the relay's own listen group); channel 4 (vevov's
-  // fleet-assigned channel; the zavaz relay matches: !CG 4 10);
-  // transmit power 7 (matches the reference driver's own
-  // setTransmitPower(7)). No per-robot channel-selection surface yet.
-  static constexpr uint8_t kGroup = 10;
+  // channel 4 (vevov's fleet-assigned channel; the zavaz relay matches:
+  // !CG 4 10); transmit power 7 (matches the reference driver's own
+  // setTransmitPower(7)). Channel is injected per-robot at DEPLOY time
+  // into the SCRATCH COPY only (tools/make_deploy.py's
+  // _inject_radio_channel()) -- still no student-facing surface for it,
+  // and none is planned. Transmit power has no settable surface either,
+  // student-facing or per-robot.
   static constexpr int kChannel = 4;
   static constexpr int kTransmitPower = 7;
+
+  // Radio group this robot listens/transmits on -- MUTABLE, unlike
+  // kChannel/kTransmitPower just above. Defaults to 10 (the fleet's
+  // RADIOBRIDGE relay listen group), the same value the old `static
+  // constexpr uint8_t kGroup = 10` held; setGroup() (above) is the
+  // only way to change it, and ensureRadioReady() (radio_transport.cpp)
+  // reads this field, not a constant, when it lazily brings the radio
+  // up.
+  uint8_t group_ = 10;
 
   // kMaxPayloadBytes itself is declared PUBLIC, above (sprint 008
   // ticket 002) -- moved out of this section rather than merely
