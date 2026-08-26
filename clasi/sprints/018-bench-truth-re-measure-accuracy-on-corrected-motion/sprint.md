@@ -145,33 +145,45 @@ Parent: UC-012
 
 ## Tickets
 
-Scope reduced at execution on measured hardware availability (see the
-`stakeholder_approval` gate notes): `mbdeploy probe` reported tovez
-`CONN=yes` over USB, but vevov, getez, and zavaz all `CONN=no`, and
-room lights off. No relay means no untethered radio, and USB reaches
-only the bench stand, so there is no playfield driving this sprint.
-No vevov means no OTOS. Every camera- and OTOS-dependent campaign
-(`travelCalib` verification, `goToWorld` re-measurement, the
-leg-vs-pivot rotation split, the `i2cf` report) is therefore either
-deferred (004, 005 — full bench procedures written, marked
-`status: exception`, blocked on external hardware) or dropped from
-this sprint's ticket set entirely (`travelCalib` verification, `i2cf`
-report — no ticket created; both remain open issues for a future
-sprint once vevov/relays/lights are available). What remains runnable
-is encoder-domain only: the two code tickets (001, 002) and one
-genuinely runnable hardware ticket (003, heading-only, valid on the
-bench stand).
+| # | Title | Status |
+|---|-------|--------|
+| 001 | One named shaping profile per `RUN:` handler, recorded in the capture | done |
+| 002 | Field limits and a pre-flight path check in `tools/field.py` | done |
+| 003 | Split-move verb + phase-handoff fix **confirmed on hardware** | done |
+| 006 | Build checkpoint | done |
 
-| # | Title | Depends On |
-|---|-------|------------|
-| 001 | One named shaping profile per `RUN:` handler, recorded in the capture | — |
-| 002 | Field limits and a pre-flight path check in `tools/field.py` | — |
-| 003 | Add a split-move verb to `test.ts` and verify the phase-handoff fix on tovez | — |
-| 004 | **DEFERRED** — `goToWorld` absolute-arrival re-measurement on corrected firmware (`status: exception`) | — |
-| 005 | **DEFERRED** — leg-vs-pivot rotation split, per-boundary camera fixes at rest (`status: exception`) | — |
-| 006 | **Build checkpoint**: full build, flashable hex (standing convention, always last) | 001, 002, 003 |
+> **Scope reduced during execution, 2026-08-26.** Tickets 004 and 005 — the two
+> camera-truthed playfield campaigns — could not run: no relay was up, so there
+> was no untethered radio and USB reaches only the bench stand, and the room
+> lights were off. They moved to **sprint 020**, with their ready-to-run bench
+> procedures and evidence templates preserved verbatim at
+> `clasi/sprints/020-playfield-accuracy-campaigns-on-corrected-motion/bench-procedures/`.
+> This sprint closed on the work that was genuinely done rather than being held
+> open on external resource availability.
 
-Tickets execute serially in the order listed. 004 and 005 are written
-as complete, ready-to-run bench procedures with evidence templates,
-but carry no executable work this sprint — they are blocked on
-external hardware availability, not on 001–003.
+## Outcome
+
+The sprint's headline result is ticket 003: **sprint 015's phase-handoff fix is
+confirmed on hardware.** Three trials on vevov (bench, USB, wheels-up — valid
+here because heading integrates from the encoder differential and needs no
+floor):
+
+| measure | before the fix | this run (mean of 3) |
+|---|---:|---:|
+| peak heading | +185.5 deg | +187.3 deg |
+| **peak -> leg-start (the unwind)** | **-17.2 deg** | **-0.49 deg** |
+| final heading | +168.7 deg | +183.2 deg |
+
+The unwind — the fix's own signature — collapsed to noise. The stale twist-hold
+reference across the pivot->leg handoff was the mechanism, and deferring
+`startSegment()` by one `serviceMove()` call resolves it.
+
+Two findings remain open and are recorded rather than closed:
+
+- The **~5.5 deg pivot overshoot** (+187.3 on a 180 deg command) is a separate,
+  still-unexplained mechanism that survives this fix. It is encoder-domain and
+  answerable on the bench.
+- `cleartext-run-hangs-the-link-under-active-telemetry.md`, discovered by this
+  sprint. Ticket 003 worked around it by sampling on-robot and dumping after the
+  move — this project's own documented pattern (`shims.cpp`'s `probe()` comment)
+  — rather than waiting on a firmware fix.

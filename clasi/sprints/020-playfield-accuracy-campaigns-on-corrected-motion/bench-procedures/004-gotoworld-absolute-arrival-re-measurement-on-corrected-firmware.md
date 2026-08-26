@@ -1,3 +1,10 @@
+<!-- Bench procedure written for sprint 018 ticket 004, which could not run:
+     no relay was up (so no untethered radio, and USB reaches only the bench
+     stand) and the room lights were off. Sprint 018 closed on its
+     bench-runnable work; this campaign moved to sprint 020. Preserved
+     verbatim below -- the procedure and evidence template are ready to run
+     once vevov is on the playfield with a relay up and the lights on. -->
+
 ---
 id: '004'
 title: 'DEFERRED: goToWorld absolute-arrival re-measurement on corrected firmware'
