@@ -134,6 +134,54 @@ namespace diffDrive {
         return simMoveActive
     }
 
+    // [mm] [mm] [mm/s] [mm] [ms] -- simulator stand-in for
+    // MotionEngine::goToR()'s arc reduction (motion_engine.cpp): bearing
+    // = atan2(y, x), turn angle theta = 2*bearing wrapped to the short
+    // arc (|theta| <= pi, same wrap goToR() applies, KERN-03) so a
+    // target behind the robot turns the short way, not almost a full
+    // circle. Unlike hardware, this simulator has no wheel-duty
+    // constraint forcing goToR()'s own >=50 deg pivot-then-straight
+    // split (KERN-02) -- blending the whole arc as one segment, the same
+    // way _startMove() already blends distance+yaw, reaches (x, y)
+    // exactly, so no split is needed here. `timeout` is a hardware-only
+    // deadline backstop (MotionEngine::goToR()'s header comment);
+    // nothing can strand a move in this simulator, so it is unused.
+    // Params typed `number`, not `int32` like this file's older
+    // shim-fallback functions -- int32 locals/params on a function with
+    // a TS body fail the JS->Blocks decompiler with TS9256; the native
+    // shim ABI is governed by the C++ signature, not this declaration,
+    // so `number` here is hardware-safe (int32-sim-params-break-blocks-
+    // conversion.md, which still needs to sweep this file's existing
+    // int32 functions -- out of scope here, but no reason to add one
+    // more).
+    //% shim=diffDrive::engineGoToR
+    export function _goToR(x: number, y: number, speed: number,
+        arrive: number, timeout: number): void {
+        simIntegrate()
+        if (simEstopped) return
+        const chord = Math.sqrt(x * x + y * y)
+        if (chord <= arrive) return
+        const bearing = Math.atan2(y, x)   // [rad] already short-arc
+        let theta = 2 * bearing            // [rad] |.| < 2*pi
+        if (theta > Math.PI) theta -= 2 * Math.PI
+        else if (theta <= -Math.PI) theta += 2 * Math.PI
+        let s: number
+        if (Math.abs(y) < 0.1) {           // ~0.1 mm: call it straight
+            s = x
+        } else {
+            const radius = (x * x + y * y) / (2 * y)
+            s = radius * theta
+        }
+        const spd = speed > 0 ? speed : 1
+        const duration = Math.abs(s) / spd
+        if (duration <= 0) return
+        simMoveRemainMm = Math.abs(s)
+        simMoveRemainRad = Math.abs(theta)
+        simVel = s / duration
+        simYawRate = theta / duration
+        simMoveActive = true
+    }
+
     // Simulator body for the tick engine: integrate one step (kinematic
     // stand-in for kernel.step()+serviceMove()), then self-pace to the
     // next absolute 24 ms schedule with basic.pause(), same anchoring

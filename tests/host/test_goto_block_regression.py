@@ -9,22 +9,27 @@ final position, not just their first commanded duty.
 
 Two probe geometries, both measured in block-go-to-misses-its-target.md
 against the real firmware C++ and both ABOVE MotionEngine's own 50 deg
-pivot-vs-blend split threshold (kTurnFirstAngleRad):
+pivot-vs-blend split threshold (kTurnFirstAngleRad) when run through the
+OLD, now-historical reduction below:
 
   block goTo(10, 10) cm   -> bearing 45 deg, a 141.4 mm hop
   block goTo(-10, 1) cm   -> a target behind the robot, theta wraps short
 
-MotionEngine::goToR() (already correct) reaches both within a
-few mm. blocks/motion.ts's own startGoTo() reduction -- theta =
-2*atan2(y,x), s = R*theta, handed to MotionEngine::moveX() -- is the ONLY
-path reachable from a block before this ticket, and hands moveX() an
-(arc-length, arc-angle) pair that its own >=50 deg pivot-then-straight
-split reissues as a DIFFERENT physical path than the arc that pair was
-computed for, missing by the margins the issue measured. This file
-restates that reduction directly in Python (motion.ts is TypeScript, out
-of reach of a host build) and drives it through the SAME moveX() the
-real firmware calls, on the SAME two geometries, to prove the gap
-end-to-end rather than at a single tick.
+MotionEngine::goToR() (already correct) reaches both within a few mm.
+blocks/motion.ts's startGoTo() (sprint 015 ticket 002) now calls goToR()
+directly instead of computing its own (arc-length, arc-angle) pair and
+handing it to MotionEngine::moveX() -- moveX()'s own >=50 deg
+pivot-then-straight split used to reissue that pair as a DIFFERENT
+physical path than the arc it was computed for, missing by the margins
+the issue measured. This file restates BOTH reductions directly in
+Python (motion.ts is TypeScript, out of reach of a host build) and
+drives each through the real firmware's own move engine, on the SAME two
+geometries, to prove the gap end-to-end rather than at a single tick:
+the OLD reduction is kept as a frozen negative control (pinned to the
+measured miss, so the historical defect stays documented and a
+regression back to it would be caught), and the NEW reduction --
+transcribing startGoTo()'s actual post-fix arithmetic -- is asserted to
+land within tolerance.
 
 Run with::
 
@@ -80,6 +85,14 @@ _PROBE_TIMEOUT_MS = 60_000
 # The ticket's own acceptance bar (block-go-to-misses-its-target.md):
 # landing within 5 mm of the commanded target.
 _LANDING_TOLERANCE_MM = 5.0
+
+# blocks/motion.ts's own diffDrive namespace defaults (defaultSpeed
+# [cm/s], defaultYawRate [deg/s]) -- the fixed startGoTo() transcription
+# below (`_fixed_start_go_to_to_go_to_r`) uses these exactly as
+# startGoTo() itself does, so the timeout it derives matches what the
+# real block would compute.
+_BLOCK_DEFAULT_SPEED_CM_S = 15.0
+_BLOCK_DEFAULT_YAW_RATE_DEG_S = 90.0
 
 
 def _bind_probe(lib):
@@ -143,17 +156,44 @@ def _ready(e):
     assert e.begin() == 0  # STATUS_OK
 
 
-def _block_arc_reduction_to_move_x(e, x_cm, y_cm, speed_mm_s, timeout_ms):
-    """Restates blocks/motion.ts's startGoTo() reduction exactly: theta =
-    2*atan2(y,x), s = R*theta (computed in the student's own cm), then
-    issued through moveX() in mm -- the ONLY entry point reachable from a
-    block before this ticket. `x_cm`/`y_cm` are the block's own units
-    (student cm), matching what a `go to (x, y)` block would pass."""
+def _old_broken_block_arc_reduction_to_move_x(e, x_cm, y_cm, speed_mm_s,
+                                               timeout_ms):
+    """HISTORICAL / negative control only -- restates blocks/motion.ts's
+    PRE-fix startGoTo() reduction exactly as it shipped before sprint 015
+    ticket 002: theta = 2*atan2(y,x), s = R*theta (computed in the
+    student's own cm), then issued through moveX() in mm. This was the
+    ONLY entry point reachable from a block before that ticket; motion.ts
+    no longer computes this pair or calls moveX() from startGoTo() at
+    all. Frozen here as a regression pin -- see
+    test_old_broken_block_arc_reduction_misses_probe_targets_above_threshold
+    below. `x_cm`/`y_cm` are the block's own units (student cm), matching
+    what a `go to (x, y)` block used to pass into this reduction."""
     x, y = float(x_cm), float(y_cm)
     theta = 2.0 * math.atan2(y, x)
     radius = (x * x + y * y) / (2.0 * y)
     s_mm = radius * theta * 10.0  # cm -> mm
     e.move_x(s_mm, theta, speed_mm_s, timeout_ms)
+
+
+def _fixed_start_go_to_to_go_to_r(e, x_cm, y_cm):
+    """Restates blocks/motion.ts's REWRITTEN startGoTo() (sprint 015
+    ticket 002) exactly: round(x*10)/round(y*10) cm->mm conversion,
+    defaultSpeed (cm/s) -> mm/s, a 1 mm `arrive` gate, and the
+    pivot-then-straight timeout backstop (summed pivot/straight
+    durations at defaultYawRate/defaultSpeed, +1500 ms taper margin) --
+    issued directly through goToR(), the ONLY entry point startGoTo()
+    reaches now. `x_cm`/`y_cm` are the block's own units (student cm),
+    matching what a `go to (x, y)` block passes."""
+    x, y = float(x_cm), float(y_cm)
+    x_mm = round(x * 10)
+    y_mm = round(y * 10)
+    speed_mm_s = round(_BLOCK_DEFAULT_SPEED_CM_S * 10)
+    arrive_mm = 1
+    chord_cm = math.hypot(x, y)
+    pivot_s = 180.0 / _BLOCK_DEFAULT_YAW_RATE_DEG_S
+    straight_s = chord_cm / _BLOCK_DEFAULT_SPEED_CM_S
+    timeout_ms = round((pivot_s + straight_s) * 1000.0) + 1500
+    e.go_to_r(x_mm, y_mm, speed_mm_s, arrive_mm, timeout_ms)
 
 
 # ---- AC2: the corrected, now-`//%`-exposed entry point --------------------
@@ -178,48 +218,72 @@ def test_go_to_r_reaches_probe_targets_above_threshold(motion_lib, x_mm, y_mm):
         assert miss < _LANDING_TOLERANCE_MM
 
 
-# ---- AC3 / TEST REQUIREMENT: the block's own reduction, in contrast -------
+# ---- Negative control: the OLD, now-historical block reduction ------------
 
 
 @pytest.mark.parametrize("x_cm,y_cm,x_mm,y_mm,measured_miss_mm", [
     (10.0, 10.0, 100.0, 100.0, 112.5),
     (-10.0, 1.0, -100.0, 10.0, 3172.4),
 ])
-def test_block_arc_reduction_misses_probe_targets_above_threshold(
+def test_old_broken_block_arc_reduction_misses_probe_targets_above_threshold(
         motion_lib, x_cm, y_cm, x_mm, y_mm, measured_miss_mm):
-    """The acceptance bar this ticket's own test requirement names: at
-    least one host test must exercise the arc reduction ABOVE the 50 deg
-    split threshold, from the block layer's OWN input shape, and FAIL
-    against the current block-path reduction. `startGoTo`'s
-    theta=2*atan2(y,x)/s=R*theta pair, handed to moveX(), is that
-    reduction -- moveX()'s own >=50 deg split reissues it as
-    pivot-then-straight, which lands at a different point than the arc
-    that pair was computed for (arc length != chord length except in the
-    limit). Existing goTo host tests deliberately stay below 50 deg
-    (test_motion_engine_reductions.py's own test_go_to_r_arc_hand_computed
-    asserts exactly that), which is exactly the gap this file closes.
+    """THIS IS WHAT THE BUG LOOKED LIKE -- a frozen regression pin, not a
+    live code path. Before sprint 015 ticket 002, startGoTo()'s
+    theta=2*atan2(y,x)/s=R*theta pair, handed to moveX(), was the ONLY
+    entry point reachable from a block: moveX()'s own >=50 deg split
+    reissued that pair as pivot-then-straight, which lands at a
+    different point than the arc it was computed for (arc length !=
+    chord length except in the limit). motion.ts no longer computes this
+    reduction or calls moveX() from startGoTo() at all (see
+    test_fixed_start_go_to_reaches_probe_targets_above_threshold below,
+    which exercises what startGoTo() actually does now) -- this test
+    exists only to pin the OLD reduction's measured miss on the SAME two
+    geometries, so the historical defect stays documented and a
+    regression back to this shape of bug would be caught.
 
-    First pins the actual miss against the issue's own measured margins
-    (proving this exercises the SAME defect, not a different bug), then
-    asserts the correctness bar every OTHER entry point in this file
-    meets (landing within 5 mm, see
-    test_go_to_r_reaches_probe_targets_above_threshold above, on the
-    IDENTICAL geometry) -- which this reduction does not. That second
-    assertion is EXPECTED TO FAIL today: it is what stays red until
-    blocks/motion.ts is rewired onto goToR() instead (this ticket only
-    exposes and host-tests the corrected entry point; it does not touch
-    motion.ts -- that is a later ticket in this sprint)."""
+    Existing goTo host tests deliberately stay below 50 deg
+    (test_motion_engine_reductions.py's own test_go_to_r_arc_hand_computed
+    asserts exactly that), which is why this defect could ship for six
+    sprints undetected."""
     with ProbeEngine(motion_lib) as e:
         _ready(e)
-        _block_arc_reduction_to_move_x(e, x_cm, y_cm, _PROBE_SPEED_MM_S,
-                                       _PROBE_TIMEOUT_MS)
+        _old_broken_block_arc_reduction_to_move_x(
+            e, x_cm, y_cm, _PROBE_SPEED_MM_S, _PROBE_TIMEOUT_MS)
         e.run_to_completion()
 
         miss = math.hypot(e.probe_x() - x_mm, e.probe_y() - y_mm)
 
         # Pin: this reduction reproduces the issue's own measured miss,
-        # not merely "some" large number.
+        # not merely "some" large number -- proves this is the SAME
+        # defect the issue measured, not a different bug.
         assert miss == pytest.approx(measured_miss_mm, rel=0.2)
 
-        # THE ACCEPTANCE BAR -- fails today, by design (see docstring).
+
+# ---- AC1/AC2/AC7 (SUC-001): startGoTo() after the fix ----------------------
+
+
+@pytest.mark.parametrize("x_cm,y_cm,x_mm,y_mm", [
+    (10.0, 10.0, 100.0, 100.0),   # block goTo(10, 10) cm -- above split
+    (-10.0, 1.0, -100.0, 10.0),   # block goTo(-10, 1) cm -- behind robot
+])
+def test_fixed_start_go_to_reaches_probe_targets_above_threshold(
+        motion_lib, x_cm, y_cm, x_mm, y_mm):
+    """The acceptance bar this ticket's own test requirement names: at
+    least one host test must exercise the block layer's OWN input shape
+    (student cm, through startGoTo()'s actual post-fix arithmetic, not
+    just goToR() in isolation -- see
+    _fixed_start_go_to_to_go_to_r()'s docstring) and land within 5 mm on
+    both probe geometries block-go-to-misses-its-target.md measured,
+    above the 50 deg split threshold where the old reduction (see
+    test_old_broken_block_arc_reduction_misses_probe_targets_above_threshold
+    above) used to miss by 112.5 mm / 3172.4 mm. startGoTo() now calls
+    goToR() directly (sprint 015 ticket 002), which owns its own
+    bearing-then-chord split and short-arc wrap (motion_engine.cpp) and
+    reaches (x, y) exactly."""
+    with ProbeEngine(motion_lib) as e:
+        _ready(e)
+        _fixed_start_go_to_to_go_to_r(e, x_cm, y_cm)
+        e.run_to_completion()
+
+        miss = math.hypot(e.probe_x() - x_mm, e.probe_y() - y_mm)
         assert miss < _LANDING_TOLERANCE_MM

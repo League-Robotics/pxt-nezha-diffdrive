@@ -5,10 +5,12 @@
  * counter-clockwise (right wheel forward). Pose is (x, y, heading) in
  * robot start coordinates: x forward, y left.
  *
- * The wheel servo runs in its own fiber on the micro:bit (the DiffDrive
- * kernel, 24 ms cadence); every command below just talks to it. The
- * hardware implementations live in the .cpp files; the function bodies
- * here are the browser-simulator fallbacks.
+ * There is no dedicated motor fiber: the robot only moves while
+ * something keeps ticking the control loop (driveTick(), or an
+ * internally-ticking block like move()/goTo()) -- see driveTick()'s
+ * own doc comment. The functions exported below are the real
+ * block-API bodies, calling into the hardware shim layer (the .cpp
+ * files); the browser-simulator fallbacks live in sim.ts.
  */
 
 enum ConfigField {
@@ -181,28 +183,44 @@ namespace diffDrive {
     //% block="start go to x %x cm y %y cm"
     //% group="Move" advanced=true weight=140
     export function startGoTo(x: number, y: number): void {
-        // Constant-curvature arc from the robot origin (heading 0,
-        // along +x) through (x, y): turn angle theta = 2*atan2(y, x);
-        // arc length s = R*theta with R = (x^2+y^2)/(2y); straight
-        // line when y ~ 0.
+        // Calls goToR() directly (the //%-exposed engineGoToR shim)
+        // instead of reducing to (distance, yaw) and going through
+        // startMove()/moveX(): moveX()'s own >=50 deg split reissues an
+        // arc-length/arc-angle pair as pivot-then-straight, which lands
+        // at a DIFFERENT point than the arc that pair was computed for.
+        // goToR() owns its own bearing-then-chord split and short-arc
+        // wrap instead (motion_engine.cpp), reaching (x, y) exactly.
         if (x == 0 && y == 0) return
-        const theta = 2 * Math.atan2(y, x)   // [rad] signed
-        let s: number
-        if (Math.abs(y) < 0.01) {
-            s = x                             // [cm] straight (sign = dir)
-        } else {
-            const radius = (x * x + y * y) / (2 * y)  // [cm] signed
-            s = radius * theta                // [cm] signed arc length
-        }
-        startMove(s, theta * 180 / Math.PI)
+        const xMm = Math.round(x * 10)
+        const yMm = Math.round(y * 10)
+        const speedMmS = Math.round(defaultSpeed * 10)
+        // arrive: 1 mm -- tight enough that "on target" means on
+        // target, loose enough not to fight int-mm rounding.
+        const arriveMm = 1
+        // timeout: goToR() drives a <=180 deg pivot (its own short-arc
+        // wrap) THEN the straight-line chord -- two SEQUENTIAL phases,
+        // not one blended segment like startMove()'s reconciliation, so
+        // their worst-case durations are summed, not maxed, using the
+        // same defaultYawRate/defaultSpeed startMove() itself would use
+        // for those two axes; +1500 ms mirrors startMove()'s own
+        // end-of-move taper backstop (shims.cpp).
+        const chordCm = Math.sqrt(x * x + y * y)
+        const pivotS = 180 / defaultYawRate
+        const straightS = chordCm / defaultSpeed
+        const timeoutMs = Math.round((pivotS + straightS) * 1000) + 1500
+        _goToR(xMm, yMm, speedMmS, arriveMm, timeoutMs)
     }
 
     /**
-     * Is a move currently running? Checks state only -- it does not
-     * itself advance the move. Under the tick model, a move started
-     * with startMove()/startGoTo() only progresses while something
-     * else ticks the control loop (e.g. a concurrent driveTick()
-     * loop); see startMove()'s doc comment.
+     * Is a move currently running? Calls _updateMove()
+     * (MotionEngine::serviceMove() in the hardware shim), which
+     * re-scales the taper/ramp, reissues the drive command, and can
+     * end the move at its deadline backstop -- so this call DOES
+     * advance the move as a side effect of checking it, not "state
+     * only". It does not itself step the kernel (that is driveTick()'s
+     * job): without a concurrent driveTick() loop, a move polled only
+     * through isMoving() still stalls and the safety watchdog stops it
+     * -- see startMove()'s doc comment for that gap.
      */
     //% block="moving?"
     //% group="Move" weight=130
