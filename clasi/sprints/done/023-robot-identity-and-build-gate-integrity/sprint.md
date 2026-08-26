@@ -1,7 +1,7 @@
 ---
 id: '023'
 title: Robot identity and build-gate integrity
-status: executing
+status: done
 branch: sprint/023-robot-identity-and-build-gate-integrity
 use-cases:
 - SUC-001
