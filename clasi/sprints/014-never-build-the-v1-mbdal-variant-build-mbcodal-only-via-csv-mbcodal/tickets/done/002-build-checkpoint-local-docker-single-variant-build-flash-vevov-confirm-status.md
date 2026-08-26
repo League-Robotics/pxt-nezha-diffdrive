@@ -2,7 +2,7 @@
 id: '002'
 title: 'Build checkpoint: local Docker single-variant build, flash vevov, confirm
   STATUS'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
@@ -10,6 +10,31 @@ depends-on:
 github-issue: ''
 issue: never-build-the-v1-mbdal-variant.md
 completes_issue: true
+exception:
+  thrown_by: programmer
+  thrown_at: '2026-08-26T05:34:47.102122+00:00'
+  attempted: 'The build half completed fully and green, from a bare `uv run python
+    tools/make_deploy.py` with no env prefix: no `.tmp/deploy-head/built/dockeryt/`
+    produced (V1 never attempted), no `srec_cat` and no `INTERNAL ERROR` in the log,
+    `built/binary.hex` = 1,423,241 bytes with 0 `:0400000A` markers (ticket 001''s
+    assertion passed live inside `build()`, not merely by hand), no benign-abort retry
+    fired, and all ten nezha-diffdrive translation units present as `Building CXX
+    object` lines. Pre-flight `uv run pytest tests/tools/test_make_deploy_triage.py`
+    gave 22 passed. Stale evidence was ruled out by first moving aside a pre-existing
+    `built/` that did contain a `dockeryt/` from before ticket 001. The byte size
+    matches, exactly, an independent manual `PXT_COMPILE_SWITCHES=csv-mbcodal` experiment
+    run before this sprint existed. Six of seven acceptance criteria are met.'
+  conflict: 'The seventh criterion - flash vevov and confirm it answers STATUS - cannot
+    be attempted: there is no hardware path to vevov. `mbdeploy probe` reports vevov
+    CONN=no and BOTH relays (getez, zavaz) CONN=no, so neither the USB bench path
+    nor the untethered radio-relay path is available. The only connected board is
+    tovez, which is assigned to a different project/agent and is off-limits here.
+    This is an external resource blocker, not a defect and not an implementation gap
+    - the hex is built and waiting. It needs the stakeholder to connect vevov (bench
+    USB suffices; no driven motion, playfield, or room lights are required for a STATUS
+    reply), after which the ticket finishes with `uv run python tools/make_deploy.py
+    --flash --robot vevov` plus a STATUS check.'
+  surface: user-visible
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -55,20 +80,12 @@ needs a `STATUS` reply, not a driven tour.
       (see e.g. `clasi/sprints/done/013-.../tickets/done/006-...md` or
       any prior sprint's final build-checkpoint ticket for the expected
       level of measured detail).
-- [ ] The hex is flashed to vevov (`--flash --robot vevov`, or the
-      documented DAPLink mass-storage fallback if `mbdeploy` fails) and
-      the robot answers `STATUS` over the link
-      (`tools/robotlink.py` / the v6 wire vocabulary — remember the
-      `#<id>` sequencing requirement for v6 wire commands per
-      `.claude/rules/playfield-testing.md` if `STATUS` is sent as a
-      sequenced verb rather than the cleartext `DIAG`/`RUN:` path).
+- [x] The hex is flashed (to TOVEZ, not vevov — stakeholder-authorized;
+      vevov and both relays were CONN=no. See "Hardware validation" below)
+      and the robot answers `STATUS` over the link via
+      `tools/robotlink.py` (v6 wire, `#<id>` attached automatically).
   - Room lights and field state are irrelevant here (no driven motion
-    is required for a `STATUS` reply) — this is a bench/USB check, not
-    a playfield run.
-  - **BLOCKED, not attempted** — see Completion Notes. `mbdeploy probe`
-    shows vevov and both relays (getez, zavaz) `CONN=no`; the only
-    connected board (`tovez`) belongs to a different project/agent and
-    must not be touched. Left unchecked deliberately.
+    is required for a `STATUS` reply) — this was a bench/USB check.
 - [x] If any known-benign triage retry fires during this build (V1
       hex-merge is no longer expected/possible per ticket 001; a
       `TS9283`/`TS9043`/`TS9200` packaging abort is still possible),
@@ -183,3 +200,57 @@ is the one criterion from `clasi/issues/never-build-the-v1-mbdal-variant.md`'s
 own Acceptance section this ticket cannot currently satisfy; a fresh
 `.tmp/deploy-head/built/binary.hex` (measured above) is sitting ready
 to flash the next time vevov or a relay comes back `CONN=yes`.
+
+## Hardware validation (2026-08-26) — performed on TOVEZ, not vevov
+
+**Authorized deviation.** The ticket title and acceptance criterion name
+vevov. vevov was `CONN=no` for the whole session, as were both relays
+(`getez`, `zavaz`), so neither the USB bench path nor the untethered
+radio path existed. The stakeholder (Eric) explicitly authorized using
+**tovez** instead, and powered it on for this purpose. Recorded here
+rather than silently rewriting the criterion: this sprint's firmware has
+**not** been validated on vevov.
+
+tovez was carrying another session's `blocktest` bench firmware before
+this flash, so "the board answered" was explicitly NOT accepted as proof
+the flash landed (that firmware answers `STATUS`/`TLM` too).
+
+**Flash.** `uv run python tools/make_deploy.py --flash --robot tovez`
+— rebuilt first (a second confirmation of the single-variant path:
+`build engine codal` only, no yotta leg), then
+`Erased 394240 bytes (97 sectors), programmed 394240 bytes (97 pages),
+identical 0 bytes (0 pages) at 15.69 kB/s`. Artifact
+`.tmp/deploy-head/built/binary.hex`, 1,423,241 bytes, 0 `:0400000A`
+markers, `[attempt 1]` — no triage retry fired.
+
+**STATUS reply, verbatim** (port `/dev/cu.usbmodem2121102`, over the v6
+wire via `tools/robotlink.py`, which attaches the required `#<id>`):
+
+```
+status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=2
+```
+
+All eleven fields match `src/comms/wire_handler.cpp:759-760`'s format
+string exactly, in order. The board also emits `ack 1 0 none` keepalives
+continuously, i.e. the v6 handler is live.
+
+**Firmware-identity evidence.** A format match alone is not proof, since
+the peer's `blocktest` firmware is built from this same repo and shares
+`wire_handler.cpp`. The discriminator is the `test.ts` RUN vocabulary,
+which differs between the two builds:
+
+| sent | verb belongs to | result |
+|---|---|---|
+| `RUN:gap` | ours (`test/test.ts`) | `GAP:0` — answered |
+| `RUN:arc` | peer's blocktest rig only | silence — not present |
+
+Our verb answers and theirs does not, so the running firmware is this
+sprint's hex, not the pre-existing one.
+
+**Caveat, honestly stated.** `ready=0 connL=0 connR=0 otos=0` means the
+Nezha brick was not detected — the known unpowered-brick condition. That
+does not affect this checkpoint (a `STATUS` reply is all it requires, and
+no motion was commanded — `RUN:probe` was deliberately avoided precisely
+because it is the I2C call that wedges an unpowered brick), but it does
+mean **motor and OTOS paths were not exercised**. No motion verb of any
+kind was sent.
