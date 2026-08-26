@@ -96,9 +96,9 @@ ELITE = '/Volumes/Proj/proj/RobotProjects/radio-robot-elite'
 #
 # A genuine GCC/Clang compile diagnostic names a source file and a line,
 # e.g.:
-#   src/wire_adapter.cpp:12:10: fatal error: heading_wrap.h: No such
+#   src/comms/wire_adapter.cpp:12:10: fatal error: heading_wrap.h: No such
 #     file or directory
-#   src/wire_handler.cpp:214:37: error: no matching function for call
+#   src/comms/wire_handler.cpp:214:37: error: no matching function for call
 #     to 'Wire::Column::Column(<brace-enclosed initializer list>)'
 # This also catches a `pxt.json` manifest omission: a missing header
 # fails as "file not found" at the #include site, in the same

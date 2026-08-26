@@ -77,8 +77,9 @@ Layers, cleanly separated (the full breakdown is in
    protocol-v6 ASCII line grammar with its ack/nack reliability
    layer, dispatched over USB serial (radio RX is a RUN-only
    carve-out), added in sprint 003 replacing the binary v5 wire.
-5. **Shim + blocks** (`src/shims.cpp`, `src/sim.ts`, `src/run.ts`,
-   `src/pose.ts`, `src/stop.ts`, `src/world.ts`, `src/motion.ts`) —
+5. **Shim + blocks** (`src/shims.cpp`, `src/blocks/sim.ts`,
+   `src/blocks/run.ts`, `src/blocks/pose.ts`, `src/blocks/stop.ts`,
+   `src/blocks/world.ts`, `src/blocks/motion.ts`) —
    composes the kernel and ports into a lazily-initialized rig, adds
    odometry (dead-reckoning from encoder counts, since the kernel
    itself has no chassis geometry), the tick engine and starvation

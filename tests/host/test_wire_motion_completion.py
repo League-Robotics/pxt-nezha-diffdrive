@@ -1,5 +1,5 @@
 """tests/host/test_wire_motion_completion.py -- sprint 005 ticket 004
-(closing wire-motion-completion-signal.md/R-23): src/wire_adapter.h's
+(closing wire-motion-completion-signal.md/R-23): src/comms/wire_adapter.h's
 real lastDone()/lastDoneReason(), previously permanently inert
 (0/kNone) since sprint 003 ticket 012 -- see that file's own header
 comment for the full design this ticket implements.

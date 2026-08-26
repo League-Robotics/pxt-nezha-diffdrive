@@ -32,7 +32,7 @@ From `pxt.json`:
 | description | "Closed-loop differential drive for the Nezha brick: encoder-servoed wheel speeds, twist and distance moves, curved go-to, and pose from odometry. The wheel controller runs in its own fiber." |
 | license | MIT |
 | dependencies | `core: *`, `microphone: *` |
-| files | README.md, and under `src/`: diffdrive.h, diffdrive.cpp, motion_engine.h, motion_engine.cpp, platform_ports.h, heading_wrap.h, encoder_glitch_armor.h, encoder_pose_source.h, nezha_port.h, nezha_port.cpp, otos_port.h, otos_port.cpp, serial_transport.h, serial_transport.cpp, radio_transport.h, radio_transport.cpp, protocol.h, protocol.cpp, wire_handler.h, wire_handler.cpp, wire_adapter.h, wire_adapter.cpp, shims.cpp, sim.ts, run.ts, pose.ts, stop.ts, world.ts, motion.ts |
+| files | README.md, and under `src/`: core/diffdrive.h, core/diffdrive.cpp, motion/motion_engine.h, motion/motion_engine.cpp, platform/platform_ports.h, core/heading_wrap.h, core/encoder_glitch_armor.h, platform/encoder_pose_source.h, platform/nezha_port.h, platform/nezha_port.cpp, platform/otos_port.h, platform/otos_port.cpp, comms/serial_transport.h, comms/serial_transport.cpp, comms/radio_transport.h, comms/radio_transport.cpp, comms/protocol.h, comms/protocol.cpp, comms/wire_handler.h, comms/wire_handler.cpp, comms/wire_adapter.h, comms/wire_adapter.cpp, shims.cpp, blocks/sim.ts, blocks/run.ts, blocks/pose.ts, blocks/stop.ts, blocks/world.ts, blocks/motion.ts |
 | testFiles | test/test.ts, test/testrig.ts |
 | supportedTargets | microbit |
 | preferredEditor | tsprj |

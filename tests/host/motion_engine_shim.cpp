@@ -284,7 +284,7 @@ void meSetRampMs(void* handle, float ms) {
 // a duty-to-distance integrator, e.g. to force a segment's completion
 // (or a pivot-then-straight phase transition) on a specific tick.
 // `sampleTimeUs` must also advance (and be nonzero) each call --
-// DifferentialDrive::refreshSample() (src/diffdrive.cpp) only accepts a
+// DifferentialDrive::refreshSample() (src/core/diffdrive.cpp) only accepts a
 // new position when Motor::sampleTime() actually CHANGES (and never
 // even starts sampling until it is nonzero at all -- see
 // test_kernel_harness.py's matching kdMotorArmPosition, which arms the
@@ -306,7 +306,7 @@ void meMotorArmPosition(void* handle, int side, float positionCounts,
 // Calls the real settleToRest() once and returns how many kernel.step()
 // calls it made internally, via Output.cycleCount's own before/after
 // delta -- cycleCount increments unconditionally on every step()
-// regardless of caller (src/diffdrive.cpp), so this needs no new
+// regardless of caller (src/core/diffdrive.cpp), so this needs no new
 // production-code counter.
 uint32_t meSettleToRest(void* handle) {
   Handle* h = static_cast<Handle*>(handle);

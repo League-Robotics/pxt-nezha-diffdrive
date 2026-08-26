@@ -1,5 +1,5 @@
 // radio_transport_rx_capacity_shim.cpp -- extern "C" ctypes surface for
-// src/radio_transport.h's radioRxLineFits() (sprint 010 ticket 001,
+// src/comms/radio_transport.h's radioRxLineFits() (sprint 010 ticket 001,
 // radio-rx-capacity-fragmentation.md). radioRxLineFits() is one pure,
 // free function (no class, no state) -- smaller in scope than the
 // handle-plus-free-functions shims this directory otherwise uses

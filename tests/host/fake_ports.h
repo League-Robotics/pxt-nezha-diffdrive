@@ -1,5 +1,5 @@
 // fake_ports.h -- FakeMotor/FakeClock/FakeSleeper/FakeFiberLauncher: test
-// doubles for DiffDrive::DifferentialDrive's four ports (src/diffdrive.h),
+// doubles for DiffDrive::DifferentialDrive's four ports (src/core/diffdrive.h),
 // used to drive the kernel synchronously from a native host build with no
 // micro:bit/PXT/CODAL involvement at all.
 //

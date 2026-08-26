@@ -1,5 +1,5 @@
 """tests/host/test_motion_engine_settle.py -- sprint 008 ticket 004:
-src/motion_engine.h/.cpp's `MotionEngine::settleToRest()`, extracted from
+src/motion/motion_engine.h/.cpp's `MotionEngine::settleToRest()`, extracted from
 shims.cpp::tickDrive()'s former inline settle loop.
 
 THE BUG THIS GUARDS (commit 3e919e5, 2026-08-20; see
@@ -45,7 +45,7 @@ accepts a sample whose `Motor::sampleTime()` actually changed).
 Iteration counts are read back via `Output.cycleCount`'s own before/
 after delta (`meSettleToRest`'s return value) -- cycleCount increments
 unconditionally on every `kernel.step()` regardless of caller
-(src/diffdrive.cpp), so no new production-code counter was needed.
+(src/core/diffdrive.cpp), so no new production-code counter was needed.
 
 Run with::
 
@@ -78,7 +78,7 @@ FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
 
 # motion_engine.h's own settleToRest() constants (sprint 008 ticket 004
 # -- moved here from shims.cpp by this ticket's extraction), restated
-# so a reader can compare directly against src/motion_engine.h rather
+# so a reader can compare directly against src/motion/motion_engine.h rather
 # than trusting a hidden helper -- same convention
 # test_regression_post_move_neutral.py's own SETTLE_CAP/
 # SETTLE_REST_COUNTS_PER_S already established.

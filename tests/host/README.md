@@ -1,7 +1,7 @@
 # tests/host — native host test harness
 
 It compiles this extension's portable C++ (starting with
-`src/diffdrive.h`/`.cpp`) for the host — no micro:bit, no PXT/CODAL, no
+`src/core/diffdrive.h`/`.cpp`) for the host — no micro:bit, no PXT/CODAL, no
 MakeCode toolchain — against fake ports, and drives it from `pytest`
 via a thin `extern "C"` shim bound through `ctypes`. Modeled on
 `radio-robot-lib/tests/protocol/{mock_adapter.h,protocol_shim.cpp}` and
@@ -71,6 +71,6 @@ reference (mirrors `radio-robot-lib/tools/sim/README.md`'s own
 ```bash
 /usr/bin/c++ -std=c++20 -Wall -Wextra -shared -fPIC \
   -I src -I tests/host \
-  src/diffdrive.cpp tests/host/kernel_shim.cpp \
+  src/core/diffdrive.cpp tests/host/kernel_shim.cpp \
   -o /tmp/libkernel_shim.so
 ```

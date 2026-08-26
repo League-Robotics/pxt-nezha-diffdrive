@@ -4,7 +4,7 @@ yaw: a 0.57 deg bearing change was worth 4x speed") against
 `motion_engine`'s ported copy of the same logic.
 
 THE BUG (bd9f005, src/shims.cpp's serviceMove(), now
-MotionEngine::serviceMove() in src/motion_engine.cpp): every move was
+MotionEngine::serviceMove() in src/motion/motion_engine.cpp): every move was
 scaled by min(distanceAxisScale, yawAxisScale). The yaw axis divides
 *remaining* yaw by a FIXED ~180-count (~15 deg) window regardless of
 how large the move's total yaw target is. A gentle arc's entire yaw

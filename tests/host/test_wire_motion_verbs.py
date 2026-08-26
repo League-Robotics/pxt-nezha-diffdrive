@@ -1,6 +1,6 @@
 """tests/host/test_wire_motion_verbs.py --
 the six motion verbs' wire decode/dispatch (WHEELS_X, WHEELS_V, MOVE_X,
-MOVE_V, GO_TO_R, GO_TO_W), src/wire_adapter.h's WireAdapter, and STOP's
+MOVE_V, GO_TO_R, GO_TO_W), src/comms/wire_adapter.h's WireAdapter, and STOP's
 `now` token.
 
 Canonical spec (read-only, a different repo -- this project conforms to
@@ -90,7 +90,7 @@ _DONE_REASON_NAME = {
     DONE_STALL: "stall",
 }
 
-# DiffDrive::DifferentialDrive::Status's DECLARATION order (src/diffdrive.h).
+# DiffDrive::DifferentialDrive::Status's DECLARATION order (src/core/diffdrive.h).
 STATUS_OK = 0
 
 LEFT = 0
@@ -905,7 +905,7 @@ def test_stop_now_uppercase_is_decode_failure(wv):
 
 
 # ---------------------------------------------------------------------------
-# WHEELS_V's real effect (src/wire_adapter.h's WireAdapter, over a real
+# WHEELS_V's real effect (src/comms/wire_adapter.h's WireAdapter, over a real
 # DiffDrive kernel + FakeMotor): commanded left/right map to the correct
 # velocity/twist and lease. This is ticket 004's own required proof --
 # every other verb's dispatch shape is covered above via WireMockAdapter.

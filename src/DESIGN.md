@@ -2,8 +2,14 @@
 
 **Owner:** Eric Busboom · **Last reviewed:** 2026-08-25 · **Status:** in-flux (as-built through sprint 008, closed and merged — wire hardening and tests that can fail: timeout reject/clamp unified across all six motion verbs, `kVersion`/line-cap/`RUN_EVENT_SOURCE`/`kDiag*` single-sourced or drift-tested, the `WaHandle` test doubles re-synced to production, the post-move settle loop extracted into a host-testable `MotionEngine` helper, `TLM AUTO`/`BUFFER` given defined semantics, and a triage-aware `make_deploy.py` plus a standing per-sprint build-checkpoint-ticket convention closing the target-viability gap; sprint 005 roadmapped, not yet detail-planned, blocked on a hardware bench checkpoint; sprint 009 (comment cleanup, upstream re-diff) done; sprint 012 **executed and closing** — split the single `main.ts` into six cohesion-sized modules, `sim.ts`/`run.ts`/`pose.ts`/`stop.ts`/`world.ts`/`motion.ts` (`main.ts` retired, ticket 006), replacing `main.ts`'s one entry in `pxt.json`'s and `tsconfig.json`'s `files` arrays; block-surface content (captions/`group=`/param ranges) verified identical to the pre-split baseline, see §15)
 
-`src/` is flat — no subdirectories — so this one document carries the
-logical subsystem breakdown as sections. Global conventions (units
+`src/` is grouped into five subdirectories by dependency layer —
+`core/`, `motion/`, `platform/`, `comms/`, `blocks/` — plus `shims.cpp`
+and this document at the top level (sprint 013; see §1's table for the
+exact mapping and §16 for the change itself). The directory split is
+coarse (five buckets for eleven layers), so it doesn't carry the
+fine-grained per-file behavioral and design detail below — this
+document still carries the logical subsystem breakdown as sections.
+Global conventions (units
 ladder, CCW sign, mirroring, the ×1000 config convention, protocol
 versioning, the tick model) live in
 [`docs/design/design.md`](../docs/design/design.md) and are assumed
@@ -18,17 +24,17 @@ dependency), so treat them as invariants:
 
 | Layer | Files | May include |
 |---|---|---|
-| Kernel | `diffdrive.h/.cpp` | `<cstdint>`/`<cmath>`/`<algorithm>` only — **no I2C, no CODAL, no MakeCode, no geometry** |
-| Motion engine | `motion_engine.h/.cpp` | `diffdrive.h` + libc only — host-portable |
-| Heading wrap (sprint 006) | `heading_wrap.h` | libc only — host-portable, no project includes at all |
-| Encoder glitch armor (sprint 006) | `encoder_glitch_armor.h` | libc only — host-portable, no project includes at all |
-| Encoder pose source (sprint 006) | `encoder_pose_source.h` | `motion_engine.h` + libc only — host-portable |
-| Wire grammar | `wire_handler.h/.cpp` | libc only — host-portable, no project includes at all |
-| Wire adapter | `wire_adapter.h/.cpp` | `wire_handler.h` + libc — host-portable; reaches hardware only through forward-declared `shims.cpp` free functions |
-| Transports | `serial_transport.*`, `radio_transport.*` | CODAL (`pxt.h` in the .cpp) — know bytes and framing, **nothing** about verbs, grammar, or motion |
-| Hardware ports | `nezha_port.*`, `otos_port.*`, `platform_ports.h` | `pxt.h` + the port interfaces they implement — know I2C/CODAL, nothing about blocks or the wire; `nezha_port.cpp` additionally calls into `encoder_glitch_armor.h` and `otos_port.cpp` into `heading_wrap.h`, both above (a dependency on a lower, host-portable layer, not membership in this one) |
-| Protocol composition | `protocol.h/.cpp` | everything above — the CODAL fiber that plumbs transports into the wire stack |
-| Shim + blocks | `shims.cpp`, `sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`, `motion.ts` (sprint 012: split from a single `main.ts` — see §9/§15) | everything — the composition root and the student-facing API |
+| Kernel | `core/diffdrive.h/.cpp` | `<cstdint>`/`<cmath>`/`<algorithm>` only — **no I2C, no CODAL, no MakeCode, no geometry** |
+| Motion engine | `motion/motion_engine.h/.cpp` | `diffdrive.h` + libc only — host-portable |
+| Heading wrap (sprint 006) | `core/heading_wrap.h` | libc only — host-portable, no project includes at all |
+| Encoder glitch armor (sprint 006) | `core/encoder_glitch_armor.h` | libc only — host-portable, no project includes at all |
+| Encoder pose source (sprint 006) | `platform/encoder_pose_source.h` | `motion_engine.h` + libc only — host-portable |
+| Wire grammar | `comms/wire_handler.h/.cpp` | libc only — host-portable, no project includes at all |
+| Wire adapter | `comms/wire_adapter.h/.cpp` | `wire_handler.h` + libc — host-portable; reaches hardware only through forward-declared `shims.cpp` free functions |
+| Transports | `comms/serial_transport.*`, `comms/radio_transport.*` | CODAL (`pxt.h` in the .cpp) — know bytes and framing, **nothing** about verbs, grammar, or motion |
+| Hardware ports | `platform/nezha_port.*`, `platform/otos_port.*`, `platform/platform_ports.h` | `pxt.h` + the port interfaces they implement — know I2C/CODAL, nothing about blocks or the wire; `nezha_port.cpp` additionally calls into `encoder_glitch_armor.h` and `otos_port.cpp` into `heading_wrap.h`, both above (a dependency on a lower, host-portable layer, not membership in this one) |
+| Protocol composition | `comms/protocol.h/.cpp` | everything above — the CODAL fiber that plumbs transports into the wire stack |
+| Shim + blocks | `shims.cpp`, `blocks/sim.ts`, `blocks/run.ts`, `blocks/pose.ts`, `blocks/stop.ts`, `blocks/world.ts`, `blocks/motion.ts` (sprint 012: split from a single `main.ts` — see §9/§15; sprint 013: `.ts` files grouped into `blocks/` — see §16) | everything — the composition root and the student-facing API |
 
 Cross-cutting convention: `shims.cpp` has **no header**. Its C++
 callers (`protocol.cpp`, `wire_adapter.cpp`) reach it via same-package
@@ -37,7 +43,7 @@ definitions; the host harness supplies its own test-double definitions
 of the same signatures. This is what keeps `wire_adapter.cpp` and
 `shims.cpp` decoupled while sharing one `MotionEngine` singleton.
 
-## 2. Kernel — `diffdrive.h/.cpp` (`DiffDrive::DifferentialDrive`)
+## 2. Kernel — `core/diffdrive.h/.cpp` (`DiffDrive::DifferentialDrive`)
 
 **Responsibility.** The closed-loop wheel-speed control law: per-cycle
 PID + accel feedforward, per-wheel accel/decel correction curves,
@@ -81,7 +87,7 @@ host that owns its loop drives `step()` directly).
 - Commands carry a lease; an expired lease means neutral on every
   subsequent step. `kLeaseMax` = 1 h.
 
-## 3. Motion engine — `motion_engine.h/.cpp` (`diffDrive::MotionEngine`)
+## 3. Motion engine — `motion/motion_engine.h/.cpp` (`diffDrive::MotionEngine`)
 
 **Responsibility.** The two-primitive reduction the whole motion
 surface is built on (canonical spec: `radio-robot-lib`
@@ -181,7 +187,7 @@ concern; callers update it around `serviceMove()`.
   already scales twist by the same factor; an independent yaw taper
   double-counts (measured: legs pinned at the 25% floor, 2026-08-22).
 
-## 4. Wire grammar — `wire_handler.h/.cpp` (`Wire::WireHandler`)
+## 4. Wire grammar — `comms/wire_handler.h/.cpp` (`Wire::WireHandler`)
 
 **Responsibility.** Protocol v6's ASCII line-grammar mechanics plus
 the reliability layer. `feed()` reassembles arbitrary byte blocks into
@@ -284,7 +290,7 @@ build while every host test stays green.
 **Dependencies.** `Sink` (one `write()` per reply line, `\n`
 included) and `Adapter`. Nothing else — host-portable by construction.
 
-## 5. Wire adapter — `wire_adapter.h/.cpp` (`diffDrive::WireAdapter`)
+## 5. Wire adapter — `comms/wire_adapter.h/.cpp` (`diffDrive::WireAdapter`)
 
 **Responsibility.** The concrete `Wire::Adapter` for this robot. All
 six motion verbs have real effect: WHEELS_V → `setWheelsTimed()`
@@ -396,7 +402,7 @@ forward declaration only (`stopAll`, `estopAll`, `setWheelsTimed`,
 `poseHeading`, `otosGet`, `wheelSpeed`). Holds no kernel/engine/Rig
 reference of its own.
 
-## 6. Transports — `serial_transport.*`, `radio_transport.*`
+## 6. Transports — `comms/serial_transport.*`, `comms/radio_transport.*`
 
 **SerialTransport.** Owns the raw USB-serial byte stream and 0x0A
 line delimiting; explicit `(buffer, length)` pairs, never
@@ -469,7 +475,7 @@ above this same cap (§10's Open Questions).
 no semantics. Siblings under Protocol, deliberately uncoupled from
 each other.
 
-## 7. Hardware ports — `nezha_port.*`, `otos_port.*`, `heading_wrap.h`, `encoder_glitch_armor.h`, `platform_ports.h`
+## 7. Hardware ports — `platform/nezha_port.*`, `platform/otos_port.*`, `core/heading_wrap.h`, `core/encoder_glitch_armor.h`, `platform/platform_ports.h`
 
 **NezhaMotorPort** (`DiffDrive::Motor` over I2C 0x10). The
 write-shaping pipeline is not styling — each stage guards a measured
@@ -569,7 +575,7 @@ select→read settle window destroys the encoder sample.
 (`system_timer_current_time_us`/`fiber_sleep`/`schedule`/
 `create_fiber`).
 
-## 8. Protocol composition — `protocol.h/.cpp` (`diffDrive::Protocol`)
+## 8. Protocol composition — `comms/protocol.h/.cpp` (`diffDrive::Protocol`)
 
 **Responsibility.** The CODAL fiber that plumbs bytes between the
 transports and the v6 wire stack — it knows nothing of the grammar
@@ -686,7 +692,7 @@ prefix, though, and this firmware never emits that prefix again — they
 will see nothing until they are retrofit onto the new frame (sprint
 005, roadmapped, not yet detail-planned).
 
-## 9. Shim + blocks — `shims.cpp`, `sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`, `motion.ts`
+## 9. Shim + blocks — `shims.cpp`, `blocks/sim.ts`, `blocks/run.ts`, `blocks/pose.ts`, `blocks/stop.ts`, `blocks/world.ts`, `blocks/motion.ts`
 
 **shims.cpp** is the composition root and the MakeCode-facing C++
 surface. The lazy-singleton `Rig` composes: two `NezhaMotorPort`s
@@ -1956,3 +1962,84 @@ namespace-merge/export surface ticket 001 already established.
   basis rather than gating the sprint on them — unlike
   `specification.md`'s files-array table, neither becomes actively
   false.
+
+## 16. Sprint 013 — architecture diagram and change summary
+
+Substantial-tier sprint update by module-count (all 30 files under
+`src/` touched, one `#include`/manifest/test-literal update apiece),
+not by complexity: no module's responsibility, interface, or
+dependency direction changes anywhere, and no data model is touched.
+This sprint gives five of the eleven layers §1 already named a real
+directory, replacing the flat `src/` this document's own opening
+paragraph used to describe:
+
+| New directory | Files | Existing layer(s), per §1 |
+|---|---|---|
+| `core/` | `diffdrive.h/.cpp`, `heading_wrap.h`, `encoder_glitch_armor.h` | Kernel; Heading wrap; Encoder glitch armor |
+| `motion/` | `motion_engine.h/.cpp` | Motion engine |
+| `platform/` | `platform_ports.h`, `nezha_port.h/.cpp`, `otos_port.h/.cpp`, `encoder_pose_source.h` | Hardware ports; Encoder pose source |
+| `comms/` | `protocol.h/.cpp`, `serial_transport.h/.cpp`, `radio_transport.h/.cpp`, `wire_handler.h/.cpp`, `wire_adapter.h/.cpp` | Wire grammar; Wire adapter; Transports; Protocol composition |
+| `blocks/` | `sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`, `motion.ts` | Shim + blocks (TS half) |
+| `src/` (unchanged) | `shims.cpp`, `DESIGN.md` | Shim + blocks (C++ half) |
+
+`heading_wrap.h`/`encoder_glitch_armor.h` group with `core/` by what
+they *are* (dependency-free math, consumed only by `platform/`), not
+by who calls them; `encoder_pose_source.h` groups with `platform/` by
+*role* (an alternate `PoseSource` backend alongside `otos_port`)
+despite its one dependency on `motion/motion_engine.h`. The `.ts`
+files get their own `blocks/` directory rather than joining a C++
+group — different manifest (`tsconfig.json`), different compile
+model, and it keeps `motion/motion_engine.*` (C++) and
+`blocks/motion.ts` (TS) from sharing a directory.
+
+```mermaid
+graph TD
+    core["src/core/&#10;diffdrive, heading_wrap,&#10;encoder_glitch_armor"]
+    motion["src/motion/&#10;motion_engine"]
+    platform["src/platform/&#10;platform_ports, nezha_port,&#10;otos_port, encoder_pose_source"]
+    comms["src/comms/&#10;protocol, serial_transport,&#10;radio_transport, wire_handler,&#10;wire_adapter"]
+    shims["src/shims.cpp&#10;(composition root, no header)"]
+    blocks["src/blocks/&#10;sim, run, pose, stop, world, motion (.ts)"]
+
+    motion -->|"#include"| core
+    platform -->|"#include"| core
+    platform -->|"#include"| motion
+    comms -->|"#include (protocol.h -> platform_ports.h)"| platform
+    shims -->|"#include"| core
+    shims -->|"#include"| motion
+    shims -->|"#include"| platform
+    comms -.->|"forward-declared calls"| shims
+    blocks -.->|"//% shim= calls"| shims
+```
+
+**What changed, and what didn't.** Physical file location and every
+reference to it (`#include`s, `pxt.json`, `tsconfig.json`,
+`tests/host/` path literals, `tools/`/`docs/design/` prose, this
+table and the §2-9 headings above). No class/function signature
+changed, no dependency direction changed, no file was created or
+deleted (each of the 30 files moved, not rewritten) — the dependency
+graph above is the same graph §1's layer table already described, now
+labeled by directory instead of by layer name.
+
+**Include-path rule established by this sprint.** Every `#include "X"`
+naming a moved file is qualified relative to `src/`'s root (e.g.
+`motion_engine.h` including the kernel needs
+`#include "../core/diffdrive.h"`, not a bare `#include "diffdrive.h"`)
+— the project's builds (`-I src` in both the PXT cloud build and
+`tests/host/`'s syntax-gate/shared-lib helpers) resolve
+`#include "..."` relative to the including file's own directory, not
+the project root, so a same-directory move and a cross-directory move
+follow the identical rule.
+
+**Migration concerns.** None in the data/deployment sense — a pure
+file move, verified end to end by a real `make_deploy.py`/`--testrig`
+build producing a flashable hex from the fully reorganized tree (see
+ticket 006's own completion notes for the hex path/size). The
+unverified piece is hardware boot: as of this sprint's close, no
+post-reorg hex has been flashed to a robot — a clean, working build
+does not by itself prove a working load order (`blocks/motion.ts`'s
+top-level `_startProtocol()` call needs `blocks/sim.ts` compiled
+first, and PXT compiles in manifest order; both manifests preserve
+that order, but this project has shipped a load-order-clean-build/
+dead-on-device split before). Boot verification is this sprint's
+explicit hand-off to the team-lead, not something this sprint claims.

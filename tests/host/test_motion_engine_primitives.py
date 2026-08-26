@@ -1,5 +1,5 @@
 """tests/host/test_motion_engine_primitives.py -- tests
-src/motion_engine.h/.cpp's geometry (effectiveTrackWidth/countsPerMm) and
+src/motion/motion_engine.h/.cpp's geometry (effectiveTrackWidth/countsPerMm) and
 its two wheel primitives, wheelsX and wheelsV.
 
 Canonical spec (read-only, a different repo -- this project conforms to
@@ -10,7 +10,7 @@ width"), S3.1 (wheels_x), S3.2 (wheels_v).
 
 Verification strategy: DiffDrive::DifferentialDrive's own
 Output.velocity/twist are MEASURED quantities -- computed from encoder
-deltas across two samples (diffdrive.cpp's refreshSample()) -- not the
+deltas across two samples (core/diffdrive.cpp's refreshSample()) -- not the
 COMMANDED values a hand-computed test here wants to check. Rather than
 arming motor samples for every case, this file instead reads back the
 FakeMotor's own LAST STAGED DUTY after exactly one step(), with the
@@ -18,7 +18,7 @@ kernel configured with only maxDuty/fullDutyVelocity set and every other
 Config field left at its zero/off default -- the same "duty is pure
 feedforward, no PID/bias/twist-hold contribution" configuration
 test_kernel_harness.py's own smoke test already established. Under that
-configuration, controlStep() (src/diffdrive.cpp) computes
+configuration, controlStep() (src/core/diffdrive.cpp) computes
 rawLeft = velocity - twist, rawRight = velocity + twist and stages
 duty = raw / fullDutyVelocity directly (clamped to the maxDuty rail),
 so a hand-computed expected duty for each wheel needs only the
@@ -58,7 +58,7 @@ _SHIM_SOURCES = [
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 
-# DiffDrive::DifferentialDrive::Status's DECLARATION order (src/diffdrive.h).
+# DiffDrive::DifferentialDrive::Status's DECLARATION order (src/core/diffdrive.h).
 STATUS_OK = 0
 
 LEFT = 0

@@ -1,6 +1,6 @@
 // wire_motion_verb_shim.cpp -- extern "C" ctypes surface for sprint 003
 // ticket 004's own host tests (test_wire_motion_verbs.py): the six
-// motion verbs' wire decode/dispatch, and src/wire_adapter.h's
+// motion verbs' wire decode/dispatch, and src/comms/wire_adapter.h's
 // WireAdapter wired to a REAL kernel. Test scaffolding only: nothing
 // under src/ knows this file exists, and it is compiled only into this
 // test's own throwaway shared library.
@@ -14,7 +14,7 @@
 //     level, independent of what any one concrete Adapter does with
 //     them.
 //   - WaHandle (waXxx functions): WireHandler + the REAL
-//     diffDrive::WireAdapter (src/wire_adapter.h), wired to a REAL
+//     diffDrive::WireAdapter (src/comms/wire_adapter.h), wired to a REAL
 //     DiffDrive::DifferentialDrive kernel over FakeMotor -- this is what
 //     proves WHEELS_V's real effect (ticket 004's own acceptance
 //     criterion) and WireAdapter's own GET/SET field-name table and

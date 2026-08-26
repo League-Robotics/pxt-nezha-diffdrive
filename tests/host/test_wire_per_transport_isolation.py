@@ -6,7 +6,7 @@ Wire::WireHandler instances never share expectedNext_/gapOutstanding_/
 malformedCount_ state, so a sequence gap opened on ONE handler leaves
 the OTHER's ack stream and malformed count completely unaffected.
 
-Ticket 001 wires src/protocol.h's wireHandler_ (serial) and the new
+Ticket 001 wires src/comms/protocol.h's wireHandler_ (serial) and the new
 wireHandlerRadio_ (radio) as two such instances, composed over the SAME
 WireAdapter instance (see protocol.h's own comment on that member
 pair) -- but Protocol itself is CODAL-bound and has no host shim (it

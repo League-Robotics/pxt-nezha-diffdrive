@@ -1,5 +1,5 @@
 """tests/host/test_motion_engine_reductions.py -- tests
-src/motion_engine.h/.cpp's move engine -- moveX/moveV/goToR, and the
+src/motion/motion_engine.h/.cpp's move engine -- moveX/moveV/goToR, and the
 taper/ramp/wrong-way-abort shaping ported from shims.cpp's former
 Rig::startMove()/serviceMove(), built on top of the wheelsX/wheelsV
 primitives.

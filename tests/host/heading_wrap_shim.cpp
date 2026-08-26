@@ -1,4 +1,4 @@
-// heading_wrap_shim.cpp -- extern "C" ctypes surface for src/heading_wrap.h.
+// heading_wrap_shim.cpp -- extern "C" ctypes surface for src/core/heading_wrap.h.
 // heading_wrap.h is one pure, free function (no class, no state) --
 // smaller in scope than the handle-plus-free-functions
 // shims this directory otherwise uses (kernel_shim.cpp,
@@ -6,7 +6,7 @@
 // opaque handle needed.
 //
 // `headingWrapRoundTripLsb()` mirrors OtosPort::writePoseMm()'s heading
-// channel (src/otos_port.cpp) field-for-field, using the same
+// channel (src/platform/otos_port.cpp) field-for-field, using the same
 // `kHdgRadPerLsb` scale (private to OtosPort, otos_port.h -- duplicated
 // here deliberately, the same way wire_motion_verb_shim.cpp mirrors
 // production math with counts-per-mm fixed at 1.0, per tests/host/DESIGN.md
