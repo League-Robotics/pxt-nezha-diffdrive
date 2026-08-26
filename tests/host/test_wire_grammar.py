@@ -103,6 +103,13 @@ def _bind(lib):
 
     lib.wgSendBanner.argtypes = [ctypes.c_void_p]
     lib.wgSendBanner.restype = None
+    # execHelp()'s terminator-guarantee helper -- no handle, callable
+    # directly with a synthetic name list.
+    lib.wgBuildHelpLine.argtypes = [
+        ctypes.c_char_p, ctypes.c_int, ctypes.POINTER(ctypes.c_char_p),
+        ctypes.c_int,
+    ]
+    lib.wgBuildHelpLine.restype = ctypes.c_int
     # Ticket 003: emitTelemetry(snapshot) now takes a Column array as
     # three parallel arrays (name/value/hex) plus a count -- see
     # wire_grammar_shim.cpp's own wgEmitTelemetry() comment for why
@@ -898,6 +905,72 @@ def test_help_golden_vector(wg):
     wg.feed(b"HELP #1\n")
     assert wg.take_sink() == (
         _ack(1) +
+        b"help HELLO PING ID VER STATUS HELP GET SET TLM WHEELS_X "
+        b"WHEELS_V MOVE_X MOVE_V GO_TO_R GO_TO_W STOP ESTOP RUN\n"
+    )
+
+
+def _build_help_line(lib, buf_cap: int, names: list) -> bytes:
+    """Call buildHelpLine() directly (no WireHandler instance) and
+    return exactly the bytes it wrote, excluding the closing NUL."""
+    name_ptrs = (ctypes.c_char_p * len(names))(*names)
+    buf = ctypes.create_string_buffer(buf_cap)
+    written = lib.wgBuildHelpLine(buf, buf_cap, name_ptrs, len(names))
+    assert 0 <= written < buf_cap
+    assert buf.raw[written] == 0  # NUL immediately follows the content
+    return buf.raw[:written]
+
+
+def test_build_help_line_terminator_survives_synthetic_overflow(wire_lib):
+    """A name list too wide for the buffer it is asked to fit into.
+    Bounding the content loop only against the closing NUL (appending
+    '\\n' last, unconditionally, outside that bound) would let the
+    '\\n' itself be the first byte dropped once content fills the
+    buffer -- this asserts the terminator survives regardless."""
+    names = [b"A" * 20, b"B" * 20, b"C" * 20, b"D" * 20, b"E" * 20]
+    result = _build_help_line(wire_lib, 16, names)
+    assert result.endswith(b"\n")
+    assert len(result) == 15  # bufCap - 1: the reserved terminator byte
+
+
+def test_build_help_line_terminator_survives_at_every_tight_capacity(wire_lib):
+    """Sweep every buffer capacity from the smallest usable size up to
+    just past where the (long) name list first fits -- the terminator
+    must survive at every single one, not just one hand-picked size."""
+    names = [b"VERYLONGVERBNAME" for _ in range(6)]
+    for buf_cap in range(2, 64):
+        result = _build_help_line(wire_lib, buf_cap, names)
+        assert result.endswith(b"\n"), f"buf_cap={buf_cap}"
+
+
+def test_build_help_line_degenerate_capacity_never_overflows(wire_lib):
+    """Capacities too small to hold even '\\n\\0' (0 and 1 bytes) are
+    the two corner cases the reserved-terminator-byte scheme has to
+    special-case explicitly -- confirm both write nothing past the
+    buffer instead of underflowing the unsigned bound arithmetic."""
+    names = [b"HELLO"]
+    name_ptrs = (ctypes.c_char_p * len(names))(*names)
+    buf1 = ctypes.create_string_buffer(1)
+    written1 = wire_lib.wgBuildHelpLine(buf1, 1, name_ptrs, len(names))
+    assert written1 == 0
+    assert buf1.raw[0] == 0
+
+    buf0 = ctypes.create_string_buffer(1)  # allocate 1 byte so the
+    # pointer is valid; bufCap=0 tells buildHelpLine() not to touch it.
+    written0 = wire_lib.wgBuildHelpLine(buf0, 0, name_ptrs, len(names))
+    assert written0 == 0
+
+
+def test_build_help_line_real_table_shape_unchanged(wire_lib):
+    """The real 18-verb table, run through buildHelpLine() directly
+    with the real 240-byte buffer, must reproduce exactly the same
+    reply test_help_golden_vector expects through the full HELP verb --
+    the refactor changes no observable behavior for today's table."""
+    names = [b"HELLO", b"PING", b"ID", b"VER", b"STATUS", b"HELP", b"GET",
+              b"SET", b"TLM", b"WHEELS_X", b"WHEELS_V", b"MOVE_X", b"MOVE_V",
+              b"GO_TO_R", b"GO_TO_W", b"STOP", b"ESTOP", b"RUN"]
+    result = _build_help_line(wire_lib, 240, names)
+    assert result == (
         b"help HELLO PING ID VER STATUS HELP GET SET TLM WHEELS_X "
         b"WHEELS_V MOVE_X MOVE_V GO_TO_R GO_TO_W STOP ESTOP RUN\n"
     )

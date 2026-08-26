@@ -82,6 +82,19 @@ void wgSendBanner(void* handle) {
   static_cast<Handle*>(handle)->handler.sendBanner();
 }
 
+// execHelp()'s terminator-guarantee helper, called directly with no
+// Handle at all -- lets a test drive it with a synthetic, arbitrarily
+// long name list, independent of kCommandTable (whose real 18 verbs
+// are too small to ever exercise the truncation path this proves
+// survives). Returns the byte count buildHelpLine() itself returns.
+int wgBuildHelpLine(char* buf, int bufCap, const char* const* names,
+                     int nameCount) {
+  size_t written = Wire::WireHandler::buildHelpLine(
+      buf, static_cast<size_t>(bufCap), names,
+      static_cast<size_t>(nameCount));
+  return static_cast<int>(written);
+}
+
 // Ticket 003: emitTelemetry() now takes a Snapshot -- this shim builds
 // one from parallel C arrays ctypes can populate directly (a
 // POINTER(c_char_p)/POINTER(c_int32)/POINTER(c_int) triple plus a
