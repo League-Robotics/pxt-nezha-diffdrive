@@ -17,3 +17,35 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Sprint 017 ticket 007: narrow, meaningful rule set -- pyflakes (F),
+# syntax errors (E9), flake8-bugbear (B). `select` (not `extend-select`)
+# replaces ruff's unconfigured defaults entirely, so the import-order
+# (I001), shebang (EXE001), and the long RUF/UP/SIM/PLW style-preference
+# tail an unconfigured `ruff check` surfaces here never run -- this
+# project's own conventions differ from those defaults (e.g. the
+# sys.path.insert prelude several tools/tests use makes strict import
+# sorting awkward by construction), and re-litigating them wasn't this
+# ticket's job.
+[tool.ruff.lint]
+select = ["F", "E9", "B"]
+
+# B905 (zip-without-explicit-strict) surfaced 15 call sites across
+# tools/ and tests/tools/ that this ticket's review never examined.
+# Choosing strict=True vs strict=False per site is a per-call-site
+# correctness judgment (does a length mismatch there indicate a real
+# bug worth failing loudly on, or is truncation the intended,
+# already-relied-upon behavior?) -- not a mechanical lint fix, and this
+# ticket is lint hygiene, not a refactor (see the ticket's own "no
+# behavior change beyond the import removals and from-e additions"
+# scope). Deferred to a follow-up review; ignored project-wide rather
+# than 15 scattered per-line noqas that would just paper over the same
+# unreviewed question at each site.
+ignore = ["B905"]
+
+[tool.ruff.lint.per-file-ignores]
+# Pytest fixture redefinition is idiomatic (a test module importing a
+# fixture by name to use it looks, to pyflakes, like shadowing an
+# unused import) -- not a real defect. 94 instances as of this ticket,
+# all of this shape.
+"tests/**" = ["F811"]

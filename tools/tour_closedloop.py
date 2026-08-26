@@ -145,7 +145,7 @@ def main():
             finals[(r['lap'], r['corner'])] = r['err']
         errs = list(finals.values())
         dis = [r['cam_otos'] for r in rows if r['cam_otos'] != '']
-        print(f'\nfinal corner errors: '
+        print('\nfinal corner errors: '
               + '  '.join(f'{k[1]} {v:.1f}' for k, v in finals.items()))
         print(f'worst {max(errs):.1f} cm, mean {sum(errs)/len(errs):.1f} cm')
         if dis:

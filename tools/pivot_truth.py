@@ -80,7 +80,7 @@ def main():
     print(f"{'cmd':>6} {'CAMERA':>8} {'gyro':>8} {'cam/cmd':>8}"
           f" {'gyro/cam':>9} {'drift cm':>9}  verdict")
     results = []
-    for rep in range(a.reps):
+    for _rep in range(a.reps):
         for commanded in (180.0, -180.0):
             t0, r0 = _yaw_mark(cam)
             o0 = otos_fix(link)

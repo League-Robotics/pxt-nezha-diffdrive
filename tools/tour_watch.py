@@ -147,7 +147,7 @@ def main():
     try:
         tlm.require_stream(link, timeout=3.0)
     except tlm.DeadTelemetryError as e:
-        raise SystemExit(str(e))
+        raise SystemExit(str(e)) from e
     print('watching for a tour -- press A, B or A+B on the robot '
           '(ctrl-C to stop)')
 

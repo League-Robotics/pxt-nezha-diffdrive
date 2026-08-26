@@ -1,7 +1,7 @@
 ---
 id: '007'
 title: ruff config and the six real findings
-status: open
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -72,15 +72,72 @@ doesn't touch TypeScript or C++; see ticket 008 for the TS-side gate).
 
 ## Acceptance Criteria
 
-- [ ] `pyproject.toml` has a `[tool.ruff.lint]` block selecting `F, E9, B`
+- [x] `pyproject.toml` has a `[tool.ruff.lint]` block selecting `F, E9, B`
       (or equivalent), with `F811` ignored under `tests/`.
-- [ ] The 4 real `F401` unused-import findings are fixed.
-- [ ] The 2 real `B904` raise-without-from findings are fixed, preserving
-      the exception chain.
-- [ ] `ruff check tools tests` exits clean (0 findings) under the committed
+- [x] The 4 real `F401` unused-import findings are fixed. (Re-measured: 6,
+      not 4 -- see completion notes.)
+- [x] The 2 real `B904` raise-without-from findings are fixed, preserving
+      the exception chain. (Re-measured: 4, not 2 -- see completion notes.)
+- [x] `ruff check tools tests` exits clean (0 findings) under the committed
       config.
-- [ ] No behavior change beyond the import removals and `from e` additions
-      -- this is a lint-hygiene ticket, not a refactor.
+- [x] No behavior change beyond the import removals and `from e` additions
+      -- this is a lint-hygiene ticket, not a refactor. (Plus two further
+      zero-behavior-change classes surfaced by re-measurement and fixed
+      the same way -- see completion notes.)
+
+## Completion notes (2026-08-26)
+
+**Re-measured rather than trusting the ticket's counts -- the tree has
+drifted since the review.** Selecting exactly `F, E9, B` (as specified)
+surfaces more than the six findings this ticket names:
+
+- **`F401` unused imports: 6, not 4.** The four named
+  (`test_wire_motion_completion.py`, `test_camproc.py` x2,
+  `otos_bench.py`) plus two new ones in
+  `tests/host/test_goto_block_regression.py:46` (`LEFT`, `RIGHT`
+  imported from `test_motion_engine_reductions`, unused). All 6 fixed
+  the same way (import removed after confirming zero other reference
+  in the file).
+- **`B904` raise-without-from: 4, not 2.** The two named
+  (`tour_watch.py:150`, `truth_check.py:144`) plus the exact same
+  `except tlm.DeadTelemetryError as e: raise SystemExit(str(e))`
+  pattern, losing the same chain, at `tools/rotation_check.py:85` and
+  `tools/tour_capture.py:63` -- not touched by sprint 017 ticket 002's
+  `tour_watch.py` edit, so not a byproduct of it; these two simply
+  weren't in the original review's sample. All 4 fixed identically
+  (` from e` appended).
+- **Two further finding classes ticket 007 didn't anticipate, both
+  fixed as zero-behavior-change lint hygiene** (in scope under a literal
+  `select = ["F", "E9", "B"]`, same as the six named): `F541`
+  f-string-without-placeholder (2: `tour_closedloop.py:148`,
+  `tour_practice.py:224` -- extraneous `f` prefix removed, string
+  content unchanged) and `B007` unused-loop-control-variable (4:
+  `pivot_truth.py:83`, `reposition.py:47`, `tour_run.py:226`,
+  `tour_square.py:70` -- renamed to `_name` per ruff's own convention,
+  confirmed genuinely unused in each loop body first).
+- **`B905` zip-without-explicit-strict: 15, NOT fixed -- deferred with
+  a documented project-wide `ignore`.** Unlike the classes above, each
+  site needs a per-call-site correctness judgment (would a length
+  mismatch there indicate a real bug worth `strict=True` failing loudly
+  on, or is truncation the relied-upon behavior, making `strict=False`
+  the honest documentation of current behavior?) that a lint-hygiene
+  ticket has no basis to make blind. Reviewing all 15 is a
+  reasonably-sized follow-up, not part of this ticket -- flagging here
+  so it isn't silently dropped. See the `ignore = ["B905"]` entry's own
+  comment in `pyproject.toml`.
+- **`B023`/`B008` (the ticket's named 2+1): confirmed genuinely benign
+  as described** (`truth_check.py`'s `sampler` closure over
+  `stop`/`cam_total` -- both are redefined fresh each pivot iteration,
+  but `th.join()` always completes, or times out, before the next
+  iteration rebinds them, so the closure never observes a stale
+  binding) and left in place with narrow, reasoned `# noqa` comments
+  rather than fixed or blanket-ignored, per the ticket's own guidance.
+- **Did not add a pytest wrapper for `ruff check`.** The sprint
+  briefing's top-level note says "consider wiring it into the test
+  suite"; this ticket's own Testing section is explicit that no new
+  test is needed ("`ruff check` itself is the gate... a CI/checklist
+  step, not a pytest assertion") -- followed the ticket's own, more
+  specific instruction.
 
 ## Testing
 

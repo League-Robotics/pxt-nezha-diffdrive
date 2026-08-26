@@ -67,7 +67,7 @@ def main():
     # returns nothing -- so the pose read AFTER a leg is reused as the
     # pose BEFORE the next one.
     rp = robot_pose(link)
-    for lap in range(a.laps):
+    for _lap in range(a.laps):
         for tag in ORDER:
             tx, ty = DOTS[tag]
             if rp is None:
