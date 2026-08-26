@@ -19,6 +19,18 @@
 // Every move runs as an explicit startMove/startGoTo + driveTick() loop
 // in THIS file, so the tick loop stays visible, instrumentable test
 // code.
+
+// Boot identity banner -- displayed at the bottom of this file, after
+// every button/RUN: handler is registered (see that call site's own
+// comment for why). Placeholder values: this file cannot read the
+// repo's own version file at build time, so tools/make_deploy.py
+// substitutes both into this exact scratch-copy text before every
+// real build. Left as obviously-fake placeholders here on purpose --
+// this checked-in source, run unsubstituted, should read as visibly
+// wrong rather than silently plausible.
+const BOOT_VERSION = "00.00"
+const BOOT_ROBOT = "unknown"
+
 let touring = false
 // Set by RUN:abort (below); tickToCompletion() -- the single choke point
 // every tickedMove()/tickedGoTo() leg goes through -- checks this and
@@ -677,3 +689,18 @@ diffDrive.onRun("turnrate", function (arg: number) {
     pivotYawRate = diffDrive.runArg(0)
 })
 
+// ---- boot identity banner ---------------------------------------------
+// Deliberately LAST: every button handler and RUN: verb above is a
+// synchronous, near-instant registration call, so putting them first
+// costs nothing, while basic.showIcon()/basic.showString() below BLOCK
+// this fiber for as long as they take to display. A command arriving
+// during that window needs its handler already registered to be
+// dispatched at all -- reversing this order would mean a RUN: line
+// landing in the first couple of seconds after boot has nothing to
+// call. The protocol fiber's own boot banner (the wire-level HELLO
+// reply, protocol.cpp's Protocol::run()) runs on its own separate
+// CODAL fiber, started from the extension's top-level code ahead of
+// this file's own top-level code either way, so it is unaffected by
+// this ordering regardless.
+basic.showIcon(IconNames.Rollerskate)
+basic.showString(BOOT_ROBOT + " " + BOOT_VERSION)

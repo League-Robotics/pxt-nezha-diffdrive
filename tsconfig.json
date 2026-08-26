@@ -48,6 +48,14 @@
     "pxt_modules/core/math.ts",
     "pxt_modules/core/pxt-helpers.ts",
     "pxt_modules/core/basic.ts",
+    // icons.ts declares IconNames and basic.showIcon() -- test/test.ts's
+    // boot banner is this tree's first use of either. Without this entry
+    // tsc does not cleanly report "cannot find name": the unresolved
+    // symbol combined with this tsconfig's no-default-lib setup (see this
+    // file's own top comment) crashes the compiler instead of producing a
+    // diagnostic. Placed immediately after basic.ts, matching
+    // pxt_modules/core/pxt.json's own file ordering.
+    "pxt_modules/core/icons.ts",
     "pxt_modules/core/control.ts",
     "pxt_modules/core/input.ts",
     "pxt_modules/core/serial.ts",

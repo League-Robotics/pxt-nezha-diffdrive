@@ -45,6 +45,15 @@ in this repo -- radio-robot-lib's JSON is the only place a channel
 number is read from, and a missing/unreadable/incomplete config fails
 the build loudly rather than falling back to any default.
 
+The same scratch-copy substitution mechanism also carries this repo's
+own version (read from `pyproject.toml`'s `0.YYYYMMDD.n`, reformatted
+to the on-device `DD.RR` banner string) and the target robot's name
+into `test/test.ts`'s scratch copy, so the boot banner it displays can
+report which build and which robot a flashed hex actually is -- see
+`_inject_boot_banner()` below. `test.ts` cannot read `pyproject.toml`
+at build time (no filesystem access once compiled), so this is the
+only place that string can come from.
+
 Two traps this script exists to avoid, both of which cost hours:
 
 * `disablesVariants: ["mbdal"]` is dropped. In a top-level project it
@@ -380,6 +389,85 @@ def _inject_radio_channel(deploy_dir, robot):
     return channel
 
 
+# This repo's own version source -- pyproject.toml's [project] version,
+# `0.YYYYMMDD.n`. Read with a plain regex, not a TOML parser dependency,
+# since only this one field is ever needed.
+_PYPROJECT = os.path.join(REPO, 'pyproject.toml')
+_PYPROJECT_VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
+
+
+def _read_repo_version():
+    """Read this repo's own `0.YYYYMMDD.n` version straight out of
+    `pyproject.toml` -- deliberately NOT `pxt.json`'s own `1.0.10`-style
+    version, which has no day-of-month digit pair in its minor and does
+    not fit the `DD.RR` banner format (see `format_boot_version()`,
+    below). FAILS LOUDLY if the file is missing or has no `version =
+    "..."` line, same posture as `_read_robot_radio_channel()`."""
+    if not os.path.exists(_PYPROJECT):
+        sys.exit(f"make_deploy: repo version file not found: {_PYPROJECT}")
+    text = open(_PYPROJECT).read()
+    m = _PYPROJECT_VERSION_RE.search(text)
+    if not m:
+        sys.exit(f'make_deploy: no version = "..." line found in '
+                  f'{_PYPROJECT}')
+    return m.group(1)
+
+
+def format_boot_version(version):
+    """Pure function: this repo's own `0.YYYYMMDD.n` version string ->
+    the on-device boot-banner format -- the last two digits of the
+    minor (the day of the month) then a dot then the revision,
+    zero-padded to two digits. `0.20260826.5` -> `26.05`. Public (no
+    leading underscore) and pure, like `classify_attempt()`, so it is
+    directly unit-testable with no file I/O.
+
+    Raises `ValueError` (not `sys.exit` -- this function is pure; the
+    caller decides how to fail) if `version` is not shaped like
+    `MAJOR.YYYYMMDD.REVISION`."""
+    parts = version.split('.')
+    if len(parts) != 3:
+        raise ValueError(
+            f'expected MAJOR.YYYYMMDD.REVISION, got {version!r}')
+    _major, minor, revision = parts
+    if len(minor) < 2 or not minor.isdigit():
+        raise ValueError(
+            f'minor version is not day-of-month-shaped: {minor!r}')
+    if not revision.isdigit():
+        raise ValueError(f'revision is not numeric: {revision!r}')
+    day = minor[-2:]
+    return f'{day}.{int(revision):02d}'
+
+
+# Matches test.ts's own BOOT_VERSION/BOOT_ROBOT placeholder
+# declarations (see that file's own top-of-file comment for why they
+# exist as substitutable placeholders at all).
+_BOOT_VERSION_RE = re.compile(r'(const BOOT_VERSION = )"[^"]*"')
+_BOOT_ROBOT_RE = re.compile(r'(const BOOT_ROBOT = )"[^"]*"')
+
+
+def _inject_boot_banner(deploy_dir, robot):
+    """Substitute `deploy_dir`'s own copy of `test/test.ts`'s
+    `BOOT_VERSION`/`BOOT_ROBOT` placeholder constants with this build's
+    actual version (`_read_repo_version()` + `format_boot_version()`,
+    above) and target robot name. Same mechanism as
+    `_inject_radio_channel()`: a scratch-copy-only text substitution:
+    the repo's own checked-in `test/test.ts` keeps its placeholder
+    values, since `test.ts` cannot read `pyproject.toml` itself."""
+    version = format_boot_version(_read_repo_version())
+    path = os.path.join(deploy_dir, 'test', 'test.ts')
+    text = open(path).read()
+    text, n1 = _BOOT_VERSION_RE.subn(rf'\g<1>"{version}"', text)
+    text, n2 = _BOOT_ROBOT_RE.subn(rf'\g<1>"{robot}"', text)
+    if n1 != 1 or n2 != 1:
+        sys.exit(f"make_deploy: expected exactly one BOOT_VERSION and one "
+                  f"BOOT_ROBOT placeholder in {path}, found {n1} and {n2} "
+                  f"-- test.ts's shape has changed, update _BOOT_VERSION_RE"
+                  f"/_BOOT_ROBOT_RE")
+    with open(path, 'w') as f:
+        f.write(text)
+    return version
+
+
 def _run_pxt_build(deploy_dir=None, hex_path=None):
     """Run one `pxt build` attempt in `deploy_dir` against `hex_path`
     (both default to the primary flashable scratch, DEPLOY/HEX --
@@ -527,6 +615,7 @@ def main():
     for f in sync():
         print(f'  {f}')
     _inject_radio_channel(DEPLOY, a.robot)
+    _inject_boot_banner(DEPLOY, a.robot)
     build()
     if a.flash:
         flash(a.robot)

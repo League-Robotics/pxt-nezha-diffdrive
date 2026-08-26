@@ -2,7 +2,7 @@
 id: '002'
 title: 'Boot banner in test.ts: skate icon then day.revision, via the same injection
   seam'
-status: open
+status: done
 use-cases: []
 depends-on:
 - '001'
@@ -51,24 +51,97 @@ and "which robot is this hex for" becomes a real question on the bench.
 
 ## Acceptance Criteria
 
-- [ ] On boot, the robot displays `IconNames.Rollerskate` followed by a
+- [x] On boot, the robot displays `IconNames.Rollerskate` followed by a
       scrolled version string.
-- [ ] The version string format is `DD.RR` where `DD` is the last two digits
+- [x] The version string format is `DD.RR` where `DD` is the last two digits
       of this repo's `0.YYYYMMDD.n` minor version (day of month) and `RR` is
       the revision zero-padded to two digits — e.g. `0.20260826.5` → `26.05`.
       It is derived from this repo's own version source, not `pxt.json`'s
       version.
-- [ ] The version string is injected into `test/test.ts` (or a file it
+- [x] The version string is injected into `test/test.ts` (or a file it
       includes) by the same `make_deploy.py` build-time seam ticket 001
       introduced — not read from a second, independently-invented mechanism.
-- [ ] No file under `src/blocks/` is modified by this ticket, and no boot
+- [x] No file under `src/blocks/` is modified by this ticket, and no boot
       display code is added there.
-- [ ] If cheap within the same injection pass, the robot name is also shown;
+- [x] If cheap within the same injection pass, the robot name is also shown;
       if it turns out not to be cheap, it is acceptable to omit it and say
-      so in the ticket's closing notes rather than force it.
-- [ ] Any new `src/` (or `test/`, if MakeCode's manifest requires it) file
+      so in the ticket's closing notes rather than force it. (It was cheap
+      — see Notes below.)
+- [x] Any new `src/` (or `test/`, if MakeCode's manifest requires it) file
       is present in `pxt.json`'s `files` array, verified by
-      `tests/host/test_pxt_manifest_completeness.py`.
+      `tests/host/test_pxt_manifest_completeness.py`. (No new `src/` or
+      `test/` file was introduced — see Notes below.)
+
+## Notes (implementation report)
+
+**Mechanism**: reused ticket 001's exact substitution mechanism, a
+second pair of regex-matched placeholders
+(`_BOOT_VERSION_RE`/`_BOOT_ROBOT_RE` in `tools/make_deploy.py`)
+substituted into the scratch copy's `test/test.ts` by a new
+`_inject_boot_banner(deploy_dir, robot)`, called from `main()`
+immediately after `_inject_radio_channel()` — same seam, same
+scratch-copy-only mutation, no new file. `format_boot_version()` is a
+pure function (`0.YYYYMMDD.n` -> `DD.RR`); `_read_repo_version()` reads
+`pyproject.toml`'s `version = "..."` line with a plain regex (no TOML
+dependency for one field). Both are covered directly by
+`tests/tools/test_make_deploy_boot_banner.py`, including the worked
+example from this ticket's own brief (`0.20260826.5` -> `26.05`) and a
+rejection test proving `pxt.json`'s `1.0.10`-shaped scheme does not
+parse as a day-of-month.
+
+**Robot name — cheap, included**: `BOOT_ROBOT` is substituted by the
+same call, scrolled alongside the version (`"<robot> <DD.RR>"`) in one
+`basic.showString()` call — no second display call, no extra cost.
+
+**Checked-in placeholders**: `test/test.ts` declares `const
+BOOT_VERSION = "00.00"` and `const BOOT_ROBOT = "unknown"` near the top
+of the file, both visibly-fake so an unsubstituted build (this file
+run directly, not through `make_deploy.py`) reads as obviously wrong
+rather than silently plausible.
+
+**Ordering, decided deliberately**: the banner call
+(`basic.showIcon(IconNames.Rollerskate)` then `basic.showString(...)`)
+is placed LAST in `test/test.ts`, after every button handler and every
+`diffDrive.onRun(...)` registration. Registration is a handful of
+synchronous, near-instant calls; `basic.showIcon()`/`basic.showString()`
+BLOCK the TS main fiber for as long as they take to display (a couple
+of seconds for the scroll). Reversing the order would leave a RUN:
+command arriving in that window with no handler yet registered to
+dispatch to. The protocol fiber's own boot banner (the wire-level
+HELLO reply, `protocol.cpp`'s `Protocol::run()` -> `wireHandler_.
+sendBanner()`) runs on its own separate CODAL fiber, launched from the
+extension's top-level code (`blocks/motion.ts`'s `_startProtocol()`)
+ahead of `test/test.ts`'s own top-level code regardless of where in
+this file the display call sits — so it is unaffected by this ordering
+choice either way. This reasoning is recorded in `test/test.ts`'s own
+comment at the banner call site, not just here.
+
+**A real defect found and fixed along the way**: `tsconfig.json`'s
+hand-maintained `files` list did not include `pxt_modules/core/
+icons.ts`, so `IconNames`/`basic.showIcon` — this tree's first use of
+either — were unresolved symbols under this project's `no-default-lib`
+tsconfig setup. That combination does not fail as a clean diagnostic;
+`tsc --noEmit -p tsconfig.json` **crashed** (`TypeError: Cannot read
+properties of undefined (reading 'get')` inside the compiler's own type
+-node printer) instead of reporting "cannot find name." Confirmed via
+`git stash` that the crash is new (clean exit 0 without this ticket's
+`test/test.ts` changes, crash with them) and unrelated to the
+substitution mechanism itself. Fixed by adding `pxt_modules/core/
+icons.ts` to `tsconfig.json`'s `files` array, in the same position
+`pxt_modules/core/pxt.json`'s own manifest places it (immediately after
+`basic.ts`) — `tests/host/test_typescript_typecheck.py` (pre-existing,
+runs `tsc --noEmit` on every `uv run pytest`) now passes and would have
+caught this at the full-suite gate regardless.
+
+**Honesty on verification**: no TypeScript in this repo is executed by
+any test. `tests/host/test_boot_banner_source_pin.py` is a text-level
+pin (icon-then-scroll order, placeholder shapes, ordering relative to
+the last `diffDrive.onRun(...)`, a guard that `src/blocks/*.ts` never
+references the banner) — it proves the source text has the shape this
+ticket describes, nothing about actual on-device display behavior.
+Real verification (does the banner actually show correctly, with the
+right robot/version, on real hardware) is ticket 003's bench
+flash-and-read checkpoint, as planned.
 
 ## Implementation Plan
 
