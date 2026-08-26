@@ -18,7 +18,8 @@ namespace diffDrive {
     //% block="start world tracking"
     //% group="World"
     export function startWorldTracking(): boolean {
-        return otosBegin() == 0x5F
+        otosBegin()
+        return worldTrackingReady()
     }
 
     /**

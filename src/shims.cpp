@@ -1175,7 +1175,9 @@ int wheelSpeed(int which) {
 int probe(int what) { return diagValue(what); }
 
 //%
-int otosBegin() {  // -> product id probed (0x5F == present)
+int otosBegin() {  // -> raw product id, for diagnostics only; readiness
+                    // is OtosPort::connected(), gated on otos_port.h's
+                    // kExpectedProductId -- not this return value
   OtosPort& o = otosRef();
   o.begin();
   return o.productId();
