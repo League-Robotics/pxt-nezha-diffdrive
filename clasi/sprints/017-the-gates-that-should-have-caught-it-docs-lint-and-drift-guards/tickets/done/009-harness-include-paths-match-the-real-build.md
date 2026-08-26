@@ -1,7 +1,7 @@
 ---
 id: 009
 title: Harness include paths match the real build
-status: open
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -88,20 +88,70 @@ only the `#include` line's spelling changes and not what gets included.
 
 ## Acceptance Criteria
 
-- [ ] A new host test (option 2) mechanically verifies every `#include
+- [x] A new host test (option 2) mechanically verifies every `#include
       "..."` under `src/` resolves relative to its own including file's
       directory, matching the real PXT build's resolution rule.
-- [ ] Either: (a) `-I src` is dropped from the harness and host compilation
+- [x] Either: (a) `-I src` is dropped from the harness and host compilation
       now matches the real build's include resolution, with any surfaced
       include errors fixed; or (b) `-I src` remains for now (if removal
       proved too invasive for one ticket) but the new mechanical gate from
       option 2 is in place and passing, and the ticket's completion notes
       explain why option 1 was deferred.
-- [ ] If any `#include` directive is corrected as a result of this ticket,
+- [x] If any `#include` directive is corrected as a result of this ticket,
       only the include path's spelling changes -- no included content,
       logic, or behavior changes.
-- [ ] The full host suite (`uv run pytest tests/host/`) still passes.
-- [ ] No firmware behavior changes.
+- [x] The full host suite (`uv run pytest tests/host/`) still passes.
+- [x] No firmware behavior changes.
+
+## Completion notes
+
+Did **both** option 1 and option 2, per the ticket's "do option 2
+regardless" instruction, and option 1 turned out not to require any
+fallback: `tests/host/test_kernel_harness.py`'s `compile_shared_lib()`
+now compiles each source to its own object file with `-c` instead of one
+combined multi-file command line. A production source under `src/` is
+compiled with **no `-I` at all** (matching the real PXT build exactly);
+a `tests/host/` shim/test source still gets `include_dirs` (`-I src -I
+tests/host`), since that scaffolding legitimately needs a project-root
+path into `src/` and is never part of a real build. The object files are
+then linked into the same `.so` as before -- `compile_shared_lib()`'s
+signature and every caller are unchanged.
+
+Manually verified the drop is not a no-op before trusting the green
+suite: copied `diffdrive.h`/`.cpp` to a scratch directory, rewrote the
+same-directory sibling include as the wrong qualified form
+(`#include "core/diffdrive.h"` instead of `#include "diffdrive.h"`), and
+confirmed (a) the OLD single-command-with-`-I src` shape still compiles
+it (proving the old harness really did mask this), and (b) the NEW
+no-`-I` per-file shape fails with `fatal error: 'core/diffdrive.h' file
+not found` -- the exact real-build failure this ticket exists to
+surface.
+
+No `#include` line anywhere under `src/` needed correcting: sprint 013
+tickets 001/002 already left every include in the includer-relative form
+the CORRECTED rule requires, so dropping `-I src` from the production
+compiles surfaced zero latent defects. `uv run pytest tests/host/` --
+501 passed (up from the pre-ticket count by the one new gate file's 30
+tests: 29 parametrized include-shape cases + 1 "at least one case
+collected" guard).
+
+The new gate, `tests/host/test_include_paths_match_target.py`, is a pure
+filesystem check (no compiler) that walks every `.c/.cc/.cpp/.cxx/.h/
+.hh/.hpp` file under `src/`, parses every `#include "..."` directive
+line (a real directive only -- `^\s*#include\s+"..."`, so it does not
+mistake `src/comms/radio_transport.h`'s commented-out `// #include
+"wire_handler.h" (...)` for a live directive), and asserts
+`(includer.parent / included).is_file()`. It deliberately exempts
+`pxt.h`: that header ships with the `core` dependency declared in
+`pxt.json` (`pxt_modules/core/pxt.h`) and is resolved through that
+dependency's own include path in a real build -- a genuine, separate
+mechanism from the project-root `-I` this ticket is about, and the same
+exemption `test_cxx11_syntax_gate.py` already documents for the same
+files. This gate covers every include under `src/`, including the
+pxt.h-bound production files (`protocol.cpp`, `radio_transport.cpp`,
+`serial_transport.cpp`, `nezha_port.{h,cpp}`, `otos_port.{h,cpp}`,
+`shims.cpp`) that no compiled host test reaches at all -- coverage
+`compile_shared_lib()` alone cannot provide.
 
 ## Testing
 
