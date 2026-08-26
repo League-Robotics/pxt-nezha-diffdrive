@@ -814,9 +814,11 @@ bool isStalled() { return ensure().kernel.output().stallHalted; }
 // this file.
 int protocolSerialDropCount();
 
-// Kernel Output accessor, one int per field: booleans 0/1, duty x100,
-// positions/velocities raw counts. Callers: wire_adapter.cpp status(),
-// probe() (TS).
+// Kernel Output accessor, one int per field: booleans 0/1, duty percent
+// x100 (10000 == full duty -- Output.appliedDutyLeft/Right already
+// arrives here as percent, per diffdrive.h; this multiplies by 100 a
+// SECOND time), positions/velocities raw counts. Callers:
+// wire_adapter.cpp status(), probe() (TS).
 int diagValue(int what) {
   const DiffDrive::DifferentialDrive::Output out = ensure().kernel.output();
   switch (what) {

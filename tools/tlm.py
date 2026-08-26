@@ -256,6 +256,15 @@ class TlmStream:
 #                     is already centidegrees)
 #   vl, vr         -- already millimetres/second (wheelSpeed() is
 #                     [mm/s], passed straight through with no scaling)
+#   dutl, dutr     -- percent, multiplied by 100 TWICE over:
+#                     NezhaMotorPort::appliedDuty() is a fraction
+#                     [-1, 1]; diffdrive.cpp multiplies by 100 to
+#                     publish Output.appliedDutyLeft/Right as PERCENT
+#                     (diffdrive.h's own [%] doc); shims.cpp's
+#                     diagValue(12)/(13) multiplies by 100 AGAIN before
+#                     the wire. So probe(12)/dutl reads 10000 at 100%
+#                     duty, not 100 -- see duty_pct() below, the one
+#                     place that scale is undone.
 
 def pose_cm(row):
     """Encoder-odometry pose from a decoded frame, in (cm, cm, deg)."""
@@ -282,6 +291,22 @@ def wheels_mms(row):
     changes.
     """
     return {'vl': row['vl'], 'vr': row['vr']}
+
+
+def duty_pct(row):
+    """Applied motor duty from a decoded frame, in true percent
+    (-100 to 100).
+
+    The wire's dutl/dutr columns are percent multiplied by 100 a SECOND
+    time (see this module's header comment above for the full
+    fraction -> percent -> wire chain) -- probe(12)/dutl reads 10000 at
+    100% duty. This function divides that back down to true percent so
+    every OTHER caller only has to reason about one scale, kept as a
+    real function (rather than inlined `row['dutl'] / 100.0` at each
+    call site) so this stays the one place that double-x100 fact is
+    asserted, mirroring wheels_mms()'s own reasoning above.
+    """
+    return {'dutl': row['dutl'] / 100.0, 'dutr': row['dutr'] / 100.0}
 
 
 # --- fail-loud guard 1: a dead instrument must not cost a run -----------

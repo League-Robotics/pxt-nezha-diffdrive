@@ -352,8 +352,9 @@ namespace diffDrive {
     /**
      * Read one diagnostic value. See diagValue() in shims.cpp for the
      * index list: 2 stall halted (see isStalled(), the named block for
-     * this same bit), 10/11 encoder positions, 12/13 applied duty x100,
-     * 14/15 velocities, 6/7 wedge suspicion.
+     * this same bit), 10/11 encoder positions, 12/13 applied duty
+     * percent x100 (10000 == full duty), 14/15 velocities, 6/7 wedge
+     * suspicion.
      */
     //% shim=diffDrive::probe
     export function probe(what: int32): number { return 0 }
