@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint: ''
+status: in-progress
+sprint: 018
+tickets:
+- 018-003
 ---
 
 # Confirm the phase-handoff fix on hardware, and close out two findings it did not address

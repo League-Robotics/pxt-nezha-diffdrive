@@ -158,6 +158,18 @@ function openLoopProfile() {
     diffDrive.setDefaultYawRate(90)
 }
 
+// Closed-loop profile: RUN:goto's fast shaping, for moves that get
+// re-measured and re-planned every leg (a sensor fix corrects whatever
+// this profile's speed costs in accuracy), unlike the open-loop tours
+// where every error is permanent.
+function closedLoopProfile() {
+    diffDrive.setTaperWindows(120, 80)
+    diffDrive.setTaperFloors(45, 35)
+    diffDrive.setRampMs(180)
+    diffDrive.setDefaultSpeed(40)
+    diffDrive.setDefaultYawRate(120)
+}
+
 // ---- tour A: robot-relative -----------------------------------------
 // "Robot-relative" means the tour never needs a WORLD position -- the
 // rectangle is expressed in a frame anchored where the robot started,
@@ -207,7 +219,7 @@ function tourRobot() {
     // frame's origin, and the IMU heading is zeroed to it.
     diffDrive.resetPose()
     diffDrive.seedPose(0, 0, 0)
-    diffDrive.emitLine("DBG:tour=robot")
+    diffDrive.emitLine("DBG:tour=robot:profile=open")
     logFix("c0")
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
@@ -239,7 +251,7 @@ function tourWheels() {
     maxGapMs = 0
     diffDrive.resetPose()
     diffDrive.seedPose(START_X, START_Y, START_H)
-    diffDrive.emitLine("DBG:tour=wheels")
+    diffDrive.emitLine("DBG:tour=wheels:profile=open")
     logFix("c0")
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
@@ -277,7 +289,7 @@ function straightRun(cm: number) {
     openLoopProfile()
     maxGapMs = 0
     diffDrive.resetPose()
-    diffDrive.emitLine("DBG:straight=" + cm)
+    diffDrive.emitLine("DBG:straight=" + cm + ":profile=open")
     tickedMove(cm, 0)
     diffDrive.emitLine("GAP:" + maxGapMs)
     // cm x100, so a 1 mm drift is still visible as an integer.
@@ -310,16 +322,12 @@ function tourWorld() {
     // Accuracy-tuned shaping restored: the earlier "taper too slow"
     // reading was actually the yaw-taper double-count bug
     // (MotionEngine::serviceMove) masking as a profile problem.
-    diffDrive.setTaperWindows(400, 180)
-    diffDrive.setTaperFloors(25, 12)
-    diffDrive.setRampMs(400)
-    diffDrive.setDefaultSpeed(20)
-    diffDrive.setDefaultYawRate(90)
+    openLoopProfile()
     maxGapMs = 0
     // NO seed here: the host has already seeded the true world pose
     // from the overhead camera (RUN:seedxy), so the robot can start
     // anywhere on the field and simply drive to the first dot.
-    diffDrive.emitLine("DBG:tour=world")
+    diffDrive.emitLine("DBG:tour=world:profile=open")
     logFix("c0")
     for (let i = 0; i < 4; i++) {
         basic.showNumber(i + 1)
@@ -478,11 +486,8 @@ diffDrive.onRun("goto", function (arg: number) {
     if (touring) return
     if (!worldReady()) return
     touring = true
-    diffDrive.setTaperWindows(120, 80)
-    diffDrive.setTaperFloors(45, 35)
-    diffDrive.setRampMs(180)
-    diffDrive.setDefaultSpeed(40)
-    diffDrive.setDefaultYawRate(120)
+    closedLoopProfile()
+    diffDrive.emitLine("DBG:goto:profile=closed")
     diffDrive.goToWorld(diffDrive.runArg(0), diffDrive.runArg(1))
     logFix("arrived")
     diffDrive.emitLine("GOTO:end")
@@ -495,7 +500,16 @@ diffDrive.onRun("face", function (arg: number) {
     if (touring) return
     if (!worldReady()) return
     touring = true
+    openLoopProfile()
+    // One-off override: anchor the yaw rate explicitly rather than
+    // inherit whatever profile the previous handler left behind (the
+    // bug this ticket fixes -- RUN:face used to set ONLY this value).
+    // Numerically a no-op today since openLoopProfile()'s own default
+    // yaw rate is already 90, but the accuracy profile -- not
+    // closedLoopProfile() -- is the right anchor: this handler's job
+    // is to close a heading loop precisely.
     diffDrive.setDefaultYawRate(90)
+    diffDrive.emitLine("DBG:face:profile=open")
     // Close the loop HERE, on the robot, against its own IMU heading.
     // Bouncing "measure, turn, measure" over the wireless link made the
     // host hunt: every round trip added latency and a fresh chance for
@@ -522,10 +536,15 @@ diffDrive.onRun("face", function (arg: number) {
 diffDrive.onRun("pivot", function (arg: number) {
     if (touring) return
     touring = true
-    diffDrive.setTaperWindows(400, 180)
-    diffDrive.setTaperFloors(25, 12)
-    diffDrive.setRampMs(400)
+    openLoopProfile()
+    // One-off override: pivotYawRate (set by RUN:turnrate) replaces
+    // openLoopProfile()'s own 90 deg/s. This also makes defaultSpeed
+    // deterministically 20 (from openLoopProfile()) instead of
+    // stale-inherited from whatever handler ran previously -- harmless
+    // for a pure in-place pivot, since pivots do not use defaultSpeed,
+    // but now deterministic rather than implicit.
     diffDrive.setDefaultYawRate(pivotYawRate)
+    diffDrive.emitLine("DBG:pivot:profile=open")
     maxGapMs = 0
     tickedMove(0, diffDrive.runArg(0))
     diffDrive.emitLine("GAP:" + maxGapMs)

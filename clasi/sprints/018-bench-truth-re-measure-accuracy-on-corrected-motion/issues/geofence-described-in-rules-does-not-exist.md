@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 018
+tickets:
+- 018-002
 ---
 
 # The geofence the operating rules rely on does not exist anywhere in the code

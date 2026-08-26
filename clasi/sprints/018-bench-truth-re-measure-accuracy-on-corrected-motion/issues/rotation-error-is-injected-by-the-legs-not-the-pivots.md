@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 018
+tickets:
+- 018-005
 ---
 
 # Rotation error: pivots physically UNDER-rotate, yet a whole tour over-rotates — so the heading error is injected by the LEGS

@@ -1,6 +1,8 @@
 ---
-status: pending
+status: done
 sprint: 018
+tickets:
+- 018-001
 ---
 
 # `RUN:` handlers mutate a global shaping profile and never restore it, so bench results depend on command order
