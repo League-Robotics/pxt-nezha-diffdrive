@@ -16,6 +16,7 @@
 //
 // Extend this file's function list -- don't invent a second shim --
 // when a later ticket needs another MotionEngine entry point exposed.
+#include <cmath>
 #include <cstdint>
 
 #include "core/diffdrive.h"
@@ -51,6 +52,16 @@ struct Handle {
   // encoder_pose_source.h's own header comment states).
   float encX_ = 0.0f, encY_ = 0.0f, encHeading_ = 0.0f;
   diffDrive::EncoderPoseSource encoderPose;
+
+  // meProbeRunToCompletion()'s own odometry accumulator [mm]/[mm]/[rad]
+  // and its "last consumed" wheel positions [counts] -- same shape as
+  // docs/code-review/2026-08-26/raw/goto_probe.cpp's own Rig::x/y/h/pl/pr,
+  // kept on Handle (not local to the function) only because a probe run
+  // needs to survive across the caller's own already-issued moveX()/
+  // goToR() call; a fresh meCreate() handle starts these at zero, which
+  // is the only state a probe run ever assumes.
+  float probeX_ = 0.0f, probeY_ = 0.0f, probeHeading_ = 0.0f;
+  float probePl_ = 0.0f, probePr_ = 0.0f;
 
   Handle()
       : kernel(left, right, clock, sleeper, launcher),
@@ -356,6 +367,60 @@ void meArmSettleProfile(void* handle, const float* positions,
 
 void meDisarmSettleProfile(void* handle) {
   static_cast<Handle*>(handle)->sleeper.onSleep = nullptr;
+}
+
+// ---- run-to-completion probe ---------------------------------------------
+// Ideal-wheels tick loop, matching
+// docs/code-review/2026-08-26/raw/goto_probe.cpp's own Rig::tick()/run()
+// byte-for-byte: each cycle, a wheel's reported position advances by
+// exactly its LAST APPLIED duty (FakeMotor::appliedDuty(), landed by the
+// PRECEDING kernel.step()) times `fullDutyVelocity` times `dt` -- no
+// simulated slip or lag -- so a host test can drive an ALREADY-ISSUED
+// moveX()/goToR() call (via meMoveX()/meGoToR() above) to completion and
+// read the resulting body-frame endpoint back, the same technique that
+// probe used to measure block-go-to-misses-its-target.md's numbers
+// against the real firmware. Returns the tick count actually run; equal
+// to `maxTicks` means the move never went inactive within budget -- a
+// caller must treat that as "did not complete," not as a real landing.
+uint32_t meProbeRunToCompletion(void* handle, float fullDutyVelocity,
+                                uint32_t periodMs, uint32_t maxTicks) {
+  Handle* h = static_cast<Handle*>(handle);
+  const float dt = static_cast<float>(periodMs) / 1000.0f;
+  uint32_t ticks = 0;
+  for (; ticks < maxTicks && h->engine.isMoveActive(); ++ticks) {
+    const float dutyLeft = h->left.appliedDuty();
+    const float dutyRight = h->right.appliedDuty();
+    h->left.nextPositionValue =
+        h->left.position() + dutyLeft * fullDutyVelocity * dt;
+    h->right.nextPositionValue =
+        h->right.position() + dutyRight * fullDutyVelocity * dt;
+    h->clock.nowUs += static_cast<uint64_t>(periodMs) * 1000ull;
+    h->left.nextSampleTimeUs = h->right.nextSampleTimeUs = h->clock.nowUs;
+    h->kernel.step();
+
+    const float cpm = h->engine.countsPerMm();
+    const float b = h->engine.effectiveTrackWidth();
+    const DiffDrive::DifferentialDrive::Output out = h->kernel.output();
+    const float dLeft = (out.positionLeft - h->probePl_) / cpm;
+    const float dRight = (out.positionRight - h->probePr_) / cpm;
+    h->probePl_ = out.positionLeft;
+    h->probePr_ = out.positionRight;
+    const float dC = 0.5f * (dLeft + dRight);
+    const float dHeading = (dRight - dLeft) / b;
+    const float mid = h->probeHeading_ + 0.5f * dHeading;
+    h->probeX_ += dC * std::cos(mid);
+    h->probeY_ += dC * std::sin(mid);
+    h->probeHeading_ += dHeading;
+
+    h->engine.serviceMove();
+  }
+  return ticks;
+}
+
+float meProbeX(void* handle) { return static_cast<Handle*>(handle)->probeX_; }
+float meProbeY(void* handle) { return static_cast<Handle*>(handle)->probeY_; }
+float meProbeHeading(void* handle) {
+  return static_cast<Handle*>(handle)->probeHeading_;
 }
 
 }  // extern "C"

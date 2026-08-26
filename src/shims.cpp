@@ -989,6 +989,19 @@ void engineMoveV(float vx, float omegaRad, uint32_t durationMs) {
   r.engine.moveV(vx, omegaRad, durationMs);
 }
 
+// `//%`-annotated -- the block layer's own entry point onto the SAME
+// goToR() the wire's GO_TO_R verb already reaches via this identical
+// forward. Wire-shaped units (mm, mm/s, ms); cm-to-mm conversion stays
+// the TS caller's job, exactly as startMove() already does for
+// _startMove(). Five parameters -- one more than any other `//%` shim in
+// this file (setTaperWindows()/setTaperFloors()'s own comment records a
+// single five-argument shim once crashing the PXT compiler with
+// "TS9200: Assertion failed"); tools/DESIGN.md's build triage separately
+// documents TS9200 as a nondeterministic pxt-core packaging abort that
+// retries clean, which is NOT the same claim as "arity caused it" -- no
+// PXT toolchain runs in the host test suite that adds this annotation,
+// so a real PXT build should confirm before this ships.
+//%
 void engineGoToR(float x, float y, float speed, float arrive,
                  uint32_t timeoutMs) {
   Rig& r = ensure();
