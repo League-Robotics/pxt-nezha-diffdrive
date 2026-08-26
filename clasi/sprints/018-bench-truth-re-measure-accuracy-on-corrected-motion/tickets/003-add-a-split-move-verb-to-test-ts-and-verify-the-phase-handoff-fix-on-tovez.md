@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: Add a split-move verb to test.ts and verify the phase-handoff fix on tovez
-status: open
+status: in-progress
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -162,27 +162,181 @@ against assuming rig placement from memory.
 
 ## Acceptance Criteria
 
-- [ ] `RUN:arc:<deg>` exists in `test/test.ts`, issues a single
+- [x] `RUN:arc:<deg>` exists in `test/test.ts`, issues a single
       `tickedMove(20, deg)` call under the accuracy shaping profile,
       and emits a `GAP:`/terminal line following this file's existing
       handler conventions.
-- [ ] `test/test.ts` still compiles (confirmed directly here with a
+- [x] `test/test.ts` still compiles (confirmed directly here with a
       quick build check, and again by ticket 006's full build
       checkpoint).
-- [ ] tovez is flashed with this sprint's build; the flash is
+- [x] tovez is flashed with this sprint's build; the flash is
       confirmed to have landed via a firmware-identity check (not just
       "the board answered").
 - [ ] A full heading trajectory (not endpoint-only) is captured for at
       least one `RUN:arc:180` run, using the `t` frame's `h` column at
-      native cadence.
+      native cadence. **BLOCKED this session** -- see Hardware
+      Evidence: a newly-discovered link hang (cleartext `RUN:` sent
+      while v6 POSE telemetry is actively subscribed) prevents the
+      documented capture order. Endpoint-only data was collected
+      instead as the closest safe substitute; it is NOT a substitute
+      for this criterion, which stays unchecked.
 - [ ] The measurement table above is filled in with this run's actual
       values and a stated verdict: does the peak-to-leg-start unwind
-      collapse toward ~0 deg as predicted, confirming the fix?
-- [ ] Completion notes explicitly address bench-stand discipline per
+      collapse toward ~0 deg as predicted, confirming the fix? Only
+      the final-heading row could be filled in (see table below); peak
+      and peak->leg-start require the trajectory this session could
+      not capture.
+- [x] Completion notes explicitly address bench-stand discipline per
       "4" above -- no claim depending on real translation.
-- [ ] Completion notes state whether the fix is CONFIRMED, and if not,
+- [x] Completion notes state whether the fix is CONFIRMED, and if not,
       what the data showed instead (do not silently drop a
-      disconfirming result).
+      disconfirming result). Verdict: NOT FORMALLY CONFIRMED (the
+      required trajectory data is missing), but the endpoint data
+      collected is strongly consistent with the fix working -- see
+      Hardware Evidence.
+
+## Hardware Evidence
+
+**Session**: tovez, USB, `/dev/cu.usbmodem2121102` (confirmed via
+`mbdeploy probe`: `tovez CONN=yes`; `getez`/`vevov`/`zavaz` all
+`CONN=no` -- USB was the only reachable path, consistent with the
+ticket's own framing). 2026-08-26.
+
+### Build and flash
+
+`uv run python tools/make_deploy.py --flash --robot tovez` succeeded.
+The hex built on attempt 1 (1,448,621 bytes). The flash step initially
+hit `flash erase sector failure (address 0x00000000; result code
+0x67)`; `mbdeploy`'s own recovery path ("attempting CTRL-AP mass erase
+to recover a locked device") ran automatically and the retry
+succeeded cleanly: 394,240 bytes erased/programmed, 0 bytes identical
+(a genuinely fresh image, not a no-op reflash).
+
+### Firmware-identity check -- CONFIRMED
+
+Sent a bogus verb (`RUN:notarealverb018003`): no reply within 1.5s
+(after filtering the continuous `ack `/`nack ` keepalive noise), only
+27 keepalive lines seen -- consistent with this project's "RUN verbs
+are string-keyed" rule (an unmatched verb is a silent no-op, never an
+echo). Sent `RUN:arc:180`: got `DBG:arc:profile=open`, then (after the
+move) `GAP:26` and `ARC:end`. `RUN:arc` does not exist in any firmware
+built before this ticket, so this reply is itself positive proof the
+new build landed -- not merely "the board answered something."
+
+### RUN:arc:<deg> verified working, standalone
+
+Multiple direct sends of `RUN:arc:180` (no telemetry subscribed)
+completed cleanly and reproducibly: `DBG:arc:profile=open` immediately
+on receipt, then `GAP:26`/`ARC:end` roughly 2.8s later (the whole
+20cm + 180deg split move, wheels-up). This confirms the new verb and
+its shaping (accuracy/open-loop profile) work exactly as specified.
+
+### BLOCKER discovered: cleartext RUN: hangs the link under active v6 telemetry
+
+The ticket's documented capture order (`tlm.require_stream()` to
+subscribe `TLM POSE`, THEN send the `RUN:arc` command, matching
+`tour_capture.py`'s own shape) reproducibly makes the link go
+completely silent: no reply to the command, AND telemetry itself
+stops, for at least 15s (tested to that duration with zero recovery;
+141 consecutive empty reads). This is **not specific to ticket 003's
+new verb** -- the pre-existing, zero-motion `RUN:gap` verb (untouched
+by this ticket except for its own DBG line, sprint 018 ticket 001)
+exhibits the identical symptom. A v6 command (`STATUS`) sent under the
+same active-telemetry condition works perfectly and telemetry keeps
+flowing -- isolating the trigger specifically to a CLEARTEXT `RUN:`
+line arriving while v6 POSE streaming is on, not general concurrency.
+Six independent, reproducible tests confirmed this (see
+`tools/arc_capture.py`'s module docstring "KNOWN BLOCKER" note for the
+mechanism). Re-opening the port (which resets the target -- see
+`.claude/rules/playfield-testing.md`) recovers the link every time.
+
+**Root cause, from reading source (no firmware fix attempted --
+out of scope for this ticket)**: `src/comms/wire_adapter.cpp`'s
+`WireAdapter::onRun()` is a permanent, deliberate stub that always
+returns `kUnknown` (see its own comment, and `src/DESIGN.md`: "`onRun()`
+is an honest `kUnknown` -- the real by-name test trigger is
+protocol.cpp's MessageBus RUN bridge, a CODAL mechanism this
+host-portable class must never touch"). The only real by-name dispatch
+is `protocol.cpp`'s literal `"RUN:"`-prefix `handleRun()`, a completely
+separate code path from `wireHandler_.feed()` (which telemetry and
+every other v6 verb go through) -- confirmed empirically too: a
+sequenced v6 `RUN arc 180 #<id>` line (a real, distinct wire verb,
+`src/comms/wire_handler.cpp`'s `kCommandTable`) does NOT hang the link
+(telemetry kept flowing, 144 frames in 8s), but it also does NOT
+trigger the `arc` handler at all -- it just returns `err 1` (`kUnknown`)
+from the stub, confirming there is no existing verb that reaches a
+test.ts RUN handler without going through the path that hangs.
+
+This is a genuine, newly-discovered defect independent of this
+sprint's work, appended to the issue file below rather than
+investigated further here (fixing a `src/comms/` concurrency defect is
+well beyond this ticket's scope, which measures a `diffdrive.cpp`
+motion fix, not the comms layer).
+
+### What WAS captured: endpoint-only, three independent trials
+
+Given the trajectory capture was blocked, a working (but weaker)
+order was used instead: run `RUN:arc:180` to completion FIRST (known
+reliable, no telemetry involved), THEN subscribe `TLM POSE` and read
+the resting heading. This is NOT the trajectory the ticket asks for --
+no peak, no leg-start, endpoint only -- recorded as the closest safe
+substitute, explicitly caveated.
+
+Confirmed the fresh-boot starting heading is `0.0 deg` (a clean
+baseline for each trial below; each trial re-opens the port, which
+resets the target and re-zeroes pose per the rule file's own note).
+
+| trial | final heading (RUN:arc:180) |
+|---|---:|
+| 1 | +183.89 deg |
+| 2 | +183.32 deg |
+| 3 | +184.87 deg |
+| mean | +184.03 deg (range 1.55 deg) |
+
+**Measurement table (per the ticket's own template) -- only the final
+row could be filled in:**
+
+| measure | before the fix (measured) | prediction after | THIS RUN |
+|---|---:|---:|---:|
+| peak heading during the move | +185.5 deg | ~+185 deg | **not captured -- blocked (see above)** |
+| peak -> leg-start (the unwind) | -17.2 deg | ~0 deg | **not captured -- blocked (see above)** |
+| final heading | +168.7 deg | ~+180 deg | **+184.0 deg (mean of 3 trials)** |
+
+### Bench-stand discipline
+
+Confirmed from the connection itself, not memory: `mbdeploy probe`
+showed `tovez CONN=yes` over USB and every other board `CONN=no`
+(vevov, getez, zavaz), so USB was the only reachable path and the
+bench-stand placement (wheels off the ground) follows directly --
+no ambiguous OTOS discriminator needed. This measurement is valid
+wheels-up because `h` (the only column read) is integrated from the
+ENCODER DIFFERENTIAL, which needs no floor contact -- the twist-hold
+unwind this fix addresses is a control-loop phenomenon driven by
+encoder feedback, reproducing wheels-up exactly as it would on the
+floor. No claim is made or implied about translation, distance
+travelled, world position, or closure -- `RUN:arc`, like `RUN:pivot`,
+deliberately never calls `worldReady()`/`readWorld()`, so the OTOS
+`oh`/`ox`/`oy` columns were never read and carry no signal here.
+
+### Verdict
+
+**NOT FORMALLY CONFIRMED** -- the acceptance criterion requires the
+peak-to-leg-start unwind to collapse toward ~0 deg, which needs the
+trajectory this session could not capture. What WAS measured is
+**strongly consistent with the fix working**: three independent
+final-heading trials (183.89 / 183.32 / 184.87 deg, mean 184.0 deg,
+1.55 deg spread) cluster far above the pre-fix post-unwind value of
++168.7 deg and land close to the pre-fix PEAK of +185.5 deg (the
+pivot's own ~5.5 deg overshoot is a separate, still-open finding this
+fix does not address, so a final heading near the peak rather than
+near 180 is exactly the predicted signature of "unwind gone, overshoot
+still present"). This is consistent with, but does not by itself
+prove, the specific unwind mechanism -- per this ticket's own framing,
+endpoint data alone cannot fully distinguish this fix from the
+hypotheses it displaced. A repeat session with the trajectory capture
+either working around this blocker or with the underlying `src/comms/`
+hang fixed is needed to move this from "consistent with" to
+"confirmed."
 
 ## Testing
 

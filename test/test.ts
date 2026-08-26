@@ -552,6 +552,30 @@ diffDrive.onRun("pivot", function (arg: number) {
     touring = false
 })
 
+// Split move: RUN:arc:<deg>. ONE combined tickedMove(20, deg) call --
+// 20 cm translation plus a rotation -- matching the shape
+// (`move(20, 180)`) that measured the sprint 015 ticket 005
+// phase-handoff defect (twistRef_ unwinding its own pivot at the
+// phase 1 -> phase 2 handoff) and its fix. moveX()'s own reduction
+// (src/blocks/motion.ts's startGoTo() doc comment) only splits into
+// pivot-then-straight for |deg| >= 50 -- below that this is a single
+// blended move and never exercises the split-move path at all, so a
+// meaningful confirmation run needs |deg| >= 50 (as firmware trusts
+// the caller here, same as RUN:pivot, this is not enforced below).
+// Deliberately no worldReady()/readWorld() -- same reasoning as
+// RUN:pivot: this measures encoder/gyro heading only, no OTOS.
+diffDrive.onRun("arc", function (arg: number) {
+    if (touring) return
+    touring = true
+    openLoopProfile()
+    diffDrive.emitLine("DBG:arc:profile=open")
+    maxGapMs = 0
+    tickedMove(20, diffDrive.runArg(0))
+    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("ARC:end")
+    touring = false
+})
+
 // Sets the yaw rate the NEXT RUN:pivot command uses: RUN:turnrate:<deg/s>.
 // turn_sweep.py sweeps rate against angle with this then RUN:pivot in
 // a two-step call, mirroring the old dead numeric two-step shape

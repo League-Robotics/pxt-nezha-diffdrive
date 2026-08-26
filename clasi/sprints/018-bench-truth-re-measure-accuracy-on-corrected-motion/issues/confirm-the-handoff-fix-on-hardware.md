@@ -72,3 +72,56 @@ Measured across three campaigns on tovez by the `blocks-local-codeserver-test`
 session (2026-08-25/26); mechanism identified in `diffdrive.cpp` and the fix
 designed during the 2026-08-26 code review. Full evidence trail in
 `clasi/sprints/done/015-one-arc-implementation-stops-that-stop-and-a-green-doc-gate/issues/done/pivot-stops-11-degrees-short-of-commanded.md`.
+
+## OUTCOME -- sprint 018 ticket 003, 2026-08-26
+
+`RUN:arc:<deg>` (a single `tickedMove(20, deg)`) was added to
+`test/test.ts`, master's current hex was built and flashed onto tovez
+over USB (`/dev/cu.usbmodem2121102` -- `mbdeploy probe` confirmed it
+was the only reachable board this session), and the flash was
+confirmed via a firmware-identity check (a bogus verb drew no reply;
+`RUN:arc` -- which exists in no earlier build -- drew
+`DBG:arc:profile=open`/`GAP:`/`ARC:end`).
+
+**The planned full h(t) trajectory capture (subscribe v6 `TLM POSE`,
+then send the `RUN:arc` command, per this issue's own "the check"
+section and `tour_capture.py`'s shape) could not be completed.**
+Newly discovered this session: sending a cleartext `RUN:`/`DIAG`
+command while v6 POSE telemetry is actively subscribed makes the link
+go completely silent (no command reply, telemetry itself stops) for
+at least 15s, with zero recovery short of reopening the port (which
+resets the target). This is independent of ticket 003's own change --
+the pre-existing, zero-motion `RUN:gap` verb reproduces it identically
+-- and independent of general concurrency, since a v6 `STATUS`
+command sent under the same active-telemetry condition works fine and
+telemetry keeps flowing. Root cause (read, not fixed -- out of this
+ticket's scope): `WireAdapter::onRun()` (`src/comms/wire_adapter.cpp`)
+is a permanent stub that always returns `kUnknown`; the only real
+by-name RUN dispatch is `protocol.cpp`'s literal `"RUN:"`-prefix
+`handleRun()` bridge into CODAL's MessageBus, a code path entirely
+separate from `wireHandler_.feed()` (which telemetry runs through) --
+confirmed empirically too: the v6 wire grammar's own sequenced
+`RUN <name> ... #<id>` verb does NOT hang the link, but also does NOT
+reach test.ts's handlers at all (always `err 1`/`kUnknown` from the
+stub). There is currently no existing verb that can trigger a
+test.ts RUN handler without going through the path that hangs under
+active telemetry. Full mechanism and six reproducing tests are in
+sprint 018 ticket 003's own "Hardware Evidence" section and
+`tools/arc_capture.py`'s module docstring.
+
+**What was measured instead (endpoint-only, not the required
+trajectory)**: `RUN:arc:180` run to completion, then telemetry
+subscribed afterward to read the resting heading -- three independent
+trials, fresh port reopen each (confirmed fresh-boot heading is
+exactly 0.0 deg each time): **+183.89, +183.32, +184.87 deg** (mean
++184.0, spread 1.55 deg). This clusters far above the pre-fix
+post-unwind final of +168.7 deg and close to the pre-fix PEAK of
++185.5 deg -- the signature predicted if the unwind is gone but the
+separate, still-open ~5.5 deg pivot overshoot (this issue's "Two
+findings this fix did NOT address" item 1) remains. **Strongly
+consistent with the fix working, but NOT a formal confirmation** --
+endpoint data alone cannot fully distinguish this fix from the
+hypotheses it displaced, which is exactly this issue's own original
+caution. Ticket 003 stays `in-progress`; a repeat session either
+working around or fixing the newly-found comms hang is needed to
+reach an actual CONFIRMED verdict.
