@@ -244,8 +244,12 @@ class MotionEngine {
   // that closed-loop stop condition is moveX()'s own shaping layer,
   // below, built on top of this primitive's kinematics, not inside it.
   // A zero-magnitude command (both wheels commanding no distance) or a
-  // non-positive cruise is a no-op -- nothing is driven. Clears any
-  // in-flight moveX()/goToR() move first, same as wheelsV() above.
+  // non-positive cruise commands nothing NEW -- but it is not purely
+  // inert: it also stops any motion already in progress (stages
+  // kernel_.neutral()), including a still-live wheelsV() hold, since
+  // this primitive's own "clear the planner" step (above) never touches
+  // the kernel by itself. Clears any in-flight moveX()/goToR() move
+  // first, same as wheelsV() above.
   void wheelsX(float left, float right, float cruise, uint32_t timeoutMs);
 
   // [rad] the |rotation| threshold moveX() (below) uses to decide
@@ -409,8 +413,10 @@ class MotionEngine {
   // rotation*b/2), ratio-normalized to `cruise` exactly as wheelsX()
   // does, but tracked in `move_` so serviceMove() can shape/advance it
   // tick by tick instead of firing once. A zero-magnitude command or a
-  // non-positive cruise leaves `move_.active` false (no-op), same
-  // contract as wheelsX(). The initial kernel_.drive() lease is however
+  // non-positive cruise leaves `move_.active` false and stages
+  // kernel_.neutral() -- commands nothing NEW, but stops any motion
+  // already in progress, same contract as wheelsX(). The initial
+  // kernel_.drive() lease is however
   // much time remains until `move_.deadline` (already set by the
   // caller), so an abandoned move still self-neutrals at the real
   // timeout even if nothing ever calls serviceMove() again.

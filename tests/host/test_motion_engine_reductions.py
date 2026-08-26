@@ -211,6 +211,15 @@ class Engine:
     def motor_last_staged_duty(self, side):
         return self._lib.meMotorLastStagedDuty(self._handle, side)
 
+    # ---- the two primitives (wheelsV/wheelsX) -- needed here (not just
+    # test_motion_engine_primitives.py's own Engine) to drive a live
+    # wheels_v() hold ahead of a degenerate move_x()/wheels_x() call.
+    def wheels_v(self, left, right, duration_ms):
+        self._lib.meWheelsV(self._handle, left, right, duration_ms)
+
+    def wheels_x(self, left, right, cruise, timeout_ms):
+        self._lib.meWheelsX(self._handle, left, right, cruise, timeout_ms)
+
     def arm_motor_position(self, side, position_counts):
         # A fresh, nonzero, ADVANCING sample time each call: see
         # meMotorArmPosition()'s own comment (motion_engine_shim.cpp) --
@@ -1197,5 +1206,54 @@ def test_end_move_stops_and_clears_active_state(motion_lib):
         assert not e.is_move_active()
 
         e.step()  # let the staged neutral land
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+# ---- degenerate move_x() must stop motion already in progress ------------
+#
+# startSegment() (moveX()'s single-segment path, reached WITHOUT ever
+# calling cancelMove() first) used to leave a prior wheels_v()/wheels_x()
+# drive's kernel command -- and its lease -- completely untouched on its
+# degenerate branch (zero-magnitude command or non-positive cruise): the
+# wire ack came back `ok`, the move engine's own state was cleared, and
+# the robot kept driving under the OLD command. kernel_.neutral() only
+# STAGES the stop -- delivered on the next step(), same staged-vs-
+# delivered contract test_regression_post_move_neutral.py already pins
+# for the natural-completion/endMove()/timeout paths.
+
+
+def test_move_x_zero_magnitude_stops_a_live_wheels_v_hold(motion_lib):
+    with Engine(motion_lib) as e:
+        _ready(e)
+        e.wheels_v(150.0, 150.0, 5000)
+        e.step()  # lands wheels_v()'s own nonzero duty
+        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
+
+        e.move_x(0.0, 0.0, 100.0, 1000)  # degenerate: distance == rotation == 0
+        assert not e.is_move_active()
+
+        e.step()  # the staged neutral lands
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0), (
+            "A degenerate move_x() must stop a wheels_v() hold still in "
+            "progress, not just leave the move engine's own bookkeeping "
+            "cleared while the kernel keeps driving the old command."
+        )
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_move_x_non_positive_cruise_stops_a_live_wheels_v_hold(motion_lib):
+    with Engine(motion_lib) as e:
+        _ready(e)
+        e.wheels_v(150.0, -150.0, 5000)
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
+
+        e.move_x(200.0, 0.0, 0.0, 1000)  # degenerate: cruise <= 0
+        assert not e.is_move_active()
+
+        e.step()
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
