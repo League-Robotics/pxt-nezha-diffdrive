@@ -110,6 +110,20 @@ void meStep(void* handle) { static_cast<Handle*>(handle)->kernel.step(); }
 int meOutLeaseExpired(void* handle) {
   return static_cast<Handle*>(handle)->kernel.output().leaseExpired ? 1 : 0;
 }
+// Output.estopped readback -- mirrors kernel_shim.cpp's own
+// kdOutEstopped export (test_cross_fiber_stop_settle_window.py's
+// k.out_estopped property is the precedent this follows).
+int meOutEstopped(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().estopped ? 1 : 0;
+}
+// Latches the kernel's e-stop directly (kernel.estop()) -- lets a test
+// force Output.estopped WITHOUT going through anything resembling
+// shims.cpp's estopAll() ordering (engine.endMove() called BEFORE
+// kernel.estop()), which is exactly what masks serviceMove() not
+// checking out.estopped on its own.
+void meKernelEstop(void* handle) {
+  static_cast<Handle*>(handle)->kernel.estop();
+}
 
 // Regression guard (post-move neutral delivery, commit 3e919e5):
 // exposes the kernel's own MEASURED velocity (diffdrive.h Output.
