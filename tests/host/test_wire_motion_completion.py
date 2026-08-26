@@ -518,3 +518,80 @@ def test_ack_of_a_later_verb_carries_the_resolved_completion(wa):
     wa.feed(b"STATUS #2\n")
     reply = wa.take_sink()
     assert reply.startswith(_ack(2, 1, DONE_TIMEOUT))
+
+
+# ---------------------------------------------------------------------------
+# sprint 016 ticket 004 (re-checking i2c-fault-count-climbs-on-idle-bus.md
+# against ticket 003's obligation-clearing fix): quantifies exactly what
+# ticket 003 changed, for a representative wide-timeout goal-directed verb
+# that reaches its own goal almost immediately. See this ticket's own
+# Findings section and clasi/issues/i2c-fault-count-climbs-on-idle-bus.md
+# for the full verdict -- this test establishes the HOST-provable half of
+# it only: the mechanical precondition (how long the obligation window
+# stays open), not the I2C fault count itself (no I2C exists on the host).
+# ---------------------------------------------------------------------------
+
+
+def test_obligation_window_narrows_after_natural_completion(wa):
+    """protocol.cpp's fiber loop (protocol.cpp:350-357) calls tickDrive()
+    back-to-back with NO sleep whenever hasLiveMotionObligation() is true,
+    gated only by tickDrive()'s own ~24 ms self-paced kernel.step() cadence
+    (shims.cpp's own documented figure, restated independently in
+    DESIGN.md/encoder_glitch_armor.h/nezha_port.h/serial_transport.h) --
+    so the obligation window's duration converts directly into a
+    tickDrive()/kernel.step() count, and kernel.step() is the ONLY place
+    `cyc` (diagValue(16), telemetry's own `cyc` column) advances
+    (shims.cpp: kernel.step() is called nowhere outside tickDrive()).
+
+    BEFORE ticket 003 (verified directly against the pre-fix
+    wire_adapter.cpp via `git stash`, recorded in ticket 003's own
+    Findings): hasLiveMotionObligation() stays true for the ENTIRE
+    declared timeout regardless of when the move actually finishes, or
+    until an explicit STOP/ESTOP -- polling lastDone()/lastDoneReason() in
+    between changes nothing pre-fix, because resolvePendingIfDue()/
+    forceResolvePending() never touched motionObligationActive_ then.
+
+    AFTER ticket 003 (asserted here, against the current, fixed code): the
+    window closes as soon as something next polls
+    lastDone()/lastDoneReason() following the real completion -- which in
+    production only happens via WireHandler::replyAck()/replyNack() (S8.8,
+    wire_handler.cpp:583-593: read fresh on every ack/nack, i.e. on the
+    NEXT wire line of ANY kind, not only another motion verb), simulated
+    here by the direct last_done_reason() poll below.
+    """
+    _ready(wa)
+    wa.set_now_ms(0)
+    cpm = wa.counts_per_mm()
+
+    declared_timeout_ms = 10_000  # a representative "generous" timeout
+    distance_mm = 200.0
+    dist_target_counts = distance_mm * cpm
+    wa.feed(("MOVE_X 200 0 150 %d #1\n" % declared_timeout_ms).encode())
+    assert wa.take_sink() == _ack(1)
+    assert wa.has_live_motion_obligation()
+
+    # The move reaches its own goal almost immediately (direct position
+    # arming, same technique as test_move_x_reaching_its_own_goal_early_*
+    # above -- not a hand-rolled duty-to-position physics model).
+    wa.arm_motor_position(LEFT, dist_target_counts, sample_time_us=1)
+    wa.arm_motor_position(RIGHT, dist_target_counts, sample_time_us=1)
+    wa.step()
+    still_active = wa.service_move()
+    assert not still_active  # reached its own goal, well inside the window
+
+    completion_ms = 50  # representative early-completion instant --
+                         # mirrors the existing tests' own "~1000-1050ms
+                         # against a several-thousand-ms deadline" shape
+    wa.set_now_ms(completion_ms)
+    assert wa.has_live_motion_obligation()  # nothing has POLLED yet
+
+    assert wa.last_done_reason() == DONE_STOP  # the poll that notices it
+    assert not wa.has_live_motion_obligation()  # post-003: closes right here
+
+    # Quantify what this saves: pre-003, the fiber would have kept calling
+    # tickDrive() (and therefore kernel.step()) roughly once per 24 ms for
+    # the REST of the declared window, however many other polls happened
+    # in between.
+    tick_period_ms = 24  # shims.cpp's documented kernel.step() cadence
+    avoided_ticks = (declared_timeout_ms - completion_ms) // tick_period_ms
+    assert avoided_ticks == 414
