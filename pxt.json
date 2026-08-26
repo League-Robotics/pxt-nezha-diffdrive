@@ -32,12 +32,12 @@
         "src/comms/wire_adapter.h",
         "src/comms/wire_adapter.cpp",
         "src/shims.cpp",
-        "src/sim.ts",
-        "src/run.ts",
-        "src/pose.ts",
-        "src/stop.ts",
-        "src/world.ts",
-        "src/motion.ts"
+        "src/blocks/sim.ts",
+        "src/blocks/run.ts",
+        "src/blocks/pose.ts",
+        "src/blocks/stop.ts",
+        "src/blocks/world.ts",
+        "src/blocks/motion.ts"
     ],
     "testFiles": [
         "test/test.ts",

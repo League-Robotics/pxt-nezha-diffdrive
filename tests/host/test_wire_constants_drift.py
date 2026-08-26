@@ -351,7 +351,7 @@ def test_radio_serial_wire_capacity_constants_are_equal_at_240():
 
 
 def _run_ts_run_event_source():
-    text = (_SRC_DIR / "run.ts").read_text()
+    text = (_SRC_DIR / "blocks" / "run.ts").read_text()
     match = re.search(r"const RUN_EVENT_SOURCE\s*=\s*(0x[0-9a-fA-F]+|\d+)", text)
     assert match, "run.ts's RUN_EVENT_SOURCE declaration was not found"
     return int(match.group(1), 0)
