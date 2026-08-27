@@ -1,8 +1,8 @@
 ---
-status: pending
+status: done
 sprint: '024'
 tickets:
-- 024-002
+- '002'
 ---
 
 # Radio link wedges on a sequence gap and reconnect cannot heal it

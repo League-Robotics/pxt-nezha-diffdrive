@@ -1,9 +1,9 @@
 ---
-status: pending
+status: done
 sprint: '024'
 tickets:
-- 024-001
-- 024-003
+- '001'
+- '003'
 ---
 
 # The reliability line free-runs at 20 Hz on the radio with no host
