@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 sprint:
 ---
 
@@ -86,3 +86,15 @@ and is worth considering.
 Verification plan once flashed: re-run the same twelve legs and confirm
 cam/enc lands within ~0.5% of 1.0, then re-measure isolated pivots to
 get the true `rotationalSlip_` residual.
+
+## Resolution (2026-08-26, sprint 020)
+
+Verified on hardware. MEASURED vevov 2026-08-26,
+`captures/travelcalib-verify-20260826.csv`: twelve `RUN:straight` legs
+(30/55/85 cm, both directions, camera fixes at rest) on firmware
+67455bf carrying `travelCalib_ = 0.7878`: mean cam/enc **0.9920**
+(was 0.972) — the 2.76 % error is gone. Residual −0.53 % scale
++ 1.3 mm/leg fixed is at the camera's own current resolution
+(fixed-tag placement scatter bounds camera scale at ~±0.5 %; see
+`captures/travelcalib-verify-20260826-camscale.txt`). Constant left
+untouched per this issue's own no-split-the-difference rule.

@@ -1,0 +1,39 @@
+# travelCalib 0.7878 verification -- vevov on the playfield, 2026-08-26 (UTC evening)
+# Firmware: this repo @ 67455bf, built tools/make_deploy.py (default = vevov, ch4,
+#   kProfile baked "vevov"), hex .tmp/deploy-head/built/binary.hex 1473956 bytes,
+#   flashed via gauti ~/bin/mbflash, Remount count 0->1, HELLO -> "device NEZHA2 robot vevov 1198504156",
+#   RUN:probe -> OPROBE:95:1.
+# Camera: arducam-ov9782-usb-camera, calibrated, calibration_stale=false,
+#   AprilTag 1 (field centre) read world (0.070, 0.032) cm before the campaign.
+#   Robot = AprilTag 53 with persisted mount (mount_x -5.182, mount_y -0.406,
+#   mount_z 11.8, yaw -pi/2), mount_z_applied=true (camera located).
+# Protocol: RUN:straight:<cm> over gauti USB serial (/dev/ttyACM0), one serial
+#   session per leg (port open resets the target; that is deliberate).
+#   Every leg bracketed by camera fixes AT REST (world_velocity null).
+#   Shaping profile recorded per leg from the robot's own DBG line: all "open".
+# Columns: cam_* = mounted robot-centre world fix (cm, deg). enc_* = STRAIGHT:end
+#   encoder pose (cm, cm, deg). chord = Euclidean distance between the two fixes.
+leg,cmd_cm,profile,gap_ms,cam_before_x,cam_before_y,cam_before_deg,cam_after_x,cam_after_y,cam_after_deg,enc_x,enc_y,enc_deg,cam_chord,enc_chord,cam_over_enc
+1,30,open,26,32.004,6.392,181.22,2.330,5.829,179.20,30.00,0.40,-0.11,29.679,30.003,0.9892
+2,-30,open,27,2.330,5.829,179.20,32.008,6.423,180.30,-30.00,0.20,-0.23,29.684,30.001,0.9894
+3,55,open,26,32.008,6.423,180.30,-22.566,6.466,180.66,55.10,0.30,0.23,54.574,55.101,0.9904
+4,-55,open,26,-22.566,6.466,180.66,31.919,7.659,178.56,-55.00,0.20,-0.23,54.498,55.000,0.9909
+5,85,open,27,31.919,7.659,178.56,-52.466,8.262,179.61,85.00,0.30,0.04,84.387,85.001,0.9928
+6,-85,open,27,-52.466,8.262,179.61,32.035,9.509,181.36,-85.00,0.10,-0.11,84.510,85.000,0.9942
+7,30,open,27,32.035,9.509,181.36,2.229,9.287,182.18,30.00,0.30,-0.11,29.807,30.002,0.9935
+8,-30,open,27,2.229,9.287,182.18,32.084,9.861,180.26,-30.10,0.10,0.08,29.861,30.100,0.9921
+9,55,open,27,32.084,9.861,180.26,-22.522,10.410,180.02,55.00,0.30,0.11,54.609,55.001,0.9929
+10,-55,open,27,-22.522,10.410,180.02,32.015,11.284,179.26,-55.00,0.10,0.00,54.544,55.000,0.9917
+11,85,open,27,32.015,11.284,179.26,-52.418,12.466,179.28,85.10,0.30,-0.19,84.441,85.101,0.9922
+12,-85,open,27,-52.418,12.466,179.28,32.084,12.412,178.66,-85.00,0.10,0.00,84.502,85.000,0.9941
+# Summary (computed from the rows above):
+#   mean cam/enc = 0.9920 over 12 legs; by distance: 30cm 0.9911, 55cm 0.9915, 85cm 0.9933.
+#   shortfall = enc_chord - cam_chord fit to a + b*d over group means:
+#   b = 0.0053 (0.53% scale), a = 0.13 cm fixed. Both directions agree (no fwd/rev asymmetry
+#   beyond noise: fwd mean 0.9918, rev mean 0.9921).
+# Camera scale confound (see travelcalib-verify-20260826-camscale.txt): fixed-tag pair
+#   separations vs surveyed scatter -1.0%..+1.7% with inconsistent signs = physical tag
+#   placement scatter (~+/-3 mm/tag), NOT lens scale. Camera scale is therefore known only
+#   to ~+/-0.5% against this field's markers, so the 0.53% residual scale is AT the
+#   instrument's resolution and cannot be attributed robot-vs-camera without re-surveying
+#   tag placements. The 1.3 mm/leg fixed component is not expressible as a scale error.

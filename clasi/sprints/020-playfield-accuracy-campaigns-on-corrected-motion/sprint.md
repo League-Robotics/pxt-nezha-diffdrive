@@ -1,7 +1,7 @@
 ---
 id: '020'
 title: Playfield accuracy campaigns on corrected motion
-status: roadmap
+status: done
 branch: sprint/020-playfield-accuracy-campaigns-on-corrected-motion
 use-cases: []
 issues:
@@ -68,19 +68,28 @@ path check.
 
 ## Success Criteria
 
-- [ ] `travelCalib` verified against camera truth over the same twelve-leg
+- [x] `travelCalib` verified against camera truth over the same twelve-leg
       protocol that produced it (three distances, both directions, camera fixes
-      at rest); cam/enc within ~0.5% of 1.0.
-- [ ] `goToWorld` absolute arrival re-measured, n >= 10, camera-scored, on
+      at rest); cam/enc within ~0.5% of 1.0. — **Done 2026-08-26**: cam/enc
+      0.972 → 0.9920 (`captures/travelcalib-verify-20260826.csv`). The ~0.5%
+      residual is at the camera's own resolution limit (tag placement scatter,
+      see the camscale capture); constant untouched.
+- [x] `goToWorld` absolute arrival re-measured, n >= 10, camera-scored, on
       firmware matching a named commit, with an explicit verdict on whether the
-      fixed ~48 mm overshoot survives.
-- [ ] The leg-vs-pivot rotation split re-measured with **per-boundary camera
-      fixes at rest** — not a continuous recording segmented afterwards. With
-      only two fixes there is no way to split the residual between leg-length
-      and rotation error.
-- [ ] Each campaign's capture records the shaping profile it ran under.
-- [ ] Findings that did not survive are closed with the evidence; findings that
-      did are restated against current firmware.
+      fixed ~48 mm overshoot survives. — **Done, firmware 67455bf**: n=10,
+      median 50.6 mm, 0/10 within 20 mm — **the overshoot survives**
+      (`captures/gotoworld-arrival-20260826.csv`). New defect found and filed:
+      closed-profile goto terminates legs early.
+- [x] The leg-vs-pivot rotation split re-measured with **per-boundary camera
+      fixes at rest**. — **Done 2026-08-27**: 9-boundary lap + 6 isolated
+      pivots (`captures/leg-vs-pivot-split-20260827.csv`). Legs inject
+      ±0.7–1.8°/leg (direction-dependent); pivots now OVER-rotate
+      (cam/cmd 1.023) — the original attribution is retired.
+- [x] Each campaign's capture records the shaping profile it ran under
+      (open/closed recorded per row from the robot's own DBG lines).
+- [x] Findings that did not survive are closed with the evidence; findings that
+      did are restated against current firmware. — See
+      `docs/sprint-020-playfield-accuracy-findings.md` § Issue reconciliation.
 
 ## Scope
 

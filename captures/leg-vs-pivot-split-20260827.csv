@@ -1,0 +1,52 @@
+# Leg-vs-pivot rotation split, per-boundary camera fixes AT REST -- vevov, 2026-08-27 (UTC ~01:35-02:10)
+# Firmware: this repo @ 67455bf (same flash as travelcalib-verify-20260826.csv).
+# Protocol: tour:wheels-shaped lap driven ONE command per gauti serial session
+#   (RUN:straight / RUN:pivot, both open profile), camera fix at rest (world_velocity
+#   null) at every boundary, yaw unwrapped cumulatively. Camera = arducam-ov9782-usb-camera,
+#   robot = mounted AprilTag 53. Start NW corner facing SOUTH (not the tour's NE/west
+#   start): a late-afternoon SUNBEAM covered the NE corner and blinded the tag at
+#   westward headings there, so the lap was rotated to sacrifice only one boundary (b6).
+# Deviations from the written procedure, all forced by geometry/sun and all recorded:
+#   - after pivot 2 an alignment pivot of -4.6 deg was inserted (its own fixes; scored);
+#   - leg 3 commanded 52 cm (not 60): the rectangle had drifted ~7 cm north and a 60 cm
+#     leg would have ended ~8 cm from the north rail (12 cm margin rule);
+#   - boundary b6 (NE corner, heading ~181 deg, in the sunbeam) was undetectable in 4
+#     bursts; pivot 3 therefore merges with the first 25 cm of leg 4 (b5->b6' row), and
+#     leg 4's clean remainder is the 75 cm b6'->b7 row.
+# enc_dh for legs = STRAIGHT:end heading (deg, straightRun resetPose'd per leg).
+# Pivots are encoder-servo'd to their commanded angle; no independent encoder readout on the wire.
+boundary,type,cmd,cam_x,cam_y,cam_yaw_deg,cam_yaw_unwrapped,cam_dh,enc_dh,residual_deg,note
+0,start,-,-48.572,29.121,269.50,269.50,-,-,-,NW corner facing south
+1,leg,60,-46.896,-30.715,271.49,271.49,+1.99,+0.19,+1.80,enc x 60.10 y 0.10; cam chord 59.859 (cam/enc 0.9960)
+2,pivot,+90,-46.323,-29.363,4.14,364.14,+92.65,-,+2.65,slip 1.47 cm
+3,leg,100,53.415,-23.800,4.70,364.70,+0.56,-0.11,+0.67,enc x 100.10 y 0.10; cam chord 99.893 (cam/enc 0.9979)
+4,pivot,+90,52.329,-23.408,94.56,454.56,+89.86,-,-0.14,slip 1.16 cm
+4a,pivot,-4.6,52.279,-23.264,91.09,451.09,-3.47,-,+1.13,alignment; small-angle
+5,leg,52,50.972,28.756,91.61,451.61,+0.52,-0.45,+0.97,enc x 52.10 y 0.20; cam chord 52.036 (cam/enc 0.9988)
+6,pivot+leg,+90+25,25.486,25.699,183.77,543.77,+92.16,-0.23,+2.39,MERGED (b6 lost to sunbeam); pivot residual ~+2 if leg-25 ~+0.4
+7,leg,75,-48.890,21.278,181.16,541.16,-2.61,-1.35,-1.26,enc x 75.10 y 0.20; cam chord 74.507 (cam/enc 0.9921)
+8,pivot,+90,-47.793,20.603,274.60,634.60,+93.44,-,+3.44,slip 1.29 cm
+# Isolated alternating pivots at the NW clear zone immediately after (same protocol):
+# A,pivot,+90: cam +93.40 (1.0378)   B,pivot,-90: cam -93.87 (1.0430)
+# C,pivot,+90: cam +91.45 (1.0161)   D,pivot,-90: cam -91.92 (1.0213)
+# E,pivot,+90: cam +91.06 (1.0118)   F,pivot,-90: cam -91.01 (1.0112)
+#
+# Summary:
+#   LEGS (4 clean): residuals +1.80, +0.67, +0.97, -1.26 deg -- the legs DO inject heading
+#   the wheel odometry never sees, 0.7-1.8 deg per leg, but DIRECTION-DEPENDENT (mixed
+#   sign), not the uniform +~1.8/leg the +7 deg-per-tour hypothesis needed. Sum +2.18 deg
+#   over 287 cm.
+#   PIVOTS (9 clean 90s: 3 lap + 6 isolated): mean cam/cmd 1.0230 (sd ~1.5%), CCW (6)
+#   1.0220, CW (3) 1.0252 -- BOTH directions now OVER-rotate. The 2026-08-25 isolated
+#   result (cam/cmd 0.9852 under-rotation) is INVERTED on current firmware. Direction of
+#   the shift matches travelCalib 0.8102->0.7878 propagating into rotation (predicted
+#   ~+2.84% shift -> ~1.013 with the old slip constant); measured 1.023 exceeds that by
+#   ~+1%, i.e. rotationalSlip_ 0.952 now over-corrects, but per the standing rule NO
+#   constant was changed on this data (9 pivots, asymmetry CCW/CW ~0.3% within noise).
+#   WHOLE LAP: commanded net 355.4 deg; camera net 365.10; over-rotation +9.7 deg/lap
+#   (2.7%) -- vs the +3.3 deg/tour of 2026-08-25. Pivot slip 1.16-1.47 cm per 90 deg
+#   pivot, ~3x the 0.09-0.50 cm measured 2026-08-25.
+#   VERDICT: "rotation error is injected by the legs, not the pivots" is RETIRED as
+#   stated. On corrected firmware both contribute: pivots over-rotate ~+2.1 deg/90
+#   (the dominant term, ~8.4 deg per 4-pivot lap), legs contribute ~+2.2 deg/lap net
+#   with per-leg magnitudes up to 1.8 deg of odometry-invisible heading change.

@@ -1,0 +1,36 @@
+Camera scale check -- arducam-ov9782-usb-camera vs main-playfield surveyed
+positions, 2026-08-26, 8 detection bursts averaged (scratch script
+camscale.py, aprilcam v2 client). Robot parked at (32.1, 12.4); ArUco 1
+and 3 (NW/NE corners) not detected in any burst (partially out of frame),
+7 of 8 bursts saw ArUco 4 and 8.
+
+tag                meanX     meanY    sdX    sdY  n
+('apriltag', 1)     0.112     0.049  0.026  0.020  8
+('aruco', 10)     34.758     0.081  0.003  0.003  8
+('aruco', 2)       0.089    44.892  0.023  0.029  8
+('aruco', 4)      67.291     0.190  0.089  0.019  7
+('aruco', 5)      66.957   -44.460  0.027  0.010  8
+('aruco', 6)       0.040   -44.843  0.011  0.002  8
+('aruco', 7)     -66.942   -44.479  0.064  0.040  8
+('aruco', 8)     -67.266    -0.009  0.056  0.056  7
+('aruco', 9)     -35.079     0.319  0.047  0.033  8
+
+pair                                   meas    surv    meas/surv
+lane ('aruco', 9)    ('aruco', 10)     69.837   70.00   0.99767
+lane ('apriltag', 1) ('aruco', 9)      35.192   35.00   1.00548
+lane ('apriltag', 1) ('aruco', 10)     34.646   35.00   0.98988
+edge ('aruco', 8)    ('aruco', 4)     134.557  134.00   1.00416
+edge ('aruco', 8)    ('aruco', 9)      32.189   32.00   1.00591
+edge ('aruco', 10)   ('aruco', 4)      32.533   32.00   1.01666
+edge ('aruco', 2)    ('aruco', 6)      89.735   89.30   1.00487
+edge ('aruco', 7)    ('aruco', 5)     133.899  134.00   0.99925
+
+Reading: per-tag detection repeatability is <= 0.9 mm (sd), but pair
+scales disagree in SIGN pair-to-pair (A1-9 +0.55% vs A1-10 -1.01%),
+which a lens/homography scale error cannot do. This is physical tag
+placement scatter of ~+/-3 mm against the surveyed coordinates the
+calibration fits. Consequence: the camera's absolute scale over this
+field is only known to ~+/-0.5%, which bounds what the travelCalib
+verification can resolve. The original 2026-08-25 confound check
+(+0.13/-0.09/-0.11% on three pairs) used the pre-ArUco AprilTag 10/11
+ground-truth dots, which no longer exist on this field.

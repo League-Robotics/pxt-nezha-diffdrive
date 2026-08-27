@@ -1,0 +1,57 @@
+# goToWorld absolute-arrival re-measurement -- vevov on the playfield, 2026-08-26/27 (UTC ~00:35-01:15)
+# Firmware: this repo @ 67455bf via tools/make_deploy.py (vevov bake), same flash as
+#   travelcalib-verify-20260826.csv (see its header for flash/identity evidence).
+# Protocol: per hop, one gauti serial session: RUN:seedxy:<cam fix> then RUN:goto:<x>:<y>.
+#   Robot's own arrival belief = OCAL:arrived (cm x100). Independent camera fix at rest
+#   (world_velocity null) immediately after. Profile recorded from DBG line: goto = closed
+#   (speed 40 cm/s, yawRate 120 deg/s, taper 120/80 floors 45/35 ramp 180).
+#   NOTE: the DAPLink port-open reset does NOT fire on gauti (keepalive ack ids proved the
+#   program ran continuously across sessions) -- so sessions share one program lifetime.
+# Targets: rectangle (+-45,+-25) hops 2-10 (hop 1 targeted (-50,30)); legs 42-97 cm = tour-leg scale.
+# Scored hops = goto calls that ran their leg to completion. Aborted calls listed separately below.
+# err = |camera - target| (cm); belief_err = |camera - believed| (cm).
+hop,seed_x,seed_y,seed_deg,target_x,target_y,leg_cm,believed_x,believed_y,believed_deg,cam_x,cam_y,cam_deg,err_cm,belief_err_cm
+1,46.31,21.08,68.42,-50,30,96.7,-50.27,37.29,164.71,-53.42,35.38,164.71,6.38,3.72
+2,-39.45,25.06,-81.68,-45,-25,50.4,-43.98,-26.17,-81.58,-43.07,-28.84,-80.53,4.30,2.88
+3,-15.17,-24.86,9.75,45,-25,60.2,47.82,-26.42,0.91,48.97,-25.83,1.37,4.05,1.30
+4,46.83,-17.57,98.33,45,25,42.6,46.97,27.17,81.65,44.64,29.43,81.33,4.44,3.24
+5,33.56,25.46,-165.21,-45,25,78.6,-45.37,25.59,-164.21,-48.47,23.65,-163.95,3.72,3.66
+6,-48.47,23.65,-163.95,-45,-25,48.8,-49.56,-26.54,-101.68,-48.47,-29.27,-101.97,5.50,2.93
+7,-48.47,-29.27,-101.97,45,-25,93.6,46.23,-30.74,-8.93,49.40,-28.25,-9.86,5.47,4.03
+8,49.40,-28.25,-9.86,45,25,53.4,49.14,26.06,81.75,46.27,29.46,82.86,4.64,4.45
+9,46.27,29.46,82.86,-45,25,91.4,-42.48,35.35,168.33,-48.32,32.79,168.40,8.47,6.38
+10,-39.92,31.35,168.05,-45,-25,56.6,-51.43,-25.69,-111.01,-50.10,-28.97,-110.95,6.46,3.54
+# Scored summary (n=10): median err 5.06 cm (50.6 mm), p90 (nearest-rank) 6.46 cm; max 8.47.
+#   Within 20 mm: 0/10. Within 50 mm: 5/10.
+#   Error is dominantly ALONG-TRACK PAST the target (~3.5-4.4 cm at every leg length
+#   42-97 cm) -- fixed-distance overshoot, not proportional. VERDICT: the fixed ~48 mm
+#   systematic overshoot (median 48.1 mm, 2026-08-25, pre-015/016 firmware) SURVIVES the
+#   sprints 015/016 corrections essentially unchanged: median 50.6 mm now.
+#   Secondary: believed-vs-camera (OTOS drift per hop) 1.3-6.4 cm; the two worst arrivals
+#   (hops 1, 9: 6.38, 8.47) are both WESTWARD legs along the north side and carry the two
+#   largest belief errors (3.7, 6.4 cm) -- OTOS drift, not control, dominates those.
+#
+# NEW DEFECT observed during this campaign -- goto EARLY TERMINATION (closed profile only):
+#   5 of 15 RUN:goto calls ended 5-11 cm into the leg, GOTO:end emitted normally,
+#   believed pose honest (camera agreed within ~1 cm). Aborted calls (seed -> died at):
+#   a) seed (-41.72,32.22,165.02) target (-45,-25): pivot ~102 deg then ~6.5 cm, quit.
+#   b) seed (-43.07,-28.84,-80.53) target (45,-25): pivot ~83 deg then ~5.1 cm, quit.
+#   c) seed (-37.66,-26.66,12.18) after RUN:face to ~1 deg, target (45,-25): 11.0 cm, quit.
+#   d) seed (-26.11,-25.88,9.14) after RUN:face, target (45,-25): 10.6 cm, quit.
+#   e) seed (48.97,-25.83,1.37) after RUN:face:94, target (45,25): 7.5 cm, quit at t=0.50 s
+#      (timestamped session; budget for that call was ~4.3 s -- NOT a deadline expiry).
+#   In-session STATUS immediately after d) and e): ready=1 active=1 connL=1 connR=1 otos=1
+#   wedge=0 flags=31 i2cf=1 -- flags 0x31 = ready|connL|connR: NO stall latch, NO estop,
+#   NO lease-expired. Remaining kernel abort paths: wrongWay (counter not on the wire) or
+#   a stall that auto-clears. Retrying the same target always advanced (~10 cm steps)
+#   until a call completed. tour:world (open profile, speed 20) ran 3 full 4-leg tours with
+#   ZERO aborts (28.7-29.5 s each) -- the abort is specific to the closed profile's fast
+#   shaping. Filed as a fresh issue; see gotoworld-overshoots issue reconciliation.
+#
+# Closure contrast (RUN:tour:world, open profile, seeded from camera each run):
+#   run 1: start (50.79,32.76) end (50.42,26.85): final-corner err vs (50,30) = 3.18 cm
+#   run 2: start (50.42,26.85) end (50.96,27.31): closure |end-start| = 0.71 cm, corner err 2.86
+#   run 3: start (50.96,27.31) end (49.79,27.02): closure |end-start| = 1.21 cm, corner err 2.98
+#   Chained tours arrive ~29-32 mm from the final corner vs 50.6 mm single-hop median, and
+#   consecutive tours land within 7-12 mm of each other: closure flatters the fixed
+#   overshoot, exactly as the 2026-08-25 campaign found (closure median 15.3 vs arrival 48.1).

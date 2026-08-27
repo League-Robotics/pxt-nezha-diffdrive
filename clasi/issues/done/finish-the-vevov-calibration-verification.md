@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 sprint: '020'
 ---
 
@@ -129,3 +129,28 @@ exactly this kind of sprawl. Reuse `field.wrap()`, `camproc.Cam`,
   check, v6 `#<id>` sequencing requirement.
 - `src/motion_engine.h` — `travelCalib_` and `rotationalSlip_`, each with
   a load-bearing provenance comment that must be kept accurate.
+
+## Resolution (2026-08-26/27, sprint 020)
+
+Steps 2 and 3 (the hardware verification) are done, camera-truthed on
+firmware 67455bf:
+
+- **travelCalib verified**: cam/enc moved 0.972 → **0.9920** over the
+  twelve-leg protocol (`captures/travelcalib-verify-20260826.csv`);
+  residual is at the camera's own ~±0.5 % resolution (tag placement
+  scatter — `captures/travelcalib-verify-20260826-camscale.txt`). No
+  revert needed; constant untouched.
+- **Rotation re-measured**: nine clean 90° pivots + six isolated
+  alternating pivots give camera/commanded **1.0230** (CCW 1.0220 n=6,
+  CW 1.0252 n=3) — the predicted direction (travelCalib propagating
+  into rotation) plus ~+1 % that `rotationalSlip_` now over-corrects.
+  Per this issue's own rule, no constant changed; follow-up filed as
+  `pivots-over-rotate-on-corrected-firmware.md`.
+  (`captures/leg-vs-pivot-split-20260827.csv`)
+
+Steps 1 and 4 (robotlink port resolution, promoting the harnesses into
+`tools/`) were tooling, not measurement, and were NOT done here — they
+remain listed under follow-ups in
+`docs/sprint-020-playfield-accuracy-findings.md`. Closure regression
+was covered by three seeded `tour:world` runs (7–12 mm run-to-run,
+`captures/gotoworld-arrival-20260826.csv`).
