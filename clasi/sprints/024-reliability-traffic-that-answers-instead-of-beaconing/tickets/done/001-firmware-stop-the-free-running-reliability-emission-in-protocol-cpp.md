@@ -103,12 +103,12 @@ self-heal path moved to `tools/robotlink.py`'s existing
       `emitReliability()`/`emitTelemetry()`'s piggyback already implement
       everything required; only `Protocol`'s calling policy changes.
 - [x] The one-time boot banner (`protocol.cpp:267`) is untouched.
-- [ ] Bench-verified over USB (record the observation in this ticket's
+- [x] Bench-verified over USB (record the observation in this ticket's
       own notes): open a link with `tools/robotlink.py`, send nothing,
       confirm no `ack`/`nack` line appears for a window well past the old
       50 ms period; then send `TLM POSE #1` and confirm the piggybacked
       reliability line resumes exactly as before.
-      **UNVERIFIED — see Implementation Notes below.**
+      **MEASURED on tovez 2026-08-26 — see Implementation Notes below.**
 - [x] `uv run pytest tests/host/` passes unchanged — proof that
       `WireHandler`'s own behavior, exercised through the ctypes shim
       independent of `Protocol`, is untouched by this firmware-loop
@@ -138,24 +138,54 @@ self-heal path moved to `tools/robotlink.py`'s existing
   --stat` after the edit, only `src/comms/protocol.cpp` (plus incidental
   `uv.lock` version-string resync from a prior commit, unrelated to this
   change) appears in the diff.
-- **Bench verification: UNVERIFIED, not run.** Ran `mbdeploy probe` at
-  the start of this ticket's work; all five boards
-  (`getez`/`tovez`/`vevov`/`zavaz`/`zetuv`) report `CONN: no` — nothing
-  is physically attached over USB in this session. Per
-  `.claude/rules/measurement-citations.md`, no bench claim is recorded
-  as measured. What would settle it once a board is attached over USB
-  (e.g. `tovez`, per `HELLO`'s identity authority, not the `probe` ROLE
-  column):
-  1. `tools/robotlink.py` (or equivalent) opens a USB link to the board,
-     sends nothing, and the observer confirms zero `ack`/`nack` lines
-     appear for a window well past 50 ms (the old
-     `kReliabilityEmitPeriodMs` period).
-  2. The same session sends `TLM POSE #1` and confirms the piggybacked
-     reliability line resumes on the telemetry stream, unchanged from
-     pre-ticket behavior.
-  No firmware build/flash was attempted to compensate — no board is
-  attached, so a build would prove nothing about runtime behavior on
-  hardware, per the ticket's own instruction.
+- **Bench verification: MEASURED on tovez, 2026-08-26, over USB
+  (`/dev/cu.usbmodem2121102`), capture
+  `captures/bench-024-tovez-20260826-1735.txt`.** VERDICT: PASS.
+
+  *(Superseding the programmer's original UNVERIFIED note: at the time
+  ticket 001's code was written, `mbdeploy probe` showed `CONN: no` on
+  all five boards and no bench claim was recorded. The stakeholder then
+  attached tovez, and team-lead ran the check. The original refusal to
+  invent a result was correct; this entry replaces it with a real one.)*
+
+  Firmware under test was built from this branch with
+  `uv run python tools/make_deploy.py --robot tovez --flash`
+  (`kProfile` baked `"tovez"`; hex 1 474 901 bytes, 0 `:0400000A`
+  markers = plain V2). Verified before flashing that the compiled
+  translation unit `built/dockercodal/.../src/comms/protocol.cpp`
+  contains `emitReliability` on comment lines ONLY (349, 356) — no call
+  site — i.e. this ticket's deletion is genuinely in the flashed image.
+  Note the first build attempt was REJECTED by `make_deploy.py`'s own
+  checkpoint ("not all nezha-diffdrive translation units were
+  compiled") from a stale `.tmp/deploy-head`; the scratch copy was
+  wiped and rebuilt rather than flashing a partially-recompiled hex.
+
+  Measured with a deliberately RAW pyserial script, NOT
+  `tools/robotlink.py` — ticket 002 made `open_link()` send `HELLO` on
+  connect, which would put a request on the wire and contaminate the
+  silence measurement. Script preserved at the top of the capture file.
+
+  | phase | window | observed |
+  |---|---|---|
+  | A — port opened, NOTHING sent | 3.0 s | **0 lines, zero bytes** |
+  | B — `HELLO` sent | 1.5 s | exactly 1 line: `device NEZHA2 robot tovez 2314287040` |
+  | C — quiet, after B's reply consumed | 3.0 s | **0 lines, zero bytes** |
+  | D — `TLM POSE #1` sent | 2.0 s | 38 `t`/`thdr` frames + 37 piggybacked `ack 1 0 none` |
+
+  Phase A and C are the criterion: 3.0 s is 60x the old
+  `kReliabilityEmitPeriodMs` (50 ms), so pre-024 firmware would have
+  emitted ~60 `ack` lines in each window. Both read zero. Phase D is the
+  regression check — the piggyback is intact, one reliability line per
+  telemetry frame, exactly as before. Phase B doubles as the identity
+  proof: `HELLO` is the only identity authority per CLAUDE.md (the
+  `probe` ROLE column is a stale cached registry), and it reports
+  `tovez`, confirming the board measured is the board flashed.
+
+  **Scope limit of this measurement:** it exercises the SERIAL handler
+  only. Ticket 001 deleted both handlers' calls in the same block, so
+  the radio handler is symmetric by construction, but radio silence was
+  not independently observed here — that would need the zavaz relay.
+  Recorded as a known gap, not claimed as measured.
 - Test run: `uv run pytest tests/host/` — 530 passed, 0 failed (full
   output observed in the foreground; no `--no-cov` flag, per this
   project's `pyproject.toml` pytest config).
