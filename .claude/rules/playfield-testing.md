@@ -123,6 +123,29 @@ nothing streams passively anymore for it to find. A retransmit must
 reuse its ORIGINAL id — a resend that takes a fresh one presents as a
 numeric gap, which stalls the stream on purpose.
 
+**Which verbs carry an id (2026-08-27, agreed with radio-robot-lib):**
+a verb is sequenced iff its correctness depends on its position in the
+stream — either running it twice changes the robot, or answering it out
+of order gives a wrong answer.
+
+| unsequenced (just type them) | sequenced (need `#<id>`) |
+|---|---|
+| `HELLO` `PING` `ESTOP` `HELP` `ID` `VER` `STATUS` | `GET` `SET` `TLM` `STOP` `RUN` `WHEELS_*` `MOVE_*` `GO_TO_*` |
+
+`GET` is sequenced despite being read-only, because `SET` mutates what
+it reads. The unsequenced ones are forgiving: `ID`, `ID #1`, `ID junk`
+all answer identically.
+
+**`HELLO` is NOT a liveness probe.** It is a session RESET — it sets
+`expectedNext_ = 1`, so firing it at a live session desyncs the link you
+were checking and can stall it permanently. Use:
+
+- `PING` → `pong <n>` — "alive"
+- `STATUS` → `... next= done= reason=` — "alive, and here is where the
+  sequence stands"; distinguishes idle from stalled-on-a-gap
+- `HELLO` — "start over", only where losing the sequence is the intent
+  (e.g. `open_link()` at session start, which is correct usage)
+
 The cleartext `RUN:`/`DIAG` vocabulary is a **different parser path**
 and is NOT sequenced: `RUN:tour:wheels` unsequenced returns its
 `DBG:tour=` receipt normally.
