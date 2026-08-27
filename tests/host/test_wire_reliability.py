@@ -299,7 +299,12 @@ def test_lost_nack_self_heals_via_emit_reliability_with_no_new_command(wg):
 
 def test_emit_reliability_reacks_highest_accepted_id_when_no_gap_is_open(wg):
     """A quiet host that sent its last command and went silent still
-    eventually learns it landed, via this same periodic call."""
+    learns it landed the next time this line runs -- whether and how
+    often production calls it is protocol.cpp's business (today: per
+    dispatch()-triggered reply, or piggybacked on telemetry when
+    subscribed; sprint 024 ticket 001 removed the unconditional,
+    periodic case this docstring used to describe), not something this
+    test asserts."""
     wg.feed(b"STATUS #1\n")
     wg.take_sink()
 

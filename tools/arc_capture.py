@@ -100,9 +100,13 @@ def _parse_trajectory(link, timeout):
             rest = s[len('ARCT:'):]
             idx_str, _, csv = rest.partition(':')
             chunks[int(idx_str)] = [int(v) for v in csv.split(',') if v]
-        # everything else (ack/nack keepalives, DBG:, unrelated lines)
-        # is silently ignored -- same filtering tour_capture.py/tlm.py
-        # already apply to this same keepalive stream.
+        # everything else (ack/nack lines, DBG:, unrelated lines) is
+        # silently ignored -- same filtering tour_capture.py/tlm.py
+        # already apply to the same reliability line (no longer an
+        # unsolicited stream since sprint 024 ticket 001 removed
+        # protocol.cpp's free-running emitReliability() call; see the
+        # firmware-identity check below for why the filter still runs
+        # at all).
 
     if meta is None:
         raise SystemExit(
@@ -151,10 +155,16 @@ def main():
     link = open_link(a.port, radio=a.radio)
 
     # --- firmware-identity check (no motion) --------------------------
-    # `ack `/`nack ` keepalive lines stream continuously regardless of
-    # this command (tlm.py's own docstring: "streamed continuously at
-    # 50 ms") -- they are not a reply to the bogus verb and must be
-    # filtered out, or every check here would false-positive on them.
+    # `ack `/`nack ` lines are filtered out of this check even though
+    # they can no longer arrive as an unsolicited stream -- sprint 024
+    # ticket 001 deleted protocol.cpp's free-running emitReliability()
+    # call, so a reply can now only ever follow a request (see
+    # clasi/issues/reliability-line-free-runs-at-20-hz-on-the-radio-
+    # with-no-host.md). The filter is defensive/vestigial rather than
+    # load-bearing: it stays because some OTHER reply sharing this same
+    # link (STATUS, GET, etc.) could still land inside this read
+    # window, not because a beacon is expected -- keeping it costs
+    # nothing even against firmware that never sends one.
     bogus = 'RUN:notarealverb'
     seen = list(link.send_until(bogus, '\x00NEVER\x00', tries=1, wait=1.5,
                                  echo=False))

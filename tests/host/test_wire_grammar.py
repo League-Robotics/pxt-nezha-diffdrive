@@ -271,13 +271,18 @@ class WireGrammar:
         self._lib.wgEmitTelemetry(self._handle, names, values, hex_flags, count)
 
     def emit_reliability(self):
-        """The reliability layer's own periodic emission (protocol.md
+        """The reliability layer's own emission primitive (protocol.md
         S8.5) -- calling this with NO intervening feed() is exactly how
         a lost ack/nack is proven to self-heal with no timer of this
-        class's own (see test_wire_reliability.py). Ticket 003 split
-        this out of the old argument-less emitTelemetry() so it stays
-        callable with no Snapshot involved at all (surviving `TLM
-        OFF`)."""
+        class's own (see test_wire_reliability.py). This class has no
+        opinion on WHEN a caller invokes it -- that is protocol.cpp's
+        business, not WireHandler's: today it fires once per dispatch()
+        reply, or piggybacked on emitTelemetry()'s 50 ms cadence when
+        telemetry is subscribed (sprint 024 ticket 001 removed a third
+        case, an unconditional periodic call on an idle transport).
+        Ticket 003 split this out of the old argument-less
+        emitTelemetry() so it stays callable with no Snapshot involved
+        at all (surviving `TLM OFF`)."""
         self._lib.wgEmitReliability(self._handle)
 
     @property

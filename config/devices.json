@@ -25,7 +25,7 @@
     "device_id": 2314287040,
     "device_name": "tovez",
     "enum": 2,
-    "port": "/dev/cu.usbmodem2121202",
+    "port": "/dev/cu.usbmodem2121102",
     "role": "NEZHA2",
     "serial": "2314287040",
     "uid": "9906360200052820a8fdb5e413abb276000000006e052820"

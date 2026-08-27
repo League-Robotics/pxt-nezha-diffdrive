@@ -79,7 +79,14 @@ def probe_port(name, tries=8):
 # unconditionally < expectedNext_ (it starts at 1 and never goes below),
 # so it is silently dropped.
 #
-# MEASURED on vevov, 2026-08-25, v6 firmware over USB:
+# MEASURED on vevov, 2026-08-25, v6 firmware over USB. PRE-SPRINT-024:
+# this capture predates sprint 024 ticket 001, which deleted the
+# firmware's free-running reliability beacon (the unconditional
+# `emitReliability()` call `Protocol::run()` used to make every 50 ms
+# on a non-subscribed transport). The "72 keepalive acks" below came
+# from that now-removed periodic call, not from any reply to the line
+# actually sent -- read this capture as describing pre-024 firmware,
+# not re-measured against current firmware:
 #     'TLM POSE'      -> 0 telemetry frames (72 keepalive acks only)
 #     'TLM POSE #1'   -> 72 `t` frames + 4 `thdr` frames
 # i.e. every v6 command sent through this link without an id was a
@@ -97,11 +104,15 @@ class Link:
     def __init__(self, port, radio):
         self.radio = radio
         self.p = port
-        # Next id to allocate. expectedNext_ starts at 1 on the robot;
-        # sync_seq() corrects this against a live keepalive, because a
-        # robot mid-session is already past 1 and a stale counter here
-        # opens a numeric GAP, which stalls the stream ON PURPOSE until
-        # the missing id arrives.
+        # Next id to allocate. expectedNext_ starts at 1 on the robot,
+        # so 0 is the correct starting point here too -- open_link()
+        # (sprint 024 ticket 002) reaffirms this explicitly via hello()
+        # right after connecting, since HELLO's own contract resets the
+        # robot to expectedNext_ = 1 unconditionally. sync_seq() (below)
+        # can still correct this against a LIVE ack/nack line for any
+        # caller that has one to read outside the connect path; a stale
+        # counter here opens a numeric GAP, which stalls the stream ON
+        # PURPOSE until the missing id arrives.
         self._seq = 0
 
     def _is_wire(self, line):
@@ -121,10 +132,28 @@ class Link:
         return f'{line} #{self._seq}'
 
     def sync_seq(self, timeout=1.5):
-        """Learn the robot's expectedNext_ from a keepalive ack.
+        """Learn the robot's expectedNext_ from a live ack/nack line.
 
-        The keepalive is `ack <expectedNext-1> <lastDone> <reason>`, so
-        the next id we may legally use is that first field + 1.
+        `ack N` means "N was accepted" -- the next id we may legally
+        allocate is N + 1, and `_format()`'s `self._seq += 1` handles
+        that increment, so `_seq` itself must land on N. `nack N` means
+        something different: "send me N next" -- the next id to
+        allocate must BE N, so `_seq` must land on N - 1 (this was
+        sprint 024 ticket 002's bug: reading a `nack N` line used to set
+        `_seq = N` too, so the next `_format()` call allocated `#(N+1)`,
+        a fresh gap on the same wound the `nack` was reporting).
+
+        NOTE (sprint 024 ticket 002): `open_link()` no longer calls this
+        method. Once firmware ticket 001 removed the free-running
+        reliability beacon, there is normally nothing periodic left for
+        a passive read to find immediately after connecting --
+        `open_link()` resyncs via `hello()` instead (below), which is
+        deterministic and does not block waiting on a keepalive line
+        that no longer exists. This method's ack/nack fix stands on its
+        own merits regardless: it is still wrong today for any other
+        caller that reads a live ack/nack line outside the connect path
+        (sprint.md's Design Rationale, alternative (b)), so the fix and
+        the method both stay.
         """
         import re
         end = time.time() + timeout
@@ -135,11 +164,57 @@ class Link:
             t = raw.decode('ascii', errors='replace').strip()
             if t.startswith('< '):
                 t = t[2:]
-            m = re.match(r'^(?:ack|nack)\s+(\d+)', t)
+            m = re.match(r'^(ack|nack)\s+(\d+)', t)
             if m:
-                self._seq = int(m.group(1))
+                n = int(m.group(2))
+                self._seq = n if m.group(1) == 'ack' else n - 1
                 return self._seq
         return None
+
+    def hello(self, timeout=1.0):
+        """Send HELLO and consume its banner reply -- the reconnect resync.
+
+        `handleHello()` (`src/comms/wire_handler.cpp:640-652`) is the
+        protocol's own designated escape hatch: receiving HELLO
+        unconditionally resets whichever handler got it to
+        `expectedNext_ = 1`, `gapOutstanding_ = False` (without touching
+        motion-completion state), and replies with the same banner as
+        the unsolicited boot line (`"device NEZHA2 <name> <serial>"`).
+        HELLO is unsequenced (protocol.md S8.3) -- `_format()` never
+        appends a `#<id>` to it, matching the firmware's strict
+        zero-field arity for this verb.
+
+        That reset happens on the robot the moment it receives the
+        line, regardless of whether the host manages to read the banner
+        back -- so `_seq` is set to 0 (the correct counterpart to a
+        robot now at `expectedNext_ = 1`) unconditionally, not only when
+        a banner is actually seen within `timeout`. This is deliberately
+        NOT a call to `sync_seq()`: once sprint 024 ticket 001 removed
+        the free-running reliability beacon, there is nothing periodic
+        left to passively read right after a HELLO, and `sync_seq()`'s
+        full default 1.5 s timeout would be a dead wait on every single
+        connect. `timeout` here only bounds how long this method waits
+        for HELLO's OWN reply -- which, unlike the vanished beacon, the
+        robot always sends exactly once in direct response to this
+        line -- so it is deliberately shorter than `sync_seq()`'s
+        default.
+
+        Returns the banner line, or None if nothing matching arrived
+        within `timeout` (e.g. no robot on the other end). Does not
+        raise on a miss -- `open_link()` does not treat a missing banner
+        as fatal, since the sequence state is established either way.
+        """
+        self.send('HELLO')
+        banner = None
+        for line in self.lines(timeout):
+            if line.startswith('device '):
+                banner = line
+                break
+        # HELLO's contract guarantees expectedNext_ = 1 on the robot,
+        # unconditionally -- the correct host-side counterpart, matching
+        # a freshly constructed Link, is _seq = 0.
+        self._seq = 0
+        return banner
 
     def send(self, line, repeat=1):
         """Send a line, once by default.
@@ -230,7 +305,12 @@ def open_link(port=None, radio=False):
         time.sleep(0.8)
         p.reset_input_buffer()
         link = Link(p, True)
-        link.sync_seq()
+        # HELLO is sent (and its banner consumed) only after the
+        # relay's own control-plane setup above -- !ECHO OFF/!MODE
+        # RAW250/!CG/!P/!GO are relay commands, not robot wire commands,
+        # and must still run first so the data plane is actually up
+        # before anything robot-directed goes out.
+        link.hello()
         return link
 
     if port is None:
@@ -239,6 +319,10 @@ def open_link(port=None, radio=False):
     time.sleep(1.5)
     p.reset_input_buffer()
     link = Link(p, False)
-    # Adopt the robot's own expectedNext_ before the first wire command.
-    link.sync_seq()
+    # Resync via HELLO before anything else robot-directed (sprint 024
+    # ticket 002) -- not sync_seq(): see Link.hello()'s own docstring
+    # for why calling the old passive-read sync_seq() here would, once
+    # the firmware beacon is gone, degrade into a dead wait on every
+    # connect.
+    link.hello()
     return link

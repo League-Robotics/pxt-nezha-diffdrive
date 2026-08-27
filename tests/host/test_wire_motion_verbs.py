@@ -652,7 +652,11 @@ class WireAdapterHandle:
         """Calls the REAL WireHandler::emitTelemetry(snapshot) -- writes
         thdr (if due), t, then the reliability keepalive into this
         handle's own sink, exactly as protocol.cpp's periodic-emission
-        block does in production."""
+        block's telemetry-subscribed branch does in production (that
+        branch, and its 50 ms cadence, are unchanged by sprint 024
+        ticket 001, which only deleted the sibling branch -- an
+        unconditional emitReliability()-only call on a non-subscribed
+        transport)."""
         self._lib.waEmitTelemetry(self._handle, snapshot.ptr)
 
     def on_tlm(self, mode):
