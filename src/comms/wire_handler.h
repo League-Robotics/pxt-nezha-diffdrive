@@ -6,10 +6,18 @@
 // lines, tokenizes each line in place on runs of ' ' (no allocation, no
 // std::string -- S3.2), enforces case-as-direction (S2.1: commands
 // UPPERCASE, replies lowercase, verb lookup case-SENSITIVE), and
-// dispatches every verb this project currently implements: the three
-// unsequenced exemptions (HELLO, PING, ESTOP -- S8.3) plus the nine
-// non-motion sequenced verbs (ID, VER, STATUS, HELP, GET, SET, TLM,
+// dispatches every verb this project currently implements: the four
+// unsequenced exemptions (HELLO, PING, ESTOP, HELP -- S8.3) plus the
+// eight non-motion sequenced verbs (ID, VER, STATUS, GET, SET, TLM,
 // STOP, RUN).
+//
+// HELP joined the unsequenced set on 2026-08-27 by stakeholder
+// direction. It is a human-typed diagnostic verb -- the FIRST thing an
+// operator types into a raw relay session -- and requiring a `#<id>`
+// on it meant a bare `HELP` was silently dropped, which is exactly the
+// wrong answer for the one verb whose entire job is telling a confused
+// operator what to do next. It is forgiving like PING: any arity, with
+// or without an id, always answers.
 //
 // ---- The reliability layer (S8), in one paragraph ----
 //
@@ -468,6 +476,9 @@ class WireHandler {
   // so a host test can drive it directly with a synthetic, arbitrarily
   // long name list -- independent of kCommandTable, which today is far
   // too small to ever exercise the truncation path this proves safe.
+  // Longest `help ...` line emitBuild will produce before starting a
+  // new one. Deliberately well under kMaxLineBytes: see emitHelp().
+  static constexpr size_t kHelpChunkBytes = 60;
   static size_t buildHelpLine(char* buf, size_t bufCap,
                                const char* const* names, size_t nameCount);
 
@@ -506,6 +517,10 @@ class WireHandler {
 
   void handleHello();
   void handlePing();
+  // Writes the verb listing. Shared by dispatch()'s unsequenced HELP
+  // interception and execHelp()'s table row, so both paths emit
+  // byte-identical output.
+  void emitHelp();
   void handleEstop();
 
   // Every DECODE function is pure: no adapter call, no sink write, no

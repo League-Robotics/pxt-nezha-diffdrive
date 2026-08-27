@@ -249,7 +249,12 @@ stream until the missing id arrives. Merits rejections (verb decoded,
 adapter refused) ack-and-advance plus `err <code> #<id>` — kept
 sharply distinct from decode failures. `lastDone`/`lastDoneReason` are
 polled fresh off the Adapter on every ack/nack, never cached.
-HELLO/PING/ESTOP are unsequenced, intercepted before id resolution;
+HELLO/PING/ESTOP/HELP are unsequenced, intercepted before id resolution
+(HELP joined this set 2026-08-27: it is the verb a human types first,
+so answering it must not depend on knowing the grammar being asked
+about; it is forgiving of any trailing content, like PING, and its
+listing is emitted as several short lines so a marginal radio hop can
+deliver it);
 HELLO resets the sequence state (a reconnecting host's resync) but
 never touches Adapter state. **There is no unsolicited ack/nack of any
 kind (2026-08-26, stakeholder direction: "an ack or a nack is only a

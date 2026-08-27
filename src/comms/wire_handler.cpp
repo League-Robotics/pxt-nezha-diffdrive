@@ -475,6 +475,17 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
     handlePing();
     return;
   }
+  if (std::strcmp(verb, "HELP") == 0) {
+    // HELP is unsequenced and forgiving, like PING (2026-08-27,
+    // stakeholder direction). It is the verb a human types FIRST into a
+    // raw relay session, usually because they do not yet know the
+    // grammar -- so answering it must not itself depend on knowing the
+    // grammar. `HELP`, `HELP #1`, `HELP #99`, `HELP whatever` all emit
+    // the same listing. Being outside the sequence, it neither acks nor
+    // advances expectedNext_, exactly like PING.
+    emitHelp();
+    return;
+  }
   if (std::strcmp(verb, "HELLO") == 0) {
     // HELLO's own arity is strict zero-fields (protocol.md S8.3): a
     // HELLO with a trailing field is wrong arity, same as any other
@@ -821,12 +832,7 @@ size_t WireHandler::buildHelpLine(char* buf, size_t bufCap,
   return pos;
 }
 
-void WireHandler::execHelp(char** fields, size_t fieldCount, uint32_t id,
-                            uint8_t& errCode) {
-  (void)fields;
-  (void)fieldCount;
-  (void)id;
-  errCode = 0;
+void WireHandler::emitHelp() {
   // Walks kCommandTable at runtime for the name list, so it cannot
   // drift from the dispatcher -- the SAME table dispatch() looks verbs
   // up in. buildHelpLine() owns the terminator guarantee; see its own
@@ -835,9 +841,46 @@ void WireHandler::execHelp(char** fields, size_t fieldCount, uint32_t id,
       sizeof(kCommandTable) / sizeof(kCommandTable[0]);
   const char* names[kVerbCount];
   for (size_t i = 0; i < kVerbCount; ++i) names[i] = kCommandTable[i].name;
-  char buf[kMaxLineBytes];
-  buildHelpLine(buf, sizeof(buf), names, kVerbCount);
-  writeLine(buf);
+
+  // Emit SEVERAL SHORT lines rather than one long one.
+  //
+  // MEASURED 2026-08-27, tovez over the torture->channel-3 relay
+  // (marginal link, see the relay notes): `HELP #1` returned
+  // `ack 1 0 none` and NO help line at all. The 16-byte ack survived
+  // the hop; the ~110-byte single help line did not. From the
+  // operator's seat that reads as "accepted, then answered nothing",
+  // which is worse than a clean failure. Short lines are far likelier
+  // to survive a lossy radio hop, and a partial listing still tells
+  // the operator something. `GET` with no fields already establishes
+  // one-line-per-item as this handler's idiom.
+  size_t i = 0;
+  while (i < kVerbCount) {
+    size_t n = 0;
+    size_t width = 4;  // "help"
+    while (i + n < kVerbCount) {
+      const size_t add = 1 + std::strlen(names[i + n]);
+      if (n > 0 && width + add > kHelpChunkBytes) break;
+      width += add;
+      ++n;
+    }
+    char buf[kMaxLineBytes];
+    buildHelpLine(buf, sizeof(buf), names + i, n);
+    writeLine(buf);
+    i += n;
+  }
+}
+
+void WireHandler::execHelp(char** fields, size_t fieldCount, uint32_t id,
+                            uint8_t& errCode) {
+  (void)fields;
+  (void)fieldCount;
+  (void)id;
+  errCode = 0;
+  // Normally unreachable: dispatch() intercepts HELP by verb identity
+  // before the table lookup (2026-08-27). The row stays in
+  // kCommandTable so HELP still appears in its own listing, and this
+  // delegates so both paths can never diverge.
+  emitHelp();
 }
 
 // ---- configuration: pure delegation, no storage here (protocol.md S7) ----

@@ -94,8 +94,20 @@ def probe_port(name, tries=8):
 # parser path and is NOT sequenced -- `RUN:tour:wheels` unsequenced
 # returns its DBG:tour= receipt normally -- so only these verbs get an
 # id appended.
+# Verbs that carry a mandatory trailing `#<id>`. This set must match the
+# firmware's SEQUENCED plane exactly -- a verb listed here that the robot
+# treats as unsequenced silently DESYNCS the link: _format() allocates an
+# id the robot never consumes (it neither acks nor advances
+# expectedNext_), so the very next command presents as a numeric gap and
+# stalls the stream on purpose.
+#
+# HELLO/PING/ESTOP/HELP are the firmware's four unsequenced exemptions
+# (wire_handler.cpp dispatch(), protocol.md S8.3) and so are deliberately
+# ABSENT here. HELP joined that set 2026-08-27; ESTOP was already
+# unsequenced in firmware but was wrongly listed here, which is the same
+# desync bug latent on every ESTOP a host ever sent.
 _V6_VERBS = frozenset((
-    'VER', 'ID', 'STATUS', 'HELP', 'GET', 'SET', 'TLM', 'STOP', 'ESTOP',
+    'VER', 'ID', 'STATUS', 'GET', 'SET', 'TLM', 'STOP',
     'MOVE', 'PIVOT', 'WHEELS_V', 'WHEELS_X', 'GO_TO', 'GO_TO_W', 'ARC',
 ))
 

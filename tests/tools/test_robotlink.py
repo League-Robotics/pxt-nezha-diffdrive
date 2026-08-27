@@ -279,3 +279,29 @@ def test_hello_timeout_default_is_shorter_than_sync_seq_default():
     sync_seq_default = inspect.signature(
         robotlink.Link.sync_seq).parameters['timeout'].default
     assert hello_default < sync_seq_default
+
+
+# ---- unsequenced verbs (sprint-024 follow-up, 2026-08-27) ----------------
+
+def test_unsequenced_verbs_are_not_given_ids():
+    """HELLO/PING/ESTOP/HELP are the firmware's four unsequenced
+    exemptions (wire_handler.cpp dispatch()). If robotlink appended an
+    id to any of them, _format() would allocate an id the robot never
+    consumes -- it neither acks nor advances expectedNext_ -- so the
+    NEXT command would present as a numeric gap and stall the stream.
+    """
+    for verb in ('HELLO', 'PING', 'ESTOP', 'HELP'):
+        assert verb not in robotlink._V6_VERBS, verb
+
+
+def test_help_is_not_sequenced_and_does_not_consume_an_id():
+    """A HELP sent mid-session must leave the sequence untouched, so the
+    following real command still gets the id the robot expects."""
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    link._seq = 4
+    link.send('HELP')
+    assert port.writes[-1] == b'HELP\n'      # no '#' appended
+    assert link._seq == 4                    # nothing consumed
+    link.send('STATUS')
+    assert port.writes[-1] == b'STATUS #5\n'
