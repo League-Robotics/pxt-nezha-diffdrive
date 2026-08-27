@@ -1,0 +1,50 @@
+==============================================================
+vevov beacon: BEFORE / AFTER the sprint-024 + OOP piggyback fix
+2026-08-27. Board: vevov, UID 9906360200052820b8e12372c44f4f67...
+Flashed via gauti (Pi Zero 2 W) from .tmp/deploy-head/built/binary.hex
+  built: make_deploy.py --robot vevov  (kChannel=4, kProfile="vevov")
+  1474766 bytes, 0 x :0400000A markers (plain V2)
+  firmware = master @ ca22867, i.e. sprint 024 ticket 001 (beacon
+  deleted) PLUS OOP fix 4a628a0 (telemetry ack piggyback deleted)
+==============================================================
+
+--- BEFORE (old firmware), USB serial via gauti, nothing sent, 4.0s ---
+  total lines    : 76
+  ack/nack lines : 76          <-- ~19 Hz barrage
+  telemetry lines: 0
+    > ack 2 0 none
+    > ack 2 0 none
+    > ack 2 0 none
+    > ack 2ack 2 0 none        <-- lines colliding under the barrage
+
+--- AFTER, USB serial via gauti, nothing sent, 5.0s ---
+  total lines    : 0
+  ack/nack lines : 0
+  (silence -- zero bytes)
+
+--- AFTER, liveness proof (silence alone is ambiguous) ---
+  HELLO      -> device NEZHA2 robot vevov 1198504156
+  RUN:probe  -> OPROBE:95:1        (program runs, I2C/Nezha bus healthy)
+  TLM POSE #1-> 38 telemetry frames, 0 piggybacked acks
+               (the 1 ack seen is the REPLY to the sequenced TLM line)
+
+--- AFTER, RADIO channel 4 via torture relay pool (gozop) ---
+    the stakeholder's own reported path
+  !CG 4 10 -> # channel: 4 group: 10 mode: RAW250 power: 7
+  idle 6.0s -> 0 lines, 0 ack/nack
+  HELLO     -> device NEZHA2 robot vevov 1198504156
+  VERDICT: SILENT + ALIVE
+
+==============================================================
+NOTE ON THE FLASH: the first TWO attempts via ~/bin/mbflash FAILED
+with DAPLink FAIL.TXT "error: The transfer timed out. type: transient,
+user", and left the board with NO working program -- silent, but dead.
+Cause: mbflash mounts the MICROBIT volume with the `flush` option
+(synchronous writes), which on the Pi Zero 2 W's USB is too slow for
+DAPLink's transfer window. Fix: mount WITHOUT flush and sync after:
+    sudo mount -o uid=$(id -u) /dev/sda /mnt/microbit
+    cp hex /mnt/microbit/    # 0.08 s buffered
+    sync                     # 34.7 s, completes cleanly
+Silence after a failed flash is INDISTINGUISHABLE from correct
+reply-only behavior. Always prove liveness with HELLO/RUN:probe.
+==============================================================
