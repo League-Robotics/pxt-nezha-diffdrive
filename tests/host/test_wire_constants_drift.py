@@ -142,26 +142,62 @@ def _protocol_cpp_k_version():
     return match.group(1)
 
 
-def test_k_version_matches_pxt_json_version():
-    """protocol.cpp's kVersion literal, reported on every ID/VER wire
-    reply, must match pxt.json's "version" field exactly. This constant
-    had drifted ten pxt.json version bumps behind its own "keep in sync"
-    comment (1.0.0 vs 1.0.10) with nothing catching it -- this test is
-    what now catches a forgotten bump immediately instead of silently,
-    restoring the mbdeploy -> VER deploy-verification flow's own
-    precondition (a host actually learns which build it is talking to)."""
-    pxt_version = _pxt_json_version()
+def test_k_version_is_the_uninjected_placeholder():
+    """protocol.cpp's checked-in kVersion must stay a PLACEHOLDER.
+
+    As of 2026-08-27 it is injected at deploy time by
+    tools/make_deploy.py's _inject_version(), from pyproject.toml's
+    `0.YYYYMMDD.n` build version -- the same scratch-copy-only mechanism
+    kProfile and kChannel use. So the literal in the repo is never a
+    real build's version, and a hex reporting `unbaked` over VER is a
+    hex that did not come through make_deploy.py.
+
+    This REPLACES test_k_version_matches_pxt_json_version. kVersion used
+    to mirror pxt.json's `1.0.10`-style EXTENSION semver, and that test
+    guarded the mirror. The mirror itself was the problem: the extension
+    version moves only on release, so every firmware built between two
+    releases answered VER identically. On 2026-08-27 two robots running
+    visibly different builds both reported `ver 1.0.10` with nothing on
+    the wire able to separate them, and the misdiagnosis cost hours.
+    pxt.json's semver is unchanged and still governs MakeCode's
+    extension resolution -- it simply is not what VER answers any more.
+    """
     wire_version = _protocol_cpp_k_version()
-    assert wire_version == pxt_version, (
-        f"protocol.cpp's kVersion (\"{wire_version}\") has drifted from "
-        f"pxt.json's \"version\" (\"{pxt_version}\") -- every ID/VER wire "
-        f"reply now misreports the build. Update protocol.cpp's kVersion "
-        f"to match pxt.json's version (this project's C++ build has no "
-        f"build-time substitution mechanism, so this is a manual edit, "
-        f"not a generated file)."
+    assert wire_version == "unbaked", (
+        f"protocol.cpp's kVersion is \"{wire_version}\", expected the "
+        f"placeholder \"unbaked\". A real version baked into the "
+        f"checked-in source means a build could ship a stale, "
+        f"hand-edited version string instead of the injected one -- the "
+        f"exact drift class this file exists to catch."
     )
 
 
+def test_make_deploy_can_still_find_k_version():
+    """The injection is a regex substitution against protocol.cpp's
+    text, so it breaks SILENTLY if that declaration's shape changes --
+    make_deploy would exit loudly at build time, but only for whoever
+    next runs a deploy. This catches it on every host run instead.
+
+    Same "read the other file as text" shape as the rest of this module,
+    and the same reason: neither file is in tests/host/'s compile reach.
+    """
+    make_deploy = (pathlib.Path(__file__).resolve().parents[2]
+                   / "tools" / "make_deploy.py").read_text()
+    match = re.search(r"_K_VERSION_RE = re\.compile\(\s*\n?\s*r'([^']+)'",
+                      make_deploy)
+    assert match, (
+        "tools/make_deploy.py's _K_VERSION_RE was not found -- if the "
+        "version injection was removed, kVersion silently reverts to "
+        "shipping the placeholder on every build."
+    )
+    pattern = re.compile(match.group(1))
+    text = _read("comms/protocol.cpp")
+    hits = pattern.findall(text)
+    assert len(hits) == 1, (
+        f"make_deploy.py's _K_VERSION_RE matches {len(hits)} times in "
+        f"protocol.cpp, expected exactly 1 -- the injection would "
+        f"fail the build (n != 1) or bake the wrong constant."
+    )
 # ---------------------------------------------------------------------------
 # 2. emitLine()'s line cap vs RadioTransport::kMaxPayloadBytes --
 #    WIRE-05/R-21.

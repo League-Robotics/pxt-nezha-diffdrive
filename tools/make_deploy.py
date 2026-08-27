@@ -558,6 +558,43 @@ def _inject_profile(deploy_dir, robot):
     return robot
 
 
+_K_VERSION_RE = re.compile(
+    r'(constexpr const char\* kVersion = ")[^"]*(";)')
+
+
+def _inject_version(deploy_dir):
+    """Substitute `deploy_dir`'s own copy of `src/comms/protocol.cpp`'s
+    `kVersion` constant with this build's `0.YYYYMMDD.n` version
+    (`_read_repo_version()`, below). Scratch-copy-only, exactly like
+    `_inject_profile()` and `_inject_radio_channel()`.
+
+    This is what makes VER (and ID's third field) identify the IMAGE.
+    kVersion used to mirror pxt.json's `1.0.10`-style extension semver,
+    which only moves on an extension release -- so every firmware built
+    between two releases answered VER identically. On 2026-08-27 that
+    meant two robots running visibly different builds both reported
+    `ver 1.0.10`, and nothing on the wire could distinguish them; the
+    resulting misdiagnosis cost hours. The build version moves on every
+    commit, so it answers the question VER is actually asked.
+
+    Note this runs on EVERY build, including one with no --robot, so
+    like `_inject_profile()` it ends any byte-equivalence between a
+    default build and the checked-in source. That is intended: a hex
+    whose reported version is the literal placeholder `unbaked` is a hex
+    that did not come through this script, and it should be obvious."""
+    version = _read_repo_version()
+    path = os.path.join(deploy_dir, 'src', 'comms', 'protocol.cpp')
+    text = open(path).read()
+    new_text, n = _K_VERSION_RE.subn(rf'\g<1>{version}\g<2>', text)
+    if n != 1:
+        sys.exit(f"make_deploy: expected exactly one kVersion constant in "
+                  f"{path}, found {n} -- protocol.cpp's shape has "
+                  f"changed, update _K_VERSION_RE")
+    with open(path, 'w') as f:
+        f.write(new_text)
+    return version
+
+
 # This repo's own version source -- pyproject.toml's [project] version,
 # `0.YYYYMMDD.n`. Read with a plain regex, not a TOML parser dependency,
 # since only this one field is ever needed.
@@ -829,6 +866,7 @@ def main():
         print(f'  {f}')
     _inject_radio_channel(DEPLOY, a.robot)
     _inject_profile(DEPLOY, a.robot)
+    _inject_version(DEPLOY)
     _inject_boot_banner(DEPLOY, a.robot)
     build()
     if a.flash:

@@ -57,17 +57,31 @@ namespace {
 //     defaults -- which bake those constants are actually measured
 //     from is a separate, currently-contradictory question, tracked as
 //     its own issue, not settled by this constant.)
-//   - kVersion: manually-synced mirror of pxt.json's "version" (no
-//     build-time injection in this repo's C++ build) -- bump together.
-//     Pinned by tests/host/test_wire_constants_drift.py, which reads
-//     both files as text on every host run and fails the moment they
-//     disagree (the drift this constant suffered once already, before
-//     that test existed) -- same "read both as text" shape as this
-//     file's own kRunEventSource/RUN_EVENT_SOURCE pairing below.
+//   - kVersion: the BUILD version, `0.YYYYMMDD.n`, injected at deploy
+//     time by tools/make_deploy.py's _inject_version() from
+//     pyproject.toml (which config/dotconfig.yaml keeps in step via
+//     `dotconfig version bump`). Same scratch-copy-only mechanism as
+//     kProfile and kChannel, so the checked-in literal below is a
+//     PLACEHOLDER, never a real build's version.
+//
+//     It used to mirror pxt.json's "1.0.10"-style EXTENSION semver
+//     instead. That was changed 2026-08-27, by stakeholder direction,
+//     because the extension version is a poor answer to the question
+//     VER actually gets asked: "which build is on this robot?" It moves
+//     only when the extension is released, so every firmware built
+//     between two releases reports an identical VER -- and on
+//     2026-08-27 that cost hours, with two robots on visibly different
+//     firmware both answering `ver 1.0.10` and nothing on the wire able
+//     to tell them apart. The build version moves on every commit, so
+//     VER (and ID's third field) now identify the image.
+//
+//     pxt.json's semver is unaffected and still governs how MakeCode
+//     resolves the extension -- a different question, deliberately not
+//     answered by this constant any more.
 constexpr const char* kDrivetrain = "diffdrive";
 constexpr const char* kProfile = "unbaked";
-constexpr const char* kVersion = "1.0.10";  // keep in sync with pxt.json --
-                                             // drift-tested, see above
+constexpr const char* kVersion = "unbaked";  // injected by make_deploy.py;
+                                              // see the note above
 
 // The old-style cleartext RUN carve-out (see protocol.h's own top-of-file
 // comment): detected directly by its literal prefix now that the v5
