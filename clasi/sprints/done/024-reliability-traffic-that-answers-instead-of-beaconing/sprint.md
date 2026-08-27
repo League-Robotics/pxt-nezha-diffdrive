@@ -1,7 +1,7 @@
 ---
 id: '024'
 title: Reliability traffic that answers instead of beaconing
-status: executing
+status: done
 branch: sprint/024-reliability-traffic-that-answers-instead-of-beaconing
 use-cases:
 - SUC-001
