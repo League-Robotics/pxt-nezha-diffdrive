@@ -62,12 +62,12 @@ def test_sequence_gap_on_one_handler_does_not_disturb_the_others_acks(wire_lib):
     with WireGrammar(wire_lib) as a, WireGrammar(wire_lib) as b:
         # Handle A's very first command arrives as #5 -- a numeric gap
         # from a fresh handler's expectedNext_ == 1 -- and nacks.
-        a.feed(b"STATUS #5\n")
+        a.feed(b"STOP #5\n")
         assert a.take_sink() == _nack(1)
 
         # Handle B, fed a normal in-order sequence, acks exactly as a
         # fresh, never-gapped handler would -- A's gap left no trace.
-        b.feed(b"STATUS #1\n")
+        b.feed(b"STOP #1\n")
         assert b.take_sink().startswith(_ack(1))
 
         b.set_set_result(RESULT_OK)
@@ -86,7 +86,7 @@ def test_malformed_count_is_isolated_between_handlers(wire_lib):
         assert a.malformed_count == 1
 
         assert b.malformed_count == 0
-        b.feed(b"STATUS #1\n")
+        b.feed(b"STOP #1\n")
         assert b.malformed_count == 0
 
 
@@ -97,7 +97,7 @@ def test_a_handlers_open_gap_keeps_stalling_only_that_handler(wire_lib):
     subsequent traffic, and stays open on A the whole time, unaffected
     by B's unrelated activity."""
     with WireGrammar(wire_lib) as a, WireGrammar(wire_lib) as b:
-        a.feed(b"STATUS #5\n")
+        a.feed(b"STOP #5\n")
         a.take_sink()  # the initial nack; not under test here
 
         # Drive B through three in-order commands; each acks normally,
@@ -111,6 +111,6 @@ def test_a_handlers_open_gap_keeps_stalling_only_that_handler(wire_lib):
         # A's gap is still open, unaffected by B's unrelated traffic --
         # a DIFFERENT command, still #5 (the same missing id), nacks
         # identically rather than having somehow resumed.
-        a.feed(b"STATUS #5\n")
+        a.feed(b"STOP #5\n")
         assert a.take_sink() == _nack(1)
         assert a.status_calls == 0

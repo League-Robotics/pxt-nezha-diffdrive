@@ -500,6 +500,67 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
     return;
   }
 
+  // ---- the read-only QUERY verbs are unsequenced too (2026-08-27) ----
+  //
+  // ID/VER/STATUS answer a question and change nothing. A duplicate is
+  // harmless and a lost one is recovered by simply asking again, so a
+  // sequence id buys them no reliability at all -- while costing two
+  // real, reported failures:
+  //
+  //   1. a bare `ID` parsed as #0, fell below expectedNext_, and was
+  //      silently dropped; and
+  //   2. a RESENT `ID #1` drew `ack 1 0 none` with NO `id` line -- the
+  //      S8.1 stale-retransmit row, which for a state-changing verb
+  //      correctly means "I already have everything through here, stop
+  //      resending", but for a query reads as "accepted, then answered
+  //      nothing."
+  //
+  // The governing rule, and the reason the sequenced/unsequenced split
+  // is drawn exactly here:
+  //
+  //   A VERB IS SEQUENCED IFF ITS CORRECTNESS DEPENDS ON ITS POSITION
+  //   IN THE STREAM -- either because executing it twice changes the
+  //   robot, or because answering it out of order yields a wrong
+  //   answer.
+  //
+  // Note the second clause: "changes state" alone is NOT the test, and
+  // collapsing it to that is what makes GET look like an exception when
+  // it is not (see below). ID/VER/HELP answer session CONSTANTS --
+  // identity burned into the chip, a compile-time version, a
+  // compile-time verb list -- so they are position-independent. TLM
+  // mutates subscription state and MOVE/RUN/WHEELS move a robot, so
+  // they are not.
+  //
+  // Forgiving of any trailing content, like PING: `ID`, `ID #1` and
+  // `ID #99` all answer identically, and none of them touch
+  // expectedNext_.
+  //
+  // GET stays SEQUENCED and is NOT an exception to the rule -- it is
+  // read-only but ORDER-dependent, which the rule already covers.
+  // `SET kp 500 #7` / `GET kp #8`: if #7 is lost, a sequenced GET #8 is
+  // nacked and never answered, which is correct -- the host must not
+  // receive the pre-SET value and read it as the post-SET value. An
+  // unsequenced GET would return the stale value with no marker saying
+  // it predates a pending write: a silently wrong answer to a config
+  // question. (Framing owed to radio-robot-lib-85, 2026-08-27, which
+  // is protocol.md's owner.)
+  {
+    char* noFields[1] = {nullptr};
+    uint8_t ignoredErr = 0;
+    if (std::strcmp(verb, "ID") == 0) {
+      execId(noFields, 0, 0, ignoredErr);
+      return;
+    }
+    if (std::strcmp(verb, "VER") == 0) {
+      execVer(noFields, 0, 0, ignoredErr);
+      return;
+    }
+    if (std::strcmp(verb, "STATUS") == 0) {
+      execStatus(noFields, 0, 0, ignoredErr);
+      return;
+    }
+  }
+
   // ---- everything else is on the sequenced plane (protocol.md
   // S8.1/S8.9): a mandatory, well-formed #<id> is REQUIRED as the
   // line's last token, independent of whether the verb itself is even
@@ -796,17 +857,42 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
   // next (16B incl. " next="), plus the "status " prefix (7B) and
   // trailing '\n' (1B) -- measures well under 130 bytes total, so 200
   // still keeps comfortable headroom; no bump needed.
+  // 2026-08-27: `done=<n> reason=<tok>` join the line, appended AFTER
+  // next= (additively -- S6's k=v replies let an older parser ignore
+  // unknown keys, so this is backward compatible for free).
+  //
+  // This is REQUIRED by, and lands before, STATUS becoming unsequenced.
+  // Since S8.5 deleted the telemetry piggyback, (lastDone, reason) only
+  // ever rides a direct reply -- and radio-robot-lib's own host
+  // (src/host/robot_v6/reliability.py, poll_completion) pokes the robot
+  // with a STATUS purely to provoke an ack carrying a fresh pair. An
+  // unsequenced STATUS emits no ack, so that poll would go silent and
+  // completion delivery would die quietly. Carrying the pair on the
+  // status line itself removes the dependency on an ack entirely, and
+  // closes what protocol.md S8.7 already called "a gap, not a
+  // considered omission."
+  //
+  // Read fresh off the adapter at format time, exactly as replyAck()
+  // does -- never cached (S8.8).
+  //
+  // Width: the two new keys add at most " done=4294967295" (16B) and
+  // " reason=" plus the longest wire name ("aborted", 7B) = 15B, i.e.
+  // 31B on top of the ~130B worst case documented above. 200 still
+  // holds it with room to spare.
   char buf[200];
   snprintf(buf, sizeof(buf),
                 "status ready=%d active=%d connL=%d connR=%d otos=%d "
-                "wedge=%d flags=%x i2cf=%ld cyc=%lu tlm=%s next=%lu\n",
+                "wedge=%d flags=%x i2cf=%ld cyc=%lu tlm=%s next=%lu "
+                "done=%lu reason=%s\n",
                 status.ready ? 1 : 0, status.active ? 1 : 0,
                 status.connLeft ? 1 : 0, status.connRight ? 1 : 0,
                 status.otos ? 1 : 0, status.wedge ? 1 : 0,
                 static_cast<unsigned int>(status.flags),
                 static_cast<long>(status.i2cf),
                 static_cast<unsigned long>(status.cyc), status.tlm,
-                static_cast<unsigned long>(expectedNext_));
+                static_cast<unsigned long>(expectedNext_),
+                static_cast<unsigned long>(adapter_.lastDone()),
+                doneReasonWireName(adapter_.lastDoneReason()));
   writeLine(buf);
 }
 

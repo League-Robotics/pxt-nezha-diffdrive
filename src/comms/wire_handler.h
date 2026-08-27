@@ -6,10 +6,19 @@
 // lines, tokenizes each line in place on runs of ' ' (no allocation, no
 // std::string -- S3.2), enforces case-as-direction (S2.1: commands
 // UPPERCASE, replies lowercase, verb lookup case-SENSITIVE), and
-// dispatches every verb this project currently implements: the four
-// unsequenced exemptions (HELLO, PING, ESTOP, HELP -- S8.3) plus the
-// eight non-motion sequenced verbs (ID, VER, STATUS, GET, SET, TLM,
-// STOP, RUN).
+// dispatches every verb this project currently implements: the seven
+// unsequenced exemptions (HELLO, PING, ESTOP, HELP, ID, VER, STATUS --
+// S8.3) plus the five non-motion sequenced verbs (GET, SET, TLM, STOP,
+// RUN).
+//
+// The rule that draws that line, added 2026-08-27: A VERB CARRIES A
+// SEQUENCE ID IFF DUPLICATE EXECUTION OR REORDERING COULD CAUSE HARM,
+// i.e. iff it changes state. Queries (ID/VER/STATUS) and liveness/
+// orientation verbs (HELLO/PING/HELP) are idempotent, so sequencing
+// them bought nothing and cost a silent drop of the bare form plus a
+// payload-less stale ack on a resend. GET is a deliberate exception:
+// read-only but still sequenced, to keep the config plane symmetric
+// with SET (stakeholder direction).
 //
 // HELP joined the unsequenced set on 2026-08-27 by stakeholder
 // direction. It is a human-typed diagnostic verb -- the FIRST thing an

@@ -125,9 +125,9 @@ def test_sync_seq_nack_5_then_next_allocated_id_is_hash5_not_hash6():
     link = robotlink.Link(port, radio=False)
 
     link.sync_seq()
-    formatted = link._format('STATUS')
+    formatted = link._format('GET')
 
-    assert formatted == 'STATUS #5'
+    assert formatted == 'GET #5'
 
 
 def test_sync_seq_strips_relay_prefix_before_matching():
@@ -160,9 +160,9 @@ def test_open_link_usb_sends_hello_before_first_sequenced_verb(monkeypatch):
     _patch_common(monkeypatch, port)
 
     link = robotlink.open_link('/dev/fake-usb', radio=False)
-    link.send('STATUS')
+    link.send('GET')
 
-    assert port.writes == [b'HELLO\n', b'STATUS #1\n']
+    assert port.writes == [b'HELLO\n', b'GET #1\n']
 
 
 def test_open_link_radio_sends_hello_after_relay_setup_before_seq_verb(
@@ -171,7 +171,7 @@ def test_open_link_radio_sends_hello_after_relay_setup_before_seq_verb(
     _patch_common(monkeypatch, port)
 
     link = robotlink.open_link('/dev/fake-zavaz', radio=True)
-    link.send('STATUS')
+    link.send('GET')
 
     # The relay's own control-plane setup (!ECHO OFF/!MODE RAW250/!CG/
     # !P/!GO) are relay commands, not robot wire commands, and must run
@@ -184,7 +184,7 @@ def test_open_link_radio_sends_hello_after_relay_setup_before_seq_verb(
         b'!P 7\n',
         b'!GO\n',
         b'HELLO\n',
-        b'STATUS #1\n',
+        b'GET #1\n',
     ]
 
 
@@ -290,8 +290,17 @@ def test_unsequenced_verbs_are_not_given_ids():
     consumes -- it neither acks nor advances expectedNext_ -- so the
     NEXT command would present as a numeric gap and stall the stream.
     """
-    for verb in ('HELLO', 'PING', 'ESTOP', 'HELP'):
+    for verb in ('HELLO', 'PING', 'ESTOP', 'HELP', 'ID', 'VER', 'STATUS'):
         assert verb not in robotlink._V6_VERBS, verb
+
+
+def test_get_stays_sequenced_despite_being_read_only():
+    """GET is order-dependent: SET mutates what it reads, so an
+    out-of-order GET would return a pre-SET value indistinguishable from
+    a post-SET one. Read-only is NOT the test -- position-dependence is.
+    """
+    assert 'GET' in robotlink._V6_VERBS
+    assert 'SET' in robotlink._V6_VERBS
 
 
 def test_help_is_not_sequenced_and_does_not_consume_an_id():
@@ -303,5 +312,5 @@ def test_help_is_not_sequenced_and_does_not_consume_an_id():
     link.send('HELP')
     assert port.writes[-1] == b'HELP\n'      # no '#' appended
     assert link._seq == 4                    # nothing consumed
-    link.send('STATUS')
-    assert port.writes[-1] == b'STATUS #5\n'
+    link.send('GET')
+    assert port.writes[-1] == b'GET #5\n'

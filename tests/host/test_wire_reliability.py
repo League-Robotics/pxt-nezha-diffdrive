@@ -54,32 +54,29 @@ from test_wire_grammar import (  # noqa: F401 -- wg/wire_lib re-exported as fixt
 @pytest.mark.parametrize(
     "line",
     [
-        b"STATUS\n",  # no trailing field at all
-        b"STATUS #\n",  # bare hash, no digits
-        b"STATUS #+5\n",  # signed -- '+' is not a digit
-        b"STATUS #-5\n",  # signed -- '-' is not a digit
-        b"STATUS # 5\n",  # the space splits this into two tokens; the
+        b"STOP\n",  # no trailing field at all
+        b"STOP #\n",  # bare hash, no digits
+        b"STOP #+5\n",  # signed -- '+' is not a digit
+        b"STOP #-5\n",  # signed -- '-' is not a digit
+        b"STOP # 5\n",  # the space splits this into two tokens; the
                            # real last token is "5", which doesn't even
                            # start with '#'
-        b"STATUS #5a\n",  # trailing non-digit content
+        b"STOP #5a\n",  # trailing non-digit content
     ],
 )
 def test_malformed_or_missing_id_on_sequenced_verb_is_silently_malformed(wg, line):
     wg.feed(line)
     assert wg.take_sink() == b""
     assert wg.malformed_count == 1
-    assert wg.status_calls == 0
+    assert wg.stop_calls == 0
 
 
 def test_well_formed_id_with_many_digits_is_accepted(wg):
     """The digits-only parser accepts an ordinary multi-digit id -- this
     is the well-formed baseline the malformed-shapes test above is
     contrasted against."""
-    wg.feed(b"STATUS #1\n")
-    assert wg.take_sink() == _ack(1) + (
-        b"status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 "
-        b"flags=0 i2cf=0 cyc=0 tlm=off next=2\n"
-    )
+    wg.feed(b"STOP #1\n")
+    assert wg.take_sink() == _ack(1)
     assert wg.malformed_count == 0
 
 
@@ -162,12 +159,12 @@ def test_unrecognized_verb_in_order_is_a_decode_failure_nacks_same_id(wg):
 
 
 def test_wrong_arity_known_verb_in_order_is_a_decode_failure(wg):
-    """STATUS takes zero data fields -- an extra one is wrong arity, a
+    """STOP takes zero data fields -- an extra one is wrong arity, a
     decode failure (err 2 ERR_BADARG), not a best-effort parse."""
-    wg.feed(b"STATUS extra #1\n")
+    wg.feed(b"STOP extra #1\n")
     assert wg.take_sink() == _nack(1) + b"err 2 #1\n"
     assert wg.malformed_count == 1
-    assert wg.status_calls == 0
+    assert wg.stop_calls == 0
 
 
 def test_unparseable_field_is_a_decode_failure(wg):
@@ -259,10 +256,10 @@ def test_gap_stalls_every_subsequent_command_identically(wg):
 
     # A DIFFERENT, otherwise-well-formed command, still out of order,
     # nacks identically -- the missing id, not the command just sent.
-    wg.feed(b"STATUS #6\n")
+    wg.feed(b"STOP #6\n")
     assert wg.take_sink() == _nack(1)
     assert wg.set_calls == 0
-    assert wg.status_calls == 0
+    assert wg.stop_calls == 0
     assert wg.malformed_count == 0
 
 
@@ -270,11 +267,8 @@ def test_missing_id_finally_arriving_resumes_the_sequence(wg):
     wg.feed(b"SET group.alpha 1.0 #5\n")
     wg.take_sink()
 
-    wg.feed(b"STATUS #1\n")
-    assert wg.take_sink() == _ack(1) + (
-        b"status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 "
-        b"flags=0 i2cf=0 cyc=0 tlm=off next=2\n"
-    )
+    wg.feed(b"STOP #1\n")
+    assert wg.take_sink() == _ack(1)
     wg.set_set_result(RESULT_OK)
     wg.feed(b"SET group.alpha 1.0 #2\n")
     assert wg.take_sink() == _ack(2)
@@ -294,7 +288,7 @@ def test_lost_nack_self_heals_via_the_hosts_own_next_line(wg):
     assert wg.take_sink() == _nack(1)
 
     # It keeps happening on every subsequent inbound line, not just once.
-    wg.feed(b"STATUS #7\n")
+    wg.feed(b"STOP #7\n")
     assert wg.take_sink() == _nack(1)
 
 
@@ -303,15 +297,15 @@ def test_lost_ack_self_heals_via_the_hosts_own_retransmit(wg):
     never saw its ack resends the same id; the handler re-acks WITHOUT
     re-executing. This replaces the deleted emitReliability() re-ack --
     the host's own retransmit, not a firmware beacon, is the heal."""
-    wg.feed(b"STATUS #1\n")
+    wg.feed(b"STOP #1\n")
     wg.take_sink()  # the ack is "lost" -- simply discarded
-    status_calls_after_first = wg.status_calls
+    stop_calls_after_first = wg.stop_calls
 
-    wg.feed(b"STATUS #1\n")  # host retransmit of the same id
+    wg.feed(b"STOP #1\n")  # host retransmit of the same id
     assert wg.take_sink() == _ack(1), (
         "a stale retransmit gets the bare re-ack alone -- no status "
         "line, since the verb is never re-executed")
-    assert wg.status_calls == status_calls_after_first, (
+    assert wg.stop_calls == stop_calls_after_first, (
         "a stale retransmit must re-ack, never re-execute")
 
 
@@ -330,10 +324,13 @@ def test_hello_resets_expected_next_after_a_gap(wg):
 
     # expectedNext_ is back to 1 -- #1 is in-order again, and the gap is
     # cleared (no more nacking).
-    wg.feed(b"STATUS #1\n")
+    wg.feed(b"STOP #1\n")
     text = wg.take_sink()
     assert text.startswith(_ack(1))
-    assert b"next=2" in text
+    # STATUS is unsequenced (2026-08-27), so probing expectedNext_ here
+    # cannot itself consume an id and perturb what is under test.
+    wg.feed(b"STATUS\n")
+    assert b"next=2" in wg.take_sink()
 
 
 def test_hello_does_not_touch_adapters_last_done(wg):
@@ -341,7 +338,7 @@ def test_hello_does_not_touch_adapters_last_done(wg):
     wg.feed(b"HELLO\n")
     wg.take_sink()
 
-    wg.feed(b"STATUS #1\n")
+    wg.feed(b"STOP #1\n")
     assert wg.take_sink().startswith(_ack(1, 7, DONE_STOP))
 
 
@@ -353,7 +350,7 @@ def test_hello_does_not_touch_adapters_last_done(wg):
 
 def test_ack_carries_the_adapters_current_last_done_and_reason(wg):
     wg.set_last_done(3, DONE_TIMEOUT)
-    wg.feed(b"STATUS #1\n")
+    wg.feed(b"STOP #1\n")
     assert wg.take_sink().startswith(_ack(1, 3, DONE_TIMEOUT))
 
 
@@ -368,11 +365,11 @@ def test_last_done_is_read_fresh_not_cached_across_calls(wg):
     what the NEXT ack reports -- proving there is no cached copy
     anywhere on WireHandler."""
     wg.set_last_done(1, DONE_STOP)
-    wg.feed(b"STATUS #1\n")
+    wg.feed(b"STOP #1\n")
     assert wg.take_sink().startswith(_ack(1, 1, DONE_STOP))
 
     wg.set_last_done(2, DONE_ABORTED)
-    wg.feed(b"STATUS #2\n")
+    wg.feed(b"STOP #2\n")
     assert wg.take_sink().startswith(_ack(2, 2, DONE_ABORTED))
 
 

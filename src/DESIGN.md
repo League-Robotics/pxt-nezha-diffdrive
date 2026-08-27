@@ -249,7 +249,23 @@ stream until the missing id arrives. Merits rejections (verb decoded,
 adapter refused) ack-and-advance plus `err <code> #<id>` — kept
 sharply distinct from decode failures. `lastDone`/`lastDoneReason` are
 polled fresh off the Adapter on every ack/nack, never cached.
-HELLO/PING/ESTOP/HELP are unsequenced, intercepted before id resolution
+HELLO/PING/ESTOP/HELP/ID/VER/STATUS are unsequenced, intercepted before
+id resolution. The rule (agreed with radio-robot-lib, protocol.md's
+owner, 2026-08-27): **a verb is sequenced iff its correctness depends on
+its position in the stream** -- either executing it twice changes the
+robot, or answering it out of order yields a wrong answer. ID/VER/HELP
+answer session constants; STATUS is the out-of-band diagnostic a
+DESYNCED host must be able to send. GET stays sequenced despite being
+read-only, because SET mutates what it reads. All unsequenced verbs take
+the PING posture (forgiving of any trailing content), never HELLO's
+strict zero-arity -- strict would make `ID #1` wrong-arity, and an
+unsequenced verb has no ack to anchor an err against, so the reply would
+be silence.
+
+Note HELLO is a session RESET, not a liveness probe: it sets
+expectedNext_ = 1, so firing it at a live session desyncs it. PING says
+"alive"; STATUS says "alive, and here is where the sequence stands"
+(next=/done=/reason=); HELLO says "start over".
 (HELP joined this set 2026-08-27: it is the verb a human types first,
 so answering it must not depend on knowing the grammar being asked
 about; it is forgiving of any trailing content, like PING, and its

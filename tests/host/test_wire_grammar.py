@@ -787,11 +787,49 @@ def test_binary_garbage_never_crashes_the_handler(wg):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("line", [b"ID\n", b"STATUS\n", b"NOTAVERB\n"])
+@pytest.mark.parametrize("line", [b"GET\n", b"TLM\n", b"NOTAVERB\n"])
 def test_sequenced_verb_with_no_id_at_all_is_malformed_no_reply(wg, line):
+    """Still true for verbs that remain SEQUENCED. ID/STATUS used to be
+    in this list and were removed 2026-08-27 when they became
+    unsequenced -- a bare `ID` or `STATUS` is now answered, which is the
+    entire point of that change (see
+    test_unsequenced_query_verbs_answer_without_an_id)."""
     wg.feed(line)
     assert wg.take_sink() == b""
     assert wg.malformed_count == 1
+
+
+def test_unsequenced_query_verbs_answer_without_an_id(wg):
+    """ID/VER/STATUS are read-only: a duplicate is harmless and a lost
+    one is recovered by asking again, so they carry no sequence id
+    (2026-08-27). Typing the bare verb -- what a human actually does --
+    must answer, not be silently dropped as a #0 below expectedNext_."""
+    for verb, prefix in ((b"ID", b"id "), (b"VER", b"ver "),
+                          (b"STATUS", b"status ")):
+        # PING posture, NOT HELLO posture (radio-robot-lib-85, item 5):
+        # if these went strict-zero-arity, `ID #1` -- which every
+        # existing host and every human sends -- would be wrong arity,
+        # and an unsequenced verb has no ack to anchor an err against,
+        # so the reply would be SILENCE. That trades "dropped as stale"
+        # for "dropped as malformed": same symptom, new cause.
+        for line in (verb + b"\n", verb + b" #1\n", verb + b" #99\n",
+                      verb + b" junk\n", verb + b" a b c\n"):
+            wg.feed(line)
+            out = wg.take_sink()
+            assert out.startswith(prefix), (line, out)
+            assert b"ack" not in out and b"nack" not in out, (line, out)
+
+
+def test_unsequenced_query_verbs_do_not_consume_an_id(wg):
+    """The bug that motivated this: a resent `ID #1` used to draw a bare
+    `ack 1 0 none` with no `id` line -- the stale-retransmit row of
+    protocol.md S8.1, correct for a state-changing verb but nonsense for
+    a query. Outside the sequence there is no stale case at all."""
+    for line in (b"ID #1\n", b"VER #1\n", b"STATUS #1\n", b"ID #1\n"):
+        wg.feed(line)
+        wg.take_sink()
+    wg.feed(b"STOP #1\n")           # #1 must still be the next expected id
+    assert wg.take_sink() == _ack(1)
 
 
 def test_unrecognized_verb_with_id_is_a_decode_failure_not_silent(wg):
@@ -817,7 +855,7 @@ def test_unrecognized_verb_with_id_is_a_decode_failure_not_silent(wg):
 def test_id_golden_vector(wg):
     wg.set_identity(b"testbot", b"SN001", b"diffdrive", b"nezha2", b"6.0.0")
     wg.feed(b"ID #1\n")
-    assert wg.take_sink() == _ack(1) + b"id diffdrive nezha2 6.0.0 testbot\n"
+    assert wg.take_sink() == b"id diffdrive nezha2 6.0.0 testbot\n"
     assert wg.malformed_count == 0
 
 
@@ -831,13 +869,13 @@ def test_id_name_and_profile_are_distinct_fields(wg):
     # collapses one into the other.
     wg.set_identity(b"vevov", b"SN042", b"diffdrive", b"tovez", b"6.0.0")
     wg.feed(b"ID #1\n")
-    assert wg.take_sink() == _ack(1) + b"id diffdrive tovez 6.0.0 vevov\n"
+    assert wg.take_sink() == b"id diffdrive tovez 6.0.0 vevov\n"
 
 
 def test_ver_golden_vector(wg):
     wg.set_identity(b"testbot", b"SN001", b"diffdrive", b"nezha2", b"6.0.0")
     wg.feed(b"VER #1\n")
-    assert wg.take_sink() == _ack(1) + b"ver 6.0.0\n"
+    assert wg.take_sink() == b"ver 6.0.0\n"
 
 
 def test_status_golden_vector(wg):
@@ -854,9 +892,8 @@ def test_status_golden_vector(wg):
                   tlm=b"pose")
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == (
-        _ack(1) +
         b"status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 "
-        b"flags=a i2cf=26 cyc=147 tlm=pose next=2\n"
+        b"flags=a i2cf=26 cyc=147 tlm=pose next=1 done=0 reason=none\n"
     )
 
 
@@ -950,7 +987,7 @@ def test_help_does_not_ack_or_advance_the_sequence(wg):
     desync a host that interleaves it with real sequenced traffic."""
     wg.feed(b"HELP #7\n")
     assert wg.take_sink() == _HELP          # no ack anywhere
-    wg.feed(b"STATUS #1\n")                 # #1 still accepted
+    wg.feed(b"STOP #1\n")                   # #1 still accepted
     assert wg.take_sink().startswith(_ack(1))
 
 

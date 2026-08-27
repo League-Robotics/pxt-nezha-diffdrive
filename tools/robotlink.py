@@ -101,13 +101,24 @@ def probe_port(name, tries=8):
 # expectedNext_), so the very next command presents as a numeric gap and
 # stalls the stream on purpose.
 #
-# HELLO/PING/ESTOP/HELP are the firmware's four unsequenced exemptions
-# (wire_handler.cpp dispatch(), protocol.md S8.3) and so are deliberately
-# ABSENT here. HELP joined that set 2026-08-27; ESTOP was already
-# unsequenced in firmware but was wrongly listed here, which is the same
-# desync bug latent on every ESTOP a host ever sent.
+# The rule (agreed with radio-robot-lib-85, protocol.md's owner,
+# 2026-08-27): a verb is SEQUENCED iff its correctness depends on its
+# position in the stream -- either executing it twice changes the robot,
+# or answering it out of order yields a wrong answer.
+#
+# HELLO/PING/ESTOP/HELP/ID/VER/STATUS are the firmware's seven
+# unsequenced exemptions and are deliberately ABSENT here. ID/VER answer
+# session constants (chip-burned name, compile-time version); STATUS is
+# the out-of-band diagnostic a DESYNCED host must be able to send -- it
+# reports next=/done=/reason=, and gating it behind knowing the right id
+# made the one verb that recovers from desync require not being
+# desynced. ESTOP was already unsequenced in firmware but was wrongly
+# listed here, so every ESTOP a host ever sent silently burned an id.
+#
+# GET stays sequenced despite being read-only: it is ORDER-dependent,
+# because the sequenced plane (SET) mutates what it reads.
 _V6_VERBS = frozenset((
-    'VER', 'ID', 'STATUS', 'GET', 'SET', 'TLM', 'STOP',
+    'GET', 'SET', 'TLM', 'STOP',
     'MOVE', 'PIVOT', 'WHEELS_V', 'WHEELS_X', 'GO_TO', 'GO_TO_W', 'ARC',
 ))
 

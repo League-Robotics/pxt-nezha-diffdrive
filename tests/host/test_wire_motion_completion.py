@@ -72,7 +72,7 @@ def test_pre_completion_default_is_zero_and_none(wa):
 
     # Still the default after a verb that ISN'T a motion verb -- GET/SET/
     # STATUS/etc. never touch the completion channel at all.
-    wa.feed(b"STATUS #1\n")
+    wa.feed(b"STOP #1\n")
     wa.take_sink()
     assert wa.last_done() == 0
     assert wa.last_done_reason() == DONE_NONE
@@ -513,7 +513,7 @@ def test_ack_of_a_later_verb_carries_the_resolved_completion(wa):
     assert wa.take_sink() == _ack(1)
 
     wa.set_now_ms(2001)
-    wa.feed(b"STATUS #2\n")
+    wa.feed(b"STOP #2\n")
     reply = wa.take_sink()
     assert reply.startswith(_ack(2, 1, DONE_TIMEOUT))
 
