@@ -979,8 +979,8 @@ bool WireHandler::decodeGet(char** fields, size_t fieldCount) {
 void WireHandler::execGet(char** fields, size_t fieldCount, uint32_t id,
                            uint8_t& errCode) {
   (void)id;
-  errCode = 0;  // GET never produces an err -- an unknown name is just a
-                // silent no-`get`-line answer (protocol.md S7, S8.2).
+  errCode = 0;  // Cleared here; set to ERR_UNKNOWN below if the NAMED
+                // form is handed a field the adapter does not declare.
 
   char buf[kMaxLineBytes];
   char formatted[32];
@@ -1000,10 +1000,40 @@ void WireHandler::execGet(char** fields, size_t fieldCount, uint32_t id,
 
   const char* name = fields[0];
   float value = 0.0f;
-  // Unknown name: no `get` line, but the command is still acked (it
-  // arrived fine and was answered with an empty result) -- not an
-  // error, and not counted malformed.
-  if (!adapter_.onGet(name, value)) return;
+  // Unknown name -> `err 1 #<id>` ALONGSIDE the ack (2026-08-27,
+  // stakeholder-approved). The ack still fires: the line arrived and
+  // decoded fine, so this is a MERITS rejection (S8.2), not a decode
+  // failure -- the sequence advances exactly as it would for a
+  // successful GET.
+  //
+  // This used to be a silent no-`get`-line answer, deliberately, on the
+  // reading that GET "never produces an err". Three reasons that was
+  // wrong:
+  //
+  //  1. It is asymmetric with SET for no stated reason. An unknown SET
+  //     name is `err 1`. Same config plane, same mistake (a typo'd
+  //     field name), and one verb tells you while the other shrugs.
+  //  2. The information exists and was thrown away. Adapter::onGet
+  //     returns bool; the handler KNEW the name was unknown and
+  //     declined to report it. Not a case we cannot detect -- one we
+  //     detected and stayed quiet about.
+  //  3. On a lossy link the silence is ambiguous in the worst way. An
+  //     ack with no `get` line has two live explanations -- wrong name,
+  //     or the `get` line was dropped -- and the operator cannot tell
+  //     them apart. Measured on this rig 2026-08-27: 66-75% per-line
+  //     delivery on radio ch4. `err 1` disambiguates for the cost of
+  //     one short line, which is also the line most likely to survive.
+  //
+  // Found the hard way: this path produced "accepted, then answered
+  // nothing" -- the exact symptom the stakeholder had been objecting to
+  // all day -- and it was hit, unnoticed, in this repo's own
+  // verification capture. The failure mode is that it does not look
+  // like a failure. Bare `GET #id` is untouched: it dumps the declared
+  // field list and has no unknown name to report.
+  if (!adapter_.onGet(name, value)) {
+    errCode = resultCode(Result::kUnknown);
+    return;
+  }
   formatConfigValue(value, formatted, sizeof(formatted));
   snprintf(buf, sizeof(buf), "get %s %s\n", name, formatted);
   writeLine(buf);

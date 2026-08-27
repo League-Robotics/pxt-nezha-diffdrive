@@ -1092,10 +1092,37 @@ def test_get_named_golden_vector(wg):
     assert wg.take_sink() == _ack(1) + b"get group.beta -2.250000\n"
 
 
-def test_get_unknown_name_acks_with_no_get_line(wg):
+def test_get_unknown_name_acks_and_errs(wg):
+    """2026-08-27, stakeholder-approved: an unknown GET name is
+    `err 1 #<id>` ALONGSIDE the ack, symmetric with SET.
+
+    The ack still fires -- the line arrived and decoded, so this is a
+    MERITS rejection (S8.2), not a decode failure, and the sequence
+    advances. This previously acked and said nothing, which produced
+    "accepted, then answered nothing": indistinguishable, on a lossy
+    link, from the `get` line having been dropped. Adapter::onGet
+    already returned bool, so the handler knew and declined to say."""
     wg.feed(b"GET nosuch.field #1\n")
-    assert wg.take_sink() == _ack(1)
+    assert wg.take_sink() == _ack(1) + b"err 1 #1\n"
     assert wg.malformed_count == 0
+
+
+def test_get_unknown_name_still_advances_the_sequence(wg):
+    """A merits rejection is not a decode failure: #2 must be next."""
+    wg.feed(b"GET nosuch.field #1\n")
+    wg.take_sink()
+    wg.feed(b"STOP #2\n")
+    assert wg.take_sink() == _ack(2)
+
+
+def test_get_bare_form_never_errs_on_unknown_names(wg):
+    """Bare GET dumps the DECLARED field list, so it has no unknown name
+    to report -- the err path is reachable only via the named form. Pins
+    that the change did not leak into the dump."""
+    wg.feed(b"GET #1\n")
+    out = wg.take_sink()
+    assert out.startswith(_ack(1))
+    assert b"err " not in out
 
 
 # ---------------------------------------------------------------------------

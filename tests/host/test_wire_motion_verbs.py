@@ -1489,11 +1489,16 @@ def test_get_set_field_name_table_round_trips(wa):
 
 
 def test_get_set_unknown_field_name_is_unknown(wa):
+    """SET and GET now answer an unknown field name IDENTICALLY
+    (2026-08-27). This test used to show the asymmetry in adjacent
+    lines -- SET errored, GET acked and said nothing -- which is the
+    clearest statement of why it was wrong: same config plane, same
+    mistake, two different answers, one of them silent."""
     wa.feed(b"SET nosuch_field 1.0 #1\n")
     assert wa.take_sink() == _ack(1) + _err(1, 1)  # ERR_UNKNOWN
 
     wa.feed(b"GET nosuch_field #2\n")
-    assert wa.take_sink() == _ack(2)  # no `get` line -- unknown name
+    assert wa.take_sink() == _ack(2) + _err(1, 2)  # ERR_UNKNOWN, same
 
 
 def test_set_value_times_1000_overflow_is_range_refused(wa):
