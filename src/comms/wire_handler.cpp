@@ -579,9 +579,71 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
   uint32_t id = 0;
   if (!parseMandatoryId(lastFieldToken, id)) {
     // No trailing field at all, or one that isn't a well-formed
-    // '#'[0-9]+ -- the line cannot be sequence-classified. Nothing to
-    // compare against expectedNext_, so there is no reply of any kind.
+    // '#'[0-9]+ -- the line cannot be sequence-classified.
+    //
+    // 2026-08-27, stakeholder direction: this used to be answered with
+    // TOTAL SILENCE, on the reasoning that with no id there is nothing
+    // to compare against expectedNext_ and therefore nothing to say.
+    // That reasoning is wrong, and it produced the single most
+    // confusing behaviour on the wire:
+    //
+    //     WHEELS_X 100 100 2000      <- typed, no id
+    //     (nothing at all)
+    //
+    // The operator cannot tell that from a dead robot, a dropped
+    // packet, an unknown verb, or a wedged link. "If I don't put a
+    // number on something, there should be an error... Where's my NAK,
+    // or my error, or ANYTHING that tells me what happened?"
+    //
+    // There IS something to say, and it is the same thing a gap says:
+    // `nack <expectedNext_>` -- "I did not run that; send me id N."
+    // That is precisely the information a host missing an id needs, and
+    // it is the reply this branch was already capable of producing.
+    //
+    // SCOPED TO RECOGNIZED VERBS ONLY. An unrecognized verb still gets
+    // silence, deliberately: the radio channel is shared, and answering
+    // arbitrary uppercase garbage would make this robot chatter at
+    // every corrupted line and every other robot's traffic that happens
+    // to survive the case gate. A verb this handler actually implements
+    // is addressed to it; unknown tokens are not assumed to be.
+    //
+    // Does NOT touch the sequence: expectedNext_ is unchanged, nothing
+    // executes, and gapOutstanding_ is NOT set -- a missing id is a
+    // malformed line, not evidence that a numbered command was lost.
     ++malformedCount_;
+    const VerbEntry* known = nullptr;
+    for (const auto& e : kCommandTable) {
+      if (std::strcmp(verb, e.name) == 0) {
+        known = &e;
+        break;
+      }
+    }
+    if (known != nullptr) replyNack(expectedNext_);
+    return;
+  }
+
+  if (id == 0) {
+    // `#0` is NEVER a legal id -- ids start at 1 and expectedNext_ never
+    // goes below it (S2.2). Until 2026-08-27 this fell into the ordinary
+    // stale-retransmit bucket with no special-casing, so it was answered
+    // `ack <expectedNext_ - 1>` -- and on a fresh session that is
+    // literally `ack 0 0 none`: a receipt for a command that never
+    // existed, was never accepted, and did not run. Reported from the
+    // field as:
+    //
+    //     WHEELS_X 100 100 1000 #0
+    //     ack 0 0 none                 <- and the robot did not move
+    //
+    // which is the same "accepted, then nothing happened" shape as
+    // GET's silent unknown name and the payload-less stale ack. A
+    // never-legal id is a malformed LINE, not a retransmit of anything,
+    // so it is answered the way every other unusable id now is: `nack
+    // <expectedNext_>`, "I did not run that; send me id N."
+    //
+    // Sequence untouched, nothing executes, and gapOutstanding_ is NOT
+    // set -- nothing was lost, the id was simply invalid.
+    ++malformedCount_;
+    replyNack(expectedNext_);
     return;
   }
 

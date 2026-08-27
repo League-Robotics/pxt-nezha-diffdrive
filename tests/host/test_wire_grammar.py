@@ -787,15 +787,31 @@ def test_binary_garbage_never_crashes_the_handler(wg):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("line", [b"GET\n", b"TLM\n", b"NOTAVERB\n"])
-def test_sequenced_verb_with_no_id_at_all_is_malformed_no_reply(wg, line):
-    """Still true for verbs that remain SEQUENCED. ID/STATUS used to be
-    in this list and were removed 2026-08-27 when they became
-    unsequenced -- a bare `ID` or `STATUS` is now answered, which is the
-    entire point of that change (see
-    test_unsequenced_query_verbs_answer_without_an_id)."""
+@pytest.mark.parametrize("line", [b"NOTAVERB\n", b"XYZZY 1 2\n"])
+def test_unknown_verb_with_no_id_is_malformed_no_reply(wg, line):
+    """Silence survives only for verbs this handler does NOT implement
+    -- shared-channel noise must not draw a reply.
+
+    Two groups left this test on 2026-08-27. ID/STATUS, because they
+    became unsequenced and a bare form now ANSWERS. GET/TLM, because a
+    recognized sequenced verb with no id now NACKs rather than vanishing
+    (see test_recognized_sequenced_verb_without_an_id_nacks)."""
     wg.feed(line)
     assert wg.take_sink() == b""
+    assert wg.malformed_count == 1
+
+
+@pytest.mark.parametrize("line", [b"GET\n", b"TLM\n", b"SET a 1\n",
+                                   b"WHEELS_V 100 100\n", b"STOP\n",
+                                   b"MOVE_X 10 10\n", b"RUN foo\n"])
+def test_recognized_sequenced_verb_without_an_id_nacks(wg, line):
+    """The operator's most common mistake -- typing a real command and
+    forgetting the id -- must say something. `nack 1` means "I did not
+    run that; send me id 1." Covers the motion verbs specifically,
+    because `WHEELS_X 100 100 2000` with no id vanishing without trace
+    is the exact report that prompted this."""
+    wg.feed(line)
+    assert wg.take_sink() == _nack(1), line
     assert wg.malformed_count == 1
 
 
