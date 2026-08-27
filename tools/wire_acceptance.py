@@ -31,6 +31,7 @@ So this asserts on an ENCODER DELTA, and, when the overhead camera is
 reachable, cross-checks against the tag. An `ack` is not evidence.
 """
 import argparse
+import re
 import subprocess
 import sys
 import time
@@ -269,9 +270,10 @@ def run_bad_cases(link):
     out = link.ask('ID')
     record(PASS if has(out, 'id ') and has(out, 'nack 1 ') else FAIL,
            'gap open -> query answers AND reminds', str(out))
-    out = link.ask('ESTOP')
+    out = [t for t in link.ask('ESTOP')
+           if not t.startswith(('t ', 'thdr '))]
     record(PASS if out == ['estop'] else FAIL,
-           'ESTOP during a gap -> bare `estop`', str(out))
+           'ESTOP during a gap -> bare `estop`, no reminder', str(out))
     reset(link)
     out = link.ask('ID')
     record(PASS if has(out, 'id ') and not has(out, 'nack') else FAIL,
@@ -301,61 +303,95 @@ def run_good_cases(link):
            'resent #2 -> re-ack, not re-executed', str(out))
 
 
-def run_motion(link, distance_cm):
-    """Does a commanded move MOVE THE ROBOT?
+def next_id(lines, cur):
+    """Track the host's sequence counter from what the robot ACTUALLY
+    says, never by blind increment.
 
-    Preconditions are checked first and reported BLOCKED, not FAIL: a
-    robot whose Nezha brick has no power cannot move, and calling that a
-    protocol defect would be wrong.
+    Two hard-won rules, both of which cost a debugging session:
+      * `nack N` means "resend N" -- a decode failure HOLDS the stream
+        (S8.9). Incrementing after a nack opens a gap on the same wound.
+      * UNSEQUENCED verbs (HELLO/PING/ESTOP/HELP/ID/VER/STATUS) consume
+        NO id. Bumping a counter for them desyncs the very next real
+        command -- the same defect that was latent in robotlink's
+        _V6_VERBS for ESTOP.
     """
-    print('\n=== MOTION ===')
+    for t in lines:
+        m = re.match(r'^nack (\d+)', t)
+        if m:
+            return int(m.group(1))
+        m = re.match(r'^ack (\d+)', t)
+        if m:
+            return int(m.group(1)) + 1
+    return cur
+
+
+def run_motion(link, distance_mm):
+    """Do the WHEELS TURN?
+
+    On a bench stand this is the whole question and needs no camera:
+    telemetry's vl/vr (wheel velocity) going non-zero, and x (odometry)
+    advancing, while a move is commanded.
+
+    Deliberately does NOT call RUN:probe first. That touches the OTOS
+    over I2C and hangs indefinitely on a board whose OTOS does not
+    answer -- measured on tovez running PRE-2026-08-27 firmware, so it
+    is not a regression from the wire work, but it will kill the program
+    and take the rest of the run with it. Wheels do not need it.
+    """
+    print('\n=== MOTION: do the wheels turn? ===')
     reset(link)
-    st = status_of(link)
-    print(f'  STATUS: {st or "(no reply)"}')
+    seq = 1
 
-    if not st:
-        record(BLOCKED, 'motion: robot did not answer STATUS',
-               'cannot judge motion against a robot that is not talking')
-        return
-    ready = kv(st, 'ready') == '1'
-    conn = kv(st, 'connL') == '1' and kv(st, 'connR') == '1'
-    cyc = kv(st, 'cyc', '0')
-
-    if not conn:
-        record(BLOCKED, 'motion: encoders not connected (connL/connR = 0)',
-               'Nezha brick has no power -- switch it on, then RUN:probe '
-               'must answer OPROBE:95:1 before motion means anything')
-        record(BLOCKED, 'motion: robot physically moved',
-               'precondition above unmet')
-        return
-    if not ready:
-        record(BLOCKED, f'motion: kernel not ready (ready=0, cyc={cyc})',
-               'kernel has not ticked')
-        record(BLOCKED, 'motion: robot physically moved', 'precondition unmet')
+    out = link.ask(f'TLM POSE #{seq}', 2.0)
+    seq = next_id(out, seq)
+    cols = None
+    for t in out:
+        if t.startswith('thdr '):
+            cols = t.split()[1:]
+    record(PASS if cols else FAIL, 'telemetry stream started (thdr seen)',
+           str(out[:3]))
+    if not cols:
+        record(BLOCKED, 'motion: wheels turned', 'no telemetry to judge by')
         return
 
-    out = link.ask('RUN:probe', 4.0)
-    record(PASS if has(out, 'OPROBE') else FAIL,
-           'RUN:probe -> OPROBE (I2C bus alive)', str(out))
+    def frames(lines):
+        out = []
+        for t in lines:
+            if t.startswith('t '):
+                parts = t.split()[1:]
+                if len(parts) == len(cols):
+                    out.append(dict(zip(cols, parts)))
+        return out
 
-    before = status_of(link)
-    reset(link)
-    out = link.ask(f'MOVE_X {distance_cm} {distance_cm} #1', 3.0)
-    record(PASS if has(out, 'ack 1 ') else FAIL,
-           f'MOVE_X {distance_cm} accepted', str(out))
-    time.sleep(4.0)
-    after = status_of(link)
+    # PING is unsequenced, so it consumes no id -- a safe way to hold
+    # the port open and collect telemetry frames between commands.
+    base = frames(link.ask('PING', 1.0))
+    x0 = int(base[-1]['x']) if base else 0
 
-    # An ack is not evidence. `done=` advancing proves the kernel
-    # RESOLVED a move; it does not prove the wheels turned, which only
-    # an external instrument can. Report both, and say which is which.
-    d_before, d_after = kv(before, 'done', '0'), kv(after, 'done', '0')
-    record(PASS if d_after != d_before else FAIL,
-           f'a move RESOLVED (done= {d_before} -> {d_after})',
-           f'before={before}  after={after}')
-    record(BLOCKED, 'motion: independently confirmed by camera',
-           'not wired up here -- odometry cannot detect its own failure '
-           'to move, so this needs an overhead-camera or tape check')
+    # ARITY IS EXACT, and getting it wrong is a decode failure, not a
+    # move: WHEELS_X <left mm> <right mm> <cruise> <timeout ms>. The
+    # three-field form reported from the field (`WHEELS_X 100 100 2000`)
+    # is wrong arity and answers `nack` + `err 2`.
+    cmd = f'WHEELS_X {distance_mm} {distance_mm} 120 5000 #{seq}'
+    out = link.ask(cmd, 0.5)
+    record(PASS if has(out, f'ack {seq} ') else FAIL,
+           f'{cmd} accepted', str([t for t in out if not t.startswith('t ')][:3]))
+
+    moving = frames(link.ask('PING', 3.5))
+    vl = [abs(int(f['vl'])) for f in moving if 'vl' in f]
+    vr = [abs(int(f['vr'])) for f in moving if 'vr' in f]
+    x1 = int(moving[-1]['x']) if moving else x0
+    turned = (max(vl) if vl else 0) > 0 or (max(vr) if vr else 0) > 0 \
+        or abs(x1 - x0) > 5
+    record(PASS if turned else FAIL,
+           'WHEELS TURNED (vl/vr non-zero or odometry advanced)',
+           f'vl max={max(vl) if vl else 0} vr max={max(vr) if vr else 0} '
+           f'x {x0} -> {x1}')
+
+    seq = next_id(out, seq)
+    out = link.ask(f'STOP #{seq}', 1.0)
+    seq = next_id(out, seq)
+    link.ask(f'TLM OFF #{seq}', 1.5)   # quiet the wire for later sections
 
 
 def main():
@@ -366,8 +402,8 @@ def main():
                    help="vevov's port, over ssh ros@gauti")
     g.add_argument('--radio', metavar='CH', type=int,
                    help='torture relay pool on this channel')
-    ap.add_argument('--distance', type=float, default=10.0,
-                    help='motion test distance in cm (default 10)')
+    ap.add_argument('--distance', type=int, default=200,
+                    help='motion test distance per wheel in MM (default 200)')
     ap.add_argument('--no-motion', action='store_true',
                     help='skip the motion section (bench board, wheels up)')
     a = ap.parse_args()
@@ -395,12 +431,19 @@ def main():
         return 3
 
     try:
-        run_bad_cases(link)
+        # ORDER MATTERS. run_bad_cases() sends ESTOP, which LATCHES
+        # estopLatch_ (core/diffdrive.cpp) and makes checkCommandable()
+        # refuse every later motion command at intake. There is no wire
+        # verb that clears it -- _estopClear() exists only as a block
+        # (src/blocks/stop.ts) -- so once ESTOP has been sent, motion
+        # cannot be tested again until the board reboots. Motion
+        # therefore runs FIRST, and ESTOP is left to the end.
         run_good_cases(link)
         if a.no_motion:
             print('\n=== MOTION: skipped (--no-motion) ===')
         else:
             run_motion(link, a.distance)
+        run_bad_cases(link)
     finally:
         link.close()
 
