@@ -102,17 +102,26 @@ that is deliberately **not executed**. An unsequenced line parses as
 `#0`, which is unconditionally below `expectedNext_` (it starts at 1),
 so it is silently dropped.
 
-Measured on vevov, 2026-08-25, over USB:
+Measured on vevov, 2026-08-25, over USB. **PRE-SPRINT-024** — the
+"keepalive acks" in the first row came from the free-running
+`emitReliability()` call sprint 024 ticket 001 deleted, so that column
+describes pre-024 firmware and has not been re-measured since:
 
 | sent | result |
 |---|---|
 | `TLM POSE` | 0 telemetry frames (keepalive acks only) |
 | `TLM POSE #1` | 72 `t` frames + 4 `thdr` frames |
 
-`tools/robotlink.py` now attaches ids to the v6 verbs automatically and
-adopts the robot's `expectedNext_` on connect (`sync_seq()`). A
-retransmit must reuse its ORIGINAL id — a resend that takes a fresh one
-presents as a numeric gap, which stalls the stream on purpose.
+`tools/robotlink.py` attaches ids to the v6 verbs automatically. Since
+sprint 024 ticket 002 it resyncs on connect by sending `HELLO`
+(`Link.hello()`), **not** by reading a keepalive via `sync_seq()` —
+`HELLO` resets the robot to `expectedNext_ = 1` and clears any
+outstanding gap, so a wedged link now heals on reconnect without a
+reboot. `sync_seq()` still exists and is still correct for a caller
+that has a live `ack`/`nack` line to read outside the connect path, but
+nothing streams passively anymore for it to find. A retransmit must
+reuse its ORIGINAL id — a resend that takes a fresh one presents as a
+numeric gap, which stalls the stream on purpose.
 
 The cleartext `RUN:`/`DIAG` vocabulary is a **different parser path**
 and is NOT sequenced: `RUN:tour:wheels` unsequenced returns its

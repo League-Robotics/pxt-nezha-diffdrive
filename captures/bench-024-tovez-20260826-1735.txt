@@ -1,0 +1,203 @@
+==============================================================
+SPRINT 024 TICKET 001 BENCH CHECK -- tovez, 2026-08-26, USB
+board: tovez /dev/cu.usbmodem2121102 @115200
+firmware: built from sprint/024 branch,
+  uv run python tools/make_deploy.py --robot tovez --flash
+  hex 1474901 bytes, 0 x :0400000A markers (plain V2), kProfile=tovez
+==============================================================
+
+--- SCRIPT USED (verbatim) ---
+"""Sprint 024 ticket 001 bench check, on tovez over USB.
+
+Deliberately RAW pyserial, not tools/robotlink.py: ticket 002 made
+open_link() send HELLO on connect, which would put a request on the wire
+and contaminate the silence measurement this script exists to make.
+
+Phases:
+  A  open port, send NOTHING, listen 3.0 s. Opening the port resets the
+     target program (CLAUDE.md), so the one-time boot banner IS expected
+     here -- sprint 024 leaves it in scope-out. What must be ZERO is
+     ack/nack lines: pre-024 firmware beaconed those at 20 Hz.
+  B  send HELLO. Identity authority per CLAUDE.md -- proves which board
+     answered and that the firmware is alive at all.
+  C  quiet again 3.0 s after HELLO's own reply is consumed. Zero ack/nack.
+  D  send 'TLM POSE #1' (sequenced -- v6 drops unsequenced lines) and
+     confirm telemetry frames AND the piggybacked reliability line both
+     resume, i.e. ticket 001 did not break the TLM path.
+"""
+import sys
+import time
+
+import serial
+
+PORT = '/dev/cu.usbmodem2121102'
+BAUD = 115200
+
+
+def listen(p, seconds, label):
+    """Collect complete lines for `seconds`, sending nothing."""
+    end = time.time() + seconds
+    buf = b''
+    lines = []
+    while time.time() < end:
+        chunk = p.read(4096)
+        if chunk:
+            buf += chunk
+            while b'\n' in buf:
+                raw, buf = buf.split(b'\n', 1)
+                t = raw.decode('ascii', errors='replace').strip()
+                if t:
+                    lines.append((round(time.time(), 3), t))
+    print(f'--- {label}: {len(lines)} line(s) over {seconds}s ---')
+    for ts, t in lines:
+        print(f'    {ts}  {t}')
+    if not lines:
+        print('    (silence -- zero bytes)')
+    return [t for _, t in lines]
+
+
+def rel(lines):
+    return [t for t in lines if t.startswith('ack ') or t.startswith('nack ')]
+
+
+p = serial.Serial(PORT, BAUD, timeout=0.1)
+print(f'opened {PORT} @ {BAUD} (this resets the target program)')
+
+# --- Phase A: fresh boot, nothing sent -----------------------------------
+a = listen(p, 3.0, 'A  post-open, NOTHING sent')
+a_rel = rel(a)
+
+# --- Phase B: identity ---------------------------------------------------
+p.reset_input_buffer()
+p.write(b'HELLO\n')
+p.flush()
+b = listen(p, 1.5, 'B  after HELLO (reply expected)')
+banner = [t for t in b if t.startswith('device ')]
+
+# --- Phase C: quiet after a request has been served ----------------------
+c = listen(p, 3.0, 'C  quiet window after HELLO')
+c_rel = rel(c)
+
+# --- Phase D: telemetry piggyback regression -----------------------------
+p.reset_input_buffer()
+p.write(b'TLM POSE #1\n')
+p.flush()
+d = listen(p, 2.0, 'D  after TLM POSE #1')
+d_t = [t for t in d if t.startswith('t ') or t.startswith('thdr ')]
+d_rel = rel(d)
+
+p.write(b'TLM OFF #2\n')
+p.flush()
+time.sleep(0.3)
+p.close()
+
+print()
+print('=' * 62)
+print('RESULT')
+print('=' * 62)
+print(f'A  ack/nack while idle post-boot : {len(a_rel)}   (want 0)')
+print(f'B  banner seen                   : {banner[0] if banner else "NONE"}')
+print(f'C  ack/nack in quiet window      : {len(c_rel)}   (want 0)')
+print(f'D  telemetry frames after TLM    : {len(d_t)}   (want > 0)')
+print(f'D  piggybacked reliability lines : {len(d_rel)}   (want > 0)')
+
+ok = (not a_rel) and banner and (not c_rel) and d_t and d_rel
+print()
+print('VERDICT:', 'PASS' if ok else 'FAIL')
+sys.exit(0 if ok else 1)
+
+--- RUN OUTPUT ---
+opened /dev/cu.usbmodem2121102 @ 115200 (this resets the target program)
+--- A  post-open, NOTHING sent: 0 line(s) over 3.0s ---
+    (silence -- zero bytes)
+--- B  after HELLO (reply expected): 1 line(s) over 1.5s ---
+    1787790925.572  device NEZHA2 robot tovez 2314287040
+--- C  quiet window after HELLO: 0 line(s) over 3.0s ---
+    (silence -- zero bytes)
+--- D  after TLM POSE #1: 75 line(s) over 2.0s ---
+    1787790930.122  ack 1 0 none
+    1787790930.225  thdr seq now flags x y h ox oy oh vl vr i2cf
+    1787790930.225  t 1 20672 0 0 0 0 0 0 0 0 0 0
+    1787790930.225  ack 1 0 none
+    1787790930.225  t 2 20683 0 0 0 0 0 0 0 0 0 0
+    1787790930.225  ack 1 0 none
+    1787790930.225  t 3 20739 0 0 0 0 0 0 0 0 0 0
+    1787790930.225  ack 1 0 none
+    1787790930.329  t 4 20795 0 0 0 0 0 0 0 0 0 0
+    1787790930.329  ack 1 0 none
+    1787790930.329  t 5 20851 0 0 0 0 0 0 0 0 0 0
+    1787790930.329  ack 1 0 none
+    1787790930.431  t 6 20907 0 0 0 0 0 0 0 0 0 0
+    1787790930.431  ack 1 0 none
+    1787790930.431  t 7 20963 0 0 0 0 0 0 0 0 0 0
+    1787790930.431  ack 1 0 none
+    1787790930.531  t 8 21019 0 0 0 0 0 0 0 0 0 0
+    1787790930.531  ack 1 0 none
+    1787790930.531  t 9 21075 0 0 0 0 0 0 0 0 0 0
+    1787790930.633  ack 1 0 none
+    1787790930.633  t 10 21131 0 0 0 0 0 0 0 0 0 0
+    1787790930.633  ack 1 0 none
+    1787790930.737  t 11 21187 0 0 0 0 0 0 0 0 0 0
+    1787790930.737  ack 1 0 none
+    1787790930.737  t 12 21243 0 0 0 0 0 0 0 0 0 0
+    1787790930.737  ack 1 0 none
+    1787790930.839  t 13 21299 0 0 0 0 0 0 0 0 0 0
+    1787790930.839  ack 1 0 none
+    1787790930.839  t 14 21355 0 0 0 0 0 0 0 0 0 0
+    1787790930.839  ack 1 0 none
+    1787790930.94  t 15 21411 0 0 0 0 0 0 0 0 0 0
+    1787790930.94  ack 1 0 none
+    1787790930.94  t 16 21467 0 0 0 0 0 0 0 0 0 0
+    1787790930.94  ack 1 0 none
+    1787790931.041  t 17 21523 0 0 0 0 0 0 0 0 0 0
+    1787790931.041  ack 1 0 none
+    1787790931.041  t 18 21579 0 0 0 0 0 0 0 0 0 0
+    1787790931.041  ack 1 0 none
+    1787790931.143  t 19 21635 0 0 0 0 0 0 0 0 0 0
+    1787790931.143  ack 1 0 none
+    1787790931.245  thdr seq now flags x y h ox oy oh vl vr i2cf
+    1787790931.245  t 20 21691 0 0 0 0 0 0 0 0 0 0
+    1787790931.245  ack 1 0 none
+    1787790931.245  t 21 21747 0 0 0 0 0 0 0 0 0 0
+    1787790931.245  ack 1 0 none
+    1787790931.35  t 22 21803 0 0 0 0 0 0 0 0 0 0
+    1787790931.35  ack 1 0 none
+    1787790931.35  t 23 21859 0 0 0 0 0 0 0 0 0 0
+    1787790931.35  ack 1 0 none
+    1787790931.454  t 24 21915 0 0 0 0 0 0 0 0 0 0
+    1787790931.454  ack 1 0 none
+    1787790931.454  t 25 21971 0 0 0 0 0 0 0 0 0 0
+    1787790931.454  ack 1 0 none
+    1787790931.556  t 26 22027 0 0 0 0 0 0 0 0 0 0
+    1787790931.556  ack 1 0 none
+    1787790931.556  t 27 22083 0 0 0 0 0 0 0 0 0 0
+    1787790931.556  ack 1 0 none
+    1787790931.657  t 28 22139 0 0 0 0 0 0 0 0 0 0
+    1787790931.657  ack 1 0 none
+    1787790931.657  t 29 22195 0 0 0 0 0 0 0 0 0 0
+    1787790931.657  ack 1 0 none
+    1787790931.761  t 30 22251 0 0 0 0 0 0 0 0 0 0
+    1787790931.761  ack 1 0 none
+    1787790931.865  t 31 22307 0 0 0 0 0 0 0 0 0 0
+    1787790931.865  ack 1 0 none
+    1787790931.865  t 32 22363 0 0 0 0 0 0 0 0 0 0
+    1787790931.865  ack 1 0 none
+    1787790931.969  t 33 22419 0 0 0 0 0 0 0 0 0 0
+    1787790931.969  ack 1 0 none
+    1787790931.969  t 34 22475 0 0 0 0 0 0 0 0 0 0
+    1787790931.969  ack 1 0 none
+    1787790932.074  t 35 22531 0 0 0 0 0 0 0 0 0 0
+    1787790932.074  ack 1 0 none
+    1787790932.074  t 36 22587 0 0 0 0 0 0 0 0 0 0
+    1787790932.074  ack 1 0 none
+
+==============================================================
+RESULT
+==============================================================
+A  ack/nack while idle post-boot : 0   (want 0)
+B  banner seen                   : device NEZHA2 robot tovez 2314287040
+C  ack/nack in quiet window      : 0   (want 0)
+D  telemetry frames after TLM    : 38   (want > 0)
+D  piggybacked reliability lines : 37   (want > 0)
+
+VERDICT: PASS

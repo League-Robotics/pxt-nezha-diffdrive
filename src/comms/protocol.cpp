@@ -334,30 +334,44 @@ void Protocol::run() {
       }
     }
 
-    // The reliability layer's own periodic self-healing emission
-    // (protocol.md S8.5, wire_handler.h's emitReliability() doc
-    // comment): re-states the highest accepted id (or re-nacks a
-    // stalled gap) on this fiber's own cadence, since WireHandler adds
-    // no timer of its own. Rides the same cadence the retired
-    // cleartext TLM loop used. Both handlers are driven on this ONE
-    // shared cadence -- neither gets its own timer -- so a stalled gap
-    // on either transport is re-nacked no less often than before this
-    // ticket added the second handler.
-    //
-    // Ticket 004 (this ticket) wires up the REAL conditional: when
-    // wireAdapter_.telemetryEnabled() (mode_ != TlmMode::kOff),
-    // buildSnapshot() is called ONCE per tick and the SAME Snapshot
-    // reference is handed to BOTH handlers' emitTelemetry() -- not once
-    // per handler (sprint.md's own Design Rationale: buildSnapshot()
+    // The reliability layer's per-line ack/nack (WireHandler::dispatch(),
+    // wire_handler.cpp) is already the ENTIRE reliability plane for a
+    // transport nobody has subscribed to via TLM: it fires once per
+    // inbound line, driven from feed()/onLineComplete() above, completely
+    // independent of this timing gate. This gate exists ONLY to pace the
+    // telemetry-ON piggyback below: when a host has subscribed
+    // (wireAdapter_.telemetryEnabled()), buildSnapshot() is called ONCE
+    // per tick and the SAME Snapshot reference is handed to BOTH
+    // handlers' emitTelemetry() -- not once per handler (buildSnapshot()
     // mutates odometry and advances seq_, so building it twice would
     // double both for no benefit, and would report different seq/now
     // values to serial vs radio for what should read as "the same
-    // instant"). Each handler still independently decides its own
-    // thdr-due state from its own header memo, even though the
-    // underlying values are shared. With telemetry off (the boot
-    // default), this falls back to ticket 003's own
-    // emitReliability()-on-both behavior -- no Snapshot is ever built
-    // for a session with no subscriber.
+    // instant"). emitTelemetry() itself calls emitReliability()
+    // internally as its own third write (wire_handler.cpp), so a
+    // TLM-subscribed host still gets the reliability line piggybacked on
+    // every telemetry frame, exactly as before -- that stream is itself a
+    // host request, so it correctly stays a response.
+    //
+    // Sprint 024 ticket 001 deleted the unconditional `else` this `if`
+    // used to have, which called emitReliability() on both handlers
+    // alone, every tick, regardless of subscription -- a free-running
+    // 20 Hz beacon on an idle transport, addressed to nobody (sprint 004
+    // drift off of sprint 003 ticket 003's original, narrower,
+    // piggyback-only design; see
+    // clasi/issues/reliability-line-free-runs-at-20-hz-on-the-radio-with-no-host.md).
+    // ack/nack is a response by definition, so a non-subscribed transport
+    // now emits nothing from this loop, ever, until it next receives a
+    // line -- at which point dispatch()'s own per-line reply, not this
+    // gate, answers it. The lost-reply self-heal ticket 003 built this
+    // timer to cover still exists, it just moved: a lost ack/nack now
+    // heals via the HOST's own retransmit (tools/robotlink.py's
+    // send_until()), one round trip later, instead of a firmware-side
+    // re-emission. A future reader must NOT "restore" a periodic,
+    // rate-limited, or gap-gated re-emission here as a fix for a
+    // perceived regression -- the self-heal path changed shape, it did
+    // not disappear, and restoring any form of unsolicited emission would
+    // reintroduce exactly the beacon this ticket removes. See sprint
+    // 024's Design Rationale for the full analysis.
     const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
     if (static_cast<int32_t>(nowMs - lastEmitMs) >=
         static_cast<int32_t>(kReliabilityEmitPeriodMs)) {
@@ -365,9 +379,6 @@ void Protocol::run() {
         const Wire::Snapshot& snapshot = wireAdapter_.buildSnapshot();
         wireHandler_.emitTelemetry(snapshot);
         wireHandlerRadio_.emitTelemetry(snapshot);
-      } else {
-        wireHandler_.emitReliability();
-        wireHandlerRadio_.emitReliability();
       }
       lastEmitMs = nowMs;
     }

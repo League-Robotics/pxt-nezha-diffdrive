@@ -98,8 +98,11 @@ FULL_THDR = ('thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr '
 FULL_T_LIVE = ('t 25 988992 31 142 -16 11737 0 0 0 -122 126 3 101 286 '
                '3319 -1300 1800 0 0 0')
 
-# The reliability keepalive -- streams continuously at 50 ms and is NOT
-# telemetry (this ticket's own framing). Shape from wire_handler.cpp's
+# The reliability keepalive -- a per-line reply, not a periodic
+# broadcast (sprint 024 ticket 001 deleted the firmware's free-running
+# emitReliability() call; see clasi/issues/reliability-line-free-runs-
+# at-20-hz-on-the-radio-with-no-host.md) -- and is NOT telemetry either
+# way (this ticket's own framing). Shape from wire_handler.cpp's
 # `"ack %lu %lu %s\n"`/`"nack %lu %lu %s\n"`.
 ACK_LINE = 'ack 0 0 none'
 NACK_LINE = 'nack 5 0 none'
