@@ -1,4 +1,16 @@
 {
+  "9906360200052820049d38a46da36a83000000006e052820": {
+    "announcement": "DEVICE:NEZHA2:robot:gopiv:2175407711",
+    "board_name": "gopiv",
+    "common_name": "robot",
+    "device_id": 2175407711,
+    "device_name": "gopiv",
+    "enum": 6,
+    "port": "/dev/cu.usbmodem2121102",
+    "role": "NEZHA2",
+    "serial": "2175407711",
+    "uid": "9906360200052820049d38a46da36a83000000006e052820"
+  },
   "990636020005282017449eac613c0332000000006e052820": {
     "announcement": "DEVICE:RADIOBRIDGE:relay:getez:1784514240",
     "board_name": "getez",
@@ -25,7 +37,7 @@
     "device_id": 2314287040,
     "device_name": "tovez",
     "enum": 2,
-    "port": "/dev/cu.usbmodem2121102",
+    "port": "/dev/cu.usbmodem2121202",
     "role": "NEZHA2",
     "serial": "2314287040",
     "uid": "9906360200052820a8fdb5e413abb276000000006e052820"

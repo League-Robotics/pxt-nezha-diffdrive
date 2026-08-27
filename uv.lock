@@ -52,7 +52,7 @@ wheels = [
 
 [[package]]
 name = "pxt-nezha-diffdrive-host-tests"
-version = "0.20260826.16"
+version = "0.20260826.17"
 source = { virtual = "." }
 dependencies = [
     { name = "pyserial" },
