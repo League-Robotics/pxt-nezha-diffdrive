@@ -817,6 +817,10 @@ def test_unsequenced_query_verbs_answer_without_an_id(wg):
             wg.feed(line)
             out = wg.take_sink()
             assert out.startswith(prefix), (line, out)
+            # CLEAN STREAM: no reliability line. See
+            # test_unsequenced_verbs_remind_when_the_stream_is_stalled
+            # for the other half -- the reminder is CONDITIONAL, so
+            # asserting it never appears would be wrong.
             assert b"ack" not in out and b"nack" not in out, (line, out)
 
 
@@ -1314,3 +1318,71 @@ def test_kernel_harness_still_importable():
     the real regression coverage is running both files together, e.g.
     `uv run pytest tests/host/ -k "kernel_harness or wire_grammar"`."""
     import test_kernel_harness  # noqa: F401
+
+
+def test_unsequenced_verbs_remind_when_the_stream_is_stalled(wg):
+    """The other half of the 2026-08-27 rule. An unsequenced verb never
+    REQUIRES an id -- that gating rule is absolute -- but it MAY carry a
+    reliability line back when something is actually wrong. Stakeholder:
+    "I don't actually mind if ID, VER, and help also return an ACK/NAK.
+    What I mind is that they REQUIRE an ACK/NAK."
+
+    Conditional, not unconditional: silent on a clean stream (pinned by
+    test_unsequenced_query_verbs_answer_without_an_id), speaking up only
+    while a gap is open. That is a reminder -- "your last command didn't
+    land" -- rather than a receipt on every query."""
+    wg.feed(b"SET group.alpha 1.0 #5\n")   # opens a gap: expectedNext_ is 1
+    wg.take_sink()
+    for verb, prefix in ((b"PING", b"pong"), (b"HELP", b"help "),
+                          (b"ID", b"id "), (b"VER", b"ver "),
+                          (b"STATUS", b"status ")):
+        wg.feed(verb + b"\n")
+        out = wg.take_sink()
+        assert out.startswith(prefix), (verb, out)
+        assert b"nack 1 " in out, (verb, out)
+
+
+def test_estop_and_hello_never_carry_the_reminder(wg):
+    """ESTOP: S8.3 pins its reply as the bare word `estop`, no fields
+    ever, and it must never queue behind an outbound reply -- a panic
+    stop carries no diagnostic freight. HELLO: it resets expectedNext_,
+    so a reminder there would report on state it just erased."""
+    wg.feed(b"SET group.alpha 1.0 #5\n")   # open a gap
+    wg.take_sink()
+
+    wg.feed(b"ESTOP\n")
+    assert wg.take_sink() == b"estop\n"
+
+    wg.feed(b"HELLO\n")
+    out = wg.take_sink()
+    assert b"nack" not in out and b"ack" not in out, out
+
+
+def test_the_reminder_clears_once_the_missing_id_arrives(wg):
+    """gapOutstanding_ is set by a gap and cleared when the stream is
+    whole again -- it must not latch, or every later query would nag
+    about a stall that has been resolved."""
+    wg.feed(b"SET group.alpha 1.0 #5\n")   # gap
+    wg.take_sink()
+    wg.feed(b"ID\n")
+    assert b"nack 1 " in wg.take_sink()
+
+    wg.set_set_result(RESULT_OK)
+    wg.feed(b"SET group.alpha 1.0 #1\n")   # the missing id, in order
+    wg.take_sink()
+
+    wg.feed(b"ID\n")
+    out = wg.take_sink()
+    assert out.startswith(b"id ")
+    assert b"nack" not in out and b"ack" not in out, out
+
+
+def test_a_decode_failure_stall_also_raises_the_reminder(wg):
+    """A decode-failure stall holds the stream exactly as a numeric gap
+    does (S8.9), so it must raise the reminder the same way."""
+    wg.feed(b"SET group.alpha notanumber #1\n")
+    wg.take_sink()
+    wg.feed(b"PING\n")
+    out = wg.take_sink()
+    assert out.startswith(b"pong")
+    assert b"nack 1 " in out, out

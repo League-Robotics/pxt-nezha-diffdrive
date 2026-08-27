@@ -526,6 +526,11 @@ class WireHandler {
 
   void handleHello();
   void handlePing();
+  // Emits the reliability reminder -- `nack <expectedNext_>` -- iff a
+  // gap or decode-failure stall is outstanding. Called at the END of
+  // every unsequenced verb's reply EXCEPT ESTOP and HELLO (see
+  // dispatch()). Silent on a clean stream, which is the whole point.
+  void emitReminderIfStalled();
   // Writes the verb listing. Shared by dispatch()'s unsequenced HELP
   // interception and execHelp()'s table row, so both paths emit
   // byte-identical output.
@@ -716,13 +721,40 @@ class WireHandler {
   bool overflowing_ = false;
   uint32_t malformedCount_ = 0;
 
-  // ---- the reliability layer's own state (protocol.md S8.1) -- exactly
-  // this one field (2026-08-26, S8.5: gapOutstanding_ deleted with the
-  // telemetry ack piggyback -- its only reader was emitReliability()),
-  // and deliberately NO clock/timer. `lastDone_` is NOT here: it lives
-  // on the Adapter (S8.8), polled fresh on every ack/nack, never cached
-  // on this class. ----
+  // ---- the reliability layer's own state (protocol.md S8.1) -- one
+  // integer plus one bool, and deliberately NO clock/timer.
+  // `lastDone_` is NOT here: it lives on the Adapter (S8.8), polled
+  // fresh on every ack/nack, never cached on this class. ----
   uint32_t expectedNext_ = 1;    // next sequence id expected from the host
+
+  // gapOutstanding_ was DELETED 2026-08-26 (S8.5) along with the
+  // telemetry ack piggyback, whose emitReliability() was its only
+  // reader. It came back 2026-08-27, stakeholder-approved, and the
+  // scope of its return matters more than its existence:
+  //
+  //   IT IS A REPLY PREDICATE ONLY.
+  //
+  // Its sole job is gating whether an inbound UNSEQUENCED line's reply
+  // carries the reminder (see emitReminderIfStalled()). It does NOT
+  // restore a periodic emission, a telemetry-carried ack/nack, or a
+  // beacon of any kind -- all of that stays deleted and S8.5's
+  // anti-beacon rule is untouched. An idle connection is still
+  // COMPLETELY silent on both carriers: `feed()` remains the only
+  // origin of every emission this class makes, and nothing here has a
+  // clock.
+  //
+  // Approved with that scope stated, because re-adding it partially
+  // undoes the stakeholder's own direction from the day before. The
+  // requirement it serves: an unsequenced verb must be issuable at any
+  // time with no id (that is the gating half, and it is absolute), but
+  // it MAY still carry back "your last command didn't land" when
+  // something is actually wrong. Sequence gating and reply emission are
+  // separable, and only the first was ever objected to.
+  //
+  // It cannot be derived from expectedNext_ alone: that counter cannot
+  // distinguish "clean, waiting for #5 which the host has not sent yet"
+  // from "stalled, discarded #6, still want #5".
+  bool gapOutstanding_ = false;
 
   // ---- telemetry header memo state (protocol.md S5.2) -- a COPY of
   // the most recently emitted header's shape, sized generously above

@@ -473,6 +473,7 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
     // unchanged, and PING (liveness) can never itself wedge on a syntax
     // nit.
     handlePing();
+    emitReminderIfStalled();
     return;
   }
   if (std::strcmp(verb, "HELP") == 0) {
@@ -484,6 +485,7 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
     // the same listing. Being outside the sequence, it neither acks nor
     // advances expectedNext_, exactly like PING.
     emitHelp();
+    emitReminderIfStalled();
     return;
   }
   if (std::strcmp(verb, "HELLO") == 0) {
@@ -549,14 +551,23 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
     uint8_t ignoredErr = 0;
     if (std::strcmp(verb, "ID") == 0) {
       execId(noFields, 0, 0, ignoredErr);
+      emitReminderIfStalled();
       return;
     }
     if (std::strcmp(verb, "VER") == 0) {
       execVer(noFields, 0, 0, ignoredErr);
+      emitReminderIfStalled();
       return;
     }
     if (std::strcmp(verb, "STATUS") == 0) {
       execStatus(noFields, 0, 0, ignoredErr);
+      // Known, ACCEPTED redundancy: STATUS already reports next=/done=/
+      // reason= in its own payload, so a trailing nack restates it a
+      // different way. Kept deliberately -- "every unsequenced verb
+      // except ESTOP and HELLO carries the reminder" is a rule that
+      // fits in one's head; carving out STATUS on top of those two does
+      // not.
+      emitReminderIfStalled();
       return;
     }
   }
@@ -588,6 +599,8 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
     return;
   }
   if (id > expectedNext_) {
+    gapOutstanding_ = true;  // reply predicate only -- see the field's
+                              // own comment in wire_handler.h
     // A numeric gap: something between expectedNext_ and id never
     // arrived (or arrived out of order). Discard -- do NOT execute, and
     // do not even look up the verb -- and tell the host exactly what we
@@ -627,7 +640,9 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
   // arrive, in order, and did they parse" is answered here regardless
   // of whether the ADAPTER goes on to refuse the content on its own
   // merits (protocol.md S8.2).
+  // In-order and decoded: whatever was outstanding has now arrived.
   expectedNext_ = id + 1;
+  gapOutstanding_ = false;
   replyAck(id);
 
   uint8_t errCode = 0;
@@ -645,6 +660,8 @@ void WireHandler::handleDecodeFailure(uint32_t id, uint8_t code) {
   // finally arrives carrying this same id -- there is no periodic
   // re-nack (2026-08-26, S8.5).
   ++malformedCount_;
+  gapOutstanding_ = true;  // a decode-failure stall holds the stream
+                            // exactly as a numeric gap does
   replyNack(expectedNext_);
   replyErr(id, code);
 }
@@ -719,8 +736,41 @@ void WireHandler::handleHello() {
   // that wants a HELLO to also clear ITS OWN notion of "last completed
   // motion" is free to do so from wherever it observes HELLO itself.
   expectedNext_ = 1;
+  gapOutstanding_ = false;  // nothing can be outstanding after a reset
   sendBanner();  // protocol.md S4: HELLO's reply is byte-identical to
                  // the unsolicited boot banner
+}
+
+void WireHandler::emitReminderIfStalled() {
+  // "Hey, I need to remind you that your last command didn't work."
+  //
+  // 2026-08-27, stakeholder direction. An unsequenced verb is issuable
+  // at ANY time with no id -- that gating rule is absolute and is what
+  // he objected to. It is separable from whether the reply may CARRY a
+  // reliability line, which he does not object to: "I don't actually
+  // mind if ID, VER, and help also return an ACK/NAK. What I mind is
+  // that they REQUIRE an ACK/NAK."
+  //
+  // Conditional, not unconditional. Silent on a clean stream -- no
+  // receipt on every PING/ID/VER, which would also put a second line on
+  // the wire for every query at ch4's measured 66-83% per-line
+  // delivery, where two lines both arriving is materially worse than
+  // one. It speaks up only when something is actually wrong, which is
+  // what makes it a reminder rather than a receipt.
+  //
+  // This does NOT violate S8.5's anti-beacon rule. That rule objected
+  // to PERIODICITY, not to unsolicited-looking acks: a line emitted in
+  // reply to an inbound line is still a response to a message. The rule
+  // widens from "only in direct response to an inbound SEQUENCED line"
+  // to "only in direct response to an INBOUND line". An idle connection
+  // stays completely silent, which is the property that mattered.
+  //
+  // NOT called for ESTOP (S8.3: its reply is the bare word `estop`, no
+  // fields ever, and it must never queue behind an outbound reply -- a
+  // panic stop carries no diagnostic freight) or HELLO (it resets
+  // expectedNext_, so it would be reporting on state it just erased).
+  if (!gapOutstanding_) return;
+  replyNack(expectedNext_);
 }
 
 void WireHandler::handlePing() {
