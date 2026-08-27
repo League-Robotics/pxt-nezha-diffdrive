@@ -51,14 +51,18 @@ values, not merely a long one).
 fleet, tovez included) -- this module never treats a zero OTOS column
 as missing data or a fault; it is just a valid integer like any other.
 
-The reliability keepalive (`ack <n> <lastDone> <reason>`, streamed
-continuously at 50 ms) and its `nack` counterpart are NOT telemetry.
-`TlmStream.feed()` only recognizes the `thdr`/`t` tags; every other
-line (including `ack`/`nack`, and any other STATUS/VER/GET/err reply
-sharing the same link) is silently ignored -- `feed()` returns None for
-it, uncounted anywhere. This is deliberate filtering, not a gap: a
-caller that only speaks `feed()` never has to know the reliability
-line's own shape.
+The reliability keepalive (`ack <n> <lastDone> <reason>`, and its
+`nack` counterpart) is a per-line reply -- one for whatever line
+provoked it, not a periodic broadcast (sprint 024 ticket 001 deleted
+protocol.cpp's free-running emitReliability() call; see
+clasi/issues/reliability-line-free-runs-at-20-hz-on-the-radio-with-no-
+host.md). Either way, it is NOT telemetry. `TlmStream.feed()` only
+recognizes the `thdr`/`t` tags; every other line (including `ack`/
+`nack`, and any other STATUS/VER/GET/err reply sharing the same link)
+is silently ignored -- `feed()` returns None for it, uncounted
+anywhere. This is deliberate filtering, not a gap: a caller that only
+speaks `feed()` never has to know the reliability line's own shape,
+and that filtering logic itself is unchanged by any of this.
 
 Import `TlmStream`, `require_stream()`, `write_tlm_csv()`,
 `read_meta_sidecar()` (sprint 005 ticket 002's read-side zero-frame
@@ -320,10 +324,11 @@ def require_stream(link, timeout=3.0, stream=None):
     the timeout is exhausted. Raises DeadTelemetryError immediately on
     timeout -- BEFORE the caller's very next step, which is always a
     run-triggering command (SUC-001: a dead instrument must not cost a
-    run). The reliability keepalive (`ack`/`nack`, streamed
-    continuously) never satisfies this wait -- feed() does not count it
-    as a frame, so a link that is alive but has no working telemetry
-    still raises, exactly as it should.
+    run). The reliability keepalive (`ack`/`nack`, a per-line reply,
+    not a periodic broadcast -- sprint 024 ticket 001) never satisfies
+    this wait -- feed() does not count it as a frame, so a link that is
+    alive but has no working telemetry still raises, exactly as it
+    should.
 
     `stream`, if given, is the TlmStream to feed and return -- so a
     caller can pass the SAME stream it will keep feeding for the rest
