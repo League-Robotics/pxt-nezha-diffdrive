@@ -431,6 +431,30 @@ def main():
         return 3
 
     try:
+        # PRECONDITION: is the ADAPTER side alive, or only the wire stack?
+        #
+        # PING/ID/VER/HELP answer from the wire stack and cached
+        # identity; STATUS is the first verb that reads kernel and brick
+        # state through the adapter. A board where PING answers and
+        # STATUS does not has a HEALTHY wire stack and a WEDGED adapter
+        # -- measured on gopiv 2026-08-27 -- and running the rest of the
+        # suite against it produces a page of FAILs that all say the same
+        # thing and none of which are wire defects.
+        #
+        # This is also a strictly better probe than RUN:probe, which was
+        # the old way to find this: RUN:probe touches the OTOS over I2C
+        # and can itself kill the program, so it destroys the evidence it
+        # is gathering. STATUS is read-only and cannot.
+        alive = any(t.startswith('pong') for t in link.ask('PING', 1.5))
+        if alive and not status_of(link):
+            record(BLOCKED, 'adapter/brick side is wedged',
+                   'PING answers but STATUS does not -- the wire stack is '
+                   'healthy and the kernel/brick side is not. Check brick '
+                   'power (a flat battery does this), then reflash. Running '
+                   'the rest of the suite here would report wire defects '
+                   'that are not there.')
+            return 2
+
         # ORDER MATTERS. run_bad_cases() sends ESTOP, which LATCHES
         # estopLatch_ (core/diffdrive.cpp) and makes checkCommandable()
         # refuse every later motion command at intake. There is no wire
