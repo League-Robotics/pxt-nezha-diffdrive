@@ -10,6 +10,14 @@ so reply LENGTH is the only variable. Round-robin interleaved (not
 blocked by form, so link drift cannot masquerade as a per-form effect).
 n=50 each, 200 sends per arm. Wilson 95% CIs.
 
+WHY THE INTERLEAVING MATTERS MORE THAN THE p-VALUE: the absolute rate
+here is bad AND unstable, so all four arms must sample a common,
+drifting link. Round-robin makes drift hit every arm equally, which is
+what lets PING-vs-STATUS be a fair WITHIN-condition comparison despite
+the link being in an unknown state. Run as four sequential blocks
+instead and the same numbers would be uninterpretable -- "STATUS is
+longer" would be inseparable from "the link got worse during block 4".
+
 --- ARM 1: RADIO, torture relay pool -> channel 4 ---------------------
 verb      reply B    delivered    rate    95% CI
 PING           11     39/50      78.0%   [65%, 87%]
@@ -50,15 +58,93 @@ CONCLUSIONS
    66.5% vs 99.5%. That is ~13x the ~5% loss protocol.md S8.0 names as
    its design assumption.
 
-4. NOT REPRODUCED FROM EARLIER TODAY. docs/code-review/
-   microbit-relay-service-evaluation.md measured vevov on ch4 as SOLID
-   the same day -- 8/8 ID replies, VER 6/6, STATUS 5/6 -- from the same
-   torture pool. It has since degraded to 54-78%. Cause unknown and NOT
-   explained by any firmware change here (the USB control is clean).
-   Candidates not yet separated: which relay unit the pool handed out
-   (gozop vs guvov, different placement/antenna), 2.4 GHz interference,
-   robot position/orientation on the field. Worth isolating before any
-   spec change is justified by these numbers.
+4. THERE WAS PROBABLY NEVER A REGRESSION. Two earlier drafts of this
+   file got this wrong in two different ways; this is the third and it
+   retracts the premise, not just the wording.
+
+   Draft 1 asserted "ch4 degraded since this morning."
+   Draft 2 retracted the SIZE of the drop (the morning measurement
+     partly counted the 20 Hz beacon, which sprint 024 deleted -- the
+     instrument was removed, so the two numbers are not commensurable).
+   Draft 3 (this one) retracts the EVENT. Run the morning figures
+     through their own confidence intervals:
+
+       morning ID       8/8   point 100%   exact 95% CI [63.1%, 100%]
+       morning VER      6/6   point 100%   exact 95% CI [54.1%, 100%]
+       morning STATUS   5/6   point 83.3%
+       tonight                66.5%, 75.0%, 83.3%  (three runs, n>=60)
+
+   **8/8 cannot establish a rate above ~63%.** It is entirely consistent
+   with a true rate of 65-70%. And the morning's STATUS figure, 5/6 =
+   83.3%, is NUMERICALLY IDENTICAL to tonight's best run, 50/60 = 83.3%.
+   Morning and tonight are not merely compatible -- one figure matches
+   exactly.
+
+   So the question was never "what broke ch4 today." It is **"why has
+   ch4 apparently always been at ~75%, and why did we believe
+   otherwise?"** Different question, different prior: nothing changed,
+   the link has been mediocre all along, and small-n spot checks made it
+   look fine. Nothing in today's sprint history is a suspect.
+   (Reframe owed to radio-robot-lib-85.)
+
+5. THE DRIFT IS THE PHENOMENON. Three runs, same firmware, same
+   channel, same evening:
+
+       66.5%  (length experiment,       n=200)
+       75.0%  (relay discriminator,     n=240)
+       83.3%  (beacon test, OFF arm,    n=60)
+
+   ~17 points inside two hours. Two consequences:
+
+   * ANY STATIC EXPLANATION IS DEAD, and this -- not the clustering
+     below -- is what rules them out. Relay unit identity, antenna, and
+     placement are all FIXED properties; a fixed property cannot
+     produce a rate that moves 17 points while it does not change.
+   * Any future comparison MUST be interleaved or simultaneous.
+     Sequential A/B on this link is worthless. That is why the length
+     experiment above round-robins, and it is why that design choice
+     does more work than its p-value does.
+
+   Characterising the drift -- a long interleaved run across hours, to
+   find its period -- is now the highest-value measurement available. A
+   period is the strongest available clue to what is duty-cycling.
+
+6. CANDIDATES, AND THEIR STATUS.
+
+   a. RELAY UNIT -- RULED OUT. guvov 89/120 (74.2%), zetog 91/120
+      (75.8%), n=120 each. NOTE: the clustering is NOT what rules it
+      out. Those runs were sequential on a link that drifts 17 points,
+      so a real 5-point unit difference would have been invisible and
+      the 1.6-point agreement is partly luck. What rules it out is (5):
+      unit identity is static, the failure is time-varying. On the
+      clustering argument, gozop and getez (never handed out in 8
+      connects) would be live loose ends. On the drift argument they
+      are not.
+
+   b. BEACON DELETION -- RULED OUT, with no firmware change needed.
+      `TLM POSE #1` makes the robot stream telemetry continuously: same
+      radio, same continuous-TX mechanism, nothing to revert. Alternated
+      by block so drift hits both arms.
+
+          telemetry OFF (quiet)   50/60   83.3%  [72%, 91%]
+          telemetry ON  (busy)    46/60   76.7%  [65%, 86%]
+          956 telemetry frames seen during ON blocks (the arm worked)
+          ON vs OFF: z=-0.91  p=0.361
+
+      No effect, and the point estimate goes the WRONG way for the
+      hypothesis. Conservative in the right direction, too: telemetry
+      frames are LONGER than the 20 Hz ack lines were, so the ON arm put
+      more airtime on the channel than the beacon ever did. If
+      continuous TX helped, that arm should have shown it most.
+
+      Deliberately NOT tested by flashing a beacon-restored hex: the
+      stakeholder killed the beacon on purpose, and this rig bricked the
+      robot twice earlier the same day. A diagnostic that needs no
+      revert beats one that does.
+
+   c. INTERFERENCE / something duty-cycled in the environment -- NOT
+      YET TESTED, and now the leading candidate by elimination, since
+      it is the only one on the list that can vary with time.
 
 ==============================================================
 PRACTICAL
