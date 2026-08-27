@@ -370,11 +370,12 @@ def test_golden_pose_frame_matches_shared_fixture(wa):
     lines = wa.take_sink().split(b"\n")
     thdr_line = lines[0] + b"\n"
     t_line = lines[1] + b"\n"
-    reliability_line = lines[2] + b"\n"
 
     assert thdr_line == golden.EXPECTED_THDR_LINE
     assert t_line == golden.EXPECTED_T_LINE
-    assert reliability_line == golden.EXPECTED_RELIABILITY_LINE
+    # Nothing follows `t` (2026-08-26, protocol.md S8.5: the reliability
+    # line that used to ride here is deleted -- ack/nack is reply-only).
+    assert lines[2:] == [b""]
 
 
 # ---------------------------------------------------------------------------

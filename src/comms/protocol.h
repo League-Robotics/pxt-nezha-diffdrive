@@ -222,7 +222,7 @@ class Protocol {
   // wireHandlerRadio_ shares this SAME wireAdapter_ instance with
   // wireHandler_ -- NOT a second WireAdapter (see this file's own
   // top-of-file comment for why) -- but each keeps its own
-  // expectedNext_/gapOutstanding_.
+  // expectedNext_.
   SerialSink serialSink_{transport_};
   RadioSink radioSink_{radioTransport_};
   WireAdapter wireAdapter_{Wire::Identity(), &Protocol::wireNowMs};

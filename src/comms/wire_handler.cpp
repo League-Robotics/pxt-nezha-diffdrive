@@ -519,8 +519,10 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
     // A numeric gap: something between expectedNext_ and id never
     // arrived (or arrived out of order). Discard -- do NOT execute, and
     // do not even look up the verb -- and tell the host exactly what we
-    // need next.
-    gapOutstanding_ = true;
+    // need next. Every further inbound line re-triggers this same nack
+    // until the missing id arrives (S8.1) -- that per-inbound-line
+    // repeat is the whole retransmit story (2026-08-26, S8.5: no
+    // periodic re-nack exists).
     replyNack(expectedNext_);
     return;
   }
@@ -554,7 +556,6 @@ void WireHandler::dispatch(char* verb, char** fields, size_t fieldCount,
   // of whether the ADAPTER goes on to refuse the content on its own
   // merits (protocol.md S8.2).
   expectedNext_ = id + 1;
-  gapOutstanding_ = false;
   replyAck(id);
 
   uint8_t errCode = 0;
@@ -566,12 +567,12 @@ void WireHandler::handleDecodeFailure(uint32_t id, uint8_t code) {
   // The sequence does NOT advance: `id` is still expectedNext_ at this
   // point (that equality is what routed dispatch() into this function
   // at all), so nacking expectedNext_ unchanged tells the host to
-  // resend EXACTLY this id. gapOutstanding_ is set so a stalled stream
-  // keeps re-nacking at the telemetry rate (S8.5) exactly like a
-  // numeric gap would, until a well-formed line finally arrives
-  // carrying this same id.
+  // resend EXACTLY this id. A stalled stream keeps re-nacking because
+  // every subsequent inbound line re-triggers nack(expectedNext_)
+  // exactly like a numeric gap would (S8.1), until a well-formed line
+  // finally arrives carrying this same id -- there is no periodic
+  // re-nack (2026-08-26, S8.5).
   ++malformedCount_;
-  gapOutstanding_ = true;
   replyNack(expectedNext_);
   replyErr(id, code);
 }
@@ -646,7 +647,6 @@ void WireHandler::handleHello() {
   // that wants a HELLO to also clear ITS OWN notion of "last completed
   // motion" is free to do so from wherever it observes HELLO itself.
   expectedNext_ = 1;
-  gapOutstanding_ = false;
   sendBanner();  // protocol.md S4: HELLO's reply is byte-identical to
                  // the unsolicited boot banner
 }
@@ -1228,23 +1228,17 @@ void WireHandler::emitTelemetry(const Snapshot& snapshot) {
     framesSinceHeader_ = 1;  // this call is frame 1 of the next streak
   }
   emitFrame(snapshot);
-  emitReliability();
-}
-
-void WireHandler::emitReliability() {
-  // The reliability layer's own periodic emission (protocol.md S8.5) --
-  // rides the caller's own cadence, no timer of this class's own. A
-  // stalled stream (gapOutstanding_) keeps re-nacking for free at this
-  // rate; otherwise this simply re-states the highest id already
-  // accepted, so a host that goes quiet after its last command still
-  // eventually learns it landed. Both branches poll the Adapter's
-  // lastDone()/lastDoneReason() fresh, right now -- there is no cached
-  // copy of either on this class.
-  if (gapOutstanding_) {
-    replyNack(expectedNext_);
-  } else {
-    replyAck(expectedNext_ - 1);
-  }
+  // No reliability line rides here any more (2026-08-26, protocol.md
+  // S8.5, stakeholder direction: "an ack or a nack is only a response
+  // to a message, not a beacon"): an ack/nack is only ever a direct
+  // reply to an inbound sequenced line. This closes the LAST unsolicited
+  // ack path -- sprint 024 ticket 001 removed the free-running beacon on
+  // non-subscribed transports, and this removes the telemetry-ON
+  // piggyback too (a stale TLM subscription plus the radio path's frame
+  // throttle produced an ack-only barrage on an idle link). A lost
+  // ack/nack heals via the HOST's own retransmit/poll, one round trip
+  // later (S8.1's stale-retransmit re-ack; a gap re-nacks per inbound
+  // line).
 }
 
 // A memo comparing only count/names would miss a hex-ness-only flip

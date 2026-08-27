@@ -243,13 +243,13 @@ def test_merits_rejection_acks_and_advances_unlike_a_decode_failure(wg):
 
 
 # ---------------------------------------------------------------------------
-# Gap stalling and self-healing (protocol.md S8.5): once a gap opens,
-# every subsequent well-formed command is nacked identically until the
-# missing id arrives; a lost nack self-heals via emitReliability()
-# alone, with NO new command and NO timer. (Ticket 003 split
-# emitReliability() out of the old argument-less emitTelemetry() --
-# this is the exact keepalive body that split preserved verbatim, so
-# these tests now call the new name for the same behavior.)
+# Gap stalling and self-healing (protocol.md S8.1; 2026-08-26 S8.5):
+# once a gap opens, every subsequent well-formed command is nacked
+# identically until the missing id arrives -- and that per-inbound-line
+# repeat is the ONLY re-nack there is. emitReliability() (the old
+# keepalive) is deleted: an ack/nack is only ever a direct reply to an
+# inbound line, never a beacon; a lost nack self-heals because the
+# host's own next line (command or retransmit) provokes a fresh one.
 # ---------------------------------------------------------------------------
 
 
@@ -281,35 +281,38 @@ def test_missing_id_finally_arriving_resumes_the_sequence(wg):
     assert wg.set_calls == 1
 
 
-def test_lost_nack_self_heals_via_emit_reliability_with_no_new_command(wg):
-    """The scheme's own self-healing guarantee: a lost nack is recovered
-    by emitReliability() ALONE, riding whatever cadence the application
-    already drives -- no new command, and (load-bearing) no timer of
-    this class's own."""
+def test_lost_nack_self_heals_via_the_hosts_own_next_line(wg):
+    """The scheme's self-healing guarantee, post-piggyback (2026-08-26,
+    S8.5): a lost nack is recovered by the host's own NEXT inbound line
+    -- a retransmit of the missing id, or any further command -- which
+    provokes a fresh, identical nack. Nothing fires with no inbound
+    line at all: the wire stays silent."""
     wg.feed(b"SET group.alpha 1.0 #5\n")
     wg.take_sink()  # the original nack is "lost" -- simply discarded
 
-    wg.emit_reliability()
+    wg.feed(b"SET group.alpha 1.0 #6\n")
     assert wg.take_sink() == _nack(1)
 
-    # It keeps happening on every subsequent call, not just once.
-    wg.emit_reliability()
+    # It keeps happening on every subsequent inbound line, not just once.
+    wg.feed(b"STATUS #7\n")
     assert wg.take_sink() == _nack(1)
 
 
-def test_emit_reliability_reacks_highest_accepted_id_when_no_gap_is_open(wg):
-    """A quiet host that sent its last command and went silent still
-    learns it landed the next time this line runs -- whether and how
-    often production calls it is protocol.cpp's business (today: per
-    dispatch()-triggered reply, or piggybacked on telemetry when
-    subscribed; sprint 024 ticket 001 removed the unconditional,
-    periodic case this docstring used to describe), not something this
-    test asserts."""
+def test_lost_ack_self_heals_via_the_hosts_own_retransmit(wg):
+    """The lost-ack half (S8.1's stale-retransmit row): a host that
+    never saw its ack resends the same id; the handler re-acks WITHOUT
+    re-executing. This replaces the deleted emitReliability() re-ack --
+    the host's own retransmit, not a firmware beacon, is the heal."""
     wg.feed(b"STATUS #1\n")
-    wg.take_sink()
+    wg.take_sink()  # the ack is "lost" -- simply discarded
+    status_calls_after_first = wg.status_calls
 
-    wg.emit_reliability()
-    assert wg.take_sink() == _ack(1)
+    wg.feed(b"STATUS #1\n")  # host retransmit of the same id
+    assert wg.take_sink() == _ack(1), (
+        "a stale retransmit gets the bare re-ack alone -- no status "
+        "line, since the verb is never re-executed")
+    assert wg.status_calls == status_calls_after_first, (
+        "a stale retransmit must re-ack, never re-execute")
 
 
 # ---------------------------------------------------------------------------

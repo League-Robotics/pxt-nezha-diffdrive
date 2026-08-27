@@ -126,9 +126,8 @@ void wgEmitTelemetry(void* handle, const char* const* names,
   static_cast<Handle*>(handle)->handler.emitTelemetry(snapshot);
 }
 
-void wgEmitReliability(void* handle) {
-  static_cast<Handle*>(handle)->handler.emitReliability();
-}
+// wgEmitReliability() is GONE (2026-08-26, protocol.md S8.5): the
+// keepalive it exposed is deleted from WireHandler itself.
 
 uint32_t wgMalformedCount(void* handle) {
   return static_cast<Handle*>(handle)->handler.malformedCount();

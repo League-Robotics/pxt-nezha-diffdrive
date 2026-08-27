@@ -650,13 +650,11 @@ class WireAdapterHandle:
 
     def emit_telemetry(self, snapshot):
         """Calls the REAL WireHandler::emitTelemetry(snapshot) -- writes
-        thdr (if due), t, then the reliability keepalive into this
-        handle's own sink, exactly as protocol.cpp's periodic-emission
-        block's telemetry-subscribed branch does in production (that
-        branch, and its 50 ms cadence, are unchanged by sprint 024
-        ticket 001, which only deleted the sibling branch -- an
-        unconditional emitReliability()-only call on a non-subscribed
-        transport)."""
+        thdr (if due) then t into this handle's own sink, exactly as
+        protocol.cpp's telemetry-subscribed branch does in production.
+        No reliability line rides along (2026-08-26, protocol.md S8.5:
+        the piggyback is deleted; sprint 024 ticket 001 had already
+        deleted the free-running non-subscribed form)."""
         self._lib.waEmitTelemetry(self._handle, snapshot.ptr)
 
     def on_tlm(self, mode):

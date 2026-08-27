@@ -76,7 +76,7 @@ class RadioTransport {
   //
   // Re-entrancy guard: TWO fibers can call this -- the TS fiber via
   // Protocol::emitLine(), and the protocol fiber via RadioSink::write()
-  // (its own emitTelemetry()/emitReliability() calls) -- and
+  // (replies and emitTelemetry()'s frames) -- and
   // uBit.radio.datagram.send() can block and yield, giving the two a
   // real chance to interleave mid-format into payloadBuf_/frameBuf_.
   // Returns false, WITHOUT TOUCHING payloadBuf_/frameBuf_ at all, if a

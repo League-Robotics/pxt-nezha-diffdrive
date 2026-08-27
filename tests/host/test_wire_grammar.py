@@ -122,8 +122,6 @@ def _bind(lib):
         ctypes.c_int,
     ]
     lib.wgEmitTelemetry.restype = None
-    lib.wgEmitReliability.argtypes = [ctypes.c_void_p]
-    lib.wgEmitReliability.restype = None
 
     lib.wgMalformedCount.argtypes = [ctypes.c_void_p]
     lib.wgMalformedCount.restype = ctypes.c_uint32
@@ -270,20 +268,10 @@ class WireGrammar:
         hex_flags = (ctypes.c_int * count)(*[1 if c[2] else 0 for c in columns])
         self._lib.wgEmitTelemetry(self._handle, names, values, hex_flags, count)
 
-    def emit_reliability(self):
-        """The reliability layer's own emission primitive (protocol.md
-        S8.5) -- calling this with NO intervening feed() is exactly how
-        a lost ack/nack is proven to self-heal with no timer of this
-        class's own (see test_wire_reliability.py). This class has no
-        opinion on WHEN a caller invokes it -- that is protocol.cpp's
-        business, not WireHandler's: today it fires once per dispatch()
-        reply, or piggybacked on emitTelemetry()'s 50 ms cadence when
-        telemetry is subscribed (sprint 024 ticket 001 removed a third
-        case, an unconditional periodic call on an idle transport).
-        Ticket 003 split this out of the old argument-less
-        emitTelemetry() so it stays callable with no Snapshot involved
-        at all (surviving `TLM OFF`)."""
-        self._lib.wgEmitReliability(self._handle)
+    # emit_reliability() is GONE (2026-08-26, protocol.md S8.5): the
+    # keepalive it drove is deleted -- an ack/nack is only ever a direct
+    # reply to an inbound line, never a beacon; a stalled stream re-nacks
+    # per inbound line (see test_wire_reliability.py).
 
     @property
     def malformed_count(self):

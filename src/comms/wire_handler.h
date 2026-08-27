@@ -15,8 +15,9 @@
 //
 // Every sequenced verb carries a MANDATORY trailing id, `#<n>`, that is
 // also a strictly incrementing sequence number starting at 1. Handler
-// state is EXACTLY two values -- expectedNext_ (next id expected) and
-// gapOutstanding_ (a nack is currently owed, S8.5) -- deliberately no
+// state is EXACTLY one value -- expectedNext_ (next id expected;
+// gapOutstanding_ is GONE, 2026-08-26, S8.5: its only reader was the
+// deleted telemetry ack piggyback) -- deliberately no
 // clock and no timer anywhere (S8.1): feed() stays a pure function of
 // its input bytes plus this small state. dispatch() resolves the id
 // FIRST, against expectedNext_, classifying every inbound id into
@@ -28,9 +29,10 @@
 //     arity, or an unparseable field -- does NOT advance the sequence:
 //     it replies `nack <expectedNext_> <lastDone> <reason>` (still
 //     naming the SAME id, since it was never accepted) plus
-//     `err <code> #<id>`, and sets gapOutstanding_ so a stalled stream
-//     keeps re-nacking at the application's own telemetry cadence
-//     (emitTelemetry(), S8.5) until a well-formed line finally supplies
+//     `err <code> #<id>`; a stalled stream keeps re-nacking because
+//     every subsequent inbound line re-triggers the same nack (S8.1 --
+//     there is no periodic re-nack, 2026-08-26, S8.5) until a
+//     well-formed line finally supplies
 //     that same id (S8.9 -- "decode failure is a NAK", the central
 //     2026-08-22 change: a corrupted leg of a multi-leg routine is
 //     resent, not silently skipped).
@@ -44,8 +46,8 @@
 //     `< expectedNext_` and falls into this bucket with zero extra code.
 //   - id > expectedNext_ : a numeric gap -- discard, do NOT execute, and
 //     do not even look up the verb; reply
-//     `nack <expectedNext_> <lastDone> <reason>` and set
-//     gapOutstanding_. A gap stalls the stream ON PURPOSE: every
+//     `nack <expectedNext_> <lastDone> <reason>`. A gap stalls the
+//     stream ON PURPOSE: every
 //     subsequent command, however well-formed, is nacked identically
 //     until the missing id arrives.
 // A merits rejection -- the verb decoded fine but the Adapter refuses it
@@ -62,7 +64,7 @@
 //
 // HELLO/ESTOP/PING (S8.3) never carry an id at all and are maximally
 // forgiving of trailing content -- see dispatch()'s own comment. HELLO
-// additionally resets expectedNext_/gapOutstanding_ (a (re)connecting
+// additionally resets expectedNext_ (a (re)connecting
 // host's own resync point) but does NOT touch the Adapter's
 // lastDone()/lastDoneReason() -- that state is Adapter-owned and a
 // handler-level reset has no business reaching into it (S8.8).
@@ -414,11 +416,12 @@ class WireHandler {
   //   1. `thdr <col>...\n`, but only when a fresh header is DUE (see
   //      below);
   //   2. `t <v>...\n`, always, one value per column in `snapshot`, in
-  //      the same order as the most recently emitted header;
-  //   3. emitReliability()'s own ack/nack keepalive (see its own doc
-  //      comment) -- so a telemetry subscriber never has to poll a
-  //      second entry point to also learn whether its last command
-  //      landed.
+  //      the same order as the most recently emitted header.
+  // NOTHING ELSE (2026-08-26, protocol.md S8.5): the ack/nack keepalive
+  // that used to ride as a third write is DELETED -- an ack/nack is only
+  // ever a direct reply to an inbound sequenced line, never a beacon. A
+  // subscriber that wants to know whether its last command landed sends
+  // a command (e.g. STATUS) and reads that command's own ack.
   // A fresh header is DUE when: this is the very first call ever made
   // on this instance; the column set changed since the last header
   // (count, any column's name, OR any column's hex-ness -- a memo that
@@ -434,25 +437,12 @@ class WireHandler {
   // and touches nothing else afterward.
   void emitTelemetry(const Snapshot& snapshot);
 
-  // The reliability layer's own periodic emission (protocol.md S8.5):
-  // "nack <expectedNext_> <lastDone> <reason>" if gapOutstanding_ is
-  // set, "ack <expectedNext_ - 1> <lastDone> <reason>" otherwise, with
-  // <lastDone>/<reason> read FRESH off the Adapter, same as every other
-  // ack/nack this class formats. The application drives this call on
-  // whatever cadence it already has -- this class adds NO timer and NO
-  // clock of its own to make it happen (S8.1's own constraint). This is
-  // what lets a lost ack/nack self-heal: as long as this is called
-  // regularly, a stalled gap keeps producing fresh nacks, and a quiet
-  // host still eventually learns its last command landed.
-  //
-  // Callable completely independent of any Snapshot -- carries what
-  // used to be emitTelemetry()'s entire body, verbatim, now split out
-  // so this keepalive survives `TLM OFF` (no Snapshot to project, but
-  // the reliability layer must keep going regardless).
-  // emitTelemetry(snapshot) above calls this internally as its own
-  // third step; a caller with nothing to project (or no subscriber at
-  // all) is free to call this alone.
-  void emitReliability();
+  // emitReliability() is GONE (2026-08-26, protocol.md S8.5): the
+  // periodic/piggybacked ack-nack keepalive it carried is deleted
+  // outright, per stakeholder direction ("an ack or a nack is only a
+  // response to a message, not a beacon"). The only remaining origin of
+  // every ack/nack is dispatch()'s own per-inbound-line reply (S8.1);
+  // a lost ack/nack heals via the host's own retransmit or poll.
 
   // Lines dropped as: an unrecognized verb or one this file does not
   // (yet) implement, wrong arity, an unparseable field, a sequenced
@@ -703,11 +693,12 @@ class WireHandler {
   uint32_t malformedCount_ = 0;
 
   // ---- the reliability layer's own state (protocol.md S8.1) -- exactly
-  // these two fields, and deliberately NO clock/timer. `lastDone_` is
-  // NOT here: it lives on the Adapter (S8.8), polled fresh on every
-  // ack/nack, never cached on this class. ----
+  // this one field (2026-08-26, S8.5: gapOutstanding_ deleted with the
+  // telemetry ack piggyback -- its only reader was emitReliability()),
+  // and deliberately NO clock/timer. `lastDone_` is NOT here: it lives
+  // on the Adapter (S8.8), polled fresh on every ack/nack, never cached
+  // on this class. ----
   uint32_t expectedNext_ = 1;    // next sequence id expected from the host
-  bool gapOutstanding_ = false;  // a nack is currently owed (S8.5)
 
   // ---- telemetry header memo state (protocol.md S5.2) -- a COPY of
   // the most recently emitted header's shape, sized generously above

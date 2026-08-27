@@ -15,7 +15,8 @@ formatting/ordering bugs, not unit-scale bugs).
 
 Reuses test_wire_grammar.py's `wire_lib` fixture, `wg` fixture,
 `WireGrammar` wrapper (widened this ticket with `emit_telemetry()`/
-`emit_reliability()`/`take_sink_writes()`), and `_ack`/`_nack` helpers,
+`take_sink_writes()`; `emit_reliability()` was deleted 2026-08-26 along
+with the telemetry ack piggyback, S8.5), and `_ack`/`_nack` helpers,
 per this project's own "one shim, several pytest files" convention
 (wire_grammar_shim.cpp's own file header).
 
@@ -39,100 +40,66 @@ from test_wire_grammar import (  # noqa: F401 -- wg/wire_lib re-exported as fixt
 # ---------------------------------------------------------------------------
 
 
-def test_first_frame_emits_thdr_then_t_then_reliability(wg):
+def test_first_frame_emits_thdr_then_t_and_nothing_else(wg):
     columns = [(b"x", 10, False), (b"y", -5, False), (b"flags", 0x2A, True)]
     wg.emit_telemetry(columns)
     writes = wg.take_sink_writes()
-    assert writes == [b"thdr x y flags\n", b"t 10 -5 2a\n", _ack(0)]
+    assert writes == [b"thdr x y flags\n", b"t 10 -5 2a\n"]
 
 
-def test_second_frame_with_unchanged_columns_emits_only_t_and_reliability(wg):
+def test_second_frame_with_unchanged_columns_emits_only_t(wg):
     columns = [(b"x", 10, False), (b"y", -5, False), (b"flags", 0x2A, True)]
     wg.emit_telemetry(columns)
-    wg.take_sink_writes()  # frame 1's thdr/t/ack -- not under test here
+    wg.take_sink_writes()  # frame 1's thdr/t -- not under test here
 
     wg.emit_telemetry(columns)
     writes = wg.take_sink_writes()
-    assert writes == [b"t 10 -5 2a\n", _ack(0)]
+    assert writes == [b"t 10 -5 2a\n"]
 
 
 # ---------------------------------------------------------------------------
-# Byte-exact ordering: thdr -> t -> ack/nack, as THREE SEPARATE
-# Sink::write() calls -- asserted on the RecordingSink's own per-call
-# log (take_sink_writes()), not just the concatenated buffer, so this
-# is verifiable independent of whether writes happen to get
-# concatenated in a real transport.
+# Byte-exact ordering: thdr -> t, as SEPARATE Sink::write() calls --
+# asserted on the RecordingSink's own per-call log (take_sink_writes()),
+# not just the concatenated buffer. NO reliability line rides along
+# (2026-08-26, protocol.md S8.5: the telemetry ack piggyback is DELETED
+# -- an ack/nack is only ever a direct reply to an inbound line).
 # ---------------------------------------------------------------------------
 
 
-def test_emit_telemetry_writes_exactly_three_separate_lines_when_thdr_due(wg):
+def test_emit_telemetry_writes_exactly_two_separate_lines_when_thdr_due(wg):
     columns = [(b"a", 1, False)]
     wg.emit_telemetry(columns)
     writes = wg.take_sink_writes()
-    assert len(writes) == 3
+    assert len(writes) == 2
     assert writes[0] == b"thdr a\n"
     assert writes[1] == b"t 1\n"
-    assert writes[2] == _ack(0)
 
 
-def test_emit_telemetry_writes_exactly_two_separate_lines_when_thdr_not_due(wg):
+def test_emit_telemetry_writes_exactly_one_line_when_thdr_not_due(wg):
     columns = [(b"a", 1, False)]
     wg.emit_telemetry(columns)
     wg.take_sink_writes()
 
     wg.emit_telemetry(columns)
     writes = wg.take_sink_writes()
-    assert len(writes) == 2
-    assert writes[0] == b"t 1\n"
-    assert writes[1] == _ack(0)
+    assert writes == [b"t 1\n"]
 
 
-def test_emit_telemetry_reliability_step_reflects_a_stalled_gap(wg):
-    """The reliability keepalive emitTelemetry() calls internally is the
-    SAME state emitReliability() alone reports -- a gap opened via
-    feed() shows up as a `nack`, not an `ack`, on telemetry's own third
-    write, exactly as it would standalone."""
+def test_emit_telemetry_stays_silent_on_reliability_even_with_a_gap(wg):
+    """An outstanding gap must NOT leak onto the telemetry channel
+    (2026-08-26, S8.5): the re-nack arrives on the next INBOUND line
+    (S8.1), never on a frame."""
     wg.feed(b"SET group.alpha 1.0 #5\n")  # opens a gap: expectedNext_ stays 1
     wg.take_sink()  # the nack from feed() itself -- not under test here
 
     columns = [(b"a", 1, False)]
     wg.emit_telemetry(columns)
     writes = wg.take_sink_writes()
-    assert len(writes) == 3
-    assert writes[0] == b"thdr a\n"
-    assert writes[1] == b"t 1\n"
-    assert writes[2] == _nack(1)
+    assert writes == [b"thdr a\n", b"t 1\n"]
 
-
-# ---------------------------------------------------------------------------
-# emitReliability() alone -- no Snapshot involved at all -- emits no
-# `t` and no `thdr`, only the ack/nack line, matching the pre-split
-# emitTelemetry()'s own behavior exactly (this is what lets the
-# keepalive survive `TLM OFF`).
-# ---------------------------------------------------------------------------
-
-
-def test_emit_reliability_alone_emits_only_the_keepalive_line(wg):
-    wg.emit_reliability()
-    writes = wg.take_sink_writes()
-    assert writes == [_ack(0)]
-
-
-def test_emit_reliability_alone_never_touches_the_header_memo(wg):
-    """Calling emitReliability() between two emitTelemetry() calls must
-    not itself count as a "frame" for the header memo, and must not
-    perturb headerChanged()'s own state -- it takes no Snapshot at all,
-    so it has nothing to compare."""
-    columns = [(b"a", 1, False)]
-    wg.emit_telemetry(columns)
-    wg.take_sink_writes()
-
-    wg.emit_reliability()
-    wg.take_sink_writes()
-
-    wg.emit_telemetry(columns)
-    writes = wg.take_sink_writes()
-    assert writes[0] == b"t 1\n"  # still no thdr -- unchanged columns
+    # The stalled stream still re-nacks -- per inbound line.
+    wg.feed(b"SET group.alpha 1.0 #6\n")
+    assert wg.take_sink_writes() == [_nack(1)]
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +290,7 @@ def test_widest_realistic_full_frame_fits_comfortably_under_radio_cap(wg):
 
     wg.emit_telemetry(columns)
     writes = wg.take_sink_writes()
-    thdr_line, t_line, _reliability_line = writes
+    thdr_line, t_line = writes  # no reliability line (2026-08-26, S8.5)
 
     # Measured, not guessed -- see this test's own docstring and this
     # ticket's final report for the exact numbers (86 B / 144 B as of
@@ -367,7 +334,7 @@ def test_widest_pathological_int32_min_frame_confirms_open_question_2(wg):
 
     wg.emit_telemetry(columns)
     writes = wg.take_sink_writes()
-    _thdr_line, t_line, _reliability_line = writes
+    _thdr_line, t_line = writes  # no reliability line (2026-08-26, S8.5)
 
     # Pinned measurement: 239 bytes, unchanged since this test was
     # first written (sprint 004 ticket 003) -- this ticket does not

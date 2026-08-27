@@ -97,7 +97,6 @@ EXPECTED_COLUMN_NAMES = [c[0] for c in EXPECTED_COLUMNS]
 EXPECTED_THDR_LINE = b"thdr seq now flags x y h ox oy oh vl vr i2cf\n"
 EXPECTED_T_LINE = b"t 1 5000 31 250 -75 9000 250 -75 8955 120 -120 3\n"
 
-# The reliability keepalive that follows `t` on a fresh handler (no
-# lines fed yet: expectedNext_ == 1, no gap outstanding, lastDone() == 0,
-# lastDoneReason() == kNone -> "none").
-EXPECTED_RELIABILITY_LINE = b"ack 0 0 none\n"
+# EXPECTED_RELIABILITY_LINE is GONE (2026-08-26, protocol.md S8.5): no
+# reliability line follows `t` any more -- an ack/nack is only ever a
+# direct reply to an inbound line, never part of a telemetry emission.

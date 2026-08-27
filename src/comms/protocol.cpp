@@ -75,13 +75,13 @@ constexpr const char* kVersion = "1.0.10";  // keep in sync with pxt.json --
 constexpr char kOldRunPrefix[] = "RUN:";
 constexpr size_t kOldRunPrefixLen = 4;
 
-// Poll granularity between transport reads, and the reliability layer's
-// own periodic self-healing emission cadence (wire_handler.h's
-// emitTelemetry() doc comment): small enough that a command arriving
-// just after one poll is still picked up well within one emission
-// period; not so small it spins this fiber against an idle UART
-// between bytes.
-constexpr uint32_t kReliabilityEmitPeriodMs = 50;
+// Poll granularity between transport reads, and the telemetry frame
+// emission cadence for a TLM-subscribed host (2026-08-26: this paces
+// FRAMES only -- the reliability line that used to ride each frame is
+// deleted, S8.5): small enough that a command arriving just after one
+// poll is still picked up promptly; not so small it spins this fiber
+// against an idle UART between bytes.
+constexpr uint32_t kTelemetryEmitPeriodMs = 50;
 constexpr uint32_t kPollIntervalMs = 5;
 
 // Custom MessageBus source id for the old-style RUN bridge -- must match
@@ -325,7 +325,7 @@ void Protocol::run() {
         // Every other line -- including the v6 grammar's own
         // space-separated "RUN <name> ... #<id>" verb -- goes to
         // radio's own v6 wire stack. wireHandlerRadio_ keeps its own
-        // independent expectedNext_/gapOutstanding_ (wifi-link.md:373),
+        // independent expectedNext_ (wifi-link.md:373),
         // so a gap on this transport can never nack wireHandler_'s
         // (serial's) next command, or vice versa.
         wireHandlerRadio_.feed(reinterpret_cast<const char*>(rxLineBuf_),
@@ -335,46 +335,44 @@ void Protocol::run() {
     }
 
     // The reliability layer's per-line ack/nack (WireHandler::dispatch(),
-    // wire_handler.cpp) is already the ENTIRE reliability plane for a
-    // transport nobody has subscribed to via TLM: it fires once per
-    // inbound line, driven from feed()/onLineComplete() above, completely
-    // independent of this timing gate. This gate exists ONLY to pace the
-    // telemetry-ON piggyback below: when a host has subscribed
+    // wire_handler.cpp) is the ENTIRE reliability plane, full stop
+    // (2026-08-26): it fires once per inbound line, driven from
+    // feed()/onLineComplete() above, completely independent of this
+    // timing gate. This gate exists ONLY to pace telemetry FRAMES for a
+    // subscribed host: when a host has subscribed
     // (wireAdapter_.telemetryEnabled()), buildSnapshot() is called ONCE
     // per tick and the SAME Snapshot reference is handed to BOTH
     // handlers' emitTelemetry() -- not once per handler (buildSnapshot()
     // mutates odometry and advances seq_, so building it twice would
     // double both for no benefit, and would report different seq/now
     // values to serial vs radio for what should read as "the same
-    // instant"). emitTelemetry() itself calls emitReliability()
-    // internally as its own third write (wire_handler.cpp), so a
-    // TLM-subscribed host still gets the reliability line piggybacked on
-    // every telemetry frame, exactly as before -- that stream is itself a
-    // host request, so it correctly stays a response.
+    // instant").
     //
-    // Sprint 024 ticket 001 deleted the unconditional `else` this `if`
-    // used to have, which called emitReliability() on both handlers
-    // alone, every tick, regardless of subscription -- a free-running
-    // 20 Hz beacon on an idle transport, addressed to nobody (sprint 004
-    // drift off of sprint 003 ticket 003's original, narrower,
-    // piggyback-only design; see
-    // clasi/issues/reliability-line-free-runs-at-20-hz-on-the-radio-with-no-host.md).
-    // ack/nack is a response by definition, so a non-subscribed transport
-    // now emits nothing from this loop, ever, until it next receives a
-    // line -- at which point dispatch()'s own per-line reply, not this
-    // gate, answers it. The lost-reply self-heal ticket 003 built this
-    // timer to cover still exists, it just moved: a lost ack/nack now
-    // heals via the HOST's own retransmit (tools/robotlink.py's
-    // send_until()), one round trip later, instead of a firmware-side
-    // re-emission. A future reader must NOT "restore" a periodic,
-    // rate-limited, or gap-gated re-emission here as a fix for a
-    // perceived regression -- the self-heal path changed shape, it did
-    // not disappear, and restoring any form of unsolicited emission would
-    // reintroduce exactly the beacon this ticket removes. See sprint
-    // 024's Design Rationale for the full analysis.
+    // History of the ack barrage, in two deletions. Sprint 024 ticket
+    // 001 deleted the unconditional `else` this `if` used to have,
+    // which called emitReliability() on both handlers alone, every
+    // tick, regardless of subscription -- a free-running 20 Hz beacon
+    // on an idle transport, addressed to nobody (see clasi/issues/
+    // reliability-line-free-runs-at-20-hz-on-the-radio-with-no-host.md).
+    // That left ONE unsolicited path: emitTelemetry() still appended the
+    // reliability line to every frame for a TLM-subscribed host -- and a
+    // STALE subscription (TLM survives disconnect by design) plus the
+    // radio path's own frame throttle produced an ack-only barrage on an
+    // idle bridge connection anyway. 2026-08-26, stakeholder direction
+    // ("an ack or a nack is only a response to a message, not a
+    // beacon"): emitReliability() is deleted outright (wire_handler.h) --
+    // emitTelemetry() emits frames only, and NO unsolicited ack/nack of
+    // any kind exists on any path. A lost ack/nack heals via the HOST's
+    // own retransmit (tools/robotlink.py's send_until()) or poll, one
+    // round trip later. A future reader must NOT "restore" a periodic,
+    // rate-limited, gap-gated, or telemetry-carried re-emission here as
+    // a fix for a perceived regression -- the self-heal path changed
+    // shape, it did not disappear, and restoring any form of unsolicited
+    // emission would reintroduce exactly the barrage these two deletions
+    // removed.
     const uint32_t nowMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
     if (static_cast<int32_t>(nowMs - lastEmitMs) >=
-        static_cast<int32_t>(kReliabilityEmitPeriodMs)) {
+        static_cast<int32_t>(kTelemetryEmitPeriodMs)) {
       if (wireAdapter_.telemetryEnabled()) {
         const Wire::Snapshot& snapshot = wireAdapter_.buildSnapshot();
         wireHandler_.emitTelemetry(snapshot);

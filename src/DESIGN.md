@@ -239,7 +239,8 @@ case specifically (sprint 008).
 
 **Reliability layer.** Every sequenced verb carries a mandatory
 trailing `#<id>`, strictly incrementing from 1. Handler state is
-exactly two fields — `expectedNext_` and `gapOutstanding_` — with **no
+exactly one field — `expectedNext_` (2026-08-26: `gapOutstanding_` is
+deleted with the telemetry ack piggyback, below) — with **no
 clock or timer anywhere** in the class. `dispatch()` resolves the id
 first: in-order ids decode **before** any reply (decode failure nacks
 the same id and does not advance — "decode failure is a NAK"); stale
@@ -250,18 +251,18 @@ sharply distinct from decode failures. `lastDone`/`lastDoneReason` are
 polled fresh off the Adapter on every ack/nack, never cached.
 HELLO/PING/ESTOP are unsequenced, intercepted before id resolution;
 HELLO resets the sequence state (a reconnecting host's resync) but
-never touches Adapter state. The reliability layer's periodic
-self-healing re-emission is now two calls, split by sprint 004 ticket
-003 (before, there was one, `emitTelemetry()`, and it carried no data
-frame at all): `emitReliability()` alone re-states the highest
-accepted id (or re-nacks a stalled gap) with no Snapshot involved;
-`emitTelemetry(const Snapshot&)` additionally emits a fresh
-`thdr <col>...` when one is due plus `t <v>...` for the given frame,
-then calls `emitReliability()` internally as its own third step — so a
-telemetry subscriber never has to poll a second entry point to also
-learn whether its last command landed. The **application** still
-supplies the cadence (protocol.cpp, 50 ms) and now also decides which
-of the two to call, based on whether it has a `Snapshot` to project
+never touches Adapter state. **There is no unsolicited ack/nack of any
+kind (2026-08-26, stakeholder direction: "an ack or a nack is only a
+response to a message, not a beacon").** The `emitReliability()`
+keepalive — sprint 004 ticket 003's split, still riding as
+`emitTelemetry()`'s third write after sprint 024 ticket 001 removed
+its free-running form — is deleted outright: `emitTelemetry(const
+Snapshot&)` emits a fresh `thdr <col>...` when one is due plus
+`t <v>...` for the given frame, and nothing else. A subscriber that
+wants to know whether its last command landed sends a command (e.g.
+`STATUS`) and reads that command's own ack; a lost ack/nack heals via
+the host's own retransmit or poll. The **application** still supplies
+the frame cadence (protocol.cpp, 50 ms) for a TLM-subscribed host
 (see §8's Fiber loop).
 
 **`Adapter` seam.** The pure-virtual contract behind every verb:
@@ -631,8 +632,8 @@ time to call `microbit_friendly_name()`/`microbit_serial_number()`),
 then **two** `Wire::WireHandler` instances — `wireHandler_` (serial)
 and `wireHandlerRadio_` (radio, sprint 004 ticket 001) — composed over
 that **same** `WireAdapter` instance, not two adapters. Each handler
-still keeps its own `expectedNext_`/`gapOutstanding_` (plain instance
-members) — the whole point: two independent hosts share one robot's
+still keeps its own `expectedNext_` (a plain instance
+member) — the whole point: two independent hosts share one robot's
 adapter state without one transport's sequence gap nacking the
 other's next command.
 
@@ -651,8 +652,9 @@ fallback, everything else — the full v6 grammar — is `feed()`'d to
 twice would double-advance `seq_` and mutate odometry twice, and would
 report different `seq`/`now` to serial vs radio for what should read
 as the same instant; with telemetry off (the boot default, or on any
-tick where no host has subscribed), both handlers call
-`emitReliability()` alone instead; and while
+tick where no host has subscribed), the tick emits nothing at all —
+2026-08-26: `emitReliability()` is deleted (no unsolicited ack/nack on
+any path; §"Reliability layer" above); and while
 `wireAdapter_.hasLiveMotionObligation()`, call `tickDrive()` itself
 (the fiber is the tick source for wire-issued motion), else
 `fiber_sleep(5)`.
