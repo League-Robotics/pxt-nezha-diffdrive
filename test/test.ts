@@ -186,8 +186,28 @@ const LEG_CM = [100, 60, 100, 60]
 // the centre of rotation on a 38.2 mm circle, fit residual rms 1.34 mm.
 // The sensor sits 38.2 mm BEHIND the centre, within a millimetre of the
 // centreline; the mounting yaw came from the 30 cm straight leg after.
-let armX = -3.82      // [cm] +forward
-let armY = -0.07      // [cm] +left
+// OTOS lever arm -- sensor position relative to the CENTRE OF ROTATION.
+// RE-MEASURED vevov 2026-08-28 after the chassis rebuild (front caster
+// removed, drive wheels moved forward), which MOVED the centre of
+// rotation and so invalidated the -3.82 cm measured 2026-08-21.
+// Capture: captures/otos-run-handler-i2c-hang-20260828.md.
+//
+// Method: with applyArm() not yet run the OTOS reports the SENSOR's own
+// path, so eight 45 deg in-place pivots trace a circle of radius |arm|
+// about the centre; least-squares fit of otos_i = C + R(theta_i).arm
+// over 9 rest readings gave x -52.7 mm, y -1.2 mm, residuals 1.4 mm
+// median / 1.9 mm max.
+//
+// CROSS-CHECK, independent: the overhead camera's tag-53 mount solved
+// to 53.4 mm behind the centre the same day, by the same fit shape but
+// a different instrument. Two sensors agreeing to 0.7 mm is what makes
+// this trustworthy rather than merely fitted.
+let armX = -5.27      // [cm] +forward
+let armY = -0.12      // [cm] +left
+// UNVERIFIED: yaw was NOT re-measured -- the pivot fit constrains the
+// arm's POSITION, not the sensor's angular mounting. Carried over from
+// 2026-08-21. Re-measure by comparing OTOS heading against camera
+// heading at rest across several headings.
 let armYaw = 0.89     // [deg]
 
 let armApplied = false
@@ -509,6 +529,22 @@ input.onButtonPressed(Button.AB, function () {
 // that tour's own handler is mid-execution on its own fiber -- RUN
 // handlers already interleave (that is exactly why `touring` exists as a
 // re-entrancy guard for the MOVE-issuing handlers in the first place).
+// Clear the emergency-stop latch. ESTOP is reachable over the wire but
+// nothing was: once latched, every motion verb was silently ignored and
+// the ONLY recovery was a reflash or a power cycle. Found the hard way
+// on 2026-08-28 -- an ESTOP (sent to catch a runaway) left the robot
+// unable to move, mid-regression, with no way back over the link.
+//
+// diffDrive.clearEmergencyStop() already existed as a block; this just
+// gives it a wire-reachable name. Deliberately its OWN verb rather than
+// folding it into STOP: STOP is issued constantly and reflexively, and
+// making it silently disarm a safety latch would be worse than the
+// problem being fixed.
+diffDrive.onRun("clearestop", function (arg: number) {
+    diffDrive.clearEmergencyStop()
+    diffDrive.emitLine("ESTOP:cleared")
+})
+
 diffDrive.onRun("abort", function (arg: number) {
     aborted = true
 })
@@ -702,5 +738,61 @@ diffDrive.onRun("turnrate", function (arg: number) {
 // CODAL fiber, started from the extension's top-level code ahead of
 // this file's own top-level code either way, so it is unaffected by
 // this ordering regardless.
+// ---- OTOS bring-up: MAIN FIBER, at boot --------------------------------
+//
+// MEASURED 2026-08-28 (vevov and tovez, over radio AND usb): ANY
+// uBit.i2c transaction issued from a RUN handler hangs the board
+// permanently -- silent to every verb on both carriers, cured only by a
+// reflash. Confirmed against 0x10, the NEZHA BRICK, on a robot whose
+// MOTION fiber talks to that same address successfully seconds later
+// (connL=1 connR=1, cyc advancing, i2cf=0). Neither the address nor the
+// device is at fault; the CALLING CONTEXT is.
+//
+// Capture: captures/otos-run-handler-i2c-hang-20260828.md.
+//
+// So RUN:probe could never have started the OTOS, and every world-frame
+// path that reached otosBegin() through a RUN handler carried the same
+// defect. Bringing it up HERE -- on the main fiber during boot, before
+// any RUN handler can be dispatched -- is the fix. The result is emitted
+// so `otos=` in STATUS can be checked against the product id that
+// produced it, rather than being trusted on its own.
+const otosBootId = diffDrive.otosBegin()
+diffDrive.emitLine("OTOS:boot:id=" + otosBootId
+    + ":connected=" + diffDrive.otosGet(7))
+// Apply the lever arm HERE too. applyArm() is pure software
+// (setWorldSensorOffset + a log line, no I2C), so it is safe on this
+// fiber. It previously ran only via worldReady() inside a RUN handler,
+// which is the context that hangs -- so in practice the arm was NEVER
+// applied and the OTOS reported the SENSOR's path, injecting
+// 2*|arm|*sin(theta/2) of phantom translation into every pivot (~53 mm
+// per 90 deg corner at the measured arm, four corners per tour).
+if (diffDrive.otosGet(7) != 0) {
+    applyArm()
+}
+
+// ---- OTOS sampling --------------------------------------------------
+//
+// otosGet() is a CACHE-ONLY read (wire_adapter.h says so explicitly), so
+// without something periodically calling otosRead() the telemetry's
+// ox/oy/oh sit at (0,0,0) forever. MEASURED 2026-08-28 on vevov, right
+// after the boot init above made otos=1: every one of 153 frames read
+// ox=oy=oh=0 while the encoders logged 246 mm of travel. That is also
+// what the orange-dots tour recorded and had to chart as "no data".
+//
+// Sampled from a BACKGROUND fiber, not a RUN handler -- RUN-handler I2C
+// hangs the board outright (see the boot init above for the
+// measurement). 10 Hz is deliberately slower than the 50 ms telemetry
+// tick: wire_adapter.h warns that an OTOS transaction interposed in the
+// Nezha encoder's select->read settle window destroys that encoder
+// sample, and the two ports share the bus with NO mutual exclusion.
+// `i2cf` in STATUS is the counter that would expose it if this starts
+// colliding -- watch it before trusting a run.
+control.inBackground(function () {
+    while (true) {
+        diffDrive.readWorld()
+        basic.pause(100)
+    }
+})
+
 basic.showIcon(IconNames.Rollerskate)
 basic.showString(BOOT_ROBOT + " " + BOOT_VERSION)

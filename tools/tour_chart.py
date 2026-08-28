@@ -19,6 +19,7 @@ Run under uv (the user-level matplotlib install is broken):
 """
 import argparse
 import csv
+import math
 import os
 import sys
 
@@ -31,6 +32,7 @@ import tlm
 
 # dataviz reference palette (validated pair): series1 blue, series2 orange
 S1, S2 = '#2a78d6', '#eb6834'
+S3 = '#2e9e6b'   # third series: the camera track (green)
 INK, INK2, MUTED = '#0b0b0b', '#52514e', '#b9b7b0'
 
 MAX_POSE_MM = 2000        # any |x|,|y| beyond this is a corrupt sample
@@ -60,6 +62,22 @@ def main():
                          'captures only.')
     ap.add_argument('--travel-calib', type=float, default=0.7878)
     ap.add_argument('--title', default='Square Tour')
+    # Overhead-camera track (t_host, x_cm, y_cm, yaw_rad). The only one
+    # of the three paths that cannot be fooled by a wheel that slipped,
+    # so when it is present it is drawn as the reference and the
+    # odometry is judged against it.
+    ap.add_argument('--cam-csv', default=None,
+                    help='overhead camera track to overlay (cm -> mm)')
+    # Odometry lives in the ROBOT's own frame -- it starts wherever the
+    # pose happened to be, not at the world origin (this run began at
+    # (-47,-1) mm / 8.34 deg because the parking moves preceded the
+    # recording). Overlaying the two frames without saying so would
+    # invent an error that is pure frame mismatch. The capture's meta
+    # sidecar carries the camera's start fix, which is exactly the
+    # rigid transform needed.
+    ap.add_argument('--meta', default=None,
+                    help='capture meta JSON; aligns odometry into the '
+                         'world frame using its camera start fix')
     a = ap.parse_args()
 
     # SUC-002: refuse to plot a run whose capture recorded zero telemetry
@@ -121,10 +139,19 @@ def main():
     otos = [o for o in otos_all
             if o[0] <= t_cut
             and abs(o[1]) < MAX_POSE_MM and abs(o[2]) < MAX_POSE_MM]
+    # An OTOS that never initialised reports a constant (0,0,0). Taken
+    # at face value that becomes a single "boundary fix" diamond at the
+    # world origin -- a plausible-looking data point standing for a
+    # sensor that said nothing. Detect the all-zero case and say so
+    # instead; a series that was asked for and is absent must be
+    # labelled absent, not quietly drawn.
+    otos_dead = bool(otos_all) and all(
+        o[1] == 0 and o[2] == 0 and o[3] == 0 for o in otos_all)
     fixes = []
-    for o in otos:
-        if not fixes or (o[1], o[2]) != (fixes[-1][1], fixes[-1][2]):
-            fixes.append(o)
+    if not otos_dead:
+        for o in otos:
+            if not fixes or (o[1], o[2]) != (fixes[-1][1], fixes[-1][2]):
+                fixes.append(o)
     vel_cut = [v for v in vel_all if v[0] <= t_cut]
     vel = [(t, l * k, r * k) for t, l, r in vel_cut
            if abs(l * k) < MAX_SPEED_CM_S and abs(r * k) < MAX_SPEED_CM_S]
@@ -136,6 +163,53 @@ def main():
 
     if not pose:
         raise SystemExit('no plausible pose data')
+
+    # ---- camera track, and the rigid transform that makes the two
+    # frames comparable. Rotation is (world start heading - odometry
+    # start heading); translation puts the odometry's first sample on
+    # the camera's first fix. This is a CHANGE OF FRAME, not a fit --
+    # nothing here is tuned to make the curves agree.
+    cam = []
+    if a.cam_csv and os.path.exists(a.cam_csv):
+        cam_rows, _ = read_csv(a.cam_csv)
+        cam = [[r[0], r[1] * 10.0, r[2] * 10.0, r[3]] for r in cam_rows
+               if r[0] <= t_cut]
+    aligned = False
+    if a.meta and os.path.exists(a.meta):
+        import json
+        m = json.load(open(a.meta))
+        sw = m.get('start_world_cm')
+        if sw and pose:
+            ox0, oy0 = pose[0][1], pose[0][2]
+            oh0 = math.radians(pose[0][3] / 100.0)
+            wx0, wy0, wh0 = sw[0] * 10.0, sw[1] * 10.0, sw[2]
+            rot = wh0 - oh0
+            c, sn = math.cos(rot), math.sin(rot)
+            pose = [[t,
+                     wx0 + c * (x - ox0) - sn * (y - oy0),
+                     wy0 + sn * (x - ox0) + c * (y - oy0),
+                     h] for (t, x, y, h) in pose]
+            aligned = True
+            # The OTOS keeps its OWN world frame -- its origin and its
+            # heading zero are wherever the sensor happened to start, so
+            # plotted raw it draws a correctly-shaped path at an
+            # arbitrary rotation (measured 2026-08-28: ~45 deg off, which
+            # reads as a wild error and is purely frame). Same rigid
+            # transform, from its own first sample. Its heading is in
+            # CENTIDEGREES, unlike the pose heading above.
+            # NB transform `fixes`, not `otos_all`: fixes is built
+            # further up and is what actually gets plotted, so rewriting
+            # otos_all here would silently do nothing (it did, first try).
+            if fixes:
+                ax0, ay0 = fixes[0][1], fixes[0][2]
+                ah0 = math.radians(fixes[0][3] / 100.0)
+                rot2 = wh0 - ah0
+                c2, s2 = math.cos(rot2), math.sin(rot2)
+                fixes = [[t,
+                          wx0 + c2 * (x - ax0) - s2 * (y - ay0),
+                          wy0 + s2 * (x - ax0) + c2 * (y - ay0),
+                          h] for (t, x, y, h) in fixes]
+
     sx, sy = pose[0][1], pose[0][2]
     ex, ey = pose[-1][1], pose[-1][2]
     closure = ((ex - sx) ** 2 + (ey - sy) ** 2) ** 0.5
@@ -152,6 +226,8 @@ def main():
 
     fig = plt.figure(figsize=(12, 6.4), facecolor='#fcfcfb')
     otos_note = ""
+    if otos_dead:
+        otos_note = ",  OTOS: NOT REPORTING (all-zero)"
     if len(fixes) >= 2:
         oc = ((fixes[-1][1] - fixes[0][1]) ** 2
               + (fixes[-1][2] - fixes[0][2]) ** 2) ** 0.5
@@ -168,11 +244,29 @@ def main():
     ax.plot(cmd_x, cmd_y, ls='--', lw=1.2, color=MUTED, label=clabel,
             zorder=1)
     ax.plot([p[1] for p in pose], [p[2] for p in pose], lw=1.8,
-            color=S1, label='odometry path', zorder=2)
+            color=S1,
+            label='encoder odometry' + (' (aligned to world)' if aligned
+                                        else ' (robot frame)'),
+            zorder=2)
+    if cam:
+        ax.plot([c[1] for c in cam], [c[2] for c in cam], lw=2.0,
+                color=S3, marker='o', ms=3.0, mec='none', alpha=0.95,
+                label=f'camera (truth, n={len(cam)})', zorder=6)
     if fixes:
-        ax.plot([f[1] for f in fixes], [f[2] for f in fixes], 'D', ms=6,
-                color=S2, mec='white', mew=1.2, zorder=5,
-                label='OTOS boundary fixes')
+        # Sparse fixes are markers; a continuously-sampled OTOS (since the
+        # 2026-08-28 background sampler) is a real track and must be drawn
+        # as a line -- hundreds of diamonds read as noise, not a path.
+        if len(fixes) > 40:
+            ax.plot([f[1] for f in fixes], [f[2] for f in fixes], lw=1.6,
+                    color=S2, alpha=0.9, zorder=5,
+                    label=f'OTOS (n={len(fixes)})')
+        else:
+            ax.plot([f[1] for f in fixes], [f[2] for f in fixes], 'D', ms=6,
+                    color=S2, mec='white', mew=1.2, zorder=5,
+                    label='OTOS boundary fixes')
+    if otos_dead:
+        ax.plot([], [], ls='none', marker='D', ms=6, color=MUTED,
+                label='OTOS: no data (never initialised)')
     ax.plot([sx], [sy], 'o', ms=10, color=S1, mec='white', mew=1.5,
             zorder=4)
     ax.annotate('start', (sx, sy), textcoords='offset points',
