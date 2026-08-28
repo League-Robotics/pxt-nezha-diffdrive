@@ -651,6 +651,102 @@ _BOOT_VERSION_RE = re.compile(r'(const BOOT_VERSION = )"[^"]*"')
 _BOOT_ROBOT_RE = re.compile(r'(const BOOT_ROBOT = )"[^"]*"')
 
 
+# ---- per-robot geometry bake --------------------------------------------
+#
+# OPT-IN, deliberately. The obvious design -- always inject
+# `geometry.trackwidth`/`rotational_slip` from the robot's config -- is
+# WRONG here, because those fields do not currently describe what is
+# flashed. Surveyed 2026-08-28: tovez's config says trackwidth 115 /
+# slip 1.0 where the firmware defaults it actually runs are 114.2 /
+# 0.952, and togov says 126 / 0.92. Making injection unconditional
+# would silently retune three robots nobody asked to touch, which is
+# the same class of defect `_read_robot_radio_channel()` exists to
+# prevent (one robot quietly taking another's value).
+#
+# So a constant is injected ONLY when the robot's config carries an
+# explicit `geometry.firmware_bake` object naming it. No block, or a
+# block missing a key -> that constant keeps its motion_engine.h
+# default and the build is byte-identical to before. The block is a
+# statement that the number was measured FOR THIS ROBOT and is meant to
+# be baked; its absence is not an error.
+_GEOMETRY_BAKE_RES = {
+    'travel_calib': re.compile(r'(float travelCalib_ = )[-+0-9.eE]+(f;)'),
+    'trackwidth': re.compile(r'(float trackWidth_ = )[-+0-9.eE]+(f;)'),
+    'rotational_slip': re.compile(r'(float rotationalSlip_ = )[-+0-9.eE]+(f;)'),
+}
+
+
+def _read_robot_firmware_bake(robot):
+    """Read `geometry.firmware_bake` from `robot`'s radio-robot-lib
+    config, or `{}` when the robot declares none.
+
+    Unlike `_read_robot_radio_channel()` a MISSING config file is not
+    fatal: geometry baking is opt-in and most robots do not use it.
+    An UNREADABLE one still is -- that is a broken file, not an absent
+    opinion."""
+    path = _robot_config_path(robot)
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.exit(f"make_deploy: could not read robot config for "
+                  f"'{robot}' at {path}: {exc}")
+    bake = config.get('geometry', {}).get('firmware_bake', {})
+    if not isinstance(bake, dict):
+        sys.exit(f"make_deploy: geometry.firmware_bake in {path} is "
+                  f"{type(bake).__name__}, expected an object")
+    return bake
+
+
+def _inject_geometry(deploy_dir, robot):
+    """Substitute `deploy_dir`'s copy of `src/motion/motion_engine.h`'s
+    geometry constants with `robot`'s measured bake, when it declares
+    one. Same scratch-copy-only substitution as
+    `_inject_radio_channel()`; the tracked source is never touched.
+
+    Returns the list of `(name, value)` actually injected, so the build
+    log can state it -- a geometry change that happened silently would
+    be indistinguishable from one that did not happen at all."""
+    bake = _read_robot_firmware_bake(robot)
+    if not bake:
+        return []
+    path = os.path.join(deploy_dir, 'src', 'motion', 'motion_engine.h')
+    if not os.path.exists(path):
+        sys.exit(f"make_deploy: geometry bake requested for '{robot}' "
+                  f"but {path} is missing")
+    with open(path) as f:
+        text = f.read()
+    applied = []
+    for key, pattern in _GEOMETRY_BAKE_RES.items():
+        if key not in bake:
+            continue
+        value = bake[key]
+        if not isinstance(value, (int, float)) or value <= 0:
+            sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
+                      f"'{robot}' is {value!r}; expected a positive number")
+        # MUST keep a decimal point: `%g` renders 128.0 as `128`, and
+        # `128f` is not a valid C++ literal (an integer literal cannot
+        # take an `f` suffix) -- it fails the build, and did in
+        # testing before this line was written this way.
+        literal = repr(float(value))
+        if 'e' in literal or 'E' in literal:
+            sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
+                      f"'{robot}' is {value!r}; exponent form is not "
+                      f"emitted -- give a plain decimal")
+        text, n = pattern.subn(rf'\g<1>{literal}\g<2>', text)
+        if n != 1:
+            sys.exit(f"make_deploy: expected exactly 1 site for {key} in "
+                      f"{path}, found {n} -- if motion_engine.h's "
+                      f"declaration changed, update _GEOMETRY_BAKE_RES")
+        applied.append((key, float(value)))
+    if applied:
+        with open(path, 'w') as f:
+            f.write(text)
+    return applied
+
+
 def _inject_boot_banner(deploy_dir, robot):
     """Substitute `deploy_dir`'s own copy of `test/test.ts`'s
     `BOOT_VERSION`/`BOOT_ROBOT` placeholder constants with this build's
@@ -866,6 +962,8 @@ def main():
         print(f'  {f}')
     _inject_radio_channel(DEPLOY, a.robot)
     _inject_profile(DEPLOY, a.robot)
+    for _name, _value in _inject_geometry(DEPLOY, a.robot):
+        print(f'make_deploy: geometry bake {_name} = {_value:g}')
     _inject_version(DEPLOY)
     _inject_boot_banner(DEPLOY, a.robot)
     build()

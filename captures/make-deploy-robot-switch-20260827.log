@@ -1,0 +1,69 @@
+  README.md
+  src/core/diffdrive.h
+  src/core/diffdrive.cpp
+  src/motion/motion_engine.h
+  src/motion/motion_engine.cpp
+  src/platform/platform_ports.h
+  src/core/heading_wrap.h
+  src/core/encoder_glitch_armor.h
+  src/platform/encoder_pose_source.h
+  src/platform/nezha_port.h
+  src/platform/nezha_port.cpp
+  src/platform/otos_port.h
+  src/platform/otos_port.cpp
+  src/comms/serial_transport.h
+  src/comms/serial_transport.cpp
+  src/comms/radio_transport.h
+  src/comms/radio_transport.cpp
+  src/comms/protocol.h
+  src/comms/protocol.cpp
+  src/comms/wire_handler.h
+  src/comms/wire_handler.cpp
+  src/comms/wire_adapter.h
+  src/comms/wire_adapter.cpp
+  src/shims.cpp
+  src/blocks/sim.ts
+  src/blocks/run.ts
+  src/blocks/pose.ts
+  src/blocks/stop.ts
+  src/blocks/world.ts
+  src/blocks/motion.ts
+  test/test.ts
+Using target microbit with build engine codal
+  target: v9.1.1 /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.tmp/deploy-head/node_modules/pxt-microbit
+  pxt-core: v13.0.1 /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/node_modules/pxt-core
+building /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.tmp/deploy-head
+codal-microbit-v2 is already installed
+[1;35mSet target: codal-microbit-v2 [m
+[1;35mUsing target-locked.json[m
+[1;34mTargeting codal-microbit-v2[m
+[1;31mSupressing -Wexpansion-to-defined.[m
+Installing dependencies...
+codal-core is already installed
+codal-nrf52 is already installed
+codal-microbit-nrf5sdk is already installed
+[1;32mUsing library: codal-microbit-v2[m
+-- Adding library path: (/src/libraries)
+Building WITH softdevice support
+[1;32mUsing library: codal-core[m
+[1;32mUsing library: codal-nrf52[m
+[1;32mUsing library: codal-microbit-nrf5sdk[m
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /src/build
+[ 32%] Built target codal-core
+[ 42%] Built target codal-nrf52
+[ 63%] Built target codal-microbit-nrf5sdk
+[ 84%] Built target codal-microbit-v2
+Scanning dependencies of target MICROBIT
+[ 85%] Building CXX object CMakeFiles/MICROBIT.dir/pxtapp/nezha-diffdrive/src/comms/radio_transport.cpp.obj
+[ 85%] Building CXX object CMakeFiles/MICROBIT.dir/pxtapp/nezha-diffdrive/src/comms/protocol.cpp.obj
+[ 85%] Building CXX object CMakeFiles/MICROBIT.dir/pxtapp/pointers.cpp.obj
+[ 85%] Linking CXX executable MICROBIT
+[ 99%] Built target MICROBIT
+[ 99%] converting to hex file.
+[100%] converting to bin file.
+[100%] Built target MICROBIT_bin
+[100%] Built target MICROBIT_hex
+
+BUILD FAILED: not all nezha-diffdrive translation units were compiled (missing 'Building CXX object' lines for: src/comms/serial_transport.cpp, src/comms/wire_adapter.cpp, src/comms/wire_handler.cpp, src/core/diffdrive.cpp, src/motion/motion_engine.cpp, src/platform/nezha_port.cpp, src/platform/otos_port.cpp, src/shims.cpp). Wipe the stale scratch copy and rebuild: Python shutil.rmtree('/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.tmp/deploy-head') (rm -rf may be sandbox-denied), then rerun this script. See tools/DESIGN.md's "Build checkpoint triage" section.
