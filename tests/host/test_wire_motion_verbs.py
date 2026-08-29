@@ -1601,7 +1601,7 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "accel_kaff": 3.25,
     "pid_max": 1276.0,
     "twist_hold_gain": 2.0,
-    "speed_floor": 255.2,
+    "speed_floor": 893.2,
     "pos_err_max": 127.6,
     "stall_speed": 191.4,
     "stall_demand": 510.4,

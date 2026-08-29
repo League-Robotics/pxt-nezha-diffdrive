@@ -197,7 +197,18 @@ static Rig& ensure() {
     cfg.ki = 6.0f;                   // [1/s]
     cfg.iMax = 765.6f;               // [counts/s]
     cfg.pidMax = 1276.0f;            // [counts/s]
-    cfg.vMin = 255.2f;               // [counts/s]
+    // 70 mm/s (2026-08-29), was 20 mm/s (255.2f), a bare-motor figure.
+    // With the floor under breakaway, MOVE_X's end taper let the
+    // position I-term brake the wheel to a near-stop 6-11 mm short and
+    // the 25%-of-cruise crawl feedforward (3-5% duty) could not restart
+    // it, so every leg ended with a stiction jump. MEASURED tovez
+    // 2026-08-29 wheels-up, captures/tovez-taper-20260829/variants.json
+    // (SET speed_floor 893: 0 stalls at 100/150/200 mm/s, legs within
+    // +-1.4 mm; baseline.json: 6-9 mm stalls) and gopiv 2026-08-29,
+    // captures/gopiv-floor70-20260829/ (this default in source: 0/6
+    // restart bumps vs 6/6 stock, legs end ~0.2 s sooner). UNVERIFIED
+    // loaded/on the floor and on vevov; 100 mm/s overshot 2-4 mm.
+    cfg.vMin = 893.2f;               // [counts/s] = 70 mm/s at 12.76 c/mm
     cfg.posErrMax = 127.6f;          // [counts]
     cfg.biasMax = 303.7f;            // [counts/s]
     cfg.tauAdapt = 30.0f;            // [s]
