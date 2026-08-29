@@ -19,8 +19,10 @@ project, click the gear menu → **Extensions**, and paste this repo's
 URL:
 
 ```
-https://github.com/League-Robotics/pxt-nezha-diffdrive
+https://github.com/League-Microbit/pxt-diff-drive
 ```
+
+That repository is generated from this one — see "Publishing" below.
 
 ## Blocks / JavaScript
 
@@ -118,6 +120,18 @@ Working on the extension itself (blocks, `sim.ts`, the toolbox layout)?
 See [`docs/local-editor.md`](docs/local-editor.md) for serving a local
 MakeCode editor against this repo, seeing it as a disk project, and
 building/flashing a plain V2 hex instead of the editor's own Download.
+
+## Publishing
+
+The extension students install is the small subset of this repo that
+`pxt.json`'s `files` list names, plus the `extension/` overlay (its own
+README, LICENSE, sample `test.ts`, build check). `tools/publish_extension.py`
+assembles that tree and pushes it to
+[League-Microbit/pxt-diff-drive](https://github.com/League-Microbit/pxt-diff-drive),
+tagging `v<version>` from `pxt.json` when that tag is new;
+`.github/workflows/publish-extension.yml` runs it on every push to
+master. Bump `version` in `pxt.json` to cut a release. See
+[`extension/DESIGN.md`](extension/DESIGN.md).
 
 ## Provenance
 
