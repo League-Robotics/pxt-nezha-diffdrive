@@ -113,6 +113,10 @@ def _bind(lib):
     lib.meSetRotationalSlip.restype = None
     lib.meRotationalSlip.argtypes = [ctypes.c_void_p]
     lib.meRotationalSlip.restype = ctypes.c_float
+    lib.meSetPivotOverrunMm.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetPivotOverrunMm.restype = None
+    lib.mePivotOverrunMm.argtypes = [ctypes.c_void_p]
+    lib.mePivotOverrunMm.restype = ctypes.c_float
 
     lib.meWheelsV.argtypes = [
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
@@ -263,6 +267,12 @@ class Engine:
 
     def rotational_slip(self):
         return self._lib.meRotationalSlip(self._handle)
+
+    def set_pivot_overrun_mm(self, mm):
+        self._lib.meSetPivotOverrunMm(self._handle, mm)
+
+    def pivot_overrun_mm(self):
+        return self._lib.mePivotOverrunMm(self._handle)
 
     # ---- move engine ----
     def move_x(self, distance, rotation, cruise, timeout_ms):
@@ -436,6 +446,90 @@ def test_set_rotational_slip_changes_move_x_blended_kinematics(motion_lib):
         # test_motion_engine_primitives.py, covers that pin directly).
         assert left2 != pytest.approx(left1, rel=_DUTY_REL)
         assert right2 == pytest.approx(right1, rel=_DUTY_REL)
+
+
+def test_pivot_overrun_is_subtracted_from_the_rotation_target(motion_lib):
+    """2026-08-29 (OOP): MotionEngine::pivotOverrunMm_ takes a constant
+    per-wheel distance OFF every rotation target (startSegment()'s
+    yawTarget), never a scale -- the measurement it answers for
+    (reports/vevov-tour-C-firmware-and-telemetry-20260829.md S4) is a
+    +2 deg landing past the command on 3 deg and 90 deg pivots alike.
+    Same BLENDED shape as the rotational_slip test above, for the same
+    reason: a pure pivot's ratio-locked first-tick duty cannot see
+    yawTarget's magnitude, a blended move's non-dominant wheel can. With
+    overrun c [mm], yawTarget == (rotation*b/2 - c)*cpm, i.e. the
+    kinematics of a rotation smaller by 2c/b radians."""
+    with Engine(motion_lib) as e:
+        fdv = _ready(e)
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        rotation = (_TURN_FIRST_DEG - 0.5) * math.pi / 180.0  # blended
+        assert e.pivot_overrun_mm() == pytest.approx(0.0)   # fleet default
+
+        e.move_x(200.0, rotation, 150.0, 5000)
+        e.step()
+        left1 = e.motor_last_staged_duty(LEFT)
+        right1 = e.motor_last_staged_duty(RIGHT)
+        expected_left1, expected_right1 = _expected_duty_pair(
+            200.0, rotation, 150.0, cpm, b, fdv, scale=0.25)
+        assert left1 == pytest.approx(expected_left1, rel=_DUTY_REL)
+        assert right1 == pytest.approx(expected_right1, rel=_DUTY_REL)
+
+        e.end_move()
+        overrun = 2.2  # [mm] vevov's measured value
+        e.set_pivot_overrun_mm(overrun)
+        assert e.pivot_overrun_mm() == pytest.approx(overrun, rel=1e-6)
+        e.move_x(200.0, rotation, 150.0, 5000)
+        e.step()
+        left2 = e.motor_last_staged_duty(LEFT)
+        right2 = e.motor_last_staged_duty(RIGHT)
+        rotation_eff = rotation - 2.0 * overrun / b
+        expected_left2, expected_right2 = _expected_duty_pair(
+            200.0, rotation_eff, 150.0, cpm, b, fdv, scale=0.25)
+        assert left2 == pytest.approx(expected_left2, rel=_DUTY_REL)
+        assert right2 == pytest.approx(expected_right2, rel=_DUTY_REL)
+        # The non-dominant (left) wheel must move; the dominant one is
+        # ratio-locked to cruise*scale by construction (see the slip
+        # test above for why that pin is expected).
+        assert left2 != pytest.approx(left1, rel=_DUTY_REL)
+        assert right2 == pytest.approx(right1, rel=_DUTY_REL)
+
+        # Sign symmetry: a CW rotation loses the same magnitude.
+        e.end_move()
+        e.move_x(200.0, -rotation, 150.0, 5000)
+        e.step()
+        expected_left3, expected_right3 = _expected_duty_pair(
+            200.0, -rotation_eff, 150.0, cpm, b, fdv, scale=0.25)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            expected_left3, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            expected_right3, rel=_DUTY_REL)
+
+        # Validation: a negative value is ignored, the prior one kept.
+        e.set_pivot_overrun_mm(-1.0)
+        assert e.pivot_overrun_mm() == pytest.approx(overrun, rel=1e-6)
+
+
+def test_pivot_smaller_than_the_overrun_does_not_move(motion_lib):
+    """A pure pivot whose wheel arc is inside the overrun clamps its
+    rotation target to zero and, with distance also zero, takes
+    startSegment()'s degenerate branch: nothing is commanded and the
+    kernel is left neutral -- a command that would land in the WRONG
+    direction is refused, not executed."""
+    with Engine(motion_lib) as e:
+        _ready(e)
+        b = e.effective_track_width()
+        e.set_pivot_overrun_mm(2.2)
+        tiny = 0.5 * (2.0 * 2.2 / b)   # half the overrun, in radians
+        e.move_x(0.0, tiny, 100.0, 5000)
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0, abs=1e-9)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0, abs=1e-9)
+        # ... while a pivot clearly larger than the overrun still runs.
+        e.move_x(0.0, 10.0 * (2.0 * 2.2 / b), 100.0, 5000)
+        e.step()
+        assert e.motor_last_staged_duty(RIGHT) > 0.0
+        assert e.motor_last_staged_duty(LEFT) < 0.0
 
 
 # ---- pivot-vs-blend threshold (motion-api.md S3.3) ------------------------

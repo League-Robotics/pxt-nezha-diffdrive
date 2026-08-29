@@ -129,6 +129,7 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.LambdaEnabled", "ConfigField.CrawlPulse",
         "ConfigField.DefaultCruise", "ConfigField.RotationalSlip",
         "ConfigField.StallClear",
+        "ConfigField.PivotOverrun",  # 2026-08-29 (OOP): ordinal 18
     ],
 }
 

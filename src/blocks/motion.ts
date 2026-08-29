@@ -49,7 +49,9 @@ enum ConfigField {
     //% block="rotational slip"
     RotationalSlip = 16,
     //% block="clear stall latch"
-    StallClear = 17
+    StallClear = 17,
+    //% block="pivot overrun mm"
+    PivotOverrun = 18
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"

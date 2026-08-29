@@ -673,6 +673,7 @@ _GEOMETRY_BAKE_RES = {
     'travel_calib': re.compile(r'(float travelCalib_ = )[-+0-9.eE]+(f;)'),
     'trackwidth': re.compile(r'(float trackWidth_ = )[-+0-9.eE]+(f;)'),
     'rotational_slip': re.compile(r'(float rotationalSlip_ = )[-+0-9.eE]+(f;)'),
+    'pivot_overrun_mm': re.compile(r'(float pivotOverrunMm_ = )[-+0-9.eE]+(f;)'),
 }
 
 
