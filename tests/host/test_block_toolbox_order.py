@@ -37,6 +37,24 @@ group, at a weight (170) below `onRun` (190) and `onRunCommand` (180)
 -- the toolbox is now 40 visible blocks total (39 + this one), matching
 `radio-group-setup-block.md`'s approved shape.
 
+**2026-08-29 update: the CSV is now the source of truth.** The
+stakeholder reorganised the toolbox into four CATEGORIES (DiffDrive
+top-level plus Pose/Setup/Extra subcategories) over ten groups, and
+added `startDrive`/`whileDriving` so Drive mirrors Move's
+drive/start/while triple -- 42 visible blocks. Layout now lives in
+`docs/blocks-toolbox.csv` and is applied to the `//%` annotations by
+`tools/blocks_toolbox.py` (`just blocks-apply`), which assigns every
+weight from final display position. Edit the CSV and re-apply; do not
+hand-tune weights.
+
+This test stays an INDEPENDENT guard: the baseline below is written
+out longhand, not generated from that CSV, so a bad apply run fails
+here instead of agreeing with itself. The rendered order it pins was
+also cross-checked against the live editor's flyout DOM on 2026-08-29.
+
+Note this file's scan is category-blind -- it pins within-group order,
+which `subcategory=` does not affect.
+
 **Why a test, not just the weight= annotations.** The weights repair
 today's instance; nothing stops a future refactor (a new file, a
 reordered `pxt.json`, a moved function) from silently reintroducing
@@ -80,29 +98,27 @@ _DEFAULT_WEIGHT = 50  # pxtcompiler.js's fnweight(): fn.attributes.weight || 50
 # ENUM) -- so any *future* drift in a group that happens to be fine
 # today still fails here instead of reaching a student.
 _BASELINE_GROUP_ORDER = {
-    "Move": [
-        "move", "goTo", "startMove", "startGoTo", "isMoving",
-        "moveProgress", "stopMove", "whileMoving", "whileGoingTo",
-    ],
-    "Drive": ["setWheelSpeeds", "driveTwist", "driveTick"],
+    "Move": ["move", "startMove", "whileMoving"],
+    "Drive": ["driveTwist", "startDrive", "whileDriving"],
+    "Wheels": ["setWheelSpeeds"],
+    "GoTo": ["goTo", "goToWorld", "startGoTo", "whileGoingTo"],
+    "Moving?": ["isMoving", "moveProgress", "isStalled", "driveTick"],
     "Stop": [
-        "stop", "emergencyStop", "isStalled", "clearEmergencyStop",
+        "stopMove", "emergencyStop", "stop", "clearEmergencyStop",
         "clearStallLatch",
     ],
+    "Pose": ["heading", "poseX", "poseY", "resetPose"],
     "World": [
-        "startWorldTracking", "worldTrackingReady", "seedPose",
-        "readWorld", "worldX", "worldY", "worldHeading", "goToWorld",
-    ],
-    "Pose": ["poseX", "poseY", "heading", "resetPose"],
-    "Remote": ["onRun", "onRunCommand", "setRadioGroup"],
-    "World Setup": [
-        "calibrateWorldSensor", "setWorldSensorOffset",
-        "setArrivalTolerance",
+        "calibrateWorldSensor", "setWorldSensorOffset", "seedPose",
+        "startWorldTracking", "worldTrackingReady", "readWorld",
+        "worldHeading", "worldX", "worldY",
     ],
     "Setup": [
-        "setDefaultSpeed", "setDefaultYawRate", "setTrackWidth",
-        "setWheelCalibration", "setConfigValue",
+        "setTrackWidth", "setWheelCalibration", "setRadioGroup",
+        "setDefaultYawRate", "setConfigValue", "setArrivalTolerance",
+        "setDefaultSpeed",
     ],
+    "Remote": ["onRun", "onRunCommand"],
     "ENUM": [
         "ConfigField.MaxDuty", "ConfigField.FullDutyVelocity",
         "ConfigField.Kp", "ConfigField.Ki", "ConfigField.IMax",
@@ -205,7 +221,7 @@ def _rendered_group_order(entries):
 
 def test_toolbox_group_order_matches_approved_layout():
     """Every group's rendered (weight-sorted) order must match the
-    sprint 021 ticket 004 approved layout exactly. A mismatch means
+    approved layout exactly (2026-08-29: docs/blocks-toolbox.csv). A mismatch means
     either a new file-layout change re-broke an unweighted group's
     tie-break order, or an explicit weight=/group= was added/changed/
     removed without updating this guard -- either way, a
@@ -221,7 +237,7 @@ def test_toolbox_group_order_matches_approved_layout():
 
     assert not mismatches, (
         "toolbox within-group order drifted from the approved layout "
-        f"(sprint 021 ticket 004): {mismatches}"
+        f"(docs/blocks-toolbox.csv): {mismatches}"
     )
 
 
@@ -242,18 +258,18 @@ def test_baseline_covers_every_visible_group():
 # `groups=[...]` on the `diffDrive` namespace (motion.ts) -- distinct
 # from _BASELINE_GROUP_ORDER above, which pins WITHIN-group order.
 _EXPECTED_NAMESPACE_GROUPS = [
-    "Move", "Drive", "Stop", "World", "Pose", "Remote", "World Setup",
-    "Setup",
+    "Move", "Drive", "Wheels", "GoTo", "Moving?", "Stop", "Pose",
+    "World", "Setup", "Remote",
 ]
 _NAMESPACE_GROUPS_RE = re.compile(r"""//%\s*groups=(['"])(.*?)\1""")
 
 
 def test_namespace_declares_approved_group_order():
     """The `diffDrive` namespace's `groups=[...]` must declare the
-    eight approved groups in exactly the approved drawer order -- this
-    is what makes the toolbox render Move/Drive/Stop/World/Pose/Remote/
-    World Setup/Setup top-to-bottom instead of leaving order to
-    whatever pxt infers."""
+    approved groups in exactly the approved drawer order. The list is
+    global across categories; each flyout renders only the groups it
+    actually has, so filtering it per category must yield that
+    category's Group Order from the CSV."""
     motion_ts = (_REPO_ROOT / "src" / "blocks" / "motion.ts").read_text(
         encoding="utf-8"
     )

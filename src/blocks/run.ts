@@ -75,7 +75,8 @@ namespace diffDrive {
      */
     //% block="on run %name $arg"
     //% draggableParameters="reporter"
-    //% group="Remote" weight=190
+    //% group="Remote" weight=20
+    //% subcategory="Extra"
     export function onRun(name: string, handler: (arg: number) => void): void {
         ensureRunState()
         wireRunDispatch()
@@ -90,7 +91,8 @@ namespace diffDrive {
      */
     //% block="on run command $name $arg"
     //% draggableParameters="reporter"
-    //% group="Remote" weight=180
+    //% group="Remote" weight=10
+    //% subcategory="Extra"
     export function onRunCommand(
         handler: (name: string, arg: number) => void): void {
         ensureRunState()
@@ -108,7 +110,8 @@ namespace diffDrive {
      * @param group radio group, eg: 10
      */
     //% block="set radio group %group"
-    //% group="Remote" weight=170
+    //% group="Setup" weight=70
+    //% subcategory="Setup"
     export function setRadioGroup(group: number = 10): void {
         _setRadioGroup(Math.round(group))
     }

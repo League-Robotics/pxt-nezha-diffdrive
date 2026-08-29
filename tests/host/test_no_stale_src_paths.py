@@ -130,6 +130,17 @@ _MAIN_TS_CHECK_SCAN = {
     "tools": (".py",),
 }
 
+# Files whose `main.ts` mentions are NOT this repo's retired main.ts.
+# tools/blocks_env.py scaffolds a scratch MakeCode CONSUMER project
+# under projects/, and every MakeCode project has its own main.ts /
+# main.blocks pair -- those are the editor's file names, not a stale
+# reference to the file sprint 012 deleted. Qualifying the path would
+# not help: `_MAIN_TS_PATTERN` is `\bmain\.ts\b`, which still matches
+# inside `projects/blocktest/main.ts`.
+_MAIN_TS_CHECK_EXEMPT = {
+    "tools/blocks_env.py",
+}
+
 
 def _strip_fenced_code_blocks(text: str) -> str:
     """Blank out the contents of ``` fenced blocks, preserving line
@@ -186,12 +197,15 @@ def test_every_src_path_reference_exists_on_disk():
 def test_no_bare_main_ts_mentions_in_live_source():
     """`main.ts` was retired in sprint 012 -- it does not exist at any
     path in this tree, so a bare mention (no `src/` prefix) in a live
-    `.h`/`.cpp`/`.ts` or `tools/*.py` comment is always stale. `docs/`
-    is deliberately out of scope for this check; see the module
-    docstring."""
+    `.h`/`.cpp`/`.ts` or `tools/*.py` comment is always stale -- except
+    in `_MAIN_TS_CHECK_EXEMPT`, for tools that scaffold a separate
+    MakeCode project with a main.ts of its own. `docs/` is deliberately
+    out of scope for this check; see the module docstring."""
     failures = []
     for p in _iter_scan_files(_MAIN_TS_CHECK_SCAN):
         rel = p.relative_to(_REPO_ROOT).as_posix()
+        if rel in _MAIN_TS_CHECK_EXEMPT:
+            continue
         text = p.read_text(errors="ignore")
         for m in _MAIN_TS_PATTERN.finditer(text):
             failures.append(f"{rel}:{_line_of(text, m.start())}")
