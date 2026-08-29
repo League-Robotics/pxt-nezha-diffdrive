@@ -1,0 +1,54 @@
+# Publish the MakeCode extension to League-Microbit/pxt-diff-drive.
+#
+# This repo is the engineering workspace; the extension students install
+# is the subset tools/publish_extension.py assembles (pxt.json's `files`
+# plus the extension/ overlay). Every push to master re-syncs that
+# subset to the extension repo and tags it v<pxt.json version> if that
+# tag does not exist yet -- the script's docstring has the rules, and
+# extension/DESIGN.md the overview.
+#
+# Auth: PXT_DIFF_DRIVE_DEPLOY_KEY is the private half of a write deploy
+# key registered on the extension repo (Settings -> Deploy keys). It can
+# push to that one repository and nothing else. Rotate by generating a
+# new ed25519 pair, adding the public key there, and replacing the
+# secret here.
+name: Publish extension
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Two syncs racing would clone the same base and one would be rejected
+# as a non-fast-forward push; run them one at a time instead.
+concurrency:
+  group: publish-extension
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.PXT_DIFF_DRIVE_DEPLOY_KEY }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::error::PXT_DIFF_DRIVE_DEPLOY_KEY is not set; cannot push to the extension repo"
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/pxt_diff_drive
+          chmod 600 ~/.ssh/pxt_diff_drive
+          # GitHub's published SSH host key, pinned rather than trusted on
+          # first use: https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
+          echo "GIT_SSH_COMMAND=ssh -i $HOME/.ssh/pxt_diff_drive -o IdentitiesOnly=yes" >> "$GITHUB_ENV"
+
+      - name: Assemble and publish
+        run: python3 tools/publish_extension.py --publish --summary "$GITHUB_STEP_SUMMARY"
