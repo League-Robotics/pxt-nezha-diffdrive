@@ -197,7 +197,18 @@ static Rig& ensure() {
     cfg.ki = 6.0f;                   // [1/s]
     cfg.iMax = 765.6f;               // [counts/s]
     cfg.pidMax = 1276.0f;            // [counts/s]
-    cfg.vMin = 255.2f;               // [counts/s]
+    // 70 mm/s (2026-08-29), was 20 mm/s (255.2f), a bare-motor figure.
+    // With the floor under breakaway, MOVE_X's end taper let the
+    // position I-term brake the wheel to a near-stop 6-11 mm short and
+    // the 25%-of-cruise crawl feedforward (3-5% duty) could not restart
+    // it, so every leg ended with a stiction jump. MEASURED tovez
+    // 2026-08-29 wheels-up, captures/tovez-taper-20260829/variants.json
+    // (SET speed_floor 893: 0 stalls at 100/150/200 mm/s, legs within
+    // +-1.4 mm; baseline.json: 6-9 mm stalls) and gopiv 2026-08-29,
+    // captures/gopiv-floor70-20260829/ (this default in source: 0/6
+    // restart bumps vs 6/6 stock, legs end ~0.2 s sooner). UNVERIFIED
+    // loaded/on the floor and on vevov; 100 mm/s overshot 2-4 mm.
+    cfg.vMin = 893.2f;               // [counts/s] = 70 mm/s at 12.76 c/mm
     cfg.posErrMax = 127.6f;          // [counts]
     cfg.biasMax = 303.7f;            // [counts/s]
     cfg.tauAdapt = 30.0f;            // [s]
@@ -979,6 +990,11 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // magnitude is otherwise ignored. Deliberately does not touch
     // estopLatch_ -- see clearStall()'s own comment above.
     case 17: if (v != 0.0f) k.clearStallLatch(); break;
+    // 18 (2026-08-29, OOP): pivot_overrun -- a thin forward to
+    // MotionEngine::setPivotOverrunMm(), which owns its own ">= 0, else
+    // keep the prior value" validation (motion_engine.h), same shape as
+    // case 16's rotational_slip forward above.
+    case 18: r.engine.setPivotOverrunMm(v); break;
     default: break;
   }
 }
@@ -1025,6 +1041,9 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // ordinal has no stored Config field at all; see clearStall()'s own
     // comment above and sprint 007's design/DESIGN.md §5 field table).
     case 17: v = r.kernel.output().stallHalted ? 1.0f : 0.0f; break;
+    // 18: pivot_overrun's GET side -- MotionEngine::pivotOverrunMm(),
+    // not a kernel Config field (same as case 16 above).
+    case 18: v = r.engine.pivotOverrunMm(); break;
     default: return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));

@@ -1,0 +1,19 @@
+relay=? robot=< device NEZHA2 robot tovez 2314287040
+baseline config: {"max_duty": 100.000008, "full_duty_velocity": 10795.000977, "pid_kp": 0.0, "pid_ki": 6.0, "pid_i_max": 765.600037, "accel_kaff": 0.0, "pid_max": 1276.0, "twist_hold_gain": 2.0, "speed_floor": 255.200012, "pos_err_max": 127.600006, "crawl_pulse": 0.0}
+TLM FULL -> < ack 12 18 stop (attempts=2)
+  MOVE_X 40 0 150 6000         ack=< ack 13 18 stop tries=1 done=still
+  MOVE_X -40 0 150 6000        ack=< ack 14 13 stop tries=1 done=still
+  MOVE_X 40 0 150 6000         ack=< ack 15 14 stop tries=1 done=still
+  MOVE_X -40 0 150 6000        ack=< ack 16 15 stop tries=1 done=still
+warm-up OTOS delta: dox=0 doy=0 doh=13  (encoder pose dx=-1 dy=-1) -- ~0 means wheels-up bench
+== phase aimlong150 set={}
+  MOVE_X 309 0 150 2380        ack=< ack 17 16 stop tries=2 done=frozen
+  MOVE_X -309 0 150 2380       ack=< ack 18 18 timeout tries=3 done=frozen
+  MOVE_X 309 0 150 2380        ack=< ack 19 18 timeout tries=1 done=frozen
+  MOVE_X -309 0 150 2380       ack=< ack 20 19 timeout tries=1 done=frozen
+  MOVE_X 309 0 150 2380        ack=< ack 21 20 timeout tries=1 done=frozen
+  MOVE_X -309 0 150 2380       ack=< ack 22 21 timeout tries=1 done=frozen
+  MOVE_X 309 0 150 2380        ack=< ack 23 22 timeout tries=1 done=frozen
+  MOVE_X -309 0 150 2380       ack=< ack 24 23 timeout tries=2 done=frozen
+restore check, differing fields: none
+frames=602 events=12 wrote predict.json

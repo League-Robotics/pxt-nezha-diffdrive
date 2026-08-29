@@ -321,6 +321,10 @@ void setKernelValue(int field, int value) {
     // real setKernelValue() case 17 exactly (see that file's own
     // comment). Only nonzero-vs-zero matters.
     case 17: if (v != 0.0f) k.clearStallLatch(); break;
+    // 18 (2026-08-29, OOP): pivot_overrun, mirroring shims.cpp's real
+    // setKernelValue() case 18 exactly -- a thin forward to the REAL
+    // MotionEngine::setPivotOverrunMm(), which owns its validation.
+    case 18: g_activeWaHandle->engine.setPivotOverrunMm(v); break;
     default: break;
   }
 }
@@ -364,6 +368,9 @@ int getConfigValue(int field) {
     case 17:
       v = g_activeWaHandle->kernel.output().stallHalted ? 1.0f : 0.0f;
       break;
+    // 18: pivot_overrun's GET side, mirroring shims.cpp's real
+    // getConfigValue() case 18 -- MotionEngine::pivotOverrunMm().
+    case 18: v = g_activeWaHandle->engine.pivotOverrunMm(); break;
     default: break;
   }
   // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,

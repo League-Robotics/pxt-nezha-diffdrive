@@ -187,6 +187,12 @@ void meSetTravelCalib(void* handle, float mmPerDeg) {
 void meSetRotationalSlip(void* handle, float slip) {
   static_cast<Handle*>(handle)->engine.setRotationalSlip(slip);
 }
+float mePivotOverrunMm(void* handle) {
+  return static_cast<Handle*>(handle)->engine.pivotOverrunMm();
+}
+void meSetPivotOverrunMm(void* handle, float mm) {
+  static_cast<Handle*>(handle)->engine.setPivotOverrunMm(mm);
+}
 
 // ---- MotionEngine: the two primitives (motion-api.md S3.1/S3.2) -------
 

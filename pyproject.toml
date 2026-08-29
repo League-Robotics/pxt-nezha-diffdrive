@@ -1,6 +1,6 @@
 [project]
 name = "pxt-nezha-diffdrive-host-tests"
-version = "0.20260827.2"
+version = "0.20260829.2"
 description = "Native host test harness for this extension's portable C++ (DiffDrive kernel, and the sprint 003 wire/motion modules it grows into). No Python package of its own -- every module under test is C++, compiled on demand into a throwaway shared library and driven through ctypes; see tests/host/README.md."
 requires-python = ">=3.10"
 dependencies = [

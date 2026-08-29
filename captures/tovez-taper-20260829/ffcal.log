@@ -1,0 +1,21 @@
+relay=gozop robot=< device NEZHA2 robot tovez 2314287040
+baseline config: {"max_duty": 100.000008, "full_duty_velocity": 10795.000977, "pid_kp": 0.0, "pid_ki": 6.0, "pid_i_max": 765.600037, "accel_kaff": 0.0, "pid_max": 1276.0, "twist_hold_gain": 2.0, "speed_floor": 255.200012, "pos_err_max": 127.600006, "crawl_pulse": 0.0}
+TLM FULL -> < ack 13 82 stop (attempts=1)
+  MOVE_X 40 0 150 6000         ack=< ack 14 82 stop tries=1 done=still
+  MOVE_X -40 0 150 6000        ack=< ack 15 15 stop tries=2 done=frozen
+  MOVE_X 40 0 150 6000         ack=< ack 16 15 stop tries=1 done=still
+  MOVE_X -40 0 150 6000        ack=< ack 17 16 stop tries=1 done=still
+warm-up OTOS delta: dox=0 doy=0 doh=16  (encoder pose dx=-1 dy=-2) -- ~0 means wheels-up bench
+== phase ff_cal set={'pid_i_max': 0}
+  SET pid_i_max 0 -> ack (attempts=1); GET -> 0.0
+  MOVE_X 300 0 150 3200        ack=< ack 21 17 stop tries=1 done=still
+  MOVE_X -300 0 150 3200       ack=< ack 22 21 timeout tries=1 done=still
+  MOVE_X 300 0 150 3200        ack=< ack 23 22 timeout tries=2 done=still
+  MOVE_X -300 0 150 3200       ack=< ack 24 23 timeout tries=1 done=still
+  MOVE_X 300 0 200 2700        ack=< ack 25 24 timeout tries=2 done=still
+  MOVE_X -300 0 200 2700       ack=< ack 26 25 timeout tries=1 done=still
+  MOVE_X 300 0 200 2700        ack=< ack 27 26 timeout tries=1 done=still
+  MOVE_X -300 0 200 2700       ack=< ack 28 27 timeout tries=1 done=still
+  SET pid_i_max 765.600037 -> ack (attempts=1); GET -> 765.600037
+restore check, differing fields: none
+frames=850 events=12 wrote ffcal.json

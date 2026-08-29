@@ -49,14 +49,21 @@ enum ConfigField {
     //% block="rotational slip"
     RotationalSlip = 16,
     //% block="clear stall latch"
-    StallClear = 17
+    StallClear = 17,
+    //% block="pivot overrun mm"
+    PivotOverrun = 18
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"
-//% groups='["Move", "Drive", "Stop", "World", "Pose", "Remote", "World Setup", "Setup"]'
+//% groups='["Move", "Drive", "Wheels", "GoTo", "Moving?", "Stop", "Pose", "World", "Setup", "Remote"]'
+//% subcategories='["Pose", "Setup", "Extra"]'
 namespace diffDrive {
     let defaultSpeed = 15      // [cm/s]
     let defaultYawRate = 90    // [deg/s]
+    // Guards startDrive()'s background tick fiber so repeated calls
+    // re-aim the running loop instead of stacking fibers. Cleared by
+    // the loop itself when tickDrive() goes false.
+    let driveLoopRunning = false
 
     // Start the wire-protocol loop (its own CODAL fiber -- see
     // protocol.h) as soon as this extension's code loads, independent
@@ -70,11 +77,15 @@ namespace diffDrive {
 
     // ================= public API: velocity commands =================
 
-    // weight= below (through whileGoingTo()) pins Drive/Move toolbox
-    // order -- without it, order ties break on file layout, which the
-    // module split (sprint 012 ticket 007) changed. Group assignment
-    // itself follows the approved layout in
-    // block-toolbox-groups-reorganization.md (sprint 021 ticket 004).
+    // Every block below carries an explicit weight= -- without one,
+    // order ties break on file layout, which the module split (sprint
+    // 012 ticket 007) changed. Weights are DESCENDING (higher renders
+    // first) and are generated from docs/blocks-toolbox.csv as
+    // (41 - new_order) * 10, so the CSV is the source of truth for
+    // toolbox order; edit it and re-apply rather than hand-tuning here.
+    // Group and subcategory assignment come from the same CSV. Note a
+    // block carrying subcategory= is EXCLUDED from the parent flyout,
+    // which is why the DiffDrive rows have none.
 
     /**
      * Set the two wheel speeds. Continuous-mode command: the robot only
@@ -91,7 +102,7 @@ namespace diffDrive {
      */
     //% block="set wheel speeds left %left right %right cm/s"
     //% left.min=-50 left.max=50 right.min=-50 right.max=50
-    //% group="Drive" weight=200
+    //% group="Wheels" weight=360
     export function setWheelSpeeds(left: number, right: number): void {
         _setWheels(Math.round(left * 10), Math.round(right * 10))
     }
@@ -108,9 +119,66 @@ namespace diffDrive {
      */
     //% block="drive %speed cm/s turning %yawRate deg/s"
     //% speed.min=-50 speed.max=50 yawRate.min=-180 yawRate.max=180
-    //% group="Drive" weight=190
+    //% group="Drive" weight=390
     export function driveTwist(speed: number, yawRate: number): void {
         _driveTwist(Math.round(speed * 10), Math.round(yawRate * 100))
+    }
+
+    /**
+     * Start driving continuously AND keep the control loop ticking in
+     * the background, so the robot actually moves without a
+     * hand-written `while (diffDrive.driveTick())` loop. That
+     * background ticking is the whole difference from drive(), which
+     * only posts the command and leaves the ticking to you. Returns
+     * immediately.
+     *
+     * The background loop ends by itself when the drive stops --
+     * stop(), emergencyStop(), a stall, or the starvation watchdog --
+     * because tickDrive() returns false there. Calling this again
+     * while it is still running re-aims the existing loop rather than
+     * stacking a second fiber.
+     *
+     * UNVERIFIED on hardware (added 2026-08-29): the background fiber
+     * is new. tickDrive() is documented safe against a second fiber
+     * calling it (shims.cpp's check-and-set guard is atomic on CODAL's
+     * cooperative fibers), but a foreground move()/goTo() run WHILE
+     * this loop is live means two fibers pacing the same kernel, which
+     * has not been measured. Stop the drive before starting a
+     * position-mode move.
+     * @param speed forward speed, eg: 15
+     * @param yawRate turn rate CCW+, eg: 0
+     */
+    //% block="start drive %speed cm/s turning %yawRate deg/s"
+    //% group="Drive" weight=380
+    export function startDrive(speed: number, yawRate: number): void {
+        driveTwist(speed, yawRate)
+        if (driveLoopRunning) return
+        driveLoopRunning = true
+        control.inBackground(() => {
+            while (_tickDrive());
+            driveLoopRunning = false
+        })
+    }
+
+    /**
+     * Run code while driving continuously. The body gets the live pose
+     * each iteration. Unlike whileMoving(), a continuous drive has no
+     * finish line of its own -- the loop runs until something stops the
+     * drive (stop(), emergencyStop(), a stall, or driving to zero), so
+     * give the body a way out.
+     * @param speed forward speed, eg: 15
+     * @param yawRate turn rate CCW+, eg: 0
+     */
+    //% block="while driving %speed cm/s turning %yawRate deg/s"
+    //% draggableParameters="reporter" handlerStatement=1
+    //% group="Drive" weight=370
+    export function whileDriving(speed: number, yawRate: number,
+        body: (x: number, y: number, heading: number) => void): void {
+        driveTwist(speed, yawRate)
+        while (_tickDrive()) {
+            body(poseX(), poseY(), heading())
+        }
+        _endMove()
     }
 
     // ================= continuous-mode ticking ========================
@@ -124,7 +192,7 @@ namespace diffDrive {
      * (about 24 ms), so don't add your own pause() in the loop.
      */
     //% block="drive tick"
-    //% group="Drive" weight=180
+    //% group="Moving?" weight=280
     export function driveTick(): boolean {
         return _tickDrive()
     }
@@ -138,7 +206,7 @@ namespace diffDrive {
      * @param yaw angle to turn CCW+, eg: 0
      */
     //% block="move %distance cm turning %yaw degrees"
-    //% group="Move" weight=170
+    //% group="Move" weight=420
     export function move(distance: number, yaw: number): void {
         startMove(distance, yaw)
         while (_tickDrive());
@@ -151,7 +219,7 @@ namespace diffDrive {
      * @param y leftward distance, eg: 10
      */
     //% block="go to x %x cm y %y cm"
-    //% group="Move" weight=160
+    //% group="GoTo" weight=350
     export function goTo(x: number, y: number): void {
         startGoTo(x, y)
         while (_tickDrive());
@@ -170,7 +238,7 @@ namespace diffDrive {
      * own driveTick() loop.
      */
     //% block="start move %distance cm turning %yaw degrees"
-    //% group="Move" advanced=true weight=150
+    //% group="Move" weight=410
     export function startMove(distance: number, yaw: number): void {
         _startMove(Math.round(distance * 10), Math.round(yaw * 100),
             Math.round(defaultSpeed * 10),
@@ -183,7 +251,7 @@ namespace diffDrive {
      * driveTick() loop, this does not progress on its own.
      */
     //% block="start go to x %x cm y %y cm"
-    //% group="Move" advanced=true weight=140
+    //% group="GoTo" weight=330
     export function startGoTo(x: number, y: number): void {
         // Calls goToR() directly (the //%-exposed engineGoToRArmed/
         // engineSetGoToDeadline shim pair -- split in two, sprint 015
@@ -233,7 +301,7 @@ namespace diffDrive {
      * -- see startMove()'s doc comment for that gap.
      */
     //% block="moving?"
-    //% group="Move" weight=130
+    //% group="Moving?" weight=310
     export function isMoving(): boolean {
         return _updateMove()
     }
@@ -244,7 +312,7 @@ namespace diffDrive {
      * advance the move (see startMove()'s doc comment).
      */
     //% block="move progress"
-    //% group="Move" advanced=true weight=120
+    //% group="Moving?" weight=300
     export function moveProgress(): number {
         return _progress() / 1000
     }
@@ -258,7 +326,7 @@ namespace diffDrive {
      * will not have progressed anyway (see startMove()'s doc comment).
      */
     //% block="stop move"
-    //% group="Move" weight=110
+    //% group="Stop" weight=270
     export function stopMove(): void {
         _endMove()
     }
@@ -272,7 +340,7 @@ namespace diffDrive {
      */
     //% block="while moving %distance cm turning %yaw degrees"
     //% draggableParameters="reporter" handlerStatement=1
-    //% group="Move" weight=100
+    //% group="Move" weight=400
     export function whileMoving(distance: number, yaw: number,
         body: (x: number, y: number, heading: number) => void): void {
         startMove(distance, yaw)
@@ -287,7 +355,7 @@ namespace diffDrive {
      */
     //% block="while going to x %x cm y %y cm"
     //% draggableParameters="reporter" handlerStatement=1
-    //% group="Move" weight=90
+    //% group="GoTo" weight=320
     export function whileGoingTo(x: number, y: number,
         body: (x: number, y: number, heading: number) => void): void {
         startGoTo(x, y)
@@ -303,8 +371,9 @@ namespace diffDrive {
      * Default speed for move/goTo blocks.
      * @param speed eg: 15
      */
-    //% block="set default speed %speed cm/s" advanced=true
-    //% group="Setup"
+    //% block="set default speed %speed cm/s"
+    //% group="Setup" weight=30
+    //% subcategory="Setup"
     export function setDefaultSpeed(speed: number): void {
         defaultSpeed = Math.max(1, speed)
     }
@@ -313,8 +382,9 @@ namespace diffDrive {
      * Default turn rate for move/goTo blocks.
      * @param yawRate eg: 90
      */
-    //% block="set default turn rate %yawRate deg/s" advanced=true
-    //% group="Setup"
+    //% block="set default turn rate %yawRate deg/s"
+    //% group="Setup" weight=60
+    //% subcategory="Setup"
     export function setDefaultYawRate(yawRate: number): void {
         defaultYawRate = Math.max(1, yawRate)
     }
@@ -323,8 +393,9 @@ namespace diffDrive {
      * Distance between the wheels, in cm.
      * @param width eg: 11.5
      */
-    //% block="set track width %width cm" advanced=true
-    //% group="Setup"
+    //% block="set track width %width cm"
+    //% group="Setup" weight=90
+    //% subcategory="Setup"
     export function setTrackWidth(width: number): void {
         _setGeometry(Math.round(width * 100), 0)
     }
@@ -333,8 +404,9 @@ namespace diffDrive {
      * Wheel travel per shaft degree, in mm/degree.
      * @param calib eg: 0.7837
      */
-    //% block="set wheel calibration %calib mm/deg" advanced=true
-    //% group="Setup"
+    //% block="set wheel calibration %calib mm/deg"
+    //% group="Setup" weight=80
+    //% subcategory="Setup"
     export function setWheelCalibration(calib: number): void {
         _setGeometry(0, Math.round(calib * 10000))
     }
@@ -342,8 +414,9 @@ namespace diffDrive {
     /**
      * Advanced: set a kernel configuration value directly.
      */
-    //% block="set config %field to %value" advanced=true
-    //% group="Setup"
+    //% block="set config %field to %value"
+    //% group="Setup" weight=50
+    //% subcategory="Setup"
     export function setConfigValue(field: ConfigField,
         value: number): void {
         _setKernelValue(field, Math.round(value * 1000))

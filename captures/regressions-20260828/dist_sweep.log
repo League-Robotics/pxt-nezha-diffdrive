@@ -1,0 +1,150 @@
+STATUS: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1 cyc=3290 tlm=full next=3 done=15 reason=stop
+measured yaw->travel offset +1.70 deg
+
+D=  10.0 cm  legs [10.0]  from (49.6,30.6)
+   leg 0: cmd   10.0  camera   9.80 cm
+   TOTAL cmd   10.0  camera    9.80 cm  (-1.98%)
+D=  15.0 cm  legs [15.0]  from (50.2,29.3)
+   leg 0: cmd   15.0  camera  14.91 cm
+   TOTAL cmd   15.0  camera   14.91 cm  (-0.61%)
+D=  20.0 cm  legs [20.0]  from (49.8,30.5)
+   leg 0: cmd   20.0  camera  19.61 cm
+   TOTAL cmd   20.0  camera   19.61 cm  (-1.95%)
+D=  25.0 cm  legs [25.0]  from (50.1,28.9)
+   leg 0: cmd   25.0  camera  24.61 cm
+   TOTAL cmd   25.0  camera   24.61 cm  (-1.58%)
+D=  30.0 cm  legs [30.0]  from (49.8,29.3)
+   leg 0: cmd   30.0  camera  29.51 cm
+   TOTAL cmd   30.0  camera   29.51 cm  (-1.64%)
+D=  35.0 cm  legs [35.0]  from (50.1,29.8)
+   leg 0: cmd   35.0  camera  34.46 cm
+   TOTAL cmd   35.0  camera   34.46 cm  (-1.55%)
+D=  40.0 cm  legs [40.0]  from (49.7,29.9)
+   leg 0: cmd   40.0  camera  39.42 cm
+   TOTAL cmd   40.0  camera   39.42 cm  (-1.46%)
+D=  45.0 cm  legs [45.0]  from (49.9,30.3)
+   leg 0: cmd   45.0  camera  44.20 cm
+   TOTAL cmd   45.0  camera   44.20 cm  (-1.77%)
+D=  50.0 cm  legs [50.0]  from (49.4,31.4)
+   leg 0: cmd   50.0  camera  49.02 cm
+   TOTAL cmd   50.0  camera   49.02 cm  (-1.97%)
+D=  55.0 cm  legs [55.0]  from (49.6,31.8)
+   leg 0: cmd   55.0  camera  54.04 cm
+   TOTAL cmd   55.0  camera   54.04 cm  (-1.74%)
+D=  60.0 cm  legs [60.0]  from (50.3,29.8)
+   leg 0: cmd   60.0  camera  59.00 cm
+   TOTAL cmd   60.0  camera   59.00 cm  (-1.66%)
+D=  65.0 cm  legs [65.0]  from (49.5,29.2)
+   leg 0: cmd   65.0  camera  63.70 cm
+   TOTAL cmd   65.0  camera   63.70 cm  (-2.00%)
+D=  70.0 cm  legs [70.0]  from (50.6,29.7)
+   leg 0: cmd   70.0  camera  68.81 cm
+   TOTAL cmd   70.0  camera   68.81 cm  (-1.71%)
+D=  75.0 cm  legs [75.0]  from (50.3,28.8)
+   leg 0: cmd   75.0  camera  73.68 cm
+   TOTAL cmd   75.0  camera   73.68 cm  (-1.76%)
+D=  80.0 cm  legs [80.0]  from (49.9,29.2)
+   leg 0: cmd   80.0  camera  78.52 cm
+   TOTAL cmd   80.0  camera   78.52 cm  (-1.85%)
+D=  85.0 cm  legs [85.0]  from (50.2,28.7)
+   leg 0: cmd   85.0  camera  83.51 cm
+   TOTAL cmd   85.0  camera   83.51 cm  (-1.75%)
+D=  90.0 cm  legs [90.0]  from (50.2,28.0)
+   leg 0: cmd   90.0  camera  88.38 cm
+   TOTAL cmd   90.0  camera   88.38 cm  (-1.80%)
+D=  95.0 cm  legs [95.0]  from (49.7,28.0)
+   leg 0: cmd   95.0  camera  93.37 cm
+   TOTAL cmd   95.0  camera   93.37 cm  (-1.72%)
+D= 100.0 cm  legs [100.0]  from (50.0,29.4)
+   leg 0: cmd  100.0  camera  98.25 cm
+   TOTAL cmd  100.0  camera   98.25 cm  (-1.75%)
+D= 105.0 cm  legs [100.0, 5.0]  from (49.9,30.1)
+   leg 0: cmd  100.0  camera  98.21 cm
+   leg 1: cmd    5.0  camera   4.80 cm
+   TOTAL cmd  105.0  camera  103.01 cm  (-1.89%)
+D= 110.0 cm  legs [100.0, 10.0]  from (50.0,29.3)
+   leg 0: cmd  100.0  camera  98.28 cm
+   leg 1: cmd   10.0  camera   9.21 cm
+   TOTAL cmd  110.0  camera  107.49 cm  (-2.28%)
+D= 115.0 cm  legs [100.0, 15.0]  from (50.0,29.4)
+   leg 0: cmd  100.0  camera  98.26 cm
+   leg 1: cmd   15.0  camera  14.65 cm
+   TOTAL cmd  115.0  camera  112.91 cm  (-1.82%)
+D= 120.0 cm  legs [100.0, 20.0]  from (49.9,29.3)
+   leg 0: cmd  100.0  camera  98.21 cm
+   leg 1: cmd   20.0  camera  19.63 cm
+   TOTAL cmd  120.0  camera  117.83 cm  (-1.80%)
+D= 125.0 cm  legs [100.0, 25.0]  from (50.1,28.9)
+   leg 0: cmd  100.0  camera  98.21 cm
+   leg 1: cmd   25.0  camera  24.53 cm
+   TOTAL cmd  125.0  camera  122.74 cm  (-1.81%)
+D= 130.0 cm  legs [100.0, 30.0]  from (49.8,29.7)
+   leg 0: cmd  100.0  camera  98.20 cm
+   leg 1: cmd   30.0  camera  29.44 cm
+   TOTAL cmd  130.0  camera  127.64 cm  (-1.82%)
+D= 135.0 cm  legs [100.0, 35.0]  from (50.0,28.8)
+   leg 0: cmd  100.0  camera  98.37 cm
+   leg 1: cmd   35.0  camera  34.38 cm
+   TOTAL cmd  135.0  camera  132.75 cm  (-1.66%)
+D= 140.0 cm  legs [100.0, 40.0]  from (50.8,29.1)
+   leg 0: cmd  100.0  camera  98.21 cm
+   leg 1: cmd   40.0  camera  39.27 cm
+   TOTAL cmd  140.0  camera  137.47 cm  (-1.80%)
+D= 145.0 cm  legs [100.0, 45.0]  from (50.3,28.8)
+   leg 0: cmd  100.0  camera  98.36 cm
+   leg 1: cmd   45.0  camera  44.25 cm
+   TOTAL cmd  145.0  camera  142.61 cm  (-1.65%)
+D= 150.0 cm  legs [100.0, 50.0]  from (49.7,29.9)
+   leg 0: cmd  100.0  camera  98.23 cm
+   leg 1: cmd   50.0  camera  49.33 cm
+   TOTAL cmd  150.0  camera  147.57 cm  (-1.62%)
+D= 155.0 cm  legs [100.0, 55.0]  from (50.1,28.8)
+   leg 0: cmd  100.0  camera  98.12 cm
+   leg 1: cmd   55.0  camera  54.20 cm
+   TOTAL cmd  155.0  camera  152.32 cm  (-1.73%)
+D= 160.0 cm  legs [100.0, 60.0]  from (50.5,28.5)
+   leg 0: cmd  100.0  camera  98.29 cm
+   leg 1: cmd   60.0  camera  58.80 cm
+   TOTAL cmd  160.0  camera  157.09 cm  (-1.82%)
+D= 165.0 cm  legs [100.0, 60.0, 5.0]  from (50.2,28.8)
+   leg 0: cmd  100.0  camera  98.31 cm
+   leg 1: cmd   60.0  camera  59.18 cm
+   leg 2: cmd    5.0  camera   4.92 cm
+   TOTAL cmd  165.0  camera  162.40 cm  (-1.58%)
+D= 170.0 cm  legs [100.0, 60.0, 10.0]  from (50.5,28.8)
+   leg 0: cmd  100.0  camera  98.31 cm
+   leg 1: cmd   60.0  camera  59.16 cm
+   leg 2: cmd   10.0  camera   9.74 cm
+   TOTAL cmd  170.0  camera  167.21 cm  (-1.64%)
+D= 175.0 cm  legs [100.0, 60.0, 15.0]  from (50.4,29.1)
+   leg 0: cmd  100.0  camera  98.30 cm
+   leg 1: cmd   60.0  camera  59.00 cm
+   leg 2: cmd   15.0  camera  14.78 cm
+   TOTAL cmd  175.0  camera  172.07 cm  (-1.67%)
+D= 180.0 cm  legs [100.0, 60.0, 20.0]  from (50.4,29.2)
+   leg 0: cmd  100.0  camera  98.17 cm
+   leg 1: cmd   60.0  camera  59.10 cm
+   leg 2: cmd   20.0  camera  19.89 cm
+   TOTAL cmd  180.0  camera  177.16 cm  (-1.58%)
+D= 185.0 cm  legs [100.0, 60.0, 25.0]  from (50.5,29.3)
+   leg 0: cmd  100.0  camera  98.21 cm
+   leg 1: cmd   60.0  camera  59.12 cm
+   leg 2: cmd   25.0  camera  24.70 cm
+   TOTAL cmd  185.0  camera  182.02 cm  (-1.61%)
+D= 190.0 cm  legs [100.0, 60.0, 30.0]  from (50.4,29.5)
+   leg 0: cmd  100.0  camera  98.19 cm
+   leg 1: cmd   60.0  camera  59.02 cm
+   leg 2: cmd   30.0  camera  29.76 cm
+   TOTAL cmd  190.0  camera  186.97 cm  (-1.60%)
+D= 195.0 cm  legs [100.0, 60.0, 35.0]  from (50.5,29.6)
+   leg 0: cmd  100.0  camera  98.30 cm
+   leg 1: cmd   60.0  camera  59.08 cm
+   leg 2: cmd   35.0  camera  34.56 cm
+   TOTAL cmd  195.0  camera  191.93 cm  (-1.57%)
+D= 200.0 cm  legs [100.0, 60.0, 40.0]  from (49.3,27.6)
+   leg 0: cmd  100.0  camera  98.25 cm
+   leg 1: cmd   60.0  camera  59.29 cm
+   leg 2: cmd   40.0  camera  39.31 cm
+   TOTAL cmd  200.0  camera  196.86 cm  (-1.57%)
+
+wrote dist_sweep.csv

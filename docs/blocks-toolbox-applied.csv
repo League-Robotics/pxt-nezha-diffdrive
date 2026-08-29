@@ -1,0 +1,43 @@
+position,category,group,function,weight,block
+1,DiffDrive,Move,diffDrive.move,420,move cm turning degrees
+2,DiffDrive,Move,diffDrive.startMove,410,start move cm turning degrees
+3,DiffDrive,Move,diffDrive.whileMoving,400,while moving cm turning degrees
+4,DiffDrive,Drive,diffDrive.driveTwist,390,drive cm/s turning deg/s
+5,DiffDrive,Drive,diffDrive.startDrive,380,start drive cm/s turning deg/s
+6,DiffDrive,Drive,diffDrive.whileDriving,370,while driving cm/s turning deg/s
+7,DiffDrive,Wheels,diffDrive.setWheelSpeeds,360,set wheel speeds left right cm/s
+8,DiffDrive,GoTo,diffDrive.goTo,350,go to x cm y cm
+9,DiffDrive,GoTo,diffDrive.goToWorld,340,go to world x cm y cm
+10,DiffDrive,GoTo,diffDrive.startGoTo,330,start go to x cm y cm
+11,DiffDrive,GoTo,diffDrive.whileGoingTo,320,while going to x cm y cm
+12,DiffDrive,Moving?,diffDrive.isMoving,310,moving?
+13,DiffDrive,Moving?,diffDrive.moveProgress,300,move progress
+14,DiffDrive,Moving?,diffDrive.isStalled,290,is stalled
+15,DiffDrive,Moving?,diffDrive.driveTick,280,drive tick
+16,DiffDrive,Stop,diffDrive.stopMove,270,stop move
+17,DiffDrive,Stop,diffDrive.emergencyStop,260,emergency stop
+18,DiffDrive,Stop,diffDrive.stop,250,stop
+19,DiffDrive,Stop,diffDrive.clearEmergencyStop,240,clear emergency stop
+20,DiffDrive,Stop,diffDrive.clearStallLatch,230,clear stall latch
+21,Pose,Pose,diffDrive.heading,220,heading (deg)
+22,Pose,Pose,diffDrive.poseX,210,pose x (cm)
+23,Pose,Pose,diffDrive.poseY,200,pose y (cm)
+24,Pose,Pose,diffDrive.resetPose,190,reset pose
+25,Pose,World,diffDrive.calibrateWorldSensor,180,calibrate world sensor
+26,Pose,World,diffDrive.setWorldSensorOffset,170,set world sensor offset x cm y cm yaw deg
+27,Pose,World,diffDrive.seedPose,160,set world pose to x cm y cm heading deg
+28,Pose,World,diffDrive.startWorldTracking,150,start world tracking
+29,Pose,World,diffDrive.worldTrackingReady,140,world tracking ready?
+30,Pose,World,diffDrive.readWorld,130,read world position
+31,Pose,World,diffDrive.worldHeading,120,world heading (deg)
+32,Pose,World,diffDrive.worldX,110,world x (cm)
+33,Pose,World,diffDrive.worldY,100,world y (cm)
+34,Setup,Setup,diffDrive.setTrackWidth,90,set track width cm
+35,Setup,Setup,diffDrive.setWheelCalibration,80,set wheel calibration mm/deg
+36,Setup,Setup,diffDrive.setRadioGroup,70,set radio group
+37,Setup,Setup,diffDrive.setDefaultYawRate,60,set default turn rate deg/s
+38,Setup,Setup,diffDrive.setConfigValue,50,set config max duty % to
+39,Setup,Setup,diffDrive.setArrivalTolerance,40,set arrival tolerance cm
+40,Setup,Setup,diffDrive.setDefaultSpeed,30,set default speed cm/s
+41,Extra,Remote,diffDrive.onRun,20,on run
+42,Extra,Remote,diffDrive.onRunCommand,10,on run command
