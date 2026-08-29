@@ -1,0 +1,41 @@
+relay=? robot=< device NEZHA2 robot tovez 2314287040
+baseline config: {"max_duty": 100.000008, "full_duty_velocity": 10795.000977, "pid_kp": 0.0, "speed_floor": 255.200012, "lambda_enabled": 0.0, "crawl_pulse": 0.0}
+TLM FULL -> < ack 2 0 none (attempts=1)
+  MOVE_X 40 0 150 6000         ack=< ack 3 3 stop tries=4 done=frozen
+  MOVE_X -40 0 150 6000        ack=< ack 4 3 stop tries=1 done=still
+  MOVE_X 40 0 150 6000         ack=< ack 5 4 stop tries=1 done=still
+  MOVE_X -40 0 150 6000        ack=< ack 6 5 stop tries=1 done=still
+warm-up OTOS delta: dox=0 doy=0 doh=15  (encoder pose dx=-1 dy=-7) -- ~0 means wheels-up bench
+== phase baseline set={}
+  MOVE_X 300 0 100 10000       ack=< ack 7 6 stop tries=2 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 8 7 stop tries=1 done=still
+  MOVE_X 300 0 100 10000       ack=< ack 9 8 stop tries=4 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 10 9 stop tries=2 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 11 10 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 12 11 stop tries=1 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 13 12 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 14 13 stop tries=1 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 15 14 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 16 15 stop tries=3 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 17 16 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 18 17 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 19 18 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 20 19 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 21 20 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 22 21 stop tries=1 done=still
+  MOVE_X 300 0 250 10000       ack=< ack 23 22 stop tries=1 done=still
+  MOVE_X -300 0 250 10000      ack=< ack 24 23 stop tries=1 done=still
+  MOVE_X 300 0 250 10000       ack=< ack 25 24 stop tries=1 done=still
+  MOVE_X -300 0 250 10000      ack=< ack 26 25 stop tries=1 done=still
+  MOVE_X 300 0 250 10000       ack=< ack 27 26 stop tries=1 done=still
+  MOVE_X -300 0 250 10000      ack=< ack 28 27 stop tries=1 done=still
+  MOVE_X 300 0 300 10000       ack=< ack 29 29 stop tries=4 done=frozen
+  MOVE_X -300 0 300 10000      ack=< ack 30 29 stop tries=1 done=still
+  MOVE_X 300 0 300 10000       ack=< ack 31 30 stop tries=1 done=still
+  MOVE_X -300 0 300 10000      ack=< ack 32 31 stop tries=1 done=still
+  MOVE_X 150 0 200 10000       ack=< ack 33 32 stop tries=1 done=still
+  MOVE_X -150 0 200 10000      ack=< ack 34 33 stop tries=1 done=still
+  MOVE_X 600 0 200 10000       ack=< ack 35 34 stop tries=1 done=still
+  MOVE_X -600 0 200 10000      ack=< ack 36 35 stop tries=1 done=still
+restore check, differing fields: {'pid_i_max': (None, 765.600037), 'accel_kaff': (None, 0.0), 'pid_max': (None, 1276.0), 'twist_hold_gain': (None, 2.0), 'speed_floor': (255.200012, None), 'pos_err_max': (None, 127.600006), 'crawl_pulse': (0.0, None)}
+frames=1671 events=34 wrote baseline.json

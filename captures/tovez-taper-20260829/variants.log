@@ -1,0 +1,70 @@
+relay=? robot=< device NEZHA2 robot tovez 2314287040
+baseline config: {"max_duty": 100.000008, "full_duty_velocity": 10795.000977, "pid_kp": 0.0, "pid_ki": 6.0, "pid_i_max": 765.600037, "accel_kaff": 0.0, "pid_max": 1276.0, "twist_hold_gain": 2.0, "speed_floor": 255.200012, "pos_err_max": 127.600006, "crawl_pulse": 0.0}
+TLM FULL -> < ack 16 36 stop (attempts=1)
+  MOVE_X 40 0 150 6000         ack=< ack 17 17 stop tries=3 done=frozen
+  MOVE_X -40 0 150 6000        ack=< ack 18 18 stop tries=2 done=frozen
+  MOVE_X 40 0 150 6000         ack=< ack 19 18 stop tries=1 done=still
+  MOVE_X -40 0 150 6000        ack=< ack 20 19 stop tries=1 done=still
+warm-up OTOS delta: dox=0 doy=0 doh=19  (encoder pose dx=0 dy=-2) -- ~0 means wheels-up bench
+== phase floor70 set={'speed_floor': 893}
+  SET speed_floor 893 -> ack (attempts=1); GET -> 893.000061
+  MOVE_X 300 0 100 10000       ack=< ack 23 20 stop tries=1 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 24 23 stop tries=1 done=still
+  MOVE_X 300 0 100 10000       ack=< ack 25 24 stop tries=1 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 26 25 stop tries=1 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 27 26 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 28 27 stop tries=1 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 29 28 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 30 29 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 31 30 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 32 31 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 33 32 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 34 33 stop tries=1 done=still
+  SET speed_floor 255.200012 -> ack (attempts=1); GET -> 255.200012
+== phase floor100 set={'speed_floor': 1276}
+  SET speed_floor 1276 -> ack (attempts=3); GET -> 1276.0
+  MOVE_X 300 0 100 10000       ack=< ack 39 34 stop tries=1 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 40 40 stop tries=4 done=frozen
+  MOVE_X 300 0 100 10000       ack=< ack 41 40 stop tries=1 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 42 41 stop tries=1 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 43 42 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 44 43 stop tries=2 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 45 44 stop tries=2 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 46 45 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 47 46 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 48 47 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 49 48 stop tries=2 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 50 49 stop tries=1 done=still
+  SET speed_floor 255.200012 -> ack (attempts=1); GET -> 255.200012
+== phase crawl09 set={'crawl_pulse': 0.09}
+  SET crawl_pulse 0.09 -> ack (attempts=1); GET -> 0.09
+  MOVE_X 300 0 100 10000       ack=< ack 55 50 stop tries=1 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 56 55 stop tries=1 done=still
+  MOVE_X 300 0 100 10000       ack=< ack 57 56 stop tries=1 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 58 57 stop tries=1 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 59 58 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 60 59 stop tries=1 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 61 60 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 62 61 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 63 62 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 64 63 stop tries=2 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 65 64 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 66 65 stop tries=1 done=still
+  SET crawl_pulse 0.0 -> ack (attempts=1); GET -> 0.0
+== phase imax30 set={'pid_i_max': 383}
+  SET pid_i_max 383 -> ack (attempts=1); GET -> 383.000031
+  MOVE_X 300 0 100 10000       ack=< ack 71 66 stop tries=1 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 72 71 stop tries=1 done=still
+  MOVE_X 300 0 100 10000       ack=< ack 73 72 stop tries=1 done=still
+  MOVE_X -300 0 100 10000      ack=< ack 74 73 stop tries=3 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 75 75 stop tries=3 done=frozen
+  MOVE_X -300 0 150 10000      ack=< ack 76 75 stop tries=1 done=still
+  MOVE_X 300 0 150 10000       ack=< ack 77 76 stop tries=1 done=still
+  MOVE_X -300 0 150 10000      ack=< ack 78 77 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 79 78 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 80 79 stop tries=1 done=still
+  MOVE_X 300 0 200 10000       ack=< ack 81 80 stop tries=1 done=still
+  MOVE_X -300 0 200 10000      ack=< ack 82 82 stop tries=3 done=frozen
+  SET pid_i_max 765.600037 -> ack (attempts=1); GET -> 765.600037
+restore check, differing fields: none
+frames=2921 events=52 wrote variants.json
