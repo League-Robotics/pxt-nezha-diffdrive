@@ -184,3 +184,23 @@ def test_publish_dry_run_pushes_nothing(tmp_path):
     assert _git("ls-remote", "--heads", "--tags", remote,
                 cwd=tmp_path).strip() == ""
     assert "dry run" in pe.summarize(r)
+
+
+def test_main_refuses_to_publish_a_dirty_source_tree(tmp_path, monkeypatch):
+    # The first hand-run publish (2026-08-29) shipped another session's
+    # uncommitted edits under v1.0.10; --publish now refuses unless the
+    # inputs match HEAD.
+    remote = _bare_remote(tmp_path)
+    monkeypatch.setattr(pe, "source_revision",
+                        lambda repo=pe.REPO: ("a" * 40, "wip", True))
+    with pytest.raises(SystemExit, match="refusing to publish"):
+        pe.main(["--publish", remote])
+    assert _git("ls-remote", "--heads", "--tags", remote,
+                cwd=tmp_path).strip() == ""
+    # --dry-run never pushes, so it needs no guard; --allow-dirty is the
+    # explicit override and labels the commit as dirty.
+    pe.main(["--publish", remote, "--dry-run"])
+    assert _git("ls-remote", "--heads", remote, cwd=tmp_path).strip() == ""
+    pe.main(["--publish", remote, "--allow-dirty"])
+    clone = _clone(remote, tmp_path / "clone")
+    assert _git("log", "-1", "--format=%s", cwd=clone).strip().endswith("-dirty")

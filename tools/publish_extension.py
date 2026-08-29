@@ -36,6 +36,15 @@ wearing one name. A content change without a version bump is pushed
 to the branch (so the repo tracks master) and reported as exactly that
 in the summary.
 
+--publish refuses a dirty source tree (pxt.json, its `files`, or
+extension/ modified vs HEAD) unless --allow-dirty: the published tree
+must be reproducible from the commit its message names, and a shared
+checkout can hold another session's work in progress -- which is how
+the first hand-run publish on 2026-08-29 shipped ten uncommitted files
+under v1.0.10 (League-Microbit/pxt-diff-drive@21a7e01); v1.0.11 was
+cut from a clean master to supersede it. CI checkouts are always
+clean.
+
 Run by `.github/workflows/publish-extension.yml` on every push to
 master, with a write deploy key for the target repo in
 GIT_SSH_COMMAND; runs identically by hand:
@@ -271,6 +280,9 @@ def main(argv=None):
                     f"or {DEFAULT_BRANCH} for an empty remote)")
     ap.add_argument("--dry-run", action="store_true",
                     help="with --publish: commit and tag locally, push nothing")
+    ap.add_argument("--allow-dirty", action="store_true",
+                    help="with --publish: push even if pxt.json, its `files` "
+                    "or extension/ differ from HEAD (see the docstring)")
     ap.add_argument("--summary", metavar="FILE",
                     help="append the markdown summary to FILE "
                     "(e.g. $GITHUB_STEP_SUMMARY)")
@@ -285,6 +297,15 @@ def main(argv=None):
             for rel in assemble(tmp):
                 print(rel)
         return 0
+    if not args.dry_run and not args.allow_dirty:
+        sha, _subject, dirty = source_revision()
+        if dirty:
+            raise SystemExit(
+                "refusing to publish: pxt.json, its `files`, or extension/ "
+                f"differ from HEAD {sha[:12]} -- the published tree would not "
+                "be reproducible from any commit, and in a shared checkout it "
+                "may carry someone else's work in progress. Commit first, or "
+                "pass --allow-dirty.")
     with tempfile.TemporaryDirectory(prefix="pxt-diff-drive-tree-") as tmp:
         assemble(tmp)
         report = publish(tmp, args.publish, branch=args.branch,
