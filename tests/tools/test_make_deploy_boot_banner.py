@@ -3,9 +3,8 @@
 `pyproject.toml` version (`0.YYYYMMDD.n`) is read, reformatted to the
 on-device `DD.RR` banner string, and substituted -- together with the
 target robot's name -- into the scratch copy's `test/test.ts` before
-build, via the same substitution mechanism
-`tests/tools/test_make_deploy_robot_channel.py` pins for the radio
-channel.
+build, via the same scratch-copy-only substitution pattern
+`tests/tools/test_make_deploy_profile.py` pins for `kProfile`.
 
 The real display behavior (does the banner actually show correctly on
 hardware) is NOT testable here -- no TypeScript in this repo is
@@ -184,55 +183,37 @@ def test_inject_boot_banner_fails_loudly_when_placeholder_missing(
 # --- end-to-end: sync(), then both injections, exactly as main() calls --
 
 
-def test_sync_then_inject_both_end_to_end(tmp_path, monkeypatch):
+def test_sync_then_inject_boot_banner_end_to_end(tmp_path, monkeypatch):
     """Full pipeline against a fake repo checkout: sync() populates the
-    scratch copy, then _inject_radio_channel() and
-    _inject_boot_banner() both patch the copy it just wrote -- the
-    exact three-step sequence main() runs, so this is the closest this
-    suite comes to proving the two injections coexist correctly in one
-    scratch copy without one clobbering the other."""
+    scratch copy, then _inject_boot_banner() patches the copy it just
+    wrote -- the exact sequence main() runs for this file (the radio
+    channel used to be injected in the same pipeline too, via
+    _inject_radio_channel(); that injection was deleted in sprint 025
+    ticket 003, since the board now derives its own channel/group at
+    boot instead of having one baked in -- see
+    tools/make_deploy.py's module docstring)."""
     import json
 
     repo = tmp_path / "repo"
     (repo / "test").mkdir(parents=True)
     (repo / "pxt_modules").mkdir()
     (repo / "node_modules").mkdir()
-    (repo / "src" / "comms").mkdir(parents=True)
-    (repo / "src" / "comms" / "radio_transport.h").write_text(
-        "static constexpr uint8_t kGroup = 10;\n"
-        "static constexpr int kChannel = 4;\n"
-        "static constexpr int kTransmitPower = 7;\n"
-    )
     (repo / "test" / "test.ts").write_text(_TEST_TS_FIXTURE)
     manifest = {
-        "files": ["src/comms/radio_transport.h"],
+        "files": [],
         "testFiles": ["test/test.ts"],
         "disablesVariants": ["mbdal"],
     }
     (repo / "pxt.json").write_text(json.dumps(manifest))
     (repo / "pyproject.toml").write_text('[project]\nversion = "0.20260826.5"\n')
 
-    robots_dir = tmp_path / "radio-robot-lib" / "config" / "robots"
-    robots_dir.mkdir(parents=True)
-    (robots_dir / "tovez.json").write_text(
-        json.dumps({"connection": {"radio_channel": 3}})
-    )
-
     deploy = tmp_path / "deploy-head"
     monkeypatch.setattr(make_deploy, "REPO", str(repo))
     monkeypatch.setattr(make_deploy, "DEPLOY", str(deploy))
-    monkeypatch.setattr(
-        make_deploy, "RADIO_ROBOT_LIB", str(tmp_path / "radio-robot-lib")
-    )
     monkeypatch.setattr(make_deploy, "_PYPROJECT", str(repo / "pyproject.toml"))
 
     make_deploy.sync()
-    make_deploy._inject_radio_channel(str(deploy), "tovez")
     make_deploy._inject_boot_banner(str(deploy), "tovez")
-
-    channel_text = (deploy / "src" / "comms" / "radio_transport.h").read_text()
-    assert "kChannel = 3;" in channel_text
-    assert "kGroup = 10" in channel_text
 
     banner_text = (deploy / "test" / "test.ts").read_text()
     assert 'const BOOT_VERSION = "26.05"' in banner_text

@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: "Cross-repo conformance interop \u2014 dump entry point and foreign-dump checker"
-status: done
+status: in-progress
 use-cases: []
 depends-on:
 - '001'

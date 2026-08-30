@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""radio-address-dump -- protocol v1, one file per repository.
+"""radio-address-dump -- protocol v2, one file per repository.
 
 Every repository implementing the name <-> (channel, group) map exposes
 an executable at this exact path with exactly this contract, so ONE
@@ -9,7 +9,8 @@ checker can compare every implementation in every repo:
         one implementation id per line
     tools/radio-address-dump <id>
         the canonical form on stdout: for n = 0..3124 in order, one line
-        "<name>,<channel>,<group>" -- 3125 lines, nothing else. Exit 0.
+        "<name>,<channel>,<group>,<decode(name)>,<reverse(channel,group)>"
+        -- 3125 lines, nothing else. Exit 0.
         Exit 3 with one line on stderr if that implementation cannot run
         here (no compiler, no toolchain), so the checker reports it as
         unavailable rather than as a mismatch.
@@ -28,16 +29,20 @@ question that was actually asked. From the relay repo:
 
     scripts/radio_address_conformance.py microbit-radio-relay pxt-nezha-diffdrive
 
-WHY v1 AND NOT v2. `$.properties.dump_protocol` in the vectors file
+WHY v2 AND NOT v1. `$.properties.dump_protocol` in the vectors file
 prefers v2 (five columns, digesting to D2) because v2 puts the inverse
-INTO the hashed artifact. This file still emits v1 because the
-comparator compares dumps LINE BY LINE: a v2 dump against the relay's
-v1 dump reports every line as differing, which would break a working
-three-way comparison in order to gain a check that
-`tools/radio_address.py --dump conformance` already performs locally.
-Switch `full_space_dump()` to `conformance_dump()` below once the relay
-emits v2 -- a one-line change, and the checker's column-count detection
-handles both.
+INTO the hashed artifact: decode() is the PRODUCTION path -- it is what
+the relay's `!N <name>` executes on every command -- and D1 alone (three
+columns, forward-only) cannot detect a broken decode() or reverse(). This
+file emitted v1 until 2026-08-30 because at the time the relay's own
+comparator still ran a v1 comparison and a v2 dump against a v1
+comparator reports every line as differing. That constraint has since
+expired: microbit-radio-relay moved both its implementations (python,
+firmware-cpp) to v2/D2 (verified 2026-08-30, comparator run:
+f10db38bb3cdd2c5e15e69384f8633ff315876615f65bec8d4660e2012867657 for
+both). Emitting v2 here puts decode() and reverse() into the hashed
+artifact so the comparator verifies them instead of trusting this
+repo's local self-check.
 
 DO NOT REIMPLEMENT THE MAPPING HERE. This delegates to
 `tools/radio_address.py`. Two implementations inside one repository
@@ -54,13 +59,13 @@ UNAVAILABLE = 3
 def dump_python():
     """The reference implementation -- tools/radio_address.py.
 
-    `full_space_dump()` YIELDS lines (it is a generator, not a string),
+    `conformance_dump()` YIELDS lines (it is a generator, not a string),
     hence writelines rather than write. Each yielded line already ends
     in a newline.
     """
     sys.path.insert(0, str(ROOT / "tools"))
     import radio_address
-    sys.stdout.writelines(radio_address.full_space_dump())
+    sys.stdout.writelines(radio_address.conformance_dump())
     return 0
 
 

@@ -34,10 +34,10 @@ namespace {
 //     Config::kRobotProfileName, "baked from the robot JSON's own ...
 //     filename stem"). Injected per-robot at DEPLOY time, into the
 //     SCRATCH COPY only, by tools/make_deploy.py's _inject_profile() --
-//     the same scratch-copy-only substitution _inject_radio_channel()
-//     performs for radio_transport.h's kChannel. This repo's own
-//     checked-in literal below is therefore never a real fleet robot
-//     name: it is the UN-BAKED default, so a build run with no
+//     the same scratch-copy-only substitution pattern
+//     _inject_boot_banner() performs for test.ts's boot banner. This
+//     repo's own checked-in literal below is therefore never a real
+//     fleet robot name: it is the UN-BAKED default, so a build run with no
 //     --robot (or built outside make_deploy.py entirely) cannot be
 //     mistaken for, or impersonate, any board on the fleet. (Before
 //     this injection existed, kProfile was a hand-written constant

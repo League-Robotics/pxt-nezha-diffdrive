@@ -640,17 +640,21 @@ def test_radio_address_dump_entry_point_list_reports_python():
     assert 'python' in result.stdout.split()
 
 
-def test_radio_address_dump_entry_point_python_matches_full_space_dump(
+def test_radio_address_dump_entry_point_python_matches_conformance_dump(
         vectors):
     """`radio-address-dump python`'s stdout is byte-identical to
-    `full_space_dump()`'s own output (protocol v1, D1) -- it MUST
-    call the library function, not reimplement the map."""
+    `conformance_dump()`'s own output (protocol v2, D2) -- it MUST
+    call the library function, not reimplement the map. v2, not v1,
+    because the relay's comparator moved both its own implementations
+    to v2/D2 (verified 2026-08-30); emitting v2 here puts decode() and
+    reverse() into the hashed artifact so the comparator verifies them
+    instead of trusting this repo's local self-check."""
     result = subprocess.run(
         [str(_TOOLS_DIR / 'radio-address-dump'), 'python'],
         capture_output=True, text=True, check=True)
-    assert result.stdout == _canonical(radio_address.full_space_dump())
+    assert result.stdout == _canonical(radio_address.conformance_dump())
     assert _sha256(result.stdout) == vectors['properties'][
-        'full_space_sha256']
+        'conformance_sha256']
 
 
 def test_radio_address_dump_entry_point_unknown_id_is_not_exit_0():

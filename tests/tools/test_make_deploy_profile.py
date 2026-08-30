@@ -1,15 +1,15 @@
 """tests/tools/test_make_deploy_profile.py -- pins
 `tools/make_deploy.py`'s per-robot wire-identity ("`kProfile`")
-injection: `--robot` now selects the `id <drivetrain> <profile>
+injection: `--robot` selects the `id <drivetrain> <profile>
 <version>` reply's `profile` field compiled into the hex, not just the
-flash target and radio channel. The value baked is the target robot's
+flash target. The value baked is the target robot's
 own fleet name -- radio-robot-lib's per-robot config filename stem
 (`radio-robot-lib/config/robots/<robot>.json`), per the reference
 design in `radio-robot-elite/src/firm/main.cpp`
 (`Config::kRobotProfileName`, "baked from the robot JSON's own ...
 filename stem"). No field is read OUT of that file; its mere existence
-and readability is what `_read_robot_profile()` checks, same posture as
-`_read_robot_radio_channel()`.
+and readability is what `_read_robot_profile()` checks, same posture
+as every other per-robot config reader in `make_deploy.py`.
 
 This closes the defect where `src/comms/protocol.cpp`'s `kProfile` was
 a hand-written constant frozen fleet-wide at `"tovez"` -- every board,
@@ -171,10 +171,9 @@ def test_sync_then_inject_profile_end_to_end(tmp_path, monkeypatch):
     """Full pipeline against a fake repo checkout: sync() populates the
     scratch copy from pxt.json's own files[] list, then
     _inject_profile() patches the copy it just wrote -- the exact
-    sequence main() runs (alongside _inject_radio_channel() and
-    _inject_boot_banner(), each tested for this same seam in their own
-    modules). Regression coverage for the seam itself, not just the
-    substitution function in isolation."""
+    sequence main() runs (alongside _inject_boot_banner(), tested for
+    this same seam in its own module). Regression coverage for the
+    seam itself, not just the substitution function in isolation."""
     repo = tmp_path / "repo"
     (repo / "test").mkdir(parents=True)
     (repo / "pxt_modules").mkdir()

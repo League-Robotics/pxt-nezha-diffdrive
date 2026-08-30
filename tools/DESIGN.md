@@ -28,16 +28,24 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
 - **`make_deploy.py`** — builds a flashable hex in a scratch copy of
   the repo with `test/test.ts` promoted into `files` (a `files`-listed
   test would run inside every student project). `--robot <name>`
-  (default `vevov`) selects more than the flash target: after `sync()`
-  populates the scratch copy, the target robot's `connection.
-  radio_channel` is read from radio-robot-lib's canonical per-robot
-  config (`radio-robot-lib/config/robots/<robot>.json`, never a table
-  in this repo) and substituted into the scratch copy's
-  `src/comms/radio_transport.h` before `build()` runs — the repo's own
-  checked-in source keeps one fixed default (vevov's own channel, 4),
-  so an unparameterised build stays byte-equivalent to before this
-  existed. A missing/unreadable config, or one with no `radio_channel`
-  field, fails the build loudly rather than falling back to a default.
+  (default `vevov`) selects the flash target, the wire ID profile
+  baked into `kProfile`, and the boot banner text — no radio channel:
+  since sprint 025 ticket 002 the firmware derives its own radio
+  channel AND group at boot from its own silicon name, so the hex is
+  radio-address-agnostic and there is nothing left to inject (the old
+  `_inject_radio_channel()`, reading radio-robot-lib's
+  `connection.radio_channel`, was deleted in ticket 003). Instead,
+  before touching anything else, the **silicon gate**
+  (`_verify_robot_silicon()`) reads the attached board's own name over
+  SWD (`mbdeploy.devices.read_board_name()`) and refuses to proceed on
+  a mismatch with `--robot` — `--robot` is deploy-time config, not
+  hardware fact, and trusting it unchecked would just move the
+  staleness that used to live in `connection.radio_channel` onto
+  `--robot` itself. A deploy-summary line then reports the `(channel,
+  group)` pair `--robot`'s name derives (`tools/radio_address.py`'s
+  `name_to_address()`), unconditionally, so the operator knows what to
+  tune a relay to.
+
   Also drops `disablesVariants: ["mbdal"]` from the scratch copy (kept
   in the repo's own `pxt.json`, it produces a hex that is dead on the
   device). Sets `PXT_COMPILE_SWITCHES=csv-mbcodal`

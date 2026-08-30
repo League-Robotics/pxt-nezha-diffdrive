@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: 'make_deploy.py: drop channel injection, add silicon gate, report derived pair'
-status: open
+status: done
 use-cases: []
 depends-on:
 - '001'
@@ -52,14 +52,14 @@ it — this is the whole point of the change).
 
 ## Acceptance Criteria
 
-- [ ] `_inject_radio_channel()`, `_read_robot_radio_channel()`, and
+- [x] `_inject_radio_channel()`, `_read_robot_radio_channel()`, and
       `_K_CHANNEL_RE` are deleted from `tools/make_deploy.py`.
       `main()`'s call to `_inject_radio_channel(DEPLOY, a.robot)` is removed
       from the build sequence.
-- [ ] `--robot` still selects the flash target (`flash(a.robot)`),
+- [x] `--robot` still selects the flash target (`flash(a.robot)`),
       `kProfile` (`_inject_profile()`), and the boot banner
       (`_inject_boot_banner()`) — none of these three call sites change.
-- [ ] The module docstring's description of `--robot`'s channel-injection
+- [x] The module docstring's description of `--robot`'s channel-injection
       behavior (lines ~34-46, "`--robot` selects more than the flash
       target... this script reads the target robot's own
       `connection.radio_channel`...") is rewritten to describe the new
@@ -67,16 +67,16 @@ it — this is the whole point of the change).
       channel/group at boot from its name, and `--robot` only verifies
       (via the silicon gate) and selects the flash target/profile/banner.
       Do not leave stale prose describing deleted behavior.
-- [ ] A new deploy-summary line prints the derived `(channel, group)` pair
+- [x] A new deploy-summary line prints the derived `(channel, group)` pair
       for `a.robot`, computed via `tools/radio_address.py`'s
       `name_to_address()` (ticket 001) — e.g. `make_deploy: vevov derives
       radio channel=37 group=43`. Printed unconditionally (build and
       `--flash` both), so the operator always knows what to tune a relay
       to, matching the existing `print(f'make_deploy: geometry bake
       {_name} = {_value:g}')`-style summary lines already in `main()`.
-- [ ] **The silicon gate** (new function, e.g. `_verify_robot_silicon(uid,
+- [x] **The silicon gate** (new function, e.g. `_verify_robot_silicon(uid,
       robot)` or inline in `main()`/`flash()`):
-  - [ ] Imports `read_board_name` from `mbdeploy.devices`. **Import
+  - [x] Imports `read_board_name` from `mbdeploy.devices`. **Import
         mechanics**: `mbdeploy` is installed via `pipx` into its own
         isolated venv (confirmed 2026-08-30: `/Users/eric/.local/bin/
         mbdeploy`'s shebang points at a pipx venv, and `import mbdeploy`
@@ -92,25 +92,25 @@ it — this is the whole point of the change).
         checkout missing/moved) the same as `read_board_name()` returning
         `None` for the purposes of the fail/warn logic below — do not let
         an import failure crash with a raw traceback.
-  - [ ] Determine the attached board's UID the same way `flash()`'s
+  - [x] Determine the attached board's UID the same way `flash()`'s
         existing `mbdeploy` subprocess call does (check how `flash()`
         resolves a target board, and reuse that resolution rather than
         inventing a second one).
-  - [ ] Calls `read_board_name(uid)` and compares to `a.robot`.
-  - [ ] **Mismatch → hard failure**: `sys.exit` naming both the requested
+  - [x] Calls `read_board_name(uid)` and compares to `a.robot`.
+  - [x] **Mismatch → hard failure**: `sys.exit` naming both the requested
         `--robot` value and the name actually read from silicon.
-  - [ ] **`read_board_name()` returns `None`** (pyOCD unavailable, probe
+  - [x] **`read_board_name()` returns `None`** (pyOCD unavailable, probe
         busy, or the import-failure case above): with `--flash`, a board is
         physically attached, so this is a **hard failure** (`sys.exit`,
         explaining why the check could not run). Without `--flash`, there
         is nothing attached to check, so **warn and continue** — print a
         message, do not exit.
-  - [ ] Runs with `connect_mode="attach"` semantics (no halt, no reset, no
+  - [x] Runs with `connect_mode="attach"` semantics (no halt, no reset, no
         serial port) — confirm the call matches
         `mbdeploy/src/mbdeploy/devices.py:275`'s actual signature and
         default rather than assuming keyword names; read that function
         before wiring the call.
-- [ ] `tests/tools/test_make_deploy_robot_channel.py` is retired (deleted).
+- [x] `tests/tools/test_make_deploy_robot_channel.py` is retired (deleted).
       Its fixture-based coverage of `_inject_radio_channel()` /
       `_read_robot_radio_channel()` / `_K_CHANNEL_RE` has nothing left to
       test once those are deleted.

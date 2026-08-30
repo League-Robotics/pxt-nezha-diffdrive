@@ -21,45 +21,66 @@ therefore gets checked in its OWN scratch copy (`--testrig`), generated
 from the same `pxt.json` `testFiles` list, never combined with the
 primary deploy.
 
-  uv run python tools/make_deploy.py            # build (vevov, ch 4)
+  uv run python tools/make_deploy.py            # build (default: vevov)
   uv run python tools/make_deploy.py --flash    # build, then flash vevov
   uv run python tools/make_deploy.py --robot tovez --flash
-                                                 # build for tovez's own
-                                                 # radio channel, then
+                                                 # build for, verify, and
                                                  # flash tovez
   uv run python tools/make_deploy.py --testrig  # build/type-check
                                                  # testrig.ts alone, in
                                                  # its own scratch copy
 
-`--robot` selects more than the flash target: after `sync()` populates
-the scratch copy, this script reads the target robot's own
-`connection.radio_channel` from radio-robot-lib's canonical per-robot
-config (`radio-robot-lib/config/robots/<robot>.json`) and substitutes
-it into the SCRATCH COPY's `src/comms/radio_transport.h` before
-`build()` runs -- see `_inject_radio_channel()` below. This repo's own
-checked-in source is never touched, so it keeps one fixed default
-(vevov's own channel, 4); a build invoked with no `--robot` is
-therefore byte-equivalent to a build invoked with `--robot vevov`, both
-before and after this behavior existed. No robot->channel table lives
-in this repo -- radio-robot-lib's JSON is the only place a channel
-number is read from, and a missing/unreadable/incomplete config fails
-the build loudly rather than falling back to any default.
+`--robot` selects the flash target (`flash(a.robot)`), the wire ID
+profile baked into the hex (`_inject_profile()`, below), and the boot
+banner text (`_inject_boot_banner()`, below). It used to also select a
+per-robot radio channel, substituted into the scratch copy's
+`src/comms/radio_transport.h` before `build()` ran -- that injection
+(`_inject_radio_channel()` / `_read_robot_radio_channel()`) is GONE as
+of sprint 025 ticket 003: the firmware now derives its own radio
+channel AND group at boot, straight from its own silicon name
+(`microbit_friendly_name()`), per sprint 025 ticket 002 and
+`docs/radio-addressing.md` (normative) -- the same base-5 codebook
+`tools/radio_address.py` implements host-side. A board's name IS its
+address now, so the hex is radio-address-agnostic: every robot's build
+is byte-identical with respect to radio addressing, there is no
+per-robot value left to inject, and radio-robot-lib's old
+`connection.radio_channel` config field is no longer read by this
+script at all.
 
-The same seam also carries the target robot's own NAME into the
-SCRATCH COPY's `src/comms/protocol.cpp` `kProfile` constant -- see
-`_inject_profile()` below. Unlike the channel, this ENDS the "no
-`--robot` is byte-equivalent to before" property: `protocol.cpp`'s
-checked-in `kProfile` is deliberately an un-baked placeholder, not any
-fleet robot's name (see that file's own comment), so every build --
-including the `DEFAULT_ROBOT` one -- now differs from the checked-in
-source once baked. That is the fix: before this existed, `kProfile`
-was a hand-written constant frozen fleet-wide at `"tovez"`, so every
-board (including vevov) reported `"tovez"` over the wire `ID` verb.
+`--robot <name>` is still just a string handed in on the command line,
+though -- deploy-time config, not hardware fact, exactly like
+`connection.radio_channel` used to be. Handing it straight to
+`flash()`/`_inject_profile()`/`_inject_boot_banner()` with nothing
+confirming it names the board actually attached would only move that
+same staleness from `connection.radio_channel` onto `--robot` itself,
+which is the whole reason sprint 025 exists. So before touching
+anything else, `main()` runs the **silicon gate**
+(`_verify_robot_silicon()`, below): it reads the attached board's own
+name straight off silicon over SWD
+(`mbdeploy.devices.read_board_name()` -- the only identity authority,
+`.claude/rules/identity-comes-from-hardware-not-config.md`) and refuses
+to proceed on a mismatch. Right after the gate, `main()` also prints
+the `(channel, group)` pair `--robot`'s name derives
+(`_print_derived_radio_address()`, below, via `tools/radio_address.py`'s
+`name_to_address()`) -- unconditionally, build or `--flash` alike, so
+the operator always knows what to tune a relay to.
+
+The same scratch-copy substitution mechanism also carries the target
+robot's own NAME into the SCRATCH COPY's `src/comms/protocol.cpp`
+`kProfile` constant -- see `_inject_profile()` below. That ENDS the "a
+build with no `--robot` is byte-equivalent to the checked-in source"
+property for this one file: `protocol.cpp`'s checked-in `kProfile` is
+deliberately an un-baked placeholder, not any fleet robot's name (see
+that file's own comment), so every build -- including the
+`DEFAULT_ROBOT` one -- now differs from the checked-in source once
+baked. That is the fix: before this existed, `kProfile` was a
+hand-written constant frozen fleet-wide at `"tovez"`, so every board
+(including vevov) reported `"tovez"` over the wire `ID` verb.
 `_inject_profile()` confirms the target robot has a real config file in
-radio-robot-lib before baking (same loud-failure posture as
-`_read_robot_radio_channel()`), but reads no field out of it -- the
-value baked is the config's own filename stem, per the reference design
-in `radio-robot-elite/src/firm/main.cpp`.
+radio-robot-lib before baking (same loud-failure posture used
+throughout this file's per-robot config readers), but reads no field
+out of it -- the value baked is the config's own filename stem, per
+the reference design in `radio-robot-elite/src/firm/main.cpp`.
 
 The same scratch-copy substitution mechanism also carries this repo's
 own version (read from `pyproject.toml`'s `0.YYYYMMDD.n`, reformatted
@@ -127,10 +148,18 @@ everywhere else.
 import argparse
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
 import sys
+
+# tools/radio_address.py -- same directory as this file, already on
+# sys.path (Python puts a script's own directory at sys.path[0]; every
+# tests/tools/test_make_deploy_*.py fixture inserts tools/ before
+# `import make_deploy` for the same reason) -- so no sys.path surgery
+# is needed here, unlike MBDEPLOY_ROOT below.
+import radio_address
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEPLOY = os.path.join(REPO, '.tmp', 'deploy-head')
@@ -149,16 +178,60 @@ HEX_TESTRIG = os.path.join(DEPLOY_TESTRIG, 'built', 'binary.hex')
 
 ELITE = '/Volumes/Proj/proj/RobotProjects/radio-robot-elite'
 
+# mbdeploy's own device registry -- the SAME file `flash()`'s own
+# `mbdeploy deploy <name> --hex HEX` subprocess call (below) resolves
+# `name` against internally (`mbdeploy.devices.resolve_target()`,
+# consulted by `mbdeploy/src/mbdeploy/cli.py`'s `_deploy_entry()`),
+# since that subprocess always runs with `cwd=ELITE` and mbdeploy's own
+# default config path is `Path("config") / "devices.json"`, CWD-
+# relative. The silicon gate reuses this SAME path + SAME resolver
+# (`_resolve_robot_uid()`, below) rather than inventing a second way to
+# turn a robot name into a UID.
+_MBDEPLOY_REGISTRY = os.path.join(ELITE, 'config', 'devices.json')
+
 # radio-robot-lib's own per-robot config tree -- the fleet's one
-# canonical source for facts like a robot's assigned radio channel
-# (see _read_robot_radio_channel() below). A sibling checkout, same
-# convention as ELITE above.
+# canonical source of the per-robot facts still read from config: the
+# wire ID profile's backing-file check (_read_robot_profile()) and the
+# opt-in geometry bake (_read_robot_firmware_bake()), below. The radio
+# channel used to be read from here too (_read_robot_radio_channel(),
+# deleted sprint 025 ticket 003) -- the board now derives its own
+# channel/group from its own name at boot instead; see the silicon gate
+# and the module docstring. A sibling checkout, same convention as
+# ELITE above.
 RADIO_ROBOT_LIB = '/Volumes/Proj/proj/RobotProjects/radio-robot-lib'
 
-# Matches sync()/main()'s own pre-existing default -- factored out so
-# _inject_radio_channel()'s tests and main()'s argparse default cannot
-# drift apart.
+# Matches main()'s own pre-existing default -- factored out so the
+# silicon-gate/deploy-summary tests and main()'s argparse default
+# cannot drift apart.
 DEFAULT_ROBOT = 'vevov'
+
+# mbdeploy's own source tree -- NOT importable as an installed package
+# from this repo: mbdeploy is pipx-installed into its own isolated venv
+# (confirmed 2026-08-30: `import mbdeploy` fails under this repo's own
+# `uv run python`, because pipx deliberately isolates each tool's
+# dependencies). A sibling checkout, same convention as ELITE/
+# RADIO_ROBOT_LIB above, plus the sys.path.insert() pattern already
+# used elsewhere in tools/*.py (e.g. tools/otos_levercal.py:34) to
+# reach a sibling repo that is not on this one's own dependency tree.
+MBDEPLOY_ROOT = '/Volumes/Proj/proj/RobotProjects/mbdeploy'
+sys.path.insert(0, os.path.join(MBDEPLOY_ROOT, 'src'))
+try:
+    # Bound at MODULE level, not imported lazily inside a function, so
+    # tests can monkeypatch `make_deploy.read_board_name` /
+    # `make_deploy.load_devices` / `make_deploy.resolve_target`
+    # directly -- same posture the retired
+    # test_make_deploy_robot_channel.py used for RADIO_ROBOT_LIB (see
+    # _verify_robot_silicon() below).
+    from mbdeploy.devices import load_devices, read_board_name, resolve_target
+except ImportError:
+    # Sibling checkout missing or moved. Must never surface as a raw
+    # traceback -- folded into the exact same "could not check" outcome
+    # read_board_name() itself returning None already produces, so
+    # _verify_robot_silicon() has exactly one branch for every "the
+    # gate could not run" case, whatever the specific cause.
+    load_devices = None
+    read_board_name = None
+    resolve_target = None
 
 # --- build-output triage -------------------------------------------------
 #
@@ -414,76 +487,156 @@ def sync_testrig():
     return _sync_scratch(DEPLOY_TESTRIG, 'testrig.ts')
 
 
+# --- silicon gate -----------------------------------------------------
+#
+# `--robot <name>` is deploy-time config, exactly the same kind of
+# thing `connection.radio_channel` used to be before sprint 025 ticket
+# 002 made the board derive its own radio channel/group at boot.
+# Config strings go stale; hardware does not. Handing `--robot` to
+# `flash()`/`_inject_profile()`/`_inject_boot_banner()` with nothing
+# confirming it names the board actually attached would just move that
+# same staleness onto `--robot` itself, rather than remove it -- see
+# the module docstring. `main()` runs this gate FIRST, before any
+# injection or build step -- see its own call site, below.
+
+
+def _resolve_robot_uid(robot):
+    """The UID `flash()`'s own `mbdeploy deploy <robot> --hex HEX`
+    subprocess call would resolve `robot` to -- via the SAME registry
+    file (`_MBDEPLOY_REGISTRY`, above) and the SAME
+    `mbdeploy.devices.resolve_target()` mbdeploy's own `deploy` command
+    uses internally. Reusing that resolution rather than inventing a
+    second one (per this ticket) also means this gate needs no
+    separate "is it actually attached right now" check of its own:
+    `read_board_name(uid)` (below) already returns `None` on its own
+    when the resolved uid is not currently attached -- pyOCD simply
+    cannot open a session against a UID no live probe presents -- which
+    is exactly the outcome `_verify_robot_silicon()` already treats as
+    "could not confirm" for every other reason. This is the SAME
+    live-attachment fact mbdeploy's own `_cmd_deploy()` checks
+    explicitly (`uid in {p["uid"] for p in flashable_probes()}`); it is
+    simply re-derived for free here instead of duplicated.
+
+    Returns `None` when `robot` matches no registry entry, the
+    registry file is missing or unreadable (`load_devices()` already
+    tolerates both, returning `{}`), or the sibling `mbdeploy` checkout
+    could not be imported -- every one of these means "no candidate UID
+    to even try", which `_verify_robot_silicon()` folds into the same
+    "could not check" branch as a `read_board_name()` miss."""
+    if load_devices is None or resolve_target is None:
+        return None
+    registry = load_devices(pathlib.Path(_MBDEPLOY_REGISTRY))
+    try:
+        entry = resolve_target(robot, registry)
+    except ValueError:
+        return None
+    return entry.get('uid')
+
+
+def _silicon_check_unavailable(robot, require, why):
+    """Shared fail/warn branch for every "the silicon gate could not
+    run at all" case (see `_verify_robot_silicon()`, below) -- an
+    unresolvable robot name, a resolved-but-not-attached board, an
+    unreadable one, and a missing `mbdeploy` sibling checkout all land
+    here identically, because none of them can distinguish "right
+    board" from "wrong board" -- only "board attached and it matched"
+    or "board attached and it did not" are informative outcomes, and
+    this is neither.
+
+    `require` is True under `--flash`: a board is physically attached
+    for a flash to mean anything, so being unable to confirm its
+    identity is a HARD failure (`sys.exit`) -- flashing without the
+    gate having actually run would check nothing, which is worse than
+    refusing to flash. Without `--flash` there may be nothing plugged
+    in at all (a plain build, possibly off the bench entirely), so the
+    same "could not check" outcome is a warning, not a failure: there
+    is no board present for the check to have failed to protect."""
+    msg = (f"make_deploy: cannot confirm --robot {robot!r} against "
+           f"silicon -- {why}")
+    if require:
+        sys.exit(msg)
+    print(msg + ' -- continuing without the silicon gate (no --flash)')
+
+
+def _verify_robot_silicon(robot, require):
+    """The silicon gate. Confirms the board actually attached (if any)
+    really is `robot`, by reading its name straight off silicon over
+    SWD: `read_board_name(uid)` (default `target_mcu`, per its own
+    signature at `mbdeploy/src/mbdeploy/devices.py:267`) wraps
+    `read_device_id()`, which connects with `connect_mode="attach"`
+    hardcoded internally (devices.py:257) -- no halt, no reset, no
+    serial port, so this works even on an unflashed or bricked board
+    (given a UID for it -- see `_resolve_robot_uid()`, above).
+
+    A NAME MISMATCH is always a hard failure, regardless of `require`:
+    a board is physically attached and it is not the one `--robot`
+    names, which is exactly the wrong-board condition this gate exists
+    to catch -- naming both the requested and the actual name, so the
+    operator can tell a typo from a swapped board at a glance. Every
+    other "could not run the check" outcome goes through
+    `_silicon_check_unavailable()`, above, which is where `require`'s
+    fail-vs-warn split lives."""
+    uid = _resolve_robot_uid(robot)
+    if uid is None:
+        _silicon_check_unavailable(
+            robot, require,
+            f"--robot {robot!r} does not resolve to a known board UID "
+            f"via mbdeploy's own registry ({_MBDEPLOY_REGISTRY}), or "
+            f"the mbdeploy sibling checkout at {MBDEPLOY_ROOT} could "
+            f"not be imported")
+        return
+    name = read_board_name(uid)
+    if name is None:
+        _silicon_check_unavailable(
+            robot, require,
+            f"could not read the attached board's name over SWD for "
+            f"uid {uid} (pyOCD unavailable or the probe is busy)")
+        return
+    if name != robot:
+        sys.exit(
+            f"make_deploy: --robot {robot!r} does not match the "
+            f"attached board's real name {name!r} (read over SWD, uid "
+            f"{uid}) -- refusing to build/flash under the wrong "
+            f"identity. Either the wrong board is plugged in, or "
+            f"--robot is a typo or a stale value.")
+    print(f"make_deploy: confirmed attached board's silicon name "
+          f"matches --robot {robot!r}")
+
+
+def _print_derived_radio_address(robot):
+    """Print the `(channel, group)` pair `robot`'s own name derives,
+    per `tools/radio_address.py` / `docs/radio-addressing.md`
+    (normative) -- unconditionally, build or `--flash` alike, so the
+    operator always knows what to tune a relay to without computing it
+    by hand. The board computes this SAME pair itself, at boot, from
+    its own silicon name (sprint 025 ticket 002) -- this is a report,
+    not an injection; nothing here is written into the hex.
+
+    `robot` has already passed the silicon gate by the time `main()`
+    calls this (see its own call site), but `name_to_address()` still
+    raises `ValueError` on a malformed name taken in isolation (e.g. a
+    directly-called test, or a future caller that skips the gate) --
+    fails loudly rather than printing a nonsense pair."""
+    try:
+        channel, group = radio_address.name_to_address(robot)
+    except ValueError as exc:
+        sys.exit(f"make_deploy: --robot {robot!r} is not a valid "
+                  f"micro:bit name -- {exc}")
+    print(f'make_deploy: {robot} derives radio channel={channel} '
+          f'group={group}')
+
+
 # --- per-robot build-time injection ---------------------------------------
 #
 # The scratch copy sync() just populated (DEPLOY) is the injection seam:
 # it keeps the repo's own checked-in src/ robot-agnostic while still
 # letting the actual build carry one robot's own facts. main() calls
-# _inject_radio_channel(), _inject_profile(), and _inject_boot_banner()
-# AFTER sync(), BEFORE build() -- see main()'s own call site, below.
+# _inject_profile() and _inject_boot_banner() AFTER sync(), BEFORE
+# build() -- see main()'s own call site, below.
 
 
 def _robot_config_path(robot):
     return os.path.join(RADIO_ROBOT_LIB, 'config', 'robots', f'{robot}.json')
-
-
-def _read_robot_radio_channel(robot):
-    """Read `connection.radio_channel` from radio-robot-lib's own
-    per-robot config for `robot` -- the fleet's one canonical source of
-    per-robot truth, already consulted by other tooling. No table of
-    robot->channel lives in this repo; this function is the only place
-    a channel number is read from, and it always goes through this one
-    file.
-
-    FAILS LOUDLY (sys.exit, naming both the robot and the exact path
-    tried) on a missing file, unreadable JSON, or a JSON file with no
-    `radio_channel` field -- a silent fallback here is the exact defect
-    this function exists to close: it is how one robot ended up
-    transmitting on another robot's channel with nothing in the build
-    log to say so."""
-    path = _robot_config_path(robot)
-    if not os.path.exists(path):
-        sys.exit(f"make_deploy: no radio config for robot '{robot}' -- "
-                  f"tried {path}")
-    try:
-        with open(path) as f:
-            config = json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        sys.exit(f"make_deploy: could not read radio config for robot "
-                  f"'{robot}' at {path}: {exc}")
-    channel = config.get('connection', {}).get('radio_channel')
-    if channel is None:
-        sys.exit(f"make_deploy: robot config at {path} has no "
-                  f"connection.radio_channel for robot '{robot}'")
-    return channel
-
-
-# Matches radio_transport.h's own single kChannel declaration. kGroup
-# (fleet-wide, never parameterised) and kTransmitPower are deliberately
-# outside this pattern's reach -- see this section's own top comment.
-_K_CHANNEL_RE = re.compile(r'(static constexpr int kChannel = )\d+(;)')
-
-
-def _inject_radio_channel(deploy_dir, robot):
-    """Substitute `deploy_dir`'s own copy of
-    `src/comms/radio_transport.h`'s `kChannel` constant with `robot`'s
-    configured radio channel (`_read_robot_radio_channel()`, above).
-    Mutates ONLY the scratch copy at `deploy_dir` -- the repo's own
-    checked-in `src/comms/radio_transport.h` is never touched, which is
-    what keeps a build invoked with no `--robot` byte-equivalent to
-    today's (`DEFAULT_ROBOT`, vevov, is already on channel 4, the
-    checked-in value)."""
-    channel = _read_robot_radio_channel(robot)
-    path = os.path.join(deploy_dir, 'src', 'comms', 'radio_transport.h')
-    text = open(path).read()
-    new_text, n = _K_CHANNEL_RE.subn(rf'\g<1>{channel}\g<2>', text)
-    if n != 1:
-        sys.exit(f"make_deploy: expected exactly one kChannel constant in "
-                  f"{path}, found {n} -- radio_transport.h's shape has "
-                  f"changed, update _K_CHANNEL_RE")
-    with open(path, 'w') as f:
-        f.write(new_text)
-    return channel
 
 
 # Matches protocol.cpp's own single kProfile declaration. kDrivetrain
@@ -498,8 +651,8 @@ _K_PROFILE_RE = re.compile(
 def _read_robot_profile(robot):
     """Confirm radio-robot-lib's own per-robot config for `robot`
     exists and is readable JSON -- the same fleet-canonical file
-    `_read_robot_radio_channel()` reads. Unlike that function, no field
-    is read out of it: per the reference design
+    `_read_robot_firmware_bake()` (below) also reads. No field is read
+    out of it here: per the reference design
     (`radio-robot-elite/src/firm/main.cpp`, `Config::kRobotProfileName`
     "baked from the robot JSON's own ... filename stem"), the profile
     baked into a build IS the robot JSON's own filename stem -- `robot`
@@ -508,12 +661,12 @@ def _read_robot_profile(robot):
     Still consulted, not skipped: this exists so a typo'd or
     unconfigured `--robot` FAILS LOUDLY (sys.exit, naming both the
     robot and the exact path tried) here, on a missing file or
-    unreadable JSON, exactly like `_read_robot_radio_channel()` does --
-    rather than silently baking a plausible-looking but unconfigured
-    name into `kProfile`. A silent fallback here is the exact defect
-    this function exists to close (this repo's own `kProfile` bug: a
-    hand-written `"tovez"` constant baked fleet-wide, so every board --
-    including vevov -- reported `"tovez"` over the wire `ID` verb)."""
+    unreadable JSON -- rather than silently baking a plausible-looking
+    but unconfigured name into `kProfile`. A silent fallback here is
+    the exact defect this function exists to close (this repo's own
+    `kProfile` bug: a hand-written `"tovez"` constant baked fleet-wide,
+    so every board -- including vevov -- reported `"tovez"` over the
+    wire `ID` verb)."""
     path = _robot_config_path(robot)
     if not os.path.exists(path):
         sys.exit(f"make_deploy: no robot config for robot '{robot}' -- "
@@ -531,14 +684,14 @@ def _inject_profile(deploy_dir, robot):
     `kProfile` constant with `robot`'s own fleet name (after confirming
     `robot` is a real, configured fleet member via
     `_read_robot_profile()`, above). Mutates ONLY the scratch copy at
-    `deploy_dir` -- the same scratch-copy-only substitution
-    `_inject_radio_channel()` performs for `kChannel`; see that
-    function's own docstring for why that is what keeps the repo's own
-    checked-in `protocol.cpp` robot-agnostic.
+    `deploy_dir` -- the same scratch-copy-only substitution pattern
+    used throughout this seam (see e.g. `_inject_geometry()`, below) --
+    the repo's own checked-in `protocol.cpp` stays robot-agnostic; only
+    the scratch copy ever changes.
 
-    Unlike the channel injection, this ENDS sprint 022's "a build with
-    no --robot is byte-equivalent to before" property for this file:
-    `protocol.cpp`'s checked-in `kProfile` default is deliberately not
+    This ENDS sprint 022's "a build with no --robot is byte-equivalent
+    to before" property for this file: `protocol.cpp`'s checked-in
+    `kProfile` default is deliberately not
     any fleet robot's own name (see that file's own comment), so every
     build -- including the `DEFAULT_ROBOT` one -- now differs from the
     checked-in source once baked. That is intentional: an
@@ -566,7 +719,7 @@ def _inject_version(deploy_dir):
     """Substitute `deploy_dir`'s own copy of `src/comms/protocol.cpp`'s
     `kVersion` constant with this build's `0.YYYYMMDD.n` version
     (`_read_repo_version()`, below). Scratch-copy-only, exactly like
-    `_inject_profile()` and `_inject_radio_channel()`.
+    `_inject_profile()` and `_inject_geometry()`.
 
     This is what makes VER (and ID's third field) identify the IMAGE.
     kVersion used to mirror pxt.json's `1.0.10`-style extension semver,
@@ -608,7 +761,7 @@ def _read_repo_version():
     version, which has no day-of-month digit pair in its minor and does
     not fit the `DD.RR` banner format (see `format_boot_version()`,
     below). FAILS LOUDLY if the file is missing or has no `version =
-    "..."` line, same posture as `_read_robot_radio_channel()`."""
+    "..."` line, same posture as `_read_robot_profile()`."""
     if not os.path.exists(_PYPROJECT):
         sys.exit(f"make_deploy: repo version file not found: {_PYPROJECT}")
     text = open(_PYPROJECT).read()
@@ -659,9 +812,9 @@ _BOOT_ROBOT_RE = re.compile(r'(const BOOT_ROBOT = )"[^"]*"')
 # flashed. Surveyed 2026-08-28: tovez's config says trackwidth 115 /
 # slip 1.0 where the firmware defaults it actually runs are 114.2 /
 # 0.952, and togov says 126 / 0.92. Making injection unconditional
-# would silently retune three robots nobody asked to touch, which is
-# the same class of defect `_read_robot_radio_channel()` exists to
-# prevent (one robot quietly taking another's value).
+# would silently retune three robots nobody asked to touch -- the same
+# class of defect the silicon gate exists to prevent for identity
+# (one robot quietly taking another's value).
 #
 # So a constant is injected ONLY when the robot's config carries an
 # explicit `geometry.firmware_bake` object naming it. No block, or a
@@ -681,9 +834,9 @@ def _read_robot_firmware_bake(robot):
     """Read `geometry.firmware_bake` from `robot`'s radio-robot-lib
     config, or `{}` when the robot declares none.
 
-    Unlike `_read_robot_radio_channel()` a MISSING config file is not
-    fatal: geometry baking is opt-in and most robots do not use it.
-    An UNREADABLE one still is -- that is a broken file, not an absent
+    Unlike `_read_robot_profile()`, a MISSING config file is not fatal
+    here: geometry baking is opt-in and most robots do not use it. An
+    UNREADABLE one still is -- that is a broken file, not an absent
     opinion."""
     path = _robot_config_path(robot)
     if not os.path.exists(path):
@@ -704,8 +857,8 @@ def _read_robot_firmware_bake(robot):
 def _inject_geometry(deploy_dir, robot):
     """Substitute `deploy_dir`'s copy of `src/motion/motion_engine.h`'s
     geometry constants with `robot`'s measured bake, when it declares
-    one. Same scratch-copy-only substitution as
-    `_inject_radio_channel()`; the tracked source is never touched.
+    one. Same scratch-copy-only substitution pattern as
+    `_inject_profile()`, above; the tracked source is never touched.
 
     Returns the list of `(name, value)` actually injected, so the build
     log can state it -- a geometry change that happened silently would
@@ -752,10 +905,10 @@ def _inject_boot_banner(deploy_dir, robot):
     """Substitute `deploy_dir`'s own copy of `test/test.ts`'s
     `BOOT_VERSION`/`BOOT_ROBOT` placeholder constants with this build's
     actual version (`_read_repo_version()` + `format_boot_version()`,
-    above) and target robot name. Same mechanism as
-    `_inject_radio_channel()`: a scratch-copy-only text substitution:
-    the repo's own checked-in `test/test.ts` keeps its placeholder
-    values, since `test.ts` cannot read `pyproject.toml` itself."""
+    above) and target robot name. Same scratch-copy-only text
+    substitution pattern as `_inject_profile()`, above: the repo's own
+    checked-in `test/test.ts` keeps its placeholder values, since
+    `test.ts` cannot read `pyproject.toml` itself."""
     version = format_boot_version(_read_repo_version())
     path = os.path.join(deploy_dir, 'test', 'test.ts')
     text = open(path).read()
@@ -939,12 +1092,18 @@ def main():
     ap.add_argument('--flash', action='store_true')
     ap.add_argument('--robot', default=DEFAULT_ROBOT,
                      help="target robot name -- selects the flash "
-                          "target, the radio channel, and the wire ID "
-                          "profile compiled into the hex (channel read "
-                          "from radio-robot-lib's "
-                          "config/robots/<robot>.json; profile is that "
-                          "config's own filename stem; both substituted "
-                          "into the scratch copy before build)")
+                          "target, the wire ID profile, and the boot "
+                          "banner text compiled into the hex (profile "
+                          "is radio-robot-lib's "
+                          "config/robots/<robot>.json filename stem, "
+                          "substituted into the scratch copy before "
+                          "build). Verified against the attached "
+                          "board's own silicon name before anything is "
+                          "built or flashed (the silicon gate) -- the "
+                          "hex itself no longer carries a radio "
+                          "channel at all: the board derives its own "
+                          "channel/group from its name at boot (see "
+                          "module docstring)")
     ap.add_argument('--testrig', action='store_true',
                      help="build/type-check test/testrig.ts alone, in "
                           "its own scratch copy -- never combined with "
@@ -959,9 +1118,10 @@ def main():
             print(f'  {f}')
         build_testrig()
         return
+    _verify_robot_silicon(a.robot, require=a.flash)
+    _print_derived_radio_address(a.robot)
     for f in sync():
         print(f'  {f}')
-    _inject_radio_channel(DEPLOY, a.robot)
     _inject_profile(DEPLOY, a.robot)
     for _name, _value in _inject_geometry(DEPLOY, a.robot):
         print(f'make_deploy: geometry bake {_name} = {_value:g}')
