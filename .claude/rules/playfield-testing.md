@@ -94,6 +94,33 @@ USB reaches only the bench stand; anything needing real motion runs
 untethered over the zavaz relay (channel 4 — never retune getez's
 channel 3).
 
+### Do NOT use the relay's `!N <name>` right now — use `!CG`
+
+**Live hazard, opened 2026-08-29, closes when the fleet is reflashed.**
+`!N` derives the link from the board's name. The relay has migrated to
+that derivation (`microbit-radio-relay` f8b1224/362d7f1) and **no robot
+has** — the firmware change is `pxt-nezha-diffdrive` sprint 025 ticket
+002, unstarted. So the two ends now disagree on every board:
+
+| `!N` tunes the relay to | the robot is actually on |
+|---|---|
+| vevov 37/43 | 4/10 |
+| tovez 55/108 | 3/10 |
+| getez 55/71 | 3/10 |
+
+VERIFIED 2026-08-29: `origin/master:src/comms/radio_transport.h:213`
+reads `kChannel = 4` (per-robot injection by `tools/make_deploy.py`
+`_K_CHANNEL_RE`), against the migrated relay's own
+`mbrelay.naming.name_to_radio()`.
+
+The symptom is a **silent robot** — the failure this whole file warns
+is the most expensive to misdiagnose. Nothing errors; the relay is
+happily tuned somewhere the robot is not. Use `!CG <channel> <group>`
+with explicit numbers until the fleet is reflashed and sprint 025
+merges. Note the hazard REVERSED on 2026-08-29: before the relay
+migrated, `!N` computed a legacy hash nobody used, which was harmless;
+a working `!N` against unmigrated robots is worse than a broken one.
+
 ## v6 wire commands MUST carry a sequence id
 
 The v6 handler compares each line's `#<id>` against its own
