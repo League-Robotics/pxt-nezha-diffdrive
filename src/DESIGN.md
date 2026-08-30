@@ -351,7 +351,13 @@ without a live OTOS (§7/§9), so this handler always dispatches to
 `MotionEngine::goToW()`. `mradToRad()`
 here is the **single** place wire milliradians become radians.
 GET/SET map snake_case wire names 1:1 onto the `ConfigField` ordinals
-(`kFields` table) — 15 through sprint 006, **18 as of sprint 007**:
+(`kFields` table) — 15 through sprint 006, **18 as of sprint 007**,
+**19 as of 2026-08-29** (`pivot_overrun`, ordinal 18, backed by
+`MotionEngine::setPivotOverrunMm()`/`pivotOverrunMm()`: the per-wheel
+end-of-move overrun, mm, subtracted from every rotation target in
+`startSegment()` — a measured CONSTANT +2° per MOVE_X pivot on vevov,
+3° and 90° alike, so a distance not a scale; default 0, baked per
+robot via `firmware_bake.pivot_overrun_mm`):
 `default_cruise` (ordinal 15, backed by the new `shims.cpp` Rig field
 above, not `kernel.config()`), `rotational_slip` (ordinal 16, backed
 by `MotionEngine::setRotationalSlip()`/`rotationalSlip()`, §3), and

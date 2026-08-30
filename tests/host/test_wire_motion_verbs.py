@@ -1611,6 +1611,7 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "default_cruise": 150.0,
     "rotational_slip": 0.952,
     "stall_clear": 0.0,
+    "pivot_overrun": 2.2,   # vevov's measured value (motion_engine.h)
 }
 
 
@@ -2478,6 +2479,7 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"speed_floor", b"pos_err_max", b"stall_speed", b"stall_demand",
         b"stall_window", b"lambda_enabled", b"crawl_pulse",
         b"default_cruise", b"rotational_slip", b"stall_clear",
+        b"pivot_overrun",   # 2026-08-29 (OOP): ordinal 18, appended
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

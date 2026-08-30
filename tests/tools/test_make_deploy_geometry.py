@@ -1,8 +1,8 @@
 """tests/tools/test_make_deploy_geometry.py -- pins
 `tools/make_deploy.py`'s OPT-IN per-robot geometry bake
 (`_inject_geometry()`), which substitutes `motion_engine.h`'s
-`travelCalib_` / `trackWidth_` / `rotationalSlip_` in the per-robot
-scratch copy from the robot's own
+`travelCalib_` / `trackWidth_` / `rotationalSlip_` / `pivotOverrunMm_`
+in the per-robot scratch copy from the robot's own
 `geometry.firmware_bake` block.
 
 The opt-in posture is the whole point and the reason these tests are
@@ -41,6 +41,7 @@ _HEADER = """\
   float travelCalib_ = 0.7878f;  // [mm/deg] wheel travel per shaft degree
   float trackWidth_ = 114.2f;
   float rotationalSlip_ = 0.952f;
+  float pivotOverrunMm_ = 0.0f;
 """
 
 
@@ -69,17 +70,21 @@ def test_bakes_every_declared_constant(tmp_path, monkeypatch):
                             "travel_calib": 0.7122,
                             "trackwidth": 128.0,
                             "rotational_slip": 0.995,
+                            "pivot_overrun_mm": 2.2,
                         }})))
     applied = make_deploy._inject_geometry(str(deploy), "vevov")
     text = _read(deploy)
     assert "float travelCalib_ = 0.7122f;" in text
+    # 2026-08-29: the per-wheel end-of-move overrun (vevov's measured
+    # 2.2 mm) rides the same bake; the fleet default stays 0.0f.
+    assert "float pivotOverrunMm_ = 2.2f;" in text
     # 128.0 must render as `128.0f`, never `128f`: an integer literal
     # cannot carry an `f` suffix and the firmware would not compile.
     assert "float trackWidth_ = 128.0f;" in text
     assert "128f;" not in text
     assert "float rotationalSlip_ = 0.995f;" in text
     assert dict(applied) == {"travel_calib": 0.7122, "trackwidth": 128.0,
-                             "rotational_slip": 0.995}
+                             "rotational_slip": 0.995, "pivot_overrun_mm": 2.2}
 
 
 def test_no_bake_block_leaves_the_file_untouched(tmp_path, monkeypatch):

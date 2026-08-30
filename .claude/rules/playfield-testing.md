@@ -94,6 +94,49 @@ USB reaches only the bench stand; anything needing real motion runs
 untethered over the zavaz relay (channel 4 — never retune getez's
 channel 3).
 
+### The fleet is MIXED on `!N` — one board migrated, four have not
+
+**Live hazard, opened 2026-08-29, updated 2026-08-30. Closes when ALL
+five robots are reflashed.** `!N <name>` derives the radio link from the
+board's name. The relay migrated to that derivation
+(`microbit-radio-relay` f8b1224/362d7f1); the robots are migrating one
+at a time, so **`!N` is correct for some boards and silently wrong for
+others** — a worse state to reason about than uniformly-unmigrated,
+because it works once and then does not.
+
+| board | `!N` tunes relay to | robot is on | `!N` |
+|---|---|---|---|
+| **gopiv** | 47 / 60 | **47 / 60** | **works** |
+| vevov | 37 / 43 | 4 / 10 | silent |
+| tovez | 55 / 108 | 3 / 10 | silent |
+| zeguz | 25 / 19 | 3 / 10 | silent |
+| zetuv | 27 / 21 | 3 / 10 | silent |
+
+**Use `!CG <channel> <group>` with explicit numbers on everything except
+gopiv.** For gopiv either works.
+
+MEASURED gopiv 2026-08-30, `captures/radio-addressing-20260830.md`
+(sprint 025 ticket 005, run on LAN host hodr): `HELLO` returns
+`device NEZHA2 robot gopiv 2175407711`, and 2175407711 mod 3125 = 1461 =
+base5("gopiv") -> 47/60. After the remote flash, `!CG 47 60` gave
+`pong 51487, 52775, 54063, 55351` (4/4) and the NEGATIVE control
+`!CG 5 10` got no reply to `HELLO`, four `PING`s or `ID` — so the board
+genuinely moved rather than answering on both addresses. The four
+unmigrated boards were verified against
+`origin/master:src/comms/radio_transport.h:213` (`kChannel = 4`,
+per-robot injection by `tools/make_deploy.py` `_K_CHANNEL_RE`) and the
+relay's own `mbrelay.naming.name_to_radio()`.
+
+The symptom on an unmigrated board is a **silent robot** — the failure
+this whole file exists to stop you misdiagnosing. Nothing errors; the
+relay is happily tuned somewhere the robot is not.
+
+Note the hazard has reversed once already. Before the relay migrated,
+`!N` computed a legacy hash nobody used, which was harmless. A working
+`!N` pointed at unmigrated robots is worse than a broken one, and a
+PARTIALLY migrated fleet is worse still. Delete this section only when
+every board answers `!N`, not when the last sprint closes.
+
 ## v6 wire commands MUST carry a sequence id
 
 The v6 handler compares each line's `#<id>` against its own
