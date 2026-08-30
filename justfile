@@ -31,12 +31,12 @@ blocks-add PROJECT *ARGS:
 blocks-stop *ARGS:
     python3 tools/blocks_env.py --stop {{ARGS}}
 
-# Show what docs/blocks-toolbox.csv would do to the block annotations.
+# Show what reports/blocks-toolbox.csv would do to the block annotations.
 blocks-plan *ARGS:
     python3 tools/blocks_toolbox.py --check {{ARGS}}
 
 # The CSV is the source of truth for toolbox layout: edit it and re-run
 # this, rather than hand-tuning weights in the source.
-# Apply docs/blocks-toolbox.csv to the block annotations.
+# Apply reports/blocks-toolbox.csv to the block annotations.
 blocks-apply *ARGS:
     python3 tools/blocks_toolbox.py {{ARGS}}

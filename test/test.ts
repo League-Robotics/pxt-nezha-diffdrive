@@ -31,6 +31,24 @@
 const BOOT_VERSION = "00.00"
 const BOOT_ROBOT = "unknown"
 
+// The v6 radio link is OPT-IN as of 2026-08-29 (see radioEnabled_ in
+// src/comms/protocol.h): the extension no longer brings the radio up on
+// its own, so that a student's program can use MakeCode's own radio
+// blocks for a joystick.
+//
+// This program is the opposite case and MUST turn it on. Everything in
+// tools/ drives the robot over the zavaz relay, and an untethered run
+// reports its results back by radio -- USB only reaches the bench stand,
+// where the wheels are off the ground. Without this call every one of
+// those tools goes silent with no error, which looks exactly like a dead
+// robot (.claude/rules/playfield-testing.md has the checklist for that
+// symptom; this would be a new way to trigger it).
+//
+// No channel argument on purpose: enableRadioLink() uses the per-robot
+// channel make_deploy.py injected into kChannel, so `--robot tovez`
+// still lands on channel 3 rather than vevov's 4.
+diffDrive.enableRadioLink()
+
 let touring = false
 // Set by RUN:abort (below); tickToCompletion() -- the single choke point
 // every tickedMove()/tickedGoTo() leg goes through -- checks this and

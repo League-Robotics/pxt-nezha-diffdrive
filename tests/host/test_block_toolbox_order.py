@@ -37,12 +37,22 @@ group, at a weight (170) below `onRun` (190) and `onRunCommand` (180)
 -- the toolbox is now 40 visible blocks total (39 + this one), matching
 `radio-group-setup-block.md`'s approved shape.
 
+**2026-08-29, second update: opt-in radio.** `setRadioGroup` is gone --
+it exposed the wrong knob (the fleet group is always 10; the CHANNEL is
+what differs per robot). `setupRadio` replaces it in the same Setup
+slot, and it is what turns the v6 radio link on at all: the extension no
+longer claims the radio at boot, so MakeCode's own radio blocks work by
+default. `sendString`/`sendValue` are new student console output in a
+new **Debug** group under Extra -- 44 visible blocks. `enableRadioLink`
+is deliberately absent from the baseline below: it is `blockHidden`, so
+the scan does not see it, same as `runArg`.
+
 **2026-08-29 update: the CSV is now the source of truth.** The
 stakeholder reorganised the toolbox into four CATEGORIES (DiffDrive
 top-level plus Pose/Setup/Extra subcategories) over ten groups, and
 added `startDrive`/`whileDriving` so Drive mirrors Move's
 drive/start/while triple -- 42 visible blocks. Layout now lives in
-`docs/blocks-toolbox.csv` and is applied to the `//%` annotations by
+`reports/blocks-toolbox.csv` and is applied to the `//%` annotations by
 `tools/blocks_toolbox.py` (`just blocks-apply`), which assigns every
 weight from final display position. Edit the CSV and re-apply; do not
 hand-tune weights.
@@ -114,11 +124,12 @@ _BASELINE_GROUP_ORDER = {
         "worldHeading", "worldX", "worldY",
     ],
     "Setup": [
-        "setTrackWidth", "setWheelCalibration", "setRadioGroup",
+        "setTrackWidth", "setWheelCalibration", "setupRadio",
         "setDefaultYawRate", "setConfigValue", "setArrivalTolerance",
         "setDefaultSpeed",
     ],
     "Remote": ["onRun", "onRunCommand"],
+    "Debug": ["sendString", "sendValue"],
     "ENUM": [
         "ConfigField.MaxDuty", "ConfigField.FullDutyVelocity",
         "ConfigField.Kp", "ConfigField.Ki", "ConfigField.IMax",
@@ -221,7 +232,7 @@ def _rendered_group_order(entries):
 
 def test_toolbox_group_order_matches_approved_layout():
     """Every group's rendered (weight-sorted) order must match the
-    approved layout exactly (2026-08-29: docs/blocks-toolbox.csv). A mismatch means
+    approved layout exactly (2026-08-29: reports/blocks-toolbox.csv). A mismatch means
     either a new file-layout change re-broke an unweighted group's
     tie-break order, or an explicit weight=/group= was added/changed/
     removed without updating this guard -- either way, a
@@ -237,7 +248,7 @@ def test_toolbox_group_order_matches_approved_layout():
 
     assert not mismatches, (
         "toolbox within-group order drifted from the approved layout "
-        f"(docs/blocks-toolbox.csv): {mismatches}"
+        f"(reports/blocks-toolbox.csv): {mismatches}"
     )
 
 
@@ -259,7 +270,7 @@ def test_baseline_covers_every_visible_group():
 # from _BASELINE_GROUP_ORDER above, which pins WITHIN-group order.
 _EXPECTED_NAMESPACE_GROUPS = [
     "Move", "Drive", "Wheels", "GoTo", "Moving?", "Stop", "Pose",
-    "World", "Setup", "Remote",
+    "World", "Setup", "Remote", "Debug",
 ]
 _NAMESPACE_GROUPS_RE = re.compile(r"""//%\s*groups=(['"])(.*?)\1""")
 

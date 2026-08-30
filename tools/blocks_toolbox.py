@@ -1,4 +1,4 @@
-"""Apply docs/blocks-toolbox.csv to the extension's block annotations.
+"""Apply reports/blocks-toolbox.csv to the extension's block annotations.
 
 `just blocks-apply` runs this; `just blocks-plan` shows what it would do
 without writing. The CSV is the source of truth for toolbox layout --
@@ -53,7 +53,7 @@ import re
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-CSV_PATH = REPO_ROOT / "docs" / "blocks-toolbox.csv"
+CSV_PATH = REPO_ROOT / "reports" / "blocks-toolbox.csv"
 SRC = REPO_ROOT / "src" / "blocks"
 NS_FILE = SRC / "motion.ts"
 WEIGHT_STEP = 10

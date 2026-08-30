@@ -30,3 +30,4 @@ __pycache__/
 .simstate.json
 _history
 projects/
+captures/
