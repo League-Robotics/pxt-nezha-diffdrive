@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: 'robotlink.py and wire_acceptance.py: derive relay tuning'
-status: open
+status: done
 use-cases: []
 depends-on:
 - '001'
@@ -47,36 +47,36 @@ table).
 
 ### `tools/robotlink.py`
 
-- [ ] `ZAVAZ_CHANNEL` and `ZAVAZ_GROUP` module-level constants are removed.
-- [ ] `open_link()` gains a `robot=` parameter (default `'vevov'`, so the
+- [x] `ZAVAZ_CHANNEL` and `ZAVAZ_GROUP` module-level constants are removed.
+- [x] `open_link()` gains a `robot=` parameter (default `'vevov'`, so the
       ~10 existing call sites that pass `radio=True` with no robot name —
       `pivot_truth.py`, `tour_closedloop.py`, `tour_square.py`,
       `tour_watch.py`, `tour_run.py`, `tour_practice.py`, `truth_check.py`,
       `turn_sweep.py`, and the `radio=a.radio`-style calls in
       `arc_capture.py`/`otos_levercal.py`/`rotation_check.py`/
       `tour_capture.py` — keep working unchanged and still mean vevov).
-- [ ] The `!CG` line at ~323 derives `(channel, group)` from `robot` via
+- [x] The `!CG` line at ~323 derives `(channel, group)` from `robot` via
       `tools/radio_address.py`'s `name_to_address()` instead of the
       removed constants.
-- [ ] The module docstring's `# zavaz relay, channel 4` comment and the
+- [x] The module docstring's `# zavaz relay, channel 4` comment and the
       top comment above `ZAVAZ_CHANNEL`/`ZAVAZ_GROUP` (`# zavaz is vevov's
       relay (channel 4). getez lives on channel 3 and belongs to another
       robot -- never retune it here.`) are updated to describe the derived
       value instead of the hardcoded one — keep the getez warning, it's a
       real playfield-safety rule (`.claude/rules/playfield-testing.md`),
       not a stale artifact of the old scheme.
-- [ ] `tests/tools/test_robotlink.py`'s assertion at ~line 183
+- [x] `tests/tools/test_robotlink.py`'s assertion at ~line 183
       (`f'!CG {robotlink.ZAVAZ_CHANNEL} {robotlink.ZAVAZ_GROUP}\n'`) is
       updated to assert against the derived pair for `'vevov'` instead of
       the removed constants (`37`/`43` per `docs/radio-address-vectors.json`).
 
 ### `tools/wire_acceptance.py`
 
-- [ ] `RadioLink.__init__` gains an explicit `group=10` parameter (default
+- [x] `RadioLink.__init__` gains an explicit `group=10` parameter (default
       preserves today's behavior exactly for any existing raw-channel
       caller), and the `!CG` line at ~158 uses it instead of the literal
       `10`.
-- [ ] `main()`'s CLI gains a robot-name-based way to reach `RadioLink` with
+- [x] `main()`'s CLI gains a robot-name-based way to reach `RadioLink` with
       a derived pair — add `--robot NAME` to the existing
       `--usb`/`--gauti`/`--radio` mutually-exclusive group (`g` at ~line
       399); when given, resolve `(channel, group)` via
@@ -84,7 +84,7 @@ table).
       `RadioLink(channel, group=group)`. Do not remove or repurpose
       `--radio CH` — it remains the correct tool for a bare channel number
       (manual dialing, un-migrated boards, group 10 by convention).
-- [ ] `where` (the human-readable string printed alongside `link`, ~line
+- [x] `where` (the human-readable string printed alongside `link`, ~line
       416) reflects which path was used, e.g. `f'radio {a.robot}
       (ch{channel}/grp{group})'` for the new path, unchanged
       `f'radio ch{a.radio}'` for the existing one.

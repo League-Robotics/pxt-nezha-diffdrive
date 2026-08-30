@@ -5,7 +5,10 @@ Good cases, bad cases, and whether the robot actually MOVES.
 
     uv run python tools/wire_acceptance.py --usb /dev/cu.usbmodemXXXX
     uv run python tools/wire_acceptance.py --gauti            # ssh ros@gauti
-    uv run python tools/wire_acceptance.py --radio 4          # relay pool
+    uv run python tools/wire_acceptance.py --radio 4          # relay pool,
+                                                                # manual channel, group 10
+    uv run python tools/wire_acceptance.py --robot vevov      # relay pool,
+                                                                # derived (channel, group)
 
 Why this exists: the unit suite under tests/host/ drives WireHandler
 through a ctypes shim, so it proves the handler's logic and nothing
@@ -35,6 +38,8 @@ import re
 import subprocess
 import sys
 import time
+
+import radio_address
 
 # --------------------------------------------------------------- results
 PASS, FAIL, BLOCKED = 'PASS', 'FAIL', 'BLOCKED'
@@ -147,15 +152,35 @@ for raw in sys.stdin:
 class RadioLink:
     """Through the torture relay pool. NOTE: measured 66-83% per-line
     delivery, so absence of a reply is NOT evidence of absence of the
-    behaviour. Every negative assertion is retried; see `missing()`."""
+    behaviour. Every negative assertion is retried; see `missing()`.
 
-    def __init__(self, channel, host='192.168.1.12', port=8760):
+    `group` defaults to 10 -- unchanged behavior for any caller that
+    only has a bare channel number and no robot identity (this class's
+    original contract, and still what `--radio CH` uses: manual
+    dialing, un-migrated boards, group 10 by convention -- see
+    `docs/radio-addressing.md`'s reserved-values table). A caller that
+    DOES know the robot's name should derive both values from
+    `radio_address.name_to_address(name)` and pass the real group
+    explicitly -- see `main()`'s `--robot` path below. Group is NOT
+    derivable from channel alone: 125 names share each channel, with
+    different groups, so there is no way to invert a bare channel back
+    to a specific robot's group.
+    """
+
+    def __init__(self, channel, group=10, host='192.168.1.12', port=8760):
         import socket
         self.s = socket.create_connection((host, port), timeout=15)
         self.buf = b''
         time.sleep(1.0)
         self.read(1.5)
-        for c in (f'!CG {channel} 10', '!GO'):
+        # CRITICAL: `!CG <channel> <group>`, NEVER `!N <name>`. Even
+        # though microbit-radio-relay's `!N` now computes this same
+        # derived pair, NO ROBOT HAS MIGRATED YET (sprint 025 ticket
+        # 005, not started) -- `!N` would tune the relay to a derived
+        # pair while the robot is still listening on its legacy one,
+        # giving a silent robot. See `tools/robotlink.py`'s
+        # `open_link()` for the full reasoning; same rule here.
+        for c in (f'!CG {channel} {group}', '!GO'):
             self.s.sendall((c + '\n').encode())
             time.sleep(0.4)
             self.read(0.8)
@@ -401,7 +426,12 @@ def main():
     g.add_argument('--gauti', action='store_true',
                    help="vevov's port, over ssh ros@gauti")
     g.add_argument('--radio', metavar='CH', type=int,
-                   help='torture relay pool on this channel')
+                   help='torture relay pool on this channel (group 10, '
+                        'manual dialing / un-migrated boards)')
+    g.add_argument('--robot', metavar='NAME',
+                   help='torture relay pool, tuned to this robot\'s '
+                        'DERIVED (channel, group) pair -- '
+                        'docs/radio-addressing.md')
     ap.add_argument('--distance', type=int, default=200,
                     help='motion test distance per wheel in MM (default 200)')
     ap.add_argument('--no-motion', action='store_true',
@@ -412,6 +442,15 @@ def main():
         link, where = UsbLink(a.usb), f'USB {a.usb}'
     elif a.gauti:
         link, where = GautiLink(), 'gauti -> vevov USB'
+    elif a.robot:
+        # Derive BOTH values from the robot's name -- group is not a
+        # function of channel alone (125 names share each channel with
+        # different groups), so this is the only path that can reach a
+        # SPECIFIC robot's real group. `--radio CH` below is unchanged
+        # and remains the correct tool for a bare channel number.
+        channel, group = radio_address.name_to_address(a.robot)
+        link = RadioLink(channel, group=group)
+        where = f'radio {a.robot} (ch{channel}/grp{group})'
     else:
         link, where = RadioLink(a.radio), f'radio ch{a.radio}'
 

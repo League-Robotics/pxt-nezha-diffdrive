@@ -58,6 +58,7 @@ _TOOLS_DIR = _REPO_ROOT / 'tools'
 if str(_TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(_TOOLS_DIR))
 
+import radio_address  # noqa: E402  (path must be set up first)
 import robotlink  # noqa: E402  (path must be set up first)
 
 
@@ -177,15 +178,52 @@ def test_open_link_radio_sends_hello_after_relay_setup_before_seq_verb(
     # !P/!GO) are relay commands, not robot wire commands, and must run
     # BEFORE HELLO -- which itself must precede the first sequenced
     # (#-suffixed) verb.
+    # 37/43 is vevov's DERIVED pair (radio_address.name_to_address
+    # ('vevov'), docs/radio-address-vectors.json) -- open_link()'s
+    # default robot='vevov' with no robot= argument passed here, same
+    # as the ~10 existing no-robot-argument call sites.
     assert port.writes == [
         b'!ECHO OFF\n',
         b'!MODE RAW250\n',
-        f'!CG {robotlink.ZAVAZ_CHANNEL} {robotlink.ZAVAZ_GROUP}\n'.encode(),
+        b'!CG 37 43\n',
         b'!P 7\n',
         b'!GO\n',
         b'HELLO\n',
         b'GET #1\n',
     ]
+
+
+def test_open_link_default_robot_is_vevov(monkeypatch):
+    # Sprint 025 ticket 004: open_link() gained a robot= parameter,
+    # default 'vevov'. The ~10 existing call sites all pass radio=True
+    # with no robot name at all, so the default must derive the exact
+    # same pair radio_address.name_to_address('vevov') does -- computed
+    # here (never hardcoded a second time) so this test tracks the
+    # module instead of duplicating its output.
+    channel, group = radio_address.name_to_address('vevov')
+    port = FakePort([BANNER])
+    _patch_common(monkeypatch, port)
+
+    robotlink.open_link('/dev/fake-zavaz', radio=True)
+
+    assert f'!CG {channel} {group}\n'.encode() in port.writes
+
+
+def test_open_link_robot_parameter_derives_that_robots_pair(monkeypatch):
+    # Threading robot= through to a DIFFERENT board proves the pair is
+    # actually derived from the argument, not just hardcoded to
+    # vevov's under a new name. zetuv is a real fleet robot
+    # (docs/radio-addressing.md's fleet table) whose derived pair
+    # (27/21) differs from vevov's (37/43).
+    channel, group = radio_address.name_to_address('zetuv')
+    assert (channel, group) != radio_address.name_to_address('vevov')
+    port = FakePort([BANNER])
+    _patch_common(monkeypatch, port)
+
+    robotlink.open_link('/dev/fake-zavaz', radio=True, robot='zetuv')
+
+    assert f'!CG {channel} {group}\n'.encode() in port.writes
+    assert b'!CG 37 43\n' not in port.writes
 
 
 @pytest.mark.parametrize('radio', [False, True])

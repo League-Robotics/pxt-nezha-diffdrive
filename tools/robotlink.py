@@ -8,7 +8,7 @@ has to run untethered over the zavaz relay.
 Both carriers deliver the same ASCII lines, so every tool here takes
 `--radio` and otherwise behaves identically.
 
-  link = open_link(port, radio=True)   # zavaz relay, channel 4
+  link = open_link(port, radio=True)   # zavaz relay, tuned to vevov
   link.send('RUN:probe')
   for line in link.lines(timeout=60): ...
 """
@@ -16,10 +16,14 @@ import time
 
 import serial
 
-# zavaz is vevov's relay (channel 4). getez lives on channel 3 and
-# belongs to another robot -- never retune it here.
-ZAVAZ_CHANNEL = 4
-ZAVAZ_GROUP = 10
+import radio_address
+
+# zavaz is vevov's relay. The (channel, group) pair it tunes to is
+# DERIVED from the robot's five-letter name via
+# tools/radio_address.py's name_to_address() (docs/radio-addressing.md,
+# sprint 025) -- there is no longer a hardcoded constant here. getez
+# lives on channel 3 and belongs to another robot -- never retune it
+# here.
 
 # DAPLink ports are hub-position-based: they change on every replug, so
 # a hard-coded /dev/cu.usbmodem path goes stale silently and the tool
@@ -303,8 +307,18 @@ class Link:
         self.p.close()
 
 
-def open_link(port=None, radio=False):
+def open_link(port=None, radio=False, robot='vevov'):
     """Open a link. radio=True does the full zavaz data-plane handshake.
+
+    `robot` names which board zavaz should tune to -- it is resolved to
+    a (channel, group) pair via `radio_address.name_to_address()`
+    (docs/radio-addressing.md) and sent as an explicit `!CG` line (see
+    the CRITICAL note below `!CG {channel} {group}` for why, never
+    `!N {robot}`). Defaults to `'vevov'` because this module is
+    vevov-specific throughout (module docstring) and ~10 existing
+    call sites pass `radio=True` with no robot name at all, all of
+    them implicitly meaning vevov -- changing that default would
+    silently retune every one of them.
 
     The relay drops back to its control plane whenever its serial port
     closes, so the handshake is redone on every open -- never cached.
@@ -316,11 +330,24 @@ def open_link(port=None, radio=False):
                 'zavaz relay not found by `mbdeploy probe` -- is it plugged '
                 'in? (never hard-code a port; it moves on replug. last known: '
                 + ZAVAZ_PORT_FALLBACK + ')')
+        channel, group = radio_address.name_to_address(robot)
         p = serial.Serial(path, 115200, timeout=0.3)
         time.sleep(1.8)          # DTR reset -> clean control plane
         p.reset_input_buffer()
+        # CRITICAL: send `!CG <channel> <group>`, NEVER `!N <robot>`.
+        # microbit-radio-relay HAS migrated (commits f8b1224, 362d7f1)
+        # and its `!N` now computes this same derived pair -- but NO
+        # ROBOT HAS MIGRATED YET (that is sprint 025 ticket 005, not
+        # started). `!N vevov` today would tune the relay to 37/43
+        # while vevov's firmware is still listening on the legacy
+        # channel 4 / group 10, giving a silent robot -- exactly the
+        # expensive-to-misdiagnose symptom
+        # `.claude/rules/playfield-testing.md` documents ("The robot is
+        # OFF -- check this first"). `!CG` takes explicit numbers and
+        # works regardless of which side has migrated. Switch to `!N`
+        # only after ticket 005 reflashes the fleet.
         for cmd in (b'!ECHO OFF', b'!MODE RAW250',
-                    f'!CG {ZAVAZ_CHANNEL} {ZAVAZ_GROUP}'.encode(), b'!P 7'):
+                    f'!CG {channel} {group}'.encode(), b'!P 7'):
             p.write(cmd + b'\n')
             time.sleep(0.3)
             p.reset_input_buffer()
