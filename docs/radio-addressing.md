@@ -166,6 +166,28 @@ but as a bisector: D2 failing while D1 passes localises the fault to
 Found by radio-robot-lib, who demonstrated it by deliberately breaking both
 functions and regenerating D1 rather than by arguing from the code.
 
+**A diagnostic constant must name its exact fault.** `conformance_sha256_broken_decode`
+publishes `5acfd688…` for **exactly one** fault: `decode()` reads `name[0]` as
+the least significant digit while everything else is correct. An earlier
+revision published a constant for an *unspecified double* fault, which nobody
+could regenerate — a diagnostic that cannot be reproduced is dead precisely
+where it is meant to fire.
+
+### Dump protocol
+
+An implementation proves conformance by emitting the canonical form on stdout;
+a checker hashes it. That is how C++ and static TypeScript conform without
+sha256 in either.
+
+| version | columns | digest |
+|---|---|---|
+| v1 | `name,channel,group` | D1 — does not exercise the inverse |
+| **v2** | `name,channel,group,decode(name),reverse(channel,group)` | **D2 — preferred** |
+
+Count columns to tell them apart. v1 remains valid; v2 is preferred because it
+puts the inverse into the hashed artifact rather than trusting each dumper's
+own internal self-check.
+
 ### A non-CVCVC name has no address
 
 A string outside `^[zvgpt][uoiea][zvgpt][uoiea][zvgpt]$` after normalize
