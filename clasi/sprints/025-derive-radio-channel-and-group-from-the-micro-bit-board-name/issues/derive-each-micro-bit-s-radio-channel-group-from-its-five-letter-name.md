@@ -1,5 +1,12 @@
 ---
-status: pending
+status: in-progress
+sprint: '025'
+tickets:
+- 025-001
+- 025-002
+- 025-003
+- 025-004
+- 025-005
 ---
 
 # Derive each micro:bit's radio channel and group from its five-letter name
