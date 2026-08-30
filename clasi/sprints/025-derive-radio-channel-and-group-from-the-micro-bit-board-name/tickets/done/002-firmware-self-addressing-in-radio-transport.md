@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Firmware self-addressing in radio_transport
-status: open
+status: done
 use-cases: []
 depends-on:
 - '001'
@@ -12,6 +12,40 @@ completes_issue: true
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
 # Firmware self-addressing in radio_transport
+
+## Resolution notes (implementation time)
+
+Both open items below were resolved by the team-lead before this
+ticket was worked, and are recorded here for the implementer's
+context:
+
+- **BLOCKER**: the uncommitted main-checkout `setChannel()` edits
+  belonged to a session confirmed dead (last active well before this
+  ticket started); they are not present in this worktree's copy of
+  `radio_transport.h`/`.cpp` and were not merged in. This ticket's
+  `channel_`/`setChannel()` acceptance criterion therefore follows its
+  own "has not landed" branch: `ensureRadioReady()` uses the derived
+  channel directly via `setFrequencyBand()`, with no new `channel_`
+  member or `setChannel()` method added.
+- **Landing order**: ticket 003 landed first (commit `5c8172a`),
+  deleting `_inject_radio_channel()`/`_K_CHANNEL_RE`/its
+  `make_deploy.py` regex dependency on the `kChannel` line before this
+  ticket deletes `kChannel` itself. Verified before editing: no
+  regex/reference to `kChannel` remains outside this file's own
+  historical doc-comment prose.
+- **D1 vs D2 host test**: this ticket's C++ implements only the
+  forward direction (`deriveRadioAddress()`: name -> channel/group).
+  There is no C++ `reverse()` (pair -> name/index) in scope here, so
+  the host test (`tests/host/test_radio_address_derivation.py`) emits
+  the v1/3-column canonical form and asserts it against
+  `$.properties.full_space_sha256` (D1), not D2 -- D2's canonical form
+  needs a `reverse()` this ticket does not implement. See that test
+  file's own module docstring for why D1 still fully exercises this
+  particular implementation's decode step (there is no separate,
+  independently-breakable decode() to miss): `deriveRadioAddress()`
+  has exactly one code path from `name` to `(channel, group)`, and
+  that path computes the base-5 index before deriving the pair from
+  it.
 
 ## BLOCKER TO CHECK FIRST
 
@@ -100,7 +134,7 @@ at all — see `src/DESIGN.md` §1's layering table).
 
 ## Acceptance Criteria
 
-- [ ] A new pure function (suggested: `bool deriveRadioAddress(const char*
+- [x] A new pure function (suggested: `bool deriveRadioAddress(const char*
       name, uint8_t* outChannel, uint8_t* outGroup)`) lives in
       `radio_transport.h`, alongside `radioRxLineFits()`, with no CODAL
       dependency (only `<cstddef>`/`<cstdint>`), no allocation, no heap use.
@@ -109,14 +143,14 @@ at all — see `src/DESIGN.md` §1's layering table).
       `^[zvgpt][uoiea][zvgpt][uoiea][zvgpt]$`, big-endian base-5 decode
       (`name[0]` most significant), `channel = 25 + 2*(n%25)`, `group = 1 +
       n/25`, `+1` if `group >= 10`.
-- [ ] On a name that fails validation (unrecognised letter, wrong length,
+- [x] On a name that fails validation (unrecognised letter, wrong length,
       etc.), the function returns `false` and writes the **legacy fallback
       pair (channel 4, group 10)** into `*outChannel`/`*outGroup` — never an
       arbitrary or zero-initialized value.
-- [ ] `ensureRadioReady()` calls `microbit_friendly_name()` and this new
+- [x] `ensureRadioReady()` calls `microbit_friendly_name()` and this new
       function to obtain the channel/group it brings the radio up on,
       instead of reading `kChannel` and the baked `group_ = 10` default.
-- [ ] The existing call order in `ensureRadioReady()` is preserved exactly:
+- [x] The existing call order in `ensureRadioReady()` is preserved exactly:
       `uBit.radio.enable()` -> `setFrequencyBand()` -> `setGroup()` ->
       `setTransmitPower()`. Do not reorder. The header comment immediately
       above `ensureRadioReady()`'s declaration (or a comment at the call
@@ -124,7 +158,7 @@ at all — see `src/DESIGN.md` §1's layering table).
       at `radio_transport.cpp:33-37` ("CODAL does not default to band 0 --
       it must be set explicitly, or a robot and the relay could sit on
       different frequencies and never hear each other").
-- [ ] `setGroup()`'s existing store-then-apply contract is preserved
+- [x] `setGroup()`'s existing store-then-apply contract is preserved
       (`radio_transport.h:102-127`): calling it always stores into
       `group_`, and re-applies immediately via `uBit.radio.setGroup()` if
       the radio is already up. In addition, `setGroup()` now sets a new
@@ -138,17 +172,17 @@ at all — see `src/DESIGN.md` §1's layering table).
       block (`clasi/issues/radio-group-setup-block.md`, sprint 021 ticket
       005) working unchanged: an explicit override always wins over the
       derived default.
-- [ ] `group_`'s hardcoded `= 10` initializer is removed (or reinterpreted
+- [x] `group_`'s hardcoded `= 10` initializer is removed (or reinterpreted
       as "unset" alongside `groupOverridden_ = false`) — a board that is
       never told a group no longer silently defaults to the legacy
       fleet-wide 10.
-- [ ] If `setChannel()` has landed (see BLOCKER above), the analogous
+- [x] If `setChannel()` has landed (see BLOCKER above), the analogous
       "default is derived, explicit override wins" contract applies to
       `channel_` too, for symmetry with `group_`/`groupOverridden_`. If it
       has not landed, this ticket does not need to add `setChannel()`
       itself — only `ensureRadioReady()`'s direct use of the derived
       channel via `setFrequencyBand()`.
-- [ ] No allocation, no heap, anywhere in the new code path — this runs at
+- [x] No allocation, no heap, anywhere in the new code path — this runs at
       radio bring-up on a microcontroller with no dynamic memory.
 
 ## Implementation Plan

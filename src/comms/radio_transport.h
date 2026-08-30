@@ -56,6 +56,114 @@ inline bool radioRxLineFits(size_t declaredLen, size_t bufferCapacity) {
   return declaredLen <= bufferCapacity;
 }
 
+// Decodes a five-letter micro:bit board name into the radio channel/
+// group pair it derives -- codebook and formulas live in this repo's
+// radio-addressing spec (docs/radio-addressing, normative) and are
+// ported here verbatim, not redesigned. `name` is
+// normalized first (ASCII whitespace trimmed, `A`-`Z` mapped to
+// `a`-`z`), then validated against
+// `^[zvgpt][uoiea][zvgpt][uoiea][zvgpt]$` -- consonants (`zvgpt`) at
+// positions 0/2/4, vowels (`uoiea`) at 1/3, each character's index in
+// its position's alphabet is that position's base-5 digit. The digits
+// are combined BIG-ENDIAN -- `name[0]` is the MOST significant digit,
+// `name[4]` the least:
+//
+//     n = 0
+//     for p in 0..4: n = n * 5 + indexInAlphabet(name[p])
+//
+// Getting this backwards is the documented trap: base-5 conversion
+// naturally emits the least-significant digit first, and a reversed
+// decoder still produces 3125 well-formed, regex-passing, distinct
+// names -- just in the wrong order, with no error to see (the spec's
+// own "Endianness, and why the obvious test misses it" section).
+// `channel = 25 + 2*(n % 25)` (25..73, always odd,
+// inclusive of 25) and `group = 1 + n/25`, incremented once more if
+// that lands on 10 -- the gap microbit-radio-relay's `!C` button space
+// reserves (same doc, "Why those five values are reserved").
+//
+// On any validation failure (null `name`, wrong length after
+// trimming, a character outside the codebook) returns false and
+// writes the LEGACY FALLBACK PAIR -- channel 4, group 10, the fixed
+// values this file used before this function existed -- into
+// *outChannel/*outGroup. Never an arbitrary or zero-initialized
+// value: a caller that ignores the return value still brings the
+// radio up on a sane, previously-shipped pair.
+//
+// Pure, header-only, no CODAL dependency (only <cstddef>/<cstdint>),
+// no allocation, no heap -- same pattern radioRxLineFits() establishes
+// just above, and host-testable the same way: #include this header
+// directly, zero link against radio_transport.cpp (which requires
+// pxt.h and cannot be host-compiled at all).
+inline bool deriveRadioAddress(const char* name, uint8_t* outChannel,
+                               uint8_t* outGroup) {
+  *outChannel = 4;
+  *outGroup = 10;
+  if (name == nullptr) return false;
+
+  auto isAsciiSpace = [](char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' ||
+           c == '\f';
+  };
+  auto toLower = [](char c) {
+    return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c;
+  };
+
+  size_t i = 0;
+  while (name[i] != '\0' && isAsciiSpace(name[i])) ++i;
+
+  char norm[5];
+  size_t len = 0;
+  while (name[i] != '\0' && !isAsciiSpace(name[i])) {
+    if (len < 5) norm[len] = toLower(name[i]);
+    ++len;
+    ++i;
+  }
+  if (len != 5) return false;  // too short or too long after trimming
+
+  while (name[i] != '\0' && isAsciiSpace(name[i])) ++i;
+  if (name[i] != '\0') return false;  // trailing non-whitespace: reject
+
+  static constexpr char kConsonants[5] = {'z', 'v', 'g', 'p', 't'};
+  static constexpr char kVowels[5] = {'u', 'o', 'i', 'e', 'a'};
+
+  int n = 0;
+  for (int p = 0; p < 5; ++p) {
+    const char* alphabet = (p % 2 == 0) ? kConsonants : kVowels;
+    int idx = -1;
+    for (int a = 0; a < 5; ++a) {
+      if (alphabet[a] == norm[p]) {
+        idx = a;
+        break;
+      }
+    }
+    if (idx < 0) return false;  // character outside the codebook
+    n = n * 5 + idx;             // big-endian: name[0] is most significant
+  }
+
+  const int channel = 25 + 2 * (n % 25);
+  int group = 1 + (n / 25);
+  if (group >= 10) group += 1;  // skip the gap: !C's button-space group
+
+  *outChannel = static_cast<uint8_t>(channel);
+  *outGroup = static_cast<uint8_t>(group);
+  return true;
+}
+
+// Chooses the radio group ensureRadioReady() actually brings the
+// radio up on: `storedGroup` if a prior explicit setGroup() call
+// happened (`groupOverridden` true -- e.g. the student-facing
+// `on start` block ran before radio bring-up), otherwise
+// `derivedGroup` (deriveRadioAddress()'s output). An explicit override
+// always wins over the derived default -- this is the mechanism that
+// keeps the student-facing "set radio group" block working unchanged.
+// Pure/header-only so this selection contract -- not just the
+// derivation above -- is host-testable, even though RadioTransport
+// itself is not (see this header's top comment).
+inline uint8_t selectRadioGroup(bool groupOverridden, uint8_t storedGroup,
+                                uint8_t derivedGroup) {
+  return groupOverridden ? storedGroup : derivedGroup;
+}
+
 class RadioTransport {
  public:
   // Fragments `data` (len bytes) into RadioRelay-framed radio packets
@@ -67,10 +175,12 @@ class RadioTransport {
   // own defensive truncation.
   //
   // Lazily enables and configures the radio (uBit.radio.enable(),
-  // group/channel/power -- see group_/kChannel/kTransmitPower below;
-  // group is student-settable via setGroup(), channel and power are
-  // fixed -- matching the reference driver's own begin()) on the FIRST
-  // call, never at construction and never via a separate begin() step:
+  // group/channel/power -- see group_/deriveRadioAddress()/
+  // kTransmitPower above/below; group is student-settable via
+  // setGroup(), channel is derived from the board's own name and power
+  // is fixed -- matching the reference driver's own begin()) on the
+  // FIRST call, never at construction and never via a separate begin()
+  // step:
   // uBit.radio.enable() has its own RAM/softdevice cost, so a
   // bench-only serial user who never calls sendLine() never pays it.
   //
@@ -101,15 +211,19 @@ class RadioTransport {
 
   // Set the radio group this robot listens/transmits on -- the ONE
   // write path the blocks layer gains into this class's configuration;
-  // channel and transmit power stay fixed constexpr values, below, and
-  // are NOT settable this way. Always stores `group` into group_
-  // unconditionally.
+  // transmit power stays a fixed constexpr value, below, and channel
+  // is derived (see deriveRadioAddress(), above) rather than settable
+  // at all. Always stores `group` into group_ unconditionally, and
+  // also sets groupOverridden_ = true -- an explicit setGroup() call,
+  // from any caller, permanently opts this board OUT of the
+  // derived-group default for the rest of its run.
   //
   // Supported path: called from `on start`, before the radio has come
   // up (radioReady_ == false). Nothing else happens here in that case --
-  // ensureRadioReady() reads group_ (not a hardcoded constant) the first
-  // time it actually runs, and brings the radio up already on the
-  // requested group. This is the student-facing path the block targets.
+  // ensureRadioReady() reads group_ (via selectRadioGroup(), above,
+  // now that groupOverridden_ is true) the first time it actually
+  // runs, and brings the radio up already on the requested group. This
+  // is the student-facing path the block targets.
   //
   // If the radio has ALREADY come up (radioReady_ == true, e.g. a prior
   // sendLine()/tryReceiveLine() already lazily called
@@ -180,6 +294,11 @@ class RadioTransport {
   static constexpr size_t kMaxPayloadBytes = 240;
 
  private:
+  // Brings the radio up on ITS OWN derived channel/group -- see
+  // deriveRadioAddress()/selectRadioGroup(), above, and this method's
+  // definition (radio_transport.cpp) for the exact call order, which
+  // is load-bearing (that file's own comment on the enable/band/group/
+  // power sequence explains why).
   void ensureRadioReady();
 
   // Fragments `payload[0..payloadLen)` -- which already carries its own
@@ -202,25 +321,42 @@ class RadioTransport {
 
   static constexpr int kFrameHeaderBytes = 3;  // [SEQ][FLAGS][LEN]
 
-  // Fixed radio convention matching the fleet's RADIOBRIDGE relay:
-  // channel 4 (vevov's fleet-assigned channel; the zavaz relay matches:
-  // !CG 4 10); transmit power 7 (matches the reference driver's own
-  // setTransmitPower(7)). Channel is injected per-robot at DEPLOY time
-  // into the SCRATCH COPY only (tools/make_deploy.py's
-  // _inject_radio_channel()) -- still no student-facing surface for it,
-  // and none is planned. Transmit power has no settable surface either,
-  // student-facing or per-robot.
-  static constexpr int kChannel = 4;
+  // Fixed transmit power: 7 (matches the reference driver's own
+  // setTransmitPower(7)). No settable surface, student-facing or
+  // per-robot. Channel is NOT a fixed constant here any more -- the
+  // old hand-maintained `static constexpr int kChannel = 4` (deploy-
+  // time text-substituted by tools/make_deploy.py, now retired) is
+  // gone. ensureRadioReady() (radio_transport.cpp) now derives the
+  // channel it brings the radio up on -- along with group_'s default,
+  // immediately below -- from the board's own microbit_friendly_name()
+  // via deriveRadioAddress(), above (this repo's radio-addressing
+  // spec, normative). There is still no student-facing surface to
+  // override the channel, and none is planned.
   static constexpr int kTransmitPower = 7;
 
   // Radio group this robot listens/transmits on -- MUTABLE, unlike
-  // kChannel/kTransmitPower just above. Defaults to 10 (the fleet's
-  // RADIOBRIDGE relay listen group), the same value the old `static
-  // constexpr uint8_t kGroup = 10` held; setGroup() (above) is the
-  // only way to change it, and ensureRadioReady() (radio_transport.cpp)
-  // reads this field, not a constant, when it lazily brings the radio
-  // up.
-  uint8_t group_ = 10;
+  // kTransmitPower just above. No longer defaults to a hardcoded 10:
+  // this field only matters once groupOverridden_ (below) is true --
+  // i.e. setGroup() has been called at least once, explicitly. Until
+  // then, ensureRadioReady() ignores this stored value entirely in
+  // favor of the group deriveRadioAddress() computes from the board's
+  // own name; see
+  // selectRadioGroup(), above, for the exact selection logic and
+  // setGroup()'s own doc comment for the override contract. 0 here is
+  // simply "not yet meaningful", not a radio group any board actually
+  // runs on (0 is one of the five reserved values -- MakeCode's own
+  // unconfigured-radio default -- deriveRadioAddress() never emits it,
+  // and neither does a real setGroup() call from student code, which
+  // always passes a group the block picked).
+  uint8_t group_ = 0;
+
+  // True once setGroup() has been called at least once (an explicit
+  // override, e.g. from the `on start` block); false for a board that
+  // was never told a group -- the common case, and the one that gets
+  // the derived default. Set to true only inside setGroup()
+  // (radio_transport.cpp); never reset once true, since an override is
+  // permanent for the life of the running program.
+  bool groupOverridden_ = false;
 
   // kMaxPayloadBytes itself is declared PUBLIC, above (sprint 008
   // ticket 002) -- moved out of this section rather than merely

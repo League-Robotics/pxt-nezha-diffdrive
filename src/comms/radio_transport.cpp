@@ -30,14 +30,33 @@ void radioDatagramTrampoline(MicroBitEvent) {
 void RadioTransport::ensureRadioReady() {
   if (radioReady_) return;
   radioReady_ = true;
+
+  // Self-addressing: read this board's own silicon-derived name --
+  // the same call Protocol::buildIdentity() already makes
+  // independently, at protocol.cpp:236 -- and decode it into the
+  // channel/group pair this repo's radio-addressing spec's codebook
+  // derives from it. deriveRadioAddress() (radio_transport.h) always
+  // writes a usable pair even on failure (the legacy 4/10 fallback),
+  // so there is no failure branch to handle here.
+  uint8_t derivedChannel = 4;
+  uint8_t derivedGroup = 10;
+  deriveRadioAddress(microbit_friendly_name(), &derivedChannel,
+                     &derivedGroup);
+  // An explicit setGroup() call (e.g. from the `on start` block)
+  // always wins over the derived default -- see selectRadioGroup()'s
+  // own doc comment (radio_transport.h) for the contract this
+  // implements.
+  const uint8_t group = selectRadioGroup(groupOverridden_, group_,
+                                         derivedGroup);
+
   // Call order mirrors the reference driver's own begin()
   // (microbit_radio_link.cpp): enable, then frequency band, then
   // group, then transmit power. CODAL does not default to band 0 --
   // it must be set explicitly, or a robot and the relay could sit on
   // different frequencies and never hear each other.
   uBit.radio.enable();
-  uBit.radio.setFrequencyBand(kChannel);
-  uBit.radio.setGroup(group_);
+  uBit.radio.setFrequencyBand(derivedChannel);
+  uBit.radio.setGroup(group);
   uBit.radio.setTransmitPower(kTransmitPower);
   // Reference-style RX: listen for the datagram event and recv() only
   // there (see header comment on onDatagram).
@@ -48,6 +67,7 @@ void RadioTransport::ensureRadioReady() {
 
 void RadioTransport::setGroup(uint8_t group) {
   group_ = group;
+  groupOverridden_ = true;
   if (radioReady_) {
     // Radio already up (a prior sendLine()/tryReceiveLine() already
     // lazily called ensureRadioReady()): re-apply immediately so this
