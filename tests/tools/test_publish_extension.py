@@ -204,3 +204,62 @@ def test_main_refuses_to_publish_a_dirty_source_tree(tmp_path, monkeypatch):
     pe.main(["--publish", remote, "--allow-dirty"])
     clone = _clone(remote, tmp_path / "clone")
     assert _git("log", "-1", "--format=%s", cwd=clone).strip().endswith("-dirty")
+
+
+# --- the version comes from config, never from pxt.json or thin air --------
+
+def test_config_version_is_read_from_dotconfig_yaml():
+    assert pe.config_version() == pe.load_manifest()["version"]
+
+
+@pytest.mark.parametrize("manifest_version,version,expected", [
+    ("1.20260829.1", "1.20260829.1", 0),
+    ("1.0.11", "1.20260829.1", 1),          # pxt.json edited by hand
+    ("0.20260829.2", "0.20260829.2", 1),    # in sync, but major 0
+    # Both faults at once: pxt.json drifted AND the config version has a
+    # major MakeCode would never serve. The major is checked on the
+    # CONFIG version -- the one that would actually be released.
+    ("1.0.11", "0.1.0", 2),
+])
+def test_check_version_catches_drift_and_unreleasable_majors(
+        manifest_version, version, expected):
+    assert len(pe.check_version(manifest_version, version)) == expected
+
+
+def test_a_major_zero_version_is_refused_because_makecode_would_not_serve_it():
+    """MEASURED: the extension repo carries v1.0.11, and semver sorts
+    v0.20260829.2 BELOW it, so such a release reaches nobody. This is
+    the trap commit 07e1e87 named; the failure is silent, which is why
+    it is a hard refusal rather than a warning."""
+    problems = pe.check_version("0.20260829.2", "0.20260829.2")
+    assert len(problems) == 1
+    assert "reach nobody" in problems[0]
+    assert "--major 1" in problems[0]
+
+
+def test_sync_version_rewrites_only_the_version_and_keeps_formatting(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "config").mkdir(parents=True)
+    (repo / "config" / "dotconfig.yaml").write_text(
+        "# comment\nversion: 1.20260830.7\n")
+    original = ('{\n    "name": "nezha-diffdrive",\n'
+                '    "version": "1.0.11",\n'
+                '    "description": "has \\"quotes\\" in it",\n'
+                '    "files": ["README.md"]\n}\n')
+    (repo / "pxt.json").write_text(original)
+
+    assert pe.sync_version(repo) == ("1.0.11", "1.20260830.7")
+    after = (repo / "pxt.json").read_text()
+    assert json.loads(after)["version"] == "1.20260830.7"
+    # Only the version line changed -- formatting, key order and the
+    # description's escaped quotes all survive.
+    assert after == original.replace('"1.0.11"', '"1.20260830.7"')
+    assert pe.sync_version(repo) == ("1.20260830.7", "1.20260830.7")
+
+
+def test_assemble_refuses_when_pxt_json_and_config_disagree(tmp_path,
+                                                            monkeypatch):
+    monkeypatch.setattr(pe, "config_version",
+                        lambda repo=pe.REPO: "9.9.9-not-the-manifest")
+    with pytest.raises(SystemExit, match="single source of truth"):
+        pe.assemble(tmp_path / "out")

@@ -130,7 +130,9 @@ assembles that tree and pushes it to
 [League-Microbit/pxt-diff-drive](https://github.com/League-Microbit/pxt-diff-drive),
 tagging `v<version>` from `pxt.json` when that tag is new;
 `.github/workflows/publish-extension.yml` runs it on every push to
-master. Bump `version` in `pxt.json` to cut a release. See
+master. To cut a release, `dotconfig version bump --major 1` then
+`python3 tools/publish_extension.py --sync-version` — `config/dotconfig.yaml`
+is the single source of truth and `pxt.json` mirrors it. See
 [`extension/DESIGN.md`](extension/DESIGN.md).
 
 ## Provenance

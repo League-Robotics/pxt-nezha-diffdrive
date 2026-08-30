@@ -28,8 +28,31 @@ The published tree is the union of two things:
 
 The published `pxt.json` is this repo's with `testFiles` rewritten to
 the overlay's and `"public": true` added; everything else passes
-through, so **bumping `version` here is a release there**: the sync
-pushes a `v<version>` tag when that tag does not yet exist. Tags are
+through, so **the version here is the release there**: the sync pushes
+a `v<version>` tag when that tag does not yet exist.
+
+## Cutting a release
+
+`config/dotconfig.yaml` is the project's single source of truth for the
+version. `pxt.json` MIRRORS it and is never edited by hand;
+`publish_extension.py` refuses to assemble when the two disagree, so a
+version cannot be invented.
+
+```sh
+dotconfig version bump --major 1     # config + pyproject + package.json
+python3 tools/publish_extension.py --sync-version   # -> pxt.json
+git commit -am "Release <version>" && git push      # the Action tags it
+```
+
+**`--major 1` is not optional.** MakeCode resolves an extension by its
+HIGHEST SEMVER TAG, and the extension repo carries `v1.0.11` from its
+first releases. A `0.YYYYMMDD.n` tag sorts BELOW that, so the release
+would succeed, tag cleanly, and reach nobody — a silent failure, which
+is why `check_version()` refuses a major of 0 outright rather than
+warning. `--major 1` keeps dotconfig's date scheme while outranking
+every `v1.0.x`: `1.20260829.1` > `1.0.11` because 20260829 > 0. This is
+the trap commit 07e1e87 named, "extension semver must outrank the
+firmware's 0.YYYYMMDD.n tags". Tags are
 never moved — MakeCode pins projects to a tag and caches the compiled
 native code under it — so a content change without a bump lands on
 the branch only and the job summary says so.
