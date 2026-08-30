@@ -1,7 +1,14 @@
 # Radio addressing: a board's name IS its address
 
 **Normative.** `docs/radio-address-vectors.json` is the machine-readable
-companion; three repos assert against it. If this document and that file
+companion; three repos assert against it.
+
+> **Maintainer's note.** Three defects have been found in this spec —
+> an ambiguous channel floor, an unpublished encode direction, and a digest
+> that never exercised the production path. **None was in the arithmetic**,
+> which has not moved since it was first written. Every failure was in what
+> the contract *handed an implementer*. If something is wrong here, look at
+> the contract before you look at the formula. If this document and that file
 disagree, this document wins and the file is regenerated.
 
 A micro:bit's five-letter name is not a label attached to a board — it is a
@@ -167,6 +174,22 @@ A string outside `^[zvgpt][uoiea][zvgpt][uoiea][zvgpt]$` after normalize
 name that has none is precisely the silent-failure class this scheme exists
 to remove. This binds `!N` and every host tool: `!N robot1` is an error, not
 a link.
+
+**But malformed is not the same as unknown, and conflating them fails
+silently in the opposite direction.**
+
+| input | verdict |
+|---|---|
+| `robot1`, `gauti`, `aeiou` — **malformed** | **raise.** No address exists. |
+| `pipip` — **well-formed, no such board** | **accept.** 51/90 is a legal, quiet pair. |
+
+A relay that rejects the second "to be safe" breaks the tune-to-whatever-I-name
+model, which is the whole point of `!N`. One that accepts the first produces a
+working-looking link on an arbitrary channel. Nothing in the address layer
+knows which boards exist, and it must not pretend to — that is the silicon
+gate's job, at deploy time, with `read_board_name()`.
+
+*(Distinction contributed by radio-robot-lib.)*
 
 - 3125 names → **3125 distinct (channel, group) pairs**. Never a collision on
   both axes.
