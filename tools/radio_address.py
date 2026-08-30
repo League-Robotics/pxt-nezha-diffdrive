@@ -70,7 +70,17 @@ checking against $.properties.conformance_sha256 / full_space_sha256):
 
   python3 tools/radio_address.py --dump conformance
   python3 tools/radio_address.py --dump full-space
+
+Or validates a dump captured from ANOTHER implementation -- C++
+firmware, MakeCode static TypeScript, or a sibling repo's own port --
+telling v1 (3 columns, digests to D1) and v2 (5 columns, digests to
+D2) apart by counting columns (`docs/radio-addressing.md`'s "Dump
+protocol"). See `check_dump()` below for what a failure reports:
+
+  tools/radio-address-dump python | python3 tools/radio_address.py --check -
+  python3 tools/radio_address.py --check their-dump.txt
 """
+import pathlib
 import re
 
 # positions 0, 2, 4
@@ -235,6 +245,226 @@ def full_space_dump():
         yield full_space_line(n)
 
 
+# --- --check: validate a FOREIGN dump ---------------------------------
+
+# tools/radio_address.py -> tools -> repo root -> docs/...
+_VECTORS_PATH = (pathlib.Path(__file__).resolve().parent.parent
+                  / 'docs' / 'radio-address-vectors.json')
+
+_NAME_SPACE = _MAX_INDEX + 1  # 3125
+_RESERVED_GROUP = 10
+# Channels 3 and 4 are the legacy hand-allocated fleet convention --
+# getez sits on 3, and .claude/rules/playfield-testing.md forbids
+# retuning it (the torture:8760 relay pool depends on getez staying
+# there). Channel 7 + group 0 is MakeCode's unconfigured default;
+# group 10 is microbit-radio-relay's !C button space.
+_RESERVED_CHANNELS = (3, 4, 7)
+
+
+def load_digests(path=None):
+    """The published digest constants `check_dump()` compares a
+    foreign dump against, read from `docs/radio-address-vectors.json`
+    -- never hardcoded here a second time (see the vectors file's own
+    `$comment` and this module's "Two digests" docstring section).
+    `path` overrides the default location, mainly for tests."""
+    import json
+    props = json.loads(
+        pathlib.Path(path or _VECTORS_PATH).read_text(encoding='utf-8')
+    )['properties']
+    return {
+        'd1': props['full_space_sha256'],
+        'd2': props['conformance_sha256'],
+        'little_endian_encoder':
+            props['endianness_probe']['reversed_encoder_digest'],
+        'little_endian_decoder':
+            props['conformance_sha256_broken_decode']['digest'],
+    }
+
+
+def _digest_of(text):
+    import hashlib
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def _expected_line(n, columns):
+    """The reference's own line for index `n`, at the same column
+    count as the foreign dump being checked -- `conformance_line`
+    (5 columns) or `full_space_line` (3), never a third
+    reimplementation of either."""
+    return (conformance_line(n) if columns == 5
+            else full_space_line(n)).rstrip('\n')
+
+
+def check_dump(text, digests=None):
+    """Validate a conformance dump captured from ANY OTHER
+    implementation -- C++ firmware, MakeCode static TypeScript, or a
+    sibling repo's own port -- against this module's reference output
+    and the digests published in `docs/radio-address-vectors.json`.
+
+    Distinguishes protocol v1 (3 columns, `<name>,<channel>,<group>`,
+    digests to D1) from v2 (5 columns, digests to D2) purely by
+    COUNTING COLUMNS on the first line -- per
+    `docs/radio-addressing.md`'s "Dump protocol" section, never by a
+    flag or a filename.
+
+    Pure function over `text` (and the loaded `digests`, so a test can
+    pass a fixture instead of reading the real vectors file off disk).
+    Returns `(problems, notes)`. `problems` empty means the dump
+    conforms. `notes` records what protocol was detected and, on
+    success, which digest matched -- and for a v1 dump, that it
+    cannot prove the inverse (`decode`/`reverse`) is correct, since a
+    clean v1 pass that implied otherwise would overstate what was
+    checked (see this module's "Two digests, and which one is the
+    gate" docstring section).
+
+    On failure the diagnostics ARE the feature: a digest matching a
+    published broken-implementation fault is named by that fault
+    rather than reported as an opaque mismatch, the first differing
+    line is quoted by name (not a byte offset), and any reserved
+    channel/group value present is explained concretely -- including
+    that channel 3 collides with getez, which
+    `.claude/rules/playfield-testing.md` forbids retuning because the
+    `torture:8760` relay pool depends on getez staying there.
+    """
+    digests = digests or load_digests()
+    problems, notes = [], []
+
+    lines = text.split('\n')
+    if lines and lines[-1] == '':
+        lines.pop()  # the dump contract's trailing newline
+    if not lines:
+        return (['dump is empty -- expected 3125 lines, one per name'],
+                 notes)
+
+    columns = lines[0].count(',') + 1
+    if columns not in (3, 5):
+        return ([f'lines have {columns} columns; expected 3 (protocol '
+                  'v1, digests to D1) or 5 (protocol v2, digests to '
+                  'D2) -- see docs/radio-addressing.md "Dump '
+                  'protocol"'], notes)
+    notes.append(f'protocol v{1 if columns == 3 else 2} '
+                 f'({columns} columns), {len(lines)} lines')
+    if columns == 3:
+        notes.append(
+            'v1 digests to D1, which CANNOT detect a broken decode() '
+            'or reverse() -- a little-endian decoder is wrong on 3000 '
+            'of 3125 names and produces a byte-identical v1 dump. '
+            'Emit v2 to have the inverse actually checked.')
+
+    if len(lines) != _NAME_SPACE:
+        problems.append(
+            f'expected {_NAME_SPACE} lines, got {len(lines)} -- the '
+            'dump is every name for n = 0..3124 in order, one per '
+            'line')
+
+    body = ''.join(line + '\n' for line in lines)
+    actual = _digest_of(body)
+    expected = digests['d2'] if columns == 5 else digests['d1']
+    if actual == expected:
+        notes.append(
+            f'digest {actual} matches published '
+            f'{"D1 full_space_sha256" if columns == 3 else "D2 conformance_sha256"}')
+    else:
+        if columns == 5 and actual == digests['little_endian_decoder']:
+            problems.append(
+                'this is the LITTLE-ENDIAN DECODER digest: decode() '
+                'reads name[0] as the LEAST significant base-5 digit; '
+                'it must be the MOST significant. Wrong on 3000 of '
+                '3125 names, and INVISIBLE to a v1 dump -- decode() '
+                'is the production path, what "!N <name>" runs on '
+                'every command.')
+        elif columns == 3 and actual == digests['little_endian_encoder']:
+            problems.append(
+                'this is the LITTLE-ENDIAN ENCODER digest: the '
+                'encoder emits base-5 digits least-significant-first, '
+                'so name[0] carries the wrong digit. Reverse the '
+                'digit order. (Palindromes -- zuzuz, tatat, zavaz -- '
+                'are identical either way, which is why a spot check '
+                'misses it.)')
+        elif columns == 5 and _digest_of(''.join(
+                ','.join(line.split(',')[:3]) + '\n'
+                for line in lines)) == digests['d1']:
+            problems.append(
+                f'D2 {actual} != {expected}, but D1 over the first '
+                'three columns MATCHES: the forward map is correct '
+                'and the fault is in decode() or reverse() -- columns '
+                '4 and 5.')
+        else:
+            problems.append(f'digest {actual} != {expected}')
+
+    for index, line in enumerate(lines[:_NAME_SPACE]):
+        expected_line = _expected_line(index, columns)
+        if line != expected_line:
+            problems.append(
+                f'first differing line is {index + 1} (n={index}): '
+                f'got {line!r}, expected {expected_line!r}')
+            break
+
+    # Structural checks, independent of the digest, so a failing
+    # implementation gets a diagnosis rather than one opaque hash.
+    malformed = inverse = bad_channel = bad_group = 0
+    seen_channels, seen_groups, seen_names = set(), set(), set()
+    for line in lines:
+        parts = line.split(',')
+        if len(parts) != columns:
+            malformed += 1
+            continue
+        try:
+            name = parts[0]
+            channel, group = int(parts[1]), int(parts[2])
+            inverse_columns = [int(p) for p in parts[3:]]
+        except ValueError:
+            malformed += 1
+            continue
+        seen_names.add(name)
+        seen_channels.add(channel)
+        seen_groups.add(group)
+        if channel % 2 == 0 or not (25 <= channel <= 73):
+            bad_channel += 1
+        if group == 0 or group == _RESERVED_GROUP or not (1 <= group <= 126):
+            bad_group += 1
+        try:
+            n = name_to_index(name)
+        except ValueError:
+            malformed += 1
+            continue
+        if any(value != n for value in inverse_columns):
+            inverse += 1
+
+    if malformed:
+        problems.append(f'{malformed} line(s) malformed or carrying a '
+                        'name outside the codebook')
+    if inverse:
+        problems.append(
+            f'{inverse} line(s) where decode(name) or reverse(channel, '
+            'group) does not equal n -- the inverse directions '
+            'disagree with the forward map')
+    if bad_channel:
+        problems.append(f'{bad_channel} line(s) have a channel outside '
+                        'the odd 25..73 range')
+    if bad_group:
+        problems.append(f'{bad_group} line(s) have a group outside '
+                        '1..9 / 11..126')
+    if len(seen_names) != len(lines):
+        problems.append(f'names are not distinct: {len(seen_names)} '
+                        f'unique across {len(lines)} lines')
+    forbidden_channels = sorted(set(_RESERVED_CHANNELS) & seen_channels)
+    if forbidden_channels:
+        problems.append(
+            f'emits reserved channel(s) {forbidden_channels}: 3 and 4 '
+            "are the legacy fleet convention (getez sits on 3, and "
+            '.claude/rules/playfield-testing.md forbids retuning it '
+            '-- the torture:8760 relay pool depends on getez staying '
+            "there), 7 is MakeCode's unconfigured default")
+    forbidden_groups = sorted({0, _RESERVED_GROUP} & seen_groups)
+    if forbidden_groups:
+        problems.append(
+            f'emits reserved group(s) {forbidden_groups}: 0 is '
+            "MakeCode's unconfigured default, 10 is the relay's !C "
+            'button space')
+    return problems, notes
+
+
 def _main():
     import argparse
     import sys
@@ -243,16 +473,39 @@ def _main():
         description='Radio addressing reference implementation '
                      '(docs/radio-addressing.md). Emits a canonical '
                      'form for n=0..3124 to stdout, for conformance '
-                     'checking against docs/radio-address-vectors.json.')
-    ap.add_argument(
-        '--dump', choices=('conformance', 'full-space'), required=True,
+                     'checking against docs/radio-address-vectors.json, '
+                     'or validates a dump from ANOTHER implementation.')
+    mode = ap.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
+        '--dump', choices=('conformance', 'full-space'),
         help='conformance = D2, 5 columns (name,channel,group,decode,'
              'reverse), the primary conformance gate. full-space = D1, '
              '3 columns (name,channel,group), forward-only, a bisector.')
+    mode.add_argument(
+        '--check', metavar='FILE',
+        help="validate a foreign implementation's dump ('-' for "
+             'stdin) against this reference and the published '
+             'digests. Accepts v1 (3 columns) or v2 (5 columns), told '
+             'apart by column count.')
     args = ap.parse_args()
 
-    dump = conformance_dump if args.dump == 'conformance' else full_space_dump
-    sys.stdout.writelines(dump())
+    if args.dump:
+        dump = conformance_dump if args.dump == 'conformance' else full_space_dump
+        sys.stdout.writelines(dump())
+        return
+
+    text = (sys.stdin.read() if args.check == '-'
+            else pathlib.Path(args.check).read_text(encoding='utf-8'))
+    problems, notes = check_dump(text)
+    for note in notes:
+        print(f'note: {note}')
+    if not problems:
+        print('CONFORMANT')
+        return
+    print('NOT CONFORMANT:', file=sys.stderr)
+    for problem in problems:
+        print(f'  - {problem}', file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == '__main__':

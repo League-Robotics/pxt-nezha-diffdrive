@@ -7,6 +7,7 @@ tickets:
 - 025-003
 - 025-004
 - 025-005
+- 025-006
 ---
 
 # Derive each micro:bit's radio channel and group from its five-letter name

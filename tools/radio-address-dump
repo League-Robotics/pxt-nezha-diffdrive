@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""radio-address-dump -- protocol v1, one file per repository.
+
+Every repository implementing the name <-> (channel, group) map exposes
+an executable at this exact path with exactly this contract, so ONE
+checker can compare every implementation in every repo:
+
+    tools/radio-address-dump --list
+        one implementation id per line
+    tools/radio-address-dump <id>
+        the canonical form on stdout: for n = 0..3124 in order, one line
+        "<name>,<channel>,<group>" -- 3125 lines, nothing else. Exit 0.
+        Exit 3 with one line on stderr if that implementation cannot run
+        here (no compiler, no toolchain), so the checker reports it as
+        unavailable rather than as a mismatch.
+
+The protocol and its comparator are owned by microbit-radio-relay
+(`tools/radio-address-dump`, `scripts/radio_address_conformance.py`);
+the canonical form and its digests by `docs/radio-addressing.md`, which
+this repository owns.
+
+WHY THIS FILE EXISTS AT ALL. Without it this repository is INVISIBLE to
+the cross-repo comparison -- the comparator discovers implementations by
+looking for this path and reports "no dump found", not a mismatch. A
+green local suite proves this repo agrees with the SPEC; only the
+comparator proves it agrees with the RELAY, and the second is the
+question that was actually asked. From the relay repo:
+
+    scripts/radio_address_conformance.py microbit-radio-relay pxt-nezha-diffdrive
+
+WHY v1 AND NOT v2. `$.properties.dump_protocol` in the vectors file
+prefers v2 (five columns, digesting to D2) because v2 puts the inverse
+INTO the hashed artifact. This file still emits v1 because the
+comparator compares dumps LINE BY LINE: a v2 dump against the relay's
+v1 dump reports every line as differing, which would break a working
+three-way comparison in order to gain a check that
+`tools/radio_address.py --dump conformance` already performs locally.
+Switch `full_space_dump()` to `conformance_dump()` below once the relay
+emits v2 -- a one-line change, and the checker's column-count detection
+handles both.
+
+DO NOT REIMPLEMENT THE MAPPING HERE. This delegates to
+`tools/radio_address.py`. Two implementations inside one repository
+would agree with each other by construction and prove nothing.
+"""
+
+import pathlib
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+UNAVAILABLE = 3
+
+
+def dump_python():
+    """The reference implementation -- tools/radio_address.py.
+
+    `full_space_dump()` YIELDS lines (it is a generator, not a string),
+    hence writelines rather than write. Each yielded line already ends
+    in a newline.
+    """
+    sys.path.insert(0, str(ROOT / "tools"))
+    import radio_address
+    sys.stdout.writelines(radio_address.full_space_dump())
+    return 0
+
+
+# As sprint 025 lands the firmware derivation, add its host build here.
+# See microbit-radio-relay's "firmware-cpp" entry for the pattern:
+# compile the REAL header for the host so the code the board runs is
+# what gets dumped, and exit UNAVAILABLE when no compiler is present.
+IMPLEMENTATIONS = {"python": dump_python}
+
+
+def main(argv):
+    if len(argv) != 1 or argv[0] in ("-h", "--help"):
+        print(__doc__, file=sys.stderr)
+        return 2
+    if argv[0] == "--list":
+        print("\n".join(IMPLEMENTATIONS))
+        return 0
+    impl = IMPLEMENTATIONS.get(argv[0])
+    if impl is None:
+        print(f"unknown implementation {argv[0]!r}; try --list",
+              file=sys.stderr)
+        return 2
+    return impl()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

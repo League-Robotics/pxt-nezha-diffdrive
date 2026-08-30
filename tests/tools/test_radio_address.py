@@ -116,29 +116,113 @@ def test_d1_full_space_digest_is_a_bisector_not_a_substitute(vectors):
         'not merely decode()/reverse().')
 
 
-def test_d1_canonical_form_is_not_the_reversed_encoder_digest(vectors):
-    """The endianness trap (docs/radio-addressing.md "Endianness, and
-    why the obvious test misses it"): base-5 conversion naturally
-    emits the LEAST significant digit first, but the name is
-    big-endian. A little-endian encoder still produces 3125
-    well-formed, regex-passing, distinct names -- just in the wrong
-    order -- so nothing about the shape of the output looks broken.
-    `$.properties.endianness_probe.reversed_encoder_digest` is D1's
-    canonical form under exactly that bug; assert this implementation
-    does NOT reproduce it.
+# --- Regenerating the diagnostic-constant digests from their exact fault ---
+#
+# `test_d1_canonical_form_is_not_the_reversed_encoder_digest` (ticket 001)
+# asserted this reference's D1 does NOT equal `52ea4a6e...`. That proves
+# the reference is unbroken; it does NOT prove `52ea4a6e...` still
+# describes the fault it names -- replace the published constant with
+# garbage and that test still passes. Per docs/radio-addressing.md's
+# stated principle ("a diagnostic constant must name its exact fault"),
+# the two tests below REGENERATE each published fault digest from a
+# deliberately broken implementation of the exact bug it claims to
+# describe, built locally by copying `index_to_name`/`name_to_index`/
+# `_address_to_index` and reversing the digit loop / swapping the read
+# order -- ticket 001's Implementation Plan already describes this
+# technique for constructing a reversed encoder. Neither broken
+# implementation is exported; both double as fixtures for the --check
+# mode diagnostics tests further down.
 
-    zuzuz, tatat, zotoz, pipip and zavaz are all digit-palindromes and
-    are IDENTICAL under both digit orderings, so they cannot detect
-    this on their own (see test_endianness_probe_vectors_are_not_
-    palindromes below for the two that can: zuzuv and zotuz)."""
-    lines = list(radio_address.full_space_dump())
+def _little_endian_index_to_name(n):
+    """A deliberately BROKEN `index_to_name` (`encode`): the digit
+    loop runs LEAST-significant-first instead of counting down from
+    the most significant position -- copied from
+    `radio_address.index_to_name` with only the loop direction
+    changed. This is the fault docs/radio-addressing.md's
+    "Endianness" section describes: base-5 conversion naturally
+    emits the least-significant digit first, so a naive port gets
+    this backwards."""
+    if not (0 <= n <= 3124):
+        raise ValueError(f'index out of range 0..3124: {n!r}')
+    digits = [0, 0, 0, 0, 0]
+    for p in range(5):  # BUG: should count down, 4..0
+        digits[p] = n % 5
+        n //= 5
+    return ''.join(radio_address._alphabet(p)[digits[p]] for p in range(5))
+
+
+def _little_endian_full_space_line(n):
+    """D1's three-column canonical form for index `n`, built with the
+    broken encoder above for the NAME column only. `channel`/`group`
+    still come from the real, correct `name_to_address`/`index_to_name`
+    -- per docs/radio-addressing.md's "Two digests" table, D1 covers
+    `encode` (n -> name, broken here) AND `addr` (n -> pair, still
+    correct), so only the name column should move."""
+    channel, group = radio_address.name_to_address(
+        radio_address.index_to_name(n))
+    return f'{_little_endian_index_to_name(n)},{channel},{group}\n'
+
+
+def test_little_endian_encoder_regenerates_the_published_d1_fault_digest(
+        vectors):
+    """Build D1's canonical form (n=0..3124) using ONLY the broken,
+    least-significant-first encoder above for the name column, and
+    assert its digest equals exactly
+    `$.properties.endianness_probe.reversed_encoder_digest`
+    (`52ea4a6e...`) -- regenerating the published constant from the
+    fault it claims to describe, not merely asserting the reference
+    avoids it."""
+    lines = [_little_endian_full_space_line(n) for n in range(3125)]
     digest = _sha256(_canonical(lines))
-    reversed_digest = vectors['properties']['endianness_probe'][
+    assert digest == vectors['properties']['endianness_probe'][
         'reversed_encoder_digest']
-    assert digest != reversed_digest, (
-        'digest matches the published REVERSED (little-endian) encoder '
-        'value -- the base-5 digit loop runs in the wrong order. Reverse '
-        'it; do not patch around the symptom.')
+
+
+def _little_endian_name_to_index(name):
+    """A deliberately BROKEN `name_to_index` (`decode`): reads
+    `name[0]` as the LEAST significant base-5 digit instead of the
+    MOST -- copied from `radio_address.name_to_index` with only the
+    digit-read order swapped (position 4 first, position 0 last).
+    `encode`, `addr` and `reverse` are all correct; only this
+    function is wrong -- the exact fault
+    `$.properties.conformance_sha256_broken_decode` names."""
+    norm = radio_address._normalize(name)
+    if not radio_address._ACCEPT_RE.match(norm):
+        raise ValueError(
+            f'not a valid micro:bit name after normalize: {name!r}')
+    n = 0
+    for p in range(4, -1, -1):  # BUG: should count up, 0..4
+        n = n * 5 + radio_address._alphabet(p).index(norm[p])
+    return n
+
+
+def _little_endian_conformance_line(n):
+    """D2's five-column canonical form for index `n`, built with the
+    broken decoder above for column 4 ONLY. `name`/`channel`/`group`
+    (correct `encode`/`addr`) and column 5 (correct `reverse`, via
+    `radio_address._address_to_index`) are untouched -- only
+    `decode(name)` is wrong."""
+    name = radio_address.index_to_name(n)
+    channel, group = radio_address.name_to_address(name)
+    decoded = _little_endian_name_to_index(name)
+    reversed_n = radio_address._address_to_index(channel, group)
+    return f'{name},{channel},{group},{decoded},{reversed_n}\n'
+
+
+def test_little_endian_decoder_regenerates_the_published_d2_fault_digest(
+        vectors):
+    """Build D2's canonical form (n=0..3124) using ONLY the broken,
+    name[0]-is-least-significant decoder above for column 4, and
+    assert its digest equals exactly
+    `$.properties.conformance_sha256_broken_decode.digest`
+    (`5acfd688...`) -- regenerating the published constant from the
+    fault it claims to describe. This is the fault D1 (3 columns)
+    cannot see at all, per docs/radio-addressing.md's "Two digests"
+    section -- only D2's `decode(name)` column exercises it."""
+    lines = [_little_endian_conformance_line(n) for n in range(3125)]
+    digest = _sha256(_canonical(lines))
+    assert digest == vectors['properties'][
+        'conformance_sha256_broken_decode']['digest']
 
 
 # --- Every row in $.vectors round-trips -------------------------------------
@@ -196,6 +280,28 @@ def test_gauti_specifically_is_rejected():
         radio_address.name_to_address('gauti')
     with pytest.raises(ValueError):
         radio_address.name_to_index('gauti')
+
+
+# --- Reverse-address rejection: address_to_name only accepts what the
+# forward map can produce ------------------------------------------------
+#
+# All 8 `pytest.raises` cases landed by ticket 001 reject malformed
+# NAMES. Nothing pinned that `address_to_name` rejects an ADDRESS the
+# forward map never produces -- the half of the inverse ticket 002's
+# firmware independently implements, and it needs pinning here first.
+
+@pytest.mark.parametrize('channel,group,why', [
+    (26, 1, 'even channel (channels are always odd, 25..73)'),
+    (23, 1, 'below the channel floor (25)'),
+    (75, 1, 'above the channel ceiling (73)'),
+    (25, 0, "reserved group 0 (MakeCode's unconfigured default)"),
+    (25, 10, "reserved group 10 (the relay's !C button space)"),
+    (25, 127, 'above the group ceiling (126)'),
+])
+def test_address_to_name_rejects_addresses_the_forward_map_never_produces(
+        channel, group, why):
+    with pytest.raises(ValueError):
+        radio_address.address_to_name(channel, group)
 
 
 # --- Malformed vs. unknown: opposite failure directions ----------------
@@ -372,3 +478,197 @@ def test_accept_pattern_matches_the_published_regex(vectors):
     assert radio_address._ACCEPT_RE.pattern == vectors['algorithm']['accept']
     assert isinstance(re.compile(vectors['algorithm']['accept']), type(
         radio_address._ACCEPT_RE))
+
+
+# --- --check: validate a FOREIGN dump ---------------------------------------
+#
+# `tools/radio_address.py --check` is what makes ticket 002's C++
+# firmware (and any other language with no sha256 of its own)
+# participate in cross-repo conformance: it produces a dump, and this
+# checker validates it against D1/D2. The diagnostics ARE the feature
+# per the ticket -- a bare "mismatch" sends the next reader on a
+# six-variant reconstruction hunt, so every failure mode below asserts
+# on the SPECIFIC named diagnostic, not merely that `problems` is
+# non-empty.
+
+def test_check_dump_accepts_this_reference_own_v1_dump_with_a_protocol_note(
+        vectors):
+    """A conformant v1 (3-column) dump reports which protocol version
+    and which digest matched, per the ticket's "On success" acceptance
+    criterion -- and, since v1 cannot exercise decode()/reverse(), a
+    note saying so rather than a bare CONFORMANT that overstates what
+    was checked."""
+    text = _canonical(radio_address.full_space_dump())
+    problems, notes = radio_address.check_dump(text)
+    assert problems == []
+    assert any(note.startswith('protocol v1') for note in notes)
+    assert any(vectors['properties']['full_space_sha256'] in note
+               for note in notes)
+    assert any('cannot' in note.lower() for note in notes), (
+        'a v1 pass must say it could not check decode()/reverse()')
+
+
+def test_check_dump_accepts_this_reference_own_v2_dump_with_a_protocol_note(
+        vectors):
+    """A conformant v2 (5-column) dump reports protocol v2 and the D2
+    digest that matched."""
+    text = _canonical(radio_address.conformance_dump())
+    problems, notes = radio_address.check_dump(text)
+    assert problems == []
+    assert any(note.startswith('protocol v2') for note in notes)
+    assert any(vectors['properties']['conformance_sha256'] in note
+               for note in notes)
+
+
+def test_check_dump_reports_little_endian_encoder_by_name():
+    """Feeding the checker a dump from a deliberately little-endian
+    encoder (the D1/v1 fixture from the regeneration tests above)
+    must report "little-endian ENCODER" -- the ticket's first
+    --check acceptance scenario."""
+    text = _canonical(
+        _little_endian_full_space_line(n) for n in range(3125))
+    problems, notes = radio_address.check_dump(text)
+    assert any('LITTLE-ENDIAN ENCODER' in p for p in problems), problems
+
+
+def test_check_dump_reports_little_endian_decoder_by_name():
+    """Feeding the checker a dump from a deliberately little-endian
+    decoder (encode/addr/reverse correct; the D2/v2 fixture from the
+    regeneration tests above) must report "little-endian DECODER" --
+    the ticket's second --check acceptance scenario."""
+    text = _canonical(
+        _little_endian_conformance_line(n) for n in range(3125))
+    problems, notes = radio_address.check_dump(text)
+    assert any('LITTLE-ENDIAN DECODER' in p for p in problems), problems
+
+
+def test_check_dump_names_getez_when_a_row_channel_is_forced_to_3():
+    """Feeding the checker a dump with one row's channel forced to the
+    reserved value 3 must name getez concretely in the diagnostic --
+    the ticket's third --check acceptance scenario. Channel 3 is the
+    legacy fleet convention getez sits on; .claude/rules/
+    playfield-testing.md forbids retuning it because the torture:8760
+    relay pool depends on getez staying there."""
+    lines = list(radio_address.full_space_dump())
+    parts = lines[0].rstrip('\n').split(',')
+    parts[1] = '3'
+    lines[0] = ','.join(parts) + '\n'
+    problems, notes = radio_address.check_dump(_canonical(lines))
+    assert any('getez' in p for p in problems), problems
+    assert any('reserved channel(s) [3]' in p for p in problems), problems
+
+
+def test_check_dump_names_the_relay_c_group_when_a_row_group_is_forced_to_10():
+    """A row's group forced to the reserved value 10 (the relay's !C
+    button space) is explained concretely, not just flagged."""
+    lines = list(radio_address.full_space_dump())
+    parts = lines[1].rstrip('\n').split(',')
+    parts[2] = '10'
+    lines[1] = ','.join(parts) + '\n'
+    problems, notes = radio_address.check_dump(_canonical(lines))
+    assert any('!C' in p for p in problems), problems
+
+
+def test_check_dump_reports_first_differing_line_by_name_when_no_known_fault_matches():
+    """When neither published fault digest matches, the checker finds
+    and reports the FIRST differing line by content -- the name at
+    that line -- not only a hash or a byte offset. Corrupting a
+    single row (rather than reproducing a whole-space bug) cannot
+    coincidentally hit either published diagnostic digest."""
+    lines = list(radio_address.full_space_dump())
+    # zuzuv (n=1) mangled into a name nothing else in the dump uses.
+    lines[1] = 'zuzuv,29,1\n'  # correct channel for n=1 is 27, not 29
+    problems, notes = radio_address.check_dump(_canonical(lines))
+    assert any('first differing line is 2 (n=1)' in p and 'zuzuv' in p
+               for p in problems), problems
+
+
+def test_check_dump_rejects_wrong_line_count():
+    """A dump with too few or too many lines is flagged structurally,
+    independent of the digest mismatch it also produces."""
+    lines = list(radio_address.full_space_dump())[:100]
+    problems, notes = radio_address.check_dump(_canonical(lines))
+    assert any('expected 3125 lines, got 100' in p for p in problems), (
+        problems)
+
+
+def test_check_dump_distinguishes_v1_from_v2_by_column_count(vectors):
+    """Column count alone -- not a flag, not a filename -- decides
+    which protocol (and therefore which published digest) a dump is
+    checked against, per `$.properties.dump_protocol`."""
+    v1_problems, v1_notes = radio_address.check_dump(
+        _canonical(radio_address.full_space_dump()))
+    v2_problems, v2_notes = radio_address.check_dump(
+        _canonical(radio_address.conformance_dump()))
+    assert v1_problems == [] and v2_problems == []
+    assert any('v1' in n for n in v1_notes)
+    assert any('v2' in n for n in v2_notes)
+
+
+# --- --check: CLI wiring ----------------------------------------------------
+
+def test_check_cli_exits_zero_on_a_conformant_dump(tmp_path, vectors):
+    dump_path = tmp_path / 'mine.txt'
+    dump_path.write_text(_canonical(radio_address.full_space_dump()))
+    result = subprocess.run(
+        [sys.executable, str(_TOOLS_DIR / 'radio_address.py'),
+         '--check', str(dump_path)],
+        capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert 'CONFORMANT' in result.stdout
+
+
+def test_check_cli_reads_stdin_with_a_dash_and_exits_nonzero_on_mismatch():
+    broken = _canonical(
+        _little_endian_full_space_line(n) for n in range(3125))
+    result = subprocess.run(
+        [sys.executable, str(_TOOLS_DIR / 'radio_address.py'), '--check', '-'],
+        input=broken, capture_output=True, text=True)
+    assert result.returncode == 1
+    assert 'LITTLE-ENDIAN ENCODER' in result.stderr
+
+
+# --- tools/radio-address-dump: the cross-repo entry point ------------------
+
+def test_radio_address_dump_entry_point_list_reports_python():
+    """`--list` must print at least the `python` implementation id --
+    the entry point the relay's comparator discovers by path and
+    then dumps by id."""
+    result = subprocess.run(
+        [str(_TOOLS_DIR / 'radio-address-dump'), '--list'],
+        capture_output=True, text=True, check=True)
+    assert 'python' in result.stdout.split()
+
+
+def test_radio_address_dump_entry_point_python_matches_full_space_dump(
+        vectors):
+    """`radio-address-dump python`'s stdout is byte-identical to
+    `full_space_dump()`'s own output (protocol v1, D1) -- it MUST
+    call the library function, not reimplement the map."""
+    result = subprocess.run(
+        [str(_TOOLS_DIR / 'radio-address-dump'), 'python'],
+        capture_output=True, text=True, check=True)
+    assert result.stdout == _canonical(radio_address.full_space_dump())
+    assert _sha256(result.stdout) == vectors['properties'][
+        'full_space_sha256']
+
+
+def test_radio_address_dump_entry_point_unknown_id_is_not_exit_0():
+    """An id `--list` never printed must not report success -- the
+    comparator would otherwise treat an empty/garbage dump as a real
+    implementation."""
+    result = subprocess.run(
+        [str(_TOOLS_DIR / 'radio-address-dump'), 'bogus'],
+        capture_output=True, text=True)
+    assert result.returncode != 0
+
+
+def test_radio_address_dump_entry_point_output_checks_out(vectors):
+    """End-to-end: the entry point's own output, piped through
+    `--check`, is itself CONFORMANT -- the actual path the relay's
+    comparator (and this ticket's acceptance criterion) exercises."""
+    dump = subprocess.run(
+        [str(_TOOLS_DIR / 'radio-address-dump'), 'python'],
+        capture_output=True, text=True, check=True)
+    problems, notes = radio_address.check_dump(dump.stdout)
+    assert problems == [], problems
