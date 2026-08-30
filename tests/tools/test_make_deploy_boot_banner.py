@@ -199,7 +199,7 @@ def test_sync_then_inject_both_end_to_end(tmp_path, monkeypatch):
     (repo / "node_modules").mkdir()
     (repo / "src" / "comms").mkdir(parents=True)
     (repo / "src" / "comms" / "radio_transport.h").write_text(
-        "static constexpr uint8_t kGroup = 10;\n"
+        "static constexpr int kGroup = 10;\n"
         "static constexpr int kChannel = 4;\n"
         "static constexpr int kTransmitPower = 7;\n"
     )

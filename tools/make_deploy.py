@@ -458,10 +458,97 @@ def _read_robot_radio_channel(robot):
     return channel
 
 
-# Matches radio_transport.h's own single kChannel declaration. kGroup
-# (fleet-wide, never parameterised) and kTransmitPower are deliberately
-# outside this pattern's reach -- see this section's own top comment.
+# Fleet-wide group when a robot's config names none. This is the value
+# `radio_transport.h`'s kGroup already held literally and the one
+# radio-robot-elite's `robot_config.proto` documents as fixed ("GROUP IS
+# FIXED AT 10 to match the RadioRelay"), so a config with no
+# `radio_group` key produces a byte-identical build to before.
+DEFAULT_RADIO_GROUP = 10
+
+# The two positional alphabets of a micro:bit friendly name. The index
+# of a letter IS its base-5 digit; consonants sit at positions 0, 2, 4
+# and vowels at 1, 3.
+_NAME_CONSONANTS = 'zvgpt'
+_NAME_VOWELS = 'uoiea'
+
+
+def derive_radio_from_name(name):
+    """`(channel, group)` derived from a board's five-letter name, or
+    `None` if `name` is not a micro:bit friendly name.
+
+    A micro:bit's name is `NRF_FICR->DEVICEID[1]` written in base 5, so
+    this pair is CALCULABLE from the name alone -- offline, by anyone,
+    with no registry. `channel = 25 + 2*(n % 25)` (odd, 25..73) and
+    `group = 1 + n/25` with 10 skipped (1..9, 11..126); the map is a
+    bijection over all 3125 names, and it never emits channels 3/4/7 or
+    groups 0/10, which is what keeps the legacy fleet convention,
+    MakeCode's unconfigured default and the relay's `!C` space clear.
+
+    THIS IS HOW A PAIR IS ASSIGNED, NOT HOW ONE IS READ. Nothing in the
+    build or on the robot uses this value in place of the config: the
+    config is authoritative (see `_read_robot_radio_group()`), and this
+    exists so a pair can be COMPUTED when populating that config, and so
+    a build can report when the two disagree. The robot never derives
+    its own address at boot.
+
+    Normative spec: `docs/radio-addressing.md` (+
+    `docs/radio-address-vectors.json`), whose full-space digest pins all
+    3125 triples. NOTE: as of 2026-08-30 that spec is on the sprint-025
+    branch and NOT yet on master, so this implementation is currently
+    the only copy here -- keep them in step when the branch lands.
+    """
+    name = (name or '').strip().lower()
+    if len(name) != 5:
+        return None
+    n = 0
+    for position, letter in enumerate(name):
+        alphabet = _NAME_CONSONANTS if position % 2 == 0 else _NAME_VOWELS
+        if letter not in alphabet:
+            return None
+        n = n * 5 + alphabet.index(letter)
+    group = 1 + n // 25
+    return 25 + 2 * (n % 25), group + 1 if group >= 10 else group
+
+
+def _read_robot_radio_group(robot):
+    """Read `connection.radio_group` from `robot`'s radio-robot-lib
+    config, or `DEFAULT_RADIO_GROUP` when the key is absent.
+
+    Absence is NOT an error, unlike a missing channel: no robot config
+    carries a group today, the whole fleet is on 10 by the proto's own
+    contract, and defaulting keeps every existing build byte-identical.
+
+    The config is AUTHORITATIVE over `derive_radio_from_name()`. That
+    matters because a name is not guaranteed unique -- it is 32 bits of
+    DEVICEID reduced to 3125 values, so two boards CAN share one, derive
+    the same pair, and talk over each other silently. Config is the
+    escape hatch for that case, and the reason this function does not
+    simply compute the answer.
+    """
+    path = _robot_config_path(robot)
+    if not os.path.exists(path):
+        sys.exit(f"make_deploy: no radio config for robot '{robot}' -- "
+                  f"tried {path}")
+    try:
+        with open(path) as f:
+            config = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        sys.exit(f"make_deploy: could not read robot config for "
+                  f"'{robot}' at {path}: {exc}")
+    group = config.get('connection', {}).get('radio_group')
+    if group is None:
+        return DEFAULT_RADIO_GROUP
+    if not isinstance(group, int) or isinstance(group, bool):
+        sys.exit(f"make_deploy: connection.radio_group in {path} is "
+                  f"{type(group).__name__}, expected an integer")
+    return group
+
+
+# Matches radio_transport.h's own single kChannel and kGroup
+# declarations. kTransmitPower sits beside them and is deliberately
+# outside these patterns' reach -- see this section's own top comment.
 _K_CHANNEL_RE = re.compile(r'(static constexpr int kChannel = )\d+(;)')
+_K_GROUP_RE = re.compile(r'(static constexpr int kGroup = )\d+(;)')
 
 
 def _inject_radio_channel(deploy_dir, robot):
@@ -474,16 +561,28 @@ def _inject_radio_channel(deploy_dir, robot):
     today's (`DEFAULT_ROBOT`, vevov, is already on channel 4, the
     checked-in value)."""
     channel = _read_robot_radio_channel(robot)
+    group = _read_robot_radio_group(robot)
     path = os.path.join(deploy_dir, 'src', 'comms', 'radio_transport.h')
     text = open(path).read()
-    new_text, n = _K_CHANNEL_RE.subn(rf'\g<1>{channel}\g<2>', text)
-    if n != 1:
-        sys.exit(f"make_deploy: expected exactly one kChannel constant in "
-                  f"{path}, found {n} -- radio_transport.h's shape has "
-                  f"changed, update _K_CHANNEL_RE")
+    for label, pattern, value in (('kChannel', _K_CHANNEL_RE, channel),
+                                  ('kGroup', _K_GROUP_RE, group)):
+        text, n = pattern.subn(rf'\g<1>{value}\g<2>', text)
+        if n != 1:
+            sys.exit(f"make_deploy: expected exactly one {label} constant "
+                      f"in {path}, found {n} -- radio_transport.h's shape "
+                      f"has changed, update the matching regex")
     with open(path, 'w') as f:
-        f.write(new_text)
-    return channel
+        f.write(text)
+    # Print BOTH, and the name-derived pair beside them, because "I need
+    # to be able to see the channel and the group somewhere" is a
+    # standing requirement and a baked constant is otherwise invisible.
+    derived = derive_radio_from_name(robot)
+    note = ''
+    if derived and derived != (channel, group):
+        note = (f"   [name-derived would be {derived[0]}/{derived[1]} -- "
+                f"config wins]")
+    print(f"radio: channel {channel} group {group} for '{robot}'{note}")
+    return channel, group
 
 
 # Matches protocol.cpp's own single kProfile declaration. kDrivetrain
