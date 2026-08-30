@@ -66,8 +66,25 @@ migration.
 
 ## Properties
 
-Machine-checked across all 3125 names; `full_space_sha256` in the vectors file
-lets any implementation verify the entire space without shipping 3125 rows.
+Machine-checked across all 3125 names.
+
+**Verify your implementation against the whole space, not the sampled rows.**
+The vectors file publishes a digest at the JSON path
+`$.properties.full_space_sha256` — nested under `properties`, not at the root.
+Canonical form: for `n = 0..3124` in order, one line `<name>,<channel>,<group>\n`,
+UTF-8, sha256 of the concatenation. Three lines of code, and it proves byte
+identity with this spec across all 3125 names rather than the 13 that happen to
+be tabulated:
+
+```python
+import json, hashlib
+d = json.load(open("docs/radio-address-vectors.json"))
+canon = "".join(f"{name(n)},{channel(n)},{group(n)}\n" for n in range(3125))
+assert hashlib.sha256(canon.encode()).hexdigest() == d["properties"]["full_space_sha256"]
+```
+
+The digest lives only in the vectors file, never duplicated here — a second
+copy is a second thing to drift.
 
 - 3125 names → **3125 distinct (channel, group) pairs**. Never a collision on
   both axes.
