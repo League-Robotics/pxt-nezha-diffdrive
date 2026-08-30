@@ -37,7 +37,18 @@ group   = 1 + (n / 25)                            # integer division
 if group >= 10: group = group + 1                 # → 1..9, 11..126
 ```
 
-Reverse:
+`name[0]` is the **most significant** base-5 digit; `name[4]` the least.
+This matters more than it looks — see *Endianness* below.
+
+Encode (`n` → name), needed by anyone generating the canonical form:
+
+```
+for p = 4 down to 0:
+    name[p] = alphabet(p)[n % 5]
+    n = n / 5
+```
+
+Reverse (address → name):
 
 ```
 reject unless channel is odd and 25 <= channel <= 73
@@ -63,6 +74,31 @@ once stated as "channel > 25" and once as "start at channel 25"; the
 stakeholder ruled inclusive on 2026-08-30. A reader who assumes channels begin
 above 25 reintroduces an off-by-one at the boundary that costs a three-repo
 migration.
+
+## Endianness, and why the obvious test misses it
+
+Base-5 conversion naturally emits the **least** significant digit first, but
+the name is big-endian. Get it backwards and there is no error to see: you get
+3125 well-formed, regex-passing, distinct names — in a different order.
+
+```
+n = 1     correct  zuzuv        reversed  vuzuz
+n = 5     correct  zuzoz        reversed  zozuz
+digest    correct  a1069d85…    reversed  52ea4a6e…
+```
+
+**If your digest equals `52ea4a6e6124cdebbb56639d21db15b48f95d54aeb38ce93f7df9e7f9fbeb8dc`,
+your encoder is little-endian.** Reverse the digit order.
+
+The trap is that digit-palindrome names are *identical* under both orderings,
+and the vectors an implementer reaches for first are all palindromes:
+`zuzuz` (n=0), `tatat` (n=3124), `zotoz`, `pipip` — and among the real boards,
+`zavaz`. Checking the minimum and the maximum passes while the encoder is
+still wrong.
+
+Use **`zuzuv`** (n=1, reverses to `vuzuz`) or **`zotuz`** (n=225, reverses to
+`zutoz`). Both are published for exactly this purpose, and
+`$.properties.endianness_probe` in the vectors file names them.
 
 ## Properties
 

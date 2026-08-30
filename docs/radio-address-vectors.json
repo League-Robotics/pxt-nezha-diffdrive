@@ -9,7 +9,9 @@
     "channel": "25 + 2 * (n % 25)",
     "group": "g = 1 + (n / 25); if g >= 10: g += 1",
     "normalize": "trim ASCII whitespace; map A-Z to a-z",
-    "accept": "^[zvgpt][uoiea][zvgpt][uoiea][zvgpt]$"
+    "accept": "^[zvgpt][uoiea][zvgpt][uoiea][zvgpt]$",
+    "encode": "n -> name, the inverse of decode: for p = 4 down to 0: name[p] = alphabet(p)[n % 5]; n = n / 5",
+    "endianness": "name[0] is the MOST significant base-5 digit and name[4] the LEAST. Base-5 conversion naturally emits least-significant first, so a naive encoder produces reversed names: n=1 is 'zuzuv', not 'vuzuz'. The error is diagnostic-free -- 3125 well-formed, regex-passing, distinct names in the wrong order."
   },
   "ranges": {
     "n": [
@@ -56,7 +58,13 @@
     "names_per_group": 25,
     "injective": true,
     "full_space_sha256": "a1069d8503f83873ab79b97c063ff95f300b34a35a03d83848888cc361bbde31",
-    "full_space_canonical_form": "for n = 0..3124 in order, one line '<name>,<channel>,<group>\\n', UTF-8, sha256 of the concatenation"
+    "full_space_canonical_form": "for n = 0..3124 in order, one line '<name>,<channel>,<group>\\n', UTF-8, sha256 of the concatenation",
+    "endianness_probe": {
+      "vector": "zotuz",
+      "why": "Digit-palindrome names are IDENTICAL under both orderings and cannot detect a reversed encoder. zuzuz, tatat, zotoz and pipip are all palindromes -- including both extremes, which is what an implementer reaches for first. zotuz (n=225) reverses to zutoz and is the published vector that catches it.",
+      "reversed_encoder_digest": "52ea4a6e6124cdebbb56639d21db15b48f95d54aeb38ce93f7df9e7f9fbeb8dc",
+      "reversed_encoder_digest_note": "If your digest equals THIS value, your encoder is little-endian; reverse the digit order."
+    }
   },
   "reject": [
     "gauti",
@@ -153,6 +161,16 @@
       "role": null,
       "evidence": "synthetic",
       "note": "minimum, n=0"
+    },
+    {
+      "name": "zuzuv",
+      "n": 1,
+      "channel": 27,
+      "group": 1,
+      "device_id": null,
+      "role": null,
+      "evidence": "synthetic",
+      "note": "n=1, the simplest ASYMMETRIC vector: reverses to vuzuz, so it fails loudly against a little-endian encoder where zuzuz and tatat both pass"
     },
     {
       "name": "zotuz",
