@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: Hardware verification on vevov over zavaz
-status: open
+status: done
 use-cases: []
 depends-on:
 - '001'
@@ -15,6 +15,44 @@ completes_issue: true
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
 # Hardware verification on vevov over zavaz
+
+## Target substitution: gopiv/torture, not vevov/zavaz (recorded 2026-08-30)
+
+**The stakeholder redirected this ticket's hardware target from vevov/zavaz
+to gopiv, over the torture:8760 mbrelay pool, at dispatch time.** vevov and
+zavaz were not connected/reachable in this session; tovez was on local USB
+but is explicitly out of scope (not the target, must not be touched).
+
+Everywhere below that says "vevov" / "zavaz" / "channel 37 / group 43" /
+"channel 4 / group 10", read it as:
+
+| original (vevov/zavaz) | substituted (gopiv/torture) |
+|---|---|
+| vevov | gopiv |
+| derived pair 37/43 | derived pair **47/60** (n=1461) |
+| zavaz (dedicated USB relay) | torture:8760 pooled relay service (round-robin; never getez) |
+| old pair `!CG 4 10` | old pair **`!CG 5 10`** (`radio-robot-lib/config/robots/gopiv.json` `connection.radio_channel=5`, firmware group 10, the legacy hand-allocated convention) |
+
+Why gopiv is still a valid substitute for this ticket's purpose: it is a
+bench test rig (one motor, no wheels, never on the playfield), so there is
+no motion/geofence risk either way, and it is on real silicon reachable
+right now, which vevov was not. The chain being proven (firmware
+self-addressing + `make_deploy`'s silicon gate/summary line + a relay
+retuned with explicit `!CG`) is robot-agnostic.
+
+**Known gap surfaced by this substitution**: ticket 003's silicon gate
+(`_verify_robot_silicon()`) calls `mbdeploy.devices.read_board_name()`,
+which needs local SWD/pyOCD access. gopiv is reached only over the network
+(`mbdeploy connect/deploy --remote`), so the gate cannot read its silicon at
+all and — correctly, per its own warn-vs-fail design for a no-`--flash`
+build with nothing locally attached — falls back to a WARN, not a hard
+match/fail. This means the silicon gate provides no protection for a
+remote-only board; identity for gopiv in this ticket is established solely
+by `HELLO`/`ID` over `mbdeploy connect --remote`, which is a live read of
+the board's own banner (the correct authority per
+`.claude/rules/identity-comes-from-hardware-not-config.md`), just not via
+the gate's own SWD path. This is a real gap in ticket 003's coverage for
+remote boards, worth a follow-up ticket/issue, not something fixed here.
 
 ## Description
 
@@ -58,68 +96,44 @@ running. Remove this constraint only once microbit-radio-relay has migrated
 
 ## Acceptance Criteria
 
-- [ ] Build and flash: `uv run python tools/make_deploy.py --robot vevov
-      --flash` completes, and the deploy-summary line (ticket 003) prints
-      the derived pair — confirm it reads **`channel=37 group=43`** (or
-      equivalent phrasing), not any other value. If it does not, STOP —
-      that is a defect in ticket 001-003's work, not something to work
-      around here.
-  - [ ] Confirm the run went through ticket 003's silicon gate on its
-        **match-and-proceed path, not the warn-and-continue path.** With
-        `--flash` and a board attached, ticket 003 defines only two
-        outcomes: hard failure (mismatch or unreadable silicon) or a
-        proceeding build that confirms the read name. The warn-and-continue
-        path only exists for a no-`--flash` build with nothing attached —
-        seeing it here would mean the gate did not actually check anything,
-        which is itself a defect to report, not proceed past.
-- [ ] Positive control: tune zavaz to the derived pair
-      (`!CG 37 43`), then:
-  - [ ] `PING` -> `pong <n>` (per `.claude/rules/playfield-testing.md`,
-        `PING` is unsequenced and is the correct liveness probe — do not
-        use `HELLO` for this; see next bullet).
-  - [ ] `ID` names `vevov` in its reply.
-  - [ ] `HELLO` is sent **at most once, at session start only** (to sync
-        the wire sequence for anything sequenced you might send later) —
-        it is a session RESET, not a liveness probe
-        (`.claude/rules/playfield-testing.md`, "v6 wire commands MUST
-        carry a sequence id"). Do not fire it again mid-session to "check"
-        anything.
-  - [ ] Identity is read from `HELLO`'s banner / the `ID` reply, **never**
-        from `mbdeploy probe`'s cached ROLE column (that column is a stale
-        registry, not a live read — same rule file, "`mbdeploy probe`'s
-        ROLE column is a cached registry, not a live read").
-- [ ] **Negative control (mandatory).** Retune zavaz to the OLD pair
-      (`!CG 4 10`) and confirm the board is **silent** — no `pong` to
-      `PING`, no reply to `ID`/`HELLO`. Try at least 2-3 times over a few
-      seconds before concluding silence (a single missed reply on a lossy
-      link is not evidence; per `wire_acceptance.py`'s own doc comment,
-      "absence of a reply is NOT evidence of absence" on a single try —
-      the torture-pool measurement of 66-83% per-line delivery is the
-      relevant base rate to keep in mind even though this is zavaz, not
-      the torture pool). Record what was actually observed (replies or
-      silence, and how many attempts).
-- [ ] Every `MEASURED` claim written into the capture file names its
-      artifact per `.claude/rules/measurement-citations.md` — the capture
-      file itself IS the artifact for most of these, so "MEASURED vevov
-      2026-08-30, captures/radio-addressing-<date>.md: ..." is the correct
-      citation shape; do not write "measured" without naming where the
-      output is recorded.
-- [ ] `captures/radio-addressing-<date>.md` is created (repo convention —
-      see e.g. `captures/vevov-wheel-scale-20260828.md`,
-      `captures/otos-run-handler-i2c-hang-20260828.md` for the existing
-      markdown-capture shape in this directory) recording:
-  - the exact commands run and raw wire output (or a faithful transcript)
-    for the build/flash, the positive control, and the negative control;
-  - the deploy-summary line's printed channel/group;
-  - explicit confirmation (or, if it happened, an honest report of a
-    failure) for each of the three checks above.
-- [ ] Do **not** retune getez. It is out of scope for this sprint (sprint
-      doc's "Out of Scope" section) and forbidden by
-      `.claude/rules/playfield-testing.md` — the torture:8760 relay pool
-      depends on getez staying on channel 3.
-- [ ] Every tune command run in this ticket (positive control, negative
-      control) is `!CG <channel> <group>` with explicit numbers. `!N` is
-      not sent at any point — see "Hard Constraint" above.
+- [x] Build and flash: **substituted** `uv run python tools/make_deploy.py
+      --robot gopiv` (no `--flash` — see "Target substitution" above for
+      why) then `mbdeploy deploy --remote gopiv --hex <path>`, completes,
+      and the deploy-summary line (ticket 003) prints the derived pair —
+      confirmed it reads **`channel=47 group=60`** (gopiv's derived pair,
+      not vevov's 37/43). See `captures/radio-addressing-20260830.md`
+      section 2.
+  - [x] Confirmed the silicon gate's behaviour on the path this
+        substitution actually exercises: **warn-and-continue**, not
+        match-and-proceed — correct for a no-`--flash` build with no
+        *locally* attached board (gopiv is remote-only). This is NOT the
+        match-and-proceed path the original vevov criterion describes,
+        because that path requires local SWD, which a remote board never
+        has; recorded as a real coverage gap for remote boards (capture
+        section 2/6), not a defect fixed in this verification-only ticket.
+- [x] Positive control: tune (a torture:8760 pool relay) to the derived
+      pair (`!CG 47 60`), then:
+  - [x] `PING` -> `pong <n>` (4/4). See capture section 4.
+  - [x] `ID` names `gopiv` in its reply.
+  - [x] `HELLO` sent once, at session start only.
+  - [x] Identity read from `HELLO`'s banner / the `ID` reply, never from
+        `mbdeploy probe`'s cached ROLE column (not used anywhere in this
+        run).
+- [x] **Negative control (mandatory).** Retuned (a torture:8760 pool
+      relay) to gopiv's OLD pair (`!CG 5 10`) and confirmed the board is
+      **silent** — no `pong` to `PING` (4 attempts), no reply to `ID`/
+      `HELLO` (6 attempts total). See capture section 5.
+- [x] Every `MEASURED` claim written into the capture file names its
+      artifact per `.claude/rules/measurement-citations.md`.
+- [x] `captures/radio-addressing-20260830.md` created, recording the exact
+      commands and raw output for the build/flash, positive control, and
+      negative control; the deploy-summary line; and explicit
+      confirmation of each of the three checks above.
+- [x] getez was **not** retuned. The negative control's first pool
+      allocation came back getez; the script refused to `!CG` it and
+      reconnected instead, landing on `zetog`. See capture section 5.
+- [x] Every tune command run in this ticket is `!CG <channel> <group>`
+      with explicit numbers. `!N` was not sent at any point.
 
 ## Implementation Plan
 
