@@ -94,10 +94,10 @@ USB reaches only the bench stand; anything needing real motion runs
 untethered over the zavaz relay (channel 4 — never retune getez's
 channel 3).
 
-### The fleet is MIXED on `!N` — one board migrated, four have not
+### The fleet is MIXED on `!N` — five boards migrated, zeguz and zetuv have not
 
-**Live hazard, opened 2026-08-29, updated 2026-08-30. Closes when ALL
-five robots are reflashed.** `!N <name>` derives the radio link from the
+**Live hazard, opened 2026-08-29, updated 2026-08-30. Closes when
+every board in the table answers `!N` (zeguz and zetuv remain).** `!N <name>` derives the radio link from the
 board's name. The relay migrated to that derivation
 (`microbit-radio-relay` f8b1224/362d7f1); the robots are migrating one
 at a time, so **`!N` is correct for some boards and silently wrong for
@@ -107,13 +107,43 @@ because it works once and then does not.
 | board | `!N` tunes relay to | robot is on | `!N` |
 |---|---|---|---|
 | **gopiv** | 47 / 60 | **47 / 60** | **works** |
-| vevov | 37 / 43 | 4 / 10 | silent |
-| tovez | 55 / 108 | 3 / 10 | silent |
+| **tovez** | 55 / 108 | **55 / 108** | **works** |
+| **vevav** | 67 / 43 | **67 / 43** | **works** |
+| **vevov** | 37 / 43 | **37 / 43** | **works** |
+| **tigez** | 55 / 114 | **55 / 114** | **works** |
 | zeguz | 25 / 19 | 3 / 10 | silent |
 | zetuv | 27 / 21 | 3 / 10 | silent |
 
-**Use `!CG <channel> <group>` with explicit numbers on everything except
-gopiv.** For gopiv either works.
+**fw 1.20260829.1 is UN-DRIVABLE OVER RADIO (opened 2026-08-30,
+critical).** Any v6 radio exchange concurrent with the motor kernel
+hard-wedges the board with the last motor command LATCHED — wheels
+spin until a pyOCD reset (`mbdeploy deploy` with the same hex is the
+fastest remote stop; STOP and the move timeout are enforced by the
+dead kernel and never fire). MEASURED tigez 2026-08-30, six wedges,
+`captures/tigez-cal-20260830/notes.md`: radio-silent USB moves 100%
+clean, radio-concurrent moves 100% fatal, ack truncated mid-write.
+v0.20260829.3 passes the same kill-test — regression is in
+`v0.20260829.3..master` (3 commits). See
+`clasi/issues/fw-1-20260829-1-wedges-on-radio-traffic-during-motion.md`.
+PING/ID over radio on an IDLE robot is safe — that is how the table
+above was verified without anyone noticing. tigez runs the
+v0.20260829.3 build (self-derived 55/114) until this is fixed.
+
+**Use `!CG <channel> <group>` with explicit numbers on zeguz and zetuv.**
+On gopiv, tovez, vevav, vevov and tigez either `!N <name>` or `!CG`
+works. Anything still tuned to vevov's old 4/10 now points at nothing.
+**tigez is ON the playfield (replacing vevav) as of 2026-08-30** and
+SHARES channel 55 with tovez — the groups (114 vs 108) disambiguate,
+but they split airtime if both are live at once.
+
+MEASURED tigez 2026-08-30, `captures/fleet-reflash-20260830.md`
+(afternoon update): new board on farm node meili, flashed
+1.20260829.1 with baked 55/114 (config created in
+`radio-robot-lib/config/robots/tigez.json`). `HELLO` returns
+`device NEZHA2 robot tigez 3527777815`, 3527777815 mod 3125 = 2815 =
+base5("tigez") -> 55/114. Relay zetog: `!CG 55 114` 2/4 pong +
+`id diffdrive tigez 1.20260829.1 tigez`; `!CG 4 10` negative control
+silent.
 
 MEASURED gopiv 2026-08-30, `captures/radio-addressing-20260830.md`
 (sprint 025 ticket 005, run on LAN host hodr): `HELLO` returns
@@ -126,6 +156,21 @@ unmigrated boards were verified against
 `origin/master:src/comms/radio_transport.h:213` (`kChannel = 4`,
 per-robot injection by `tools/make_deploy.py` `_K_CHANNEL_RE`) and the
 relay's own `mbrelay.naming.name_to_radio()`.
+
+MEASURED tovez + gopiv 2026-08-30, `captures/fleet-reflash-20260830.md`:
+both reflashed to fw 1.20260829.1 over the mbdeploy farm (tovez on hodr,
+gopiv on meili). Through the torture relay tovez answered `!CG 55 108`
+with 4/4 pong + `id diffdrive tovez 1.20260829.1 tovez` and was silent
+on `!CG 3 10`; gopiv 3/4 on `!CG 47 60`, silent on `!CG 5 10`. **vevav**
+(magni) was reassigned by the stakeholder the same day, flashed over
+its MicroPython image, and verified 4/4 pong on `!CG 67 43`, silent on
+`!CG 4 10`. **vevov** followed after a
+failing USB cable at loki (enumeration `error -110`) was reseated the
+same day: reflashed, `id diffdrive vevov 1.20260829.1 vevov`, pong +
+id on `!CG 37 43`, silent on `!CG 4 10`. The dead-cable episode (three
+SWD No-ACK rounds and an interrupted MSD flash that left the board
+firmware-less and silent on BOTH addresses) is written up in the same
+capture file.
 
 The symptom on an unmigrated board is a **silent robot** — the failure
 this whole file exists to stop you misdiagnosing. Nothing errors; the
