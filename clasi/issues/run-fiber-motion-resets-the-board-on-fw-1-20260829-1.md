@@ -1,117 +1,149 @@
-# Any RUN: program that drives the motors resets the board (fw 1.20260829.1)
+# RUN: motion resets the board — CODAL does not save the FPU registers across a fiber switch
 
-**Severity: high — every on-robot tour program is unusable.**
-Opened 2026-09-01. Board: gopiv. Firmware: `1.20260829.1` (master,
-built and flashed 2026-09-01 from `.tmp/deploy-head`, DAPLink MSD onto
-`/media/jtl/MICROBIT` at farm node magni, UID
-`9906360200052820049d38a46da36a83000000006e052820` verified against
-`DETAILS.TXT`).
+**Severity: high, and wider than the RUN verbs.** Opened 2026-09-01,
+**root-caused the same day** on gopiv with pyOCD.
 
-## Symptom
+## Root cause
 
-A cleartext `RUN:` verb that moves the robot emits its `DBG:` banner,
-drives for roughly one move, and then the board **resets**: the boot
-banner reappears on the wire, the `PING` uptime counter restarts, and
-`cyc` returns to 0 and stays there — the motor kernel never comes back
-until the program is restarted.
+**CODAL's fiber context switch saves R0–R12, SP and LR. It saves no VFP
+registers at all.** The firmware is built `-mfpu=fpv4-sp-d16
+-mfloat-abi=softfp`, so GCC allocates the *callee-saved* FPU registers
+s16–s31 freely — 899 sites in the binary reference them.
 
-```
-RUN:square:20
-  DBG:tour=square:side=20
-  device NEZHA2 robot gopiv 2175407711     <- boot banner: this is a RESET
-  OTOS:boot:id=0:connected=0
-```
+A value parked in s16–s31 across a `fiber_sleep()` is therefore
+silently destroyed if any other fiber runs float code in the gap. When
+the parked value is a **pointer**, the next dereference faults.
 
-`STATUS` across the event, 2.1 s apart:
+That is exactly what happens:
 
-```
-t= 2.1  ready=1 active=1 connL=1 connR=1 cyc=53 ...   pong 114858
-t= 4.2  ready=0 active=0 connL=0 connR=0 cyc=0  ...   pong 1743
-```
-
-`pong` going 114858 -> 1743 is the proof it is a reset and not a wedge.
-No panic text, no fault code, no LED error pattern reported over the
-wire — a silent reset, consistent with a HardFault reaching the reset
-vector.
-
-## What is and is not affected — MEASURED, one session, one board
-
-All rows measured gopiv 2026-09-01 over the magni farm serial daemon
-(`captures/` not needed; the raw transcript is in this session's
-`reports/onboard-tours-20260901/*.json`, which hold the telemetry
-frames captured up to the moment each stream died).
-
-| what was sent | resets? |
+| | |
 |---|---|
-| `RUN:turnrate:90`, `RUN:abort`, `RUN:gap` — RUN dispatch, **no motion** | **no** |
-| `MOVE_X 200 0 300 8000` then `MOVE_X 0 1571 300 8000` — **host-driven**, same two motions | **no** |
-| `RUN:straight:20` — RUN dispatch **+ motion** | **yes** |
-| `RUN:pivot:90` — RUN dispatch **+ motion** | **yes** |
-| `RUN:square:20` — RUN dispatch **+ motion** | **yes** |
+| `codal-nrf52/asm/CortexContextSwitch.s` | `swap_context` / `restore_register_context` touch R0–R12, SP, LR only — no `vstm`/`vldm`/`vpush` anywhere in the file |
+| `DifferentialDrive::drive(float left, float right)` @ 0x296ce | `vmov s16, r1` / `vmov s17, r2` — **both wheel speeds go into s16/s17** |
+| `Protocol::run()` @ 0x26a4c | `vmov r1, s16` / `vmov r0, s17` — **reads the line buffer and `this` back out of s16/s17**, then calls `RadioTransport::tryReceiveLine` |
 
-That isolates it cleanly. It is **not** the RUN dispatch path (three
-non-motion RUN verbs are fine), and it is **not** the motions (the
-identical straight and pivot run clean when the host issues them as
-`MOVE_X`). The one thing the three failing cases share and the two
-passing groups do not is `tickToCompletion()` — the busy loop in
-`test/test.ts` that calls `diffDrive.driveTick()` **on the RUN fiber**.
+So the protocol fiber parks `&radioTransport_` in s17, sleeps, the tour
+fiber's PID writes a wheel speed over s17, the protocol fiber wakes and
+dereferences a float as an object pointer.
 
-The reset lands at or just after move COMPLETION, not at the start. In
-the `RUN:square:30` capture the telemetry runs to x = 299 mm of a
-commanded 300 mm leg — the leg finished — and the stream then stops
-dead mid-deceleration (`vl=36 vr=46`).
+## The measurement
 
-## Not caused by the tour programs added this session
+MEASURED gopiv 2026-09-01, `DIFFDRIVE_FAULT_SPIN` debug build (the
+hook `nezha_port.cpp` already carries), pyOCD halt on the parked chip
+after a single `RUN:straight:20`:
 
-`RUN:straight` and `RUN:pivot` both **predate** today's work and fail
-identically. The new `RUN:square` / `RUN:infinity` / `RUN:spline`
-handlers parse their arguments and dispatch correctly — the banner
-`DBG:tour=square:side=20` carries the parsed side length — and then hit
-this same fault. They are written and build-verified but **cannot be
-run to completion on this firmware**.
+```
+CFSR  0x00008200     BFARVALID | PRECISERR  -- precise data bus error
+HFSR  0x40000000     FORCED     -- escalated to HardFault
+BFAR  0xC1C801F3     the faulting address
+xPSR  0x61030003     IPSR = 3  -- in the HardFault handler
+```
 
-## Probably related, not yet proven the same bug
+Stacked exception frame at 0x2001FE20:
 
-`clasi/issues/fw-1-20260829-1-wedges-on-radio-traffic-during-motion.md`
-(and CLAUDE.md's standing hazard) records the same firmware version
-hard-failing when a v6 radio exchange runs concurrently with the motor
-kernel, with the regression bisected to the 3 commits in
-`v0.20260829.3..master`. Both are "a second execution context touches
-the motor kernel and the board dies". They differ in outcome — that one
-WEDGES with the last motor command latched and wheels spinning, this
-one RESETS — so they may be one root cause with two presentations, or
-two faults. Worth checking `v0.20260829.3..master` for this one first.
+```
+r0  0xC1C80000   <- float -25.0    (s17: right wheel, cm/s)
+r1  0x41C80000   <- float +25.0    (s16: left wheel, cm/s)
+r2  0x00000040   r3 0x2001FEB8   r12 0x0000A35D
+LR  0x00026A61   PC 0x00026EF4   xPSR 0x21030200  (thread mode)
+```
 
-**Safety note on the difference:** a reset stops the wheels, so this
-failure mode is not dangerous the way the radio wedge is. Do not assume
-that holds if the root cause turns out to be shared.
+`addr2line` on the build's own ELF:
 
-## What would settle it
+```
+0x00026EF4  RadioTransport::tryReceiveLine   radio_transport.cpp:31
+0x00026A61  Protocol::run                    protocol.cpp:350
+```
 
-1. **Is it a regression?** Run `RUN:straight:20` on a board flashed
-   with `v0.20260829.3`. UNVERIFIED — tigez holds that build but was
-   powered down and silent on `/dev/cu.usbmodem2121202` when this was
-   written (`mbdeploy connect tigez` timed out), so the comparison was
-   not made. This is the single highest-value next measurement: it
-   converts "master is broken" into a 3-commit bisect.
-2. If it is a regression, bisect `v0.20260829.3..master` with
-   `RUN:straight:20` as the kill test — it reproduces 3/3 and takes
-   about 15 s per trial.
-3. Capture the fault properly rather than inferring it from the boot
-   banner: attach pyOCD (recipe in the `radio-heap-corruption-hardfault`
-   notes) and read the fault status registers instead of guessing at
-   HardFault.
+`radio_transport.cpp:31` is `if (radioReady_) return;`. The
+instruction is `ldrb.w r7, [r0, #499]`, and **BFAR = 0xC1C80000 + 0x1F3
+= r0 + 499** — `this` is the float, and `radioReady_` sits at offset
+499. The two register values are not garbage: they are exactly ±25.0f,
+a 250 mm/s pivot, still sitting in the registers the motor path put
+them in.
 
-## Impact
+**Note the reset itself is diagnostic.** `NVIC_SystemReset()` in
+`diffdriveFaultReport()` (added b2305e8) is the ONLY reset path in this
+firmware, so "the board rebooted" already meant "the board faulted".
 
-`tests/tools/test_run_verbs.py` exists because five bench tools
-(`otos_levercal.py`, `pivot_truth.py`, `truth_check.py`,
-`rotation_check.py`, `turn_sweep.py`) drive the robot through exactly
-these verbs. On this firmware **all five are broken on hardware** —
-they will reset the board mid-measurement. That test pins the strings
-they send, which is all it can do without a robot; nothing catches this.
+## Why RUN: faults and host-driven MOVE_X does not
 
-Host-driven `MOVE_X` is unaffected, so `tests/system/run_tour.py` and
-the `.tour` suite are the working path today and every tour result from
-2026-09-01 (square 5.0 mm, circle 17.8 mm, infinity 25.5 mm) came
-through it.
+Not the RUN dispatch, and not the motions:
+
+| what was sent | resets? | why |
+|---|---|---|
+| `RUN:turnrate`, `RUN:abort`, `RUN:gap` | no | no float work on a second fiber |
+| `MOVE_X` straight + pivot, host-driven | no | **`tickDrive()` runs on the protocol fiber itself** (`protocol.cpp`: `if (hasLiveMotionObligation()) tickDrive();`) — one fiber, so the ordinary ABI preserves s16–s31 correctly |
+| `RUN:straight`, `RUN:pivot`, `RUN:square` | **yes, 3/3** | `tickToCompletion()` ticks on the **handler's own fiber** while the protocol fiber sleeps holding pointers in s16/s17 |
+
+The reset lands at or just after move completion, where the float work
+is heaviest and the yields most frequent.
+
+## This is not only a RUN: bug
+
+Any two fibers where one holds a pointer in s16–s31 and the other runs
+float code can do this. In particular **a student program that calls
+`control.inBackground()` and does any floating-point work is exposed**,
+and so is the watchdog fiber's own `appliedDutyLeft != 0.0f`.
+
+It is very likely the same fault as
+`fw-1-20260829-1-wedges-on-radio-traffic-during-motion.md` and the
+tigez wedge written up in `nezha_port.cpp` — that one recorded the
+**identical CFSR 0x8200** and was attributed to heap corruption
+("a pointer holding the ASCII bytes PING"). A pointer restored from a
+clobbered FPU register explains that observation without needing heap
+corruption, and explains why radio traffic *concurrent with the motor
+kernel* is the trigger: the radio poll is the code that parks `this` in
+s17. That attribution should be revisited.
+
+## Fixing it
+
+**Not available:** the clean global fix is `-ffixed-s16 … -ffixed-s31`
+(or `-mfloat-abi=soft`), which would stop GCC using the callee-saved
+FPU registers anywhere. `codal.json` exposes preprocessor
+`definitions` only — no compiler-flag knob — so this would mean editing
+the vendored toolchain cmake, which is out of bounds. Patching CODAL's
+`swap_context` to save s16–s31 is the textbook fix and is out of bounds
+for the same reason. Both are worth raising **upstream**: CODAL
+enabling the FPU without saving it across fibers is a defect in CODAL,
+not in this extension.
+
+**Available, and the recommended fix:** stop running motion on a second
+fiber. Wire-issued moves already tick on the protocol fiber and are
+provably safe; TS-issued moves should do the same. That means an
+obligation-arming shim callable from TypeScript, and `tickedMove()`
+becoming `startMove(...)` + wait, instead of
+`while (diffDrive.driveTick())` on the handler's fiber. The tour then
+runs with exactly one fiber doing float work, which is the condition
+that makes the host-driven path safe today.
+
+This does not remove the underlying hazard for student
+`control.inBackground()` programs — only the upstream fix does — so the
+hazard should be documented for students regardless.
+
+## Impact while it stands
+
+`RUN:square` / `RUN:infinity` / `RUN:spline` (and the pre-existing
+`RUN:straight` / `RUN:pivot` / `RUN:tour`) cannot be driven. The five
+bench tools that use those verbs — `otos_levercal.py`, `pivot_truth.py`,
+`truth_check.py`, `rotation_check.py`, `turn_sweep.py` — will reset the
+board mid-measurement.
+
+Host-driven `MOVE_X` is unaffected: `tests/system/run_tour.py` and the
+whole `.tour` suite are the working path.
+
+## Reproducing
+
+1. Add `#define DIFFDRIVE_FAULT_SPIN 1` above the fault-handler section
+   in `src/platform/nezha_port.cpp` (the hook is already there); build
+   and flash.
+2. Send `RUN:straight:20`. The board goes silent instead of resetting.
+3. `pyocd commander -t nrf52833 -c halt -c "reg r0 r1 pc lr sp"
+   -c "read32 0xE000ED28 4" -c "read32 0xE000ED38 4"`, and dump the
+   stack around MSP for the exception frame.
+4. `arm-none-eabi-addr2line -f -C -e built/dockercodal/build/MICROBIT <pc>`.
+
+**Flash gopiv with pyOCD, not DAPLink mass storage** — MSD timed out
+mid-write twice on magni (`FAIL.TXT`: "The transfer timed out"),
+leaving the board blank both times. `pyocd erase --mass` then
+`pyocd flash -t nrf52833` recovered it cleanly.
