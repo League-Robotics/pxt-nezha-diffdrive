@@ -1837,6 +1837,22 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "rotational_slip": 0.952,
     "stall_clear": 0.0,
     "pivot_overrun": 2.2,   # vevov's measured value (motion_engine.h)
+    # sprint 025 ticket 003: constant-a shaping plus the five
+    # pre-existing end-of-move shaping knobs (ordinals 19-27). Values
+    # chosen inside each field's own documented/validated range
+    # (motion_engine.h) -- none is the field's shipped default, so a
+    # round trip that silently no-ops (validation rejecting the SET)
+    # would show up as a mismatch against the field's real default
+    # instead of passing by coincidence.
+    "accel": 500.0,
+    "decel": 700.0,
+    "v_max": 300.0,
+    "brake_frac": 0.4,
+    "dist_taper": 350.0,
+    "yaw_taper": 160.0,
+    "dist_floor": 0.3,
+    "turn_floor": 0.15,
+    "ramp_ms": 300.0,
 }
 
 
@@ -2857,6 +2873,11 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"stall_window", b"lambda_enabled", b"crawl_pulse",
         b"default_cruise", b"rotational_slip", b"stall_clear",
         b"pivot_overrun",   # 2026-08-29 (OOP): ordinal 18, appended
+        # sprint 025 ticket 003: ordinals 19-27, appended in
+        # ConfigField declaration order.
+        b"accel", b"decel", b"v_max", b"brake_frac",
+        b"dist_taper", b"yaw_taper", b"dist_floor", b"turn_floor",
+        b"ramp_ms",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

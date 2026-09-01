@@ -156,6 +156,42 @@ constexpr FieldEntry kFields[] = {
                                // setPivotOverrunMm()/pivotOverrunMm(),
                                // see motion_engine.h's own comment for
                                // the measurement).
+    {"accel", 19},             // ConfigField.Accel -- [mm/s^2] thin
+                               // forward to MotionEngine::
+                               // setAAccelMmS2()/aAccelMmS2(); 0
+                               // selects legacy mode (see that field's
+                               // own comment, motion_engine.h).
+    {"decel", 20},             // ConfigField.Decel -- [mm/s^2] thin
+                               // forward to MotionEngine::
+                               // setADecelMmS2()/aDecelMmS2(); 0
+                               // selects legacy mode.
+    {"v_max", 21},             // ConfigField.VMax -- [mm/s] thin
+                               // forward to MotionEngine::
+                               // setVMaxMmS()/vMaxMmS(), the ceiling
+                               // defaultCruiseForDistance() never
+                               // exceeds.
+    {"brake_frac", 22},        // ConfigField.BrakeFrac -- [1] thin
+                               // forward to MotionEngine::
+                               // setBrakeFrac()/brakeFrac(), the share
+                               // of a leg's own length
+                               // defaultCruiseForDistance() allots to
+                               // braking.
+    {"dist_taper", 23},        // ConfigField.DistTaper -- [counts] thin
+                               // forward to MotionEngine::
+                               // setDistTaper()/distTaper(), previously
+                               // reachable only from TypeScript.
+    {"yaw_taper", 24},         // ConfigField.YawTaper -- [counts] thin
+                               // forward to MotionEngine::
+                               // setYawTaper()/yawTaper().
+    {"dist_floor", 25},        // ConfigField.DistFloor -- [1] thin
+                               // forward to MotionEngine::
+                               // setDistFloor()/distFloor().
+    {"turn_floor", 26},        // ConfigField.TurnFloor -- [1] thin
+                               // forward to MotionEngine::
+                               // setTurnFloor()/turnFloor().
+    {"ramp_ms", 27},           // ConfigField.RampMs -- [ms] thin
+                               // forward to MotionEngine::
+                               // setRampMs()/rampMs().
 };
 constexpr size_t kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 

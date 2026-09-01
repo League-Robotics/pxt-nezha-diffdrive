@@ -1022,6 +1022,20 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // keep the prior value" validation (motion_engine.h), same shape as
     // case 16's rotational_slip forward above.
     case 18: r.engine.setPivotOverrunMm(v); break;
+    // 19-27: constant-a shaping plus the five pre-existing end-of-move
+    // shaping knobs, all thin forwards to MotionEngine setters that
+    // already own their own validation (motion_engine.h) -- same
+    // shape as case 16/18's forwards above, no inline check needed
+    // here.
+    case 19: r.engine.setAAccelMmS2(v); break;
+    case 20: r.engine.setADecelMmS2(v); break;
+    case 21: r.engine.setVMaxMmS(v); break;
+    case 22: r.engine.setBrakeFrac(v); break;
+    case 23: r.engine.setDistTaper(v); break;
+    case 24: r.engine.setYawTaper(v); break;
+    case 25: r.engine.setDistFloor(v); break;
+    case 26: r.engine.setTurnFloor(v); break;
+    case 27: r.engine.setRampMs(v); break;
     default: break;
   }
 }
@@ -1071,6 +1085,17 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // 18: pivot_overrun's GET side -- MotionEngine::pivotOverrunMm(),
     // not a kernel Config field (same as case 16 above).
     case 18: v = r.engine.pivotOverrunMm(); break;
+    // 19-27: GET side of the setKernelValue() forwards above, same
+    // "not a kernel Config field" shape as case 16/18.
+    case 19: v = r.engine.aAccelMmS2(); break;
+    case 20: v = r.engine.aDecelMmS2(); break;
+    case 21: v = r.engine.vMaxMmS(); break;
+    case 22: v = r.engine.brakeFrac(); break;
+    case 23: v = r.engine.distTaper(); break;
+    case 24: v = r.engine.yawTaper(); break;
+    case 25: v = r.engine.distFloor(); break;
+    case 26: v = r.engine.turnFloor(); break;
+    case 27: v = r.engine.rampMs(); break;
     default: return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));

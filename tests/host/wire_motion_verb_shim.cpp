@@ -325,6 +325,19 @@ void setKernelValue(int field, int value) {
     // setKernelValue() case 18 exactly -- a thin forward to the REAL
     // MotionEngine::setPivotOverrunMm(), which owns its validation.
     case 18: g_activeWaHandle->engine.setPivotOverrunMm(v); break;
+    // 19-27 (sprint 025 ticket 003): constant-a shaping plus the five
+    // pre-existing end-of-move shaping knobs, mirroring shims.cpp's
+    // real setKernelValue() cases 19-27 exactly -- thin forwards to the
+    // REAL MotionEngine setters, which own their own validation.
+    case 19: g_activeWaHandle->engine.setAAccelMmS2(v); break;
+    case 20: g_activeWaHandle->engine.setADecelMmS2(v); break;
+    case 21: g_activeWaHandle->engine.setVMaxMmS(v); break;
+    case 22: g_activeWaHandle->engine.setBrakeFrac(v); break;
+    case 23: g_activeWaHandle->engine.setDistTaper(v); break;
+    case 24: g_activeWaHandle->engine.setYawTaper(v); break;
+    case 25: g_activeWaHandle->engine.setDistFloor(v); break;
+    case 26: g_activeWaHandle->engine.setTurnFloor(v); break;
+    case 27: g_activeWaHandle->engine.setRampMs(v); break;
     default: break;
   }
 }
@@ -371,6 +384,18 @@ int getConfigValue(int field) {
     // 18: pivot_overrun's GET side, mirroring shims.cpp's real
     // getConfigValue() case 18 -- MotionEngine::pivotOverrunMm().
     case 18: v = g_activeWaHandle->engine.pivotOverrunMm(); break;
+    // 19-27 (sprint 025 ticket 003): GET side of the setKernelValue()
+    // forwards above, mirroring shims.cpp's real getConfigValue()
+    // cases 19-27 exactly.
+    case 19: v = g_activeWaHandle->engine.aAccelMmS2(); break;
+    case 20: v = g_activeWaHandle->engine.aDecelMmS2(); break;
+    case 21: v = g_activeWaHandle->engine.vMaxMmS(); break;
+    case 22: v = g_activeWaHandle->engine.brakeFrac(); break;
+    case 23: v = g_activeWaHandle->engine.distTaper(); break;
+    case 24: v = g_activeWaHandle->engine.yawTaper(); break;
+    case 25: v = g_activeWaHandle->engine.distFloor(); break;
+    case 26: v = g_activeWaHandle->engine.turnFloor(); break;
+    case 27: v = g_activeWaHandle->engine.rampMs(); break;
     default: break;
   }
   // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,

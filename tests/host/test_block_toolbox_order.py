@@ -141,6 +141,15 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.DefaultCruise", "ConfigField.RotationalSlip",
         "ConfigField.StallClear",
         "ConfigField.PivotOverrun",  # 2026-08-29 (OOP): ordinal 18
+        "ConfigField.Accel",         # sprint 025 ticket 003: ordinal 19
+        "ConfigField.Decel",         # ordinal 20
+        "ConfigField.VMax",          # ordinal 21
+        "ConfigField.BrakeFrac",     # ordinal 22
+        "ConfigField.DistTaper",     # ordinal 23
+        "ConfigField.YawTaper",      # ordinal 24
+        "ConfigField.DistFloor",     # ordinal 25
+        "ConfigField.TurnFloor",     # ordinal 26
+        "ConfigField.RampMs",        # ordinal 27
     ],
 }
 
