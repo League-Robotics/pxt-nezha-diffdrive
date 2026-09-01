@@ -185,6 +185,46 @@ while a move is active (queue outbound lines, flush between moves).
 Test each with the reproducer below, with MANY trials — the failure is
 probabilistic, so a single survival proves nothing.
 
+## Clean-room bisect matrix (2026-08-30 late; magni bench, brick ON)
+
+The stakeholder's constraint reframed the hunt: "we haven't had this
+problem for weeks -- what changed was not the Lancaster code." All
+earlier mixed-file variants (V1-V4) are RETRACTED as evidence: they
+shared a pxt `built/` cache across worktrees and could serve stale TS
+binaries. The following were rebuilt in clean rooms (fresh worktree, no
+inherited TS cache) and judged by full 8-segment square tours over the
+radio, same bench, same hour:
+
+| build | result |
+|---|---|
+| v0.20260829.3 | **6/8 clean, 0 faults** (2 = ordinary radio loss) |
+| master b2305e8 | dead on move 1, every time |
+| .3 + ab radio_transport.{cpp,h} | **survives** (cyc monotonic, 0 faults) -- transport innocent |
+| .3 + ab transport + ab protocol.{cpp,h} (gates forced true) | dead on move 1 |
+| ...same, with the .3 export surface restored (setRadioGroup back, setupRadio/enableRadioLink removed) | dead on move 1 |
+| ...same, with `radioEnabled_` moved out of the class (layout identical to .3) | **dead AT BOOT** (silent on USB too) |
+| master + .3 blocks/test.ts (gate on) | ambiguous (losses then silence) |
+
+The kill therefore tracks the **protocol.{cpp,h} translation unit from
+ab796aa**, whose entire surviving functional delta vs .3 is a bool
+member plus three always-true reads -- and neither the bool's location
+nor the export surface nor the gates individually explains it. Combined
+with the measured mechanism (radio FrameBuffer landing on the Rig,
+packet text over a vtable pointer), the coherent reading is: **the
+corruption hazard is latent and layout/init-gated; ab796aa's changes to
+this TU moved live objects into the kill zone.** That also reconciles
+"worked for weeks": the gun was always there; the target moved.
+
+## Most promising untested fix (for the next session)
+
+Allocate the Rig EAGERLY at boot, before the radio is ever enabled
+(today it is created lazily on the FIRST motion command, i.e. exactly
+when radio traffic is in flight). With the Rig allocated below all
+radio FrameBuffer churn, the measured corruption cannot land on it.
+One-line-ish change in our code (shims/protocol boot path); test with
+the square-tour reproducer, then hunt the latent corruption at leisure
+behind the fail-safe.
+
 ## Reproducer
 
 Bench the robot on the mbdeploy farm, tune a torture-pool relay to its

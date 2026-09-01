@@ -6,7 +6,7 @@
     "device_id": 2175407711,
     "device_name": "gopiv",
     "enum": 1,
-    "port": "/dev/cu.usbmodem2121102",
+    "port": "/dev/cu.usbmodem2121202",
     "role": "NEZHA2",
     "serial": "2175407711",
     "uid": "9906360200052820049d38a46da36a83000000006e052820"
@@ -22,6 +22,11 @@
     "role": "NEZHA2",
     "serial": "1468666101",
     "uid": "9906360200052820312bde85515a72e6000000006e052820"
+  },
+  "99063602000528205e042b046826389c000000006e052820": {
+    "enum": 5,
+    "port": "/dev/cu.usbmodem2121102",
+    "uid": "99063602000528205e042b046826389c000000006e052820"
   },
   "9906360200052820a8fdb5e413abb276000000006e052820": {
     "announcement": "device NEZHA2 robot tovez 2314287040",

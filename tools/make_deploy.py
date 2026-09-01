@@ -459,10 +459,13 @@ def _read_robot_radio_channel(robot):
 
 
 # Fleet-wide group when a robot's config names none. This is the value
-# `radio_transport.h`'s kGroup already held literally and the one
-# radio-robot-elite's `robot_config.proto` documents as fixed ("GROUP IS
-# FIXED AT 10 to match the RadioRelay"), so a config with no
-# `radio_group` key produces a byte-identical build to before.
+# `radio_transport.h`'s kGroup held literally before 2026-08-30, and the
+# one radio-robot-elite's `robot_config.proto` documented as fixed
+# ("group is fixed at 10 to match the RadioRelay") until that message
+# grew a `radio_group` field (2026-08-30) whose own contract is "absent
+# = 10, NOT proto3's 0". So a config with no `radio_group` key still
+# produces a byte-identical build to before -- unless its channel is
+# name-derived, which `_read_robot_radio_group()` refuses.
 DEFAULT_RADIO_GROUP = 10
 
 # The two positional alphabets of a micro:bit friendly name. The index
@@ -514,9 +517,13 @@ def _read_robot_radio_group(robot):
     """Read `connection.radio_group` from `robot`'s radio-robot-lib
     config, or `DEFAULT_RADIO_GROUP` when the key is absent.
 
-    Absence is NOT an error, unlike a missing channel: no robot config
-    carries a group today, the whole fleet is on 10 by the proto's own
-    contract, and defaulting keeps every existing build byte-identical.
+    Absence is tolerated for a LEGACY config, unlike a missing channel:
+    configs written before 2026-08-30 carry no group, the whole fleet
+    was on 10 by the proto's own contract, and defaulting keeps every
+    such build byte-identical. (Since radio-robot-lib eff85b7 every
+    fleet config names both halves, so the default now only serves a
+    checkout that predates it.) A config whose CHANNEL is name-derived
+    but that names no group is refused -- see below.
 
     The config is AUTHORITATIVE over `derive_radio_from_name()`. That
     matters because a name is not guaranteed unique -- it is 32 bits of
@@ -535,8 +542,31 @@ def _read_robot_radio_group(robot):
     except (OSError, json.JSONDecodeError) as exc:
         sys.exit(f"make_deploy: could not read robot config for "
                   f"'{robot}' at {path}: {exc}")
-    group = config.get('connection', {}).get('radio_group')
+    connection = config.get('connection', {})
+    group = connection.get('radio_group')
     if group is None:
+        # A HALF-MIGRATED CONFIG IS AN ERROR, not a default. Falling
+        # back to 10 is correct only for a genuinely legacy config --
+        # one whose channel is also legacy. A config carrying a
+        # NEW-STYLE channel (odd, 25..73, i.e. one the name-derivation
+        # produces) but no group would build as new-channel plus
+        # legacy-group-10: an address on nobody's map, reachable by no
+        # `!CG` anyone would think to try, and presenting as a flashing
+        # failure rather than as the config gap it is. The two cases are
+        # distinguishable, so the fallback does not have to be blanket.
+        channel = connection.get('radio_channel')
+        if (isinstance(channel, int) and not isinstance(channel, bool)
+                and channel % 2 == 1 and 25 <= channel <= 73):
+            derived = derive_radio_from_name(robot)
+            suggestion = (f" -- the name-derived pair is "
+                          f"{derived[0]}/{derived[1]}" if derived else "")
+            sys.exit(
+                f"make_deploy: {path} sets connection.radio_channel to "
+                f"{channel}, which is a name-derived channel, but names no "
+                f"connection.radio_group. That would build channel "
+                f"{channel} with the legacy group {DEFAULT_RADIO_GROUP}, "
+                f"an address nothing is listening on{suggestion}. Add "
+                f"radio_group, or use a legacy channel.")
         return DEFAULT_RADIO_GROUP
     if not isinstance(group, int) or isinstance(group, bool):
         sys.exit(f"make_deploy: connection.radio_group in {path} is "

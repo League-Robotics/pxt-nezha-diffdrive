@@ -304,3 +304,34 @@ def test_sync_then_inject_channel_end_to_end(tmp_path, monkeypatch):
     make_deploy._inject_radio_channel(str(deploy), "tovez")
 
     assert _kchannel(deploy) == 3
+
+
+# --- the half-migrated config -------------------------------------------
+
+
+def test_a_new_style_channel_with_no_group_is_refused(scratch_repo):
+    """The silent failure the group-10 fallback would otherwise create:
+    a config migrated to a name-derived CHANNEL but not yet given a
+    group builds as new-channel + legacy-group-10 -- a board on nobody's
+    address, which presents as a flashing failure rather than a config
+    gap. Raised by radio-robot-lib during review of the injection."""
+    deploy, robots_dir = scratch_repo
+    _write_robot_config(robots_dir, "gopiv", 47)          # no radio_group
+    with pytest.raises(SystemExit) as exc:
+        make_deploy._inject_radio_channel(str(deploy), "gopiv")
+    msg = str(exc.value)
+    assert "names no connection.radio_group" in msg
+    assert "47" in msg
+    assert "47/60" in msg                                  # names the fix
+
+
+@pytest.mark.parametrize("channel", [3, 4, 5, 6, 7, 24, 74, 26])
+def test_a_genuinely_legacy_channel_still_defaults_to_group_10(
+        scratch_repo, channel):
+    """The fallback must stay silent for real legacy configs -- every
+    config had this shape before 2026-08-30. Even channels and channels
+    outside 25..73 cannot be name-derived, so they are unambiguous."""
+    deploy, robots_dir = scratch_repo
+    _write_robot_config(robots_dir, "tovez", channel)
+    assert make_deploy._inject_radio_channel(str(deploy), "tovez") == (
+        channel, 10)
