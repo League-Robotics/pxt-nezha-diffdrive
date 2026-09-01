@@ -374,12 +374,46 @@ class MotionEngine {
   void settleToRest();
 
   // ---- end-of-move shaping knobs (settable per tour). See this class's
-  // own field comments (below) for what each trades off. --
+  // own field comments (below) for what each trades off. Getters added
+  // below for read-back (these five previously had setters only). --
+  float distTaper() const { return distTaper_; }
   void setDistTaper(float counts) { distTaper_ = counts; }
+  float yawTaper() const { return yawTaper_; }
   void setYawTaper(float counts) { yawTaper_ = counts; }
+  float distFloor() const { return distFloor_; }
   void setDistFloor(float fraction) { distFloor_ = fraction; }
+  float turnFloor() const { return turnFloor_; }
   void setTurnFloor(float fraction) { turnFloor_ = fraction; }
+  float rampMs() const { return rampMs_; }
   void setRampMs(float ms) { rampMs_ = ms; }
+
+  // ---- constant-a acceleration/deceleration shaping. See this class's
+  // own field comments (below, next to each default) for the measured
+  // defect each constant replaces and the value behind each default.
+  // All four default to values that select LEGACY MODE
+  // (aAccelMmS2_ == 0.0f && aDecelMmS2_ == 0.0f): startSegment()/
+  // serviceMove() run their original formulas bit-for-bit -- see
+  // motion_engine.cpp's own comments at both call sites -- until a
+  // caller sets a nonzero accel/decel. Validation mirrors
+  // setPivotOverrunMm()/setRotationalSlip() above: an invalid input
+  // silently keeps the prior value rather than erroring, so a bad
+  // external write cannot corrupt engine state.
+  float aAccelMmS2() const { return aAccelMmS2_; }
+  void setAAccelMmS2(float mmS2) {
+    if (mmS2 > 0.0f) aAccelMmS2_ = mmS2;
+  }
+  float aDecelMmS2() const { return aDecelMmS2_; }
+  void setADecelMmS2(float mmS2) {
+    if (mmS2 > 0.0f) aDecelMmS2_ = mmS2;
+  }
+  float vMaxMmS() const { return vMaxMmS_; }
+  void setVMaxMmS(float mmS) {
+    if (mmS > 0.0f) vMaxMmS_ = mmS;
+  }
+  float brakeFrac() const { return brakeFrac_; }
+  void setBrakeFrac(float frac) {
+    if (frac > 0.0f && frac <= 1.0f) brakeFrac_ = frac;
+  }
 
  private:
   // |rotation| at/above this is NOT one blended segment -- pivot to the
@@ -422,6 +456,18 @@ class MotionEngine {
     uint32_t startMs = 0;     // [ms] for the acceleration ramp
     float cmdScale = 1.0f;    // last commanded rate scale (ramp/taper)
     uint32_t deadline = 0;    // [ms] the caller's timeout backstop
+
+    // ---- constant-a shaping's own per-segment state, read only when
+    // aAccelMmS2_/aDecelMmS2_ > 0. ----
+    float cruiseMmS = 0.0f;   // [mm/s] the raw `cruise` startSegment()
+                              // was called with -- the accel
+                              // integrator's own reference speed (see
+                              // serviceMove()'s ramp block). Unused in
+                              // legacy mode.
+    uint32_t lastTickMs = 0;  // [ms] the PREVIOUS serviceMove() call's
+                              // nowMs(), for the accel integrator's own
+                              // `dt`. Set to startMs at segment start.
+                              // Unused in legacy mode.
   };
 
   // [ms] this engine's own notion of "now" -- see the constructor
@@ -565,6 +611,59 @@ class MotionEngine {
   float distFloor_ = 0.25f;   // [1] slowest fraction of commanded
   float turnFloor_ = 0.12f;   // [1] pure turns crawl slower
   float rampMs_ = 400.0f;     // [ms] acceleration ramp
+
+  // ---- constant-a shaping constants ----
+
+  // [mm/s^2] UNVERIFIED pending a bench sweep -- no robot has run this
+  // yet. 0.0 selects LEGACY MODE (paired with aDecelMmS2_ == 0.0):
+  // startSegment()/serviceMove() keep the original `elapsed/rampMs_`
+  // ramp, including the 0.25f first-tick literal, completely unchanged.
+  // A nonzero value switches on a velocity-slew integrator instead
+  // (`v_cmd <= v_prev + aAccelMmS2_*dt`) -- see startSegment()'s and
+  // serviceMove()'s own comments in motion_engine.cpp. This replaces a
+  // ramp whose effective rate MEASURED from the compiled engine
+  // (captures/motion-profile-probe-20260901/profile_probe.py) scales
+  // with whatever cruise is commanded instead of being a fixed mm/s^2
+  // rate: 184/368/551/720/924 mm/s^2 at cruise 100/200/300/400/600 --
+  // i.e. ~1.875*cruise, not a real acceleration at all.
+  float aAccelMmS2_ = 0.0f;
+
+  // [mm/s^2] UNVERIFIED pending a bench sweep. 0.0 selects LEGACY MODE
+  // (paired with aAccelMmS2_ == 0.0): serviceMove()'s deceleration
+  // axis-scale stays the original `remain/distTaper_` fixed-window
+  // formula, unchanged. A nonzero value switches on the constant-a
+  // braking-speed solve (`v_allow = sqrt(2*aDecelMmS2_*remain_mm)`)
+  // instead, still gated to fire only inside distTaper_/yawTaper_'s
+  // existing window (see serviceMove()'s own comment for why that
+  // window stays a ceiling rather than being derived from this
+  // constant). This replaces a fixed-window taper whose demanded
+  // deceleration MEASURED from the compiled engine (same capture as
+  // above) grows as v^2: 105 mm/s^2 at cruise 100 rising to
+  // 5081 mm/s^2 at cruise 600, collapsing the decel phase from 26
+  // control ticks to 2 -- a demand no real robot can satisfy at the
+  // higher cruise values.
+  float aDecelMmS2_ = 0.0f;
+
+  // [mm/s] global speed ceiling for a future distance-chosen
+  // default-cruise resolver (`v_default(D) = min(vMaxMmS_, ...)`) that
+  // will read this field. UNVERIFIED pending a bench sweep -- this is
+  // a documented PLACEHOLDER, not a fit constant: informed by, not
+  // measured as, a field-tour result MEASURED 2026-08-31,
+  // captures/fleet-tours-speed-20260831.json -- 200 mm/s gave this
+  // rig's best recorded closure (tigez) on the orange-dot tour while
+  // 400 mm/s doubled the mean leg miss (2.0-2.1 cm vs 3.6-4.1 cm).
+  // Must never be 0: that resolver's min() depends on this being a
+  // real, positive ceiling unconditionally, even before aDecelMmS2_ is
+  // ever set nonzero.
+  float vMaxMmS_ = 250.0f;
+
+  // [1] fraction of a default-speed move's own leg length a future
+  // `v_default(D) = min(vMaxMmS_, sqrt(2*aDecelMmS2_*brakeFrac_*D))`
+  // resolver will allot to braking. UNVERIFIED pending a bench sweep --
+  // placeholder within an accuracy-first recommended range (0.35-0.4).
+  // Not consulted by anything yet; that future resolver is its first
+  // reader.
+  float brakeFrac_ = 0.375f;
 };
 
 }  // namespace diffDrive

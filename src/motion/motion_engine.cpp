@@ -31,6 +31,32 @@ float wrapToPi(float angleRad) {
   return angleRad;
 }
 
+// Constant-a braking-speed axis scale (SUC-001): axisScale = v_allow /
+// axisCruiseMmS, where v_allow =
+// sqrt(2*aDecelMmS2*remainMm) is the speed permissible with `remainMm`
+// [mm] left to travel on this axis at deceleration `aDecelMmS2`
+// [mm/s^2], and axisCruiseMmS is THIS AXIS's own full-rate (scale==1.0)
+// commanded speed, recovered from the counts/s command startSegment()
+// computed for it (`axisCmdCountsPerS`) -- NOT the wheels_x-level
+// `cruise` argument directly, since a blended arc's dist/yaw axes each
+// run at their own fraction of it (see startSegment()'s velCmd/twistCmd
+// derivation). `remainCounts` may be negative (past the target); clamped
+// to 0 mm so this always returns a finite, non-negative scale rather
+// than NaN. The caller is responsible for the distTaper_/yawTaper_
+// window gate -- see serviceMove()'s own call sites for why the gate
+// lives there, not here (distTaper_/yawTaper_ are retained as a window
+// ceiling rather than derived from aDecelMmS2 -- an extreme
+// aDecelMmS2/cruise combination could otherwise compute an arbitrarily
+// long braking window): this function has no notion of "outside the
+// window" at all.
+float constantDecelAxisScale(float aDecelMmS2, float remainCounts,
+                              float axisCmdCountsPerS, float cpm) {
+  const float remainMm = remainCounts > 0.0f ? remainCounts / cpm : 0.0f;
+  const float vAllow = std::sqrt(2.0f * aDecelMmS2 * remainMm);
+  const float axisCruiseMmS = std::fabs(axisCmdCountsPerS) / cpm;
+  return axisCruiseMmS > 0.0f ? (vAllow / axisCruiseMmS) : 0.0f;
+}
+
 }  // namespace
 
 MotionEngine::MotionEngine(DiffDrive::DifferentialDrive& kernel,
@@ -162,13 +188,30 @@ void MotionEngine::startSegment(float distance, float rotation,
   const float cruiseCounts = cruise * cpm;  // [counts/s]
   move_.velCmd = move_.distTarget / dominant * cruiseCounts;
   move_.twistCmd = move_.yawTarget / dominant * cruiseCounts;
+  move_.cruiseMmS = cruise;  // the accel integrator's own reference
+                             // speed (serviceMove()'s ramp block);
+                             // unused in legacy mode.
 
   // Acceleration ramp (stakeholder, 2026-08-20): start at the floor
   // rate, not a full-rate step -- serviceMove() raises the scale over
   // rampMs_. Mirrors the end-of-move taper; effective accel ~= full
   // rate / 0.4 s (~375 mm/s^2 at 15 cm/s), reference-shaper-like.
   move_.startMs = nowMs();
-  move_.cmdScale = 0.25f;
+  move_.lastTickMs = move_.startMs;  // dt anchor for the accel
+                                     // integrator.
+  // In LEGACY mode (aAccelMmS2_ == 0.0f), the first tick starts at the
+  // original, undocumented 0.25f literal -- unchanged. In SHAPED mode,
+  // that literal is removed: the first tick starts at the same
+  // distFloor_/turnFloor_ floor serviceMove()'s own taper uses (a pure
+  // turn's own floor is turnFloor_, everything else is distFloor_), so
+  // the velocity-slew integrator ramps up from a floor already proven
+  // safe rather than from an unrelated hardcoded fraction.
+  const bool pureTurnAtStart =
+      (move_.yawTarget != 0.0f && move_.distTarget == 0.0f);
+  const float initialScale = aAccelMmS2_ > 0.0f
+      ? (pureTurnAtStart ? turnFloor_ : distFloor_)
+      : 0.25f;
+  move_.cmdScale = initialScale;
   const uint32_t now = move_.startMs;
   const uint32_t remainingMs =
       static_cast<int32_t>(move_.deadline - now) > 0
@@ -180,7 +223,8 @@ void MotionEngine::startSegment(float distance, float rotation,
   // resolves as kStop on the wire, indistinguishable from a move that
   // actually ran.
   const DiffDrive::DifferentialDrive::Status driveStatus = kernel_.drive(
-      move_.velCmd * 0.25f, move_.twistCmd * 0.25f, remainingMs);
+      move_.velCmd * initialScale, move_.twistCmd * initialScale,
+      remainingMs);
   move_.active = (driveStatus == DiffDrive::DifferentialDrive::Status::kOk);
 }
 
@@ -363,6 +407,9 @@ bool MotionEngine::serviceMove() {
   const float distMargin = 10.0f;                     // [counts]
   const float yawMargin = pureTurn ? 4.0f : 10.0f;     // [counts]
   const float kTaperFloor = pureTurn ? turnFloor_ : distFloor_;
+  // Only read by the shaped (aDecelMmS2_ > 0) branches below; a dead
+  // load in legacy mode, same as every other new field this ticket adds.
+  const float cpm = countsPerMm();
 
   float scale = 1.0f;
   bool distDone = true;
@@ -370,7 +417,19 @@ bool MotionEngine::serviceMove() {
     const float remain =
         std::fabs(move_.distTarget) - std::fabs(meanProgress);
     distDone = remain <= distMargin;
-    const float axisScale = remain / distTaper_;
+    // SUC-001: aDecelMmS2_ > 0 selects the constant-a braking-speed
+    // solve, still gated to the EXISTING distTaper_ window --
+    // distTaper_ remains a window ceiling, not a value the new formula
+    // can widen. aDecelMmS2_ == 0 is untouched: same `remain/distTaper_`
+    // expression as before, importing none of the new math.
+    float axisScale;
+    if (aDecelMmS2_ > 0.0f) {
+      axisScale = remain <= distTaper_
+          ? constantDecelAxisScale(aDecelMmS2_, remain, move_.velCmd, cpm)
+          : 1.0f;
+    } else {
+      axisScale = remain / distTaper_;
+    }
     if (axisScale < scale) scale = axisScale;
   }
   bool yawDone = true;
@@ -391,21 +450,52 @@ bool MotionEngine::serviceMove() {
     // exact double-count while the one leg under goToWorld's straight-
     // line threshold skipped this branch and ran full speed).
     if (pureTurn) {
-      const float axisScale = remain / yawTaper_;
+      // Same constant-a/legacy split as the distance axis above, gated
+      // to yawTaper_'s own window instead of distTaper_'s.
+      float axisScale;
+      if (aDecelMmS2_ > 0.0f) {
+        axisScale = remain <= yawTaper_
+            ? constantDecelAxisScale(aDecelMmS2_, remain, move_.twistCmd,
+                                     cpm)
+            : 1.0f;
+      } else {
+        axisScale = remain / yawTaper_;
+      }
       if (axisScale < scale) scale = axisScale;
     }
   }
   if (scale < kTaperFloor) scale = kTaperFloor;
 
-  // Acceleration ramp: time-based rise from the floor to full rate over
-  // rampMs_, min-combined with the end taper (a very short move may go
-  // straight from ramp to taper without ever reaching full).
+  // Acceleration ramp, min-combined with the end taper (a very short
+  // move may go straight from ramp to taper without ever reaching
+  // full) -- exactly as before, unless shaped mode is selected. SUC-002:
+  // aAccelMmS2_ > 0 replaces the time-based `elapsed/rampMs_` fraction
+  // with a velocity-slew integrator, `v_cmd <= v_prev + aAccelMmS2_*dt`,
+  // expressed as a scale of move_.cruiseMmS_ so it min-combines with the
+  // taper scale the same way the legacy fraction did. `v_prev` is
+  // move_.cmdScale from the PREVIOUS tick -- the ACTUAL last commanded
+  // scale (already taper/floor-limited by that tick's own min-combine
+  // below), not a re-derivation from elapsed time -- so a taper-limited
+  // segment's accel ramp picks up from where the taper actually left it,
+  // and so that changing aDecelMmS2_ alone never perturbs this
+  // integrator's own math (it never reads distTaper_/yawTaper_/rampMs_
+  // at all). aAccelMmS2_ == 0 is untouched: same `elapsed/rampMs_`
+  // expression as before, importing none of the new math.
   const uint32_t nowMsRamp = nowMs();
-  float ramp =
-      static_cast<float>(nowMsRamp - move_.startMs) / rampMs_;
+  float ramp;
+  if (aAccelMmS2_ > 0.0f) {
+    const float dtS =
+        static_cast<float>(nowMsRamp - move_.lastTickMs) / 1000.0f;
+    const float cruiseMmS = move_.cruiseMmS > 0.0f ? move_.cruiseMmS : 1.0f;
+    ramp = move_.cmdScale + (aAccelMmS2_ * dtS) / cruiseMmS;
+  } else {
+    ramp = static_cast<float>(nowMsRamp - move_.startMs) / rampMs_;
+  }
   if (ramp < kTaperFloor) ramp = kTaperFloor;
   if (ramp < scale) scale = ramp;
   if (scale > 1.0f) scale = 1.0f;
+  move_.lastTickMs = nowMsRamp;  // dt anchor for the NEXT tick; a dead
+                                 // store in legacy mode.
 
   // Reissue EVERY tick while the move is active, at the current scale
   // with a rolling 500 ms lease -- the only form that is lease-safe:
