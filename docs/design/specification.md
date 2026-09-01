@@ -222,6 +222,16 @@ integer values used by the shim's `setKernelValue` switch, §9):
 | 15 | `DefaultCruise` | "default cruise speed" | *(none — see below)* |
 | 16 | `RotationalSlip` | "rotational slip" | *(none — see below)* |
 | 17 | `StallClear` | "clear stall latch" | *(none — see below)* |
+| 18 | `PivotOverrun` | "pivot overrun mm" | *(none — see below)* |
+| 19 | `Accel` | "acceleration mm/s2" | *(none — see below)* |
+| 20 | `Decel` | "deceleration mm/s2" | *(none — see below)* |
+| 21 | `VMax` | "max speed mm/s" | *(none — see below)* |
+| 22 | `BrakeFrac` | "brake fraction" | *(none — see below)* |
+| 23 | `DistTaper` | "distance taper counts" | *(none — see below)* |
+| 24 | `YawTaper` | "yaw taper counts" | *(none — see below)* |
+| 25 | `DistFloor` | "distance floor" | *(none — see below)* |
+| 26 | `TurnFloor` | "turn floor" | *(none — see below)* |
+| 27 | `RampMs` | "ramp ms" | *(none — see below)* |
 
 Ordinal 15's "Kernel `Config` field" column is also non-standard:
 `DefaultCruise` is not a `DifferentialDrive::Config` field at all — it
@@ -267,6 +277,49 @@ is a convenience readback of `Output.stallHalted`, not a stored value —
 reading it back never returns whatever was last "set." This mirrors
 the dedicated `clear stall latch`/`is stalled` blocks (§4.2) exactly;
 both routes reach the same kernel call.
+
+Ordinal 18's "Kernel `Config` field" column is likewise non-standard:
+`PivotOverrun` is not a `DifferentialDrive::Config` field — it is
+`MotionEngine`'s own `pivotOverrunMm_` (`motion_engine.h`), the
+per-wheel end-of-move overrun (mm) subtracted from every rotation
+target before it is commanded. See that field's own comment for the
+measurement behind its default (0, no compensation). `setConfigValue`
+applies the same "`>= 0`, else silently keep the prior value"
+validation `setPivotOverrunMm()` already uses.
+
+Ordinals 19-27's "Kernel `Config` field" column is non-standard for
+the same reason as 15/16/17/18 above: none of these nine is a
+`DifferentialDrive::Config` field. All nine live on `MotionEngine`, as
+the constant-acceleration/deceleration shaping surface that also
+resolves the wire-level `MOVE_X`/`GO_TO_R`/`GO_TO_W` verbs' own
+`cruise == 0` "use the default" sentinel by leg distance — a wire-layer
+behavior this document's block-API reference does not otherwise cover,
+since the TS blocks above (§4.3-4.5) always resolve `defaultSpeed`
+themselves before reaching the shim. `WHEELS_X`/`WHEELS_V` keep
+ordinal 15's flat `Rig::defaultCruiseMmS_` sentinel unchanged. Each
+ordinal is a thin forward to the named `MotionEngine` accessor:
+
+| Ordinal | Enum member | Engine accessor | Unit |
+|---|---|---|---|
+| 19 | `Accel` | `setAAccelMmS2()`/`aAccelMmS2()` | mm/s² |
+| 20 | `Decel` | `setADecelMmS2()`/`aDecelMmS2()` | mm/s² |
+| 21 | `VMax` | `setVMaxMmS()`/`vMaxMmS()` | mm/s |
+| 22 | `BrakeFrac` | `setBrakeFrac()`/`brakeFrac()` | fraction |
+| 23 | `DistTaper` | `setDistTaper()`/`distTaper()` | counts |
+| 24 | `YawTaper` | `setYawTaper()`/`yawTaper()` | counts |
+| 25 | `DistFloor` | `setDistFloor()`/`distFloor()` | fraction |
+| 26 | `TurnFloor` | `setTurnFloor()`/`turnFloor()` | fraction |
+| 27 | `RampMs` | `setRampMs()`/`rampMs()` | ms |
+
+`Accel`/`Decel`/`VMax` (19-21) validate the same way `PivotOverrun`
+above does (`> 0`, else silently keep the prior value); `0` on either
+`Accel` or `Decel` is the legacy-mode sentinel (see `motion_engine.h`'s
+own field comments) rather than an invalid write. `BrakeFrac` (22)
+validates `0 < value <= 1`. `DistTaper`/`YawTaper`/`DistFloor`/
+`TurnFloor`/`RampMs` (23-27) are the five shaping knobs that predate
+this wire exposure and were previously reachable only from
+TypeScript — their setters accept any value unconditionally, with no
+range check, exactly as they always have.
 
 **Not exposed anywhere in the block API or the `ConfigField` enum** (a
 source-derived observation, not in the README): the kernel's per-wheel
