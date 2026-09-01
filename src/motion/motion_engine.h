@@ -666,10 +666,15 @@ class MotionEngine {
   // axis-scale stays the original `remain/distTaper_` fixed-window
   // formula, unchanged. A nonzero value switches on the constant-a
   // braking-speed solve (`v_allow = sqrt(2*aDecelMmS2_*remain_mm)`)
-  // instead, still gated to fire only inside distTaper_/yawTaper_'s
-  // existing window (see serviceMove()'s own comment for why that
-  // window stays a ceiling rather than being derived from this
-  // constant). This replaces a fixed-window taper whose demanded
+  // instead. On the dist axis this is gated by the kinematics
+  // themselves (`v_cmd^2/(2*aDecelMmS2_)`, motion_engine.cpp's
+  // constantDecelWindowMm()) rather than by distTaper_: a fixed-counts
+  // window is smaller than that kinematic one at any meaningful cruise
+  // and left this solve unreachable above roughly 200 mm/s (see that
+  // function's own comment for the measured before/after). The
+  // pure-turn yaw axis is unaffected by that change and still gates on
+  // the fixed yawTaper_ counts window (see serviceMove()'s own
+  // comment). This replaces a fixed-window taper whose demanded
   // deceleration MEASURED from the compiled engine (same capture as
   // above) grows as v^2: 105 mm/s^2 at cruise 100 rising to
   // 5081 mm/s^2 at cruise 600, collapsing the decel phase from 26

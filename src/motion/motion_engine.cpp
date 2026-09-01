@@ -42,13 +42,12 @@ float wrapToPi(float angleRad) {
 // run at their own fraction of it (see startSegment()'s velCmd/twistCmd
 // derivation). `remainCounts` may be negative (past the target); clamped
 // to 0 mm so this always returns a finite, non-negative scale rather
-// than NaN. The caller is responsible for the distTaper_/yawTaper_
-// window gate -- see serviceMove()'s own call sites for why the gate
-// lives there, not here (distTaper_/yawTaper_ are retained as a window
-// ceiling rather than derived from aDecelMmS2 -- an extreme
-// aDecelMmS2/cruise combination could otherwise compute an arbitrarily
-// long braking window): this function has no notion of "outside the
-// window" at all.
+// than NaN. The caller is responsible for its own window gate -- see
+// serviceMove()'s own call sites: the dist axis gates on
+// constantDecelWindowMm() below (the kinematics themselves), the yaw
+// axis still gates on the fixed yawTaper_ counts window -- this
+// function has no notion of "outside the window" at all, for either
+// axis.
 float constantDecelAxisScale(float aDecelMmS2, float remainCounts,
                               float axisCmdCountsPerS, float cpm) {
   const float remainMm = remainCounts > 0.0f ? remainCounts / cpm : 0.0f;
@@ -56,6 +55,39 @@ float constantDecelAxisScale(float aDecelMmS2, float remainCounts,
   const float axisCruiseMmS = std::fabs(axisCmdCountsPerS) / cpm;
   return axisCruiseMmS > 0.0f ? (vAllow / axisCruiseMmS) : 0.0f;
 }
+
+// Braking window before a constant-a stop, in [mm]: the kinematic
+// v^2/(2a) an axis genuinely needs to come to rest from its own
+// full-rate commanded speed (`axisCmdCountsPerS`, recovered the same
+// way constantDecelAxisScale() above does -- not the raw wheels_x-level
+// `cruise` argument). serviceMove()'s dist axis gates its shaped-mode
+// branch on this instead of on distTaper_: a fixed-counts window is
+// smaller than this kinematic one at any meaningful cruise, which left
+// the constant-a solve unreachable above roughly 200 mm/s. MEASURED on
+// the compiled engine, captures/gopiv-profile-sweep-20260901/
+// sweep_gopiv_wide.json: raising the old fixed window from its
+// 400-count default to 5000 counts took the cruise-400 ramp-down from
+// 1 control tick to 14, and the cruise-300 window (153.8 mm) matched
+// this formula's own prediction (150.0 mm) to 2.5%. `aDecelMmS2` is
+// the caller's own already-validated (`> 0`) field.
+float constantDecelWindowMm(float aDecelMmS2, float axisCmdCountsPerS,
+                             float cpm) {
+  const float axisCruiseMmS = std::fabs(axisCmdCountsPerS) / cpm;
+  return (axisCruiseMmS * axisCruiseMmS) / (2.0f * aDecelMmS2);
+}
+
+// Small multiplicative safety margin applied to constantDecelWindowMm()
+// above before it gates the dist axis's shaped-mode branch: at the
+// EXACT boundary the two branches already agree (v_allow there equals
+// the axis's own full-rate speed, so the derived scale is 1.0, same as
+// the outside-the-window branch), so this margin is not needed for
+// continuity -- it exists so a caller ticking slower than the braking
+// curve's own timescale, and so sampling `remain` only once per
+// control period, engages the solve slightly before the exact
+// threshold rather than exactly at it, absorbing up to one period's
+// worth of travel without changing what the solve computes once
+// engaged.
+constexpr float kBrakingWindowMargin = 1.10f;
 
 }  // namespace
 
@@ -436,13 +468,21 @@ bool MotionEngine::serviceMove() {
         std::fabs(move_.distTarget) - std::fabs(meanProgress);
     distDone = remain <= distMargin;
     // SUC-001: aDecelMmS2_ > 0 selects the constant-a braking-speed
-    // solve, still gated to the EXISTING distTaper_ window --
-    // distTaper_ remains a window ceiling, not a value the new formula
-    // can widen. aDecelMmS2_ == 0 is untouched: same `remain/distTaper_`
-    // expression as before, importing none of the new math.
+    // solve, gated by the kinematics themselves
+    // (constantDecelWindowMm() above, `v_cmd^2/(2*aDecelMmS2_)`) rather
+    // than by distTaper_ -- a fixed-counts window is smaller than that
+    // kinematic one at any meaningful cruise, which left this solve
+    // unreachable above roughly 200 mm/s (see that function's own
+    // comment for the measured before/after). distTaper_ stays
+    // authoritative only in legacy mode. aDecelMmS2_ == 0 is untouched:
+    // same `remain/distTaper_` expression as before, importing none of
+    // the new math.
     float axisScale;
     if (aDecelMmS2_ > 0.0f) {
-      axisScale = remain <= distTaper_
+      const float remainMm = remain > 0.0f ? remain / cpm : 0.0f;
+      const float windowMm =
+          constantDecelWindowMm(aDecelMmS2_, move_.velCmd, cpm);
+      axisScale = remainMm <= windowMm * kBrakingWindowMargin
           ? constantDecelAxisScale(aDecelMmS2_, remain, move_.velCmd, cpm)
           : 1.0f;
     } else {
@@ -468,8 +508,10 @@ bool MotionEngine::serviceMove() {
     // exact double-count while the one leg under goToWorld's straight-
     // line threshold skipped this branch and ran full speed).
     if (pureTurn) {
-      // Same constant-a/legacy split as the distance axis above, gated
-      // to yawTaper_'s own window instead of distTaper_'s.
+      // Same constant-a/legacy split as the distance axis above, but
+      // unlike that axis's kinematics-derived gate this one still uses
+      // the fixed yawTaper_ counts window unconditionally -- the
+      // dist-axis fix above does not apply here.
       float axisScale;
       if (aDecelMmS2_ > 0.0f) {
         axisScale = remain <= yawTaper_

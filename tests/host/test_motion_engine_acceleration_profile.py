@@ -502,6 +502,80 @@ def test_shaped_mode_decel_is_constant_across_cruise(motion_lib):
     assert max(fits.values()) / min(fits.values()) < 1.5
 
 
+def test_cruise_400_decel_window_tracks_kinematics_at_default_dist_taper(
+        motion_lib):
+    """Regression guard for the dist_taper-ceiling defect: at cruise
+    400 with `distTaper_` left at its shipped DEFAULT (400 counts,
+    ~31.5 mm -- no `set_dist_taper()` call anywhere in this test), the
+    braking window must still track `v^2/(2*aDecelMmS2_)` instead of
+    being capped by that legacy default. Before the fix, the dist
+    axis's shaped-mode branch only engaged once `remain <= distTaper_`,
+    so at cruise 400 (needed window ~267 mm, 8.5x the 31.5 mm default)
+    the move never entered the constant-a solve at all and stopped in
+    a single control tick -- MEASURED on gopiv,
+    captures/gopiv-profile-sweep-20260901/sweep_gopiv_shaped.json.
+    This test uses the same regression-fit technique as
+    test_shaped_mode_decel_is_constant_across_cruise above, but
+    deliberately omits that test's own `set_dist_taper(8000)` override
+    -- the whole point here is the engine's real, shipped default."""
+    cruise = 400.0
+
+    def configure(e):
+        e.set_a_decel_mm_s2(_A_DECEL_TEST)
+        # distTaper_ deliberately left at its engine default (400
+        # counts) -- no set_dist_taper() call. That default is smaller
+        # than this cruise's own v^2/(2a) window, which is exactly the
+        # defect this test guards against reappearing.
+
+    trace = _run_move(motion_lib, 1000.0, 0.0, cruise, configure=configure)
+    assert trace.completed
+
+    dec, pk, n = _fit_decel_regression(trace.rows)
+    assert n >= 3, (
+        f"decel fit had only {n} samples, too few to trust -- at the "
+        "old distTaper_-ceiling defect this collapsed to a single "
+        "control tick at cruise 400"
+    )
+    assert dec == pytest.approx(_A_DECEL_TEST, rel=0.20), (
+        f"fit decel {dec:.1f} mm/s^2 vs configured {_A_DECEL_TEST} at "
+        f"cruise {cruise} mm/s with distTaper_ at its shipped default -- "
+        "if this drifts back toward a v^2-growing legacy-shaped demand, "
+        "the dist axis's shaped-mode gate has regressed to depending on "
+        "distTaper_ again."
+    )
+
+    # Directly check the braking window itself, in mm, against the
+    # kinematic prediction v^2/(2a) -- using the MEASURED peak speed
+    # `pk` (this cruise clips against the duty rail, per this file's
+    # own FULL_DUTY_VELOCITY comment, so the achieved plateau is a bit
+    # under the nominal 400 mm/s cruise), not just the fitted decel
+    # rate above.
+    usable = trace.rows[:-1]  # drop the post-completion final sample
+    v = [r[1] for r in usable]
+    p = [r[2] for r in usable]
+    i_cruise = max(i for i, s in enumerate(v) if s >= 0.99 * pk)
+    measured_window_mm = p[-1] - p[i_cruise]
+    predicted_window_mm = (pk * pk) / (2.0 * _A_DECEL_TEST)
+
+    assert measured_window_mm == pytest.approx(
+        predicted_window_mm, rel=0.25), (
+        f"measured braking window {measured_window_mm:.1f} mm vs the "
+        f"kinematic prediction v^2/(2a) = {predicted_window_mm:.1f} mm "
+        f"(peak speed {pk:.1f} mm/s, aDecelMmS2_={_A_DECEL_TEST}) -- "
+        "distTaper_'s shipped default (400 counts, ~31.5 mm) must no "
+        "longer cap this window."
+    )
+    # Explicitly rule out the pre-fix defect shape: a window anywhere
+    # near distTaper_'s own ~31.5 mm default would mean the fixed-counts
+    # ceiling gate is back.
+    assert measured_window_mm > 100.0, (
+        f"measured braking window {measured_window_mm:.1f} mm is close "
+        "to distTaper_'s old ~31.5 mm ceiling -- the dist axis's "
+        "shaped-mode gate looks like it has regressed to depending on "
+        "distTaper_ instead of the kinematics."
+    )
+
+
 # ---- AC: accel and decel are independently settable/observable ------
 
 
