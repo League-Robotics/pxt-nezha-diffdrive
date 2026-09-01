@@ -1,0 +1,71 @@
+# The spline tour: a serpentine -- four half-circles of alternating
+# curvature, driven as arcs.
+#
+# WHY THIS SHAPE. The elite suite's spline tours (complex_spline.tour,
+# tag_spline.tour) follow a fitted SVG path with pure pursuit, and say
+# what makes such a path hard: "repeated left/right reversals". This
+# repo has no path follower -- SPLINE is one of the directives
+# tourfile.py reports as not executed -- so the reversal itself is what
+# is worth keeping. A serpentine is exactly that and nothing else: the
+# curvature flips sign at every join, with no straight in between to
+# let the heading servo settle. Where circle.tour holds one curvature
+# and infinity.tour reverses it twice per lap, this reverses it three
+# times in a row.
+#
+# It is NOT a fitted spline and should not be described as one. It is
+# the curvature-reversal half of what a spline test measures, which is
+# the half this robot can drive.
+#
+# SIZING. r = 150 mm. Each half circle advances 2r along the axis and
+# stays within +-r of it, so four bends span 4 x 2r = 1200 mm by
+# 300 mm. Against the +-671.5 x +-446.5 mm centre limit that leaves
+# ~71 mm on the long axis (start at x = -600 facing East) and a lot of
+# room on the short one. Five bends would span 1500 mm and NOT fit.
+#
+#   v = omega * r, with omega = 57.3 deg/s = 1.0 rad/s
+#   -> v = 1.0 * 150 = 150 mm/s.
+#
+# SEGMENT SIZE IS NOT FREE. moveX() splits any move with a nonzero
+# distance and |rotation| >= 50 deg (kTurnFirstAngleRad) into a pivot
+# THEN a straight, so an arc asked for in 90 deg pieces comes out as a
+# corner. MEASURED 2026-09-01 on gopiv (reports/tours-20260901/):
+# circle.tour written as one 360 deg arc drove a 942 mm STRAIGHT LINE.
+# Every arc here is 45 deg, so a half circle is four of them.
+
+SET twist_hold_gain 8
+SET speed_floor 512
+SET yaw_taper 800
+SET pivot_overrun 0.68
+
+# --- bend 1: half circle, CCW ----------------------------------------
+MARK bend1
+REPEAT 4
+TWIST vx=150 omega=57.3 angle=45 timeout=6
+END
+
+# --- bend 2: half circle, CW -----------------------------------------
+MARK bend2
+REPEAT 4
+TWIST vx=150 omega=-57.3 angle=-45 timeout=6
+END
+
+# --- bend 3: half circle, CCW ----------------------------------------
+MARK bend3
+REPEAT 4
+TWIST vx=150 omega=57.3 angle=45 timeout=6
+END
+
+# --- bend 4: half circle, CW -----------------------------------------
+MARK bend4
+REPEAT 4
+TWIST vx=150 omega=-57.3 angle=-45 timeout=6
+END
+
+STOP dwell=0.5
+
+# NOTE ON CLOSURE. A serpentine is an OPEN path: it ends 1200 mm from
+# where it started, so the closure number run_tour.py prints is
+# meaningless here and should be ignored. What this tour scores is the
+# heading at the end -- four half circles alternating direction net to
+# ZERO net rotation, so a clean run finishes on the starting heading.
+# Read `net rotation` in the run output, not `closure`.

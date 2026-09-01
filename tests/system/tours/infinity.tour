@@ -1,0 +1,55 @@
+# The infinity tour: a figure-8 -- two circles joined at a point on their
+# circumferences, driven as ARCS, then repeated.
+#
+# WHY ARCS. Each quarter circle is ONE move with a body distance AND a
+# rotation, which the motion engine shapes end to end. The alternative --
+# chopping a circle into dozens of straight chords -- would put an accel
+# ramp and an end taper inside every chord, so the robot would stutter
+# through a polygon instead of driving a curve.
+#
+#   TWIST vx=<v> omega=<w> angle=<a>   is an arc of radius r = v / w
+#
+# Four arcs of 90 deg make one circle; the second circle is driven with
+# omega negated, so the robot leaves the crossing point curving the other
+# way and traces the second lobe. The two lobes meet at the start point,
+# which is the crossing of the 8.
+#
+# SIZING. r = 300 mm. A figure-8 of radius r spans 4r x 2r = 1200 x 600 mm.
+# The playfield limit for the robot centre is +-671.5 x +-446.5 mm
+# (1343 x 893 mm), so 1200 x 600 leaves ~71 mm of margin on x and ~146 mm
+# on y. The stakeholder asked for "about 35 cm"; r = 350 would span
+# 1400 mm and NOT fit (1400 > 1343), so 300 is the largest round radius
+# that clears the rails. Start at the field centre facing East.
+#
+#   v = omega * r, with omega = 45 deg/s = 0.7854 rad/s
+#   -> v = 0.7854 * 300 = 236 mm/s.
+#
+# SEGMENT SIZE IS NOT FREE. moveX() splits any move with a nonzero
+# distance and |rotation| >= 50 deg (kTurnFirstAngleRad) into a pivot
+# THEN a straight -- so 90 deg arcs come out as a SQUARE, which is
+# exactly what the first run of this tour drew. Each arc must therefore
+# stay under 50 deg: 45 deg gives 8 arcs per circle, still a handful of
+# shaped moves rather than dozens of chords.
+
+SET twist_hold_gain 8
+SET speed_floor 512
+SET yaw_taper 800
+SET pivot_overrun 0.68
+
+# --- lobe A: one full circle, CCW (omega positive) -------------------
+REPEAT 8
+
+MARK lobeA
+TWIST vx=236 omega=45 angle=45 timeout=6
+
+END
+
+# --- lobe B: one full circle, CW (omega negative) --------------------
+REPEAT 8
+
+MARK lobeB
+TWIST vx=236 omega=-45 angle=-45 timeout=6
+
+END
+
+STOP dwell=0.5

@@ -1,0 +1,44 @@
+# The square tour: 300 mm sides, CCW, planned stops mid-leg on legs 1 and 3
+# (the umbrella issue's two stops on opposite legs). Ends with a health
+# check and an independent position fix at the origin.
+#
+# PLAYFIELD SIZING (2026-08-14). The original 700 mm square does not fit the
+# camera table: the robot centre must stay inside +-611 x +-386 mm, and
+# a 700 mm square driven from the centre reaches y = +700 mm. Sized here to run from the FIELD CENTRE with ~85 mm of margin
+# on the tight (y) axis, which is more than the measured closure error,
+# so a normal run cannot reach a rail.
+#
+
+MARK leg1a
+TWIST vx=150 dist=150 timeout=6
+STOP dwell=1.0
+MARK leg1b
+TWIST vx=150 dist=150 timeout=6
+TWIST omega=45 angle=90 timeout=8
+
+MARK leg2
+TWIST vx=150 dist=300 timeout=8
+TWIST omega=45 angle=90 timeout=8
+
+MARK leg3a
+TWIST vx=150 dist=150 timeout=6
+STOP dwell=1.0
+MARK leg3b
+TWIST vx=150 dist=150 timeout=6
+TWIST omega=45 angle=90 timeout=8
+
+MARK leg4
+TWIST vx=150 dist=300 timeout=8
+TWIST omega=45 angle=90 timeout=8
+STOP dwell=0.5
+
+# Liveness is asserted by CAMFIX, not by SEND/EXPECT: protocol-v5 cleartext
+# replies cannot be read back while binary telemetry streams (they interleave
+# in one buffer and the line reader cannot separate them), so that EXPECT can
+# never pass on hardware even though the robot answers.
+# The square occupies 0..+300 mm in x AND y from its start, so it must START
+# at (-150,-150) to sit centred on the field -- from the origin its north edge
+# has only ~86 mm of margin and normal drift walks the pre-move guard into a
+# refusal (measured: predicted end y=388 vs the 386 limit). Stage the robot at
+# (-150,-150) facing East; closure is asserted there.
+CAMFIX x=0 y=0 radius=80 relative=1

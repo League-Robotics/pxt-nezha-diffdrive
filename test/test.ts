@@ -812,5 +812,111 @@ control.inBackground(function () {
     }
 })
 
+
+// ---- Tour programs, callable over the wire as RUN:<name> --------------
+// The same three figures the bench runner drives from .tour files, but
+// living ON the robot so a tour can be started with one wire command and
+// runs without a host in the loop. Each is written against
+// diffDrive.move(distance_cm, yaw_deg) -- "both at once makes an arc".
+//
+// ARC SEGMENT SIZE IS NOT FREE. moveX() splits any move with a nonzero
+// distance and |yaw| >= 50 deg into a pivot THEN a straight, so an arc
+// asked for in 90 deg pieces comes out as a SQUARE. Every arc below is
+// 45 deg for that reason (measured 2026-09-01: 90 deg pieces drew a
+// square, 45 deg pieces drew the circle).
+
+// One constant-curvature arc of `deg` degrees on a circle of `rCm`.
+// Arc length = r * theta, which is what move()'s distance argument wants.
+function arcSegment(rCm: number, deg: number) {
+    const distCm = rCm * Math.abs(deg) * Math.PI / 180.0
+    tickedMove(distCm, deg)
+}
+
+// A full circle as 8 arcs of 45 deg. Positive rCm turns CCW (left).
+function circleRun(rCm: number, ccw: boolean) {
+    for (let i = 0; i < 8; i++) {
+        if (aborted) return
+        arcSegment(rCm, ccw ? 45 : -45)
+    }
+}
+
+// RUN:square[:cm] -- the square tour, default 60 cm sides.
+function squareTour(sideCm: number) {
+    if (touring) return
+    touring = true
+    aborted = false
+    diffDrive.emitLine("DBG:tour=square:side=" + sideCm)
+    for (let i = 0; i < 4; i++) {
+        basic.showNumber(i + 1)
+        tickedMove(sideCm, 0)
+        if (aborted) break
+        tickedMove(0, 90)
+        if (aborted) break
+    }
+    diffDrive.stopMove()
+    touring = false
+    basic.showIcon(IconNames.Yes)
+}
+
+// RUN:infinity[:radius_cm[:laps]] -- a figure-8: two circles joined at a
+// point on their circumferences, the second curving the other way, so the
+// robot returns to the crossing point each lap.
+function infinityTour(rCm: number, laps: number) {
+    if (touring) return
+    touring = true
+    aborted = false
+    diffDrive.emitLine("DBG:tour=infinity:r=" + rCm + ":laps=" + laps)
+    for (let lap = 0; lap < laps; lap++) {
+        basic.showNumber(lap + 1)
+        circleRun(rCm, true)         // lobe A, CCW
+        if (aborted) break
+        circleRun(rCm, false)        // lobe B, CW
+        if (aborted) break
+    }
+    diffDrive.stopMove()
+    touring = false
+    basic.showIcon(IconNames.Yes)
+}
+
+// RUN:spline[:cm] -- a serpentine: alternating half-circles, the open
+// cousin of the infinity figure. Each bend is a half circle of `rCm`
+// driven as 4 arcs of 45 deg, and consecutive bends alternate direction.
+function splineTour(rCm: number, bends: number) {
+    if (touring) return
+    touring = true
+    aborted = false
+    diffDrive.emitLine("DBG:tour=spline:r=" + rCm + ":bends=" + bends)
+    for (let b = 0; b < bends; b++) {
+        basic.showNumber(b + 1)
+        const ccw = (b % 2) == 0
+        for (let i = 0; i < 4; i++) {      // half circle = 4 x 45 deg
+            if (aborted) break
+            arcSegment(rCm, ccw ? 45 : -45)
+        }
+        if (aborted) break
+    }
+    diffDrive.stopMove()
+    touring = false
+    basic.showIcon(IconNames.Yes)
+}
+
+diffDrive.onRun("square", function (arg: number) {
+    squareTour(diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 60)
+})
+
+diffDrive.onRun("infinity", function (arg: number) {
+    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 30
+    const laps = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) : 1
+    infinityTour(r, laps)
+})
+
+// Defaults match tests/system/tours/spline.tour: r = 15 cm, 4 bends,
+// which spans 120 x 30 cm and clears the playfield rails by ~7 cm.
+diffDrive.onRun("spline", function (arg: number) {
+    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 15
+    const bends = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) : 4
+    splineTour(r, bends)
+})
+
 basic.showIcon(IconNames.Rollerskate)
 basic.showString(BOOT_ROBOT + " " + BOOT_VERSION)
