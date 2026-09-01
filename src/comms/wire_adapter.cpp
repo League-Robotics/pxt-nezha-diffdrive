@@ -32,6 +32,13 @@ void engineWheelsX(float left, float right, float cruise,
 void engineMoveX(float distance, float rotationRad, float cruise,
                  uint32_t timeoutMs);
 float engineDefaultCruiseMmS();
+// SUC-003: engineADecelMmS2() (MotionEngine::aDecelMmS2()'s own wire-
+// shaped forward) lets the onXxx() handlers below decide, per call,
+// whether their own `cruise == 0` sentinel resolves from the flat
+// engineDefaultCruiseMmS() above or from engineDefaultCruiseForDistanceMmS()'s
+// distance-aware resolve -- see resolveDefaultCruiseMmS() below.
+float engineADecelMmS2();
+float engineDefaultCruiseForDistanceMmS(float distanceMm);
 
 void engineMoveV(float vx, float omegaRad, uint32_t durationMs);
 void engineGoToR(float x, float y, float speed, float arrive,
@@ -252,6 +259,23 @@ const char* tlmModeWireName(Wire::TlmMode mode) {
 // a full revolution, depending on which way the factor is missed).
 float mradToRad(float milliradians) { return milliradians * 0.001f; }
 
+// SUC-003: the one place onMoveX()/onGoToR()/onGoToW() below resolve
+// their own `cruise`/`speed == 0` "use the default" sentinel. Shaped
+// mode (aDecelMmS2_ > 0, engineADecelMmS2()) resolves from THIS call's
+// own leg distance via engineDefaultCruiseForDistanceMmS() -- which
+// reads the SAME aDecelMmS2_/vMaxMmS_/brakeFrac_ the taper itself uses,
+// so the two can never drift apart; legacy mode (aDecelMmS2_ == 0)
+// keeps today's flat engineDefaultCruiseMmS(), unconditionally
+// unchanged. onWheelsX()/onWheelsV() below do NOT call this helper --
+// they keep the flat sentinel regardless of aDecelMmS2_ (wheelsX()'s
+// two per-wheel distances have no single "leg length" this formula is
+// defined over).
+float resolveDefaultCruiseMmS(float distanceMm) {
+  return engineADecelMmS2() > 0.0f
+             ? engineDefaultCruiseForDistanceMmS(distanceMm)
+             : engineDefaultCruiseMmS();
+}
+
 }  // namespace
 
 WireAdapter::WireAdapter(const Wire::Identity& identity, NowMsFn nowMs)
@@ -392,10 +416,17 @@ Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
 Wire::Result WireAdapter::onMoveX(float distance, float rotation,
                                   float cruise, uint32_t timeout,
                                   uint32_t id) {
-  // Same cruise <0/==0 handling as onWheelsX() above.
+  // Same cruise <0 handling as onWheelsX() above; the ==0 substitution
+  // itself now goes through resolveDefaultCruiseMmS() (SUC-003) instead
+  // of the flat engineDefaultCruiseMmS() directly -- `distance` here is
+  // this call's own leg length, the one input only this handler has;
+  // std::fabs() because a reverse move's `distance` arrives signed but
+  // the braking formula is defined over a length, not a signed offset
+  // (moveX()'s own dominant-wheel reduction, motion_engine.cpp, is
+  // likewise sign-agnostic in magnitude).
   if (cruise < 0.0f) return Wire::Result::kRange;
   const float resolvedCruise =
-      cruise == 0.0f ? engineDefaultCruiseMmS() : cruise;
+      cruise == 0.0f ? resolveDefaultCruiseMmS(std::fabs(distance)) : cruise;
   if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
   // sprint 005 ticket 004: resolve any still-pending PREVIOUS motion
   // BEFORE dispatching -- unlike WHEELS_V/WHEELS_X/MOVE_V,
@@ -443,12 +474,20 @@ Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
 
 Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
                                   uint32_t timeout, uint32_t id) {
-  // `speed`'s <0/==0 handling mirrors onWheelsX()/onMoveX() above -- see
+  // `speed`'s <0 handling mirrors onWheelsX()/onMoveX() above -- see
   // this method's own doc comment (wire_adapter.h) for why (`speed`
-  // plays `cruise`'s role for the underlying moveX() call).
+  // plays `cruise`'s role for the underlying moveX() call). The ==0
+  // substitution goes through resolveDefaultCruiseMmS() (SUC-003),
+  // using this call's own chord length (`x`, `y` are body-frame,
+  // motion_engine.h's own goToR() doc comment) as D -- exactly the
+  // distance goToR() itself will drive, whether it takes the plain-arc
+  // or the pivot-then-chord split (motion_engine.cpp): the split drives
+  // this SAME chord exactly, and the plain arc's own arc length is
+  // never shorter than its chord, so resolving from the chord is never
+  // optimistic about how far this move can actually brake.
   if (speed < 0.0f) return Wire::Result::kRange;
   const float resolvedSpeed =
-      speed == 0.0f ? engineDefaultCruiseMmS() : speed;
+      speed == 0.0f ? resolveDefaultCruiseMmS(std::hypot(x, y)) : speed;
   if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
   // sprint 005 ticket 004: see onMoveX()'s identical comment above --
   // GOAL-DIRECTED, same as MOVE_X.
@@ -464,10 +503,23 @@ Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
 
 Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
                                   uint32_t timeout, uint32_t id) {
-  // Same speed <0/==0 handling as onGoToR() above.
+  // Same speed <0 handling as onGoToR() above, and the same
+  // resolveDefaultCruiseMmS() substitution on ==0 (SUC-003) -- but
+  // UNLIKE onGoToR()'s (x, y) (already body-frame, i.e. already the
+  // chord to travel), this call's (x, y) are WORLD-frame absolute
+  // target coordinates (goToW()'s own doc comment, motion_engine.h):
+  // hypot(x, y) here is the target's distance from the world ORIGIN,
+  // not necessarily this call's actual travel distance from the
+  // robot's current pose. The true chord would need a pose read this
+  // handler does not otherwise take, and poseX()/poseY() MUTATE
+  // odometry as a side effect (this file's own forward-declaration
+  // block, above) -- so this is a known, deliberately-flagged
+  // approximation: conservative for a robot sitting near the world
+  // origin, NOT conservative otherwise. Worth re-checking once
+  // aDecelMmS2_ is first set nonzero.
   if (speed < 0.0f) return Wire::Result::kRange;
   const float resolvedSpeed =
-      speed == 0.0f ? engineDefaultCruiseMmS() : speed;
+      speed == 0.0f ? resolveDefaultCruiseMmS(std::hypot(x, y)) : speed;
   if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
   // Sprint 006 ticket 007: engineGoToW() now falls back to encoder
   // odometry when no OTOS is connected (motion-api.md S3.6) rather than

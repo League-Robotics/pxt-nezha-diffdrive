@@ -244,6 +244,23 @@ class MotionEngine {
   // though it had been measured.
   float effectiveTrackWidth() const { return trackWidth_ / rotationalSlip_; }
 
+  // [mm/s] SUC-003: the distance-chosen default cruise speed --
+  // v_default(D) = min(vMaxMmS_, sqrt(2 * aDecelMmS2_ * brakeFrac_ *
+  // D)) -- for the moveX()/goToR()/goToW() family's `cruise == 0` "use
+  // the default" wire sentinel. Same "derived, never cached" pattern as
+  // effectiveTrackWidth() above: computed fresh, every call, from the
+  // SAME aDecelMmS2_/vMaxMmS_/brakeFrac_ fields (see their own comments
+  // below) the taper's own braking-speed solve already reads, so the
+  // two can never drift apart. This method carries no legacy branch of
+  // its own -- WHETHER to call it at all (vs. the flat legacy default)
+  // is a wire-layer decision the caller makes by checking aDecelMmS2_
+  // first; with aDecelMmS2_ == 0.0f this simply returns 0.0f, which the
+  // wire layer's existing non-positive-cruise refusal already treats
+  // the same way it treats an explicit `cruise <= 0`. `distanceMm` is
+  // clamped to >= 0 before the square root so a negative or degenerate
+  // leg length can never produce NaN.
+  float defaultCruiseForDistance(float distanceMm) const;
+
   // ---- the two primitives (motion-api.md S3.1/S3.2) ----
 
   // wheels_v(left, right, duration): hold each wheel at a commanded

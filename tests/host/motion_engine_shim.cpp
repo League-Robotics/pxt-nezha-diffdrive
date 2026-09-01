@@ -225,6 +225,14 @@ void meSetBrakeFrac(void* handle, float frac) {
   static_cast<Handle*>(handle)->engine.setBrakeFrac(frac);
 }
 
+// SUC-003: the distance-chosen default-cruise resolver itself --
+// MotionEngine::defaultCruiseForDistance(), reading whatever
+// aAccelMmS2_/vMaxMmS_/brakeFrac_ the four setters above last wrote.
+float meDefaultCruiseForDistance(void* handle, float distanceMm) {
+  return static_cast<Handle*>(handle)->engine.defaultCruiseForDistance(
+      distanceMm);
+}
+
 // ---- MotionEngine: the two primitives (motion-api.md S3.1/S3.2) -------
 
 void meWheelsV(void* handle, float left, float right, uint32_t durationMs) {

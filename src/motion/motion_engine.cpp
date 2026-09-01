@@ -67,6 +67,16 @@ uint32_t MotionEngine::nowMs() const {
   return static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
 }
 
+// See motion_engine.h's own comment on this method for the contract.
+// `d` is clamped to >= 0 first: `distanceMm` can arrive negative (a
+// caller passing a signed wire-level distance without taking its own
+// magnitude first), and a negative product under sqrt() would be NaN.
+float MotionEngine::defaultCruiseForDistance(float distanceMm) const {
+  const float d = distanceMm > 0.0f ? distanceMm : 0.0f;
+  const float vAllow = std::sqrt(2.0f * aDecelMmS2_ * brakeFrac_ * d);
+  return vAllow < vMaxMmS_ ? vAllow : vMaxMmS_;
+}
+
 void MotionEngine::wheelsV(float left, float right, uint32_t durationMs) {
   cancelMove();  // motion-api.md S6: wheels_* clears the planner
   const float cpm = countsPerMm();

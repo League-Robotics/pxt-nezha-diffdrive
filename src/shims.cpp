@@ -401,6 +401,24 @@ float engineDefaultCruiseMmS() {
   return ensure().defaultCruiseMmS_;
 }
 
+// SUC-003: same same-package forward-declaration convention as
+// engineDefaultCruiseMmS() immediately above -- WireAdapter has no
+// reference of its own to this Rig's `engine`. engineADecelMmS2() lets
+// the wire layer decide, per call, whether a `cruise == 0` sentinel
+// should resolve from the flat legacy default above or from the
+// call's own leg distance below; engineDefaultCruiseForDistanceMmS()
+// is that distance-aware resolve itself, forwarding straight onto
+// MotionEngine::defaultCruiseForDistance() (motion_engine.h). Neither
+// is read by engineWheelsX()'s own wire path -- WHEELS_X/WHEELS_V keep
+// the flat sentinel unconditionally.
+float engineADecelMmS2() {
+  return ensure().engine.aDecelMmS2();
+}
+
+float engineDefaultCruiseForDistanceMmS(float distanceMm) {
+  return ensure().engine.defaultCruiseForDistance(distanceMm);
+}
+
 // Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/R-23):
 // the ONE genuinely new read WireAdapter's own motion-completion
 // resolution needs (wire_adapter.cpp's forward declaration, its own

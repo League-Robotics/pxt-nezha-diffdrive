@@ -418,6 +418,22 @@ float engineDefaultCruiseMmS() {
   return g_activeWaHandle->defaultCruiseMmS;
 }
 
+// SUC-003: mirrors shims.cpp's real engineADecelMmS2()/
+// engineDefaultCruiseForDistanceMmS() exactly -- both are thin
+// forwards onto the SAME real `engine` member every other engineXxx()
+// function in this file already drives, so a test exercising the real
+// WireAdapter's distance-aware default-cruise resolution is exercising
+// the exact bridge production code uses.
+float engineADecelMmS2() {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  return g_activeWaHandle->engine.aDecelMmS2();
+}
+
+float engineDefaultCruiseForDistanceMmS(float distanceMm) {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  return g_activeWaHandle->engine.defaultCruiseForDistance(distanceMm);
+}
+
 // Mirrors shims.cpp's real engineMoveV()/engineGoToR()/engineGoToW()
 // exactly -- what WireAdapter::onMoveV()/onGoToR()/onGoToW()
 // (wire_adapter.cpp) forward-declares and calls.
@@ -776,6 +792,23 @@ void waSetFullDutyVelocity(void* handle, float v) {
 // the "without configured default" refusal path.
 void waSetDefaultCruise(void* handle, float v) {
   static_cast<WaHandle*>(handle)->defaultCruiseMmS = v;
+}
+
+// SUC-003 test setup: direct forwards onto the real MotionEngine's own
+// validated setters (setADecelMmS2()/setVMaxMmS()/setBrakeFrac(),
+// motion_engine.h) -- lets a wire-level test switch this handle's
+// engine into shaped mode (aDecelMmS2_ > 0) and confirm the wire
+// layer's own onMoveX()/onGoToR()/onGoToW() branch onto the
+// distance-aware resolver while onWheelsX() stays on the flat
+// defaultCruiseMmS above.
+void waSetADecelMmS2(void* handle, float mmS2) {
+  static_cast<WaHandle*>(handle)->engine.setADecelMmS2(mmS2);
+}
+void waSetVMaxMmS(void* handle, float mmS) {
+  static_cast<WaHandle*>(handle)->engine.setVMaxMmS(mmS);
+}
+void waSetBrakeFrac(void* handle, float frac) {
+  static_cast<WaHandle*>(handle)->engine.setBrakeFrac(frac);
 }
 
 // ---- MotionEngine geometry readback (sprint 003 ticket 011): lets a
