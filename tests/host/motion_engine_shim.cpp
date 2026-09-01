@@ -212,6 +212,31 @@ float meADecelMmS2(void* handle) {
 void meSetADecelMmS2(void* handle, float mmS2) {
   static_cast<Handle*>(handle)->engine.setADecelMmS2(mmS2);
 }
+
+void meSetJerkMmS3(void* handle, float mmS3) {
+  auto* h = static_cast<Handle*>(handle);
+  h->engine.setJerkMmS3(mmS3);
+}
+
+void meSetPlateauMinS(void* handle, float sec) {
+  auto* h = static_cast<Handle*>(handle);
+  h->engine.setPlateauMinS(sec);
+}
+
+void meSetMaxYawRateDegS(void* handle, float degS) {
+  auto* h = static_cast<Handle*>(handle);
+  h->engine.setMaxYawRateDegS(degS);
+}
+
+float mePlateauCruiseMmS(void* handle, float distanceMm) {
+  auto* h = static_cast<Handle*>(handle);
+  return h->engine.plateauCruiseMmS(distanceMm);
+}
+
+float meYawRateCapMmS(void* handle) {
+  auto* h = static_cast<Handle*>(handle);
+  return h->engine.yawRateCapMmS();
+}
 float meVMaxMmS(void* handle) {
   return static_cast<Handle*>(handle)->engine.vMaxMmS();
 }

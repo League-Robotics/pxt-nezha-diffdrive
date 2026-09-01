@@ -1036,6 +1036,9 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     case 25: r.engine.setDistFloor(v); break;
     case 26: r.engine.setTurnFloor(v); break;
     case 27: r.engine.setRampMs(v); break;
+    case 28: r.engine.setJerkMmS3(v); break;
+    case 29: r.engine.setPlateauMinS(v); break;
+    case 30: r.engine.setMaxYawRateDegS(v); break;
     default: break;
   }
 }
@@ -1096,6 +1099,9 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     case 25: v = r.engine.distFloor(); break;
     case 26: v = r.engine.turnFloor(); break;
     case 27: v = r.engine.rampMs(); break;
+    case 28: v = r.engine.jerkMmS3(); break;
+    case 29: v = r.engine.plateauMinS(); break;
+    case 30: v = r.engine.maxYawRateDegS(); break;
     default: return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));

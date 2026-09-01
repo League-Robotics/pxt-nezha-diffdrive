@@ -149,7 +149,10 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.YawTaper",      # ordinal 24
         "ConfigField.DistFloor",     # ordinal 25
         "ConfigField.TurnFloor",     # ordinal 26
-        "ConfigField.RampMs",        # ordinal 27
+        "ConfigField.RampMs",
+    "ConfigField.Jerk",
+    "ConfigField.PlateauMinS",
+    "ConfigField.MaxYawRate",        # ordinal 27
     ],
 }
 

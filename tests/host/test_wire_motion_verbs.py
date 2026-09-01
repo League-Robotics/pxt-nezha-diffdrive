@@ -1853,6 +1853,9 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "dist_floor": 0.3,
     "turn_floor": 0.15,
     "ramp_ms": 300.0,
+    "jerk": 4000.0,
+    "plateau_min_s": 0.15,
+    "max_yaw_rate": 90.0,
 }
 
 
@@ -2878,6 +2881,9 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"accel", b"decel", b"v_max", b"brake_frac",
         b"dist_taper", b"yaw_taper", b"dist_floor", b"turn_floor",
         b"ramp_ms",
+        b"jerk",
+        b"plateau_min_s",
+        b"max_yaw_rate",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

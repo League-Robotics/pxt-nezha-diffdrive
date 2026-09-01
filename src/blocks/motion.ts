@@ -69,7 +69,13 @@ enum ConfigField {
     //% block="turn floor"
     TurnFloor = 26,
     //% block="ramp ms"
-    RampMs = 27
+    RampMs = 27,
+    //% block="jerk"
+    Jerk = 28,
+    //% block="plateau min s"
+    PlateauMinS = 29,
+    //% block="max yaw rate"
+    MaxYawRate = 30
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"

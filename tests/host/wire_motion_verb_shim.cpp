@@ -338,6 +338,9 @@ void setKernelValue(int field, int value) {
     case 25: g_activeWaHandle->engine.setDistFloor(v); break;
     case 26: g_activeWaHandle->engine.setTurnFloor(v); break;
     case 27: g_activeWaHandle->engine.setRampMs(v); break;
+    case 28: g_activeWaHandle->engine.setJerkMmS3(v); break;
+    case 29: g_activeWaHandle->engine.setPlateauMinS(v); break;
+    case 30: g_activeWaHandle->engine.setMaxYawRateDegS(v); break;
     default: break;
   }
 }
@@ -396,6 +399,9 @@ int getConfigValue(int field) {
     case 25: v = g_activeWaHandle->engine.distFloor(); break;
     case 26: v = g_activeWaHandle->engine.turnFloor(); break;
     case 27: v = g_activeWaHandle->engine.rampMs(); break;
+    case 28: v = g_activeWaHandle->engine.jerkMmS3(); break;
+    case 29: v = g_activeWaHandle->engine.plateauMinS(); break;
+    case 30: v = g_activeWaHandle->engine.maxYawRateDegS(); break;
     default: break;
   }
   // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,

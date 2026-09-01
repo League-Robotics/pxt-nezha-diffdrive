@@ -190,6 +190,9 @@ constexpr FieldEntry kFields[] = {
                                // forward to MotionEngine::
                                // setTurnFloor()/turnFloor().
     {"ramp_ms", 27},           // ConfigField.RampMs -- [ms] thin
+    {"jerk", 28},          // ConfigField.Jerk
+    {"plateau_min_s", 29}, // ConfigField.PlateauMinS
+    {"max_yaw_rate", 30},  // ConfigField.MaxYawRate
                                // forward to MotionEngine::
                                // setRampMs()/rampMs().
 };

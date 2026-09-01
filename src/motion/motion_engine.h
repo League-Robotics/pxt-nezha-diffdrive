@@ -448,6 +448,43 @@ class MotionEngine {
     if (frac > 0.0f && frac <= 1.0f) brakeFrac_ = frac;
   }
 
+  // Jerk bound, plateau demand and turn-rate cap. Same
+  // invalid-input-keeps-prior-value validation as the four above, and
+  // the same legacy-selecting default of 0: with jerkMmS3_ == 0 the
+  // shaper stays first-order (bounded acceleration, stepped), and with
+  // plateauMinS_ == 0 no cruise derate is applied.
+  float jerkMmS3() const { return jerkMmS3_; }
+  void setJerkMmS3(float mmS3) {
+    if (mmS3 > 0.0f) jerkMmS3_ = mmS3;
+  }
+  float plateauMinS() const { return plateauMinS_; }
+  void setPlateauMinS(float sec) {
+    if (sec >= 0.0f) plateauMinS_ = sec;
+  }
+  float maxYawRateDegS() const { return maxYawRateDegS_; }
+  void setMaxYawRateDegS(float degS) {
+    if (degS > 0.0f) maxYawRateDegS_ = degS;
+  }
+
+  // [mm/s] Largest cruise whose trapezoid still holds a plateau of
+  // plateauMinS_ seconds over `distanceMm`, solving
+  //   (1/2)(1/aAccel + 1/aDecel) v^2 + T v - D = 0
+  // for the positive root. A move commanded above this reaches its
+  // peak for a single control tick and is a triangle with a corner at
+  // the apex -- MEASURED gopiv 2026-09-01,
+  // captures/gopiv-profile-sweep-20260901/square120.json: every 90 deg
+  // pivot of that tour held its peak for exactly one telemetry sample.
+  // Returns 0 when the shaping constants are not set, which callers
+  // read as "no opinion".
+  float plateauCruiseMmS(float distanceMm) const;
+
+  // [mm/s] Wheel speed equivalent to maxYawRateDegS_ for a pure turn:
+  // omega * trackWidth/2. The wire's cruise argument is linear mm/s,
+  // so without this a pivot inherits the straight-line speed and turns
+  // far faster than intended -- MEASURED gopiv 2026-09-01 (same
+  // capture): cruise 300 mm/s produced 254-285 deg/s.
+  float yawRateCapMmS() const;
+
  private:
   // |rotation| at/above this is NOT one blended segment -- pivot to the
   // new heading first, then travel straight (motion-api.md S3.3,
@@ -501,6 +538,12 @@ class MotionEngine {
                               // nowMs(), for the accel integrator's own
                               // `dt`. Set to startMs at segment start.
                               // Unused in legacy mode.
+    float accelScalePerS = 0.0f;  // [scale/s] the jerk limiter's own
+                                  // state: currently commanded
+                                  // acceleration, expressed in the same
+                                  // cruise-fraction units as cmdScale so
+                                  // the two integrate together. Read
+                                  // only when jerkMmS3_ > 0.
   };
 
   // [ms] this engine's own notion of "now" -- see the constructor
@@ -702,6 +745,29 @@ class MotionEngine {
   // Not consulted by anything yet; that future resolver is its first
   // reader.
   float brakeFrac_ = 0.375f;
+
+  // [mm/s^3] jerk bound for the second-order shaper. 0 selects the
+  // first-order behaviour (bounded acceleration only), where the
+  // commanded acceleration steps discontinuously at the accel->decel
+  // handover. UNVERIFIED pending a bench sweep; simulated at 4000 in
+  // captures/gopiv-profile-sweep-20260901/. Note a jerk phase lasts
+  // aAccel/jerk seconds, so at the kernel's 24 ms tick a value much
+  // above ~10000 rounds nothing a control cycle can resolve.
+  float jerkMmS3_ = 0.0f;
+
+  // [s] minimum cruise plateau plateauCruiseMmS() solves for. 0
+  // disables the derate. Wants to be at least twice a jerk transition
+  // (2*aAccel/jerk) so the accel and decel roundings cannot meet and
+  // eat the plateau they were sized to protect.
+  float plateauMinS_ = 0.0f;
+
+  // [deg/s] ceiling on pure-turn angular rate. 0 disables the cap and
+  // is the shipping default: a pivot then inherits the linear cruise
+  // exactly as before. Defaulting this ACTIVE was tried and reverted --
+  // it silently rescaled every legacy pure turn and broke the pinned
+  // yaw-taper regression, which is precisely the behaviour that test
+  // exists to protect. A caller opts in with SET max_yaw_rate 90.
+  float maxYawRateDegS_ = 0.0f;
 };
 
 }  // namespace diffDrive

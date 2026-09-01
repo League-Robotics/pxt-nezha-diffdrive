@@ -110,6 +110,36 @@ float MotionEngine::defaultCruiseForDistance(float distanceMm) const {
 }
 
 // See motion_engine.h's own comment on this method for the contract.
+//
+// A trapezoid over distance D holding v for T seconds satisfies
+//   D = v^2/(2*aAccel) + v*T + v^2/(2*aDecel)
+// which rearranges to the quadratic
+//   (1/2)(1/aAccel + 1/aDecel) v^2 + T*v - D = 0
+// whose positive root is the largest cruise that still leaves a plateau
+// of T. With T == 0 this degenerates to the familiar triangular limit
+// sqrt(2*D*aAccel*aDecel/(aAccel+aDecel)) -- a plateau of exactly zero,
+// i.e. still a corner -- which is why plateauMinS_ is the useful knob
+// rather than the triangular speed itself.
+float MotionEngine::plateauCruiseMmS(float distanceMm) const {
+  if (aAccelMmS2_ <= 0.0f || aDecelMmS2_ <= 0.0f) return 0.0f;
+  if (plateauMinS_ <= 0.0f) return 0.0f;
+  const float d = distanceMm > 0.0f ? distanceMm : 0.0f;
+  const float k = 0.5f * (1.0f / aAccelMmS2_ + 1.0f / aDecelMmS2_);
+  const float t = plateauMinS_;
+  const float disc = t * t + 4.0f * k * d;
+  if (disc <= 0.0f) return 0.0f;
+  const float root = (-t + std::sqrt(disc)) / (2.0f * k);
+  return root > 0.0f ? root : 0.0f;
+}
+
+// See motion_engine.h's own comment on this method for the contract.
+float MotionEngine::yawRateCapMmS() const {
+  if (maxYawRateDegS_ <= 0.0f) return 0.0f;
+  const float omega = maxYawRateDegS_ * 3.14159265f / 180.0f;  // [rad/s]
+  return omega * effectiveTrackWidth() * 0.5f;                 // [mm/s]
+}
+
+// See motion_engine.h's own comment on this method for the contract.
 float MotionEngine::dominantAxisTravelMm(float distanceMm,
                                          float rotationRad) const {
   const float distTravel = std::fabs(distanceMm);
@@ -235,6 +265,33 @@ void MotionEngine::startSegment(float distance, float rotation,
     return;
   }
 
+  // Shape the requested cruise before it becomes wheel commands. Two
+  // independent clamps, both lowering-only so an explicit request is
+  // never raised:
+  //
+  //  1. Turn-rate cap. The wire's cruise is linear mm/s, so a pure turn
+  //     silently inherits the straight-line speed. MEASURED gopiv
+  //     2026-09-01, captures/gopiv-profile-sweep-20260901/square120.json:
+  //     cruise 300 mm/s turned at 254-285 deg/s.
+  //  2. Plateau derate. A move commanded above its own triangular limit
+  //     peaks for a single tick with a corner at the apex (same capture:
+  //     every pivot held its peak for exactly one telemetry sample).
+  //     plateauCruiseMmS() solves for the largest cruise that still
+  //     leaves plateauMinS_ of flat top, so there is something for the
+  //     jerk limiter to round without the two roundings colliding.
+  float shapedCruise = cruise;
+  const bool pureTurnSeg =
+      (move_.yawTarget != 0.0f && move_.distTarget == 0.0f);
+  if (pureTurnSeg) {
+    const float cap = yawRateCapMmS();
+    if (cap > 0.0f && cap < shapedCruise) shapedCruise = cap;
+  }
+  const float dominantMm = dominant / cpm;  // [mm] this segment's own
+                                            // dominant-wheel travel
+  const float plateau = plateauCruiseMmS(dominantMm);
+  if (plateau > 0.0f && plateau < shapedCruise) shapedCruise = plateau;
+  cruise = shapedCruise;
+
   const float cruiseCounts = cruise * cpm;  // [counts/s]
   move_.velCmd = move_.distTarget / dominant * cruiseCounts;
   move_.twistCmd = move_.yawTarget / dominant * cruiseCounts;
@@ -262,6 +319,7 @@ void MotionEngine::startSegment(float distance, float rotation,
       ? (pureTurnAtStart ? turnFloor_ : distFloor_)
       : 0.25f;
   move_.cmdScale = initialScale;
+  move_.accelScalePerS = 0.0f;  // jerk limiter starts from rest
   const uint32_t now = move_.startMs;
   const uint32_t remainingMs =
       static_cast<int32_t>(move_.deadline - now) > 0
@@ -554,6 +612,60 @@ bool MotionEngine::serviceMove() {
   if (ramp < kTaperFloor) ramp = kTaperFloor;
   if (ramp < scale) scale = ramp;
   if (scale > 1.0f) scale = 1.0f;
+
+  // Jerk limiter (second-order shaper). The first-order limiter above
+  // bounds acceleration but still STEPS it -- at the accel->decel
+  // handover the commanded acceleration jumps straight from +aAccel to
+  // -aDecel in one tick, which is the corner at the apex of every
+  // short move. Bounding da/dt rounds every such corner without having
+  // to locate it.
+  //
+  // The subtlety is that a jerk-limited controller cannot stop
+  // accelerating instantly, so it overshoots a speed cap unless it
+  // anticipates: while ramping `a` down to zero at rate `j`, velocity
+  // still gains a^2/(2j). Easing off once cmdScale + that gain reaches
+  // the target holds the cap exactly (simulated overshoot without it:
+  // 113 deg/s against a 90 deg/s cap --
+  // captures/gopiv-profile-sweep-20260901/).
+  if (jerkMmS3_ > 0.0f && aAccelMmS2_ > 0.0f) {
+    const float cruiseRef = move_.cruiseMmS > 0.0f ? move_.cruiseMmS : 1.0f;
+    const float dtJ =
+        static_cast<float>(nowMsRamp - move_.lastTickMs) / 1000.0f;
+    if (dtJ > 0.0f) {
+      const float jScale = jerkMmS3_ / cruiseRef;    // [scale/s^2]
+      const float aMax = aAccelMmS2_ / cruiseRef;    // [scale/s]
+      const float decelRef =
+          aDecelMmS2_ > 0.0f ? aDecelMmS2_ : aAccelMmS2_;
+      const float aMin = -decelRef / cruiseRef;      // [scale/s]
+      float a = move_.accelScalePerS;
+      const float gain = a > 0.0f ? (a * a) / (2.0f * jScale) : 0.0f;
+      float aWant;
+      if (move_.cmdScale + gain >= scale) {
+        aWant = move_.cmdScale > scale ? aMin : 0.0f;
+      } else {
+        aWant = aMax;
+      }
+      const float dA = jScale * dtJ;
+      const float err = aWant - a;
+      if (err > dA) {
+        a += dA;
+      } else if (err < -dA) {
+        a -= dA;
+      } else {
+        a = aWant;
+      }
+      if (a > aMax) a = aMax;
+      if (a < aMin) a = aMin;
+      float shaped = move_.cmdScale + a * dtJ;
+      if (shaped < 0.0f) shaped = 0.0f;
+      if (shaped > scale) shaped = scale;  // never exceed the taper /
+                                           // cap the min-combine set
+      move_.accelScalePerS = a;
+      scale = shaped;
+      if (scale < kTaperFloor) scale = kTaperFloor;
+    }
+  }
+
   move_.lastTickMs = nowMsRamp;  // dt anchor for the NEXT tick; a dead
                                  // store in legacy mode.
 
