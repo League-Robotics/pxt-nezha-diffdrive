@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tourfile import parse_tour, Twist, Dwell, SetCfg   # noqa: E402
+from tourfile import parse_tour, Twist, Dwell, SetCfg, Spline   # noqa: E402
 
 DEFAULT_HOST, DEFAULT_PORT = '192.168.1.147', 0   # 0 => discover
 
@@ -141,6 +141,20 @@ class Link:
                 return got
         raise RuntimeError(f'no ack for {wire!r}')
 
+    def seq_fire(s, cmd):
+        """Send a sequenced verb WITHOUT waiting for its ack.
+
+        For a control loop only. `seqd()` blocks up to 2 s for an ack,
+        and a live TLM stream starves inbound acks, so waiting turns a
+        120 ms pursuit period into something far longer and the
+        follower falls behind the robot. Ids still increment in order,
+        which is what the robot's `expectedNext_` requires; the link is
+        a lossless TCP daemon, so a dropped line (which would stall the
+        stream on a gap) is not the failure mode here.
+        """
+        s._seq += 1
+        s.send(f'{cmd} #{s._seq}')
+
     def status(s):
         return s.unseq('STATUS', r'^status ')
 
@@ -154,6 +168,32 @@ class Link:
                 except ValueError:
                     pass
         return out
+
+    def pose(s):
+        """Latest odometry pose as (x_mm, y_mm, heading_rad), or None.
+
+        Reads the tail of the telemetry stream rather than asking, so
+        it costs nothing and cannot stall the control loop behind a
+        request/reply round trip. `h` is CUMULATIVE centidegrees, so it
+        is wrapped here and nowhere else.
+        """
+        with s.lock:
+            tail = s.lines[-40:]
+        for l in reversed(tail):
+            p = l.split()
+            if len(p) == 21 and p[0] == 't':
+                try:
+                    # p[0] is the 't' tag, so the 20 payload columns start
+                    # at p[1]: seq now flags x y h ... -- x is p[4], NOT
+                    # p[3]. frames() strips the tag first and is indexed
+                    # one lower throughout; mixing the two conventions
+                    # returned (flags, x, y) here and read as a pose that
+                    # barely moved (a 91.25 deg pivot measured as 0.02).
+                    return (float(p[4]), float(p[5]),
+                            math.radians(float(p[6]) / 100.0))
+                except ValueError:
+                    continue
+        return None
 
     def await_motion(s, start_timeout=4.0, idle_frames=6, timeout=60.0):
         """Wait by watching wheel speed, not a counter (see module doc)."""
@@ -211,6 +251,32 @@ def execute(tour, link, warmup=0, cruise_scale=1.0):
         if isinstance(step, Dwell):
             time.sleep(step.seconds)
             continue
+        if isinstance(step, Spline):
+            start = time.time() - t0
+            src = Path(tour.source).parent / step.path
+            print(f'  [{i:3d}/{len(tour.steps)}] spline {step.path} '
+                  f'speed {step.speed:.0f} lookahead {step.lookahead:.0f} '
+                  f'laps {step.laps}', flush=True)
+            errs, laps, ref = pure_pursuit(
+                link, Spline(str(src), step.speed, step.lookahead,
+                             step.laps, step.interval, step.mark), mark)
+            import statistics
+            segments.append({
+                'n': i, 'kind': 'spline', 'mark': step.mark,
+                'path': step.path, 'speed': step.speed,
+                'lookahead': step.lookahead, 'laps_done': laps,
+                'xtrack_mean_mm': statistics.fmean(errs) if errs else None,
+                'xtrack_max_mm': max(errs) if errs else None,
+                'xtrack_p95_mm': (sorted(errs)[int(len(errs) * 0.95)]
+                                  if errs else None),
+                't0': start, 't1': time.time() - t0, 'completed': laps > 0.98,
+                'reference_cm': ref})
+            print(f'        cross-track mean '
+                  f'{segments[-1]["xtrack_mean_mm"]:.1f} mm  p95 '
+                  f'{segments[-1]["xtrack_p95_mm"]:.1f}  max '
+                  f'{segments[-1]["xtrack_max_mm"]:.1f}  '
+                  f'({laps:.2f} laps)', flush=True)
+            continue
         cruise = max(1, int(round(step.cruise_mm_s * cruise_scale)))
         start = time.time() - t0
         link.seqd(f'MOVE_X {int(round(step.dist_mm))} '
@@ -231,7 +297,212 @@ def execute(tour, link, warmup=0, cruise_scale=1.0):
     return frames, segments, time.time() - t0
 
 
-def chart(tour_name, frames, segments, wall, out_png, subtitle=''):
+class Path2D:
+    """A fitted path, as a densely sampled polyline with arc length.
+
+    The `.path.json` files carry `points` in mm in the field frame plus
+    `closed`, `length_mm` and `min_radius_mm`. Pure pursuit only needs
+    the polyline and a way to walk forward along it.
+    """
+
+    def __init__(s, path_json):
+        d = json.loads(Path(path_json).read_text())
+        s.name = d.get('name', Path(path_json).stem)
+        s.closed = bool(d.get('closed', False))
+        s.min_radius = d.get('min_radius_mm')
+        s.pts = [(float(a), float(b)) for a, b in d['points']]
+        if s.closed and s.pts[0] != s.pts[-1]:
+            s.pts.append(s.pts[0])
+        s.cum = [0.0]
+        for i in range(1, len(s.pts)):
+            s.cum.append(s.cum[-1] + math.dist(s.pts[i - 1], s.pts[i]))
+        s.length = s.cum[-1]
+
+    def at(s, dist):
+        """The point at arc length `dist`, wrapping if the path closes."""
+        if s.closed:
+            dist %= s.length
+        dist = min(max(dist, 0.0), s.length)
+        lo, hi = 0, len(s.cum) - 1
+        while lo < hi - 1:
+            mid = (lo + hi) // 2
+            if s.cum[mid] <= dist:
+                lo = mid
+            else:
+                hi = mid
+        span = s.cum[lo + 1] - s.cum[lo]
+        f = 0.0 if span <= 0 else (dist - s.cum[lo]) / span
+        (x0, y0), (x1, y1) = s.pts[lo], s.pts[lo + 1]
+        return x0 + f * (x1 - x0), y0 + f * (y1 - y0)
+
+    def nearest(s, x, y, near_dist, window=400.0):
+        """Arc length of the closest point, searched only NEAR `near_dist`.
+
+        A global nearest-point search is wrong for pure pursuit on a
+        path that crosses or doubles back: it can snap to a far-away
+        branch that happens to be closer in space, and the robot then
+        cuts across the figure. Searching a window around where the
+        robot already was keeps progress monotone.
+        """
+        best, best_d2 = near_dist, float('inf')
+        steps = 160
+        for i in range(steps + 1):
+            probe = near_dist - window * 0.25 + window * i / steps
+            px, py = s.at(probe)
+            d2 = (px - x) ** 2 + (py - y) ** 2
+            if d2 < best_d2:
+                best, best_d2 = probe, d2
+        return best, math.sqrt(best_d2)
+
+
+def pure_pursuit(link, step, out_frames_mark, log=print):
+    """Follow `step.path` with pure pursuit, closing the loop on odometry.
+
+    The loop the stakeholder described: walk the spline with a circle,
+    take the point where the circle leaves the path ahead of the robot,
+    and drive at that point -- over and over.
+
+    Each iteration:
+      1. read the robot's pose from the telemetry stream
+      2. advance the arc-length cursor to the nearest point on the path
+      3. aim at the point one lookahead further along
+      4. convert that to a curvature and command it with MOVE_V
+
+    Curvature comes from the standard pure-pursuit geometry: with the
+    aim point at (dx, dy) in the robot's frame and |aim| = L,
+
+        kappa = 2 * dy / L^2        [1/mm]
+        omega = kappa * v           [rad/s]
+
+    MOVE_V takes a body speed and a yaw RATE and holds them for a
+    duration, so the robot keeps moving between host updates instead of
+    stopping at every waypoint. Commanding discrete MOVE_X hops to each
+    aim point would also "drive to the point over and over", but it
+    would stop and re-accelerate every cycle -- a stutter, not a
+    followed curve.
+
+    Returns (cross_track_samples, laps_completed).
+    """
+    path = Path2D(Path(step.path))
+    pose = link.pose()
+    if pose is None:
+        raise RuntimeError('no telemetry pose -- is TLM FULL running?')
+
+    # The path is authored in the FIELD frame; the robot is wherever it
+    # is, in its own inherited odometry frame. Anchor the path to the
+    # pose the robot starts from -- the same start-frame convention the
+    # charts use -- so the follower is not chasing a coordinate system
+    # the robot has never been in.
+    #
+    # Align the path's INITIAL TANGENT with the robot's heading, not the
+    # path's +x axis. complex.path.json leaves its first point heading
+    # almost due +y, so anchoring on the axis instead started the robot
+    # 90 deg off the path and it spent the first lobe swerving back on:
+    # MEASURED 2026-09-01, cross-track mean 65.0 mm / max 307.1 that way.
+    x0, y0, h0 = pose
+    px0, py0 = path.at(0.0)
+    tx, ty = path.at(min(20.0, path.length * 0.01))
+    tangent0 = math.atan2(ty - py0, tx - px0)
+    rot = h0 - tangent0
+    ca, sa = math.cos(rot), math.sin(rot)
+
+    def to_odom(px, py):
+        u, v = px - px0, py - py0
+        return x0 + u * ca - v * sa, y0 + u * sa + v * ca
+
+    total = path.length * step.laps
+    cursor, errs, t0 = 0.0, [], time.time()
+    dur_ms = int(step.interval * 1000 * 2.2)   # outlive one period
+    deadline = t0 + total / max(step.speed, 1.0) * 3.0 + 30.0
+
+    while cursor < total - step.lookahead * 0.5:
+        if time.time() > deadline:
+            log('  pure pursuit: deadline exceeded, stopping')
+            break
+        pose = link.pose()
+        if pose is None:
+            time.sleep(step.interval)
+            continue
+        rx, ry, rh = pose
+
+        # Where are we on the path? Search near the cursor, not globally.
+        lap_base = math.floor(cursor / path.length) * path.length
+        local = cursor - lap_base
+        # The path is in field coords; compare in field coords too.
+        u = (rx - x0) * ca + (ry - y0) * sa
+        v = -(rx - x0) * sa + (ry - y0) * ca
+        fx, fy = px0 + u, py0 + v      # ca/sa carry `rot`, not h0
+        local, err = path.nearest(fx, fy, local)
+        errs.append(err)
+        cursor = lap_base + local
+
+        ax, ay = path.at(local + step.lookahead)
+        ax, ay = to_odom(ax, ay)
+        dx, dy = ax - rx, ay - ry
+        # Into the robot's frame.
+        fwd = dx * math.cos(rh) + dy * math.sin(rh)
+        lat = -dx * math.sin(rh) + dy * math.cos(rh)
+        L2 = dx * dx + dy * dy
+        kappa = 2.0 * lat / L2 if L2 > 1.0 else 0.0
+
+        v_cmd = step.speed
+        if fwd < 0:
+            # Aim point is behind us: turn toward it rather than
+            # reversing into the path.
+            v_cmd = step.speed * 0.35
+        omega = kappa * v_cmd                      # [rad/s]
+        link.seq_fire(f'MOVE_V {int(round(v_cmd))} '
+                      f'{int(round(omega * 1000.0))} {dur_ms}')
+        time.sleep(step.interval)
+
+    link.seq_fire('MOVE_V 0 0 200')
+    time.sleep(0.4)
+    try:
+        link.seqd('STOP')
+    except RuntimeError:
+        pass
+
+    c2, s2 = math.cos(-tangent0), math.sin(-tangent0)
+    ref = []
+    n = max(2, int(path.length / 5.0))
+    for i in range(n + 1):
+        gx, gy = path.at(path.length * i / n)
+        u, v = gx - px0, gy - py0
+        ref.append(((u * c2 - v * s2) / 10.0, (u * s2 + v * c2) / 10.0))
+    return errs, cursor / path.length, ref
+
+
+def start_frame(x, y, h_centideg):
+    """Re-express an odometry track in the frame the TOUR starts in.
+
+    Translates to the start position AND rotates so the robot's initial
+    heading points along +x. Both halves matter, and the rotation is
+    the one that is easy to leave out.
+
+    The robot's odometry frame is whatever it was when the program last
+    booted; nothing on the wire can rebase it (see
+    `clasi/issues/no-wire-verb-reaches-rebaseposition-so-tours-cannot-
+    zero-their-frame.md`), so a tour run after other tours starts at an
+    arbitrary pose in an inherited frame. MEASURED gopiv 2026-09-01,
+    `reports/tours-20260901/square.json`: the square tour began at
+    (-1154, -208) mm with a cumulative heading of 4909.66 deg
+    (= 229.66 deg mod 360), and its first leg travelled at -130.19 deg
+    -- the same direction. Plotted raw, that perfect square renders as
+    a **diamond**, and the diamond is an artifact of the frame, not
+    something the robot drove.
+
+    A tour's geometry is defined relative to where it starts, so that
+    is the frame to judge it in.
+    """
+    import numpy as np
+    x, y = np.asarray(x) - x[0], np.asarray(y) - y[0]
+    a = -math.radians(h_centideg[0] / 100.0)
+    c, s = math.cos(a), math.sin(a)
+    return x * c - y * s, x * s + y * c
+
+
+def chart(tour_name, frames, segments, wall, out_png, subtitle='',
+          reference=None):
     import numpy as np
     import matplotlib
     matplotlib.use('Agg')
@@ -243,7 +514,7 @@ def chart(tour_name, frames, segments, wall, out_png, subtitle=''):
     t = (fr[:, 1] - fr[0, 1]) / 1000.0
     x, y = fr[:, 3] / 10.0, fr[:, 4] / 10.0        # mm -> cm
     vl, vr = fr[:, 9], fr[:, 10]
-    x, y = x - x[0], y - y[0]
+    x, y = start_frame(x, y, fr[:, 5])
     closure = math.hypot(x[-1], y[-1]) * 10.0      # mm
 
     BLUE, ORANGE = '#2a78d6', '#d95926'
@@ -258,7 +529,18 @@ def chart(tour_name, frames, segments, wall, out_png, subtitle=''):
         ax.tick_params(colors=MUT, labelsize=9)
         ax.grid(True, color=GRID, linewidth=0.7)
 
-    ax1.plot(x, y, color=BLUE, linewidth=1.7)
+    if reference:
+        # The curve the follower was TRACKING, in the same start frame.
+        # Without it a spline chart shows a plausible squiggle and no way
+        # to tell a good run from a bad one.
+        rx = [q[0] for q in reference]
+        ry = [q[1] for q in reference]
+        ax1.plot(rx, ry, color=MUT, linewidth=1.1, linestyle=(0, (4, 3)),
+                 zorder=2, label='reference path')
+    ax1.plot(x, y, color=BLUE, linewidth=1.7, zorder=3,
+             label='driven' if reference else None)
+    if reference:
+        ax1.legend(frameon=False, labelcolor=MUT, fontsize=9, loc='upper right')
     ax1.plot(0, 0, 'o', color=INK, markersize=9, zorder=6)
     ax1.plot(x[-1], y[-1], 'o', color=ORANGE, markersize=7, zorder=6)
     ax1.annotate(f'closure {closure:.1f} mm', (x[-1], y[-1]),
@@ -333,7 +615,9 @@ def main():
     Path(data).parent.mkdir(parents=True, exist_ok=True)
     json.dump({'tour': tour.name, 'source': tour.source, 'wall_s': wall,
                'segments': segments, 'frames': frames}, open(data, 'w'))
-    closure = chart(tour.name, frames, segments, wall, out, sub)
+    ref = next((sg.get('reference_cm') for sg in segments
+                if sg.get('kind') == 'spline'), None)
+    closure = chart(tour.name, frames, segments, wall, out, sub, reference=ref)
     print(f'\nclosure {closure:.1f} mm' if closure is not None else '\nno chart')
     print(f'chart {out}\ndata  {data}')
     if a.open:

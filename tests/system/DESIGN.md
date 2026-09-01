@@ -42,11 +42,35 @@ square. Every circular figure here is therefore built from 45° arcs.
 
 ## The figures
 
+Sized to the **usable** playfield — 120 x 80 cm, so the robot centre
+lives in ±600 x ±400 mm, with 50 mm of margin on top. The full budget
+and each figure's staging are in [`tours/FIELD.md`](tours/FIELD.md);
+`tests/host/test_run_tour_programs.py` fails the build if any tour
+outgrows it.
+
 | tour | shape | closure, gopiv bench 2026-09-01 |
 |---|---|---|
-| `square.tour` | 600 mm square, 4 legs + 4 pivots | **5.0 mm** |
-| `circle.tour` | one circle, 8 × 45° arcs | 17.8 mm |
-| `infinity.tour` | figure-8, two circles r=300 mm, 16 arcs | 25.5 mm |
+| `square.tour` | 600 mm square, axis-aligned, 4 legs + 4 pivots | 19.4 mm |
+| `diamond.tour` | the same figure turned 45°, 450 mm sides | 31.4 mm |
+| `circle.tour` | one circle r=300 mm, 8 × 45° arcs | 36.0 mm |
+| `infinity.tour` | figure-8, two circles r=250 mm, 16 arcs | 19.8 mm |
+| `snake.tour` | serpentine, 4 half-circles r=125 mm | *(open path)* |
+| `spline.tour` | `complex.path.json` followed with **pure pursuit** | cross-track 10.5 mm mean |
+
+`spline.tour` is the odd one out and the only closed-loop tour: the
+host reads the robot's odometry pose, takes the point one lookahead
+further along a fitted path, turns that into a curvature and commands
+it with `MOVE_V`, over and over. Everything else is open-loop arcs the
+motion engine shapes on its own. Its chart draws the reference path
+alongside the driven one, because a spline is scored by how well it
+tracks, not by where it ends up.
+
+**Charts render in the tour's own start frame** — translated to the
+start position *and rotated to the start heading*. Nothing on the wire
+can rebase the robot's odometry frame, so a tour run after other tours
+begins at an arbitrary pose in an inherited frame; plotted raw, a
+perfect square renders as a diamond (MEASURED gopiv 2026-09-01: start
+heading 229.66°, first leg at -130.19°).
 
 Closure is the distance from the finish pose back to the start pose in
 **pure odometry** — no camera. That is the right score for these: it

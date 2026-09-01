@@ -11,6 +11,8 @@ with REPEAT (for lap-based tours such as the infinity figure).
     STOP [dwell=1.0]
     DWELL 0.5
     SET <wire_field> <value>           robot config, applied in order
+    SPLINE file=<p.json> [speed=] [lookahead=] [laps=] [interval=]
+                                       follow a fitted path, pure pursuit
     REPEAT <n> ... END                 repeat the enclosed block n times
 
 Human units in the file: mm, mm/s, deg, deg/s, s. TWIST is the ONE
@@ -75,6 +77,29 @@ class SetCfg:
     field_name: str
     value: float
     kind: str = 'set'
+
+
+@dataclass
+class Spline:
+    """Follow a fitted path with pure pursuit.
+
+    Unlike Twist, this is NOT a segment the motion engine shapes on its
+    own: the host closes a loop around the robot's odometry pose,
+    picking a new aim point every control period. `run_tour.py` owns
+    that loop; this only carries its parameters.
+
+    speed      body speed to hold along the path      [mm/s]
+    lookahead  radius of the pursuit circle           [mm]
+    laps       times round a closed path
+    interval   host control period                    [s]
+    """
+    path: str
+    speed: float
+    lookahead: float
+    laps: int
+    interval: float
+    mark: str = ''
+    kind: str = 'spline'
 
 
 @dataclass
@@ -175,7 +200,33 @@ def parse_tour(path) -> Tour:
             for _ in range(count):
                 for s in block:
                     emit(s)
-        elif verb in ('CAMFIX', 'SEND', 'EXPECT', 'DBG', 'SPLINE', 'WHEELS'):
+        elif verb == 'SPLINE':
+            kv = {}
+            for tok in rest:
+                if '=' not in tok:
+                    raise TourParseError(
+                        f'line {line_no}: expected key=value, got {tok!r}')
+                k, v = tok.split('=', 1)
+                kv[k] = v
+            allowed = {'file', 'speed', 'lookahead', 'laps', 'interval', 'tol'}
+            unknown = set(kv) - allowed
+            if unknown:
+                raise TourParseError(
+                    f'line {line_no}: unknown SPLINE key(s) {sorted(unknown)}')
+            if 'file' not in kv:
+                raise TourParseError(f'line {line_no}: SPLINE needs file=')
+            # `tol` is the elite runner's closure assertion. This runner
+            # reports cross-track error instead of asserting a tolerance,
+            # so it is accepted and ignored rather than rejected -- a
+            # ported tour should not fail to parse over it.
+            emit(Spline(path=kv['file'],
+                        speed=float(kv.get('speed', 150.0)),
+                        lookahead=float(kv.get('lookahead', 150.0)),
+                        laps=int(float(kv.get('laps', 1))),
+                        interval=float(kv.get('interval', 0.12)),
+                        mark=pending_mark))
+            pending_mark = ''
+        elif verb in ('CAMFIX', 'SEND', 'EXPECT', 'DBG', 'WHEELS'):
             # Directives the elite runner supports that this bench runner
             # does not execute. Reported rather than silently dropped, so
             # a ported tour cannot appear to pass while a check never ran.

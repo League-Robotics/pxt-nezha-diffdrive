@@ -1,27 +1,46 @@
-# The circle tour: one full CCW circle, driven as an arc twist (v = omega*r).
+# The circle tour: one full CCW circle, driven as eight arc twists.
 #
-# PLAYFIELD SIZING (2026-08-14). The original radius was 250 mm, which does
-# not fit: driven CCW from the field centre the circle's centre sits at
-# y = +250 and its top reaches y = +500 mm, against a 386 mm limit for the
-# robot centre. Measured on hardware -- the run drove the robot to
-# (182, 376) mm and the next tour then failed against the north rail.
+# SIZING (2026-09-01). r = 300 mm. A circle driven CCW from a point on
+# its own circumference puts its centre 90 deg to the left, so it spans
+# +-r in x and 0..2r in y from the start: 600 x 600 mm. Against the
+# working budget of +-550 x +-350 mm (tours/FIELD.md) that is the
+# largest round radius that fits the tight axis. Stage the robot at
+# (0, -300) relative to the field centre so the circle sits centred.
 #
-# r = 150 mm puts the top of the circle at y = +300 mm, ~85 mm inside the
-# limit, which exceeds the measured closure error so a normal run stays clear.
-# 150 mm/s at 57.3 deg/s -> r = 150 mm; a full turn is 360 deg.
+# The earlier 150 mm radius was sized against a smaller usable area and
+# left half the field unused; before that, 250 mm was sized against the
+# FULL field rather than the usable part and drove the robot to
+# (182, 376) mm, after which the next tour failed against the north
+# rail.
+#
+# ARC SEGMENTS ARE 45 DEG AND THAT IS NOT COSMETIC. moveX() splits any
+# move with a nonzero distance and |rotation| >= 50 deg into a pivot
+# THEN a straight, so the original single 360 deg arc drove the whole
+# circle as one 942 mm STRAIGHT LINE (MEASURED gopiv 2026-09-01,
+# closure 942.2 mm), and a 90 deg version drew a square. Eight 45 deg
+# arcs keep every segment a genuine constant-curvature move.
+#
+#   v = omega * r, with omega = 47.75 deg/s = 0.8333 rad/s
+#   -> v = 0.8333 * 300 = 250 mm/s, matching the other tours' cruise.
 
-# PORTING NOTE (2026-09-01). The original single 360 deg arc does not
-# survive this repo's motion engine: moveX() splits any move with a
-# nonzero distance and |rotation| >= 50 deg into a pivot THEN a straight,
-# so the whole circle came out as one 942 mm straight line (measured --
-# closure 942.2 mm). Driving it as eight 45 deg arcs keeps every segment
-# under that threshold, so each stays a genuine constant-curvature move.
+# PIVOT TUNING (MEASURED gopiv 2026-09-01, interleaved A/B so battery
+# drift hits both arms equally). Pivot cruise 188 mm/s (omega 180 deg/s)
+# beats 300 mm/s (286 deg/s) decisively: excess +1.34 deg sd 0.35 versus
+# +6.88 deg sd 1.03, n=8 each. pivot_overrun was then swept AT 188 mm/s
+# and 0.68 -- the value the closure sweep found at 300 mm/s -- leaves
+# +1.44 deg on the table; 2.0 is the zero crossing (1.8 -> +0.29,
+# 2.2 -> -0.25). pivot_overrun is speed-dependent: retune it whenever
+# the pivot cruise changes.
+
+SET twist_hold_gain 8
+SET speed_floor 512
+SET yaw_taper 800
+SET pivot_overrun 2.0
+
 REPEAT 8
 
 MARK circle
-TWIST vx=150 omega=57.3 angle=45 timeout=6
+TWIST vx=250 omega=47.75 angle=45 timeout=6
 
 END
 STOP dwell=0.5
-
-CAMFIX x=0 y=0 radius=150

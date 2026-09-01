@@ -1,71 +1,61 @@
-# The spline tour: a serpentine -- four half-circles of alternating
-# curvature, driven as arcs.
+# The spline tour: follow a FITTED PATH with pure pursuit.
 #
-# WHY THIS SHAPE. The elite suite's spline tours (complex_spline.tour,
-# tag_spline.tour) follow a fitted SVG path with pure pursuit, and say
-# what makes such a path hard: "repeated left/right reversals". This
-# repo has no path follower -- SPLINE is one of the directives
-# tourfile.py reports as not executed -- so the reversal itself is what
-# is worth keeping. A serpentine is exactly that and nothing else: the
-# curvature flips sign at every join, with no straight in between to
-# let the heading servo settle. Where circle.tour holds one curvature
-# and infinity.tour reverses it twice per lap, this reverses it three
-# times in a row.
+# This is the only tour here that is not a chain of arcs the motion
+# engine shapes on its own. The path is a densely sampled curve
+# (complex.path.json -- 321 points, 3493.6 mm long, imported from an
+# SVG and fitted to the field), and the host closes a loop around the
+# robot's odometry pose to follow it:
 #
-# It is NOT a fitted spline and should not be described as one. It is
-# the curvature-reversal half of what a spline test measures, which is
-# the half this robot can drive.
+#   1. read the pose off the telemetry stream
+#   2. slide the arc-length cursor to the nearest point on the path
+#   3. take the point one LOOKAHEAD further along -- the point where
+#      the pursuit circle leaves the path ahead of the robot
+#   4. turn the offset to that point into a curvature and command it
+#   5. repeat, every INTERVAL seconds
 #
-# SIZING. r = 150 mm. Each half circle advances 2r along the axis and
-# stays within +-r of it, so four bends span 4 x 2r = 1200 mm by
-# 300 mm. Against the +-671.5 x +-446.5 mm centre limit that leaves
-# ~71 mm on the long axis (start at x = -600 facing East) and a lot of
-# room on the short one. Five bends would span 1500 mm and NOT fit.
+# Curvature from the standard pure-pursuit geometry: with the aim point
+# at (dx, dy) in the robot frame and L = |aim|, kappa = 2*dy / L^2, and
+# omega = kappa * v. Commanded with MOVE_V (body speed + yaw rate held
+# for a duration) so the robot keeps rolling between updates. Discrete
+# MOVE_X hops to each aim point would also "drive at the point over and
+# over", but would stop and re-accelerate every cycle -- a stutter
+# rather than a followed curve.
 #
-#   v = omega * r, with omega = 57.3 deg/s = 1.0 rad/s
-#   -> v = 1.0 * 150 = 150 mm/s.
+# WHAT IT MEASURES that the arc tours cannot: cross-track error against
+# a reference curve, continuously. Every other tour scores the endpoint
+# (closure) and infers the middle. This scores the middle.
 #
-# SEGMENT SIZE IS NOT FREE. moveX() splits any move with a nonzero
-# distance and |rotation| >= 50 deg (kTurnFirstAngleRad) into a pivot
-# THEN a straight, so an arc asked for in 90 deg pieces comes out as a
-# corner. MEASURED 2026-09-01 on gopiv (reports/tours-20260901/):
-# circle.tour written as one 360 deg arc drove a 942 mm STRAIGHT LINE.
-# Every arc here is 45 deg, so a half circle is four of them.
+# LOOKAHEAD IS THE TUNING KNOB and it trades two errors against each
+# other. Too short and the follower oscillates -- it steers hard at a
+# point it reaches before the robot can respond. Too long and it cuts
+# corners: it cannot track curvature much tighter than about half the
+# lookahead. complex.path.json's min_radius_mm is 32.0, which is
+# tighter than this robot tracks at any speed, so SOME corner-cutting
+# is expected on the sharpest bends and is a property of the path, not
+# a fault in the follower.
+#
+# SIZING. The path spans +-360.9 x +-262.8 mm, well inside the working
+# budget of +-550 x +-350 (tours/FIELD.md), with 189 mm spare on x and
+# 87 mm on y. It is used UNSCALED on purpose: scaling would change
+# min_radius_mm and break comparison with radio-robot-elite's own runs
+# of the same path. Stage the robot at the field centre; the path is
+# closed and centred on its own origin.
+
+# PIVOT TUNING (MEASURED gopiv 2026-09-01, interleaved A/B so battery
+# drift hits both arms equally). Pivot cruise 188 mm/s (omega 180 deg/s)
+# beats 300 mm/s (286 deg/s) decisively: excess +1.34 deg sd 0.35 versus
+# +6.88 deg sd 1.03, n=8 each. pivot_overrun was then swept AT 188 mm/s
+# and 0.68 -- the value the closure sweep found at 300 mm/s -- leaves
+# +1.44 deg on the table; 2.0 is the zero crossing (1.8 -> +0.29,
+# 2.2 -> -0.25). pivot_overrun is speed-dependent: retune it whenever
+# the pivot cruise changes.
 
 SET twist_hold_gain 8
 SET speed_floor 512
 SET yaw_taper 800
-SET pivot_overrun 0.68
+SET pivot_overrun 2.0
 
-# --- bend 1: half circle, CCW ----------------------------------------
-MARK bend1
-REPEAT 4
-TWIST vx=150 omega=57.3 angle=45 timeout=6
-END
-
-# --- bend 2: half circle, CW -----------------------------------------
-MARK bend2
-REPEAT 4
-TWIST vx=150 omega=-57.3 angle=-45 timeout=6
-END
-
-# --- bend 3: half circle, CCW ----------------------------------------
-MARK bend3
-REPEAT 4
-TWIST vx=150 omega=57.3 angle=45 timeout=6
-END
-
-# --- bend 4: half circle, CW -----------------------------------------
-MARK bend4
-REPEAT 4
-TWIST vx=150 omega=-57.3 angle=-45 timeout=6
-END
+MARK spline
+SPLINE file=complex.path.json speed=200 lookahead=160 laps=1 interval=0.12
 
 STOP dwell=0.5
-
-# NOTE ON CLOSURE. A serpentine is an OPEN path: it ends 1200 mm from
-# where it started, so the closure number run_tour.py prints is
-# meaningless here and should be ignored. What this tour scores is the
-# heading at the end -- four half circles alternating direction net to
-# ZERO net rotation, so a clean run finishes on the starting heading.
-# Read `net rotation` in the run output, not `closure`.
