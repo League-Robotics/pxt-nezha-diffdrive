@@ -434,6 +434,16 @@ float engineDefaultCruiseForDistanceMmS(float distanceMm) {
   return g_activeWaHandle->engine.defaultCruiseForDistance(distanceMm);
 }
 
+// SUC-003: mirrors shims.cpp's real engineDominantAxisTravelMm() --
+// forwards onto the SAME real `engine`'s
+// MotionEngine::dominantAxisTravelMm(), so a pure-pivot MOVE_X test
+// through this double exercises the exact formula production uses.
+float engineDominantAxisTravelMm(float distanceMm, float rotationRad) {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  return g_activeWaHandle->engine.dominantAxisTravelMm(distanceMm,
+                                                        rotationRad);
+}
+
 // Mirrors shims.cpp's real engineMoveV()/engineGoToR()/engineGoToW()
 // exactly -- what WireAdapter::onMoveV()/onGoToR()/onGoToW()
 // (wire_adapter.cpp) forward-declares and calls.
@@ -460,6 +470,17 @@ bool engineGoToW(float x, float y, float speed, float arrive,
   g_activeWaHandle->engine.goToW(g_activeWaHandle->pose, x, y, speed, arrive,
                                  timeoutMs);
   return true;
+}
+
+// SUC-003: mirrors shims.cpp's real engineGoToWChordMm() -- the TRUE
+// chord from this handle's own FakePoseSource (`pose`, the SAME source
+// engineGoToW() above dispatches through) to (worldX, worldY), not
+// hypot(worldX, worldY) of the target alone.
+float engineGoToWChordMm(float worldX, float worldY) {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  const float dx = worldX - g_activeWaHandle->pose.x();
+  const float dy = worldY - g_activeWaHandle->pose.y();
+  return std::hypot(dx, dy);
 }
 
 // Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/R-23):

@@ -1596,15 +1596,52 @@ def test_move_x_cruise_zero_shaped_mode_reverse_distance_uses_magnitude(wa):
         expected_right, rel=1e-4)
 
 
-def test_move_x_cruise_zero_shaped_mode_zero_distance_is_range_error(wa):
-    """A pure-pivot MOVE_X call (distance == 0) resolves D == 0, hence
-    v_default(0) == 0 -- treated the SAME as an explicit `cruise <= 0`
-    (this ticket's own acceptance criterion): refused (kRange), never a
+def test_move_x_cruise_zero_shaped_mode_pure_pivot_uses_wheel_travel_default(wa):
+    """A pure-pivot MOVE_X (distance == 0) has a REAL wheel-travel
+    distance even though the chassis itself does not translate: each
+    wheel moves |rotation_rad| * effectiveTrackWidth() / 2 mm. Every
+    pivot in a tour is exactly this call -- resolving D from |distance|
+    alone would always see D == 0 here and refuse every default-speed
+    pivot the moment shaped mode is on, breaking the first field run
+    that ever sets aDecelMmS2_ nonzero. D must come from
+    MotionEngine::dominantAxisTravelMm(), the same `dominant` quantity
+    startSegment() itself reduces to -- so this call succeeds, resolved
+    from the pivot's own wheel travel, not the flat default."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)  # must NOT be the value used below
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    rotation_mrad = 300
+    rotation_rad = rotation_mrad / 1000.0
+    wheel_travel = abs(rotation_rad) * b / 2.0
+    resolved_cruise = math.sqrt(2.0 * 700.0 * 0.375 * wheel_travel)
+    assert resolved_cruise != pytest.approx(150.0)
+
+    wa.feed(f"MOVE_X 0 {rotation_mrad} 0 5000 #1\n".encode())
+    assert wa.take_sink() == _ack(1)  # NOT a range refusal
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        0.0, rotation_rad, resolved_cruise, cpm, b, _SHAPED_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_move_x_cruise_zero_shaped_mode_both_zero_is_range_error(wa):
+    """The one genuinely degenerate case left after the pure-pivot fix
+    above: distance == 0 AND rotation == 0 -- no wheel travel on EITHER
+    axis, so D == 0 and the resolved default is refused (kRange), the
+    same way an explicit `cruise <= 0` already is -- never a
     silently-accepted zero-speed command that reports success while
-    commanding nothing. This is a real behavior difference from legacy
-    mode, where the exact same call resolves to the flat, always-usable
-    default -- an operator opting into shaped mode must supply an
-    explicit cruise for a default-speed pure pivot."""
+    commanding nothing."""
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(1000.0)
     wa.set_default_cruise(150.0)  # would have succeeded in legacy mode
@@ -1613,7 +1650,7 @@ def test_move_x_cruise_zero_shaped_mode_zero_distance_is_range_error(wa):
     wa.set_v_max_mm_s(1000.0)
     assert wa.begin() == STATUS_OK
 
-    wa.feed(b"MOVE_X 0 300 0 5000 #1\n")
+    wa.feed(b"MOVE_X 0 0 0 5000 #1\n")
     assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
     wa.step()
 
@@ -2406,24 +2443,23 @@ def test_go_to_w_speed_zero_shaped_mode_identity_pose_uses_target_distance(wa):
         expected_right, rel=1e-4)
 
 
-def test_go_to_w_speed_zero_shaped_mode_nonzero_pose_uses_world_origin_distance(wa):
-    """KNOWN LIMITATION, pinned deliberately rather than left an
-    undocumented surprise: onGoToW()'s (x, y) are WORLD-frame absolute
-    target coordinates (unlike onGoToR()'s already-body-frame (x, y)),
-    so hypot(x, y) here is the target's distance from the WORLD ORIGIN,
-    not this call's actual travel distance from the robot's current
-    pose (goToW()'s own doc comment, motion_engine.h). With the robot
-    sitting far from the world origin, this can resolve a FASTER
-    default than a short local hop can actually brake from -- the exact
-    failure mode this ticket otherwise exists to prevent. Computing the
-    true chord would need an extra pose read this wire handler does not
-    otherwise take (poseX()/poseY() MUTATE odometry as a side effect,
-    wire_adapter.cpp's own forward-declaration block), so this is a
-    deliberate, flagged approximation, not an oversight -- this test
-    pins the CURRENT behavior so a future change to it is a conscious
-    decision, not silent drift."""
+def test_go_to_w_speed_zero_shaped_mode_nonzero_pose_uses_true_chord(wa):
+    """FIXED defect: onGoToW()'s (x, y) are WORLD-frame absolute target
+    coordinates (unlike onGoToR()'s already-body-frame (x, y)), so the
+    resolver must NOT use hypot(x, y) of the target alone -- that would
+    be the target's distance from the WORLD ORIGIN, not this call's
+    actual travel distance, and would resolve an unbrakeable speed for
+    a short local hop whenever the robot sits far from the origin
+    (exactly this rig's own +-67/+-45 cm playfield frame). D must be
+    the TRUE chord from the robot's CURRENT pose to the target
+    (engineGoToWChordMm(), shims.cpp) -- proven here with a robot
+    sitting well away from the origin (500, 500) asked for a genuinely
+    SHORT 5 mm local hop: the resolved speed must come from that 5 mm
+    chord, not the ~707 mm distance-from-origin the old, broken
+    resolution would have used."""
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)  # must NOT be the value used below
     wa.set_a_decel_mm_s2(700.0)
     wa.set_brake_frac(0.375)
     wa.set_v_max_mm_s(1000.0)
@@ -2431,21 +2467,23 @@ def test_go_to_w_speed_zero_shaped_mode_nonzero_pose_uses_world_origin_distance(
     cpm = wa.counts_per_mm()
     b = wa.effective_track_width()
 
-    # Robot sitting well away from the world origin; a genuinely SHORT
-    # local hop (the real chord below is only 5 mm).
     pose_x, pose_y, heading = 500.0, 500.0, 0.0
     target_x, target_y = 505.0, 500.0
     wa.set_pose(pose_x, pose_y, heading)
 
     real_chord = math.hypot(target_x - pose_x, target_y - pose_y)
     world_origin_distance = math.hypot(target_x, target_y)
-    assert real_chord < 10.0
-    assert world_origin_distance > 700.0  # what this call actually uses as D
+    assert real_chord == pytest.approx(5.0)
+    assert world_origin_distance > 700.0  # the WRONG distance, pre-fix
 
-    resolved_speed = math.sqrt(2.0 * 700.0 * 0.375 * world_origin_distance)
-    # Proves the CONCERN, not just the number: this resolves to a speed
-    # this 5 mm hop cannot possibly brake from within its own length.
-    assert resolved_speed > real_chord
+    resolved_speed = math.sqrt(2.0 * 700.0 * 0.375 * real_chord)
+    wrong_speed_from_origin = math.sqrt(
+        2.0 * 700.0 * 0.375 * world_origin_distance)
+    # The corrected speed is small and sane for a 5 mm hop; the
+    # pre-fix speed would have been far larger -- this is the failure
+    # SUC-003 exists to prevent, now avoided.
+    assert resolved_speed < 60.0
+    assert resolved_speed < wrong_speed_from_origin
 
     wa.feed(b"GO_TO_W 505 500 0 0 5000 #1\n")
     assert wa.take_sink() == _ack(1)

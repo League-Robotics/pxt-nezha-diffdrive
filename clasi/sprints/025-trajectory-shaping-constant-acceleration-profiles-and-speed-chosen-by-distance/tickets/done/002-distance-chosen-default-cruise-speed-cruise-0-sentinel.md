@@ -35,6 +35,24 @@ default") for why: `wheelsX()`'s two per-wheel distances have no single
 Depends on ticket 001 for `aDecelMmS2_`/`vMaxMmS_`/`brakeFrac_` and
 their accessors.
 
+**Refinement during code review (both required for a correct field
+result, not optional polish):** `onMoveX`'s `D` is
+`MotionEngine::dominantAxisTravelMm(distance, rotationRad)` —
+`max(|distance|, |rotationRad| * effectiveTrackWidth()/2)` — not
+`|distance|` alone, because a pure pivot (`distance == 0`) still moves
+real wheel travel; resolving from `|distance|` alone would refuse
+every default-speed pivot (every pivot in a tour) the moment shaped
+mode is on. `kRange` for a resolved `0` now fires only when BOTH
+`distance` and `rotation` are zero. `onGoToW`'s `D` is
+`engineGoToWChordMm(x, y)` — the true body-frame chord from the
+robot's CURRENT pose to the world-frame target, via the SAME
+`PoseSource` selection `engineGoToW()` itself dispatches through — not
+`hypot(x, y)` of the absolute world-frame target coordinates alone,
+which is the target's distance from the world ORIGIN and is wrong
+whenever the robot is not sitting at the origin (always, on this rig's
+own ±67/±45 cm playfield frame). `onGoToR`'s `D` is unaffected:
+`hypot(x, y)` there is already body-frame, i.e. already the chord.
+
 ## Acceptance Criteria
 
 - [x] `MotionEngine` gains a resolver (e.g.

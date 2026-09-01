@@ -261,6 +261,22 @@ class MotionEngine {
   // leg length can never produce NaN.
   float defaultCruiseForDistance(float distanceMm) const;
 
+  // [mm] SUC-003 input helper for defaultCruiseForDistance() above: the
+  // dominant-axis wheel-travel magnitude moveX()'s own wheels_x-style
+  // reduction would produce for (distanceMm, rotationRad) -- the same
+  // `dominant` quantity startSegment() computes (motion_engine.cpp),
+  // restated here in mm rather than counts so a PURE PIVOT
+  // (distanceMm == 0, rotationRad != 0) still has a real, nonzero D
+  // instead of always resolving to 0 -- a pivot's wheels genuinely
+  // travel `|rotationRad| * effectiveTrackWidth() / 2` mm each, even
+  // though the chassis itself does not translate. Approximates the
+  // exact `max(|distance - rotation*b/2|, |distance + rotation*b/2|)`
+  // split as `max(|distanceMm|, |rotationRad|*b/2)` -- cheaper, and
+  // never LARGER than the exact split (same-signed terms only add), so
+  // a blended move's resolved default cruise is never more optimistic
+  // than the exact reduction would allow.
+  float dominantAxisTravelMm(float distanceMm, float rotationRad) const;
+
   // ---- the two primitives (motion-api.md S3.1/S3.2) ----
 
   // wheels_v(left, right, duration): hold each wheel at a commanded

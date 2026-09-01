@@ -16,12 +16,19 @@ Covers:
   4. D == 0 (or a negative D, clamped to 0 internally) resolves to
      0.0 -- the wire layer's existing non-positive-cruise refusal is
      what turns this into a range error; this test only pins the
-     resolver's own contribution to that outcome.
+     resolver's own contribution to that outcome. (At the wire layer
+     this is now the genuinely degenerate case only -- a MOVE_X pure
+     pivot no longer produces D == 0, since onMoveX() resolves D via
+     dominantAxisTravelMm() below, not |distance| alone.)
   5. aDecelMmS2_ == 0.0 (the shipped legacy default) resolves to 0.0
      for any D -- callers gate on aDecelMmS2_ > 0 before ever calling
      this method (wire_adapter.cpp's onMoveX()/onGoToR()/onGoToW()),
      so this is this method's own honest answer when asked anyway,
      not a behavior any wire caller reaches in legacy mode.
+  6. dominantAxisTravelMm(distanceMm, rotationRad) -- the input helper
+     onMoveX() uses to build D -- matches
+     max(|distanceMm|, |rotationRad|*effectiveTrackWidth()/2), and in
+     particular is nonzero for a pure pivot (distanceMm == 0).
 
 Run with::
 
@@ -60,6 +67,12 @@ def _bind(lib):
     lib.meSetBrakeFrac.restype = None
     lib.meDefaultCruiseForDistance.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meDefaultCruiseForDistance.restype = ctypes.c_float
+    lib.meDominantAxisTravelMm.argtypes = [
+        ctypes.c_void_p, ctypes.c_float, ctypes.c_float,
+    ]
+    lib.meDominantAxisTravelMm.restype = ctypes.c_float
+    lib.meEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
+    lib.meEffectiveTrackWidth.restype = ctypes.c_float
 
     return lib
 
@@ -101,6 +114,13 @@ class Engine:
 
     def default_cruise_for_distance(self, distance_mm):
         return self._lib.meDefaultCruiseForDistance(self._handle, distance_mm)
+
+    def dominant_axis_travel_mm(self, distance_mm, rotation_rad):
+        return self._lib.meDominantAxisTravelMm(
+            self._handle, distance_mm, rotation_rad)
+
+    def effective_track_width(self):
+        return self._lib.meEffectiveTrackWidth(self._handle)
 
 
 def test_matches_formula_below_the_v_max_ceiling(motion_lib):
@@ -150,11 +170,13 @@ def test_v_max_ceiling_is_respected_for_large_distance(motion_lib):
 
 
 def test_zero_or_negative_distance_resolves_to_zero(motion_lib):
-    """D == 0 (a pure-pivot MOVE_X call, or a goToR()/goToW() call
-    already at its target) and a negative D (clamped to 0 internally,
-    guarding the sqrt()) both resolve to exactly 0.0 -- the wire
-    layer's existing non-positive-cruise refusal is what turns this
-    into a range error at the call site, not this method itself."""
+    """D == 0 (a goToR()/goToW() call already at its target, or a
+    direct call with no wheel travel on either axis) and a negative D
+    (clamped to 0 internally, guarding the sqrt()) both resolve to
+    exactly 0.0 -- the wire layer's existing non-positive-cruise
+    refusal is what turns this into a range error at the call site, not
+    this method itself. (A MOVE_X pure pivot does NOT reach D == 0 any
+    more -- see dominantAxisTravelMm() below.)"""
     with Engine(motion_lib) as e:
         e.set_a_decel_mm_s2(700.0)
         e.set_brake_frac(0.4)
@@ -176,3 +198,72 @@ def test_legacy_a_decel_zero_resolves_to_zero_for_any_distance(motion_lib):
 
         for d in (0.0, 10.0, 1000.0):
             assert e.default_cruise_for_distance(d) == pytest.approx(0.0)
+
+
+# ---- dominantAxisTravelMm(): onMoveX()'s own D input, so a pure pivot
+# does not resolve D == 0 ---------------------------------------------
+
+
+def test_dominant_axis_travel_pure_pivot_is_wheel_travel_not_zero(motion_lib):
+    """The defect this helper exists to fix: a pure-pivot MOVE_X call
+    (distanceMm == 0) still moves each wheel |rotationRad| *
+    effectiveTrackWidth() / 2 mm -- that must be D, not 0, or every
+    default-speed pivot in a tour is refused the moment shaped mode is
+    on."""
+    with Engine(motion_lib) as e:
+        b = e.effective_track_width()
+        rotation_rad = 0.3
+        expected = abs(rotation_rad) * b / 2.0
+        assert expected > 0.0
+        assert e.dominant_axis_travel_mm(0.0, rotation_rad) == pytest.approx(
+            expected, rel=1e-5)
+
+
+def test_dominant_axis_travel_pure_translation_is_distance(motion_lib):
+    """rotationRad == 0: D is just |distanceMm|, same as this ticket's
+    original (pre-fix) behavior for a straight leg."""
+    with Engine(motion_lib) as e:
+        assert e.dominant_axis_travel_mm(200.0, 0.0) == pytest.approx(200.0)
+        assert e.dominant_axis_travel_mm(-200.0, 0.0) == pytest.approx(200.0)
+
+
+def test_dominant_axis_travel_picks_the_larger_axis(motion_lib):
+    """A blended move: whichever axis's own travel is larger wins --
+    matches max(|distanceMm|, |rotationRad|*b/2), the same `dominant`
+    quantity startSegment() itself reduces to."""
+    with Engine(motion_lib) as e:
+        b = e.effective_track_width()
+
+        small_rotation = 0.05  # yaw travel well under 200 mm
+        assert e.dominant_axis_travel_mm(
+            200.0, small_rotation) == pytest.approx(200.0)
+
+        large_rotation = 2.0  # yaw travel well over 50 mm
+        yaw_travel = abs(large_rotation) * b / 2.0
+        assert yaw_travel > 50.0
+        assert e.dominant_axis_travel_mm(
+            50.0, large_rotation) == pytest.approx(yaw_travel, rel=1e-5)
+
+
+def test_dominant_axis_travel_both_zero_is_zero(motion_lib):
+    """The one genuinely degenerate case: no travel on either axis."""
+    with Engine(motion_lib) as e:
+        assert e.dominant_axis_travel_mm(0.0, 0.0) == pytest.approx(0.0)
+
+
+def test_pure_pivot_resolves_a_real_nonzero_default_cruise(motion_lib):
+    """End-to-end at the engine level (no wire layer): feeding a pure
+    pivot's dominantAxisTravelMm() straight into
+    defaultCruiseForDistance() produces a real, positive default cruise
+    -- the fix for the field-breaking defect this ticket's coordinator
+    flagged (every tour pivot would otherwise be refused once shaped
+    mode is on)."""
+    with Engine(motion_lib) as e:
+        e.set_a_decel_mm_s2(700.0)
+        e.set_brake_frac(0.375)
+        e.set_v_max_mm_s(1000.0)
+
+        rotation_rad = 0.3
+        d = e.dominant_axis_travel_mm(0.0, rotation_rad)
+        resolved = e.default_cruise_for_distance(d)
+        assert resolved > 0.0

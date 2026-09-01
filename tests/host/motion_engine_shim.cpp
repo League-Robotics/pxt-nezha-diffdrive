@@ -233,6 +233,14 @@ float meDefaultCruiseForDistance(void* handle, float distanceMm) {
       distanceMm);
 }
 
+// SUC-003: the dominant-axis wheel-travel input helper -- a pure pivot
+// (distanceMm == 0) still resolves a nonzero D from rotationRad alone.
+float meDominantAxisTravelMm(void* handle, float distanceMm,
+                             float rotationRad) {
+  return static_cast<Handle*>(handle)->engine.dominantAxisTravelMm(
+      distanceMm, rotationRad);
+}
+
 // ---- MotionEngine: the two primitives (motion-api.md S3.1/S3.2) -------
 
 void meWheelsV(void* handle, float left, float right, uint32_t durationMs) {

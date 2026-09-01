@@ -77,6 +77,14 @@ float MotionEngine::defaultCruiseForDistance(float distanceMm) const {
   return vAllow < vMaxMmS_ ? vAllow : vMaxMmS_;
 }
 
+// See motion_engine.h's own comment on this method for the contract.
+float MotionEngine::dominantAxisTravelMm(float distanceMm,
+                                         float rotationRad) const {
+  const float distTravel = std::fabs(distanceMm);
+  const float yawTravel = std::fabs(rotationRad) * effectiveTrackWidth() * 0.5f;
+  return yawTravel > distTravel ? yawTravel : distTravel;
+}
+
 void MotionEngine::wheelsV(float left, float right, uint32_t durationMs) {
   cancelMove();  // motion-api.md S6: wheels_* clears the planner
   const float cpm = countsPerMm();

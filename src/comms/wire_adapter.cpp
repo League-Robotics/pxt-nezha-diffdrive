@@ -39,12 +39,21 @@ float engineDefaultCruiseMmS();
 // distance-aware resolve -- see resolveDefaultCruiseMmS() below.
 float engineADecelMmS2();
 float engineDefaultCruiseForDistanceMmS(float distanceMm);
+// SUC-003: onMoveX()'s own D input -- a pure pivot (distance == 0)
+// still has a real wheel-travel distance; see resolveDefaultCruiseMmS()
+// below and this function's own comment (shims.cpp).
+float engineDominantAxisTravelMm(float distanceMm, float rotationRad);
 
 void engineMoveV(float vx, float omegaRad, uint32_t durationMs);
 void engineGoToR(float x, float y, float speed, float arrive,
                  uint32_t timeoutMs);
 bool engineGoToW(float x, float y, float speed, float arrive,
                  uint32_t timeoutMs);
+// SUC-003: onGoToW()'s own D input -- the TRUE body-frame chord from
+// the robot's CURRENT pose to this call's world-frame target, not
+// hypot(x, y) of the target alone (see this function's own comment,
+// shims.cpp, for why that would be wrong).
+float engineGoToWChordMm(float worldX, float worldY);
 
 // ---- shims.cpp entry points (sprint 004 ticket 004) ---------------------
 // buildSnapshot()'s own five reads, reaching live pose/OTOS/wheel-speed
@@ -418,15 +427,22 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
                                   uint32_t id) {
   // Same cruise <0 handling as onWheelsX() above; the ==0 substitution
   // itself now goes through resolveDefaultCruiseMmS() (SUC-003) instead
-  // of the flat engineDefaultCruiseMmS() directly -- `distance` here is
-  // this call's own leg length, the one input only this handler has;
-  // std::fabs() because a reverse move's `distance` arrives signed but
-  // the braking formula is defined over a length, not a signed offset
-  // (moveX()'s own dominant-wheel reduction, motion_engine.cpp, is
-  // likewise sign-agnostic in magnitude).
+  // of the flat engineDefaultCruiseMmS() directly. D is
+  // engineDominantAxisTravelMm(distance, rotationRad), NOT |distance|
+  // alone -- a pure pivot (distance == 0) still moves its wheels
+  // |rotationRad|*b/2 mm each, and resolving from |distance| alone
+  // would always see D == 0 there and refuse every default-speed pivot
+  // once shaped mode is on (every pivot in a tour is exactly this
+  // call). `rotationRad` is computed once, here, and reused below for
+  // the dispatch -- the wire's ONE milliradian->radian conversion seam
+  // (motion-api.md S9.1, mradToRad()'s own comment above).
   if (cruise < 0.0f) return Wire::Result::kRange;
+  const float rotationRad = mradToRad(rotation);
   const float resolvedCruise =
-      cruise == 0.0f ? resolveDefaultCruiseMmS(std::fabs(distance)) : cruise;
+      cruise == 0.0f
+          ? resolveDefaultCruiseMmS(
+                engineDominantAxisTravelMm(distance, rotationRad))
+          : cruise;
   if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
   // sprint 005 ticket 004: resolve any still-pending PREVIOUS motion
   // BEFORE dispatching -- unlike WHEELS_V/WHEELS_X/MOVE_V,
@@ -436,9 +452,7 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
   // there, but is kept identical for one uniform rule (resolve-before-
   // dispatch, always) rather than a rule with silent exceptions.
   if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
-  // The wire's ONE milliradian->radian conversion seam (motion-api.md
-  // S9.1) -- see mradToRad()'s own comment above.
-  engineMoveX(distance, mradToRad(rotation), resolvedCruise, timeout);
+  engineMoveX(distance, rotationRad, resolvedCruise, timeout);
   if (nowMs_ != nullptr) {
     // GOAL-DIRECTED: this class's own resolvePendingReason() also reads
     // engineMoveActive() for this one -- see wire_adapter.h.
@@ -507,19 +521,17 @@ Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
   // resolveDefaultCruiseMmS() substitution on ==0 (SUC-003) -- but
   // UNLIKE onGoToR()'s (x, y) (already body-frame, i.e. already the
   // chord to travel), this call's (x, y) are WORLD-frame absolute
-  // target coordinates (goToW()'s own doc comment, motion_engine.h):
-  // hypot(x, y) here is the target's distance from the world ORIGIN,
-  // not necessarily this call's actual travel distance from the
-  // robot's current pose. The true chord would need a pose read this
-  // handler does not otherwise take, and poseX()/poseY() MUTATE
-  // odometry as a side effect (this file's own forward-declaration
-  // block, above) -- so this is a known, deliberately-flagged
-  // approximation: conservative for a robot sitting near the world
-  // origin, NOT conservative otherwise. Worth re-checking once
-  // aDecelMmS2_ is first set nonzero.
+  // target coordinates (goToW()'s own doc comment, motion_engine.h), so
+  // D comes from engineGoToWChordMm(x, y) -- the TRUE body-frame chord
+  // from the robot's CURRENT pose, using the exact same PoseSource
+  // selection the dispatch below will use -- rather than hypot(x, y)
+  // of the target alone, which is the target's distance from the world
+  // ORIGIN and not this call's actual travel distance whenever the
+  // robot is not sitting at the origin.
   if (speed < 0.0f) return Wire::Result::kRange;
   const float resolvedSpeed =
-      speed == 0.0f ? resolveDefaultCruiseMmS(std::hypot(x, y)) : speed;
+      speed == 0.0f ? resolveDefaultCruiseMmS(engineGoToWChordMm(x, y))
+                    : speed;
   if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
   // Sprint 006 ticket 007: engineGoToW() now falls back to encoder
   // odometry when no OTOS is connected (motion-api.md S3.6) rather than

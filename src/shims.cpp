@@ -419,6 +419,15 @@ float engineDefaultCruiseForDistanceMmS(float distanceMm) {
   return ensure().engine.defaultCruiseForDistance(distanceMm);
 }
 
+// SUC-003: MOVE_X's own D input for the resolver above -- a pure pivot
+// (distance == 0) still has a real wheel-travel distance, so onMoveX()
+// (wire_adapter.cpp) reaches this instead of taking |distance| alone.
+// Forwards onto MotionEngine::dominantAxisTravelMm() (motion_engine.h),
+// the same `dominant` quantity startSegment() itself reduces to.
+float engineDominantAxisTravelMm(float distanceMm, float rotationRad) {
+  return ensure().engine.dominantAxisTravelMm(distanceMm, rotationRad);
+}
+
 // Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/R-23):
 // the ONE genuinely new read WireAdapter's own motion-completion
 // resolution needs (wire_adapter.cpp's forward declaration, its own
@@ -1175,6 +1184,28 @@ bool engineGoToW(float x, float y, float speed, float arrive,
   PoseSource& pose = selectPoseSource(otos.connected(), otos, r.encoderPose);
   r.engine.goToW(pose, x, y, speed, arrive, timeoutMs);
   return true;
+}
+
+// SUC-003: GO_TO_W's own D input for
+// engineDefaultCruiseForDistanceMmS() above -- the TRUE body-frame
+// chord from the robot's CURRENT pose to this call's WORLD-frame
+// (worldX, worldY) target, not the target's distance from the world
+// origin (hypot(worldX, worldY) alone, which is wrong whenever the
+// robot is not sitting at the origin). Reuses the exact SAME
+// PoseSource selection engineGoToW() above applies -- OtosPort when
+// connected(), the Rig-owned encoderPose otherwise -- so this resolves
+// against the pose the move will actually run from. Both PoseSource
+// implementations (OtosPort, EncoderPoseSource) are plain read-only
+// accessors over already-cached state (otos_port.h/
+// encoder_pose_source.h) -- reading x()/y() here, a second time before
+// engineGoToW() reads them again for the real dispatch, mutates
+// nothing and cannot observe a different value than that dispatch
+// will.
+float engineGoToWChordMm(float worldX, float worldY) {
+  OtosPort& otos = otosRef();
+  Rig& r = ensure();
+  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.encoderPose);
+  return std::hypot(worldX - pose.x(), worldY - pose.y());
 }
 
 // Set end-of-move shaping. Larger tapers and lower floors buy accuracy
