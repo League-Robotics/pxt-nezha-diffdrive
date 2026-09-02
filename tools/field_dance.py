@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """field_dance -- prove the robot moves the way you think, before you drive it.
 
 RUN THIS EVERY TIME, before any field work. It has caught, twice, the
@@ -6,7 +7,14 @@ convention that silently flipped, and a pivot that stopped halfway and
 reported success.
 
     Put the robot in the MIDDLE of the field, then:
-    /Volumes/Cache/User-Eric/.local/pipx/venvs/aprilcam/bin/python tools/field_dance.py
+
+        ./tools/field_dance.py
+
+    Any python will do -- it re-execs itself under aprilcam's own
+    interpreter if it has to. Calibration (tag lever, heading
+    convention, camera parallax) comes from field_calibration.json
+    beside this file; re-measure it after any tag remount or camera
+    move.
 
 Middle of the field is the whole safety story -- the dance never leaves
 a 25 cm circle, so there is nothing to guard against and no pre-flight
@@ -25,19 +33,36 @@ open for the whole dance -- one connection, ~10 Hz, no subprocess per
 reading. Waits on the robot actually coming to rest rather than on a
 fixed sleep, which is what keeps the whole thing near a minute.
 """
-import json, math, sys, time
+import json, math, os, pathlib, shutil, sys, time
 
-SP = ('/private/tmp/claude-501/-Volumes-Proj-proj-RobotProjects-pxt-nezha-'
-      'diffdrive/101bc174-61d3-4a1f-9484-e6f0a191f653/scratchpad')
-sys.path.insert(0, SP)
-from fieldlink import FieldLink                      # noqa: E402
-from aprilcam.mcp import connection as _conn         # noqa: E402
+_HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))
 
-CAM, TAG = 'arducam-ov9782-usb-camera', 53
-CH, GRP = 37, 43
-LEVER = json.load(open(SP + '/lever.json'))['lever_cm']
-HEAD_OFF = json.load(open(SP + '/heading.json'))['heading_offset_deg']
-K = json.load(open(SP + '/k.json'))['k']    # camera parallax dilation
+# `aprilcam` lives in its own pipx venv, so this script has to run under
+# THAT interpreter. Rather than make the caller know which one, find the
+# aprilcam CLI on PATH, read its shebang, and re-exec ourselves under it.
+# Without this the tool is only runnable by someone who already knows the
+# answer -- which is no use as a safety check.
+try:
+    from aprilcam.mcp import connection as _conn
+except ImportError:                                    # pragma: no cover
+    _cli = shutil.which('aprilcam')
+    if not _cli:
+        raise SystemExit('aprilcam is not installed / not on PATH')
+    _py = pathlib.Path(_cli).read_text().splitlines()[0].lstrip('#!').strip()
+    if os.environ.get('_FIELD_DANCE_REEXEC'):
+        raise SystemExit(f'cannot import aprilcam even under {_py}')
+    os.environ['_FIELD_DANCE_REEXEC'] = '1'
+    os.execv(_py, [_py, str(pathlib.Path(__file__).resolve()), *sys.argv[1:]])
+
+from fieldlink import FieldLink                        # noqa: E402
+
+_CAL = json.loads((_HERE / 'field_calibration.json').read_text())
+CAM, TAG = _CAL['camera'], _CAL['tag_number']
+CH, GRP = _CAL['radio_channel'], _CAL['radio_group']
+LEVER = _CAL['lever_cm']
+HEAD_OFF = _CAL['heading_offset_deg']
+K = _CAL['parallax_k']                 # camera parallax dilation
 
 TOL_DEG, TOL_CM = 8.0, 3.0
 
@@ -186,4 +211,10 @@ def main():
 
 
 if __name__ == '__main__':
+    # Handle --help BEFORE anything connects or moves. A safety check
+    # that drives the robot when you ask it what it does is not a safety
+    # check -- found exactly that way.
+    if any(a in ('-h', '--help') for a in sys.argv[1:]):
+        print(__doc__)
+        sys.exit(0)
     sys.exit(main())
