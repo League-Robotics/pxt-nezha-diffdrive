@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: "VFP yield guard \u2014 verify and hardware-confirm"
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on: []

@@ -69,11 +69,25 @@ def test_split_threshold_is_where_we_think_it_is():
     assert 40.0 < _split_threshold_deg() < 60.0
 
 
-def test_three_tour_handlers_are_registered():
-    for verb in ("square", "infinity", "spline"):
+def test_every_arc_figure_has_an_on_robot_handler():
+    """One `onRun` verb per figure the .tour suite drives with arcs.
+
+    `spline` is deliberately absent: the fitted-curve tour is followed
+    with pure pursuit from the host, which needs the sampled path and a
+    steering loop. The on-robot serpentine that used to answer to that
+    name is `snake` -- it is a chain of circular arcs, and the wire
+    command now says so.
+    """
+    for verb in ("square", "diamond", "circle", "infinity", "snake"):
         assert re.search(
             r'diffDrive\.onRun\(\s*"%s"' % verb, _TS
         ), f"RUN:{verb} handler missing from test.ts"
+    assert not re.search(r'diffDrive\.onRun\(\s*"spline"', _TS), (
+        "RUN:spline is registered again. That name drove a serpentine, "
+        "not a spline, which is exactly the confusion the rename fixed -- "
+        "the host-driven .tour file of the same name follows a fitted "
+        "curve with pure pursuit and is a different figure entirely."
+    )
 
 
 def test_arc_steps_stay_below_the_split_threshold():
