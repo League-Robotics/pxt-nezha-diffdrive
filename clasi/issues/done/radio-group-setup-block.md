@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 sprint: '021'
 tickets:
 - 021-005
@@ -45,3 +45,11 @@ visible/teachable radio setup step in student programs.
 
 Pairs naturally with a "Remote" toolbox group holding `on run` /
 `on run command` — see [[block-toolbox-groups-reorganization]].
+
+---
+
+## Triage 2026-09-02 — DONE
+
+Shipped as `set radio group` by sprint 021 ticket 005, then superseded
+by the `setup radio channel %channel group %group` block
+(`src/blocks/run.ts` `setupRadio`), which is what students now use.

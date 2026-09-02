@@ -867,6 +867,7 @@ bool isStalled() { return ensure().kernel.output().stallHalted; }
 // convention protocolEmitLine/protocolRunText already use further down
 // this file.
 int protocolSerialDropCount();
+int protocolRunDropCount();
 
 // Kernel Output accessor, one int per field: booleans 0/1, duty percent
 // x100 (10000 == full duty -- Output.appliedDutyLeft/Right already
@@ -922,6 +923,13 @@ int diagValue(int what) {
     case 27:
       return static_cast<int>(ensure().left.rebaselineCount_ +
                               ensure().right.rebaselineCount_);
+    // 28: cleartext RUN payloads refused because every ring slot
+    // was still in flight. The predecessor to that ring silently
+    // overwrote unread payload instead, so a handler could run a
+    // command nobody sent; this counter is what makes the
+    // refusal visible. Should read 0 unless a host out-runs the
+    // robot.
+    case 28: return protocolRunDropCount();
     default: return 0;
   }
 }

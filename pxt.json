@@ -27,6 +27,7 @@
         "src/comms/serial_transport.cpp",
         "src/comms/radio_transport.h",
         "src/comms/radio_transport.cpp",
+        "src/comms/run_queue.h",
         "src/comms/protocol.h",
         "src/comms/protocol.cpp",
         "src/comms/wire_handler.h",

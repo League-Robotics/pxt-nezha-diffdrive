@@ -1,6 +1,6 @@
 ---
-status: pending
-sprint:
+status: done
+sprint: null
 ---
 
 # Pivots now OVER-rotate (cam/cmd ≈ 1.023, both directions) — supersedes "rotation error is injected by the legs, not the pivots"
@@ -49,3 +49,15 @@ without the pivot-slip anomaly above, and should reconcile with
 Related: `three-way-contradiction-on-which-tuning-bake-the-kernel-defaults-are.md`;
 retired predecessor summarized in
 `docs/sprint-020-playfield-accuracy-findings.md`.
+
+---
+
+## Triage 2026-09-02 — DONE (superseded)
+
+The measurement record stands; the "future re-tune" it asked for
+happened by a different mechanism. The constant per-pivot overshoot is
+now compensated by `pivot_overrun` (`motion_engine.h`, per-robot bake
+`firmware_bake.pivot_overrun_mm`, vevov 2.2 mm), `rotationalSlip` is
+baked per robot by `tools/make_deploy.py`, and the yaw axis got its own
+kinematic braking gate (commit fc7da40, pivot sd 1.14 -> 0.18). Any
+further pivot tuning starts from the current firmware, not this data.

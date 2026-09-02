@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 ---
 
 # Opt-in v6 radio, always-on v6 serial, and student debug output
@@ -194,3 +194,15 @@ fails on any intentional reorg, which is its job.
   question, which now extends to `setFrequencyBand()` as well as `setGroup()`.
 - Channel is fleet-critical: CLAUDE.md records channel 4 for vevov and "never
   retune getez's channel 3". This issue hands students that knob.
+
+---
+
+## Triage 2026-09-02 — DONE
+
+Landed: `setupRadio`, `sendString`, `sendValue` in `src/blocks/run.ts`;
+`RadioTransport::setChannel()`; `Protocol::setupRadio()` with the radio
+link opt-in (`protocol.h` "The v6 radio link is OPT-IN"); `set radio
+group` removed. The five boards reflashed 2026-08-30 answer on their
+derived channels (`captures/fleet-reflash-20260830.md`). Verification
+steps 3 and 5 (plain PXT `radio.*` between two micro:bits, and the
+MakeCode console graph) remain UNVERIFIED on hardware.

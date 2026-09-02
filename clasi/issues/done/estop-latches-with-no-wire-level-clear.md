@@ -1,3 +1,6 @@
+---
+status: done
+---
 # ESTOP latches with no wire-level way to clear it
 
 **Found**: 2026-08-27, while building `tools/wire_acceptance.py`.
@@ -69,3 +72,15 @@ coordination there.
 - [[i2c-wedge-is-stale-state-not-firmware]] — a different "robot won't
   move" cause found the same night; the two present identically from the
   outside, which is itself an argument for making this one visible.
+
+---
+
+## Triage 2026-09-02 — DONE
+
+`RUN:clearestop` (`test/test.ts`, commit 7d9131c) reaches
+`clearEmergencyStop()` over the wire and answers `ESTOP:cleared`. It is
+a cleartext `RUN:` verb, not a sequenced v6 one; the cleartext path's
+UART wedge is `next/concurrent-serial-writers-wedge-the-uarte-in-both-directions.md`
+and lands with sprint 026 ticket 003. If a sequenced verb is still
+wanted, add it alongside the rebase verb in
+`next/no-wire-verb-reaches-rebaseposition-so-tours-cannot-zero-their-frame.md`.

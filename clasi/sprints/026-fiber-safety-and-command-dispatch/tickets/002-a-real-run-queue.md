@@ -1,7 +1,7 @@
 ---
 id: '002'
-title: "A real RUN queue"
-status: open
+title: A real RUN queue
+status: in-progress
 use-cases:
 - SUC-002
 depends-on: []
@@ -140,3 +140,45 @@ tracking needed for this ticket).
 - **Verification command**: `uv run pytest tests/host/test_run_queue.py`
   (or wherever the new tests land) plus the full suite,
   `uv run pytest`.
+
+
+## Completion notes
+
+**Done.** `src/comms/run_queue.h` is a header-only ring, 8 slots x 48
+bytes, `<cstdint>`/`<cstring>` only, with `head`/`tail`/`count` and a
+saturating `dropped` counter. `tests/host/test_run_queue.py` (7 tests)
+proves FIFO order, that in-flight text survives a full burst, that
+overflow is refused and counted rather than silent, that release is
+idempotent, and that the same command twice in a row is allowed.
+`run_queue_syntax_check.cpp` joins the c++11 gate. Full host suite: 903
+passing. Firmware builds (vevov, 1,576,286 bytes).
+
+**Occupancy needed a release point, which the ticket did not settle.**
+The consumer is a MessageBus listener that receives an integer and
+reads the text back by that integer; it never reports completion. So a
+slot is in flight from `enqueue()` until `runText()` reads it, and the
+read IS the release. Without that there is no definition of "still
+needed" and therefore no way to refuse an overwrite. `runQueue_` is
+`mutable` so `runText()` stays `const` to its callers.
+
+**The dedupe window was SHRUNK, not removed — 3000 ms to 400 ms.** The
+queue and the dedupe fix different failures and only one of them was
+redundant. The queue fixes *loss*: unread payload being overwritten.
+The dedupe fixes duplicate *execution*: a host repeating a command over
+a lossy radio would otherwise run the tour once per copy, and the
+queue makes that worse rather than better, because every copy now gets
+its own slot instead of collapsing onto one. 400 ms still swallows a
+retransmit burst while giving back the deliberate repeat that a
+parameter sweep sends.
+
+**Drop count is `diagValue()` ordinal 28** (27 was the highest in use).
+Reachable as `probe(28)`; should read 0 unless a host out-runs the
+robot.
+
+**Not hardware-confirmed, and not required to be.** The firmware builds
+and the ring is host-tested, which is this ticket's stated bar. A
+hardware check was attempted and the board disconnected mid-flash --
+magni's USB port has been dropping the board all session
+(`usb 1-1.5: USB disconnect`, and earlier `device descriptor read/64,
+error -110`). vevov likely needs a reflash after a reseat; that is a
+port fault, not a defect in this work.

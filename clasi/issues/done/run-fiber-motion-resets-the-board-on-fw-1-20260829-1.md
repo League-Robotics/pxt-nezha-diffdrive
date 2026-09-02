@@ -1,3 +1,6 @@
+---
+status: done
+---
 # RUN: motion resets the board — CODAL does not save the FPU registers across a fiber switch
 
 **Severity: high, and wider than the RUN verbs.** Opened 2026-09-01,
@@ -147,3 +150,14 @@ whole `.tour` suite are the working path.
 mid-write twice on magni (`FAIL.TXT`: "The transfer timed out"),
 leaving the board blank both times. `pyocd erase --mass` then
 `pyocd flash -t nrf52833` recovered it cleanly.
+
+---
+
+## Triage 2026-09-02 — DONE
+
+Fixed by sprint 026 ticket 001 (commit 6907222, VFP yield guard).
+MEASURED gopiv 2026-09-01, `reports/run-tours-20260901`: 0/10
+`RUN:straight:20`, 0/10 `RUN:pivot:90`, 0/5 `RUN:square:20` resets on
+the board that reset 3/3 the same morning. The radio-traffic wedge
+retest this issue asked for is still open — tracked in
+`next/fw-1-20260829-1-wedges-on-radio-traffic-during-motion.md`.
