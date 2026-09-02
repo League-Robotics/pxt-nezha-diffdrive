@@ -1,0 +1,23 @@
+{
+  "square": {
+    "cmd": "RUN:square:60",
+    "ok": true,
+    "wall_s": 30.8,
+    "frames": 554,
+    "closure_mm": 23.3
+  },
+  "infinity": {
+    "cmd": "RUN:infinity:25:1",
+    "ok": true,
+    "wall_s": 29.5,
+    "frames": 532,
+    "closure_mm": 2.8
+  },
+  "snake": {
+    "cmd": "RUN:spline:12.5:4",
+    "ok": true,
+    "wall_s": 23.8,
+    "frames": 428,
+    "closure_mm": 1060.1
+  }
+}

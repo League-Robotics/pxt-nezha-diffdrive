@@ -13,6 +13,8 @@
         "src/core/diffdrive.cpp",
         "src/motion/motion_engine.h",
         "src/motion/motion_engine.cpp",
+        "src/platform/vfp_guard.h",
+        "src/platform/vfp_guard.cpp",
         "src/platform/platform_ports.h",
         "src/core/heading_wrap.h",
         "src/core/encoder_glitch_armor.h",

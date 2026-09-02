@@ -1,5 +1,10 @@
 ---
-status: pending
+status: in-progress
+sprint: '026'
+tickets:
+- 026-001
+- 026-002
+- 026-003
 ---
 
 # Fiber safety and command dispatch

@@ -372,16 +372,20 @@ def test_check_translation_units_names_every_missing_file():
     assert make_deploy._check_translation_units(log) == expected_missing
 
 
-def test_check_translation_units_zero_lines_reports_all_ten_missing():
+def test_check_translation_units_zero_lines_reports_every_unit_missing():
     """The specific shape that keeps recurring: a build served entirely
     from a stale cache logs no `Building CXX object` lines at all. This
-    must fail exactly like any other missing-subset case, naming all
-    ten files, not be special-cased as 'nothing needed rebuilding,
-    therefore fine' -- own test, not incidental to the missing-file
-    tests above."""
+    must fail exactly like any other missing-subset case, naming every
+    file, not be special-cased as 'nothing needed rebuilding, therefore
+    fine' -- own test, not incidental to the missing-file tests above.
+
+    The count is read from EXPECTED_CPP_FILES rather than written out:
+    a literal here says nothing the equality above does not already
+    pin, and it fails for the wrong reason the moment a translation
+    unit is legitimately added."""
     missing = make_deploy._check_translation_units(CLEAN_SUCCESS_LOG)
     assert missing == make_deploy.EXPECTED_CPP_FILES
-    assert len(missing) == 10
+    assert len(missing) == len(make_deploy.EXPECTED_CPP_FILES)
 
 
 # --- testFiles promotion (the build-hygiene half of this ticket) ----------

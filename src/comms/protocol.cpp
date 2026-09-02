@@ -1,6 +1,8 @@
 // protocol.cpp -- see protocol.h.
 #include "protocol.h"
 
+#include "../platform/vfp_guard.h"
+
 #include <cstdio>  // plain snprintf, not std::snprintf: newlib-nano's
                    // <cstdio> declares it globally but never puts it in
                    // namespace std (same gotcha wire_handler.cpp
@@ -150,7 +152,7 @@ void Protocol::emitLine(const char* text) {
   if (!radioEnabled_) return;
   if (!radioTransport_.sendLine(reinterpret_cast<const uint8_t*>(text),
                                 len)) {
-    fiber_sleep(2);
+    vfpSafeSleep(2);
     (void)radioTransport_.sendLine(reinterpret_cast<const uint8_t*>(text),
                                    len);
   }
@@ -445,7 +447,7 @@ void Protocol::run() {
       // wheel speed -- and the dereference took a precise bus error.
       // Every yield in this extension must go through the guarded
       // wrapper; see the yield-discipline invariant in the design notes.
-      fiber_sleep(kPollIntervalMs);
+      vfpSafeSleep(kPollIntervalMs);
     }
   }
 }

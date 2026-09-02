@@ -2,6 +2,8 @@
 // nezha_motor.cpp; the shaping-stage ORDER is load-bearing.
 #include "nezha_port.h"
 
+#include "vfp_guard.h"
+
 #include <cmath>
 
 namespace diffDrive {
@@ -208,7 +210,7 @@ void NezhaMotorPort::begin() {
                                                         // don't multiply a
                                                         // wedged-bus delay
                                                         // by trying more
-    fiber_sleep(4);  // [ms] select -> read settle
+    vfpSafeSleep(4);  // [ms] select -> read settle
     int32_t raw = 0;
     if (!readEncoderRaw(&raw)) break;  // same reasoning
     samples[good++] = raw;
