@@ -434,10 +434,18 @@ void Protocol::run() {
     if (wireAdapter_.hasLiveMotionObligation()) {
       tickDrive();
     } else {
-      fiber_sleep(kPollIntervalMs);  // cooperative yield -- lets the
-                                     // kernel's own fiber (and any
-                                     // other) run between polls; never
-                                     // spins.
+      // Cooperative yield -- lets the kernel's own fiber (and any
+      // other) run between polls; never spins.
+      //
+      // THIS IS THE MEASURED CRASH SITE. GCC keeps this function's live
+      // pointers in the callee-saved FPU registers s16-s31, and CODAL's
+      // context switch does not save them, so anything parked here is
+      // destroyed by the next fiber that runs float code. MEASURED gopiv
+      // 2026-09-01: `&radioTransport_` came back as float -25.0f -- a
+      // wheel speed -- and the dereference took a precise bus error.
+      // Every yield in this extension must go through the guarded
+      // wrapper; see the yield-discipline invariant in the design notes.
+      fiber_sleep(kPollIntervalMs);
     }
   }
 }

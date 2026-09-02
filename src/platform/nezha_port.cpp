@@ -23,6 +23,16 @@ namespace diffDrive {
 // wheels run until someone reflashes the board. This function is what
 // makes that impossible.
 //
+// UPDATE 2026-09-01 -- the "memory corruption" above is probably not
+// heap corruption. A second fault with the IDENTICAL CFSR 0x8200 was
+// root-caused on gopiv that day: CODAL's context switch saves no VFP
+// registers, GCC parks pointers in the callee-saved bank s16-s31, and a
+// fiber switch destroys them. A pointer restored from a clobbered FPU
+// register explains a dereference of "PING"-looking bytes with no heap
+// corruption at all. Anyone reading a fault here should suspect that
+// first: decode BFAR as a float and as ASCII before calling it garbage.
+// See the yield-discipline invariant in this package's design notes.
+//
 // A plain reboot is NOT sufficient on its own: the Rig (and with it
 // DifferentialDrive::begin()'s boot zero-write) is created LAZILY on
 // the first motion command, so a rebooted board that nobody commands
