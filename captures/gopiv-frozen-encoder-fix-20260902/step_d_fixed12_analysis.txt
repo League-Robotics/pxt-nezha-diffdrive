@@ -1,0 +1,18 @@
+3589 frames loaded from step_d_fixed12_frames.json
+candidate frozen-while-moving events: 14
+  frame 845 side R: pos=405624 vel_prev2=292 vel_at=309 dut_before=3600 dut_at=4300 dut_next=4500 jump_at=700 jump_next=900 i2cf 303->306 ticked=True stepped_toward_rail=True
+  frame 847 side R: pos=405852 vel_prev2=309 vel_at=364 dut_before=4500 dut_at=4700 dut_next=4700 jump_at=200 jump_next=200 i2cf 307->310 ticked=True stepped_toward_rail=False
+  frame 1417 side R: pos=494459 vel_prev2=108 vel_at=92 dut_before=800 dut_at=1400 dut_next=1500 jump_at=600 jump_next=700 i2cf 382->385 ticked=True stepped_toward_rail=True
+  frame 1447 side R: pos=498431 vel_prev2=312 vel_at=312 dut_before=3200 dut_at=4400 dut_next=4400 jump_at=1200 jump_next=1200 i2cf 386->389 ticked=True stepped_toward_rail=True
+  frame 1451 side R: pos=499514 vel_prev2=420 vel_at=384 dut_before=4300 dut_at=4300 dut_next=4500 jump_at=0 jump_next=200 i2cf 389->392 ticked=True stepped_toward_rail=False
+  frame 1523 side R: pos=510236 vel_prev2=292 vel_at=292 dut_before=3200 dut_at=4300 dut_next=4500 jump_at=1100 jump_next=1300 i2cf 403->406 ticked=True stepped_toward_rail=True
+  frame 2296 side R: pos=630335 vel_prev2=210 vel_at=190 dut_before=1800 dut_at=2700 dut_next=2700 jump_at=900 jump_next=900 i2cf 485->488 ticked=True stepped_toward_rail=True
+  frame 2507 side R: pos=661516 vel_prev2=302 vel_at=282 dut_before=2800 dut_at=3500 dut_next=3700 jump_at=700 jump_next=900 i2cf 503->506 ticked=True stepped_toward_rail=True
+  frame 2682 side R: pos=686511 vel_prev2=102 vel_at=82 dut_before=700 dut_at=1300 dut_next=1400 jump_at=600 jump_next=700 i2cf 524->527 ticked=True stepped_toward_rail=True
+  frame 2741 side R: pos=698530 vel_prev2=272 vel_at=256 dut_before=2400 dut_at=3600 dut_next=3300 jump_at=1200 jump_next=900 i2cf 532->535 ticked=True stepped_toward_rail=True
+  frame 2933 side R: pos=724455 vel_prev2=144 vel_at=194 dut_before=2100 dut_at=2900 dut_next=3300 jump_at=800 jump_next=1200 i2cf 553->556 ticked=True stepped_toward_rail=True
+  frame 3163 side R: pos=760178 vel_prev2=292 vel_at=292 dut_before=3400 dut_at=4400 dut_next=4500 jump_at=1000 jump_next=1100 i2cf 583->586 ticked=True stepped_toward_rail=True
+  frame 3399 side R: pos=797717 vel_prev2=312 vel_at=312 dut_before=3200 dut_at=4300 dut_next=4400 jump_at=1100 jump_next=1200 i2cf 616->619 ticked=True stepped_toward_rail=True
+  frame 3431 side R: pos=801129 vel_prev2=112 vel_at=92 dut_before=800 dut_at=1200 dut_next=1600 jump_at=400 jump_next=800 i2cf 621->624 ticked=True stepped_toward_rail=True
+
+summary: 14 events, 14 with i2cf tick, 12 with duty step > threshold
