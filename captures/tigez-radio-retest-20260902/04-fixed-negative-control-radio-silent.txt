@@ -1,0 +1,8 @@
+=== fixed negative control (radio silent), 3 pivots ===
+[12:46:11] preflight-HELLO: ['device NEZHA2 robot tigez 3527777815']
+[12:46:14] trial 1 MOVE_X: {'line': 'MOVE_X 0 260 80 3000 #1', 'reply': ['ack 1 0 none']}
+[12:46:15] trial 1 STATUS: ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1 cyc=116 tlm=off next=2 done=1 reason=stop']
+[12:46:18] trial 2 MOVE_X: {'line': 'MOVE_X 0 -260 80 3000 #2', 'reply': ['ack 2 1 stop']}
+[12:46:19] trial 2 STATUS: ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1 cyc=234 tlm=off next=3 done=2 reason=stop']
+[12:46:22] trial 3 MOVE_X: {'line': 'MOVE_X 0 260 80 3000 #3', 'reply': ['ack 3 2 stop']}
+[12:46:23] trial 3 STATUS: ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1 cyc=340 tlm=off next=4 done=3 reason=stop']

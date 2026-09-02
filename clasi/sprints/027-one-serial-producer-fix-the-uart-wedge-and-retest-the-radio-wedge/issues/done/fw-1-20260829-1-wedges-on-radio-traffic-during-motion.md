@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 sprint: '027'
 tickets:
 - 027-003
@@ -243,3 +243,28 @@ tree kept in the session scratchpad (`wt-dbg`).
   the MCU), then one small `MOVE_X` to take the brick back to zero.
 - Radio PING/ID on an IDLE robot is safe — which is why the fleet
   reflash verification missed this entirely.
+
+## Follow-up, 2026-09-02 (sprint 027 ticket 003 retest): RESOLVED, closing
+
+The radio-traffic-during-motion retest this issue was waiting on ran on
+tigez: 14 `MOVE_X`-over-USB pivots while `PING` hammered continuously
+over the radio relay (`!CG 55 114`), on EACH of two builds — the
+VFP-guarded pre-emit-queue build (`1217f19`) and this branch's HEAD —
+plus 3 radio-silent negative-control pivots per build. **0/28
+radio-hammer trials showed the fault's reset signature** (an unsolicited
+boot banner, a `cyc` counter dropping, or a truncated ack — the
+observable shape a fault now takes since the fail-safe handler stops
+the motors and resets rather than latching them). 298 `PING`s sent, 298
+`pong`s received across the two hammer blocks, confirming radio traffic
+was genuinely concurrent with every move, not merely configured and
+idle. Full transcripts and per-trial detail:
+`captures/tigez-radio-retest-20260902/`.
+
+This confirms the "Most promising untested fix" theory from this
+issue's own VFP-guard cross-reference (a fiber parked at an unguarded
+yield having a pointer-holding register clobbered by another fiber's
+float arithmetic) as the actual fix: the fault reproduces on neither
+build, including the one that predates the emit-queue work, so the
+guarded yield alone — not anything downstream of it — is what stops it.
+`src/platform/nezha_port.cpp`'s attribution comment is corrected to
+match. Closing.

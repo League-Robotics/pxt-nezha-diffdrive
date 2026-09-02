@@ -35,6 +35,20 @@ namespace diffDrive {
 // first: decode BFAR as a float and as ASCII before calling it garbage.
 // See the yield-discipline invariant in this package's design notes.
 //
+// UPDATE 2026-09-02 -- RESOLVED. The VFP-register-clobber theory above
+// was confirmed by retest: the radio-during-motion fault this whole
+// comment describes no longer reproduces. MEASURED tigez 2026-09-02
+// (28 radio-hammer trials -- PING hammered continuously over the radio
+// relay while MOVE_X pivots ran over USB, 14 trials on each of two
+// builds -- plus 6 radio-silent negative-control trials, 0 reset
+// signatures across all of them, full per-trial transcripts in
+// captures/tigez-radio-retest-20260902/): the guarded yield fix that
+// closes the register-clobber window (this file's vfp_guard.h) holds
+// even on the build that predates the emit-queue work, i.e. the guard
+// alone is what stops the fault, not anything downstream of it. This
+// function and the handlers below stay regardless -- a fault handler
+// that fails safe is correct even against a fault that no longer fires.
+//
 // A plain reboot is NOT sufficient on its own: the Rig (and with it
 // DifferentialDrive::begin()'s boot zero-write) is created LAZILY on
 // the first motion command, so a rebooted board that nobody commands
