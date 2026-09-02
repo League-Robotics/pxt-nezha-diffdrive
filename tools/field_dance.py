@@ -8,13 +8,11 @@ reported success.
 
     Put the robot in the MIDDLE of the field, then:
 
-        ./tools/field_dance.py
+        uv run tools/field_dance.py
 
-    Any python will do -- it re-execs itself under aprilcam's own
-    interpreter if it has to. Calibration (tag lever, heading
-    convention, camera parallax) comes from field_calibration.json
-    beside this file; re-measure it after any tag remount or camera
-    move.
+    Calibration (tag lever, heading convention, camera parallax) comes
+    from field_calibration.json beside this file; re-measure it after
+    any tag remount or camera move.
 
 Middle of the field is the whole safety story -- the dance never leaves
 a 25 cm circle, so there is nothing to guard against and no pre-flight
@@ -28,33 +26,16 @@ Each step is checked against the camera. Turning "left" must turn left;
 driving "forward" must go forward. Anything else fails loudly and you do
 not drive the field that day.
 
-Runs under the aprilcam venv's python so the daemon connection is held
-open for the whole dance -- one connection, ~10 Hz, no subprocess per
-reading. Waits on the robot actually coming to rest rather than on a
-fixed sleep, which is what keeps the whole thing near a minute.
+Holds ONE aprilcam daemon connection for the whole dance -- ~10 Hz, no
+subprocess per reading -- and waits on the robot actually coming to rest
+rather than on a fixed sleep. That is what keeps it near a minute.
 """
-import json, math, os, pathlib, shutil, sys, time
+import json, math, pathlib, sys, time
 
 _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
-# `aprilcam` lives in its own pipx venv, so this script has to run under
-# THAT interpreter. Rather than make the caller know which one, find the
-# aprilcam CLI on PATH, read its shebang, and re-exec ourselves under it.
-# Without this the tool is only runnable by someone who already knows the
-# answer -- which is no use as a safety check.
-try:
-    from aprilcam.mcp import connection as _conn
-except ImportError:                                    # pragma: no cover
-    _cli = shutil.which('aprilcam')
-    if not _cli:
-        raise SystemExit('aprilcam is not installed / not on PATH')
-    _py = pathlib.Path(_cli).read_text().splitlines()[0].lstrip('#!').strip()
-    if os.environ.get('_FIELD_DANCE_REEXEC'):
-        raise SystemExit(f'cannot import aprilcam even under {_py}')
-    os.environ['_FIELD_DANCE_REEXEC'] = '1'
-    os.execv(_py, [_py, str(pathlib.Path(__file__).resolve()), *sys.argv[1:]])
-
+from aprilcam.mcp import connection as _conn          # noqa: E402
 from fieldlink import FieldLink                        # noqa: E402
 
 _CAL = json.loads((_HERE / 'field_calibration.json').read_text())

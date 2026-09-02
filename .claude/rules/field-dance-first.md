@@ -10,7 +10,7 @@ paths:
 **Before ANY commanded motion on the playfield, run:**
 
 ```
-/Volumes/Cache/User-Eric/.local/pipx/venvs/aprilcam/bin/python tools/field_dance.py
+uv run tools/field_dance.py
 ```
 
 Ask the operator to put the robot in the **middle of the field** first.
