@@ -2,7 +2,7 @@
 id: '002'
 title: 'Hardware acceptance on tigez: UART wedge baseline, fix soak, and TLM-subscribed
   cleartext RUN'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
@@ -72,11 +72,11 @@ untested combination is written as `UNVERIFIED`, not asserted.
       reset). Every trial: `HELLO` answered normally before and after
       the probe verb. See
       `captures/tigez-uart-wedge-20260902/notes.md` ("Step 1") and
-      files `01`-`04`, `09` in that directory (on disk, not committed —
-      see that note's own explanation) for the full transcripts. This
-      is reported as a genuine negative result per
-      `.claude/rules/measurement-citations.md`, not fabricated to
-      satisfy the checkbox, and does not on its own cast doubt on
+      files `01`-`04`, `09` in that directory (committed via `git add
+      -f`) for the full transcripts. This is reported as a genuine
+      negative result per `.claude/rules/measurement-citations.md`,
+      not fabricated to satisfy the checkbox, and does not on its own
+      cast doubt on
       `concurrent-serial-writers-wedge-the-uarte-in-both-directions.md`'s
       own direct pyOCD register evidence (a short addendum was left on
       that issue file noting this follow-up). Most likely explanation
@@ -85,7 +85,8 @@ untested combination is written as `UNVERIFIED`, not asserted.
       window" note), and a rebuild — even from identical source — is
       not guaranteed to reproduce the exact instruction timing of the
       original measurement if the local toolchain image changed
-      in between.
+      in between. Tracked as its own follow-up issue:
+      `clasi/issues/uart-wedge-baseline-did-not-reproduce-on-a-pre-fix-rebuild.md`.
 - [x] Fixed firmware: `RUN:z`, `RUN:ping`, and a 10+ command soak
       produce 0 wedges; `HELLO` answers throughout; MEASURED and
       cited.
@@ -128,15 +129,15 @@ untested combination is written as `UNVERIFIED`, not asserted.
 - [x] Every capture file referenced is committed under `captures/` (or
       the ticket states why not, e.g. raw pyOCD console output pasted
       into completion notes for a one-off register read).
-      **Stated why not**: `captures/` is repo-gitignored
-      (`.gitignore:33`), and that predates this session —
-      `captures/tigez-cal-20260830/` (the directory this ticket's own
-      dispatch named as the soak precedent) was itself never committed
-      under the same rule. This directory follows the same established
-      convention: it lives on disk, referenced by path, with the
-      load-bearing excerpts additionally quoted inline in this ticket
-      and in the issue file (both tracked), so the evidence is not
-      solely a local artifact.
+      **Committed.** `captures/` is `.gitignore`d at the pattern level
+      (`.gitignore:33`), but the repo's actual convention is to
+      force-add capture directories worth keeping (83 files already
+      tracked under `captures/` before this ticket, confirmed via `git
+      ls-files captures | wc -l`) — an earlier draft of this ticket
+      incorrectly generalized from one untracked precedent
+      (`captures/tigez-cal-20260830/`) into "captures/ is never
+      committed," which was wrong. Corrected: `git add -f
+      captures/tigez-uart-wedge-20260902/` (10 transcripts + notes.md).
 - [x] `uv run pytest` (full host suite) still passes — this ticket adds
       no new host-testable code of its own, but must not have required
       any host-test-breaking change to reach hardware acceptance.
@@ -187,9 +188,9 @@ ticket's acceptance criteria.
 ## Completion Notes (2026-09-02)
 
 Full session log, firmware identity table, and per-step transcripts:
-`captures/tigez-uart-wedge-20260902/notes.md` (directory on disk, not
-committed — see that file's own note on why, matching the
-`captures/tigez-cal-20260830/` precedent).
+`captures/tigez-uart-wedge-20260902/notes.md` (directory committed via
+`git add -f`, per the repo's actual force-add convention for
+`captures/`).
 
 **Board left running the fixed firmware** at session end
 (reflashed + `HELLO`-confirmed:
@@ -199,14 +200,15 @@ committed — see that file's own note on why, matching the
 PASSes (fixed-firmware soak, TLM-subscribed cleartext RUN, `probe(29)`
 = 0). The fourth (baseline reproduction) was genuinely attempted — 20
 trials, 3 reset methodologies, both documented trigger verbs — and did
-not reproduce the wedge on today's rebuild. This ticket is left
-`in-progress` rather than `done` because AC1 as literally worded
-("`RUN:z` wedges the port... MEASURED and cited") cannot be honestly
-checked off; everything else this ticket set out to prove (the fix is
-hardware-safe, and it closes the telemetry-hang issue) is proven. A
-human/team-lead call is needed on whether the negative baseline result
-is acceptable as-is (the fix's own effectiveness doesn't depend on
-re-reproducing the pre-fix failure) or whether another bench session
-should retry the baseline reproduction (e.g. against a preserved copy
-of the original hex, if one can be found, to rule out a toolchain-image
-drift explanation).
+not reproduce the wedge on today's rebuild. AC1 as literally worded
+("`RUN:z` wedges the port... MEASURED and cited") is left UNCHECKED
+above, honestly, rather than papered over. **Team-lead reviewed
+2026-09-02 and accepted the negative baseline result as-is**: the
+fix's own effectiveness (steps 2-3) does not depend on re-reproducing
+the pre-fix failure, and step 3 conclusively closes
+`cleartext-run-hangs-the-link-under-active-telemetry.md`. A follow-up
+issue tracks the unreproduced baseline for anyone who wants to retry it
+later (e.g. against a preserved copy of the original hex, to rule out
+a toolchain-image drift explanation):
+`clasi/issues/uart-wedge-baseline-did-not-reproduce-on-a-pre-fix-rebuild.md`.
+Ticket status set to `done` per that review.

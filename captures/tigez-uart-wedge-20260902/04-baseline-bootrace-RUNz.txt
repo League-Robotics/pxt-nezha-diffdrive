@@ -1,0 +1,19 @@
+1788376627.481 ===== trial 1/6 verb=RUN:z (boot race) =====
+1788376630.202 t1 check < device NEZHA2 robot tigez 3527777815
+1788376633.545 trial 1: ALIVE
+1788376633.917 ===== trial 2/6 verb=RUN:z (boot race) =====
+1788376636.632 t2 check < device NEZHA2 robot tigez 3527777815
+1788376639.735 trial 2: ALIVE
+1788376640.081 ===== trial 3/6 verb=RUN:z (boot race) =====
+1788376642.804 t3 check < device NEZHA2 robot tigez 3527777815
+1788376645.910 trial 3: ALIVE
+1788376646.256 ===== trial 4/6 verb=RUN:z (boot race) =====
+1788376648.784 t4 check < device NEZHA2 robot tigez 3527777815
+1788376651.905 trial 4: ALIVE
+1788376652.250 ===== trial 5/6 verb=RUN:z (boot race) =====
+1788376654.778 t5 check < device NEZHA2 robot tigez 3527777815
+1788376657.940 trial 5: ALIVE
+1788376658.300 ===== trial 6/6 verb=RUN:z (boot race) =====
+1788376661.040 t6 check < device NEZHA2 robot tigez 3527777815
+1788376664.141 trial 6: ALIVE
+1788376664.496 ===== SUMMARY (boot race) verb=RUN:z: ['ALIVE', 'ALIVE', 'ALIVE', 'ALIVE', 'ALIVE', 'ALIVE'] =====

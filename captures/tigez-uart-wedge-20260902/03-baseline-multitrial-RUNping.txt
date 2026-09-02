@@ -1,0 +1,21 @@
+1788376536.426 ===== trial 1/5 verb=RUN:ping =====
+1788376537.942 t1 preflight < device NEZHA2 robot tigez 3527777815
+1788376540.735 t1 check < device NEZHA2 robot tigez 3527777815
+1788376543.856 trial 1: ALIVE
+1788376544.209 ===== trial 2/5 verb=RUN:ping =====
+1788376545.746 t2 preflight < device NEZHA2 robot tigez 3527777815
+1788376548.582 t2 check < device NEZHA2 robot tigez 3527777815
+1788376551.701 trial 2: ALIVE
+1788376552.046 ===== trial 3/5 verb=RUN:ping =====
+1788376553.570 t3 preflight < device NEZHA2 robot tigez 3527777815
+1788376556.393 t3 check < device NEZHA2 robot tigez 3527777815
+1788376559.490 trial 3: ALIVE
+1788376559.831 ===== trial 4/5 verb=RUN:ping =====
+1788376561.370 t4 preflight < device NEZHA2 robot tigez 3527777815
+1788376564.151 t4 check < device NEZHA2 robot tigez 3527777815
+1788376567.270 trial 4: ALIVE
+1788376567.616 ===== trial 5/5 verb=RUN:ping =====
+1788376569.147 t5 preflight < device NEZHA2 robot tigez 3527777815
+1788376571.955 t5 check < device NEZHA2 robot tigez 3527777815
+1788376575.051 trial 5: ALIVE
+1788376575.398 ===== SUMMARY verb=RUN:ping: ['ALIVE', 'ALIVE', 'ALIVE', 'ALIVE', 'ALIVE'] =====
