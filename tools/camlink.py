@@ -7,13 +7,21 @@ site goes through that single resolution point now; this file's own
 imports below only work under that interpreter, whichever process
 spawns it.
 
-THE DAEMON DOES THE CORRECTING, AND ONLY IF YOU TELL IT TO.
-Tag mount parameters are NOT persisted across a daemon restart. An
-unregistered tag is reported RAW: no parallax, no lever arm, no mount
-yaw. For vevov's tag that is 6.4 cm of parallax plus 3.6 cm of lever,
-and it looks perfectly plausible -- it is a position on the field, just
-the wrong one. Call ensure_registered() every session. Verified against
-ground truth 2026-08-23 with the robot parked on the NE orange dot.
+THE DAEMON DOES THE CORRECTING, AND IT REMEMBERS.
+Tag mount registrations persist across a daemon restart -- they are
+written to the daemon's mounts registry on disk and reload
+automatically at daemon startup. Only an explicit unregister_tag call
+removes one; nothing here needs to re-register on every session for
+the daemon to already know a tag's mount. Annotations are the
+exception: those stay per-session, unlike mount registrations.
+ensure_registered() is still called below, but only as cheap, harmless
+idempotent insurance (a re-registration is a no-op if the daemon
+already has it) -- not because the daemon would otherwise have
+forgotten. An unregistered tag is reported RAW: no parallax, no lever
+arm, no mount yaw. For vevov's tag that is 6.4 cm of parallax plus
+3.6 cm of lever, and it looks perfectly plausible -- it is a position
+on the field, just the wrong one. Verified against ground truth
+2026-08-23 with the robot parked on the NE orange dot.
 
 Units the daemon wants, all learned the hard way against that truth:
   mount_x / mount_y   CENTIMETRES (mm gives a 32 cm error)
@@ -33,9 +41,20 @@ from aprilcam.client import daemon_client as dc
 CAM = 'arducam-ov9782-usb-camera'
 
 # tag -> (mount_x cm, mount_y cm, mount_z cm, mount_yaw_rad)
+#
+# mount_yaw_rad is -pi/2 on every robot-mounted entry below for the
+# SAME reason: yaw_rad is atan2 along the tag's front-left -> front-
+# right edge, while the drawn "hat" points outward from that edge --
+# perpendicular to it. That 90.00 deg gap is a fixed AprilCam
+# convention, identical for every tag on every robot, and is never
+# re-measured. Only a sub-degree residual is physical -- how square the
+# plate itself actually sits -- and it changes only if a plate is
+# unbolted and remounted. tigez's -89.65 deg below is -90.00 deg of
+# convention plus 0.35 deg of that physical mount skew.
 MOUNTS = {
     53: (-3.61, -0.05, 11.8, -math.pi / 2),   # vevov, centre of rotation
     52: (-4.10, 0.05, 11.3, -math.pi / 2),    # tovez, same mounting style
+    57: (-0.67, -0.02, 11.7, -math.pi / 2),   # tigez, same mounting style
     # Fixed calibration tags standing over known dots: height only.
     # They are permanent ground truth in every frame -- tag 10 sits over
     # NW (-50, 30), tag 11 over SW (-50, -30).
@@ -62,6 +81,14 @@ class Cam:
         self._stream = None
 
     def ensure_registered(self):
+        """Re-send every known mount to the daemon.
+
+        Cheap idempotent insurance, not mandatory session setup: mount
+        registrations already persist in the daemon and survive a
+        restart, so this is a no-op in the common case where the
+        daemon already has them. It only does real work the first time
+        a tag in MOUNTS is registered at all.
+        """
         for num, (mx, my, mz, myaw) in MOUNTS.items():
             self.d.register_tag(
                 dc.TagId(family=dc.TagFamily.APRILTAG, number=num),

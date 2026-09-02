@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: 'camlink.py: correct mount-persistence docstring and add tigez (tag 57)'
-status: open
+status: done
 use-cases:
 - SUC-003
 depends-on: []
@@ -55,29 +55,34 @@ shared code) and can be done in any order relative to them.
 
 ## Acceptance Criteria
 
-- [ ] `tools/camlink.py`'s module docstring no longer states mount
+- [x] `tools/camlink.py`'s module docstring no longer states mount
       registrations are "NOT persisted" — it states they persist and
       reload automatically at daemon startup, and that only
       annotations are per-session.
-- [ ] `ensure_registered()`'s own doc comment (if any) reflects that it
+- [x] `ensure_registered()`'s own doc comment (if any) reflects that it
       is cheap idempotent insurance, not mandatory session setup.
-- [ ] `MOUNTS` includes an entry for tag 57 (tigez) with mount
+- [x] `MOUNTS` includes an entry for tag 57 (tigez) with mount
       `(-0.67, -0.02)` cm, its `mount_z`, and
       `mount_yaw_rad = -math.pi/2`.
-- [ ] A comment on the tag 57 entry (or on `mount_yaw_rad` generally,
+- [x] A comment on the tag 57 entry (or on `mount_yaw_rad` generally,
       if that reads more naturally) splits the −90.00° AprilCam
       convention term from the 0.35° physical residual, per the issue's
       Fix step 3.
-- [ ] If a host test already pins `MOUNTS`'s shape or entries, it is
+- [x] If a host test already pins `MOUNTS`'s shape or entries, it is
       extended to cover tag 57; if none exists, this ticket does not
-      need to add one for a pure data/doc correction.
-- [ ] `uv run pytest` (full host suite) passes.
-- [ ] No new comment names a sprint, a ticket, an `R-NN` code, or any
+      need to add one for a pure data/doc correction. (Confirmed: no
+      existing test imports or pins `camlink.MOUNTS` —
+      `tests/tools/test_camproc.py` only exercises the `yaw x y` line
+      format. No new test added.)
+- [x] `uv run pytest` (full host suite) passes.
+- [x] No new comment names a sprint, a ticket, an `R-NN` code, or any
       `.md` filename other than the referenced rule file path itself if
       already a repo convention — check
       `test_archaeology_marker_budget.py`'s actual scope (this file may
       be outside `src/`, in which case the budget likely does not apply;
-      confirm rather than assume).
+      confirm rather than assume). (Confirmed: that test only scans
+      `_SRC_DIR = _REPO_ROOT / "src"`; `tools/` is outside its scope.
+      New comments avoid these markers anyway.)
 
 ## Implementation Plan
 
