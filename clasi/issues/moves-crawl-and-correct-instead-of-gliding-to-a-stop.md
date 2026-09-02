@@ -71,6 +71,33 @@ makes it read as a slam and then overshoot.
 actually run on a robot.** The host-driven `.tour` suite does not set
 these fields either.
 
+## Progress 2026-09-02
+
+**One real cause found and fixed:** the yaw axis never got the
+kinematic braking gate the distance axis got, so `yawTaper_` -- not the
+physics -- decided when a pivot started braking. Fixed; pivot scatter
+went from sd 1.14 to **sd 0.18** at unchanged bias (vevov, six 90 deg
+pivots per arm, same session). Pinned by
+`test_motion_engine_acceleration_profile.py` with a negative control.
+
+**The crawl itself is NOT fixed.** Ruled out by measurement, all with
+shaping on: `accel`/`decel` (4 pivots, 1.48 s shaped vs 1.52 s legacy),
+`yaw_taper` (after the fix, pivot duration no longer tracks it), and
+`turn_floor` (0.12 -> 0.01 moved crawl only 381 -> 358 ms/pivot).
+
+A full pivot trace shows the commanded speed **rising again** after it
+has already slowed -- duty -300/300 at 0.65 s, then -900/500, then
+-1300/900 -- which is a hunt against the completion condition, not a
+taper running out. The pure-turn completion margin is **4 counts**
+(~0.16 deg) and the straight axis's is 10 counts (~0.79 mm); the move
+cannot end until it lands inside that, so it keeps re-driving.
+
+**Tour-level closure is a wash** between legacy and shaped: total spread
+across the five figures 45.4 mm legacy vs 46.5 mm shaped, same robot,
+same session, three repeats each
+(`reports/vevov-shaped-tours-20260902.md`). So shaping alone is not the
+answer to what the stakeholder is watching.
+
 ## Proposed fix
 
 Not yet settled -- this needs its own measurement pass. What is known:
@@ -88,8 +115,9 @@ Not yet settled -- this needs its own measurement pass. What is known:
   on the same figure) without buying much crawl reduction.
 
 Directions worth testing, in order:
-1. Find why the tour crawls when an isolated leg does not. Chained
-   moves and arcs are the difference.
+1. ~~Find why the tour crawls when an isolated leg does not.~~ Answered:
+   the pivots are the crawl (4 pivots alone = 1.5 s), and the yaw-axis
+   gate was one cause, now fixed. The residual is the completion hunt.
 2. Decide whether a move should end on **profile completion** (glide to
    zero, accept the residual) rather than on position error closing.
    That is the behaviour the stakeholder is asking for and the current

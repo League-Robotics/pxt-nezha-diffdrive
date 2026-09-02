@@ -1,0 +1,57 @@
+{
+  "square": {
+    "closure_mean_mm": 52.3,
+    "closure_sd_mm": 15.3,
+    "closure_all_mm": [
+      31.6,
+      57.2,
+      68.0
+    ],
+    "rot_mean_deg": 353.36,
+    "reps": 3
+  },
+  "diamond": {
+    "closure_mean_mm": 28.6,
+    "closure_sd_mm": 7.2,
+    "closure_all_mm": [
+      33.6,
+      18.4,
+      33.8
+    ],
+    "rot_mean_deg": 397.9,
+    "reps": 3
+  },
+  "circle": {
+    "closure_mean_mm": 25.6,
+    "closure_sd_mm": 15.9,
+    "closure_all_mm": [
+      5.1,
+      43.9,
+      27.8
+    ],
+    "rot_mean_deg": 354.79,
+    "reps": 3
+  },
+  "infinity": {
+    "closure_mean_mm": 85.6,
+    "closure_sd_mm": 4.9,
+    "closure_all_mm": [
+      80.6,
+      83.9,
+      92.3
+    ],
+    "rot_mean_deg": 7.1,
+    "reps": 3
+  },
+  "snake": {
+    "closure_mean_mm": 1066.3,
+    "closure_sd_mm": 2.1,
+    "closure_all_mm": [
+      1069.0,
+      1066.0,
+      1063.9
+    ],
+    "rot_mean_deg": -1.21,
+    "reps": 3
+  }
+}

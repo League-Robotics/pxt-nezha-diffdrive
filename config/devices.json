@@ -30,7 +30,7 @@
     "device_id": 3527777815,
     "device_name": "tigez",
     "enum": 6,
-    "port": "/dev/cu.usbmodem2121202",
+    "port": "/dev/cu.usbmodem2121102",
     "role": "NEZHA2",
     "serial": "3527777815",
     "uid": "99063602000528203b43773cab0210ea000000006e052820"

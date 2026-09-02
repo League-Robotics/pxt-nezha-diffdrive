@@ -139,6 +139,10 @@ def _bind(lib):
     lib.meSetBrakeFrac.restype = None
     lib.meSetDistTaper.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meSetDistTaper.restype = None
+    lib.meSetYawTaper.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetYawTaper.restype = None
+    lib.meSetTurnFloor.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetTurnFloor.restype = None
     lib.meDefaultCruiseForDistance.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meDefaultCruiseForDistance.restype = ctypes.c_float
     lib.meDominantAxisTravelMm.argtypes = [
@@ -228,6 +232,12 @@ class Engine:
 
     def set_dist_taper(self, v):
         self._lib.meSetDistTaper(self._handle, v)
+
+    def set_yaw_taper(self, v):
+        self._lib.meSetYawTaper(self._handle, v)
+
+    def set_turn_floor(self, v):
+        self._lib.meSetTurnFloor(self._handle, v)
 
     def default_cruise_for_distance(self, distance_mm):
         return self._lib.meDefaultCruiseForDistance(self._handle, distance_mm)
@@ -789,3 +799,73 @@ def test_legacy_mode_matches_independent_reformulation_tick_by_tick(
         assert t_r == pytest.approx(t_s, abs=1e-6)
         assert v_r == pytest.approx(v_s, abs=1e-2)
         assert p_r == pytest.approx(p_s, abs=1e-2)
+
+# ---- the yaw axis brakes on kinematics, not on yawTaper_ ------------
+#
+# A pure pivot's per-tick rows carry MEAN speed and MEAN position, both
+# ~0 when the wheels counter-rotate, so yaw progress is not observable
+# there. Tick count is: braking earlier means more ticks spent below
+# full rate, so how long the pivot takes is a direct read on where
+# braking began -- and it needs no new plumbing.
+
+
+def _pivot_ticks(motion_lib, yaw_taper, shaped):
+    def configure(e):
+        e.set_a_accel_mm_s2(_A_DECEL_TEST if shaped else 0.0)
+        e.set_a_decel_mm_s2(_A_DECEL_TEST if shaped else 0.0)
+        e.set_v_max_mm_s(250.0)
+        e.set_dist_taper(_DIST_TAPER_TEST_COUNTS)
+        e.set_yaw_taper(yaw_taper)
+        e.set_turn_floor(0.12)
+
+    trace = _run_move(motion_lib, 0.0, math.radians(90.0), 188.0,
+                      configure=configure)
+    assert trace.completed, f"pivot did not complete (yawTaper_={yaw_taper})"
+    return len(trace.rows), trace
+
+
+def test_pivot_braking_does_not_track_yaw_taper_in_shaped_mode(motion_lib):
+    """In shaped mode the yaw axis must brake on v^2/(2a), not on the
+    fixed `yawTaper_` count window.
+
+    THE DEFECT THIS PINS. The distance axis was given a kinematic
+    braking gate; the yaw axis kept gating on `yawTaper_`, so that one
+    tuning constant -- not the physics -- decided when a pivot started
+    slowing. At the tuned 800 counts that is about 70% of a 90 deg
+    pivot's ~1141 counts of differential, so the pivot spent most of its
+    life tapering and then held the `turnFloor_` crawl until the
+    completion margin closed. MEASURED vevov 2026-09-02: crawl per pivot
+    tracked `yawTaper_` and nothing else (800 -> 375 ms, 400 -> 235,
+    100 -> 146) while accuracy collapsed as the window shrank
+    (excess +0.36 deg sd 0.16 at 800, +4.97 deg sd 1.14 at 100). That
+    trade is an artifact of the fixed window: the kinematic one is short
+    at low twist AND still reaches zero exactly at the target.
+    """
+    ticks = {yt: _pivot_ticks(motion_lib, yt, shaped=True)[0]
+             for yt in (200.0, 800.0, 3000.0)}
+    spread = max(ticks.values()) - min(ticks.values())
+    assert spread <= 2, (
+        "pivot duration still tracks yawTaper_ in shaped mode: "
+        + ", ".join(f"{k:.0f} -> {v} ticks" for k, v in sorted(ticks.items()))
+        + f" (spread {spread}).\n\nThe yaw axis must gate on "
+        "constantDecelWindowMm() like the distance axis does. Gating on "
+        "yawTaper_ makes that constant decide when a pivot brakes, forcing a "
+        "choice between a long floor-clamped crawl (wide window) and large "
+        "heading scatter (narrow window) -- a trade the kinematic window does "
+        "not require."
+    )
+
+
+def test_legacy_mode_still_honours_yaw_taper(motion_lib):
+    """Negative control. With shaping OFF, `yawTaper_` must still gate
+    the yaw taper: a wider window starts braking sooner, so the pivot
+    takes longer. The fix above is scoped to shaped mode and must not
+    quietly change legacy behaviour, which every robot not setting
+    `accel`/`decel` is still running."""
+    narrow, _ = _pivot_ticks(motion_lib, 200.0, shaped=False)
+    wide, _ = _pivot_ticks(motion_lib, 3000.0, shaped=False)
+    assert wide > narrow, (
+        "legacy mode no longer responds to yawTaper_ -- a wider window must "
+        f"brake earlier and so take longer: 200 -> {narrow} ticks, "
+        f"3000 -> {wide} ticks"
+    )

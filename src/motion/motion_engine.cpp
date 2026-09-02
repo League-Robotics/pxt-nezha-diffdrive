@@ -44,10 +44,9 @@ float wrapToPi(float angleRad) {
 // to 0 mm so this always returns a finite, non-negative scale rather
 // than NaN. The caller is responsible for its own window gate -- see
 // serviceMove()'s own call sites: the dist axis gates on
-// constantDecelWindowMm() below (the kinematics themselves), the yaw
-// axis still gates on the fixed yawTaper_ counts window -- this
-// function has no notion of "outside the window" at all, for either
-// axis.
+// constantDecelWindowMm() below (the kinematics themselves) -- as, since
+// 2026-09-02, does the yaw axis. This function itself has no notion of
+// "outside the window" at all, for either axis; the caller gates it.
 float constantDecelAxisScale(float aDecelMmS2, float remainCounts,
                               float axisCmdCountsPerS, float cpm) {
   const float remainMm = remainCounts > 0.0f ? remainCounts / cpm : 0.0f;
@@ -566,13 +565,31 @@ bool MotionEngine::serviceMove() {
     // exact double-count while the one leg under goToWorld's straight-
     // line threshold skipped this branch and ran full speed).
     if (pureTurn) {
-      // Same constant-a/legacy split as the distance axis above, but
-      // unlike that axis's kinematics-derived gate this one still uses
-      // the fixed yawTaper_ counts window unconditionally -- the
-      // dist-axis fix above does not apply here.
+      // Same constant-a/legacy split as the distance axis above, and
+      // now the same kinematics-derived gate. This axis used to brake
+      // on the fixed yawTaper_ counts window even in shaped mode, which
+      // made yawTaper_ -- not the kinematics -- decide when a pivot
+      // starts slowing. At the tuned 800 counts that is ~70% of a 90 deg
+      // pivot's ~1141 counts of differential, so the pivot spent most of
+      // its life tapering and then held the turnFloor_ crawl until the
+      // 4-count completion margin closed.
+      //
+      // MEASURED vevov 2026-09-02, four 90 deg pivots per setting with
+      // constant-a shaping on: the crawl tracked yawTaper_ and nothing
+      // else -- 800 -> 375 ms per pivot, 400 -> 235, 100 -> 146 -- while
+      // accuracy fell apart as the window shrank (excess +0.36 deg
+      // sd 0.16 at 800, +4.97 deg sd 1.14 at 100). That trade only
+      // existed because the brake point was a fixed count rather than
+      // v^2/(2a): the kinematic window is short at low twist AND still
+      // reaches zero exactly at the target, so it buys back the crawl
+      // without paying in scatter. yawTaper_ stays authoritative in
+      // legacy mode only, exactly as distTaper_ does.
       float axisScale;
       if (aDecelMmS2_ > 0.0f) {
-        axisScale = remain <= yawTaper_
+        const float remainMm = remain > 0.0f ? remain / cpm : 0.0f;
+        const float windowMm =
+            constantDecelWindowMm(aDecelMmS2_, move_.twistCmd, cpm);
+        axisScale = remainMm <= windowMm * kBrakingWindowMargin
             ? constantDecelAxisScale(aDecelMmS2_, remain, move_.twistCmd,
                                      cpm)
             : 1.0f;
