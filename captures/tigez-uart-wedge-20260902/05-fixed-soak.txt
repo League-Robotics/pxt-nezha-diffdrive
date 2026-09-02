@@ -1,0 +1,28 @@
+1788376766.974 === opening /dev/cu.usbmodem2121102 (resets target) ===
+1788376768.493 >>> HELLO
+1788376768.505 preflight < device NEZHA2 robot tigez 3527777815
+1788376770.566 >>> RUN:z
+1788376772.243 >>> RUN:ping
+1788376773.916 === soak: 12 commands ===
+1788376773.916 >>> RUN:soak1
+1788376775.143 >>> HELLO
+1788376775.153 soak2 < device NEZHA2 robot tigez 3527777815
+1788376776.388 >>> RUN:soak2
+1788376777.653 >>> PING
+1788376777.662 soak4 < pong 26871
+1788376778.911 >>> RUN:soak3
+1788376780.162 >>> STATUS
+1788376780.225 soak6 < status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+1788376781.473 >>> RUN:soak4
+1788376782.722 >>> HELLO
+1788376782.730 soak8 < device NEZHA2 robot tigez 3527777815
+1788376783.966 >>> RUN:soak5
+1788376785.229 >>> PING
+1788376785.242 soak10 < pong 34447
+1788376786.482 >>> RUN:soak6
+1788376787.731 >>> STATUS
+1788376787.743 soak12 < status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+1788376788.966 >>> HELLO
+1788376788.977 final < device NEZHA2 robot tigez 3527777815
+1788376791.059 === soak all_alive=True final_alive=True ===
+1788376791.100 === session closed ===

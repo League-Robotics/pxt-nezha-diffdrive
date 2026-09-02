@@ -1,0 +1,7 @@
+Successfully halted device
+2000afd0:  00000000                               |....|
+Device entered sleep
+Successfully halted device
+2000391c:  2000a81c                               | ...|
+2000afd0:  00000000                               |....|
+Device entered sleep

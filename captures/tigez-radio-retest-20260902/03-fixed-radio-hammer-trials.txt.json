@@ -1,0 +1,291 @@
+{
+  "hexlabel": "fixed",
+  "ntrials": 14,
+  "summary": [
+    {
+      "trial": 1,
+      "seq": 1,
+      "line": "MOVE_X 0 260 80 3000 #1",
+      "reply": [
+        "ack 1 0 none"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1 cyc=115 tlm=off next=2 done=1 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 115,
+      "last_cyc": null,
+      "reset_signature": false,
+      "pong_before": 0,
+      "pong_during_read": 8,
+      "pong_after": 9,
+      "elapsed_s": 4.046
+    },
+    {
+      "trial": 2,
+      "seq": 2,
+      "line": "MOVE_X 0 -260 80 3000 #2",
+      "reply": [
+        "ack 2 1 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=2 cyc=233 tlm=off next=3 done=2 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 233,
+      "last_cyc": 115,
+      "reset_signature": false,
+      "pong_before": 10,
+      "pong_during_read": 17,
+      "pong_after": 20,
+      "elapsed_s": 4.055
+    },
+    {
+      "trial": 3,
+      "seq": 3,
+      "line": "MOVE_X 0 260 80 3000 #3",
+      "reply": [
+        "ack 3 2 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=2 cyc=351 tlm=off next=4 done=3 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 351,
+      "last_cyc": 233,
+      "reset_signature": false,
+      "pong_before": 21,
+      "pong_during_read": 25,
+      "pong_after": 28,
+      "elapsed_s": 4.037
+    },
+    {
+      "trial": 4,
+      "seq": 4,
+      "line": "MOVE_X 0 -260 80 3000 #4",
+      "reply": [
+        "ack 4 3 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=3 cyc=469 tlm=off next=5 done=4 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 469,
+      "last_cyc": 351,
+      "reset_signature": false,
+      "pong_before": 29,
+      "pong_during_read": 35,
+      "pong_after": 38,
+      "elapsed_s": 4.047
+    },
+    {
+      "trial": 5,
+      "seq": 5,
+      "line": "MOVE_X 0 260 80 3000 #5",
+      "reply": [
+        "ack 5 4 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=4 cyc=586 tlm=off next=6 done=5 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 586,
+      "last_cyc": 469,
+      "reset_signature": false,
+      "pong_before": 39,
+      "pong_during_read": 45,
+      "pong_after": 49,
+      "elapsed_s": 4.037
+    },
+    {
+      "trial": 6,
+      "seq": 6,
+      "line": "MOVE_X 0 -260 80 3000 #6",
+      "reply": [
+        "ack 6 5 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=6 cyc=702 tlm=off next=7 done=6 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 702,
+      "last_cyc": 586,
+      "reset_signature": false,
+      "pong_before": 50,
+      "pong_during_read": 56,
+      "pong_after": 58,
+      "elapsed_s": 4.014
+    },
+    {
+      "trial": 7,
+      "seq": 7,
+      "line": "MOVE_X 0 260 80 3000 #7",
+      "reply": [
+        "ack 7 6 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=7 cyc=819 tlm=off next=8 done=7 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 819,
+      "last_cyc": 702,
+      "reset_signature": false,
+      "pong_before": 59,
+      "pong_during_read": 66,
+      "pong_after": 69,
+      "elapsed_s": 4.028
+    },
+    {
+      "trial": 8,
+      "seq": 8,
+      "line": "MOVE_X 0 -260 80 3000 #8",
+      "reply": [
+        "ack 8 7 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=7 cyc=937 tlm=off next=9 done=8 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 937,
+      "last_cyc": 819,
+      "reset_signature": false,
+      "pong_before": 70,
+      "pong_during_read": 77,
+      "pong_after": 80,
+      "elapsed_s": 4.059
+    },
+    {
+      "trial": 9,
+      "seq": 9,
+      "line": "MOVE_X 0 260 80 3000 #9",
+      "reply": [
+        "ack 9 8 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=7 cyc=1055 tlm=off next=10 done=9 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 1055,
+      "last_cyc": 937,
+      "reset_signature": false,
+      "pong_before": 81,
+      "pong_during_read": 88,
+      "pong_after": 90,
+      "elapsed_s": 4.067
+    },
+    {
+      "trial": 10,
+      "seq": 10,
+      "line": "MOVE_X 0 -260 80 3000 #10",
+      "reply": [
+        "ack 10 9 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=8 cyc=1173 tlm=off next=11 done=10 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 1173,
+      "last_cyc": 1055,
+      "reset_signature": false,
+      "pong_before": 91,
+      "pong_during_read": 98,
+      "pong_after": 102,
+      "elapsed_s": 4.037
+    },
+    {
+      "trial": 11,
+      "seq": 11,
+      "line": "MOVE_X 0 260 80 3000 #11",
+      "reply": [
+        "ack 11 10 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=9 cyc=1291 tlm=off next=12 done=11 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 1291,
+      "last_cyc": 1173,
+      "reset_signature": false,
+      "pong_before": 102,
+      "pong_during_read": 107,
+      "pong_after": 111,
+      "elapsed_s": 4.051
+    },
+    {
+      "trial": 12,
+      "seq": 12,
+      "line": "MOVE_X 0 -260 80 3000 #12",
+      "reply": [
+        "ack 12 11 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=9 cyc=1408 tlm=off next=13 done=12 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 1408,
+      "last_cyc": 1291,
+      "reset_signature": false,
+      "pong_before": 111,
+      "pong_during_read": 117,
+      "pong_after": 121,
+      "elapsed_s": 4.047
+    },
+    {
+      "trial": 13,
+      "seq": 13,
+      "line": "MOVE_X 0 260 80 3000 #13",
+      "reply": [
+        "ack 13 12 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=9 cyc=1526 tlm=off next=14 done=13 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 1526,
+      "last_cyc": 1408,
+      "reset_signature": false,
+      "pong_before": 121,
+      "pong_during_read": 129,
+      "pong_after": 134,
+      "elapsed_s": 4.059
+    },
+    {
+      "trial": 14,
+      "seq": 14,
+      "line": "MOVE_X 0 -260 80 3000 #14",
+      "reply": [
+        "ack 14 13 stop"
+      ],
+      "got_ack": true,
+      "truncated": false,
+      "status": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=9 cyc=1643 tlm=off next=15 done=14 reason=stop",
+      "status_reply_is_boot_banner": false,
+      "got_boot_banner_on_move_reply": false,
+      "cyc": 1643,
+      "last_cyc": 1526,
+      "reset_signature": false,
+      "pong_before": 134,
+      "pong_during_read": 143,
+      "pong_after": 145,
+      "elapsed_s": 4.034
+    }
+  ],
+  "reset_count": 0,
+  "final_hammer_snapshot": {
+    "pong_count": 147,
+    "sent_count": 223
+  }
+}

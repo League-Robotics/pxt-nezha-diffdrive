@@ -1,0 +1,36 @@
+1788376379.448 === opening /dev/cu.usbmodem2121102 (resets target) ===
+1788376380.968 >>> HELLO (pre-flight)
+1788376380.986 preflight < device NEZHA2 robot tigez 3527777815
+1788376383.075 >>> RUN:z (the wedge trigger)
+1788376385.135 --- polling HELLO every ~2.3s for >=20s (expect silence) ---
+1788376385.135 >>> HELLO (poll 1)
+1788376385.147 poll1 < device NEZHA2 robot tigez 3527777815
+1788376387.632 >>> HELLO (poll 2)
+1788376387.643 poll2 < device NEZHA2 robot tigez 3527777815
+1788376390.109 >>> HELLO (poll 3)
+1788376390.115 poll3 < device NEZHA2 robot tigez 3527777815
+1788376392.436 >>> HELLO (poll 4)
+1788376392.448 poll4 < device NEZHA2 robot tigez 3527777815
+1788376394.905 >>> HELLO (poll 5)
+1788376394.915 poll5 < device NEZHA2 robot tigez 3527777815
+1788376397.212 >>> HELLO (poll 6)
+1788376397.218 poll6 < device NEZHA2 robot tigez 3527777815
+1788376399.698 >>> HELLO (poll 7)
+1788376399.713 poll7 < device NEZHA2 robot tigez 3527777815
+1788376402.182 >>> HELLO (poll 8)
+1788376402.194 poll8 < device NEZHA2 robot tigez 3527777815
+1788376404.682 >>> HELLO (poll 9)
+1788376404.690 poll9 < device NEZHA2 robot tigez 3527777815
+1788376407.174 === poll window done after 9 probes over 22.0s; any_reply=True ===
+1788376407.174 === invoking pyocd halt/go (port stays open) ===
+1788376408.296 pyocd stdout:
+Successfully halted device
+Device entered sleep
+
+1788376408.296 pyocd stderr:
+
+1788376408.296 pyocd returncode: 0
+1788376408.296 >>> HELLO (post-recovery, same session)
+1788376408.306 post-recovery < device NEZHA2 robot tigez 3527777815
+1788376411.438 === recovered=True ===
+1788376411.477 === session closed ===

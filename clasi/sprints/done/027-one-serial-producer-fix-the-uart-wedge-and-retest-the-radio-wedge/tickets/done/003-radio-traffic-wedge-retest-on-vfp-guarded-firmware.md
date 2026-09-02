@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: Radio-traffic wedge retest on VFP-guarded firmware
-status: open
+status: done
 use-cases:
 - SUC-002
 depends-on: []
@@ -66,25 +66,28 @@ reuse one physical session on tigez/meili.
 
 ## Acceptance Criteria
 
-- [ ] The retest runs on tigez (meili), VFP-guarded firmware, `MOVE_X`
-      over USB while `PING` hammers over the radio relay (`!CG 55
-      114`), for a trial count at or above the original reproducer's
-      (10+ move-cycles).
-- [ ] Every trial's outcome is recorded with a `MEASURED` comment
+- [x] The retest runs on tigez (meili — this session ran on tigez's
+      local USB directly, per this ticket's dispatch brief, not
+      through the meili farm node; same board, same identity confirmed
+      via `HELLO`/`ID`), VFP-guarded firmware, `MOVE_X` over USB while
+      `PING` hammers over the radio relay (`!CG 55 114`), for a trial
+      count at or above the original reproducer's (10+ move-cycles).
+      28 radio-hammer trials run (14 per build, two builds), plus 6
+      radio-silent negative-control trials.
+- [x] Every trial's outcome is recorded with a `MEASURED` comment
       naming its capture file, board, and date — no trial result is
-      asserted without one.
-- [ ] Exactly one of the two outcomes is reached and acted on:
-      - [ ] Closed: `fw-1-20260829-1-wedges-on-radio-traffic-during-motion.md`
+      asserted without one. See `captures/tigez-radio-retest-20260902/`
+      (raw per-trial transcripts + `notes.md`).
+- [x] Exactly one of the two outcomes is reached and acted on:
+      - [x] Closed: `fw-1-20260829-1-wedges-on-radio-traffic-during-motion.md`
             moved to done, `src/platform/nezha_port.cpp`'s comment (and
             any doc citing the unresolved attribution) corrected to
             state the VFP guard resolved it, evidence cited.
-      - [ ] Re-attributed: the issue stays open, updated with fresh
-            CFSR/BFAR evidence from the wedged chip and an explicit
-            statement that this is a separate defect from the VFP
-            fault, not explained by it.
-- [ ] `uv run pytest` (full host suite) passes — this ticket is not
-      expected to change firmware source unless re-attribution requires
-      a documentation-only correction.
+      - [ ] Re-attributed — not applicable; the fault did not reproduce
+            on either build tested.
+- [x] `uv run pytest` (full host suite) passes — this ticket did not
+      change firmware source; only a documentation-comment correction
+      in `src/platform/nezha_port.cpp`.
 
 ## Implementation Plan
 

@@ -1,0 +1,21 @@
+1788376961.387 ===== trial 1/4 verb=RUN:z (pyocd hw reset) =====
+1788376963.144 pyocd reset stdout: Resetting target
+1788376964.379 t1 preflight < device NEZHA2 robot tigez 3527777815
+1788376967.163 t1 check < device NEZHA2 robot tigez 3527777815
+1788376970.262 trial 1: ALIVE
+1788376970.604 ===== trial 2/4 verb=RUN:z (pyocd hw reset) =====
+1788376972.254 pyocd reset stdout: Resetting target
+1788376973.484 t2 preflight < device NEZHA2 robot tigez 3527777815
+1788376976.286 t2 check < device NEZHA2 robot tigez 3527777815
+1788376979.389 trial 2: ALIVE
+1788376979.737 ===== trial 3/4 verb=RUN:z (pyocd hw reset) =====
+1788376980.849 pyocd reset stdout: Resetting target
+1788376982.072 t3 preflight < device NEZHA2 robot tigez 3527777815
+1788376984.872 t3 check < device NEZHA2 robot tigez 3527777815
+1788376987.993 trial 3: ALIVE
+1788376988.333 ===== trial 4/4 verb=RUN:z (pyocd hw reset) =====
+1788376990.135 pyocd reset stdout: Resetting target
+1788376991.356 t4 preflight < device NEZHA2 robot tigez 3527777815
+1788376994.148 t4 check < device NEZHA2 robot tigez 3527777815
+1788376997.285 trial 4: ALIVE
+1788376997.656 ===== SUMMARY (pyocd hw reset) verb=RUN:z: ['ALIVE', 'ALIVE', 'ALIVE', 'ALIVE'] =====

@@ -1,7 +1,7 @@
 ---
 id: '027'
 title: 'One serial producer: fix the UART wedge and retest the radio wedge'
-status: ticketing
+status: done
 branch: sprint/027-one-serial-producer-fix-the-uart-wedge-and-retest-the-radio-wedge
 use-cases:
 - SUC-001

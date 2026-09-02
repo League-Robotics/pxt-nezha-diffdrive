@@ -94,6 +94,12 @@ _CXX11_PORTABLE_SOURCES = [
     # this gate something to compile.
     _TEST_DIR / "encoder_pose_source_syntax_check.cpp",
     _TEST_DIR / "run_queue_syntax_check.cpp",
+    # emit_queue.h has no pxt.h dependency (a host-portable outbound-
+    # line ring for the protocol's single-serial/radio-producer
+    # restructuring -- see src/comms/emit_queue.h's own header comment)
+    # but no natural .cpp of its own, so this dedicated translation
+    # unit exists solely to give this gate something to compile.
+    _TEST_DIR / "emit_queue_syntax_check.cpp",
 ]
 
 

@@ -868,6 +868,7 @@ bool isStalled() { return ensure().kernel.output().stallHalted; }
 // this file.
 int protocolSerialDropCount();
 int protocolRunDropCount();
+int protocolEmitDropCount();
 
 // Kernel Output accessor, one int per field: booleans 0/1, duty percent
 // x100 (10000 == full duty -- Output.appliedDutyLeft/Right already
@@ -930,6 +931,12 @@ int diagValue(int what) {
     // refusal visible. Should read 0 unless a host out-runs the
     // robot.
     case 28: return protocolRunDropCount();
+    // 29: emitLine() calls refused because the outbound emit ring was
+    // already full -- see comms/emit_queue.h and Protocol::emitLine()
+    // for the ring this counts. Should read 0 across a normal session;
+    // a nonzero value means a caller queued lines faster than this
+    // fiber's own loop could drain them onto the wire.
+    case 29: return protocolEmitDropCount();
     default: return 0;
   }
 }

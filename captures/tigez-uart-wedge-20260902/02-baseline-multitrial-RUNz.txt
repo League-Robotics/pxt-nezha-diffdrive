@@ -1,0 +1,21 @@
+1788376442.050 ===== trial 1/5 verb=RUN:z =====
+1788376443.578 t1 preflight < device NEZHA2 robot tigez 3527777815
+1788376446.377 t1 check < device NEZHA2 robot tigez 3527777815
+1788376449.486 trial 1: ALIVE
+1788376449.828 ===== trial 2/5 verb=RUN:z =====
+1788376451.355 t2 preflight < device NEZHA2 robot tigez 3527777815
+1788376454.151 t2 check < device NEZHA2 robot tigez 3527777815
+1788376457.277 trial 2: ALIVE
+1788376457.624 ===== trial 3/5 verb=RUN:z =====
+1788376459.145 t3 preflight < device NEZHA2 robot tigez 3527777815
+1788376461.948 t3 check < device NEZHA2 robot tigez 3527777815
+1788376465.087 trial 3: ALIVE
+1788376465.426 ===== trial 4/5 verb=RUN:z =====
+1788376466.953 t4 preflight < device NEZHA2 robot tigez 3527777815
+1788376469.755 t4 check < device NEZHA2 robot tigez 3527777815
+1788376472.818 trial 4: ALIVE
+1788376473.163 ===== trial 5/5 verb=RUN:z =====
+1788376474.684 t5 preflight < device NEZHA2 robot tigez 3527777815
+1788376477.476 t5 check < device NEZHA2 robot tigez 3527777815
+1788376480.584 trial 5: ALIVE
+1788376480.928 ===== SUMMARY verb=RUN:z: ['ALIVE', 'ALIVE', 'ALIVE', 'ALIVE', 'ALIVE'] =====

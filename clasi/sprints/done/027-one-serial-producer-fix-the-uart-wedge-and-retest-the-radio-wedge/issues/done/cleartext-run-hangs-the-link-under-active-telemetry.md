@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 sprint: '027'
 tickets:
 - 027-002
@@ -102,3 +102,46 @@ candidate instance of this and should be re-examined.
 
 Full evidence in sprint 018 ticket 003's Hardware Evidence section and
 `tools/arc_capture.py`'s "KNOWN BLOCKER" docstring.
+
+## Closed — fixed by sprint 027 ticket 001, hardware-confirmed 2026-09-02
+
+Root cause confirmed to be
+`concurrent-serial-writers-wedge-the-uarte-in-both-directions.md`: two
+fibers writing the nRF52 UARTE concurrently (the protocol fiber's own
+telemetry emission, and the MessageBus fiber a cleartext `RUN:` line
+with a payload spawns) can leave the UARTE wedged in both directions.
+Telemetry streaming guarantees the protocol fiber is actively writing,
+which is why this issue's own repro needed it — but the actual defect
+never required telemetry, only a second concurrent writer (RUN with a
+payload was always sufficient on its own).
+
+**Fix**: sprint 027 ticket 001 makes the protocol fiber the single
+producer for both serial and radio output
+(`Protocol::emitLine()`/`drainEmitQueue()`, `comms/emit_queue.h`).
+
+**MEASURED tigez 2026-09-02**, sprint 027 ticket 002 hardware
+acceptance, fixed firmware (this repo's HEAD at the time, sha256
+`d4e90bef6d0652083193f69447f3a67544a286649d675d1e3668cdfc8eac1473`,
+`drainEmitQueue` confirmed present in the compiled source):
+`captures/tigez-uart-wedge-20260902/08-fixed-tlm-subscribed-run.txt`
+(directory on disk, not committed — `captures/` is repo-gitignored;
+excerpt below is the load-bearing record).
+
+One serial session: `HELLO`, then `TLM POSE #1` (sequenced), 58 `t`/
+`thdr` frames read at the expected ~50 ms cadence over ~3 s. Then
+cleartext `RUN:tlmsoak` (unbound, zero-motion name) sent **while
+telemetry was still streaming** — this issue's exact trigger. Result:
+telemetry never stopped. 151 more frames arrived over the following
+~8 s, inter-line gaps staying in the same 0.00-0.06 s band the entire
+time (`max_gap_after=0.06s`) — no multi-second silence, let alone this
+issue's originally-recorded 15 s+ total hang. A final `HELLO` sent
+after all that answered immediately with the normal boot banner,
+interleaved cleanly with telemetry still arriving.
+
+The v6 RUN verb question this issue also raised ("decide whether the v6
+RUN verb should actually work") remains open as a separate, lower-
+priority design question — `WireAdapter::onRun()` is still a permanent
+`kUnknown` stub, and the cleartext `RUN:` prefix is still the only
+by-name test trigger. That is unchanged by this fix and is not part of
+what this issue was tracking (the **hang**, not the missing v6
+alternative); it is not reopened here.
