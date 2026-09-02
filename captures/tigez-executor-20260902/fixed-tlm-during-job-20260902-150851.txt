@@ -1,0 +1,33 @@
+tlm-sub< ack 1 0 none
+tlm-sub< thdr seq now flags x y h ox oy oh vl vr i2cf
+tlm-sub< t 1 41791 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 2 41847 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 3 41903 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 4 41959 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 5 42015 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 6 42071 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 7 42127 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 8 42183 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 9 42239 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 10 42295 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 11 42351 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 12 42407 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 13 42463 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 14 42519 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 15 42575 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 16 42631 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 17 42687 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 18 42743 0 0 0 0 0 0 0 0 0 0
+tlm-sub< t 19 42799 0 0 0 0 0 0 0 0 0 0
+>>> RUN:pivot:90 while TLM POSE subscribed
+  [ 0.03s] DBG:pivot:profile=open
+  [ 0.06s] thdr seq now flags x y h ox oy oh vl vr i2cf
+  [ 0.07s] t 20 42861 31 0 0 23 0 0 0 -8 8 0
+  [ 0.13s] t 21 42933 31 -1 0 267 0 0 0 -56 36 0
+  [ 0.21s] t 22 43005 31 -2 0 651 0 0 0 -82 56 0
+  [ 1.27s] GAP:27
+  [ 1.27s] PIVOT:end
+  [ 1.38s] thdr seq now flags x y h ox oy oh vl vr i2cf
+  [ 2.45s] thdr seq now flags x y h ox oy oh vl vr i2cf
+telemetry frames seen during the job: 49
+tlm-off< ack 2 0 none

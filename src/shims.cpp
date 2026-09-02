@@ -144,6 +144,19 @@ struct Rig {
                                   // cycleOverrunCount_, which only its
                                   // unused run() ever increments.
 
+  // Plain, no-capture function pointer the protocol fiber registers
+  // (registerTickServiceHook(), below) once it starts. tickDrive() calls
+  // it, if set, once per call -- see that function's own comment for the
+  // exact point (after this tick's own kernel.step()/settle work is
+  // done, before the pacing sleep) and why: this is what lets a
+  // dispatched RUN job's own `while (driveTick())` tick loop carry the
+  // protocol fiber's other duties (wire/radio poll, telemetry, dispatch)
+  // along with it, one tick at a time, instead of needing a second fiber
+  // to service them concurrently. A plain function pointer, not
+  // std::function, for the same reason NezhaMotorPort/OtosPort avoid
+  // anything heap-allocating in this file's own composition.
+  void (*serviceHook)() = nullptr;
+
   // The wire's OWN "0 = use the configured default" convenience field,
   // deliberately SEPARATE from kernel.config().fullDutyVelocity. Those
   // are two unrelated meanings of zero that used to be collapsed onto
@@ -689,6 +702,18 @@ bool tickDrive() {
   }
   r.stepBusy = false;
 
+  // Service hook: fires exactly here on EVERY call -- after this tick's
+  // own kernel.step()/settle work is done (stepBusy just cleared above)
+  // and before the pacing sleep below -- and NEVER inside the stepBusy
+  // window: step() already yields twice in there for its own encoder
+  // select-to-read settle, and landing arbitrary wire/radio/dispatch
+  // work in that window would break bus discipline. Null whenever
+  // nothing has registered one (a host test, or before the protocol
+  // fiber starts); see Rig::serviceHook's own comment for what the
+  // registered callback actually does and why it is itself a no-op for
+  // most callers of this function.
+  if (r.serviceHook) r.serviceHook();
+
   // Absolute-deadline self-pacing, lifted from DifferentialDrive::run()
   // (diffdrive.cpp:290-306): read the cadence from the kernel's own
   // config (still 24 ms per sprint.md's Design Rationale) rather than
@@ -884,8 +909,8 @@ bool isStalled() { return ensure().kernel.output().stallHalted; }
 // declaration rather than by including protocol.h: that header pulls
 // in radio_transport.h, and PXT's per-file dependency scan then decides
 // this file needs the `radio` package and fails the build -- same
-// convention protocolEmitLine/protocolRunText already use further down
-// this file.
+// convention protocolEmitLine/protocolCurrentRunText already use further
+// down this file.
 int protocolSerialDropCount();
 int protocolRunDropCount();
 int protocolEmitDropCount();
@@ -1005,9 +1030,9 @@ void setGeometry(int trackWidth, int calib) {  // [0.1 mm] [1e-4 mm/deg]
 
 // Defined further down (the OTOS section) -- forward-declared here so
 // case 32 below can re-seed it. Same same-translation-unit
-// forward-declaration convention seedPose() and protocolRunText() each
-// already use in this file, just internal to this one file instead of
-// crossing to protocol.cpp.
+// forward-declaration convention seedPose() and protocolCurrentRunText()
+// each already use in this file, just internal to this one file instead
+// of crossing to protocol.cpp.
 static OtosPort& otosRef();
 
 //%
@@ -1430,19 +1455,54 @@ void emitLine(String text) {
   protocolEmitLine(ms.toCharArray());
 }
 
-// Read back the text of the RUN command a run event refers to (`slot`
-// is the event value; protocol.cpp parks the payload and sends only the
-// slot, because an event value is a uint16 and cannot carry a name).
+// Read back the text of whichever RUN command is CURRENTLY being
+// dispatched -- valid only during the registered dispatch callback's own
+// call, on this same fiber (registerRunDispatch()/runDispatch(), below).
 // Same forward-declaration convention as protocolEmitLine above.
-const char* protocolRunText(int slot);
+const char* protocolCurrentRunText();
 
 //%
-String runCommandText(int slot) {
-  const char* text = protocolRunText(slot);
+String runCommandText() {
+  const char* text = protocolCurrentRunText();
   size_t len = 0;
   while (text[len] != '\0') ++len;
   return mkString(text, static_cast<int>(len));
 }
+
+// ---- RUN dispatch: the single TS callback protocol.cpp invokes -------
+// run.ts's wireRunDispatch() registers ONE Action here, the first time
+// any onRun()/onRunCommand() handler is bound -- the by-name lookup and
+// dispatch logic inside that callback (matching the dequeued command's
+// name against every registered handler) is unchanged from before;
+// only what TRIGGERS the callback changes, from a MessageBus event
+// fired at a second, forked fiber to a direct call from
+// protocol.cpp's own dispatchJob()/handleRun() bypass, on the protocol
+// fiber itself.
+static Action gRunDispatchAction = nullptr;
+
+//%
+void registerRunDispatch(Action cb) {
+  if (gRunDispatchAction) decr(gRunDispatchAction);
+  gRunDispatchAction = cb;
+  incr(gRunDispatchAction);
+}
+
+// Invokes the registered callback, if one exists, on the CALLER's own
+// fiber -- protocol.cpp reaches this via the same same-package
+// forward-declaration convention as tickDrive(). Returns false with
+// nothing registered yet (no onRun()/onRunCommand() call has ever run),
+// a silent no-op, matching the old event path's own behavior when
+// nothing had subscribed.
+bool runDispatch() {
+  if (!gRunDispatchAction) return false;
+  runAction0(gRunDispatchAction);
+  return true;
+}
+
+// Registers tickDrive()'s own service hook (see Rig::serviceHook's and
+// tickDrive()'s own comments above) -- a plain C++-to-C++ seam, never
+// called from TS, so deliberately NOT `//%`-annotated.
+void registerTickServiceHook(void (*hook)()) { ensure().serviceHook = hook; }
 
 //%
 void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]

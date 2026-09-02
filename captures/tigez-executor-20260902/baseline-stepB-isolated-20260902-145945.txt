@@ -1,0 +1,9 @@
+[14:59:50] hello< device NEZHA2 robot tigez 3527777815
+[14:59:52] ping-before< pong 2648
+[14:59:52] ping-before< boot course-program ready
+[14:59:53] >>> sending RUN:pivot:-90
+[14:59:53] >>> sending MOVE_X 0 1571 100 3000 #1 (mid-job)
+[14:59:53] >>> observing for 8 s ...
+[14:59:53] obs< ack 1 0 none
+[15:00:02] ping-after< pong 12728
+[15:00:03] done

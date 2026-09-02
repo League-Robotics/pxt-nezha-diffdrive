@@ -1,0 +1,24 @@
+[14:58:21] connecting to /dev/cu.usbmodem2121102 mode=baseline
+[14:58:26]   hello< device NEHA2 obot tigez 352777715
+[14:58:27] === STEP A: RUN:pivot:90 alone -- does the board reset? ===
+[14:58:27]   ping< pong 26928
+[14:58:29]   status< status ready1 active=0 connL= connR=1 otos=0 wedg=0 flags=31 i2cf=3 cyc=78 tlm=off next=1 done=0 reason=non
+[14:58:30] before: pong_ms=26928 status={'active': '0', 'connL': '', 'connR': '1', 'otos': '0', 'wedg': '0', 'flags': '31', 'i2cf': '3', 'cyc': '78', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'non'}
+[14:58:33]   ping< pong32648
+[14:58:34]   status< status ready=1 active0 cnnL=1 conn=1 otos=0 wedge=0 flags=31 i2cf=3 cyc=78 tlm=of next=1 dne= reason=none
+[14:58:36] after: pong_ms=32648 status={'ready': '1', 'cnnL': '1', 'conn': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '3', 'cyc': '78', 'tlm': 'of', 'next': '1', 'dne': '', 'reason': 'none'}
+[14:58:36] STEP A RESULT: reset_observed=False banner_lines=[] pong_ms 26928->32648
+[14:58:36] === STEP B: RUN:pivot:90 then wire MOVE_X pivot mid-job ===
+[14:58:36]   ping< pong 35888
+[14:58:38] before: pong_ms=35888
+[14:58:38]   b< ak 1 0none
+[14:58:41]   ping< pong40592
+[14:58:42] after: pong_ms=40592
+[14:58:42] STEP B RESULT: reset=False banner=[] move_x_replies=[]
+[14:58:43] === STEP C: RUN:pivot:90 then RUN:abort mid-job ===
+[14:58:43]   ping< pog 4520
+[14:58:44] before: pong_ms=None
+[14:58:47]   ping< pong 6248
+[14:58:48] after: pong_ms=6248
+[14:58:48] STEP C RESULT: reset=False banner=[]
+[14:58:48] done

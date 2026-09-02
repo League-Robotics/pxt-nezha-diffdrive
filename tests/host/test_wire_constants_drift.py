@@ -429,49 +429,13 @@ def test_radio_serial_wire_capacity_constants_are_equal_at_240():
 
 
 # ---------------------------------------------------------------------------
-# 3. RUN_EVENT_SOURCE (run.ts) vs kRunEventSource (protocol.cpp) --
-#    WIRE-01-adjacent minor, R-21/MOD-05.
-#    RUN_EVENT_SOURCE lived in main.ts until sprint 012 ticket 002 moved
-#    the whole RUN command dispatcher (state, wireRunDispatch(), onRun(),
-#    etc.) out to its own src/run.ts -- this test's file target moved
-#    with it.
-# ---------------------------------------------------------------------------
-
-
-def _run_ts_run_event_source():
-    text = (_SRC_DIR / "blocks" / "run.ts").read_text()
-    match = re.search(r"const RUN_EVENT_SOURCE\s*=\s*(0x[0-9a-fA-F]+|\d+)", text)
-    assert match, "run.ts's RUN_EVENT_SOURCE declaration was not found"
-    return int(match.group(1), 0)
-
-
-def _protocol_cpp_k_run_event_source():
-    text = _read("comms/protocol.cpp")
-    match = re.search(r"constexpr int kRunEventSource\s*=\s*(0x[0-9a-fA-F]+|\d+)", text)
-    assert match, "protocol.cpp's kRunEventSource declaration was not found"
-    return int(match.group(1), 0)
-
-
-def test_run_event_source_matches_between_run_ts_and_protocol_cpp():
-    """run.ts's RUN_EVENT_SOURCE and protocol.cpp's kRunEventSource are
-    two independently hand-typed copies of the same custom MessageBus
-    event source id -- the C++ side raises it (Protocol::handleRun()),
-    the TS side listens for it (wireRunDispatch()'s control.onEvent()
-    call), and nothing but a comment in each file has ever kept them
-    aligned. No shared-constant mechanism crosses the TS/C++ boundary in
-    this project, so this drift test (reading both files as plain text)
-    is the fix, not single-sourcing."""
-    ts_value = _run_ts_run_event_source()
-    cpp_value = _protocol_cpp_k_run_event_source()
-    assert ts_value == cpp_value, (
-        f"run.ts's RUN_EVENT_SOURCE (0x{ts_value:x}) and protocol.cpp's "
-        f"kRunEventSource (0x{cpp_value:x}) have diverged -- the C++ "
-        f"RUN bridge (Protocol::handleRun()) and the TS dispatcher "
-        f"(wireRunDispatch()) would no longer agree on which MessageBus "
-        f"event carries a RUN command's payload slot."
-    )
-
-
+# 3. (deleted) RUN_EVENT_SOURCE (run.ts) vs kRunEventSource (protocol.cpp).
+#    The executor inversion deletes the MessageBus event path these two
+#    literals named -- run.ts's dispatcher is now invoked directly by
+#    protocol.cpp's dispatchJob()/handleRun() bypass, via a registered
+#    callback, so there is no longer a shared numeric id for the two
+#    sides to agree on. This pin is deleted with the code it pinned, not
+#    left vacuously passing against constants that no longer exist.
 # ---------------------------------------------------------------------------
 # 4. wire_adapter.cpp's kDiag* ordinals vs shims.cpp's diagValue()
 #    switch -- MOD-05 (spot-checked in the code review, same pattern as

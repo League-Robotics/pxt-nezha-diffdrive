@@ -1,0 +1,23 @@
+[14:54:05] connecting to /dev/cu.usbmodem2121102 mode=baseline
+[14:54:09]   hello< device NEZHA2 robot tigez 3527777815
+[14:54:10] === STEP A: RUN:pivot:90 alone -- does the board reset? ===
+[14:54:11]   status< bot curs-prgram redy
+[14:54:11]   status< tatu ready= acve=0 cnnL=1 conR=1otos=0 wedge=0 ags31 icf=2 cyc=77 tlm=offnext=1 done=0 rson=none
+[14:54:12] before: None
+[14:54:15]   status< stats rady=1 acive=0conL=1 cnnR=1 otos=0 wege= flags=31 icf= cyc=77 tlmoff next=1 done=0 resonnone
+[14:54:16] after: None
+[14:54:16] STEP A RESULT: reset_observed=False banner_lines=[]
+[14:54:17] === STEP B: RUN:pivot:90 then wire MOVE_X pivot mid-job ===
+[14:54:17]   status< status redy1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf2 cyc=77 tlmof next=1 dne=0 reason=non
+[14:54:18] before: None
+[14:54:18]   b< ack 1 0 none
+[14:54:22]   status< satus ready=1active0 connL=1 cnnR=1 tos=0 wedge=0lags=31 i2f=3 cyc=203 tlm=off net=2done= reason=timet
+[14:54:23] after: None
+[14:54:23] STEP B RESULT: banner=[] move_x_replies=[]
+[14:54:23] === STEP C: RUN:pivot:90 then RUN:abort mid-job ===
+[14:54:24]   status< sats ready1 ative0 cnnL conn=1 oos=0 wedg=0 lag=31 i2cf=3 yc=203 tlm=of next=1 dne=1 reasontimeut
+[14:54:25] before: None
+[14:54:27]   status< staus ready=1active=0 connL=1 conR=1 otos=0 edge=0 flags=3 i2cf=3 cyc20 tm=offnex=1don=1 reason=timeout
+[14:54:29] after: None
+[14:54:29] STEP C RESULT: banner=[]
+[14:54:29] done

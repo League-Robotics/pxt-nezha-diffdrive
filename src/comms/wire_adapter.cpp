@@ -369,6 +369,8 @@ void WireAdapter::setIdentity(const Wire::Identity& identity) {
   identity_ = identity;
 }
 
+void WireAdapter::setJobOwnsMotion(bool owns) { jobOwnsMotion_ = owns; }
+
 uint32_t WireAdapter::now() const {
   // See this file's own header comment: nowMs_ is supplied at
   // composition time by a CODAL-facing caller (protocol.cpp); every
@@ -426,6 +428,11 @@ void WireAdapter::status(Wire::StatusFields& out) const {
 
 Wire::Result WireAdapter::onWheelsV(float left, float right,
                                     uint32_t duration, uint32_t id) {
+  // A dispatched RUN job owns the drivetrain -- refuse outright (kBusy)
+  // rather than silently overwrite or race its move. Checked first,
+  // before any other validation, on all six motion verbs identically --
+  // see setJobOwnsMotion()'s own doc comment (wire_adapter.h).
+  if (jobOwnsMotion_) return Wire::Result::kBusy;
   if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
   // WIRE-08 (code review 2026-08-23): refuse BEFORE the cast below runs
   // at all -- see kWireBoundaryCastCeiling's own doc comment
@@ -466,6 +473,8 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
 
 Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
                                     uint32_t timeout, uint32_t id) {
+  // See onWheelsV()'s identical check above.
+  if (jobOwnsMotion_) return Wire::Result::kBusy;
   // A speed ceiling has no sign -- refuse outright rather than take its
   // magnitude, or fall into wheelsX()'s own non-positive-cruise no-op
   // (motion_engine.h), which would silently accept this as "nothing to
@@ -498,6 +507,8 @@ Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
 Wire::Result WireAdapter::onMoveX(float distance, float rotation,
                                   float cruise, uint32_t timeout,
                                   uint32_t id) {
+  // See onWheelsV()'s identical check above.
+  if (jobOwnsMotion_) return Wire::Result::kBusy;
   // Same cruise <0 handling as onWheelsX() above; the ==0 substitution
   // itself now goes through resolveDefaultCruiseMmS() (SUC-003) instead
   // of the flat engineDefaultCruiseMmS() directly. D is
@@ -538,6 +549,8 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
 
 Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
                                   uint32_t id) {
+  // See onWheelsV()'s identical check above.
+  if (jobOwnsMotion_) return Wire::Result::kBusy;
   // Shares WHEELS_V's own ceiling and "duration is the lease" rationale
   // -- see kWheelsVDurationCeiling's own doc comment (wire_adapter.h).
   if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
@@ -561,6 +574,8 @@ Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
 
 Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
                                   uint32_t timeout, uint32_t id) {
+  // See onWheelsV()'s identical check above.
+  if (jobOwnsMotion_) return Wire::Result::kBusy;
   // `speed`'s <0 handling mirrors onWheelsX()/onMoveX() above -- see
   // this method's own doc comment (wire_adapter.h) for why (`speed`
   // plays `cruise`'s role for the underlying moveX() call). The ==0
@@ -590,6 +605,8 @@ Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
 
 Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
                                   uint32_t timeout, uint32_t id) {
+  // See onWheelsV()'s identical check above.
+  if (jobOwnsMotion_) return Wire::Result::kBusy;
   // Same speed <0 handling as onGoToR() above, and the same
   // resolveDefaultCruiseMmS() substitution on ==0 (SUC-003) -- but
   // UNLIKE onGoToR()'s (x, y) (already body-frame, i.e. already the

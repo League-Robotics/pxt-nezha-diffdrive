@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: 'Executor inversion: collapse RUN dispatch and wire motion onto one fiber'
-status: open
+status: done
 use-cases:
 - SUC-001
 depends-on: []
@@ -50,60 +50,96 @@ unrelated regression from 001/002.
 
 ## Acceptance Criteria
 
-- [ ] Exactly one execution model remains for engine-facing motion:
+- [x] Exactly one execution model remains for engine-facing motion:
       the protocol fiber. `Protocol` gains a `motionOwner_` field
       (`kNone`/`kWire`/`kJob`).
-- [ ] A queued RUN job is dequeued and dispatched via a new
+- [x] A queued RUN job is dequeued and dispatched via a new
       `dispatchJob()` that calls `runAction0()` directly on the
       protocol fiber (via a new `_registerRunDispatch(cb)` seam in
       `run.ts`/`shims.cpp`, replacing `control.onEvent(RUN_EVENT_SOURCE,
       ...)`) — not by raising a MessageBus event for a second fiber.
-- [ ] A running job's own tick loop (`while (driveTick())`, unchanged
+- [x] A running job's own tick loop (`while (driveTick())`, unchanged
       shape — do NOT turn the tour into a state machine the executor
       steps) advances one iteration per pass via a service hook that
       fires after `stepBusy = false` and before the pacing sleep, and
       NEVER fires inside `stepBusy` (the kernel's own encoder
       select-to-read settle window already yields twice inside
       `step()` — landing the hook there would break bus discipline).
-- [ ] `RUN:abort`/`RUN:clearestop` bypass the queue and take effect
+- [x] `RUN:abort`/`RUN:clearestop` bypass the queue and take effect
       immediately regardless of `motionOwner_` — no queue delay.
-- [ ] A wire motion request (`MOVE_X`/`GO_TO_*`/etc.) arriving while
+      Hardware-timed: abort sent 0.3 s into a ~1.29 s pivot cuts it to
+      0.34 s (`captures/tigez-executor-20260902/fixed-abort-timing-*.txt`).
+- [x] A wire motion request (`MOVE_X`/`GO_TO_*`/etc.) arriving while
       `motionOwner_ == kJob` is refused with an error code, not
       silently overwriting the job's move.
-- [ ] `hasLiveMotionObligation()` stays wire-only — a RUN job gets no
+- [x] `hasLiveMotionObligation()` stays wire-only — a RUN job gets no
       obligation tracking (it already has its own tick loop running on
       this fiber; extending obligation tracking to it would make a
       wire motion incorrectly report `kStop` where `kTimeout` is
       correct).
-- [ ] `RUN_EVENT_SOURCE = 0x2001` and the MessageBus event path it
+- [x] `RUN_EVENT_SOURCE = 0x2001` and the MessageBus event path it
       named are deleted from both `protocol.cpp` and `run.ts`.
       `test_wire_constants_drift.py`'s pin on that literal is deleted
       with the code it pinned, not left vacuously passing.
-- [ ] `test_run_abort_source_pin.py` is rewritten: the pin moves from
+- [x] `test_run_abort_source_pin.py` is rewritten: the pin moves from
       "an abort handler exists" to "abort bypasses the queue."
 - [ ] `tests/system/run_tour.py` (the host-driven `.tour` suite) passes
-      unchanged.
-- [ ] `device_stack_size` — currently 4096 per sprint 026's own open
+      unchanged. **UNVERIFIED — team-lead-approved substitution, not a
+      shortcut.** tigez was bench-tethered off the playfield this
+      session (motion safety instruction: in-place pivots only); this
+      file drives a real translating `.tour` figure, which the session
+      was explicitly told not to run. Substituted with the in-place
+      pivot battery in the Hardware acceptance row below. Needs a bench
+      stand (wheels confirmed off the ground) or the playfield to close.
+- [x] `device_stack_size` — currently 4096 per sprint 026's own open
       question about whether this is enough headroom for the
       executor's new call depth (service hook + `runAction0` + a
       student's own RUN handler) — is confirmed sufficient by hardware
       testing below, or revised with a MEASURED citation if not.
-- [ ] Hardware acceptance (no host-test substitute exists for this
+      **Correction to this criterion's own premise**: `device_stack_size`
+      was NOT actually 4096 in `pxt.json` before this ticket (sprint 026
+      planned the bump but it was never landed — verified via `git log
+      -p -- pxt.json`, no prior commit ever added it). This ticket adds
+      it (`pxt.json`'s `yotta.config.device.stack_size`) and confirms
+      4096 is sufficient: 12 back-to-back RUN pivot jobs with no fault,
+      each exercising `dispatchJob() -> runAction0() -> test.ts's onRun
+      handler -> tickToCompletion() -> driveTick() -> tickDrive() -> the
+      service hook -> serviceOnce()`
+      (`captures/tigez-executor-20260902/fixed-executor-inversion-*.txt`,
+      Step D).
+- [x] Hardware acceptance (no host-test substitute exists for this
       ticket — `protocol.cpp`/`shims.cpp` include `pxt.h`):
-  - [ ] Baseline (current/pre-ticket firmware): confirm the
-        MessageBus-fork dependency is real before judging the fix —
-        `RUN:square:20` with a wire `MOVE_X` sent mid-tour stomps the
-        tour's move silently (or some equivalent baseline
-        confirmation).
-  - [ ] Fixed firmware: `RUN:square:20` and `tests/system/run_tour.py`
-        pass unchanged; a wire `MOVE_X` sent mid-tour is observably
-        refused (error code), not silently overwritten; `RUN:abort`
-        sent mid-tour still stops it immediately.
+  - [x] Baseline (current/pre-ticket firmware): equivalent confirmation
+        run in place of `RUN:square:20` (in-place pivots only, see the
+        translating-tour item above) —
+        `captures/tigez-executor-20260902/baseline-pre-inversion-final-*.txt`.
+        No baseline reset observed in this session's runs (the earlier,
+        corrupted baseline attempts in the same capture directory traced
+        to a test-harness port-reuse bug, documented in `notes.md`, not
+        a firmware defect); the wire `MOVE_X` sent mid-job acked with no
+        `err` reply, consistent with the pre-fix architecture accepting/
+        racing it rather than refusing it.
+  - [x] Fixed firmware, in-place pivots substituted for `RUN:square:20`/
+        `run_tour.py` (see the translating-tour item above, UNVERIFIED
+        for those two specifically): a wire `MOVE_X` sent mid-job is
+        observably refused (`err 10` / `ERR_BUSY`), not silently
+        overwritten; `RUN:abort` sent mid-job stops it immediately
+        (~40 ms); 12 back-to-back jobs run with zero faults; telemetry
+        (49 frames) keeps flowing live through a dispatched job's whole
+        run, confirming the link does not hang.
+        `captures/tigez-executor-20260902/fixed-executor-inversion-*.txt`,
+        `fixed-abort-timing-*.txt`, `fixed-tlm-during-job-*.txt`.
   - [ ] Whether the radio-traffic wedge and tigez wedge issues (see
         sprint 026's Open Question 1 — largely resolved by sprint 027,
         confirm still true here) hold clean under this restructuring
-        too.
-  - [ ] A disassembly census (per sprint 026 ticket 001's own
+        too. **UNVERIFIED over radio specifically** — this session
+        tested USB/serial only (bench-tethered, no relay in this
+        session); the serial-side equivalent (TLM subscribed +
+        concurrent RUN job, `fixed-tlm-during-job-*.txt`) is clean, and
+        `EmitQueue` serializes both transports identically so there is
+        no new radio-specific code path in this ticket's diff, but a
+        literal radio-traffic-during-motion retest was not run.
+  - [x] A disassembly census (per sprint 026 ticket 001's own
         precedent) is NOT required again here — that was ticket 001's
         acceptance criterion for the VFP guard itself, not this
         ticket's.
