@@ -1,7 +1,7 @@
 ---
 id: '003'
-title: "Single executor on the protocol fiber"
-status: open
+title: Single executor on the protocol fiber
+status: exception
 use-cases:
 - SUC-003
 depends-on:
@@ -10,6 +10,36 @@ depends-on:
 github-issue: ''
 issue: fiber-safety-and-command-dispatch.md
 completes_issue: true
+exception:
+  thrown_by: programmer
+  thrown_at: '2026-09-02T17:47:59.639343+00:00'
+  attempted: 'Tickets 001 and 002 landed and are what this sprint set out to deliver.
+    001 (VFP yield guard) is hardware-confirmed on gopiv -- 0/25 resets on the RUN:
+    kill test and 0/4 under the harder telemetry-plus-interleaved-MOVE_X stress, against
+    a 3/3 failure baseline the same morning -- and it also cured the documented radio-during-motion
+    wedge, verified on vevov over the relay. 002 (real RUN queue) is complete with
+    7 host tests and a clean firmware build. Beyond the plan, the sprint also fixed
+    the yaw axis''s missing kinematic braking gate (pivot scatter sd 1.14 -> 0.18)
+    and added profile-completion move termination, which took square-tour closure
+    from 52.3 to 3.9 mm and diamond from 28.6 to 2.2 mm on vevov.'
+  conflict: 'Ticket 003 restructures who owns the control tick: split Protocol::run()
+    into serviceOnce() plus a loop, dispatch RUN jobs on the protocol fiber via runAction0(),
+    add a service hook inside tickDrive(), remove the MessageBus event from the RUN
+    path, add motion-ownership arbitration, and raise the fiber stack. Its own estimate
+    is 2-3 bench sessions and it is explicitly NOT host-testable -- tests/host cannot
+    compile shims.cpp or protocol.cpp at all, so every acceptance criterion needs
+    hardware. Two things make finishing it in this sprint the wrong call. First, the
+    crash that motivated it is already fixed by 001, so the remaining value is architectural
+    (the 4-slot ring''s silent overwrite is separately fixed by 002; what is left
+    is the link-hang-under-telemetry issue and making the I2C invariant structural)
+    rather than urgent. Second, the only field robot is currently unreachable: magni''s
+    USB port has been dropping the board all session (usb 1-1.5 disconnect, and earlier
+    device descriptor read/64 error -110), and vevov disconnected mid-flash, so it
+    likely needs a reseat and a reflash before any hardware work can proceed. Rushing
+    an architecture change that can only be validated on hardware, with no working
+    hardware, is how the retracted radio-wedge bisect happened. Recommend carrying
+    003 into its own sprint once a robot is reliably reachable.'
+  surface: user-visible
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 

@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: A real RUN queue
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on: []
