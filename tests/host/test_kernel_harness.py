@@ -189,6 +189,8 @@ def _bind(lib):
         fn.restype = ctypes.c_int
     lib.kdOutCycleCount.argtypes = [ctypes.c_void_p]
     lib.kdOutCycleCount.restype = ctypes.c_uint32
+    lib.kdOutI2cFaultCount.argtypes = [ctypes.c_void_p]
+    lib.kdOutI2cFaultCount.restype = ctypes.c_uint32
 
     lib.kdMotorArmPosition.argtypes = [
         ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_uint64,
@@ -287,6 +289,9 @@ class Kernel:
         disables that condition (Config's own field comments)."""
         self._lib.kdSetStall(self._handle, speed, demand, window)
 
+    def set_kp(self, value):
+        self._lib.kdSetKp(self._handle, value)
+
     # ---- commands ----
     def begin(self):
         return self._lib.kdBegin(self._handle)
@@ -353,6 +358,10 @@ class Kernel:
     @property
     def out_stall_halted(self):
         return bool(self._lib.kdOutStallHalted(self._handle))
+
+    @property
+    def out_i2c_fault_count(self):
+        return self._lib.kdOutI2cFaultCount(self._handle)
 
 
 def test_smoke_drive_and_step_reports_expected_duty_and_velocity(kernel_lib):
