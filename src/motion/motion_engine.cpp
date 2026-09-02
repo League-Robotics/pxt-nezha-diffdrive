@@ -31,6 +31,64 @@ float wrapToPi(float angleRad) {
   return angleRad;
 }
 
+// Constant-a braking-speed axis scale (SUC-001): axisScale = v_allow /
+// axisCruiseMmS, where v_allow =
+// sqrt(2*aDecelMmS2*remainMm) is the speed permissible with `remainMm`
+// [mm] left to travel on this axis at deceleration `aDecelMmS2`
+// [mm/s^2], and axisCruiseMmS is THIS AXIS's own full-rate (scale==1.0)
+// commanded speed, recovered from the counts/s command startSegment()
+// computed for it (`axisCmdCountsPerS`) -- NOT the wheels_x-level
+// `cruise` argument directly, since a blended arc's dist/yaw axes each
+// run at their own fraction of it (see startSegment()'s velCmd/twistCmd
+// derivation). `remainCounts` may be negative (past the target); clamped
+// to 0 mm so this always returns a finite, non-negative scale rather
+// than NaN. The caller is responsible for its own window gate -- see
+// serviceMove()'s own call sites: the dist axis gates on
+// constantDecelWindowMm() below (the kinematics themselves), the yaw
+// axis still gates on the fixed yawTaper_ counts window -- this
+// function has no notion of "outside the window" at all, for either
+// axis.
+float constantDecelAxisScale(float aDecelMmS2, float remainCounts,
+                              float axisCmdCountsPerS, float cpm) {
+  const float remainMm = remainCounts > 0.0f ? remainCounts / cpm : 0.0f;
+  const float vAllow = std::sqrt(2.0f * aDecelMmS2 * remainMm);
+  const float axisCruiseMmS = std::fabs(axisCmdCountsPerS) / cpm;
+  return axisCruiseMmS > 0.0f ? (vAllow / axisCruiseMmS) : 0.0f;
+}
+
+// Braking window before a constant-a stop, in [mm]: the kinematic
+// v^2/(2a) an axis genuinely needs to come to rest from its own
+// full-rate commanded speed (`axisCmdCountsPerS`, recovered the same
+// way constantDecelAxisScale() above does -- not the raw wheels_x-level
+// `cruise` argument). serviceMove()'s dist axis gates its shaped-mode
+// branch on this instead of on distTaper_: a fixed-counts window is
+// smaller than this kinematic one at any meaningful cruise, which left
+// the constant-a solve unreachable above roughly 200 mm/s. MEASURED on
+// the compiled engine, captures/gopiv-profile-sweep-20260901/
+// sweep_gopiv_wide.json: raising the old fixed window from its
+// 400-count default to 5000 counts took the cruise-400 ramp-down from
+// 1 control tick to 14, and the cruise-300 window (153.8 mm) matched
+// this formula's own prediction (150.0 mm) to 2.5%. `aDecelMmS2` is
+// the caller's own already-validated (`> 0`) field.
+float constantDecelWindowMm(float aDecelMmS2, float axisCmdCountsPerS,
+                             float cpm) {
+  const float axisCruiseMmS = std::fabs(axisCmdCountsPerS) / cpm;
+  return (axisCruiseMmS * axisCruiseMmS) / (2.0f * aDecelMmS2);
+}
+
+// Small multiplicative safety margin applied to constantDecelWindowMm()
+// above before it gates the dist axis's shaped-mode branch: at the
+// EXACT boundary the two branches already agree (v_allow there equals
+// the axis's own full-rate speed, so the derived scale is 1.0, same as
+// the outside-the-window branch), so this margin is not needed for
+// continuity -- it exists so a caller ticking slower than the braking
+// curve's own timescale, and so sampling `remain` only once per
+// control period, engages the solve slightly before the exact
+// threshold rather than exactly at it, absorbing up to one period's
+// worth of travel without changing what the solve computes once
+// engaged.
+constexpr float kBrakingWindowMargin = 1.10f;
+
 }  // namespace
 
 MotionEngine::MotionEngine(DiffDrive::DifferentialDrive& kernel,
@@ -39,6 +97,54 @@ MotionEngine::MotionEngine(DiffDrive::DifferentialDrive& kernel,
 
 uint32_t MotionEngine::nowMs() const {
   return static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
+}
+
+// See motion_engine.h's own comment on this method for the contract.
+// `d` is clamped to >= 0 first: `distanceMm` can arrive negative (a
+// caller passing a signed wire-level distance without taking its own
+// magnitude first), and a negative product under sqrt() would be NaN.
+float MotionEngine::defaultCruiseForDistance(float distanceMm) const {
+  const float d = distanceMm > 0.0f ? distanceMm : 0.0f;
+  const float vAllow = std::sqrt(2.0f * aDecelMmS2_ * brakeFrac_ * d);
+  return vAllow < vMaxMmS_ ? vAllow : vMaxMmS_;
+}
+
+// See motion_engine.h's own comment on this method for the contract.
+//
+// A trapezoid over distance D holding v for T seconds satisfies
+//   D = v^2/(2*aAccel) + v*T + v^2/(2*aDecel)
+// which rearranges to the quadratic
+//   (1/2)(1/aAccel + 1/aDecel) v^2 + T*v - D = 0
+// whose positive root is the largest cruise that still leaves a plateau
+// of T. With T == 0 this degenerates to the familiar triangular limit
+// sqrt(2*D*aAccel*aDecel/(aAccel+aDecel)) -- a plateau of exactly zero,
+// i.e. still a corner -- which is why plateauMinS_ is the useful knob
+// rather than the triangular speed itself.
+float MotionEngine::plateauCruiseMmS(float distanceMm) const {
+  if (aAccelMmS2_ <= 0.0f || aDecelMmS2_ <= 0.0f) return 0.0f;
+  if (plateauMinS_ <= 0.0f) return 0.0f;
+  const float d = distanceMm > 0.0f ? distanceMm : 0.0f;
+  const float k = 0.5f * (1.0f / aAccelMmS2_ + 1.0f / aDecelMmS2_);
+  const float t = plateauMinS_;
+  const float disc = t * t + 4.0f * k * d;
+  if (disc <= 0.0f) return 0.0f;
+  const float root = (-t + std::sqrt(disc)) / (2.0f * k);
+  return root > 0.0f ? root : 0.0f;
+}
+
+// See motion_engine.h's own comment on this method for the contract.
+float MotionEngine::yawRateCapMmS() const {
+  if (maxYawRateDegS_ <= 0.0f) return 0.0f;
+  const float omega = maxYawRateDegS_ * 3.14159265f / 180.0f;  // [rad/s]
+  return omega * effectiveTrackWidth() * 0.5f;                 // [mm/s]
+}
+
+// See motion_engine.h's own comment on this method for the contract.
+float MotionEngine::dominantAxisTravelMm(float distanceMm,
+                                         float rotationRad) const {
+  const float distTravel = std::fabs(distanceMm);
+  const float yawTravel = std::fabs(rotationRad) * effectiveTrackWidth() * 0.5f;
+  return yawTravel > distTravel ? yawTravel : distTravel;
 }
 
 void MotionEngine::wheelsV(float left, float right, uint32_t durationMs) {
@@ -159,16 +265,61 @@ void MotionEngine::startSegment(float distance, float rotation,
     return;
   }
 
+  // Shape the requested cruise before it becomes wheel commands. Two
+  // independent clamps, both lowering-only so an explicit request is
+  // never raised:
+  //
+  //  1. Turn-rate cap. The wire's cruise is linear mm/s, so a pure turn
+  //     silently inherits the straight-line speed. MEASURED gopiv
+  //     2026-09-01, captures/gopiv-profile-sweep-20260901/square120.json:
+  //     cruise 300 mm/s turned at 254-285 deg/s.
+  //  2. Plateau derate. A move commanded above its own triangular limit
+  //     peaks for a single tick with a corner at the apex (same capture:
+  //     every pivot held its peak for exactly one telemetry sample).
+  //     plateauCruiseMmS() solves for the largest cruise that still
+  //     leaves plateauMinS_ of flat top, so there is something for the
+  //     jerk limiter to round without the two roundings colliding.
+  float shapedCruise = cruise;
+  const bool pureTurnSeg =
+      (move_.yawTarget != 0.0f && move_.distTarget == 0.0f);
+  if (pureTurnSeg) {
+    const float cap = yawRateCapMmS();
+    if (cap > 0.0f && cap < shapedCruise) shapedCruise = cap;
+  }
+  const float dominantMm = dominant / cpm;  // [mm] this segment's own
+                                            // dominant-wheel travel
+  const float plateau = plateauCruiseMmS(dominantMm);
+  if (plateau > 0.0f && plateau < shapedCruise) shapedCruise = plateau;
+  cruise = shapedCruise;
+
   const float cruiseCounts = cruise * cpm;  // [counts/s]
   move_.velCmd = move_.distTarget / dominant * cruiseCounts;
   move_.twistCmd = move_.yawTarget / dominant * cruiseCounts;
+  move_.cruiseMmS = cruise;  // the accel integrator's own reference
+                             // speed (serviceMove()'s ramp block);
+                             // unused in legacy mode.
 
   // Acceleration ramp (stakeholder, 2026-08-20): start at the floor
   // rate, not a full-rate step -- serviceMove() raises the scale over
   // rampMs_. Mirrors the end-of-move taper; effective accel ~= full
   // rate / 0.4 s (~375 mm/s^2 at 15 cm/s), reference-shaper-like.
   move_.startMs = nowMs();
-  move_.cmdScale = 0.25f;
+  move_.lastTickMs = move_.startMs;  // dt anchor for the accel
+                                     // integrator.
+  // In LEGACY mode (aAccelMmS2_ == 0.0f), the first tick starts at the
+  // original, undocumented 0.25f literal -- unchanged. In SHAPED mode,
+  // that literal is removed: the first tick starts at the same
+  // distFloor_/turnFloor_ floor serviceMove()'s own taper uses (a pure
+  // turn's own floor is turnFloor_, everything else is distFloor_), so
+  // the velocity-slew integrator ramps up from a floor already proven
+  // safe rather than from an unrelated hardcoded fraction.
+  const bool pureTurnAtStart =
+      (move_.yawTarget != 0.0f && move_.distTarget == 0.0f);
+  const float initialScale = aAccelMmS2_ > 0.0f
+      ? (pureTurnAtStart ? turnFloor_ : distFloor_)
+      : 0.25f;
+  move_.cmdScale = initialScale;
+  move_.accelScalePerS = 0.0f;  // jerk limiter starts from rest
   const uint32_t now = move_.startMs;
   const uint32_t remainingMs =
       static_cast<int32_t>(move_.deadline - now) > 0
@@ -180,7 +331,8 @@ void MotionEngine::startSegment(float distance, float rotation,
   // resolves as kStop on the wire, indistinguishable from a move that
   // actually ran.
   const DiffDrive::DifferentialDrive::Status driveStatus = kernel_.drive(
-      move_.velCmd * 0.25f, move_.twistCmd * 0.25f, remainingMs);
+      move_.velCmd * initialScale, move_.twistCmd * initialScale,
+      remainingMs);
   move_.active = (driveStatus == DiffDrive::DifferentialDrive::Status::kOk);
 }
 
@@ -363,6 +515,9 @@ bool MotionEngine::serviceMove() {
   const float distMargin = 10.0f;                     // [counts]
   const float yawMargin = pureTurn ? 4.0f : 10.0f;     // [counts]
   const float kTaperFloor = pureTurn ? turnFloor_ : distFloor_;
+  // Only read by the shaped (aDecelMmS2_ > 0) branches below; a dead
+  // load in legacy mode, same as every other new field this ticket adds.
+  const float cpm = countsPerMm();
 
   float scale = 1.0f;
   bool distDone = true;
@@ -370,7 +525,27 @@ bool MotionEngine::serviceMove() {
     const float remain =
         std::fabs(move_.distTarget) - std::fabs(meanProgress);
     distDone = remain <= distMargin;
-    const float axisScale = remain / distTaper_;
+    // SUC-001: aDecelMmS2_ > 0 selects the constant-a braking-speed
+    // solve, gated by the kinematics themselves
+    // (constantDecelWindowMm() above, `v_cmd^2/(2*aDecelMmS2_)`) rather
+    // than by distTaper_ -- a fixed-counts window is smaller than that
+    // kinematic one at any meaningful cruise, which left this solve
+    // unreachable above roughly 200 mm/s (see that function's own
+    // comment for the measured before/after). distTaper_ stays
+    // authoritative only in legacy mode. aDecelMmS2_ == 0 is untouched:
+    // same `remain/distTaper_` expression as before, importing none of
+    // the new math.
+    float axisScale;
+    if (aDecelMmS2_ > 0.0f) {
+      const float remainMm = remain > 0.0f ? remain / cpm : 0.0f;
+      const float windowMm =
+          constantDecelWindowMm(aDecelMmS2_, move_.velCmd, cpm);
+      axisScale = remainMm <= windowMm * kBrakingWindowMargin
+          ? constantDecelAxisScale(aDecelMmS2_, remain, move_.velCmd, cpm)
+          : 1.0f;
+    } else {
+      axisScale = remain / distTaper_;
+    }
     if (axisScale < scale) scale = axisScale;
   }
   bool yawDone = true;
@@ -391,21 +566,108 @@ bool MotionEngine::serviceMove() {
     // exact double-count while the one leg under goToWorld's straight-
     // line threshold skipped this branch and ran full speed).
     if (pureTurn) {
-      const float axisScale = remain / yawTaper_;
+      // Same constant-a/legacy split as the distance axis above, but
+      // unlike that axis's kinematics-derived gate this one still uses
+      // the fixed yawTaper_ counts window unconditionally -- the
+      // dist-axis fix above does not apply here.
+      float axisScale;
+      if (aDecelMmS2_ > 0.0f) {
+        axisScale = remain <= yawTaper_
+            ? constantDecelAxisScale(aDecelMmS2_, remain, move_.twistCmd,
+                                     cpm)
+            : 1.0f;
+      } else {
+        axisScale = remain / yawTaper_;
+      }
       if (axisScale < scale) scale = axisScale;
     }
   }
   if (scale < kTaperFloor) scale = kTaperFloor;
 
-  // Acceleration ramp: time-based rise from the floor to full rate over
-  // rampMs_, min-combined with the end taper (a very short move may go
-  // straight from ramp to taper without ever reaching full).
+  // Acceleration ramp, min-combined with the end taper (a very short
+  // move may go straight from ramp to taper without ever reaching
+  // full) -- exactly as before, unless shaped mode is selected. SUC-002:
+  // aAccelMmS2_ > 0 replaces the time-based `elapsed/rampMs_` fraction
+  // with a velocity-slew integrator, `v_cmd <= v_prev + aAccelMmS2_*dt`,
+  // expressed as a scale of move_.cruiseMmS_ so it min-combines with the
+  // taper scale the same way the legacy fraction did. `v_prev` is
+  // move_.cmdScale from the PREVIOUS tick -- the ACTUAL last commanded
+  // scale (already taper/floor-limited by that tick's own min-combine
+  // below), not a re-derivation from elapsed time -- so a taper-limited
+  // segment's accel ramp picks up from where the taper actually left it,
+  // and so that changing aDecelMmS2_ alone never perturbs this
+  // integrator's own math (it never reads distTaper_/yawTaper_/rampMs_
+  // at all). aAccelMmS2_ == 0 is untouched: same `elapsed/rampMs_`
+  // expression as before, importing none of the new math.
   const uint32_t nowMsRamp = nowMs();
-  float ramp =
-      static_cast<float>(nowMsRamp - move_.startMs) / rampMs_;
+  float ramp;
+  if (aAccelMmS2_ > 0.0f) {
+    const float dtS =
+        static_cast<float>(nowMsRamp - move_.lastTickMs) / 1000.0f;
+    const float cruiseMmS = move_.cruiseMmS > 0.0f ? move_.cruiseMmS : 1.0f;
+    ramp = move_.cmdScale + (aAccelMmS2_ * dtS) / cruiseMmS;
+  } else {
+    ramp = static_cast<float>(nowMsRamp - move_.startMs) / rampMs_;
+  }
   if (ramp < kTaperFloor) ramp = kTaperFloor;
   if (ramp < scale) scale = ramp;
   if (scale > 1.0f) scale = 1.0f;
+
+  // Jerk limiter (second-order shaper). The first-order limiter above
+  // bounds acceleration but still STEPS it -- at the accel->decel
+  // handover the commanded acceleration jumps straight from +aAccel to
+  // -aDecel in one tick, which is the corner at the apex of every
+  // short move. Bounding da/dt rounds every such corner without having
+  // to locate it.
+  //
+  // The subtlety is that a jerk-limited controller cannot stop
+  // accelerating instantly, so it overshoots a speed cap unless it
+  // anticipates: while ramping `a` down to zero at rate `j`, velocity
+  // still gains a^2/(2j). Easing off once cmdScale + that gain reaches
+  // the target holds the cap exactly (simulated overshoot without it:
+  // 113 deg/s against a 90 deg/s cap --
+  // captures/gopiv-profile-sweep-20260901/).
+  if (jerkMmS3_ > 0.0f && aAccelMmS2_ > 0.0f) {
+    const float cruiseRef = move_.cruiseMmS > 0.0f ? move_.cruiseMmS : 1.0f;
+    const float dtJ =
+        static_cast<float>(nowMsRamp - move_.lastTickMs) / 1000.0f;
+    if (dtJ > 0.0f) {
+      const float jScale = jerkMmS3_ / cruiseRef;    // [scale/s^2]
+      const float aMax = aAccelMmS2_ / cruiseRef;    // [scale/s]
+      const float decelRef =
+          aDecelMmS2_ > 0.0f ? aDecelMmS2_ : aAccelMmS2_;
+      const float aMin = -decelRef / cruiseRef;      // [scale/s]
+      float a = move_.accelScalePerS;
+      const float gain = a > 0.0f ? (a * a) / (2.0f * jScale) : 0.0f;
+      float aWant;
+      if (move_.cmdScale + gain >= scale) {
+        aWant = move_.cmdScale > scale ? aMin : 0.0f;
+      } else {
+        aWant = aMax;
+      }
+      const float dA = jScale * dtJ;
+      const float err = aWant - a;
+      if (err > dA) {
+        a += dA;
+      } else if (err < -dA) {
+        a -= dA;
+      } else {
+        a = aWant;
+      }
+      if (a > aMax) a = aMax;
+      if (a < aMin) a = aMin;
+      float shaped = move_.cmdScale + a * dtJ;
+      if (shaped < 0.0f) shaped = 0.0f;
+      if (shaped > scale) shaped = scale;  // never exceed the taper /
+                                           // cap the min-combine set
+      move_.accelScalePerS = a;
+      scale = shaped;
+      if (scale < kTaperFloor) scale = kTaperFloor;
+    }
+  }
+
+  move_.lastTickMs = nowMsRamp;  // dt anchor for the NEXT tick; a dead
+                                 // store in legacy mode.
 
   // Reissue EVERY tick while the move is active, at the current scale
   // with a rolling 500 ms lease -- the only form that is lease-safe:

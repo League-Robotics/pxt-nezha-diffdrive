@@ -225,6 +225,15 @@ def _bind(lib):
     # field, mirroring waSetFullDutyVelocity's binding exactly.
     lib.waSetDefaultCruise.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.waSetDefaultCruise.restype = None
+    # SUC-003: direct test-setup setters for the real MotionEngine's own
+    # aDecelMmS2_/vMaxMmS_/brakeFrac_ -- lets a test switch this
+    # handle's engine into shaped mode and confirm onMoveX()/onGoToR()/
+    # onGoToW() branch onto the distance-aware resolver while onWheelsX()
+    # stays on the flat default above.
+    for name in ("waSetADecelMmS2", "waSetVMaxMmS", "waSetBrakeFrac"):
+        fn = getattr(lib, name)
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_float]
+        fn.restype = None
     lib.waCountsPerMm.argtypes = [ctypes.c_void_p]
     lib.waCountsPerMm.restype = ctypes.c_float
     lib.waEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
@@ -524,6 +533,18 @@ class WireAdapterHandle:
         defaultCruiseMmS field -- see engineDefaultCruiseMmS()'s
         test-double definition (wire_motion_verb_shim.cpp)."""
         self._lib.waSetDefaultCruise(self._handle, v)
+
+    def set_a_decel_mm_s2(self, v):
+        """SUC-003: the real MotionEngine::setADecelMmS2() -- nonzero
+        switches this handle's `cruise`/`speed == 0` resolution over to
+        the distance-aware v_default(D) for MOVE_X/GO_TO_R/GO_TO_W."""
+        self._lib.waSetADecelMmS2(self._handle, v)
+
+    def set_v_max_mm_s(self, v):
+        self._lib.waSetVMaxMmS(self._handle, v)
+
+    def set_brake_frac(self, v):
+        self._lib.waSetBrakeFrac(self._handle, v)
 
     def counts_per_mm(self):
         return self._lib.waCountsPerMm(self._handle)
@@ -1296,6 +1317,37 @@ def test_wheels_x_cruise_zero_without_configured_default_is_range_error(wa):
     assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
 
 
+def test_wheels_x_cruise_zero_sentinel_unaffected_by_shaping_fields(wa):
+    """SUC-003's own explicit carve-out, pinned so a future change
+    cannot silently widen scope here: WHEELS_X's `cruise == 0`
+    resolution stays the flat engineDefaultCruiseMmS() UNCONDITIONALLY
+    -- wheelsX()'s two independent per-wheel distances have no single
+    "leg length" the distance-aware v_default(D) formula is defined
+    over. Setting aDecelMmS2_/vMaxMmS_/brakeFrac_ to values that would
+    resolve MOVE_X's identical sentinel to a markedly DIFFERENT speed
+    (see test_move_x_cruise_zero_shaped_mode_uses_distance_aware_default
+    just above) must leave THIS verb reading the flat default,
+    unchanged."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_WHEELS_X_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    default_cruise = 150.0  # [mm/s] -- must stay this, not v_default(200)
+
+    wa.feed(b"WHEELS_X 200 200 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_wheels_x_duty_pair(
+        200.0, 200.0, default_cruise, cpm, _WHEELS_X_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+
+
 # ---------------------------------------------------------------------------
 # MOVE_X's real effect (sprint 003 ticket 011): dispatched onto
 # MotionEngine::moveX(), whose FIRST tick is scaled by the acceleration
@@ -1464,6 +1516,179 @@ def test_move_x_cruise_zero_without_configured_default_is_range_error(wa):
 
 
 # ---------------------------------------------------------------------------
+# SUC-003: MOVE_X's `cruise == 0` sentinel, in SHAPED mode
+# (aDecelMmS2_ > 0), resolves through MotionEngine::
+# defaultCruiseForDistance() -- v_default(D) = min(vMaxMmS_,
+# sqrt(2*aDecelMmS2_*brakeFrac_*D)) -- using this call's OWN `distance`
+# argument as D, instead of the flat engineDefaultCruiseMmS(). aAccelMmS2_
+# is deliberately left at 0.0 (legacy) throughout this section, so the
+# move's first-tick ramp scale stays the same 0.25 floor
+# _expected_move_x_duty_pair() already bakes in -- only the resolved
+# CRUISE value under test changes, not the ramp math.
+# ---------------------------------------------------------------------------
+
+
+_SHAPED_FULL_DUTY_VELOCITY = 5000.0  # [counts/s] -- same rationale as
+                                      # _WHEELS_X_FULL_DUTY_VELOCITY:
+                                      # large enough that the higher
+                                      # resolved cruises this section's
+                                      # own aDecelMmS2_/brakeFrac_ can
+                                      # produce still stay well under
+                                      # the maxDuty=100% rail at the
+                                      # move's 0.25 first-tick floor.
+
+
+def test_move_x_cruise_zero_shaped_mode_uses_distance_aware_default(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)  # must NOT be the value used below
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)  # far above anything this D reaches
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    distance = 200.0
+    resolved_cruise = math.sqrt(2.0 * 700.0 * 0.375 * distance)
+    assert resolved_cruise != pytest.approx(150.0)  # proves this ISN'T the flat default
+
+    wa.feed(f"MOVE_X {distance:.0f} 0 0 5000 #1\n".encode())
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        distance, 0.0, resolved_cruise, cpm, b, _SHAPED_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_move_x_cruise_zero_shaped_mode_reverse_distance_uses_magnitude(wa):
+    """A reverse move's `distance` arrives NEGATIVE on the wire -- the
+    resolver's own D must be this call's distance MAGNITUDE (the
+    braking formula is defined over a length), not the signed value,
+    which would otherwise clamp to 0 inside defaultCruiseForDistance()
+    and wrongly refuse every reverse default-speed move in shaped
+    mode."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    distance = -200.0
+    resolved_cruise = math.sqrt(2.0 * 700.0 * 0.375 * abs(distance))
+
+    wa.feed(f"MOVE_X {distance:.0f} 0 0 5000 #1\n".encode())
+    assert wa.take_sink() == _ack(1)  # NOT a range refusal
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        distance, 0.0, resolved_cruise, cpm, b, _SHAPED_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_move_x_cruise_zero_shaped_mode_pure_pivot_uses_wheel_travel_default(wa):
+    """A pure-pivot MOVE_X (distance == 0) has a REAL wheel-travel
+    distance even though the chassis itself does not translate: each
+    wheel moves |rotation_rad| * effectiveTrackWidth() / 2 mm. Every
+    pivot in a tour is exactly this call -- resolving D from |distance|
+    alone would always see D == 0 here and refuse every default-speed
+    pivot the moment shaped mode is on, breaking the first field run
+    that ever sets aDecelMmS2_ nonzero. D must come from
+    MotionEngine::dominantAxisTravelMm(), the same `dominant` quantity
+    startSegment() itself reduces to -- so this call succeeds, resolved
+    from the pivot's own wheel travel, not the flat default."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)  # must NOT be the value used below
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    rotation_mrad = 300
+    rotation_rad = rotation_mrad / 1000.0
+    wheel_travel = abs(rotation_rad) * b / 2.0
+    resolved_cruise = math.sqrt(2.0 * 700.0 * 0.375 * wheel_travel)
+    assert resolved_cruise != pytest.approx(150.0)
+
+    wa.feed(f"MOVE_X 0 {rotation_mrad} 0 5000 #1\n".encode())
+    assert wa.take_sink() == _ack(1)  # NOT a range refusal
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        0.0, rotation_rad, resolved_cruise, cpm, b, _SHAPED_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_move_x_cruise_zero_shaped_mode_both_zero_is_range_error(wa):
+    """The one genuinely degenerate case left after the pure-pivot fix
+    above: distance == 0 AND rotation == 0 -- no wheel travel on EITHER
+    axis, so D == 0 and the resolved default is refused (kRange), the
+    same way an explicit `cruise <= 0` already is -- never a
+    silently-accepted zero-speed command that reports success while
+    commanding nothing."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(150.0)  # would have succeeded in legacy mode
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"MOVE_X 0 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert not wa.engine_move_active()
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_move_x_cruise_zero_legacy_mode_unaffected_by_shaping_fields(wa):
+    """aDecelMmS2_ == 0.0 (the compiled-in legacy default, never set
+    here) means the flat engineDefaultCruiseMmS() is STILL what
+    resolves `cruise == 0` even if vMaxMmS_/brakeFrac_ are set to
+    values that would otherwise change v_default(D)'s own answer --
+    this ticket's own "not consulted at all" requirement for legacy
+    mode."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    wa.set_default_cruise(150.0)
+    wa.set_v_max_mm_s(50.0)     # would clip v_default(D) far below 150
+    wa.set_brake_frac(1.0)
+    # aDecelMmS2_ deliberately left at 0.0 -- legacy mode.
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    wa.feed(b"MOVE_X 200 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        200.0, 0.0, 150.0, cpm, b, 1000.0)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+# ---------------------------------------------------------------------------
 # WireAdapter's own GET/SET field-name table: addresses the same
 # Rig/Config fields the old ConfigField enum named, one field per SET
 # line (ticket 004's own acceptance criterion).
@@ -1612,6 +1837,25 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "rotational_slip": 0.952,
     "stall_clear": 0.0,
     "pivot_overrun": 2.2,   # vevov's measured value (motion_engine.h)
+    # sprint 025 ticket 003: constant-a shaping plus the five
+    # pre-existing end-of-move shaping knobs (ordinals 19-27). Values
+    # chosen inside each field's own documented/validated range
+    # (motion_engine.h) -- none is the field's shipped default, so a
+    # round trip that silently no-ops (validation rejecting the SET)
+    # would show up as a mismatch against the field's real default
+    # instead of passing by coincidence.
+    "accel": 500.0,
+    "decel": 700.0,
+    "v_max": 300.0,
+    "brake_frac": 0.4,
+    "dist_taper": 350.0,
+    "yaw_taper": 160.0,
+    "dist_floor": 0.3,
+    "turn_floor": 0.15,
+    "ramp_ms": 300.0,
+    "jerk": 4000.0,
+    "plateau_min_s": 0.15,
+    "max_yaw_rate": 90.0,
 }
 
 
@@ -1967,6 +2211,67 @@ def test_go_to_r_speed_zero_without_configured_default_is_range_error(wa):
     assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
 
 
+def test_go_to_r_speed_zero_shaped_mode_uses_chord_distance(wa):
+    """SUC-003: GO_TO_R's `(x, y)` are already BODY-frame -- exactly the
+    chord goToR() itself drives, whether it takes the plain-arc branch
+    (this test's own choice of (x, y) stays well under the 50 deg
+    pivot-first split threshold) or the pivot-then-chord split -- so
+    hypot(x, y) is D with no approximation, unlike GO_TO_W below."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)  # must NOT be the value used below
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    x, y = 200.0, 50.0
+    chord = math.hypot(x, y)
+    resolved_speed = math.sqrt(2.0 * 700.0 * 0.375 * chord)
+    assert resolved_speed != pytest.approx(150.0)
+
+    wa.feed(b"GO_TO_R 200 50 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    theta, s = _go_to_r_theta_s(x, y)
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        s, theta, resolved_speed, cpm, b, _SHAPED_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_go_to_r_speed_zero_shaped_mode_same_position_is_range_error(wa):
+    """A target AT the current position ((0, 0), a legitimate no-op
+    goToR() itself would normally absorb via its own `arrive` gate)
+    resolves D == hypot(0, 0) == 0, hence v_default(0) == 0 -- refused
+    (kRange) at the WIRE layer, before goToR() ever runs and could
+    recognize the no-op. This is the same D == 0 outcome this ticket's
+    acceptance criteria call for, applied to GO_TO_R specifically; it
+    is a real, deliberately-accepted behavior difference from legacy
+    mode, where the identical call would have resolved to the flat
+    default and let goToR()'s own arrive gate no-op successfully."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)  # would have succeeded in legacy mode
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"GO_TO_R 0 0 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+    wa.step()
+
+    assert not wa.engine_move_active()
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
 # ---------------------------------------------------------------------------
 # GO_TO_W's real effect (sprint 003 ticket 012): the world-frame
 # counterpart -- read pose -> world-to-body -> go_to_r (motion-api.md
@@ -2121,6 +2426,97 @@ def test_go_to_w_speed_zero_without_configured_default_is_range_error(wa):
 
     assert wa.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
     assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
+
+
+def test_go_to_w_speed_zero_shaped_mode_identity_pose_uses_target_distance(wa):
+    """SUC-003, identity pose (0, 0, 0): the world-frame target IS the
+    body-frame chord here, so hypot(x, y) of GO_TO_W's own wire
+    arguments is exactly D, no approximation -- mirrors
+    test_go_to_w_identity_pose_matches_go_to_r's own "must match GO_TO_R
+    exactly" precedent, extended to the shaped-mode resolver."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)  # must NOT be the value used below
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    wa.set_pose(0.0, 0.0, 0.0)
+    x, y = 200.0, 50.0
+    resolved_speed = math.sqrt(2.0 * 700.0 * 0.375 * math.hypot(x, y))
+    assert resolved_speed != pytest.approx(150.0)
+
+    wa.feed(b"GO_TO_W 200 50 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    theta, s = _go_to_r_theta_s(x, y)
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        s, theta, resolved_speed, cpm, b, _SHAPED_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
+
+
+def test_go_to_w_speed_zero_shaped_mode_nonzero_pose_uses_true_chord(wa):
+    """FIXED defect: onGoToW()'s (x, y) are WORLD-frame absolute target
+    coordinates (unlike onGoToR()'s already-body-frame (x, y)), so the
+    resolver must NOT use hypot(x, y) of the target alone -- that would
+    be the target's distance from the WORLD ORIGIN, not this call's
+    actual travel distance, and would resolve an unbrakeable speed for
+    a short local hop whenever the robot sits far from the origin
+    (exactly this rig's own +-67/+-45 cm playfield frame). D must be
+    the TRUE chord from the robot's CURRENT pose to the target
+    (engineGoToWChordMm(), shims.cpp) -- proven here with a robot
+    sitting well away from the origin (500, 500) asked for a genuinely
+    SHORT 5 mm local hop: the resolved speed must come from that 5 mm
+    chord, not the ~707 mm distance-from-origin the old, broken
+    resolution would have used."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(_SHAPED_FULL_DUTY_VELOCITY)
+    wa.set_default_cruise(150.0)  # must NOT be the value used below
+    wa.set_a_decel_mm_s2(700.0)
+    wa.set_brake_frac(0.375)
+    wa.set_v_max_mm_s(1000.0)
+    assert wa.begin() == STATUS_OK
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    pose_x, pose_y, heading = 500.0, 500.0, 0.0
+    target_x, target_y = 505.0, 500.0
+    wa.set_pose(pose_x, pose_y, heading)
+
+    real_chord = math.hypot(target_x - pose_x, target_y - pose_y)
+    world_origin_distance = math.hypot(target_x, target_y)
+    assert real_chord == pytest.approx(5.0)
+    assert world_origin_distance > 700.0  # the WRONG distance, pre-fix
+
+    resolved_speed = math.sqrt(2.0 * 700.0 * 0.375 * real_chord)
+    wrong_speed_from_origin = math.sqrt(
+        2.0 * 700.0 * 0.375 * world_origin_distance)
+    # The corrected speed is small and sane for a 5 mm hop; the
+    # pre-fix speed would have been far larger -- this is the failure
+    # SUC-003 exists to prevent, now avoided.
+    assert resolved_speed < 60.0
+    assert resolved_speed < wrong_speed_from_origin
+
+    wa.feed(b"GO_TO_W 505 500 0 0 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.step()
+
+    body_x, body_y = _world_to_body(
+        target_x - pose_x, target_y - pose_y, heading)
+    theta, s = _go_to_r_theta_s(body_x, body_y)
+    expected_left, expected_right = _expected_move_x_duty_pair(
+        s, theta, resolved_speed, cpm, b, _SHAPED_FULL_DUTY_VELOCITY)
+    assert wa.motor_last_staged_duty(LEFT) == pytest.approx(
+        expected_left, rel=1e-4)
+    assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(
+        expected_right, rel=1e-4)
 
 
 def test_go_to_w_no_pose_source_is_unimplemented(wa):
@@ -2480,6 +2876,14 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"stall_window", b"lambda_enabled", b"crawl_pulse",
         b"default_cruise", b"rotational_slip", b"stall_clear",
         b"pivot_overrun",   # 2026-08-29 (OOP): ordinal 18, appended
+        # sprint 025 ticket 003: ordinals 19-27, appended in
+        # ConfigField declaration order.
+        b"accel", b"decel", b"v_max", b"brake_frac",
+        b"dist_taper", b"yaw_taper", b"dist_floor", b"turn_floor",
+        b"ramp_ms",
+        b"jerk",
+        b"plateau_min_s",
+        b"max_yaw_rate",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

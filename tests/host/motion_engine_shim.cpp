@@ -194,6 +194,78 @@ void meSetPivotOverrunMm(void* handle, float mm) {
   static_cast<Handle*>(handle)->engine.setPivotOverrunMm(mm);
 }
 
+// ---- MotionEngine: constant-a acceleration/deceleration shaping
+// (sprint 025 ticket 001) plus getters for the five pre-existing
+// end-of-move shaping fields (distTaper/yawTaper/distFloor/turnFloor/
+// rampMs, setters already exported below) -- see motion_engine.h's own
+// field comments for defaults/validation/units. ------------------------
+
+float meAAccelMmS2(void* handle) {
+  return static_cast<Handle*>(handle)->engine.aAccelMmS2();
+}
+void meSetAAccelMmS2(void* handle, float mmS2) {
+  static_cast<Handle*>(handle)->engine.setAAccelMmS2(mmS2);
+}
+float meADecelMmS2(void* handle) {
+  return static_cast<Handle*>(handle)->engine.aDecelMmS2();
+}
+void meSetADecelMmS2(void* handle, float mmS2) {
+  static_cast<Handle*>(handle)->engine.setADecelMmS2(mmS2);
+}
+
+void meSetJerkMmS3(void* handle, float mmS3) {
+  auto* h = static_cast<Handle*>(handle);
+  h->engine.setJerkMmS3(mmS3);
+}
+
+void meSetPlateauMinS(void* handle, float sec) {
+  auto* h = static_cast<Handle*>(handle);
+  h->engine.setPlateauMinS(sec);
+}
+
+void meSetMaxYawRateDegS(void* handle, float degS) {
+  auto* h = static_cast<Handle*>(handle);
+  h->engine.setMaxYawRateDegS(degS);
+}
+
+float mePlateauCruiseMmS(void* handle, float distanceMm) {
+  auto* h = static_cast<Handle*>(handle);
+  return h->engine.plateauCruiseMmS(distanceMm);
+}
+
+float meYawRateCapMmS(void* handle) {
+  auto* h = static_cast<Handle*>(handle);
+  return h->engine.yawRateCapMmS();
+}
+float meVMaxMmS(void* handle) {
+  return static_cast<Handle*>(handle)->engine.vMaxMmS();
+}
+void meSetVMaxMmS(void* handle, float mmS) {
+  static_cast<Handle*>(handle)->engine.setVMaxMmS(mmS);
+}
+float meBrakeFrac(void* handle) {
+  return static_cast<Handle*>(handle)->engine.brakeFrac();
+}
+void meSetBrakeFrac(void* handle, float frac) {
+  static_cast<Handle*>(handle)->engine.setBrakeFrac(frac);
+}
+
+// SUC-003: the distance-chosen default-cruise resolver itself --
+// MotionEngine::defaultCruiseForDistance(), reading whatever
+// aAccelMmS2_/vMaxMmS_/brakeFrac_ the four setters above last wrote.
+float meDefaultCruiseForDistance(void* handle, float distanceMm) {
+  return static_cast<Handle*>(handle)->engine.defaultCruiseForDistance(
+      distanceMm);
+}
+
+// SUC-003: the dominant-axis wheel-travel input helper -- a pure pivot
+// (distanceMm == 0) still resolves a nonzero D from rotationRad alone.
+float meDominantAxisTravelMm(void* handle, float distanceMm,
+                             float rotationRad) {
+  return static_cast<Handle*>(handle)->engine.dominantAxisTravelMm(
+      distanceMm, rotationRad);
+}
+
 // ---- MotionEngine: the two primitives (motion-api.md S3.1/S3.2) -------
 
 void meWheelsV(void* handle, float left, float right, uint32_t durationMs) {
@@ -341,17 +413,32 @@ uint32_t meWrongWayCount(void* handle) {
 void meSetDistTaper(void* handle, float counts) {
   static_cast<Handle*>(handle)->engine.setDistTaper(counts);
 }
+float meDistTaper(void* handle) {
+  return static_cast<Handle*>(handle)->engine.distTaper();
+}
 void meSetYawTaper(void* handle, float counts) {
   static_cast<Handle*>(handle)->engine.setYawTaper(counts);
+}
+float meYawTaper(void* handle) {
+  return static_cast<Handle*>(handle)->engine.yawTaper();
 }
 void meSetDistFloor(void* handle, float fraction) {
   static_cast<Handle*>(handle)->engine.setDistFloor(fraction);
 }
+float meDistFloor(void* handle) {
+  return static_cast<Handle*>(handle)->engine.distFloor();
+}
 void meSetTurnFloor(void* handle, float fraction) {
   static_cast<Handle*>(handle)->engine.setTurnFloor(fraction);
 }
+float meTurnFloor(void* handle) {
+  return static_cast<Handle*>(handle)->engine.turnFloor();
+}
 void meSetRampMs(void* handle, float ms) {
   static_cast<Handle*>(handle)->engine.setRampMs(ms);
+}
+float meRampMs(void* handle) {
+  return static_cast<Handle*>(handle)->engine.rampMs();
 }
 
 // Arms the NEXT tick()'s reported encoder position directly (bypassing

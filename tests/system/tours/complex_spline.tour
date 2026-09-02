@@ -1,0 +1,11 @@
+# The hand-drawn complex spline, imported from SVG and fitted to the field.
+# 473 cm, minimum turn radius 4.3 cm, with repeated left/right reversals --
+# the most demanding path in the suite.
+
+MARK spline_start
+SPLINE file=complex.path.json speed=120 lookahead=170 laps=1 tol=120 interval=0.4
+STOP dwell=1.0
+
+# Closure is asserted by the SPLINE step itself (start pose vs end
+# pose), which is the right check for a closed path joined anywhere
+# along its length. A CAMFIX on a fixed coordinate asserts staging.

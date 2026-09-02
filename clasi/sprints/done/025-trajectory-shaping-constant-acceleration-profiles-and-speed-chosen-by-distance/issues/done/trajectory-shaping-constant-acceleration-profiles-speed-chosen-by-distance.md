@@ -1,5 +1,12 @@
 ---
-status: pending
+status: done
+sprint: '025'
+tickets:
+- 025-001
+- 025-002
+- 025-003
+- 025-004
+- 025-005
 ---
 
 # Trajectory shaping: constant-acceleration profiles + speed chosen by distance
@@ -48,6 +55,29 @@ the square of speed (`a = v²/distTaper`), while the control loop stays at 24 ms
 
 This is not a tuning problem: the profile asks for a deceleration the robot
 cannot produce, and there is no `a_decel` term in the codebase to bound it.
+
+MEASURED 2026-09-01 **from the compiled engine itself**, no hardware — the
+repo's own host harness (`tests/host/motion_engine_shim.cpp` +
+`test_motion_engine_deadline_boundary.py`'s tick loop) driving the real
+`serviceMove()` over a 1000 mm leg, capture script
+`captures/motion-profile-probe-20260901/profile_probe.py`:
+
+| commanded cruise | peak | accel to peak | decel demanded | brake window | ticks spent decelerating |
+|---|---|---|---|---|---|
+| 100 mm/s | 100 | 184 mm/s² | 105 mm/s² | 25.6 mm | 26 |
+| 200 mm/s | 200 | 368 mm/s² | 516 mm/s² | 26.2 mm | 12 |
+| 300 mm/s | 300 | 551 mm/s² | 1 218 mm/s² | 23.1 mm | 7 |
+| 400 mm/s | 394 | 720 mm/s² | 2 449 mm/s² | 28.1 mm | **5** |
+| 600 mm/s | 394* | 924 mm/s² | 5 081 mm/s² | 17.1 mm | **2** |
+
+\* peak clamps at the harness duty rail, not a robot limit.
+
+Both defects are visible in one table: **accel rises linearly with cruise**
+(it is a time constant, not an acceleration), while the **brake window stays
+fixed** (~17–28 mm) so **demanded decel rises as v²** and the ramp-down
+collapses from 26 control ticks to 2. This reproduces the field symptom
+exactly, and it does so with no robot in the loop — which means the fix can be
+validated the same way before any hardware time is spent.
 
 Acceleration has the mirror-image defect — it is **time**-based, not
 acceleration-based (`motion_engine.cpp:402-408`, `rampMs_` = 400 ms rising from

@@ -59,6 +59,14 @@ void SerialTransport::writeLine(const uint8_t* buf, size_t len) {
   // itself failed (mirrors this file's own tryReadLine(), which already
   // treats a negative uBit.serial.read() result as an error/no-data
   // signal). Either call failing counts as one dropped line, not two.
+  // NOTE: SYNC_SLEEP YIELDS. Both sends below block the calling fiber on
+  // fiber_wait_for_event() once CODAL's 255-byte TX ring fills, which
+  // 240-byte lines at 20 Hz telemetry reach routinely. That makes these
+  // two calls yield points even though nothing here names fiber_sleep --
+  // searching for that symbol will not find them, and they must carry
+  // the same FPU-bank guard as an explicit sleep (see the
+  // yield-discipline invariant in this package's design notes for why a
+  // yield destroys the callee-saved FPU registers).
   bool ok = true;
   if (len > 0) {
     if (uBit.serial.send(const_cast<uint8_t*>(buf), static_cast<int>(len),

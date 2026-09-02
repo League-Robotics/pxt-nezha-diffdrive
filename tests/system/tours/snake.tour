@@ -1,0 +1,86 @@
+# The snake tour: a serpentine -- four half-circles of alternating
+# curvature, driven as arcs.
+#
+# THIS FILE WAS CALLED spline.tour AND WAS NOT A SPLINE. Renamed
+# 2026-09-01 at the stakeholder's direction. A spline is a fitted
+# curve followed with pure pursuit, which is what spline.tour now
+# actually does; this is a chain of circular arcs and the name should
+# say so.
+#
+# What it is still worth testing: repeated left/right curvature
+# reversal. The curvature flips sign at every join with no straight in
+# between to let the heading servo settle. circle.tour holds one
+# curvature, infinity.tour reverses it twice per lap, this reverses it
+# three times in a row -- and unlike spline.tour it does so at exactly
+# constant radius, so a tracking error here is the drivetrain rather
+# than the follower.
+#
+# SIZING (2026-09-01). r = 125 mm.
+#
+# THE ADVANCE AXIS IS PERPENDICULAR TO THE START HEADING. Starting at
+# the origin facing +x and turning CCW, the first half circle ends at
+# (0, +2r) facing -x: progress is SIDEWAYS. Four bends advance 8r along
+# y and swing +-r in x, so the figure spans **250 x 1000 mm**. Against
+# the working budget of +-550 x +-350 mm (tours/FIELD.md) it fits only
+# with the advance along the field's LONG axis, so **stage the robot
+# facing along the SHORT (N-S) axis**, at (0, -500) from the centre.
+#
+# r = 150 with four bends would advance 1200 mm and does not fit; five
+# bends at any useful radius does not either.
+#
+#   v = omega * r, with omega = 114.6 deg/s = 2.0 rad/s
+#   -> v = 2.0 * 125 = 250 mm/s.
+#
+# SEGMENT SIZE IS NOT FREE. moveX() splits any move with a nonzero
+# distance and |rotation| >= 50 deg (kTurnFirstAngleRad) into a pivot
+# THEN a straight. MEASURED gopiv 2026-09-01
+# (reports/tours-20260901/): circle.tour written as one 360 deg arc
+# drove a 942 mm STRAIGHT LINE. Every arc here is 45 deg, so a half
+# circle is four of them.
+
+# PIVOT TUNING (MEASURED gopiv 2026-09-01, interleaved A/B so battery
+# drift hits both arms equally). Pivot cruise 188 mm/s (omega 180 deg/s)
+# beats 300 mm/s (286 deg/s) decisively: excess +1.34 deg sd 0.35 versus
+# +6.88 deg sd 1.03, n=8 each. pivot_overrun was then swept AT 188 mm/s
+# and 0.68 -- the value the closure sweep found at 300 mm/s -- leaves
+# +1.44 deg on the table; 2.0 is the zero crossing (1.8 -> +0.29,
+# 2.2 -> -0.25). pivot_overrun is speed-dependent: retune it whenever
+# the pivot cruise changes.
+
+SET twist_hold_gain 8
+SET speed_floor 512
+SET yaw_taper 800
+SET pivot_overrun 2.0
+
+# --- bend 1: half circle, CCW ----------------------------------------
+MARK bend1
+REPEAT 4
+TWIST vx=250 omega=114.6 angle=45 timeout=6
+END
+
+# --- bend 2: half circle, CW -----------------------------------------
+MARK bend2
+REPEAT 4
+TWIST vx=250 omega=-114.6 angle=-45 timeout=6
+END
+
+# --- bend 3: half circle, CCW ----------------------------------------
+MARK bend3
+REPEAT 4
+TWIST vx=250 omega=114.6 angle=45 timeout=6
+END
+
+# --- bend 4: half circle, CW -----------------------------------------
+MARK bend4
+REPEAT 4
+TWIST vx=250 omega=-114.6 angle=-45 timeout=6
+END
+
+STOP dwell=0.5
+
+# NOTE ON CLOSURE. A serpentine is an OPEN path: it ends 1000 mm from
+# where it started, so the closure number run_tour.py prints is
+# meaningless here and should be ignored. What this tour scores is the
+# heading at the end -- four half circles alternating direction net to
+# ZERO net rotation, so a clean run finishes on the starting heading --
+# and the advance (ideal 8r) against the lateral swing (ideal 2r).

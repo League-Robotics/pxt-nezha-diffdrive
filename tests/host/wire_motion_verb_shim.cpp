@@ -325,6 +325,22 @@ void setKernelValue(int field, int value) {
     // setKernelValue() case 18 exactly -- a thin forward to the REAL
     // MotionEngine::setPivotOverrunMm(), which owns its validation.
     case 18: g_activeWaHandle->engine.setPivotOverrunMm(v); break;
+    // 19-27 (sprint 025 ticket 003): constant-a shaping plus the five
+    // pre-existing end-of-move shaping knobs, mirroring shims.cpp's
+    // real setKernelValue() cases 19-27 exactly -- thin forwards to the
+    // REAL MotionEngine setters, which own their own validation.
+    case 19: g_activeWaHandle->engine.setAAccelMmS2(v); break;
+    case 20: g_activeWaHandle->engine.setADecelMmS2(v); break;
+    case 21: g_activeWaHandle->engine.setVMaxMmS(v); break;
+    case 22: g_activeWaHandle->engine.setBrakeFrac(v); break;
+    case 23: g_activeWaHandle->engine.setDistTaper(v); break;
+    case 24: g_activeWaHandle->engine.setYawTaper(v); break;
+    case 25: g_activeWaHandle->engine.setDistFloor(v); break;
+    case 26: g_activeWaHandle->engine.setTurnFloor(v); break;
+    case 27: g_activeWaHandle->engine.setRampMs(v); break;
+    case 28: g_activeWaHandle->engine.setJerkMmS3(v); break;
+    case 29: g_activeWaHandle->engine.setPlateauMinS(v); break;
+    case 30: g_activeWaHandle->engine.setMaxYawRateDegS(v); break;
     default: break;
   }
 }
@@ -371,6 +387,21 @@ int getConfigValue(int field) {
     // 18: pivot_overrun's GET side, mirroring shims.cpp's real
     // getConfigValue() case 18 -- MotionEngine::pivotOverrunMm().
     case 18: v = g_activeWaHandle->engine.pivotOverrunMm(); break;
+    // 19-27 (sprint 025 ticket 003): GET side of the setKernelValue()
+    // forwards above, mirroring shims.cpp's real getConfigValue()
+    // cases 19-27 exactly.
+    case 19: v = g_activeWaHandle->engine.aAccelMmS2(); break;
+    case 20: v = g_activeWaHandle->engine.aDecelMmS2(); break;
+    case 21: v = g_activeWaHandle->engine.vMaxMmS(); break;
+    case 22: v = g_activeWaHandle->engine.brakeFrac(); break;
+    case 23: v = g_activeWaHandle->engine.distTaper(); break;
+    case 24: v = g_activeWaHandle->engine.yawTaper(); break;
+    case 25: v = g_activeWaHandle->engine.distFloor(); break;
+    case 26: v = g_activeWaHandle->engine.turnFloor(); break;
+    case 27: v = g_activeWaHandle->engine.rampMs(); break;
+    case 28: v = g_activeWaHandle->engine.jerkMmS3(); break;
+    case 29: v = g_activeWaHandle->engine.plateauMinS(); break;
+    case 30: v = g_activeWaHandle->engine.maxYawRateDegS(); break;
     default: break;
   }
   // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,
@@ -418,6 +449,32 @@ float engineDefaultCruiseMmS() {
   return g_activeWaHandle->defaultCruiseMmS;
 }
 
+// SUC-003: mirrors shims.cpp's real engineADecelMmS2()/
+// engineDefaultCruiseForDistanceMmS() exactly -- both are thin
+// forwards onto the SAME real `engine` member every other engineXxx()
+// function in this file already drives, so a test exercising the real
+// WireAdapter's distance-aware default-cruise resolution is exercising
+// the exact bridge production code uses.
+float engineADecelMmS2() {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  return g_activeWaHandle->engine.aDecelMmS2();
+}
+
+float engineDefaultCruiseForDistanceMmS(float distanceMm) {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  return g_activeWaHandle->engine.defaultCruiseForDistance(distanceMm);
+}
+
+// SUC-003: mirrors shims.cpp's real engineDominantAxisTravelMm() --
+// forwards onto the SAME real `engine`'s
+// MotionEngine::dominantAxisTravelMm(), so a pure-pivot MOVE_X test
+// through this double exercises the exact formula production uses.
+float engineDominantAxisTravelMm(float distanceMm, float rotationRad) {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  return g_activeWaHandle->engine.dominantAxisTravelMm(distanceMm,
+                                                        rotationRad);
+}
+
 // Mirrors shims.cpp's real engineMoveV()/engineGoToR()/engineGoToW()
 // exactly -- what WireAdapter::onMoveV()/onGoToR()/onGoToW()
 // (wire_adapter.cpp) forward-declares and calls.
@@ -444,6 +501,17 @@ bool engineGoToW(float x, float y, float speed, float arrive,
   g_activeWaHandle->engine.goToW(g_activeWaHandle->pose, x, y, speed, arrive,
                                  timeoutMs);
   return true;
+}
+
+// SUC-003: mirrors shims.cpp's real engineGoToWChordMm() -- the TRUE
+// chord from this handle's own FakePoseSource (`pose`, the SAME source
+// engineGoToW() above dispatches through) to (worldX, worldY), not
+// hypot(worldX, worldY) of the target alone.
+float engineGoToWChordMm(float worldX, float worldY) {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  const float dx = worldX - g_activeWaHandle->pose.x();
+  const float dy = worldY - g_activeWaHandle->pose.y();
+  return std::hypot(dx, dy);
 }
 
 // Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/R-23):
@@ -776,6 +844,23 @@ void waSetFullDutyVelocity(void* handle, float v) {
 // the "without configured default" refusal path.
 void waSetDefaultCruise(void* handle, float v) {
   static_cast<WaHandle*>(handle)->defaultCruiseMmS = v;
+}
+
+// SUC-003 test setup: direct forwards onto the real MotionEngine's own
+// validated setters (setADecelMmS2()/setVMaxMmS()/setBrakeFrac(),
+// motion_engine.h) -- lets a wire-level test switch this handle's
+// engine into shaped mode (aDecelMmS2_ > 0) and confirm the wire
+// layer's own onMoveX()/onGoToR()/onGoToW() branch onto the
+// distance-aware resolver while onWheelsX() stays on the flat
+// defaultCruiseMmS above.
+void waSetADecelMmS2(void* handle, float mmS2) {
+  static_cast<WaHandle*>(handle)->engine.setADecelMmS2(mmS2);
+}
+void waSetVMaxMmS(void* handle, float mmS) {
+  static_cast<WaHandle*>(handle)->engine.setVMaxMmS(mmS);
+}
+void waSetBrakeFrac(void* handle, float frac) {
+  static_cast<WaHandle*>(handle)->engine.setBrakeFrac(frac);
 }
 
 // ---- MotionEngine geometry readback (sprint 003 ticket 011): lets a

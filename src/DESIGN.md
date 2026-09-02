@@ -641,10 +641,38 @@ share one I2C bus. Every OTOS transaction must run on the same fiber
 that ticks the kernel; an OTOS read interposed in the encoder's
 select→read settle window destroys the encoder sample.
 
+**Yield discipline (system invariant).** The build enables the hardware
+FPU (`-mfpu=fpv4-sp-d16 -mfloat-abi=softfp`) and **CODAL's context
+switch does not save the FPU registers** — `swap_context` stores
+R0-R12/SP/LR and contains no VFP instructions. GCC allocates the
+callee-saved bank s16-s31 (= d8-d15) as ordinary spill space, *for
+pointers as well as floats*, so a fiber parked at a yield can have its
+locals replaced by another fiber's arithmetic. MEASURED gopiv
+2026-09-01: `Protocol::run()` parked `&radioTransport_` in s17, a tour
+fiber's PID overwrote it, and the protocol fiber dereferenced float
+-25.0f as `this` — precise bus error, board reset.
+
+Therefore **no code in this extension calls `fiber_sleep()` or
+`schedule()` directly**; every yield goes through the guarded wrappers,
+whose inline-asm clobber of d8-d15 forces the bank to be saved to the
+calling fiber's own stack around the switch. Because CODAL is
+non-preemptive, the set of yield points is finite and enumerable, which
+is what makes the guard sufficient rather than merely a mitigation — and
+because the save is per-frame it is also per-fiber, so a guarded fiber
+is safe regardless of what unguarded code does.
+
+The trap that a grep will not catch: a yield can hide inside a call that
+looks synchronous. `uBit.serial.send(..., SYNC_SLEEP)` blocks on
+`fiber_wait_for_event()` when the TX ring fills and is wrapped for that
+reason. `uBit.i2c`, `radio.datagram.send`, async serial read and
+`MessageBus::send` are audited and do not yield.
+
 **platform_ports.h.** One-line CODAL implementations of
 `Clock`/`Sleeper`/`FiberLauncher`
 (`system_timer_current_time_us`/`fiber_sleep`/`schedule`/
-`create_fiber`).
+`create_fiber`). `Sleeper` is the single choke point through which the
+vendored kernel's encoder settle sleeps yield, which is why guarding it
+covers `core/diffdrive.cpp` without editing it.
 
 ## 8. Protocol composition — `comms/protocol.h/.cpp` (`diffDrive::Protocol`)
 

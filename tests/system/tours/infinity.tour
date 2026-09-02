@@ -1,0 +1,69 @@
+# The infinity tour: a figure-8 -- two circles joined at a point on
+# their circumferences, driven as arcs, the second curving the other
+# way so the robot returns to the crossing point each lap.
+#
+# WHY ARCS. Each segment is ONE move carrying a body distance AND a
+# rotation, which the motion engine shapes end to end. Chopping the
+# circles into straight chords would put an accel ramp and an end taper
+# inside every chord, and the robot would stutter through a polygon
+# instead of driving a curve.
+#
+#   TWIST vx=<v> omega=<w> angle=<a>   is an arc of radius r = v / w
+#
+# SIZING (2026-09-01). r = 250 mm.
+#
+# THE LONG AXIS IS PERPENDICULAR TO THE START HEADING -- this is the
+# easy thing to get backwards and the reason the previous size did not
+# fit. Starting at the crossing point facing +x and curving CCW puts
+# lobe A's centre at (0, +r), so lobe A occupies y = 0..+2r; lobe B
+# then occupies y = 0..-2r. The figure spans **2r in x and 4r in y**:
+# 500 x 1000 mm here. Against the working budget of +-550 x +-350 mm
+# (tours/FIELD.md) it fits only with its long axis along the field's
+# LONG axis, so **stage the robot facing along the SHORT (N-S) axis**,
+# at the field centre.
+#
+# The previous r = 300 was sized as though the figure were 4r x 2r the
+# other way round and against the full field rather than the usable
+# part; it spanned the entire 1200 mm usable width with zero margin.
+#
+#   v = omega * r, with omega = 57.3 deg/s = 1.0 rad/s
+#   -> v = 1.0 * 250 = 250 mm/s.
+#
+# SEGMENT SIZE IS NOT FREE. moveX() splits any move with a nonzero
+# distance and |rotation| >= 50 deg (kTurnFirstAngleRad) into a pivot
+# THEN a straight -- so 90 deg arcs come out as a SQUARE, which is
+# exactly what the first run of this tour drew. Each arc stays at
+# 45 deg: 8 arcs per circle, still a handful of shaped moves rather
+# than dozens of chords.
+
+# PIVOT TUNING (MEASURED gopiv 2026-09-01, interleaved A/B so battery
+# drift hits both arms equally). Pivot cruise 188 mm/s (omega 180 deg/s)
+# beats 300 mm/s (286 deg/s) decisively: excess +1.34 deg sd 0.35 versus
+# +6.88 deg sd 1.03, n=8 each. pivot_overrun was then swept AT 188 mm/s
+# and 0.68 -- the value the closure sweep found at 300 mm/s -- leaves
+# +1.44 deg on the table; 2.0 is the zero crossing (1.8 -> +0.29,
+# 2.2 -> -0.25). pivot_overrun is speed-dependent: retune it whenever
+# the pivot cruise changes.
+
+SET twist_hold_gain 8
+SET speed_floor 512
+SET yaw_taper 800
+SET pivot_overrun 2.0
+
+# --- lobe A: one full circle, CCW (omega positive) -------------------
+REPEAT 8
+
+MARK lobeA
+TWIST vx=250 omega=57.3 angle=45 timeout=6
+
+END
+
+# --- lobe B: one full circle, CW (omega negative) --------------------
+REPEAT 8
+
+MARK lobeB
+TWIST vx=250 omega=-57.3 angle=-45 timeout=6
+
+END
+
+STOP dwell=0.5

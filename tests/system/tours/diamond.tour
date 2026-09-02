@@ -1,0 +1,64 @@
+# The diamond tour: a 450 mm square driven at 45 deg to the start
+# heading, so its legs run diagonally across the field rather than
+# along its axes.
+#
+# WHY IT EXISTS. square.tour used to LOOK like this on the chart, and
+# that was an artifact of plotting in the robot's inherited odometry
+# frame rather than anything the robot drove (see square.tour's own
+# header). Charts render in the start frame now, so square.tour draws a
+# square. This file is the figure that was being asked for: a diamond
+# ON PURPOSE, produced by a 45 deg entry pivot.
+#
+# It is not just square.tour rotated for looks. A square exercises the
+# drivetrain along one axis at a time; a diamond puts every leg at 45
+# deg to the field, which is the orientation a staging or geofence
+# error is most likely to show up in, and it is the harder figure to
+# fit -- the diagonal of the square becomes the bounding box.
+#
+# SIZING. A square of side S turned 45 deg spans S*sqrt2 in BOTH axes.
+# With the working budget of +-550 x +-350 mm (tours/FIELD.md), the
+# tight axis gives S*sqrt2 <= 700, so S <= 495. 450 mm sides span
+# 636 x 636 mm and leave ~32 mm on y. Stage the robot at the WEST
+# vertex -- the figure runs 0..900 mm in y and +-450 mm in x from the
+# start point -- so start at (0, -450) relative to the field centre.
+#
+# The entry pivot is NOT undone at the end: the tour closes on the
+# diamond, and the robot finishes on the 45 deg heading it started
+# driving on. A trailing -45 deg pivot would return the original
+# heading but would also add a fifth rotation to a figure whose whole
+# point is four.
+
+# PIVOT TUNING (MEASURED gopiv 2026-09-01, interleaved A/B so battery
+# drift hits both arms equally). Pivot cruise 188 mm/s (omega 180 deg/s)
+# beats 300 mm/s (286 deg/s) decisively: excess +1.34 deg sd 0.35 versus
+# +6.88 deg sd 1.03, n=8 each. pivot_overrun was then swept AT 188 mm/s
+# and 0.68 -- the value the closure sweep found at 300 mm/s -- leaves
+# +1.44 deg on the table; 2.0 is the zero crossing (1.8 -> +0.29,
+# 2.2 -> -0.25). pivot_overrun is speed-dependent: retune it whenever
+# the pivot cruise changes.
+
+SET twist_hold_gain 8
+SET speed_floor 512
+SET yaw_taper 800
+SET pivot_overrun 2.0
+
+# --- enter the diamond: turn 45 deg off the start heading ------------
+MARK entry
+TWIST omega=180 angle=45 timeout=6
+
+MARK leg1
+TWIST vx=250 dist=450 timeout=8
+TWIST omega=180 angle=90 timeout=6
+
+MARK leg2
+TWIST vx=250 dist=450 timeout=8
+TWIST omega=180 angle=90 timeout=6
+
+MARK leg3
+TWIST vx=250 dist=450 timeout=8
+TWIST omega=180 angle=90 timeout=6
+
+MARK leg4
+TWIST vx=250 dist=450 timeout=8
+TWIST omega=180 angle=90 timeout=6
+STOP dwell=0.5
