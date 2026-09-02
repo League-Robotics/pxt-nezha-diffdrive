@@ -83,14 +83,18 @@ unrelated regression from 001/002.
       with the code it pinned, not left vacuously passing.
 - [x] `test_run_abort_source_pin.py` is rewritten: the pin moves from
       "an abort handler exists" to "abort bypasses the queue."
-- [ ] `tests/system/run_tour.py` (the host-driven `.tour` suite) passes
-      unchanged. **UNVERIFIED — team-lead-approved substitution, not a
-      shortcut.** tigez was bench-tethered off the playfield this
-      session (motion safety instruction: in-place pivots only); this
-      file drives a real translating `.tour` figure, which the session
-      was explicitly told not to run. Substituted with the in-place
-      pivot battery in the Hardware acceptance row below. Needs a bench
-      stand (wheels confirmed off the ground) or the playfield to close.
+- [x] `tests/system/run_tour.py` (the host-driven `.tour` suite) passes
+      unchanged. **MEASURED gopiv 2026-09-02**, bare-motor bench rig
+      (wheels off the ground, so a full translating tour is safe there
+      — see `.claude/rules/robot-ownership.md`):
+      `uv run --with matplotlib python tests/system/run_tour.py
+      tests/system/tours/square.tour --host 192.168.1.150 --port 43181
+      --robot gopiv` completed all 17 steps cleanly and produced a
+      chart (`captures/gopiv-acceptance-028-20260902/run_tour_square/
+      square.png`, `.../square.json`). Supersedes the tigez in-place-
+      pivot substitution below, which stays in the record as
+      corroborating (not superseding) evidence for the other Hardware
+      acceptance items.
 - [x] `device_stack_size` — currently 4096 per sprint 026's own open
       question about whether this is enough headroom for the
       executor's new call depth (service hook + `runAction0` + a
@@ -109,36 +113,51 @@ unrelated regression from 001/002.
       Step D).
 - [x] Hardware acceptance (no host-test substitute exists for this
       ticket — `protocol.cpp`/`shims.cpp` include `pxt.h`):
-  - [x] Baseline (current/pre-ticket firmware): equivalent confirmation
-        run in place of `RUN:square:20` (in-place pivots only, see the
-        translating-tour item above) —
-        `captures/tigez-executor-20260902/baseline-pre-inversion-final-*.txt`.
-        No baseline reset observed in this session's runs (the earlier,
-        corrupted baseline attempts in the same capture directory traced
-        to a test-harness port-reuse bug, documented in `notes.md`, not
-        a firmware defect); the wire `MOVE_X` sent mid-job acked with no
-        `err` reply, consistent with the pre-fix architecture accepting/
-        racing it rather than refusing it.
-  - [x] Fixed firmware, in-place pivots substituted for `RUN:square:20`/
-        `run_tour.py` (see the translating-tour item above, UNVERIFIED
-        for those two specifically): a wire `MOVE_X` sent mid-job is
-        observably refused (`err 10` / `ERR_BUSY`), not silently
-        overwritten; `RUN:abort` sent mid-job stops it immediately
-        (~40 ms); 12 back-to-back jobs run with zero faults; telemetry
-        (49 frames) keeps flowing live through a dispatched job's whole
-        run, confirming the link does not hang.
-        `captures/tigez-executor-20260902/fixed-executor-inversion-*.txt`,
-        `fixed-abort-timing-*.txt`, `fixed-tlm-during-job-*.txt`.
+  - [x] Baseline (current/pre-ticket firmware): **MEASURED gopiv
+        2026-09-02**, old firmware `ver 0.20260901.1`, full
+        `RUN:square:20` tours (gopiv's bare-motor bench rig makes a
+        real translating tour safe, unlike tigez's bench-tethered
+        session — no substitution needed here). No reset observed
+        across A.1/A.2/A.3. A wire `MOVE_X` sent mid-tour acked with
+        no `err` (`ack 1 1 stop`), consistent with the pre-fix
+        architecture accepting/racing it rather than refusing it — the
+        same qualitative result tigez's own baseline found. `RUN:abort`
+        sent mid-tour did NOT produce a near-instant stop: `STATUS`
+        stayed `active=1`/`reason=timeout` for several seconds past the
+        abort before eventually settling — additional, gopiv-specific
+        evidence that "abort works by accident" on the old architecture
+        (unreliable/slow, not just eventually-correct).
+        `captures/gopiv-acceptance-028-20260902/step_a_transcript.txt`,
+        `.../step_a3_retry_transcript.txt`. tigez's own baseline
+        (`captures/tigez-executor-20260902/baseline-pre-inversion-
+        final-*.txt`) stays in the record as corroborating evidence.
+  - [x] Fixed firmware: **MEASURED gopiv 2026-09-02**, `ver
+        0.20260902.2`, full `RUN:square:20` tours (not substituted with
+        pivots — see above): a wire `MOVE_X` sent mid-tour is
+        observably refused (`ack 1 0 none` immediately followed by
+        `err 10 #1`), tour undisturbed; `RUN:abort` sent 0.305s into a
+        `RUN:pivot:90` cuts `PIVOT:end` from a 1.290s reference down to
+        0.343s (~40 ms after the abort landed) — matching tigez's own
+        0.3s->0.343s measurement almost exactly; 12 back-to-back
+        `RUN:pivot` jobs ran with zero faults, `i2cf`/`cyc` sane,
+        `ready=1 connL=1 connR=1` throughout; `TLM POSE` kept flowing
+        (53 frames) through a dispatched `RUN:pivot:90` job.
+        `captures/gopiv-acceptance-028-20260902/step_c_transcript.txt`.
+        tigez's own fixed-firmware pivot battery
+        (`captures/tigez-executor-20260902/fixed-executor-inversion-*.txt`,
+        `fixed-abort-timing-*.txt`, `fixed-tlm-during-job-*.txt`) stays
+        in the record as corroborating evidence.
   - [ ] Whether the radio-traffic wedge and tigez wedge issues (see
         sprint 026's Open Question 1 — largely resolved by sprint 027,
         confirm still true here) hold clean under this restructuring
-        too. **UNVERIFIED over radio specifically** — this session
-        tested USB/serial only (bench-tethered, no relay in this
-        session); the serial-side equivalent (TLM subscribed +
-        concurrent RUN job, `fixed-tlm-during-job-*.txt`) is clean, and
-        `EmitQueue` serializes both transports identically so there is
-        no new radio-specific code path in this ticket's diff, but a
-        literal radio-traffic-during-motion retest was not run.
+        too. **Still UNVERIFIED over radio specifically** — this gopiv
+        session also tested the farm's TCP serial daemon transport
+        only (lossless, wired), not the zavaz/torture radio relay; the
+        optional PING-hammer-during-MOVE_X check was not attempted this
+        session (time). `EmitQueue` serializes both transports
+        identically so there is no new radio-specific code path in
+        this ticket's diff, but a literal radio-traffic-during-motion
+        retest was not run on either board.
   - [x] A disassembly census (per sprint 026 ticket 001's own
         precedent) is NOT required again here — that was ticket 001's
         acceptance criterion for the VFP guard itself, not this

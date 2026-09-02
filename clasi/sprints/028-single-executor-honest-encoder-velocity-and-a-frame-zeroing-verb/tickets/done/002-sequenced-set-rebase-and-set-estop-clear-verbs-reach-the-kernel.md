@@ -152,22 +152,64 @@ ticket rather than silently dropping it.
       rotation needed, verified on an OTOS-equipped chassis AND on
       tigez (no OTOS), against camera ground truth
       (`.claude/rules/playfield-testing.md`).
-      UNVERIFIED (field/camera halves): tigez was on this Mac's USB at
-      the bench, not the playfield, and no OTOS-equipped robot was
-      reachable this session (gopiv on farm node meili: SWD No-ACK;
-      tovez/vevov: not on USB or the farm). What WAS measured instead,
-      bench-only, no camera: `SET rebase 1` reliably zeroes x/y/h and
-      keeps them zero across the kernel's own deferred re-anchor, a
-      second pivot afterward resumes cleanly from the new zero, and a
-      busy `SET rebase 1` during an in-flight `MOVE_X` is refused (`err
-      10`) rather than corrupting the frame — see
-      `captures/tigez-rebase-20260902/notes.md` for the full transcript
-      and an honestly-flagged open question (a `flags=31` telemetry
-      reading that persisted from the first move onward without
-      blocking any later motion — not chased down, out of this
-      ticket's scope). The camera-truthed, axis-aligned-chart half of
-      this criterion needs a follow-up session with the playfield
-      camera and an OTOS-equipped robot on hand.
+      **MEASURED gopiv 2026-09-02** (fw `0.20260902.2`), superseding
+      the prior tigez-only bench note below for the ack/zero/busy-
+      refusal/estop_clear parts of this criterion, and surfacing a new,
+      cross-board-reproducing anomaly on the "resumes cleanly" part —
+      see `captures/gopiv-acceptance-028-20260902/notes.md`'s Step E
+      section and `captures/gopiv-acceptance-028-20260902/
+      step_e_transcript.txt` for the full transcript:
+      - `TLM POSE`, a pivot, `SET rebase 1` -> ack, no `err`; **all 11**
+        subsequent pose frames read `x=0 y=0 h=0`, no spurious jump on
+        the kernel's own deferred re-anchor tick. PASS.
+      - `SET estop_clear 1` on an idle robot (no prior `ESTOP`) -> ack,
+        no `err`. PASS.
+      - `SET rebase 1` sent immediately after (no gap) an in-flight
+        `MOVE_X 0 900 40 4000` -> `err 10` (busy refusal,
+        hardware-confirmed, matching tigez's own `err 10` result
+        exactly); the `MOVE_X` itself was undisturbed, reaching
+        `h`=5008 centideg against ~5160 commanded (900 mrad), a normal
+        result. PASS.
+      - **A move sent immediately after a SUCCESSFUL `SET rebase 1`
+        does NOT resume cleanly — it reproduces, at much larger
+        magnitude, the anomaly the tigez note below already flagged as
+        an open question and did not chase down.** `MOVE_X 0 -900 60
+        3000` sent right after a successful rebase acked normally
+        (`ack 4 2 stop`) but delivered only 11 centidegrees (0.11 deg)
+        of the ~5160 centidegrees (51.6 deg) commanded, then sat flat
+        (`vl=vr=0`) for 1.5s+ — essentially none of the commanded
+        rotation happened, yet the move reported itself complete. This
+        is the SAME class of shortfall the tigez note below called
+        "resumes cleanly" while separately flagging a much smaller
+        version of it as an unchased "open question" — now confirmed,
+        on a second independent board, to be a real, reproducing
+        defect rather than tigez-specific noise. **Reporting this
+        sub-criterion as FAILED, not passing** — the frame zeroes
+        correctly (the criterion's own main claim), but a move issued
+        right after does not deliver its commanded motion.
+      - The camera-truthed, axis-aligned-chart tour-with-rebase-at-
+        leg-1 half was not attempted this session (gopiv has no OTOS
+        and no camera was available; given the anomaly above, a chart
+        attempt would likely show a corrupted first leg regardless —
+        not worth running until the anomaly is understood). Still
+        UNVERIFIED for both the OTOS-equipped-chassis and
+        camera-truthed halves.
+
+      Prior tigez-only note (2026-09-02, before this gopiv re-run):
+      UNVERIFIED (field/camera halves) — tigez was on this Mac's USB
+      at the bench, not the playfield, and no OTOS-equipped robot was
+      reachable that session (gopiv on farm node meili: SWD No-ACK;
+      tovez/vevov: not on USB or the farm). What was measured instead,
+      bench-only, no camera: `SET rebase 1` reliably zeroed x/y/h and
+      kept them zero across the kernel's own deferred re-anchor, a
+      busy `SET rebase 1` during an in-flight `MOVE_X` was refused
+      (`err 10`) rather than corrupting the frame, and a second pivot
+      afterward was described as "resuming cleanly" even though the
+      same note's own open-question section recorded a much-smaller-
+      than-commanded rotation on that second pivot without chasing it
+      down — see `captures/tigez-rebase-20260902/notes.md`. That
+      shortfall is the same one confirmed above, at larger magnitude,
+      on gopiv.
 
 ## Implementation Plan
 

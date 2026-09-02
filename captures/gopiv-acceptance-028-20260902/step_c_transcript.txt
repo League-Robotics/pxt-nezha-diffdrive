@@ -1,0 +1,46 @@
+=== Step C executor inversion, 2026-09-02 15:47:42 ===
+VER -> ver 0.20260902.2
+HELLO -> device NEZHA2 robot gopiv 2175407711
+
+--- C.1: RUN:square:20, wire MOVE_X mid-tour ---
+C.1 pre: confirmed idle -> status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+MOVE_X mid-tour reply -> ack 1 0 none  (t=1.037s)
+  RX t=0.793s  DBG:tour=square:side=20
+  RX t=1.033s  ack 1 0 none
+  RX t=1.033s  err 10 #1
+C.1 post: confirmed idle -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=22 cyc=509 tlm=off next=2 done=0 reason=none
+C.1 unsolicited boot banner: None
+C.1 mid-tour MOVE_X refused with err: False  (reply=ack 1 0 none)
+
+--- C.2: RUN:abort timing ---
+C.2 pre: confirmed idle -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=22 cyc=509 tlm=off next=2 done=0 reason=none
+reference RUN:pivot:90 (no abort): PIVOT:end at t=1.290s
+C.2 mid pre: confirmed idle -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=23 cyc=562 tlm=off next=2 done=0 reason=none
+RUN:pivot:90 + RUN:abort at t=0.305s: PIVOT:end at t=0.343s
+abort cut the pivot short by 0.947s (reference 1.290s vs aborted 0.343s)
+C.2 post: TIMED OUT waiting for idle, last -> status ready=1 active=1 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=23 cyc=575 tlm=off next=2 done=0 reason=none
+
+--- C.3: back-to-back RUN pivot jobs ---
+  job 0: RUN:pivot:30 -> PIVOT:end seen
+  job 1: RUN:pivot:-30 -> PIVOT:end seen
+  job 2: RUN:pivot:30 -> PIVOT:end seen
+  job 3: RUN:pivot:-30 -> PIVOT:end seen
+  job 4: RUN:pivot:30 -> PIVOT:end seen
+  job 5: RUN:pivot:-30 -> PIVOT:end seen
+  job 6: RUN:pivot:30 -> PIVOT:end seen
+  job 7: RUN:pivot:-30 -> PIVOT:end seen
+  job 8: RUN:pivot:30 -> PIVOT:end seen
+  job 9: RUN:pivot:-30 -> PIVOT:end seen
+  job 10: RUN:pivot:30 -> PIVOT:end seen
+  job 11: RUN:pivot:-30 -> PIVOT:end seen
+C.3 STATUS after 12 jobs -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=23 cyc=587 tlm=off next=2 done=0 reason=none
+C.3 faults=[]  i2cf=23  cyc=587  ready=1  connL=1  connR=1
+
+--- C.4: TLM POSE during a dispatched RUN job ---
+C.4 pre: confirmed idle -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=23 cyc=587 tlm=off next=2 done=0 reason=none
+TLM POSE subscribe -> ack 2 0 none
+  RX t=0.053s  PIVOT:end
+C.4 telemetry frames observed during job: 53
+C.4 post: TIMED OUT waiting for idle, last -> status ready=1 active=1 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=23 cyc=588 tlm=off next=4 done=0 reason=none
+
+=== Step C complete ===

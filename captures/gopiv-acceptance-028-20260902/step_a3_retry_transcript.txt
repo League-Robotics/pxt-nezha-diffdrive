@@ -1,0 +1,9 @@
+=== A.3 retest, 2026-09-02 15:44:15 ===
+poll -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=117 cyc=3194 tlm=off next=2 done=1 reason=timeout
+poll -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=117 cyc=3194 tlm=off next=2 done=1 reason=timeout
+Confirmed idle: status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=117 cyc=3194 tlm=off next=2 done=1 reason=timeout
+RUN:abort sent at t=1.003s
+  RX t=0.017s  DBG:tour=square:side=20
+STATUS after -> status ready=1 active=1 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=130 cyc=3537 tlm=off next=2 done=1 reason=timeout
+unsolicited boot banner: None
+=== A.3 retest complete ===

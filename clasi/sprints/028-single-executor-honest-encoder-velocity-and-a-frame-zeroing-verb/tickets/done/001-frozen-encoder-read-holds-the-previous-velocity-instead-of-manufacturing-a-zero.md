@@ -98,25 +98,69 @@ stamp on this one additional case.
       (MEASURED citation required, naming the fresh capture file) and
       confirm no speed excursion in the 1-2 ticks following an `i2cf`
       increment, across the tour shapes the original capture used.
-      **BLOCKED, not attempted-and-passed.** Build succeeded
+      **MEASURED gopiv 2026-09-02, FAILED — not a pass.** The earlier
+      BLOCKED attempt (below, superseded) is resolved: gopiv flashed
+      cleanly this session (`ver 0.20260902.2`, second attempt after a
+      first flash left the board briefly blank — see
+      `captures/gopiv-acceptance-028-20260902/notes.md`'s Step B). The
+      adapted tour
+      (`captures/gopiv-acceptance-028-20260902/step_d_frozen_encoder.py`,
+      same geometry/shaping as the original `tight_tour.py`) was run
+      for 6 reps total (1802 `TLM FULL` frames,
+      `step_d_test_frames.json` + `step_d_frames.json`) and scanned
+      for a frozen `posr`/`posl` read occurring while the wheel was
+      genuinely cruising (nonzero measured velocity two frames
+      earlier, excluding normal accel-ramp-from-rest which also shows
+      "position unchanged, duty nonzero" for benign reasons).
+      **5 genuine frozen-while-cruising events found across 6 reps,
+      all on side R, all with the SAME signature**: `i2cf` increments
+      at the frozen frame (confirming the stamp-withholding code path
+      ran), yet the wire-reported velocity
+      (`wheelSpeed()` -> `kernel.output().velocityRight` ->
+      `sampleRight_.velocity`, traced directly in
+      `src/core/diffdrive.cpp` — its only other assignment site is
+      `refreshSample()`'s own interval computation) reads **exactly
+      0**, not the held prior value the fix documents, and commanded
+      duty steps 14-25 percentage points toward the rail on that tick
+      or the next, with overshoot up to 446 mm/s against a ~290 mm/s
+      cruise. Directly compared against this ticket's own PRE-fix
+      citation (`captures/gopiv-profile-sweep-20260901/tour_tight.json`
+      frames 185-191, re-read this session: `posr` frozen, `i2cf`
+      38->40, `vr` 309->0, `dutr` 3300->4400, overshoot to 420 mm/s):
+      the post-fix pattern is the same shape and magnitude, if
+      anything slightly larger. Full analysis, methodology caveats
+      (telemetry cadence is ~1 frame per 3 kernel cycles here, so a
+      single frame cannot always be attributed to one specific tick
+      with certainty — noted as a real limitation of this measurement
+      method, not assumed away), and raw frame JSON:
+      `captures/gopiv-acceptance-028-20260902/notes.md`'s Step D
+      section. **This does not confirm the fix on real hardware — the
+      documented protective behavior (`sample.velocity` holds its
+      prior value when `sampleTime` fails to advance) does not match
+      what gopiv's telemetry shows in practice, on both the pre-fix
+      and post-fix builds.** Left unchecked per this session's own
+      instruction to stop and report a failure rather than paper over
+      it — needs `systematic-debugging` on either `refreshSample()`'s
+      interaction with wire-snapshot cadence, or a measurement method
+      with real per-tick resolution (this wire telemetry stream cannot
+      provide one; `TLM`'s `kBuffer` mode is explicitly unimplemented,
+      `src/comms/wire_adapter.cpp` `onTlm()`).
+
+      Superseded BLOCKED note from the prior session (2026-09-02,
+      before this hardware-acceptance re-run): build succeeded
       (`uv run python tools/make_deploy.py --robot gopiv`, clean
       compile). Five separate `mbdeploy deploy --remote gopiv`
-      attempts (~13:25-13:33 PDT 2026-09-02) all failed identically
-      with `SWD/JTAG communication failure (No ACK)` on both the
-      initial try and the automatic retry. The board is physically
-      present (`ssh jtl@192.168.1.150 'ls /dev/ttyACM*'` ->
-      `/dev/ttyACM0`; `lsusb` shows the CMSIS-DAP device enumerated)
-      and `mbdeploy connect --remote gopiv "HELLO"` times out against
-      whatever firmware is currently running — this ticket's build
-      never landed. The farm host's own `dmesg` shows concurrent
+      attempts (~13:25-13:33 PDT) all failed identically with
+      `SWD/JTAG communication failure (No ACK)` on both the initial
+      try and the automatic retry. The board was physically present
+      (`ssh jtl@192.168.1.150 'ls /dev/ttyACM*'` -> `/dev/ttyACM0`;
+      `lsusb` showed the CMSIS-DAP device enumerated) and `mbdeploy
+      connect --remote gopiv "HELLO"` timed out against whatever
+      firmware was running — that session's build never landed. The
+      farm host's own `dmesg` showed concurrent
       `dwc_otg_hcd_urb_dequeue` USB-transfer timeouts on the Pi's USB
-      host controller, a plausible root cause external to this
-      ticket's code. Full transcript:
-      `captures/gopiv-frozen-encoder-20260902/notes.md`. No MEASURED
-      claim is made about on-hardware behavior of this fix — retry
-      once the farm host's USB/probe connection to gopiv is recovered
-      (needs physical or `sudo` access to the meili Pi, neither
-      available to this session).
+      host controller. Full transcript:
+      `captures/gopiv-frozen-encoder-20260902/notes.md`.
 
 ## Implementation Plan
 
