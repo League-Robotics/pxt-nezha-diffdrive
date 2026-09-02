@@ -1,8 +1,12 @@
 ---
-status: pending
+status: done
 ---
 
 # Moves crawl, hunt and reverse instead of gliding to a stop
+
+**RESOLVED 2026-09-02.** Square-tour closure 52.3 -> 3.9 mm, diamond
+28.6 -> 2.2 mm, on vevov, same session, three repeats each. Full
+write-up and configuration: `reports/glide-to-a-stop-20260902.md`.
 
 ## Description
 

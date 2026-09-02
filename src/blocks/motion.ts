@@ -75,7 +75,8 @@ enum ConfigField {
     //% block="plateau min s"
     PlateauMinS = 29,
     //% block="max yaw rate"
-    MaxYawRate = 30
+    MaxYawRate = 30,
+    ProfileExit = 31
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"

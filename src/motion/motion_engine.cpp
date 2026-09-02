@@ -233,6 +233,27 @@ void MotionEngine::startSegment(float distance, float rotation,
   // taken off the target's magnitude, never scaled. Clamped at zero: a
   // rotation smaller than the overrun itself becomes no rotation rather
   // than one in the wrong direction.
+  // PROFILE-COMPLETION EXIT: aim past by exactly the distance the exit
+  // gives up. serviceMove() ends the move once the commanded speed
+  // decays to profileExitMmS_, which by the same kinematics the profile
+  // is built on leaves v_exit^2/(2*aDecel) still to travel -- a fixed,
+  // known shortfall, not an error. Extending each axis's target by it
+  // means the move still lands where it was asked to; without this the
+  // shortfall is charged to every single move, so a figure made of many
+  // moves accumulates it (MEASURED vevov 2026-09-02: a 4-leg square
+  // barely noticed, while an 8-arc circle lost 12 deg of rotation and a
+  // 16-arc figure-8's closure went 85.6 -> 128.9 mm).
+  if (profileExitMmS_ > 0.0f && aDecelMmS2_ > 0.0f) {
+    const float stopCounts =
+        (profileExitMmS_ * profileExitMmS_) / (2.0f * aDecelMmS2_) * cpm;
+    if (move_.distTarget != 0.0f) {
+      move_.distTarget += move_.distTarget > 0.0f ? stopCounts : -stopCounts;
+    }
+    if (move_.yawTarget != 0.0f) {
+      move_.yawTarget += move_.yawTarget > 0.0f ? stopCounts : -stopCounts;
+    }
+  }
+
   if (move_.yawTarget != 0.0f && pivotOverrunMm_ > 0.0f) {
     const float overrun = pivotOverrunMm_ * cpm;  // [counts]
     const float mag = std::fabs(move_.yawTarget) - overrun;
@@ -599,7 +620,20 @@ bool MotionEngine::serviceMove() {
       if (axisScale < scale) scale = axisScale;
     }
   }
-  if (scale < kTaperFloor) scale = kTaperFloor;
+  // The taper alone, before any floor or ramp min-combine: this is the
+  // profile's own opinion of how fast to be going, and it decays to
+  // zero at the target. The floor below is what stops it landing there.
+  const float taperScale = scale;
+
+  // PROFILE-COMPLETION EXIT (profileExitMmS_ > 0, shaped mode only).
+  // The floor exists to keep the command above stiction so a positional
+  // exit can still close its margin; when the move ends on the profile
+  // instead, that floor is exactly what prevents the glide. Bypass it
+  // and let the command decay. Legacy behaviour is untouched: with
+  // profileExitMmS_ == 0 this is the same single line it always was.
+  const bool profileExitArmed =
+      profileExitMmS_ > 0.0f && aDecelMmS2_ > 0.0f;
+  if (!profileExitArmed && scale < kTaperFloor) scale = kTaperFloor;
 
   // Acceleration ramp, min-combined with the end taper (a very short
   // move may go straight from ramp to taper without ever reaching
@@ -693,7 +727,26 @@ bool MotionEngine::serviceMove() {
   // completes). The kernel's lease backstop still covers an abandoned
   // move within 500 ms; the REAL timeout backstop is move_.deadline,
   // checked below, independent of this rolling lease.
-  if (!(distDone && yawDone)) {
+  // Has the profile run out? The dominant axis's commanded speed is the
+  // taper's own scale applied to that axis's full-rate command; once it
+  // falls to profileExitMmS_ the planned deceleration has landed and
+  // anything further is chasing an encoder-frame residual.
+  bool profileDone = false;
+  if (profileExitArmed) {
+    const float axisCountsPerS =
+        std::fabs(move_.velCmd) > std::fabs(move_.twistCmd)
+            ? std::fabs(move_.velCmd)
+            : std::fabs(move_.twistCmd);
+    const float cmdMmS = (taperScale * axisCountsPerS) / cpm;
+    profileDone = cmdMmS <= profileExitMmS_;
+  }
+
+  // One notion of "arrived", shared by the drive gate, the phase-1 ->
+  // phase-2 handoff and the terminator below -- they must never
+  // disagree about whether the move is over.
+  const bool reached = (distDone && yawDone) || profileDone;
+
+  if (!reached) {
     move_.cmdScale = scale;
     kernel_.drive(move_.velCmd * scale, move_.twistCmd * scale, 500u);
   }
@@ -706,7 +759,7 @@ bool MotionEngine::serviceMove() {
   // stall/wrong-way abort the WHOLE moveX() call instead of advancing --
   // a blocked or misbehaving pivot should not be followed by a straight
   // leg run blind.
-  if (distDone && yawDone && !expired && !out.stallHalted && !wrongWay &&
+  if (reached && !expired && !out.stallHalted && !wrongWay &&
       move_.hasPending) {
     // DifferentialDrive's twist-hold servo (diffdrive.cpp, vendored)
     // keeps an integrated reference of commanded differential and trims
@@ -755,7 +808,7 @@ bool MotionEngine::serviceMove() {
   // calling engine.endMove() BEFORE kernel.estop() -- an ordering this
   // class must not depend on, since kernel.emergencyStopMotors() latches
   // the e-stop as a side effect that bypasses that ordering entirely.
-  if ((distDone && yawDone) || expired || out.stallHalted || wrongWay ||
+  if (reached || expired || out.stallHalted || wrongWay ||
       out.estopped) {
     if (wrongWay) ++wrongWayCount_;
     kernel_.neutral();

@@ -139,6 +139,10 @@ def _bind(lib):
     lib.meSetBrakeFrac.restype = None
     lib.meSetDistTaper.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meSetDistTaper.restype = None
+    lib.meSetDistFloor.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetDistFloor.restype = None
+    lib.meSetProfileExitMmS.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetProfileExitMmS.restype = None
     lib.meSetYawTaper.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meSetYawTaper.restype = None
     lib.meSetTurnFloor.argtypes = [ctypes.c_void_p, ctypes.c_float]
@@ -232,6 +236,12 @@ class Engine:
 
     def set_dist_taper(self, v):
         self._lib.meSetDistTaper(self._handle, v)
+
+    def set_dist_floor(self, v):
+        self._lib.meSetDistFloor(self._handle, v)
+
+    def set_profile_exit_mm_s(self, v):
+        self._lib.meSetProfileExitMmS(self._handle, v)
 
     def set_yaw_taper(self, v):
         self._lib.meSetYawTaper(self._handle, v)
@@ -868,4 +878,75 @@ def test_legacy_mode_still_honours_yaw_taper(motion_lib):
         "legacy mode no longer responds to yawTaper_ -- a wider window must "
         f"brake earlier and so take longer: 200 -> {narrow} ticks, "
         f"3000 -> {wide} ticks"
+    )
+
+
+# ---- profile-completion exit -----------------------------------------
+
+
+def _straight(motion_lib, profile_exit, dist=600.0, cruise=250.0):
+    def configure(e):
+        e.set_a_accel_mm_s2(_A_DECEL_TEST)
+        e.set_a_decel_mm_s2(_A_DECEL_TEST)
+        e.set_v_max_mm_s(300.0)
+        e.set_dist_taper(_DIST_TAPER_TEST_COUNTS)
+        e.set_dist_floor(0.25)
+        e.set_profile_exit_mm_s(profile_exit)
+
+    return _run_move(motion_lib, dist, 0.0, cruise, configure=configure)
+
+
+def test_profile_exit_ends_the_move_without_the_floor_crawl(motion_lib):
+    """A move must be able to end when the PROFILE is done, not only when
+    the encoders close a position margin.
+
+    THE DEFECT THIS PINS. The velocity profile decays to zero at the
+    target, but the move only ends at `remain <= distMargin` (10 counts,
+    0.79 mm) -- so the taper floor holds the command up at 25% of cruise
+    to close that last fraction, and the robot arrives hot and hunts
+    instead of gliding. MEASURED vevov 2026-09-02: a pivot's commanded
+    duty RISES again after the wheels have slowed (-300/300, then
+    -900/500, then -1300/900) -- a hunt against the completion
+    condition, not a taper running out.
+
+    With `profileExitMmS_` armed the floor is bypassed and the move ends
+    once the dominant axis's commanded speed decays to it, so the final
+    commanded speed must be genuinely small -- not pinned at the floor.
+    """
+    floored = _straight(motion_lib, profile_exit=0.0)     # legacy exit
+    gliding = _straight(motion_lib, profile_exit=45.0)
+
+    assert floored.completed and gliding.completed
+
+    def final_speed(trace):
+        # rows are (t_ms, mean_speed_mm_s, mean_pos_mm); drop the final
+        # post-completion sample, as every analysis in this file does.
+        return abs(trace.rows[-2][1])
+
+    floor_speed = 0.25 * 250.0        # distFloor_ * cruise
+    assert final_speed(floored) > 0.5 * floor_speed, (
+        "legacy control arm no longer arrives at the floor -- this test's "
+        "premise has changed; re-derive it before trusting the assertion below"
+    )
+    assert final_speed(gliding) < final_speed(floored), (
+        f"profile exit did not slow the arrival: legacy ended at "
+        f"{final_speed(floored):.1f} mm/s, profile-exit at "
+        f"{final_speed(gliding):.1f} mm/s.\n\nWith profileExitMmS_ armed the "
+        "taper floor must be bypassed so the command actually decays; if the "
+        "floor still applies, the move arrives at 25% of cruise exactly as "
+        "before and there is no glide."
+    )
+
+
+def test_profile_exit_defaults_off_and_preserves_the_positional_exit(motion_lib):
+    """Negative control. `profileExitMmS_` defaults to 0, which must keep
+    the legacy positional exit and its floor exactly as they were --
+    every robot not setting it is still running that path, and a move
+    that ends early would silently shorten every leg."""
+    legacy = _straight(motion_lib, profile_exit=0.0)
+    assert legacy.completed
+    cpm_travel = legacy.rows[-2][2]
+    assert cpm_travel == pytest.approx(600.0, abs=3.0), (
+        f"legacy exit no longer lands the commanded distance: {cpm_travel:.1f} mm "
+        "of 600. The positional exit must be untouched when profileExitMmS_ is 0."
     )

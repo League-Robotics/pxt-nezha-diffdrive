@@ -1856,6 +1856,7 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "jerk": 4000.0,
     "plateau_min_s": 0.15,
     "max_yaw_rate": 90.0,
+    "profile_exit": 45.0,
 }
 
 
@@ -2884,6 +2885,7 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"jerk",
         b"plateau_min_s",
         b"max_yaw_rate",
+        b"profile_exit",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

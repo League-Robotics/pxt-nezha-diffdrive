@@ -466,6 +466,36 @@ class MotionEngine {
     if (degS > 0.0f) maxYawRateDegS_ = degS;
   }
 
+  // [mm/s] PROFILE-COMPLETION EXIT. A move normally ends only when the
+  // encoders land inside a fixed position margin -- 10 counts (0.79 mm)
+  // on the distance axis, 4 counts (0.16 deg) on a pure turn. The
+  // velocity profile is a separate thing: it decays toward zero at the
+  // target, and then the taper FLOOR (distFloor_/turnFloor_) holds the
+  // command up so the move can still close that last fraction of a
+  // millimetre. Those two halves are why a shaped move still arrives
+  // hot and then hunts -- the profile is overridden exactly where it
+  // was supposed to land.
+  //
+  // Set this above 0 (and aDecelMmS2_ > 0) to end the move when the
+  // PROFILE is done instead: the taper floor is bypassed so the command
+  // genuinely decays, and the move terminates once the dominant axis's
+  // commanded speed falls to this value. The residual position error is
+  // accepted rather than chased.
+  //
+  // Why accepting it is reasonable: that 0.79 mm is in ENCODER COUNTS,
+  // not in the world. Legs run 0.3-0.7% long, so a 600 mm leg is
+  // already 2-4 mm out however precisely the counts land -- the crawl
+  // buys precision in believed position only. A sensible value is just
+  // above the drivetrain's stiction speed, since below that the command
+  // cannot move the robot anyway and the move would otherwise stall out
+  // to its deadline.
+  //
+  // 0 (the default) keeps the legacy positional exit exactly as it was.
+  float profileExitMmS() const { return profileExitMmS_; }
+  void setProfileExitMmS(float mmS) {
+    if (mmS >= 0.0f) profileExitMmS_ = mmS;
+  }
+
   // [mm/s] Largest cruise whose trapezoid still holds a plateau of
   // plateauMinS_ seconds over `distanceMm`, solving
   //   (1/2)(1/aAccel + 1/aDecel) v^2 + T v - D = 0
@@ -768,6 +798,10 @@ class MotionEngine {
   // yaw-taper regression, which is precisely the behaviour that test
   // exists to protect. A caller opts in with SET max_yaw_rate 90.
   float maxYawRateDegS_ = 0.0f;
+
+  // [mm/s] see setProfileExitMmS(). 0 selects the legacy positional
+  // exit; paired with aDecelMmS2_ > 0 it selects profile completion.
+  float profileExitMmS_ = 0.0f;
 };
 
 }  // namespace diffDrive
