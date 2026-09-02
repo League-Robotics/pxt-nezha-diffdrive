@@ -114,20 +114,23 @@ because it works once and then does not.
 | zeguz | 25 / 19 | 3 / 10 | silent |
 | zetuv | 27 / 21 | 3 / 10 | silent |
 
-**fw 1.20260829.1 is UN-DRIVABLE OVER RADIO (opened 2026-08-30,
-critical).** Any v6 radio exchange concurrent with the motor kernel
-hard-wedges the board with the last motor command LATCHED — wheels
-spin until a pyOCD reset (`mbdeploy deploy` with the same hex is the
-fastest remote stop; STOP and the move timeout are enforced by the
-dead kernel and never fire). MEASURED tigez 2026-08-30, six wedges,
-`captures/tigez-cal-20260830/notes.md`: radio-silent USB moves 100%
-clean, radio-concurrent moves 100% fatal, ack truncated mid-write.
-v0.20260829.3 passes the same kill-test — regression is in
-`v0.20260829.3..master` (3 commits). See
-`clasi/issues/fw-1-20260829-1-wedges-on-radio-traffic-during-motion.md`.
-PING/ID over radio on an IDLE robot is safe — that is how the table
-above was verified without anyone noticing. tigez runs the
-v0.20260829.3 build (self-derived 55/114) until this is fixed.
+**The radio-traffic wedge on fw 1.20260829.1 is RESOLVED (opened
+2026-08-30, closed 2026-09-02).** That build hard-faulted (`CFSR 0x8200`,
+radio payload bytes landing on a live vtable pointer in
+`controlStep()`) whenever a v6 radio exchange overlapped the running
+motor kernel, and before b2305e8's fault handlers the wheels stayed
+latched until a pyOCD reset. Sprint 026's VFP yield guard is the fix.
+MEASURED tigez 2026-09-02, `captures/tigez-radio-retest-20260902/notes.md`:
+28 `MOVE_X` pivots over USB with `PING` hammered continuously over the
+torture relay (`!CG 55 114`), 14 on a VFP-guarded build without the
+sprint 027 emit queue and 14 on the sprint 027 HEAD build, plus 6
+radio-silent controls -- 0 resets, 0 wedges, ~150 pongs answered
+mid-move per build. Original evidence:
+`captures/tigez-cal-20260830/notes.md` (six wedges, ack truncated
+mid-write). The fault-handler safety net (motors stopped, then reset)
+remains in place. tigez now runs the sprint 027 build. PING/ID over
+radio on an IDLE robot was always safe -- that is how the table above
+was verified.
 
 **Use `!CG <channel> <group>` with explicit numbers on zeguz and zetuv.**
 On gopiv, tovez, vevav, vevov and tigez either `!N <name>` or `!CG`
