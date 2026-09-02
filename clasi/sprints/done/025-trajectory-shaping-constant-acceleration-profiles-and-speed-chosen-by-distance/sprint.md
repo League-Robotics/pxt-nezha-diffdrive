@@ -1,7 +1,7 @@
 ---
 id: '025'
 title: 'Trajectory shaping: constant-acceleration profiles and speed chosen by distance'
-status: executing
+status: done
 branch: sprint/025-trajectory-shaping-constant-acceleration-profiles-and-speed-chosen-by-distance
 use-cases:
 - SUC-001
