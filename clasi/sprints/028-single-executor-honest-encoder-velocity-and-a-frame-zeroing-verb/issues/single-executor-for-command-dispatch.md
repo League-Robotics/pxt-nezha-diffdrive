@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 028
+tickets:
+- 028-003
 ---
 
 # Single executor for command dispatch

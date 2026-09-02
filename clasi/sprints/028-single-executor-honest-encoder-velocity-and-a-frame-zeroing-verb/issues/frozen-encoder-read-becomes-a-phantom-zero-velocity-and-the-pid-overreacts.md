@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 028
+tickets:
+- 028-001
 ---
 
 # A frozen encoder read becomes a phantom zero velocity and the PID overreacts

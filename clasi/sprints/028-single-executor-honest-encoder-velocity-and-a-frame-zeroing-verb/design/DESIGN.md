@@ -372,7 +372,24 @@ latch's state). `stall_clear` is deliberately **not** a new top-level
 wire verb and is **not** folded into `clearEmergencyStop()`/`ESTOP`
 (§9) — the stall latch and the e-stop latch are semantically distinct
 fault classes, same principle sprint 006 established for
-`deliverStopNow()` deliberately not touching `estopLatch_`. STATUS
+`deliverStopNow()` deliberately not touching `estopLatch_`. **Sprint
+028**: `kFields` gains `rebase` (ordinal 32, backed by
+`kernel.rebasePosition()` plus, on an OTOS-equipped chassis, the
+platform-layer pose-seed path `seedPose()` already uses so both pose
+sources stay agreed at the zero point) and, riding in the same ticket,
+`estop_clear` (ordinal 33, backed by `kernel.estopClear()`) — both
+write-triggered actions wearing a config-field's clothes, the exact
+shape `stall_clear` established rather than a second new mechanism.
+Reaching `rebasePosition()` over the wire closes the gap where a
+radio-driven tour could not zero its own pose/heading frame at leg 1
+and had to carry a host-side rotation to read every chart; reaching
+`estopClear()` over the wire closes the parallel gap where clearing an
+e-stop had no sequenced path (`RUN:clearestop` is cleartext-only,
+unsequenced, and coexists unchanged). Both are refused (not silently
+ignored) while a motion obligation or RUN job is live, the same
+commandable-state gate other state-changing SET actions already check
+— zeroing the frame or clearing e-stop out from under an active move
+would corrupt in-flight position-error math. STATUS
 packs diag booleans into a local
 `flags` word and, since sprint 004 ticket 004, an honest `otos=`
 (`otosGet(7) != 0`, replacing a hardcoded `false` that predated any
@@ -561,6 +578,47 @@ discarded on zero so a stopped wheel cannot creep; min-write throttle
 rebaseline is a software offset (`rebaseline()`, offset-only, no bus
 traffic).
 
+**Sprint 028: frozen-read hold, not a fabricated zero velocity.**
+`collect()`'s existing I2C-failure branch already withholds a fresh
+`sampleTimeUs_` stamp when `readEncoderRaw()` returns `false`, which
+already makes the kernel's `refreshSample()` (§2) correctly hold the
+previous `sample.velocity` for that tick — that path was never the
+defect. The defect is the adjacent, previously-unflagged case: a
+*successful* read (`readEncoderRaw()` returns `true`) whose raw counts
+are byte-identical to the previous sample while the wheel is under
+active drive (`appliedDuty()` nonzero) — one documented cause is the
+"encoder wedge" two paragraphs below (an instant H-bridge flip latching
+the 0x46 readback), though the fix does not depend on diagnosing the
+cause. Before this sprint, that case fell into `collect()`'s success
+branch unconditionally, advancing `sampleTimeUs_` and letting
+`refreshSample()` compute `(pos - lastPos) / dt = 0` — a real
+zero, honestly derived from stale-but-successfully-acked data, that the
+velocity PID then chased as a genuine ~300 mm/s error (MEASURED gopiv
+2026-09-01, `captures/gopiv-profile-sweep-20260901/tour_tight.json`
+frames 185-191: `posr` frozen, `i2cf` unmoved on that specific tick,
+`vr` reported 0, duty stepped 3300→4500, wheel overshot to 420 mm/s).
+The fix adds one more condition to `collect()`'s success branch,
+reusing the wedge detector's existing "driven" signal
+(`appliedDuty()`) at a single-tick threshold rather than the
+multi-tick `kWedgeThreshold` the latched/suspect flags use: when raw
+counts are unchanged AND the wheel is driven, withhold the fresh
+`sampleTimeUs_` stamp exactly as the failure branch already does. This
+requires no change to `core/diffdrive.{h,cpp}` (the vendored kernel
+stays byte-identical, no cross-repo fidelity-suite resync needed) —
+`refreshSample()`'s existing `sampleTime != sample.sampleTime` gate
+does the holding for free once the port stops advancing the stamp on
+this specific case. A useful side effect: because `i2cFaultCount_`
+(§2) increments on precisely the same "`sampleTime` failed to advance"
+condition, the frozen-but-acked tick now counts toward `i2cf` too,
+where before it did not — the failure stays visible, per the issue's
+own explicit requirement, rather than being smoothed into
+indistinguishable "the wheel stopped" data. A wheel legitimately at
+rest is unaffected: rest is "undriven and unchanged," never "driven and
+unchanged," so a real stop still advances `sampleTimeUs_` every tick
+and correctly reads velocity 0, and does not newly tick `i2cf` on an
+idle bus (`i2c-fault-count-climbs-on-idle-bus` is a separate,
+already-tracked issue this fix does not touch either direction).
+
 **`EncoderGlitchArmor` (`encoder_glitch_armor.h`, sprint 006 — new
 host-portable module).** The raw-counts plausibility decision that used
 to live entirely inside `NezhaMotorPort::collect()` — implausible-jump
@@ -714,24 +772,78 @@ any path; §"Reliability layer" above); and while
 (the fiber is the tick source for wire-issued motion), else
 `fiber_sleep(5)`.
 
-**RUN bridge (legacy, deliberately preserved).** `RUN:<name>[:<arg>…]`
-parks the payload in a 4-slot ring (MessageBus events queue; a
-one-minute test handler must not have its text overwritten by the next
-burst) and raises event source 0x2001 with the slot as the value;
-`run.ts` reads it back via `runCommandText()` (sprint 012: this shim
-body itself lives in `sim.ts`, called cross-file — see §9) and
-dispatches by name on the handler's own fiber. 3 s same-text dedupe
-absorbs hosts repeating commands to survive the single-slot radio
-buffer (measured: one 3×-repeated RUN ran three consecutive pivots).
-**Sprint 008**: the literal event source `0x2001` above and `run.ts`'s
-own (sprint 012: formerly `main.ts`'s)
-`RUN_EVENT_SOURCE = 0x2001` are two independent hand-typed copies of
-the same MessageBus event id (WIRE-01-adjacent minor, R-21) — now
-pinned by a drift test that reads both source files as text and fails
-if they diverge, rather than single-sourced across the TS/C++ boundary
-(no shared-constant mechanism crosses that boundary today; a drift test
-is the same shape sprint 004/006/007 already use for cross-language
-pairs like this).
+**Sprint 028: one execution model, not three.** Before this sprint,
+wire motion ticked on this fiber (above) while `RUN:` motion ticked on
+a second, MessageBus-forked fiber holding its own `while
+(driveTick())` loop — the only place in the package where two fibers
+could do float work concurrently, which is what the VFP yield-hazard
+guard (sprint 026 ticket 001, `platform/vfp_guard.h`) exists to make
+safe rather than eliminate. This sprint removes the second fiber's
+motion role entirely, reusing sprint 026's own already-specified,
+until-now-deferred design verbatim in shape: this fiber gains a
+`motionOwner_` field (`kNone`/`kWire`/`kJob`) and, once a RUN command
+is dequeued (below), invokes the TS action dispatcher directly —
+`dispatchJob()` calls `runAction0()` on THIS fiber via a new
+`_registerRunDispatch(cb)` seam (`run.ts`/`shims.cpp`) that replaces
+the old `control.onEvent()` registration — rather than raising a
+MessageBus event for a second fiber to pick up. A running job's own
+tick loop still exists (its explicit `startMove()` + `driveTick()`
+shape, which `test/test.ts` calls deliberately, is unchanged) — only
+*which fiber* advances its iterations changes: a service hook fires
+after `stepBusy = false` and before this loop's own pacing sleep,
+letting the job's tick loop advance one iteration per pass of this
+same fiber, the same "invert the pump, don't move the tick" decision
+sprint 026's Design Rationale already reasoned through (arming the
+motion obligation from TypeScript was explicitly rejected there: it
+would put `tourWorld()`'s between-move OTOS reads inside the encoder
+select-to-read settle window, trading the FPU hazard for an I2C one).
+A wire motion request arriving while `motionOwner_ == kJob` is refused
+with an error code rather than silently overwriting the job's move;
+`RUN:abort`/`RUN:clearestop` bypass the queue and take effect
+immediately regardless of `motionOwner_`, preserving the
+already-working abort behavior (previously "by accident," per the
+issue, because the second fiber ran concurrently) as a deliberate fast
+path instead.
+
+Component diagram (target shape, reused from sprint 026's own
+Architecture section, drawn there before this collapse was
+implemented):
+
+```mermaid
+graph TD
+    Wire[Serial / Radio transport] --> Protocol
+    Protocol -->|drainEmitQueue, then serviceOnce: read/telemetry| Protocol
+    Protocol -->|enqueue on RUN: prefix| RunQueue[run_queue.h ring]
+    RunQueue -->|dropped counter| DiagValue[shims.cpp diagValue ordinal table]
+    Protocol -->|dispatchJob: dequeue + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
+    TSDispatch -->|student onRun handler| StudentCode[Student RUN handler]
+    Protocol -->|motionOwner_ arbitration| MotionOwner{wire vs job}
+    MotionOwner -->|tickDrive after stepBusy=false| Rig[shims.cpp Rig / DifferentialDrive kernel]
+    Protocol -->|every yield| VfpGuard[vfp_guard.h]
+    Rig -->|encoder settle sleeps, via CodalSleeper| VfpGuard
+    Rig -->|SET rebase / SET estop_clear| WireAdapter[wire_adapter.cpp SET handler]
+    WireAdapter -->|rebasePosition / estopClear| Kernel[core/diffdrive.cpp, byte-identical]
+    NezhaPort[platform/nezha_port.cpp collect] -->|held sampleTimeUs_ on frozen-but-acked read| Kernel
+```
+
+**RUN bridge.** `RUN:<name>[:<arg>…]` parks the payload in an 8-slot
+ring (sprint 026 ticket 002's `run_queue.h`, superseding the original
+4-slot MessageBus-events ring this paragraph used to describe — a real
+queue with occupancy and a saturating drop counter, diag ordinal 30,
+rather than a fixed cursor that could silently overwrite a still-live
+slot). **Sprint 028**: dequeuing no longer raises a MessageBus event at
+all — see the fiber-loop paragraph above for `dispatchJob()`'s direct
+call into `run.ts`'s dispatcher via `_registerRunDispatch()`. 3 s same-
+text dedupe (at arrival, not at handling, so it is immune to any
+queueing) still absorbs hosts repeating commands to survive the
+single-slot radio buffer (measured pre-028: one 3×-repeated RUN ran
+three consecutive pivots) — unchanged by this sprint. **Sprint 008's
+own note here is now historical**: the literal event source `0x2001`
+this paragraph used to describe, and `run.ts`'s matching
+`RUN_EVENT_SOURCE` constant, along with the drift test that pinned the
+two against each other (`test_wire_constants_drift.py`), are all
+deleted with the MessageBus event path itself — a meaningless pin is
+removed with the code it pinned, not left vacuously passing.
 
 **`emitLine()`** writes one caller-supplied line to **both**
 transports — test results must come back over radio because USB only
@@ -979,12 +1091,23 @@ a single `main.ts` into six cohesion-sized modules. Current structure:
   `turnFirstDeg`) and private `tickedMove()` runner (World group).
 - **`run.ts`** — the RUN command dispatcher: the no-initialiser state
   block (`runParts`/`runNames`/`runHandlers`/`runAnyHandlers`/
-  `runWired`), `ensureRunState()`, `RUN_EVENT_SOURCE`,
-  `wireRunDispatch()`, `onRun`/`onRunCommand` (Move group in the
-  toolbox, despite being dispatch machinery — the block `group=` and
-  the module boundary diverge here), and the block-hidden
-  `runArg`/`runArgText`/`runArgCount`. Fully
-  self-contained: nothing outside this file reads or writes its state.
+  `runWired`), `ensureRunState()`, `wireRunDispatch()`, `onRun`/
+  `onRunCommand` (Move group in the toolbox, despite being dispatch
+  machinery — the block `group=` and the module boundary diverge
+  here), and the block-hidden `runArg`/`runArgText`/`runArgCount`.
+  Fully self-contained: nothing outside this file reads or writes its
+  state. **Sprint 028**: `wireRunDispatch()` no longer registers via
+  `control.onEvent(RUN_EVENT_SOURCE, ...)` — `RUN_EVENT_SOURCE` and the
+  MessageBus event path it named are deleted (§8's RUN bridge
+  paragraph). It instead calls a new `_registerRunDispatch(cb)` shim
+  (`sim.ts`) once, at the same point it used to wire the MessageBus
+  handler, so `Protocol::dispatchJob()` (C++) can invoke the dequeued
+  command's matching handler directly, on the protocol fiber, via
+  `runAction0()`. The by-name lookup and dispatch logic inside the
+  registered callback (matching `runParts[0]` against
+  `runNames`/`runHandlers`/`runAnyHandlers`) is otherwise unchanged —
+  only *what triggers the callback* changes, from a MessageBus event
+  to a direct C++ call.
 - **`sim.ts`** — every `//% shim=`-annotated function's TypeScript
   body: the kinematic browser-simulator state (`simX`/`simY`/
   `simHeading`/`simVel`/`simYawRate`/…) and its per-tick integration

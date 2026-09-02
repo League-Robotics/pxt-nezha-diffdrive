@@ -128,16 +128,35 @@ v5 was replaced, though the bench tooling in `tools/` that used to
 parse `TLM:` has not yet been retrofit onto the new frame (sprint
 005).
 
-### Execution model (tick model, sprint 002)
+### Execution model (tick model, sprint 002; single executor, sprint 028)
 
 The kernel's own background fiber is deliberately unwired. Every
-control cycle runs on whichever fiber calls `tickDrive()` (a student's
-`driveTick()` loop, a blocking move, or the protocol fiber while a
-wire motion obligation is live), which self-paces to an absolute 24 ms
-deadline. Exactly two background fibers exist: the protocol loop and a
+control cycle runs on whichever fiber calls `tickDrive()`, which
+self-paces to an absolute 24 ms deadline. **Sprint 028** collapses what
+used to be three coexisting callers of that function into two
+deliberate ones: a student's own `driveTick()` loop (continuous-mode
+drive, ticked on the calling fiber, unchanged) and the protocol fiber
+— which now ticks both a live wire motion obligation *and* a
+dispatched RUN job's own tick loop, advanced one iteration per pass via
+a service hook, rather than RUN motion running on a second,
+MessageBus-forked fiber as it did through sprint 027. This closes the
+one place in the package where two fibers could do float work
+concurrently — the FPU yield-hazard the VFP guard (sprint 026) makes
+safe rather than eliminates — and makes the I2C bus-discipline
+invariant (below) structural: exactly one fiber ever ticks the kernel
+for engine-facing motion, so nothing can land OTOS traffic inside an
+encoder settle window by forgetting a convention three call sites used
+to have to remember independently. A `motionOwner_` field on the
+protocol fiber arbitrates a wire request arriving while a RUN job holds
+the drivetrain (refused, not silently overwritten); `RUN:abort`/
+`RUN:clearestop` bypass the queue and act immediately regardless.
+Exactly two background fibers exist: the protocol loop and a
 starvation watchdog that port-level-stops the motors ~100–150 ms after
 the last tick if something still looks like it is driving. "The robot
-only moves while something ticks" is a system invariant.
+only moves while something ticks" is a system invariant, unchanged by
+this collapse. See `src/DESIGN.md` §8 for the full mechanism
+(`dispatchJob()`, `_registerRunDispatch()`, the component diagram) and
+sprint 028's own record for the design rationale.
 
 ### Sensor doctrine
 

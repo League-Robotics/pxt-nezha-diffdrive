@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: 028
+tickets:
+- 028-002
 ---
 
 # No wire verb reaches rebasePosition(), so a tour cannot zero its own frame
