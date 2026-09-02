@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: 'Single serial/radio producer: Protocol-owned emit queue'
-status: open
+status: done
 use-cases:
 - SUC-001
 depends-on: []
@@ -71,25 +71,25 @@ section).
 
 ## Acceptance Criteria
 
-- [ ] `src/comms/emit_queue.h` — header-only, `<cstdint>`/`<cstring>`
+- [x] `src/comms/emit_queue.h` — header-only, `<cstdint>`/`<cstring>`
       (or equivalent) only, no `pxt.h`, no CODAL types — a ring
       holding NUL-terminated line text (not a MessageBus slot index),
       with FIFO enqueue/drain and a saturating `dropped` counter that
       increments (never wraps) when `enqueue()` is called on a full
       ring.
-- [ ] `Protocol::emitLine()` (`src/comms/protocol.cpp`) clips to
+- [x] `Protocol::emitLine()` (`src/comms/protocol.cpp`) clips to
       `RadioTransport::kMaxPayloadBytes` (unchanged clip logic) and
       then only calls `emitQueue_.enqueue(...)` — it no longer calls
       `transport_.writeLine()` or `radioTransport_.sendLine()`
       directly.
-- [ ] The old `emitLine()` body (serial write + radio mirror with its
+- [x] The old `emitLine()` body (serial write + radio mirror with its
       existing retry-once policy) is preserved verbatim as a new
       private `emitLineNow(const char* text, size_t len)`.
-- [ ] A new private `drainEmitQueue()` calls `emitLineNow()` for every
+- [x] A new private `drainEmitQueue()` calls `emitLineNow()` for every
       currently-queued line, in FIFO order, and is called once at the
       top of `Protocol::run()`'s fiber loop, before the serial/radio RX
       polling that follows it.
-- [ ] A disassembly or source-level call-site census confirms exactly
+- [x] A disassembly or source-level call-site census confirms exactly
       one call site reaches `SerialTransport::writeLine()`'s underlying
       `uBit.serial.send` for the emit path (`emitLineNow()`, called
       only from `drainEmitQueue()`, called only from `Protocol::run()`)
@@ -97,27 +97,27 @@ section).
       for the same path — i.e. `emitLine()`'s own caller (any
       non-protocol fiber) can no longer reach either transport
       directly.
-- [ ] `shims.cpp`'s `diagValue()` switch gains ordinal 29, returning
+- [x] `shims.cpp`'s `diagValue()` switch gains ordinal 29, returning
       the new ring's `dropped()` count (confirm 28 is still the
       highest in use before assigning — do not silently collide with
       an unrelated concurrent change).
-- [ ] `src/blocks/sim.ts`'s existing doc comment above `emitLine()`
+- [x] `src/blocks/sim.ts`'s existing doc comment above `emitLine()`
       gains the `diffDrive.emitLine` vs `serial.writeLine`/
       `serial.writeString` sentence described above.
-- [ ] `uv run pytest` (full host suite) passes.
-- [ ] No new comment names a sprint, a ticket, an `R-NN` code, or any
+- [x] `uv run pytest` (full host suite) passes.
+- [x] No new comment names a sprint, a ticket, an `R-NN` code, or any
       `.md` filename — `test_archaeology_marker_budget.py` has zero
       slack. Describe the ring's mechanism in `emit_queue.h`'s own
       comments; put issue references in the commit message only.
-- [ ] `pxt.json`'s `files[]` includes `src/comms/emit_queue.h` if
+- [x] `pxt.json`'s `files[]` includes `src/comms/emit_queue.h` if
       `test_pxt_manifest_completeness.py` requires header-only files to
       be listed explicitly (check the actual rule, same as
       `run_queue.h` had to satisfy).
-- [ ] Every yield this ticket's new code performs (if any — the ring
+- [x] Every yield this ticket's new code performs (if any — the ring
       itself should need none) goes through `vfpSafeSleep`/
       `vfpSafeYield`; `test_vfp_guard_source_pin.py` enforces this for
       any new `.cpp` that calls `fiber_sleep`/`schedule` directly.
-- [ ] `src/core/diffdrive.{h,cpp}` is not touched (vendored, stays
+- [x] `src/core/diffdrive.{h,cpp}` is not touched (vendored, stays
       byte-identical).
 
 ## Implementation Plan

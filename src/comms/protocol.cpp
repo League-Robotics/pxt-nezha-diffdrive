@@ -136,6 +136,19 @@ void Protocol::emitLine(const char* text) {
   // encapsulation cost -- radio_transport.h).
   while (text[len] != '\0' && len < RadioTransport::kMaxPayloadBytes) ++len;
   if (len == 0) return;
+  // No transport write here any more -- copy into the ring and return.
+  // See protocol.h's own comment on emitLine()/emitLineNow() for why:
+  // this call can run on any fiber, and only this object's own fiber
+  // (drainEmitQueue(), below) is allowed to reach a transport write for
+  // this path. A refusal (ring full) is counted via emitQueue_.dropped()
+  // rather than silently overwriting a line still waiting to drain.
+  emitQueue_.enqueue(text, len);
+}
+
+// The pre-restructuring emitLine() body, unchanged, now reachable only
+// from drainEmitQueue() below -- see protocol.h's own comment on why
+// this split makes this fiber the emit path's single producer.
+void Protocol::emitLineNow(const char* text, size_t len) {
   transport_.writeLine(reinterpret_cast<const uint8_t*>(text), len);
   // RadioTransport::sendLine() now guards its shared scratch buffers
   // against the protocol fiber's own RadioSink::write() calls (ticket
@@ -158,6 +171,20 @@ void Protocol::emitLine(const char* text) {
   }
 }
 
+// Drains emitQueue_ into emitLineNow(), oldest line first. Copies each
+// line out to a local, on-this-fiber's-stack buffer before calling
+// emitLineNow() -- that call can yield (the radio retry above), and
+// holding a pointer into the ring's own storage across a yield would
+// let a concurrent enqueue() from another fiber overwrite it before
+// this fiber finishes using it.
+void Protocol::drainEmitQueue() {
+  char text[kEmitTextBytes];
+  size_t len;
+  while ((len = emitQueue_.dequeue(text, sizeof(text))) > 0) {
+    emitLineNow(text, len);
+  }
+}
+
 // Free-function entry point for shims.cpp's emitLine shim. Lives here,
 // on the protocol side of the boundary, so shims.cpp never has to
 // include protocol.h (and with it radio_transport.h, which makes PXT's
@@ -173,6 +200,9 @@ int Protocol::serialDropCount() const {
 int protocolSerialDropCount() { return protocol().serialDropCount(); }
 int protocolRunDropCount() {
   return static_cast<int>(protocol().runDropCount());
+}
+int protocolEmitDropCount() {
+  return static_cast<int>(protocol().emitDropCount());
 }
 
 void Protocol::setupRadio(uint8_t channel, uint8_t group) {
@@ -257,6 +287,7 @@ const char* Protocol::runText(int slot) const {
 }
 
 uint32_t Protocol::runDropCount() const { return runQueue_.dropped(); }
+uint32_t Protocol::emitDropCount() const { return emitQueue_.dropped(); }
 
 // Same boundary, opposite direction: shims.cpp's runCommandText shim
 // reads back the RUN payload a MessageBus event value refers to.
@@ -322,6 +353,15 @@ void Protocol::run() {
   uint8_t lineBuf[kMaxLineBytes];
   uint32_t lastEmitMs = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);
   while (true) {
+    // Drain every line any fiber queued via emitLine() since the last
+    // pass, first -- before either transport's own RX poll below, so a
+    // queued line does not wait behind a receive that happens to be
+    // pending. This is also the ONLY place emitQueue_ is ever drained,
+    // and this loop runs on this object's own fiber alone, which is
+    // what makes this fiber the emit path's single producer (see
+    // protocol.h's own comment on emitLine()/emitLineNow()).
+    drainEmitQueue();
+
     size_t len = 0;
     if (transport_.tryReadLine(lineBuf, sizeof(lineBuf), &len)) {
       if (len >= kOldRunPrefixLen &&
