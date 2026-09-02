@@ -258,3 +258,34 @@ issue observed it only with telemetry streaming because telemetry guarantees a
 second concurrent writer; it does not actually require telemetry, only a second
 fiber. Its "Suspected mechanism, not yet confirmed" section can be replaced by
 this one, and its hypotheses 1–3 are each ruled out above by direct measurement.
+
+## Follow-up, 2026-09-02 (sprint 027 ticket 002 hardware acceptance)
+
+Attempting to re-reproduce this issue's baseline (pre-fix) wedge as
+ticket 002's own first acceptance step, on a freshly rebuilt baseline
+hex (`git archive 1217f19`, confirmed `drainEmitQueue` absent), **did
+not reproduce it**: 20 independent trials on tigez, `RUN:z` x15 and
+`RUN:ping` x5, across 3 reset methodologies (serial-port reopen,
+zero-delay boot-banner race, genuine `pyocd -c reset` hardware reset).
+`HELLO` answered normally every time. Full transcripts:
+`captures/tigez-uart-wedge-20260902/` (01-04, 09; directory on disk,
+not committed, per that directory's own note on `captures/` being
+repo-gitignored).
+
+This does **not** retract this issue's own measurements above — the
+direct pyOCD register reads of the wedged state (`rxBuffHead=
+rxBuffTail=0` with 17 bytes physically sent, `is_tx_in_progress_=0`,
+`ERRORSRC=0`, never self-recovering across 53 s / 8 probes, halt/go
+recovering it every time) are not the kind of result that arises by
+accident, and this issue's fix (ticket 001) is separately confirmed
+hardware-safe on the fixed-firmware side
+(`clasi/sprints/027.../tickets/002-...md`'s own soak and TLM-subscribed
+tests, both clean passes). The most likely explanation for the
+non-reproduction, UNVERIFIED: this is documented above as a timing race
+sensitive to exact code layout (see "why local builds and not cloud
+builds"), and a same-source rebuild is not guaranteed to reproduce the
+original binary's exact instruction timing if the local
+`ghcr.io/league-microbit/yotta-compiler` toolchain image changed
+between the two builds. Recorded here so a future reader does not
+treat "the wedge won't reproduce anymore" as evidence this issue's
+original measurements were wrong.

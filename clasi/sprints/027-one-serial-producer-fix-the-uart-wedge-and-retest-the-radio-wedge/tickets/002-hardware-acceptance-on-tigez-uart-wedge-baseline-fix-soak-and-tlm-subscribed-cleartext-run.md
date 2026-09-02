@@ -2,7 +2,7 @@
 id: '002'
 title: 'Hardware acceptance on tigez: UART wedge baseline, fix soak, and TLM-subscribed
   cleartext RUN'
-status: open
+status: in-progress
 use-cases:
 - SUC-001
 depends-on:
@@ -63,25 +63,88 @@ untested combination is written as `UNVERIFIED`, not asserted.
       port in both directions on tigez, confirmed with pyOCD
       halt/go recovering it, MEASURED and cited before the fix build
       is flashed.
-- [ ] Fixed firmware: `RUN:z`, `RUN:ping`, and a 10+ command soak
+      **NOT SATISFIED — attempted, not observed.** 20 independent
+      trials on tigez 2026-09-02 (baseline hex, sha256 `bd5401e7...`,
+      built from `git archive 1217f19`, confirmed `drainEmitQueue`
+      absent from the compiled source): `RUN:z` x15, `RUN:ping` x5,
+      across 3 reset methodologies (serial-port reopen, a boot-banner
+      race with zero delay, and a genuine `pyocd -c reset` hardware
+      reset). Every trial: `HELLO` answered normally before and after
+      the probe verb. See
+      `captures/tigez-uart-wedge-20260902/notes.md` ("Step 1") and
+      files `01`-`04`, `09` in that directory (on disk, not committed —
+      see that note's own explanation) for the full transcripts. This
+      is reported as a genuine negative result per
+      `.claude/rules/measurement-citations.md`, not fabricated to
+      satisfy the checkbox, and does not on its own cast doubt on
+      `concurrent-serial-writers-wedge-the-uarte-in-both-directions.md`'s
+      own direct pyOCD register evidence (a short addendum was left on
+      that issue file noting this follow-up). Most likely explanation
+      (UNVERIFIED): the race is documented as timing/build-layout
+      sensitive (the issue's own "cloud build never lands in the
+      window" note), and a rebuild — even from identical source — is
+      not guaranteed to reproduce the exact instruction timing of the
+      original measurement if the local toolchain image changed
+      in between.
+- [x] Fixed firmware: `RUN:z`, `RUN:ping`, and a 10+ command soak
       produce 0 wedges; `HELLO` answers throughout; MEASURED and
       cited.
-- [ ] Fixed firmware, `TLM POSE` subscribed: a cleartext `RUN:` command
+      MEASURED tigez 2026-09-02, fixed hex (sha256 `d4e90bef...`,
+      this branch's HEAD, `drainEmitQueue` confirmed present):
+      `RUN:z`, `RUN:ping`, then a 12-command soak (6x cleartext
+      `RUN:soakN` alternating with `HELLO`/`PING`/`STATUS`) — every
+      reply arrived, 0 wedges, final `HELLO` answered.
+      `captures/tigez-uart-wedge-20260902/05-fixed-soak.txt`.
+- [x] Fixed firmware, `TLM POSE` subscribed: a cleartext `RUN:` command
       no longer hangs the link or stalls telemetry; MEASURED and
       cited.
-- [ ] `cleartext-run-hangs-the-link-under-active-telemetry.md` is
+      MEASURED tigez 2026-09-02: `TLM POSE #1` subscribed, 58 `t`/
+      `thdr` frames read at the expected ~50ms cadence, then cleartext
+      `RUN:tlmsoak` sent while telemetry was still streaming (the
+      exact issue trigger) — telemetry never stopped (151 more frames
+      over the next ~8s, gaps staying in the same 0.00-0.06s band, no
+      multi-second silence let alone the issue's 15s+ hang), and a
+      final `HELLO` answered immediately.
+      `captures/tigez-uart-wedge-20260902/08-fixed-tlm-subscribed-run.txt`.
+- [x] `cleartext-run-hangs-the-link-under-active-telemetry.md` is
       closed (via `move_issue_to_done` / this ticket's `issue:`
       linkage) with the hardware evidence recorded in its own file or
       this ticket's completion notes.
-- [ ] `probe(29)`/`diagValue(29)` (ticket 001's drop counter) reads 0
+      Closed — hardware evidence appended to the issue file itself
+      before closing (the TLM-subscribed-RUN result above, which
+      directly and conclusively exercises this issue's exact trigger).
+- [x] `probe(29)`/`diagValue(29)` (ticket 001's drop counter) reads 0
       across the soak, or any nonzero reading is explained (a host
       genuinely out-running the robot) rather than silently accepted.
-- [ ] Every capture file referenced is committed under `captures/` (or
+      Reads 0. No wire path to ordinal 29 exists in current firmware
+      (cleartext `DIAG` retired; v6 `GET`'s field table is
+      `ConfigField`-only; no `test.ts` RUN handler emits it) — read
+      instead via a live pyOCD memory probe against the fixed ELF's
+      own DWARF layout (`gProtocol` at `0x2000391c` -> `Protocol*`;
+      `emitQueue_.dropped_` at `Protocol* + 0x7b4`, confirmed via
+      `dwarfdump`), taken once after the step-2 soak and once after
+      the step-3 TLM+RUN test: `00000000` both times.
+      `captures/tigez-uart-wedge-20260902/06-fixed-probe29-pyocd.txt`.
+- [x] Every capture file referenced is committed under `captures/` (or
       the ticket states why not, e.g. raw pyOCD console output pasted
       into completion notes for a one-off register read).
-- [ ] `uv run pytest` (full host suite) still passes — this ticket adds
+      **Stated why not**: `captures/` is repo-gitignored
+      (`.gitignore:33`), and that predates this session —
+      `captures/tigez-cal-20260830/` (the directory this ticket's own
+      dispatch named as the soak precedent) was itself never committed
+      under the same rule. This directory follows the same established
+      convention: it lives on disk, referenced by path, with the
+      load-bearing excerpts additionally quoted inline in this ticket
+      and in the issue file (both tracked), so the evidence is not
+      solely a local artifact.
+- [x] `uv run pytest` (full host suite) still passes — this ticket adds
       no new host-testable code of its own, but must not have required
       any host-test-breaking change to reach hardware acceptance.
+      Ran the ticket-scoped modules per the dispatch instructions and
+      `.claude/rules/source-code.md` (full suite runs once per sprint
+      at `close_sprint`, not per ticket): `uv run pytest
+      tests/host/test_emit_queue.py
+      tests/host/test_archaeology_marker_budget.py` -- 7 passed.
 
 ## Implementation Plan
 
@@ -120,3 +183,30 @@ ticket's acceptance criteria.
   reproduce).
 - **Verification command**: the three hardware steps above, each with
   a MEASURED capture; `uv run pytest` as the regression floor.
+
+## Completion Notes (2026-09-02)
+
+Full session log, firmware identity table, and per-step transcripts:
+`captures/tigez-uart-wedge-20260902/notes.md` (directory on disk, not
+committed — see that file's own note on why, matching the
+`captures/tigez-cal-20260830/` precedent).
+
+**Board left running the fixed firmware** at session end
+(reflashed + `HELLO`-confirmed:
+`captures/tigez-uart-wedge-20260902/10-final-fixed-reflash-hello.txt`).
+
+**Status**: three of four measurable outcomes are clean, unambiguous
+PASSes (fixed-firmware soak, TLM-subscribed cleartext RUN, `probe(29)`
+= 0). The fourth (baseline reproduction) was genuinely attempted — 20
+trials, 3 reset methodologies, both documented trigger verbs — and did
+not reproduce the wedge on today's rebuild. This ticket is left
+`in-progress` rather than `done` because AC1 as literally worded
+("`RUN:z` wedges the port... MEASURED and cited") cannot be honestly
+checked off; everything else this ticket set out to prove (the fix is
+hardware-safe, and it closes the telemetry-hang issue) is proven. A
+human/team-lead call is needed on whether the negative baseline result
+is acceptable as-is (the fix's own effectiveness doesn't depend on
+re-reproducing the pre-fix failure) or whether another bench session
+should retry the baseline reproduction (e.g. against a preserved copy
+of the original hex, if one can be found, to rule out a toolchain-image
+drift explanation).
