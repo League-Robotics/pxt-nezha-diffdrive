@@ -1136,7 +1136,7 @@ wheels = [
 
 [[package]]
 name = "pxt-nezha-diffdrive-host-tests"
-version = "1.20260902.2"
+version = "0.20260902.2"
 source = { virtual = "." }
 dependencies = [
     { name = "aprilcam", extra = ["daemon"] },
