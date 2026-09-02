@@ -107,6 +107,10 @@ struct Rig {
   float x = 0.0f, y = 0.0f, heading = 0.0f;
   float odomPosLeft = 0.0f, odomPosRight = 0.0f;  // [counts]
   bool odomPrimed = false;
+  // Last-seen Output.positionEpochLeft/Right -- lets odomUpdate() (below)
+  // tell a rebase's intentional position discontinuity apart from
+  // ordinary wheel motion; see that function's own comment.
+  uint32_t odomPositionEpochLeft = 0, odomPositionEpochRight = 0;
 
   // GO_TO_W's encoder-odometry fallback PoseSource (sprint 006 ticket
   // 007, encoder_pose_source.h): binds to x/y/heading ABOVE by const
@@ -247,9 +251,23 @@ static Rig& ensure() {
 
 static void odomUpdate(Rig& r) {
   const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
-  if (!r.odomPrimed) {
+  // A rebase request (setKernelValue() case 32 below) re-anchors
+  // positionLeft/positionRight to a new software zero at the kernel's
+  // own NEXT step() -- an intentional discontinuity, not drift.
+  // positionEpochLeft/Right (diffdrive.h) change only alongside that
+  // re-anchor, so a change on either wheel since the last call means
+  // this sample cannot be diffed against the last one -- the same
+  // handling the very first call (`!r.odomPrimed`) already gets, for
+  // the same reason (there is no prior sample this one can be a
+  // continuation of).
+  const bool rebased = r.odomPrimed &&
+      (out.positionEpochLeft != r.odomPositionEpochLeft ||
+       out.positionEpochRight != r.odomPositionEpochRight);
+  if (!r.odomPrimed || rebased) {
     r.odomPosLeft = out.positionLeft;
     r.odomPosRight = out.positionRight;
+    r.odomPositionEpochLeft = out.positionEpochLeft;
+    r.odomPositionEpochRight = out.positionEpochRight;
     r.odomPrimed = true;
     return;
   }
@@ -258,6 +276,8 @@ static void odomUpdate(Rig& r) {
   const float dRight = (out.positionRight - r.odomPosRight) / cpm; // [mm]
   r.odomPosLeft = out.positionLeft;
   r.odomPosRight = out.positionRight;
+  r.odomPositionEpochLeft = out.positionEpochLeft;
+  r.odomPositionEpochRight = out.positionEpochRight;
   const float dCenter = 0.5f * (dLeft + dRight);          // [mm]
   const float dHeading =
       (dRight - dLeft) / r.engine.effectiveTrackWidth();  // [rad]
@@ -983,6 +1003,13 @@ void setGeometry(int trackWidth, int calib) {  // [0.1 mm] [1e-4 mm/deg]
   if (calib > 0) r.engine.setTravelCalib(static_cast<float>(calib) * 1e-4f);
 }
 
+// Defined further down (the OTOS section) -- forward-declared here so
+// case 32 below can re-seed it. Same same-translation-unit
+// forward-declaration convention seedPose() and protocolRunText() each
+// already use in this file, just internal to this one file instead of
+// crossing to protocol.cpp.
+static OtosPort& otosRef();
+
 //%
 void setKernelValue(int field, int value) {  // [x1000 scaled]
   Rig& r = ensure();
@@ -1055,6 +1082,37 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     case 29: r.engine.setPlateauMinS(v); break;
     case 30: r.engine.setMaxYawRateDegS(v); break;
     case 31: r.engine.setProfileExitMmS(v); break;
+    // 32: rebase -- zero the odometry frame, a write-triggered action
+    // wearing a config-field's clothes (same shape as stall_clear's
+    // case 17 above). Writes BOTH pose sources, mirroring seedPose()'s
+    // own "write both" contract below: the encoder-integrated x/y/
+    // heading this file tracks AND the OTOS position register, so the
+    // two stay agreed at the new zero instead of OTOS silently keeping
+    // its old absolute reading. kernel.rebasePosition() itself is a
+    // DEFERRED request (diffdrive.h) -- it re-anchors the kernel's own
+    // position tracking only at its NEXT step(), not synchronously
+    // here; odomUpdate()'s own positionEpochLeft/Right check above is
+    // what keeps that later, legitimate discontinuity from being
+    // mis-read as a spurious jump the next time pose is read.
+    case 32:
+      if (v != 0.0f) {
+        odomUpdate(r);        // consume pending deltas before the zero
+        k.rebasePosition();
+        r.x = 0.0f;
+        r.y = 0.0f;
+        r.heading = 0.0f;
+        otosRef().setPose(0.0f, 0.0f, 0.0f);
+      }
+      break;
+    // 33: estop_clear -- a write-triggered ACTION wearing a
+    // config-field's clothes, identical shape to stall_clear's case 17
+    // above, just calling kernel.estopClear() instead of
+    // clearStallLatch(). Deliberately calls the kernel method directly
+    // rather than routing through this file's own standalone
+    // estopClear() wrapper above -- same "call the kernel method
+    // inline" convention case 17 already uses for clearStallLatch()
+    // instead of going through clearStall().
+    case 33: if (v != 0.0f) k.estopClear(); break;
     default: break;
   }
 }
@@ -1119,6 +1177,13 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     case 29: v = r.engine.plateauMinS(); break;
     case 30: v = r.engine.maxYawRateDegS(); break;
     case 31: v = r.engine.profileExitMmS(); break;
+    // 33: estop_clear's GET side -- a convenience readback of
+    // Output.estopped, same "not a stored Config field" shape as the
+    // stall latch's own clear field's GET (case 17 above). 32 (rebase)
+    // has no case here on purpose: wire_adapter.cpp's onGet() refuses
+    // it before this function is ever reached, since a rebase has
+    // nothing meaningful to read back.
+    case 33: v = r.kernel.output().estopped ? 1.0f : 0.0f; break;
     default: return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));

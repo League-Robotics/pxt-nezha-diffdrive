@@ -116,6 +116,12 @@ struct FieldEntry {
   int ordinal;        // shims.cpp's setKernelValue()/getConfigValue() field
 };
 
+// Named so the busy-refusal check in onSet() and the GET refusal in
+// onGet() (both below) don't repeat the bare integers the kFields[]
+// rows below also carry.
+constexpr int kOrdinalRebase = 32;
+constexpr int kOrdinalEstopClear = 33;
+
 constexpr FieldEntry kFields[] = {
     {"max_duty", 0},           // ConfigField.MaxDuty
     {"full_duty_velocity", 1}, // ConfigField.FullDutyVelocity
@@ -196,6 +202,33 @@ constexpr FieldEntry kFields[] = {
     {"profile_exit", 31},  // ConfigField.ProfileExit
                                // forward to MotionEngine::
                                // setRampMs()/rampMs().
+    {"rebase", kOrdinalRebase},        // zero the odometry frame -- a
+                               // write-triggered action wearing a
+                               // config-field's clothes, the same shape
+                               // the stall latch's own clear field
+                               // above already established. Backed by
+                               // shims.cpp's setKernelValue() calling
+                               // kernel.rebasePosition() plus the
+                               // encoder-frame zero and OTOS reseed
+                               // that keep both pose sources agreed at
+                               // the new zero -- see that file's own
+                               // case for the full sequence. Refused
+                               // (kBusy) while a motion is live (see
+                               // onSet() below) and refused on GET (see
+                               // onGet() below) -- deliberately absent
+                               // from the trailing ConfigField.<Name>
+                               // comment convention every other row
+                               // above carries: this field is wire-only,
+                               // not exposed through the block layer's
+                               // generic config dropdown.
+    {"estop_clear", kOrdinalEstopClear}, // sequenced e-stop clear,
+                               // same write-triggered shape as rebase
+                               // immediately above -- backed by
+                               // kernel.estopClear(). GET reads back the
+                               // live estop flag, a convenience readback
+                               // exactly like the stall latch's own
+                               // clear field's GET. Also wire-only, same
+                               // reason as rebase above.
 };
 constexpr size_t kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 
@@ -794,6 +827,14 @@ Wire::DoneReason WireAdapter::lastDoneReason() const {
 bool WireAdapter::onGet(const char* name, float& out) const {
   const FieldEntry* entry = findField(name);
   if (entry == nullptr) return false;
+  // rebase has no stored value and no boolean latch worth reading back
+  // (unlike estop_clear immediately below, whose GET mirrors the live
+  // estop flag the same convenience-readback way the stall latch's own
+  // clear field already does) -- refuse outright (the same `false`
+  // this method already returns for an unrecognized name entirely, wire
+  // err 1) rather than manufacture a reading that would always answer 0
+  // with no information in it.
+  if (entry->ordinal == kOrdinalRebase) return false;
   // config values cross the shim boundary as x1000-scaled ints
   // (shims.cpp convention).
   out = static_cast<float>(getConfigValue(entry->ordinal)) * 0.001f;
@@ -804,6 +845,27 @@ Wire::Result WireAdapter::onSet(const char* name, float value, uint32_t id) {
   (void)id;
   const FieldEntry* entry = findField(name);
   if (entry == nullptr) return Wire::Result::kUnknown;
+  // rebase/estop_clear both touch state an already-in-flight motion is
+  // relying on: rebase changes what the position-error math a live move
+  // is measuring against is even zeroed to, and estop_clear can drop
+  // the exact latch a live move depends on staying set. Refuse outright
+  // (kBusy) rather than let either land mid-move -- the same
+  // commandable-state concern the six motion verbs' own supersede
+  // handling protects, applied here for the first time to a SET field.
+  // hasLiveMotionObligation() is this class's own wire-motion-lease
+  // bookkeeping (armed by the six motion verbs); engineMoveActive()
+  // reads the SAME MotionEngine singleton a job-issued move (the block
+  // layer's own move()/goTo() family, reached through the legacy RUN
+  // bridge rather than this class) also drives, so a job-issued
+  // reduction move is caught despite this class having no direct
+  // visibility into RUN dispatch. Not caught by either: a job driving
+  // wheel speed directly, bypassing the move engine's own active-move
+  // state entirely -- closing that needs this class to know which
+  // fiber currently owns motion, a larger change than this one.
+  if ((entry->ordinal == kOrdinalRebase || entry->ordinal == kOrdinalEstopClear) &&
+      (hasLiveMotionObligation() || engineMoveActive())) {
+    return Wire::Result::kBusy;
+  }
   // WIRE-08 (code review 2026-08-23): `value` arrives with no ceiling
   // of its own (parseFloatField, wire_handler.cpp, accepts any finite
   // float) -- setKernelValue()'s own x1000 scaling convention can turn
