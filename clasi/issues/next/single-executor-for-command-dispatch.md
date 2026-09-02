@@ -86,3 +86,38 @@ dropping the board repeatedly (`usb 1-1.5` disconnect, and earlier
   concrete symptom this would address.
 - `ensure-is-not-reentrant-two-rigs-can-be-constructed.md` -- adjacent,
   independent, not fixed by this.
+
+---
+
+## Triage 2026-09-02 — NEXT, and the "not urgent" framing above is stale
+
+The deferral (commit c834520, 10:48) was written without
+`concurrent-serial-writers-wedge-the-uarte-in-both-directions.md`
+(10:37, same day), which changes the priority:
+
+- The link hang is no longer a three-hypothesis mystery. It is
+  MEASURED on tigez with pyOCD: two fibers writing the UARTE wedge it
+  in both directions, permanently, on the **first** `RUN:` with a
+  payload, no telemetry or motion needed. Every locally built (docker
+  `yotta-compiler`) firmware hits it 100%; the cloud build has the same
+  bug and only misses the timing window.
+- The **single-producer serial piece** of this design — `emitLine()`
+  enqueues into a `Protocol`-owned ring, `Protocol::run()` drains it,
+  so `uBit.serial.send` and `RadioTransport::sendLine` have exactly one
+  caller — was implemented and verified on that board: `RUN:z`,
+  `RUN:ping`, `RUN:spin:10` all answer, 10-command soak, 0 reboots.
+
+So plan this as two tickets, in order:
+
+1. **Single serial producer (emit queue on the protocol fiber).** Small,
+   already hardware-proven, closes the UART wedge and the cleartext
+   link-hang issue. Needs one bench session, not three. Expose the
+   ring's drop count via `diagValue()` next to ordinal 28.
+2. **The full executor inversion** described above — still worth it for
+   making the I2C bus-discipline invariant structural, still not
+   host-testable, still budget 2-3 bench sessions. It can wait for a
+   reliably reachable board; ticket 1 cannot.
+
+The hardware caveat stands: sprint 026 ended with magni dropping the
+board and vevov disconnecting mid-flash. Ticket 1's proof was taken on
+tigez over USB with pyOCD, so that is the rig to reuse.
