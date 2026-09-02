@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint: ''
+status: in-progress
+sprint: '027'
+tickets:
+- 027-001
 ---
 
 # Two fibers writing the serial port wedge the nRF52 UARTE in both directions, permanently and without a fault

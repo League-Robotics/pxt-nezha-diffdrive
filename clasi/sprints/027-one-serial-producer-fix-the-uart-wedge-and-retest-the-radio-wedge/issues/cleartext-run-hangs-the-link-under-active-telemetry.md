@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint: ''
+status: in-progress
+sprint: '027'
+tickets:
+- 027-002
 ---
 
 # A cleartext `RUN:` command sent while v6 telemetry is streaming hangs the link, and there is no v6 alternative

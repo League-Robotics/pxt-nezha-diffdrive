@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '027'
+tickets:
+- 027-004
 ---
 
 # camlink.py's mount table is stale and drives repeated tag-yaw re-derivation

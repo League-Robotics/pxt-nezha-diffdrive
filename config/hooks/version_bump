@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# dotconfig event hook: fired by `dotconfig version bump` after it has
+# written config/dotconfig.yaml, package.json and pyproject.toml.
+#
+#   config/hooks/version_bump <project_dir> <old_version> <new_version>
+#
+# dotconfig's built-in `version_sync` only understands pyproject.toml and
+# package.json, so the MakeCode manifest (pxt.json) has to be synced here.
+#
+# The "version" line is rewritten in place (no JSON round-trip) so the
+# 4-space indentation and key order of pxt.json survive the bump.
+#
+# The file is then `git add`ed: `dotconfig version bump --push` runs this
+# hook BEFORE its own `git commit`, and only stages the files it wrote
+# itself, so staging here is what gets pxt.json into the bump commit.
+set -euo pipefail
+
+PROJECT_DIR="$1"
+OLD_VERSION="$2"
+NEW_VERSION="$3"
+export NEW_VERSION
+
+PXT_JSON="$PROJECT_DIR/pxt.json"
+
+if [ ! -f "$PXT_JSON" ]; then
+    echo "version_bump hook: no pxt.json at $PXT_JSON, nothing to sync" >&2
+    exit 0
+fi
+
+# Only the top-level "version" key matches this shape; dependency entries
+# look like "core": "*" and never use the key name "version".
+if ! grep -qE '^\s*"version"\s*:\s*"[^"]*"' "$PXT_JSON"; then
+    echo "version_bump hook: no \"version\" key found in $PXT_JSON" >&2
+    exit 1
+fi
+
+perl -pi -e '
+    $done = 1 if !$done && s/^(\s*"version"\s*:\s*)"[^"]*"/$1"$ENV{NEW_VERSION}"/;
+' "$PXT_JSON"
+
+if ! grep -qE "^\s*\"version\"\s*:\s*\"$NEW_VERSION\"" "$PXT_JSON"; then
+    echo "version_bump hook: failed to write $NEW_VERSION into $PXT_JSON" >&2
+    exit 1
+fi
+
+echo "  Updated: pxt.json (${OLD_VERSION:-?} -> $NEW_VERSION)"
+
+# Stage it so `dotconfig version bump --push` includes it in the bump commit.
+if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$PROJECT_DIR" add -- pxt.json
+fi

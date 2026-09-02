@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: 028
 ---
 
 # A frozen encoder read becomes a phantom zero velocity and the PID overreacts

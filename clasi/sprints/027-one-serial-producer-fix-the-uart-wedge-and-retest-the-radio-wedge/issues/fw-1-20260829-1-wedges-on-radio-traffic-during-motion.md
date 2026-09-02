@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '027'
+tickets:
+- 027-003
 ---
 
 # Radio TX during motion hangs the Nezha I2C forever (fw 1.20260829.1)
