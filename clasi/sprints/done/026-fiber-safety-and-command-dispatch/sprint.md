@@ -1,7 +1,7 @@
 ---
 id: '026'
 title: Fiber safety and command dispatch
-status: ticketing
+status: done
 branch: sprint/026-fiber-safety-and-command-dispatch
 use-cases: []
 issues:
