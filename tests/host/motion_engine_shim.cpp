@@ -223,6 +223,11 @@ void meSetPlateauMinS(void* handle, float sec) {
   h->engine.setPlateauMinS(sec);
 }
 
+void meSetProfileExitMmS(void* handle, float mmS) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.setProfileExitMmS(mmS);
+}
+
 void meSetMaxYawRateDegS(void* handle, float degS) {
   auto* h = static_cast<Handle*>(handle);
   h->engine.setMaxYawRateDegS(degS);

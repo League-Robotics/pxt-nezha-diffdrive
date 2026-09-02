@@ -878,14 +878,20 @@ function infinityTour(rCm: number, laps: number) {
     basic.showIcon(IconNames.Yes)
 }
 
-// RUN:spline[:cm] -- a serpentine: alternating half-circles, the open
-// cousin of the infinity figure. Each bend is a half circle of `rCm`
-// driven as 4 arcs of 45 deg, and consecutive bends alternate direction.
-function splineTour(rCm: number, bends: number) {
+// RUN:snake[:radius_cm[:bends]] -- a serpentine: alternating
+// half-circles, the open cousin of the infinity figure. Each bend is a
+// half circle of `rCm` driven as 4 arcs of 45 deg, and consecutive
+// bends alternate direction.
+//
+// NOT a spline, and it used to claim to be one. A spline is a fitted
+// curve followed with pure pursuit -- the host drives that one, because
+// it needs the sampled path and a steering loop. This is a chain of
+// circular arcs, so the name says so.
+function snakeTour(rCm: number, bends: number) {
     if (touring) return
     touring = true
     aborted = false
-    diffDrive.emitLine("DBG:tour=spline:r=" + rCm + ":bends=" + bends)
+    diffDrive.emitLine("DBG:tour=snake:r=" + rCm + ":bends=" + bends)
     for (let b = 0; b < bends; b++) {
         basic.showNumber(b + 1)
         const ccw = (b % 2) == 0
@@ -910,12 +916,63 @@ diffDrive.onRun("infinity", function (arg: number) {
     infinityTour(r, laps)
 })
 
-// Defaults match tests/system/tours/spline.tour: r = 15 cm, 4 bends,
-// which spans 120 x 30 cm and clears the playfield rails by ~7 cm.
-diffDrive.onRun("spline", function (arg: number) {
-    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 15
+// Defaults match the snake tour file: r = 12.5 cm, 4 bends, which
+// advances 8r = 100 cm across the field's long axis and swings 2r =
+// 25 cm either side. The advance runs PERPENDICULAR to the start
+// heading -- the first half circle turns the robot 180 deg, so progress
+// is sideways -- so stage it facing the short axis.
+diffDrive.onRun("snake", function (arg: number) {
+    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 12.5
     const bends = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) : 4
-    splineTour(r, bends)
+    snakeTour(r, bends)
+})
+
+// RUN:diamond[:cm] -- the square turned 45 deg to the start heading, so
+// its legs run diagonally. A 45 deg entry pivot, then the same four
+// legs and four corners. Sized smaller than the square because a
+// square of side S turned 45 deg spans S*sqrt2 in BOTH axes: 45 cm
+// sides span 63.6 cm, which is what fits the field's tight axis.
+function diamondTour(sideCm: number) {
+    if (touring) return
+    touring = true
+    aborted = false
+    diffDrive.emitLine("DBG:tour=diamond:side=" + sideCm)
+    tickedMove(0, 45)                    // enter the diamond
+    for (let i = 0; i < 4; i++) {
+        if (aborted) break
+        basic.showNumber(i + 1)
+        tickedMove(sideCm, 0)
+        if (aborted) break
+        tickedMove(0, 90)
+    }
+    diffDrive.stopMove()
+    touring = false
+    basic.showIcon(IconNames.Yes)
+}
+
+diffDrive.onRun("diamond", function (arg: number) {
+    diamondTour(diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 45)
+})
+
+// RUN:circle[:radius_cm[:ccw]] -- one full circle as 8 arcs of 45 deg.
+// Driven CCW from a point on its own circumference the centre sits
+// 90 deg to the left, so it spans +-r across the start heading and
+// 0..2r along it.
+function circleTour(rCm: number, ccw: boolean) {
+    if (touring) return
+    touring = true
+    aborted = false
+    diffDrive.emitLine("DBG:tour=circle:r=" + rCm + ":ccw=" + (ccw ? 1 : 0))
+    circleRun(rCm, ccw)
+    diffDrive.stopMove()
+    touring = false
+    basic.showIcon(IconNames.Yes)
+}
+
+diffDrive.onRun("circle", function (arg: number) {
+    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 30
+    const ccw = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) != 0 : true
+    circleTour(r, ccw)
 })
 
 basic.showIcon(IconNames.Rollerskate)

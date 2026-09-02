@@ -1,6 +1,8 @@
 // protocol.cpp -- see protocol.h.
 #include "protocol.h"
 
+#include "../platform/vfp_guard.h"
+
 #include <cstdio>  // plain snprintf, not std::snprintf: newlib-nano's
                    // <cstdio> declares it globally but never puts it in
                    // namespace std (same gotcha wire_handler.cpp
@@ -150,7 +152,7 @@ void Protocol::emitLine(const char* text) {
   if (!radioEnabled_) return;
   if (!radioTransport_.sendLine(reinterpret_cast<const uint8_t*>(text),
                                 len)) {
-    fiber_sleep(2);
+    vfpSafeSleep(2);
     (void)radioTransport_.sendLine(reinterpret_cast<const uint8_t*>(text),
                                    len);
   }
@@ -169,6 +171,9 @@ int Protocol::serialDropCount() const {
 // Free-function entry point for shims.cpp's diagValue(26) case (ticket
 // 006) -- same boundary reason as protocolEmitLine() above.
 int protocolSerialDropCount() { return protocol().serialDropCount(); }
+int protocolRunDropCount() {
+  return static_cast<int>(protocol().runDropCount());
+}
 
 void Protocol::setupRadio(uint8_t channel, uint8_t group) {
   // Order matters: configure, THEN enable. Both setters only store while
@@ -228,16 +233,30 @@ void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
   std::memcpy(lastRunText_, text, dataLen + 1);
   lastRunMs_ = nowMs;
 
-  const int slot = nextRunSlot_;
-  nextRunSlot_ = (nextRunSlot_ + 1) % kRunSlots;
-  std::memcpy(runSlots_[slot], text, dataLen + 1);
+  const int slot = runQueue_.enqueue(text, static_cast<int>(dataLen));
+  if (slot < 0) {
+    // Every slot is still in flight. Refusing is the point: the old
+    // cursor would have overwritten one, and the handler holding it
+    // would then have run a command nobody sent. The refusal is
+    // counted and readable rather than silent, so a host that
+    // out-runs the robot can find out.
+    return;
+  }
   MicroBitEvent(kRunEventSource, static_cast<uint16_t>(slot + 1));
 }
 
 const char* Protocol::runText(int slot) const {
   if (slot < 1 || slot > kRunSlots) return "";
-  return runSlots_[slot - 1];
+  // Reading a slot releases it. The MessageBus consumer never reports
+  // completion, so this is the only place occupancy can honestly be
+  // closed; the text is copied out by the caller before the next
+  // enqueue can reach this slot, because both run on this same fiber.
+  const char* text = runQueue_.at(slot - 1);
+  runQueue_.release(slot - 1);
+  return text;
 }
+
+uint32_t Protocol::runDropCount() const { return runQueue_.dropped(); }
 
 // Same boundary, opposite direction: shims.cpp's runCommandText shim
 // reads back the RUN payload a MessageBus event value refers to.
@@ -445,7 +464,7 @@ void Protocol::run() {
       // wheel speed -- and the dereference took a precise bus error.
       // Every yield in this extension must go through the guarded
       // wrapper; see the yield-discipline invariant in the design notes.
-      fiber_sleep(kPollIntervalMs);
+      vfpSafeSleep(kPollIntervalMs);
     }
   }
 }

@@ -301,6 +301,7 @@ EXPECTED_CPP_FILES = [
     'src/motion/motion_engine.cpp',
     'src/platform/nezha_port.cpp',
     'src/platform/otos_port.cpp',
+    'src/platform/vfp_guard.cpp',
     'src/shims.cpp',
 ]
 

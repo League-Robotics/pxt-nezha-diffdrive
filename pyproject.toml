@@ -1,19 +1,37 @@
 [project]
 name = "pxt-nezha-diffdrive-host-tests"
-version = "0.20260901.1"
+version = "0.20260902.1"
 description = "Native host test harness for this extension's portable C++ (DiffDrive kernel, and the sprint 003 wire/motion modules it grows into). No Python package of its own -- every module under test is C++, compiled on demand into a throwaway shared library and driven through ctypes; see tests/host/README.md."
 requires-python = ">=3.10"
 dependencies = [
     "pytest>=8.0",
     "pyserial>=3.5",
+    # The overhead camera's client + daemon. tools/field_dance.py and the
+    # field harness talk to the aprilcam daemon directly, so it has to be
+    # importable from this project's own venv -- not only from the pipx
+    # install that happens to be on PATH.
+    "aprilcam[daemon]",
 ]
 
 # This project has no installable Python package -- src/ is C++/TypeScript
 # (a MakeCode/PXT extension), not a Python source tree. `uv run pytest`
 # only needs pytest itself available in a synced venv; there is nothing
 # here for uv to build or install, so it must not try.
+# ruff is configured below but was never declared, so it lived in the
+# venv only by accident and the first real `uv sync` pruned it. Declared
+# here so linting the tree does not depend on what someone happened to
+# install once.
+[dependency-groups]
+dev = ["ruff>=0.16"]
+
 [tool.uv]
 package = false
+
+# aprilcam is a sibling checkout, not a published wheel. Editable so this
+# project follows its working tree rather than pinning a stale copy --
+# the camera code and this repo's field work move together.
+[tool.uv.sources]
+aprilcam = { path = "../aprilcam", editable = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

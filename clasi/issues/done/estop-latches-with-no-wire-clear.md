@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 ---
 
 # ESTOP latches until reboot — no wire verb reaches estopClear()
@@ -30,3 +30,15 @@ for the same wire-surface sprint as
 Operational rule until then (encoded in the session harness): routine
 halts use `STOP`; `ESTOP` only for true runaway, accepting that it
 costs a walk to the robot.
+
+---
+
+## Triage 2026-09-02 — DONE
+
+`RUN:clearestop` (`test/test.ts`, commit 7d9131c) reaches
+`clearEmergencyStop()` over the wire and answers `ESTOP:cleared`. It is
+a cleartext `RUN:` verb, not a sequenced v6 one; the cleartext path's
+UART wedge is `next/concurrent-serial-writers-wedge-the-uarte-in-both-directions.md`
+and lands with sprint 026 ticket 003. If a sequenced verb is still
+wanted, add it alongside the rebase verb in
+`next/no-wire-verb-reaches-rebaseposition-so-tours-cannot-zero-their-frame.md`.

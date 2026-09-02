@@ -4,6 +4,8 @@
 // leaf, no shaping/porting layers of its own.
 #include "serial_transport.h"
 
+#include "../platform/vfp_guard.h"
+
 #include "pxt.h"
 
 using namespace pxt;
@@ -11,6 +13,18 @@ using namespace pxt;
 namespace diffDrive {
 
 namespace {
+// uBit.serial.send(..., SYNC_SLEEP) YIELDS: it blocks the calling fiber
+// on fiber_wait_for_event() once CODAL's TX ring fills, which 240-byte
+// lines at 20 Hz telemetry reach routinely. That makes it a yield point
+// even though nothing here names fiber_sleep -- searching for that
+// symbol will not find it. Same guard, same reason, out of line for the
+// same reason: see vfp_guard.h.
+__attribute__((noinline)) int guardedSerialSend(uint8_t* buf, int len) {
+  const int rc = uBit.serial.send(buf, len, SYNC_SLEEP);
+  DIFFDRIVE_VFP_BANK_CLOBBER();
+  return rc;
+}
+
 constexpr uint8_t kLineDelimiter = 0x0A;
 
 // Bounded retry cap for writeLine()'s two-writer guard (ticket 006):
@@ -50,7 +64,7 @@ void SerialTransport::writeLine(const uint8_t* buf, size_t len) {
       ++dropCount_;
       return;
     }
-    fiber_sleep(2);
+    vfpSafeSleep(2);
   }
   sending_ = true;
 
@@ -69,13 +83,13 @@ void SerialTransport::writeLine(const uint8_t* buf, size_t len) {
   // yield destroys the callee-saved FPU registers).
   bool ok = true;
   if (len > 0) {
-    if (uBit.serial.send(const_cast<uint8_t*>(buf), static_cast<int>(len),
-                         SYNC_SLEEP) < 0) {
+    if (guardedSerialSend(const_cast<uint8_t*>(buf),
+                          static_cast<int>(len)) < 0) {
       ok = false;
     }
   }
   uint8_t delimiter = kLineDelimiter;
-  if (uBit.serial.send(&delimiter, 1, SYNC_SLEEP) < 0) {
+  if (guardedSerialSend(&delimiter, 1) < 0) {
     ok = false;
   }
 

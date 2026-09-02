@@ -93,6 +93,7 @@ _CXX11_PORTABLE_SOURCES = [
     # own, so this dedicated translation unit exists solely to give
     # this gate something to compile.
     _TEST_DIR / "encoder_pose_source_syntax_check.cpp",
+    _TEST_DIR / "run_queue_syntax_check.cpp",
 ]
 
 

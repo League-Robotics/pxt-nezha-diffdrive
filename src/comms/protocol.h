@@ -6,7 +6,7 @@
 //
 // One exception, preserved deliberately: the OLD cleartext
 // "RUN:<name>[:<arg>...]" MessageBus bridge (handleRun()/runText()/the
-// runSlots_ ring below) coexists with v6 on the same wire -- detected
+// runQueue_ ring below) coexists with v6 on the same wire -- detected
 // directly by its literal "RUN:" prefix before a line ever reaches the
 // v6 stack (no verb registry involved -- see run()'s own comment). It
 // is the ONLY path that feeds the MessageBus test-trigger bridge
@@ -41,6 +41,7 @@
 #include "radio_transport.h"  // radio transport -- now a full v6 sink too
 #include "serial_transport.h"
 #include "wire_adapter.h"
+#include "run_queue.h"
 #include "wire_handler.h"
 
 namespace diffDrive {
@@ -78,6 +79,11 @@ class Protocol {
   // Called from the TS layer (shims.cpp's runCommandText), on the event
   // handler's fiber rather than this object's own.
   const char* runText(int slot) const;
+
+  // Cleartext RUN payloads refused because every slot was still
+  // in flight. Saturates rather than wrapping -- a drop count
+  // that rolls to zero reads as "nothing was lost".
+  uint32_t runDropCount() const;
 
   // SerialTransport::writeLine()'s drop counter (ticket 006), surfaced
   // for shims.cpp's diagValue(26)/probe(26). Same same-package
@@ -140,15 +146,30 @@ class Protocol {
   // overwrite the text the queued handler has not read yet. Four slots
   // covers any burst a host can plausibly send inside one handler.
   static constexpr size_t kRunTextBytes = 48;  // name + args + NUL
-  static constexpr int kRunSlots = 4;
-  char runSlots_[kRunSlots][kRunTextBytes] = {};
-  int nextRunSlot_ = 0;      // round-robin write cursor, 0-based
+  static constexpr int kRunSlots = 8;
+  // A real ring with occupancy, not a bare write cursor: a slot stays
+  // in flight from enqueue until runText() reads it back, so a burst
+  // arriving during a long handler can no longer overwrite payload
+  // that handler has not consumed. Overflow is counted and readable
+  // (diagValue ordinal 30) instead of silent. Mutable because reading
+  // a slot IS the release -- the MessageBus consumer never says
+  // "done", so the read is the only honest place to close occupancy,
+  // and runText() is const to its callers.
+  mutable RunQueue<kRunSlots, static_cast<int>(kRunTextBytes)> runQueue_;
 
   // RUN repeat suppression -- see handleRun's own comment. Hosts repeat
   // commands to survive the single-slot inbound buffer, and without
   // this a repeated RUN runs the test once per copy. Compared on the
   // whole payload, so RUN:pivot:180 does not suppress RUN:pivot:-180.
-  static constexpr int32_t kRunDedupeMs = 3000;
+  // Suppress a host's own RETRANSMITS, not deliberate repeats. The
+  // queue below fixes loss; this fixes duplicate EXECUTION, which is a
+  // different failure -- a host repeating a command over a lossy radio
+  // would otherwise run the tour once per copy. 3000 ms was far wider
+  // than any retransmit burst and made sending one command twice in a
+  // row impossible, which is exactly the shape a parameter sweep
+  // sends. 400 ms still swallows a burst and gives deliberate repeats
+  // back.
+  static constexpr int32_t kRunDedupeMs = 400;
   char lastRunText_[kRunTextBytes] = {};
   uint32_t lastRunMs_ = 0;   // [ms] arrival time of the last accepted RUN
 

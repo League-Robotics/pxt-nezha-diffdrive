@@ -1,0 +1,18 @@
+{
+  "_provenance": "MEASURED vevov 2026-09-02 on main-playfield. Re-measure after any tag remount, camera move, or robot change.",
+  "robot": "vevov",
+  "tag_family": "apriltag",
+  "tag_number": 53,
+  "radio_channel": 37,
+  "radio_group": 43,
+  "camera": "arducam-ov9782-usb-camera",
+  "lever_cm": [
+    0.42172451948736417,
+    -6.380598743114215
+  ],
+  "_lever_note": "Tag 53 relative to the centre of rotation, in the TAG frame. Solved from an in-place pivot triple, least squares over tag = centre + R(yaw)*lever: residual 0.28 mm rms, and the three implied centres agreed to 0.7 mm, which is the proof the robot pivoted in place. The raw tag swings 68 mm across a pivot, so an uncorrected trace carries that at every corner.",
+  "heading_offset_deg": 91.11616234175443,
+  "_heading_note": "robot heading = tag yaw + this. Fitted from a translation probe, not assumed: the two candidate conventions differ by 180 deg and picking wrong is how a robot ends up in a rail.",
+  "parallax_k": 1.1167434292898253,
+  "_parallax_note": "The tag rides 11.8 cm above the field, so the camera reports every DISPLACEMENT scaled by this about its own nadir. Divide any camera distance by it for truth. MEASURED as 1.1167 +- 0.0022 over three 60 cm legs driven in opposing directions; implies a camera height near 113 cm. Closure measured at equal heading still needs it, since closure is a displacement."
+}

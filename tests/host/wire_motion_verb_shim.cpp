@@ -341,6 +341,7 @@ void setKernelValue(int field, int value) {
     case 28: g_activeWaHandle->engine.setJerkMmS3(v); break;
     case 29: g_activeWaHandle->engine.setPlateauMinS(v); break;
     case 30: g_activeWaHandle->engine.setMaxYawRateDegS(v); break;
+    case 31: g_activeWaHandle->engine.setProfileExitMmS(v); break;
     default: break;
   }
 }
@@ -402,6 +403,7 @@ int getConfigValue(int field) {
     case 28: v = g_activeWaHandle->engine.jerkMmS3(); break;
     case 29: v = g_activeWaHandle->engine.plateauMinS(); break;
     case 30: v = g_activeWaHandle->engine.maxYawRateDegS(); break;
+    case 31: v = g_activeWaHandle->engine.profileExitMmS(); break;
     default: break;
   }
   // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,

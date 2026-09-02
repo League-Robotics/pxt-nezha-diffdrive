@@ -193,6 +193,7 @@ constexpr FieldEntry kFields[] = {
     {"jerk", 28},          // ConfigField.Jerk
     {"plateau_min_s", 29}, // ConfigField.PlateauMinS
     {"max_yaw_rate", 30},  // ConfigField.MaxYawRate
+    {"profile_exit", 31},  // ConfigField.ProfileExit
                                // forward to MotionEngine::
                                // setRampMs()/rampMs().
 };

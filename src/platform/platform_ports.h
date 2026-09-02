@@ -6,6 +6,7 @@
 
 #include "pxt.h"
 #include "../core/diffdrive.h"
+#include "vfp_guard.h"
 
 namespace diffDrive {
 
@@ -42,10 +43,10 @@ class CodalClock final : public DiffDrive::Clock {
 class CodalSleeper final : public DiffDrive::Sleeper {
  public:
   void sleepMillis(uint32_t duration) override {  // [ms]
-    fiber_sleep(duration);  // cooperative -- yields to other fibers
+    vfpSafeSleep(duration);  // cooperative -- yields to other fibers
   }
   void yield() override {
-    schedule();  // bare scheduling point, no timed wait
+    vfpSafeYield();  // bare scheduling point, no timed wait
   }
 };
 
