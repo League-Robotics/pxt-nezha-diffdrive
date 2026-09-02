@@ -688,6 +688,78 @@ def _inject_profile(deploy_dir, robot):
     return robot
 
 
+_K_WIFI_SSID_RE = re.compile(
+    r'(constexpr const char\* kWifiSsid = ")[^"]*(";)')
+_K_WIFI_PASSWORD_RE = re.compile(
+    r'(constexpr const char\* kWifiPassword = ")[^"]*(";)')
+
+# The gitignored credentials file: {"ssid": ..., "password": ...} -- the
+# same shape nezha-upy's wifi_secrets.json uses, so one file serves both
+# repos. Repo-relative so a worktree carries its own copy.
+WIFI_SECRETS = os.path.join(REPO, 'config', 'wifi_secrets.json')
+
+
+def _c_string_escape(text):
+    """Escape `text` for use inside a C string literal (backslashes and
+    double quotes; a passphrase can legitimately contain either)."""
+    return text.replace('\\', '\\\\').replace('"', '\\"')
+
+
+def _read_wifi_secrets(path=None):
+    """`(ssid, password)` from the gitignored secrets file, or
+    `('', '')` when it is absent -- absence is the routine case on a
+    bench with no WiFi module and means "leave the WiFi link disabled";
+    it is reported on stdout, not fatal. A file that EXISTS but is
+    malformed IS fatal: silently baking empty credentials from a file
+    someone deliberately wrote would look exactly like "no module"."""
+    if path is None:
+        path = WIFI_SECRETS
+    if not os.path.exists(path):
+        print(f'make_deploy: no {path} -- WiFi link stays DISABLED in this '
+              'build (copy one in to enable: {"ssid": ..., "password": ...})')
+        return '', ''
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError) as e:
+        sys.exit(f'make_deploy: {path} is unreadable/malformed ({e}); fix '
+                 'or remove it')
+    ssid = data.get('ssid') if isinstance(data, dict) else None
+    password = data.get('password') if isinstance(data, dict) else None
+    if not isinstance(ssid, str) or not ssid or not isinstance(password, str):
+        sys.exit(f'make_deploy: {path} must be {{"ssid": <non-empty str>, '
+                 '"password": <str>}}')
+    return ssid, password
+
+
+def _inject_wifi_secrets(deploy_dir, secrets_path=None):
+    """Substitute `deploy_dir`'s own copy of `src/comms/protocol.cpp`'s
+    `kWifiSsid`/`kWifiPassword` constants from the gitignored
+    `config/wifi_secrets.json`. Scratch-copy-only, exactly like
+    `_inject_profile()`: the repo's checked-in literals stay EMPTY, which
+    is `WifiLink`'s own "disabled" sentinel, so a hex built any other way
+    has no credentials in it and never opens UARTE1. Returns the SSID
+    baked ('' when disabled)."""
+    ssid, password = _read_wifi_secrets(secrets_path)
+    path = os.path.join(deploy_dir, 'src', 'comms', 'protocol.cpp')
+    text = open(path).read()
+    # Function replacements, not template strings: re.sub() would
+    # re-interpret the backslashes _c_string_escape() just added.
+    new_text, n_ssid = _K_WIFI_SSID_RE.subn(
+        lambda m: m.group(1) + _c_string_escape(ssid) + m.group(2), text)
+    new_text, n_pw = _K_WIFI_PASSWORD_RE.subn(
+        lambda m: m.group(1) + _c_string_escape(password) + m.group(2), new_text)
+    if n_ssid != 1 or n_pw != 1:
+        sys.exit(f"make_deploy: expected exactly one kWifiSsid and one "
+                 f"kWifiPassword constant in {path}, found {n_ssid}/{n_pw} "
+                 "-- protocol.cpp's shape has changed, update "
+                 "_K_WIFI_SSID_RE/_K_WIFI_PASSWORD_RE")
+    with open(path, 'w') as f:
+        f.write(new_text)
+    if ssid:
+        print(f'make_deploy: WiFi link ENABLED, ssid={ssid!r}')
+    return ssid
+
+
 _K_VERSION_RE = re.compile(
     r'(constexpr const char\* kVersion = ")[^"]*(";)')
 
@@ -1093,6 +1165,7 @@ def main():
         print(f'  {f}')
     _inject_radio_channel(DEPLOY, a.robot)
     _inject_profile(DEPLOY, a.robot)
+    _inject_wifi_secrets(DEPLOY)
     for _name, _value in _inject_geometry(DEPLOY, a.robot):
         print(f'make_deploy: geometry bake {_name} = {_value:g}')
     _inject_version(DEPLOY)

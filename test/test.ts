@@ -49,6 +49,13 @@ const BOOT_ROBOT = "unknown"
 // still lands on channel 3 rather than vevov's 4.
 diffDrive.enableRadioLink()
 
+// The WiFi transport (Planet X Ai-WB2-12F on J1) is opt-in the same way:
+// the same v6 wire on UDP :7654, plus an mDNS advertisement. A build
+// with no config/wifi_secrets.json baked in (tools/make_deploy.py) keeps
+// it off even with this call, so a bench without the module loses
+// nothing.
+diffDrive.enableWifiLink()
+
 let touring = false
 // Set by RUN:abort (below); tickToCompletion() -- the single choke point
 // every tickedMove()/tickedGoTo() leg goes through -- checks this and

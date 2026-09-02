@@ -10,6 +10,16 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
 
 ## Link layer — what everything talks through
 
+- **`wifilink.py`** (2026-09-02) — the robot over its own WiFi
+  transport: a UDP link to `:7654` bound on the fixed host port `:7655`
+  (the robot learns its host from the first datagram, so the host end
+  must not be ephemeral), a 15 s bare-newline keepalive (the robot
+  forgets a host after 60 s of silence), and discovery by mDNS
+  (`<name>.local`, which the robot announces itself) with a broadcast
+  `HELLO` fallback. `wire_acceptance.py --wifi <name|ip>` and `--tcp
+  <farm-node>:<port>` (a farm serial daemon) both build on it; its
+  `--all-verbs` section exercises every entry in the v6 verb table so
+  a transport is judged against the whole protocol.
 - **`robotlink.py`** — one `Link` object that talks to the robot over
   USB serial or the zavaz radio relay (`--radio`; channel 4, group
   10 — vevov's assignment; never retune getez's channel 3). Both

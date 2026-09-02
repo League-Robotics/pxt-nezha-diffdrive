@@ -74,6 +74,10 @@ _CXX11_PORTABLE_SOURCES = [
     _SRC_DIR / "motion" / "motion_engine.cpp",
     _SRC_DIR / "comms" / "wire_handler.cpp",
     _SRC_DIR / "comms" / "wire_adapter.cpp",
+    # WiFi transport (2026-09-02): the Ai-WB2-12F AT state machine is
+    # host-portable by construction (see src/comms/wifi_link.h) -- only
+    # wifi_uart.cpp, its NRF_UARTE1 byte pipe, includes pxt.h.
+    _SRC_DIR / "comms" / "wifi_link.cpp",
     # Sprint 006 ticket 004: heading_wrap.h has no pxt.h dependency (it
     # is the extracted, host-portable half of OtosPort::setPose()'s
     # heading-wrap fix -- see src/core/heading_wrap.h's own header comment)

@@ -6,6 +6,18 @@ Good cases, bad cases, and whether the robot actually MOVES.
     uv run python tools/wire_acceptance.py --usb /dev/cu.usbmodemXXXX
     uv run python tools/wire_acceptance.py --gauti            # ssh ros@gauti
     uv run python tools/wire_acceptance.py --radio 4          # relay pool
+    uv run python tools/wire_acceptance.py --tcp 192.168.1.147:PORT
+                                                              # farm serial daemon
+    uv run python tools/wire_acceptance.py --wifi tovez       # WiFi, by mDNS/broadcast
+    uv run python tools/wire_acceptance.py --wifi 192.168.1.196
+                                                              # WiFi, by address
+
+`--all-verbs` (default on) additionally exercises EVERY verb in the v6
+table -- HELLO PING ID VER STATUS HELP GET SET TLM WHEELS_X WHEELS_V
+MOVE_X MOVE_V GO_TO_R GO_TO_W STOP ESTOP RUN -- plus the cleartext
+`RUN:` carve-out, so a transport port (the WiFi link, 2026-09-02) is
+judged against the whole protocol, not the handful of verbs the
+original bad/good/motion sections happened to touch.
 
 Why this exists: the unit suite under tests/host/ drives WireHandler
 through a ctypes shim, so it proves the handler's logic and nothing
@@ -31,10 +43,14 @@ So this asserts on an ENCODER DELTA, and, when the overhead camera is
 reachable, cross-checks against the tag. An `ack` is not evidence.
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import wifilink  # noqa: E402  (tools/wifilink.py -- the UDP link + discovery)
 
 # --------------------------------------------------------------- results
 PASS, FAIL, BLOCKED = 'PASS', 'FAIL', 'BLOCKED'
@@ -188,6 +204,71 @@ class RadioLink:
 
     def close(self):
         self.s.close()
+
+
+class TcpLink:
+    """A farm node's serial daemon (mbdeploy serve, `_mbserial._tcp`):
+    a raw, lossless byte pipe to the board's USB serial port."""
+
+    def __init__(self, hostport):
+        import socket
+        host, _, port = hostport.rpartition(':')
+        self.s = socket.create_connection((host, int(port)), timeout=15)
+        self.s.settimeout(0.1)
+        self.buf = b''
+        time.sleep(0.5)
+        self.read(0.5)
+
+    def read(self, sec):
+        import socket as _s
+        end = time.time() + sec
+        got = []
+        while time.time() < end:
+            try:
+                c = self.s.recv(4096)
+            except _s.timeout:
+                continue
+            if not c:
+                break
+            self.buf += c
+            while b'\n' in self.buf:
+                r, self.buf = self.buf.split(b'\n', 1)
+                t = r.decode('ascii', 'replace').strip()
+                if t:
+                    got.append(t)
+        return got
+
+    def ask(self, line, sec=0.8):
+        self.s.sendall(line.encode() + b'\n')
+        return self.read(sec)
+
+    def close(self):
+        self.s.close()
+
+
+class WifiLink:
+    """The robot's own WiFi transport (src/comms/wifi_link.h): v6 over
+    UDP :7654, one datagram per line. `target` is an IP, or a robot name
+    resolved by mDNS (`<name>.local`) and then broadcast HELLO."""
+
+    def __init__(self, target):
+        if re.match(r'^\d+\.\d+\.\d+\.\d+$', target):
+            host = target
+        else:
+            host = wifilink.discover(target)
+        self.host = host
+        self.link = wifilink.WifiLink(host)
+        time.sleep(0.3)
+        self.read(0.5)
+
+    def read(self, sec):
+        return self.link.read(sec)
+
+    def ask(self, line, sec=0.8):
+        return self.link.ask(line, sec)
+
+    def close(self):
+        self.link.close()
 
 
 # ------------------------------------------------------------- utilities
@@ -394,24 +475,246 @@ def run_motion(link, distance_mm):
     link.ask(f'TLM OFF #{seq}', 1.5)   # quiet the wire for later sections
 
 
+ALL_VERBS = ('HELLO', 'PING', 'ID', 'VER', 'STATUS', 'HELP', 'GET', 'SET',
+             'TLM', 'WHEELS_X', 'WHEELS_V', 'MOVE_X', 'MOVE_V', 'GO_TO_R',
+             'GO_TO_W', 'STOP', 'ESTOP', 'RUN')
+
+
+def _frames(lines, cols):
+    out = []
+    for t in lines:
+        if t.startswith('t ') and cols:
+            parts = t.split()[1:]
+            if len(parts) == len(cols):
+                out.append(dict(zip(cols, parts)))
+    return out
+
+
+def _moved(frames):
+    vl = [abs(int(f['vl'])) for f in frames if 'vl' in f]
+    vr = [abs(int(f['vr'])) for f in frames if 'vr' in f]
+    return (max(vl) if vl else 0) > 0 or (max(vr) if vr else 0) > 0
+
+
+def _quiet(lines):
+    return [t for t in lines if not t.startswith(('t ', 'thdr '))]
+
+
+def run_all_verbs(link, motion=True, estop=True):
+    """Every verb in the v6 table, once each, in a sequence that keeps
+    the robot's expectedNext_ tracked from its OWN acks (never a blind
+    increment -- see next_id()). ESTOP is deliberately LAST: it latches
+    (see main()'s ordering note)."""
+    print('\n=== ALL VERBS: every entry in the v6 table, over this transport ===')
+    reset(link)                                    # HELLO
+    seq = 1
+
+    # --- the seven unsequenced verbs -----------------------------------
+    out = link.ask('HELLO', 1.2)
+    record(PASS if has(out, 'device ') else FAIL, 'HELLO -> device banner', str(out))
+    for verb, pre in (('PING', 'pong '), ('ID', 'id '), ('VER', 'ver '),
+                      ('STATUS', 'status ')):
+        out = None
+        for _ in range(3):
+            out = link.ask(verb)
+            if has(out, pre):
+                break
+        record(PASS if has(out, pre) else FAIL, f'{verb} -> {pre.strip()}', str(out))
+    idline = next((t for t in link.ask('ID') if t.startswith('id ')), '')
+    parts = idline.split()
+    record(PASS if len(parts) == 5 else FAIL,
+           'ID carries drivetrain profile version NAME (4 fields)', idline)
+    help_lines = []
+    for _ in range(3):
+        help_lines = [t for t in link.ask('HELP', 1.5) if t.startswith('help')]
+        if help_lines:
+            break
+    listed = ' '.join(help_lines)
+    missing = [v for v in ALL_VERBS if v not in listed.split()]
+    record(PASS if help_lines and not missing else FAIL,
+           'HELP lists all 18 verbs', f'missing={missing} got={help_lines}')
+
+    # --- GET / SET (sequenced, order-dependent) --------------------------
+    out = link.ask(f'GET #{seq}', 2.0)
+    gets = [t for t in out if t.startswith('get ')]
+    record(PASS if has(out, f'ack {seq} ') and gets else FAIL,
+           'bare GET -> ack + one `get` line per field', f'{len(gets)} fields, {out[:2]}')
+    seq = next_id(out, seq)
+    out = link.ask(f'GET max_duty #{seq}')
+    val = next((t.split()[2] for t in out if t.startswith('get max_duty ')), None)
+    record(PASS if has(out, f'ack {seq} ') and val is not None else FAIL,
+           'GET max_duty -> get max_duty <v>', str(out))
+    seq = next_id(out, seq)
+    if val is not None:
+        out = link.ask(f'SET max_duty {val} #{seq}')
+        record(PASS if has(out, f'ack {seq} ') and not has(out, 'err ') else FAIL,
+               'SET max_duty <same> -> ack, no err', str(out))
+        seq = next_id(out, seq)
+        out = link.ask(f'GET max_duty #{seq}')
+        val2 = next((t.split()[2] for t in out if t.startswith('get max_duty ')), None)
+        record(PASS if val2 == val else FAIL, 'GET reads back the SET value',
+               f'{val} -> {val2}')
+        seq = next_id(out, seq)
+
+    # --- TLM modes -------------------------------------------------------
+    cols = None
+    out = link.ask(f'TLM POSE #{seq}', 1.5)
+    for t in out:
+        if t.startswith('thdr '):
+            cols = t.split()[1:]
+    frames = _frames(out, cols)
+    record(PASS if has(out, f'ack {seq} ') and cols and frames else FAIL,
+           'TLM POSE -> ack, thdr, t frames', f'cols={cols} frames={len(frames)}')
+    seq = next_id(out, seq)
+    pose_cols = cols
+    out = link.ask(f'TLM FULL #{seq}', 1.5)
+    full_cols = None
+    for t in out:
+        if t.startswith('thdr '):
+            full_cols = t.split()[1:]
+    record(PASS if has(out, f'ack {seq} ') and full_cols and
+           (not pose_cols or len(full_cols) >= len(pose_cols)) else FAIL,
+           'TLM FULL -> ack + a (wider) thdr', f'cols={full_cols}')
+    seq = next_id(out, seq)
+    cols = full_cols or pose_cols
+    for mode in ('AUTO', 'BUFFER'):
+        out = link.ask(f'TLM {mode} #{seq}', 1.0)
+        record(PASS if has(out, f'ack {seq} ') and not has(out, 'nack') else FAIL,
+               f'TLM {mode} -> ack', str(_quiet(out)))
+        seq = next_id(out, seq)
+    # TLM NOW is "a one-shot request in the CURRENT subscription's shape"
+    # (wire_adapter.cpp): it never changes the mode, so with a live POSE
+    # subscription it acks and frames keep coming; with the mode OFF it
+    # acks and nothing is emitted. Both halves are checked.
+    out = link.ask(f'TLM NOW #{seq}', 1.0)
+    record(PASS if has(out, f'ack {seq} ') and not has(out, 'nack') else FAIL,
+           'TLM NOW (while subscribed) -> ack, mode unchanged', str(_quiet(out)))
+    seq = next_id(out, seq)
+    out = link.ask(f'TLM OFF #{seq}', 1.0)
+    seq = next_id(out, seq)
+    after = link.read(0.8)
+    record(PASS if has(out, 'ack ') and not [t for t in after if t.startswith('t ')] else FAIL,
+           'TLM OFF -> ack, frames stop', f'{len(after)} lines after')
+    out = link.ask(f'TLM NOW #{seq}', 1.0)
+    record(PASS if has(out, f'ack {seq} ') and not has(out, 'nack') else FAIL,
+           'TLM NOW (while off) -> ack', str(_quiet(out)))
+    seq = next_id(out, seq)
+    after = link.read(0.6)
+    record(PASS if not [t for t in after if t.startswith('t ')] else FAIL,
+           'TLM NOW never starts a stream', f'{len(after)} lines after')
+
+    # --- the six motion verbs + STOP -------------------------------------
+    def motion_case(cmd, label, accept_err=()):
+        nonlocal seq, cols
+        out = link.ask(f'TLM POSE #{seq}', 0.8)
+        seq = next_id(out, seq)
+        # The POSE column set differs from FULL's -- take the header
+        # this subscription actually announced, or frames never match.
+        for t in out:
+            if t.startswith('thdr '):
+                cols = t.split()[1:]
+        line = f'{cmd} #{seq}'
+        out = link.ask(line, 0.5)
+        err = next((t for t in out if t.startswith('err ')), None)
+        acked = has(out, f'ack {seq} ')
+        seq = next_id(out, seq)
+        if not acked:
+            record(FAIL, f'{label}: accepted', str(_quiet(out)))
+        elif err and err.split()[1] in accept_err:
+            record(PASS, f'{label}: ack + refused on merit ({err}) -- acceptable here',
+                   str(_quiet(out)))
+        elif err:
+            record(FAIL, f'{label}: accepted but refused', str(_quiet(out)))
+        else:
+            record(PASS, f'{label}: ack, no err')
+            if motion:
+                moving = _frames(link.ask('PING', 2.5), cols)
+                record(PASS if _moved(moving) else FAIL,
+                       f'{label}: WHEELS TURNED (vl/vr non-zero)',
+                       f'{len(moving)} frames')
+        out = link.ask(f'STOP #{seq}', 0.8)
+        record(PASS if has(out, f'ack {seq} ') else FAIL, f'STOP after {label} -> ack',
+               str(_quiet(out)))
+        seq = next_id(out, seq)
+        out = link.ask(f'TLM OFF #{seq}', 0.8)
+        seq = next_id(out, seq)
+        link.read(0.3)
+
+    motion_case('WHEELS_V 100 100 1500', 'WHEELS_V')
+    motion_case('WHEELS_X 150 150 120 4000', 'WHEELS_X')
+    motion_case('MOVE_X 150 0 120 4000', 'MOVE_X')
+    motion_case('MOVE_V 100 0 1500', 'MOVE_V')
+    motion_case('GO_TO_R 150 0 120 10 4000', 'GO_TO_R')
+    # GO_TO_W needs a world pose source; ERR_NOT_CONFIGURED (8) or
+    # ERR_UNIMPLEMENTED (6) without one is a correct refusal, not a wire
+    # defect.
+    motion_case('GO_TO_W 0 0 120 10 3000', 'GO_TO_W', accept_err=('6', '8'))
+
+    out = link.ask(f'STOP now #{seq}', 0.8)
+    record(PASS if has(out, f'ack {seq} ') and not has(out, 'err ') else FAIL,
+           'STOP now -> ack', str(_quiet(out)))
+    seq = next_id(out, seq)
+
+    # --- RUN, both forms ---------------------------------------------------
+    out = link.ask(f'RUN nosuchfunction #{seq}', 1.0)
+    record(PASS if has(out, f'ack {seq} ') and has(out, 'err 1 ') else FAIL,
+           'v6 RUN <unknown> -> ack + err 1 (empty allowlist)', str(_quiet(out)))
+    seq = next_id(out, seq)
+    out = None
+    for _ in range(3):
+        out = link.ask('RUN:gap', 1.5)
+        if has(out, 'GAP:'):
+            break
+    record(PASS if has(out, 'GAP:') else FAIL,
+           'cleartext RUN:gap carve-out -> GAP: line', str(_quiet(out)))
+
+    # --- ESTOP, last ---------------------------------------------------------
+    if estop:
+        out = _quiet(link.ask('ESTOP', 1.0))
+        record(PASS if 'estop' in out else FAIL, 'ESTOP -> estop', str(out))
+    else:
+        print('  (ESTOP skipped: --no-estop, so a second transport can run '
+              'motion on this boot)')
+
+
 def main():
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument('--usb', metavar='PORT', help='local serial port')
     g.add_argument('--gauti', action='store_true',
                    help="vevov's port, over ssh ros@gauti")
     g.add_argument('--radio', metavar='CH', type=int,
                    help='torture relay pool on this channel')
+    g.add_argument('--tcp', metavar='HOST:PORT',
+                   help="a farm node's serial daemon (mbdeploy serve)")
+    g.add_argument('--wifi', metavar='NAME|IP',
+                   help="the robot's own WiFi transport (UDP :7654); a name "
+                        "is resolved by mDNS then broadcast")
     ap.add_argument('--distance', type=int, default=200,
                     help='motion test distance per wheel in MM (default 200)')
     ap.add_argument('--no-motion', action='store_true',
                     help='skip the motion section (bench board, wheels up)')
+    ap.add_argument('--no-all-verbs', action='store_true',
+                    help='skip the every-verb section')
+    ap.add_argument('--only-all-verbs', action='store_true',
+                    help='run ONLY the every-verb section (fresh-boot '
+                         'friendly: no prior ESTOP latch)')
+    ap.add_argument('--no-estop', action='store_true',
+                    help="leave ESTOP out of the every-verb section, so the "
+                         "latch it sets does not refuse a later transport's "
+                         "motion cases on the same boot")
     a = ap.parse_args()
 
     if a.usb:
         link, where = UsbLink(a.usb), f'USB {a.usb}'
     elif a.gauti:
         link, where = GautiLink(), 'gauti -> vevov USB'
+    elif a.tcp:
+        link, where = TcpLink(a.tcp), f'serial daemon {a.tcp}'
+    elif a.wifi:
+        link = WifiLink(a.wifi)
+        where = f'WiFi UDP {link.host}:{wifilink.ROBOT_PORT}'
     else:
         link, where = RadioLink(a.radio), f'radio ch{a.radio}'
 
@@ -462,15 +765,29 @@ def main():
         # (src/blocks/stop.ts) -- so once ESTOP has been sent, motion
         # cannot be tested again until the board reboots. Motion
         # therefore runs FIRST, and ESTOP is left to the end.
+        if a.only_all_verbs:
+            run_all_verbs(link, motion=not a.no_motion, estop=not a.no_estop)
+            return _summary()
         run_good_cases(link)
         if a.no_motion:
             print('\n=== MOTION: skipped (--no-motion) ===')
         else:
             run_motion(link, a.distance)
         run_bad_cases(link)
+        # run_bad_cases() ends with an ESTOP, which LATCHES -- so the
+        # every-verb section's own motion cases would all be refused
+        # after it. It runs its own reset first; on a board that has just
+        # been ESTOPped the motion cases report the latch (err 8/10) as
+        # FAIL, which is the honest answer. Prefer --no-all-verbs +
+        # a fresh boot if only the classic sections are wanted.
+        if not a.no_all_verbs:
+            run_all_verbs(link, motion=not a.no_motion, estop=not a.no_estop)
     finally:
         link.close()
+    return _summary()
 
+
+def _summary():
     n_pass = sum(1 for o, _, _ in results if o == PASS)
     n_fail = sum(1 for o, _, _ in results if o == FAIL)
     n_block = sum(1 for o, _, _ in results if o == BLOCKED)

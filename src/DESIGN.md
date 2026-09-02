@@ -546,6 +546,39 @@ above this same cap (§10's Open Questions).
 no semantics. Siblings under Protocol, deliberately uncoupled from
 each other.
 
+**WiFi transport (2026-09-02) — `comms/wifi_link.*`,
+`comms/wifi_uart.*`.** A third transport, peer to the two above: the
+ELECFREAKS Planet X WiFi module (Ai-Thinker Ai-WB2-12F, ESP-AT
+dialect) on RJ11 jack J1, driven over `NRF_UARTE1` (TX P8 / RX P1).
+Split the same way the kernel is split from its ports: `WifiLink` is
+the host-portable AT state machine (no `pxt.h`; tested under
+`tests/host/test_wifi_link.py` against a scripted fake module), and
+`WifiUartCodal` is the CODAL byte pipe behind a four-method `WifiUart`
+seam. The design ported is radio-robot-lib's wifi-link design note
+(the AT-mode, `CIPMUX=1` link proven on tovez in nezha-upy), not the
+earlier transparent-passthrough exploration: bring-up is `AT+RST` →
+configure → `AT+CWJAP?` poll → `CWJAP` → `CWDHCP`/`CIPSTA?` → UDP
+socket on link 4 (`:7654`, mode 2), after which one inbound datagram
+is one wire line, the host is learned from the `+IPD` header
+(`CIPDINFO=1`) and forgotten after 60 s of silence, and every outbound
+line is exactly one `AT+CIPSEND`. Every method is non-blocking and
+runs on the protocol fiber (no yield, so no VFP-guard concern).
+Protocol owns a third `WireHandler` over the shared adapter
+(`wireHandlerWifi_`, own `expectedNext_`), mirrors `emitLine()` output
+to it, gates its telemetry frames through `WifiLink::telemetryAllowed()`
+(≥ 50 ms floor plus queue room — the reference implementation's
+measured heap-wedge), and emits one `DBG:wifi ...` line per state
+change. Opt-in via `diffDrive.enableWifiLink()`, and inert unless
+`tools/make_deploy.py` baked credentials from the gitignored
+`config/wifi_secrets.json` (the checked-in SSID literal is empty, which
+is the link's "disabled" sentinel). The robot also multicasts its own
+DNS-SD announcement on link 3 every 60 s — `<name>.local` plus
+`<name> robot link` on `_robotlink._udp` with a TXT record naming the
+robot — because the module has no mDNS of its own. Verified on tovez
+2026-09-02: `captures/tovez-wifi-20260902/` (every v6 verb over WiFi
+with wheels turning, identical results to USB on the same boot), and
+`docs/knowledge/2026-09-02-wifi-transport-tovez.md`.
+
 ## 7. Hardware ports — `platform/nezha_port.*`, `platform/otos_port.*`, `core/heading_wrap.h`, `core/encoder_glitch_armor.h`, `platform/platform_ports.h`
 
 **NezhaMotorPort** (`DiffDrive::Motor` over I2C 0x10). The

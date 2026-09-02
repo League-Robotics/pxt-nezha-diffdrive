@@ -18,6 +18,13 @@ binary.js
 
 # --- Python tooling ---
 __pycache__/
+.venv/
+
+# --- WiFi credentials: {"ssid": ..., "password": ...}, baked into the
+# scratch copy by tools/make_deploy.py's _inject_wifi_secrets(). NEVER
+# committed; copy one in from a sibling checkout (nezha-upy keeps the
+# same shape).
+config/wifi_secrets.json
 
 # --- macOS / editor cruft ---
 .DS_Store
