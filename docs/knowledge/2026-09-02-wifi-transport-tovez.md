@@ -102,5 +102,7 @@ before it. A USB round trip is 5-6 ms.
    exercised only under the host tests, not on the bench.
 3. No authentication on UDP :7654 -- anyone on the LAN can drive the
    robot. Same open decision the earlier exploration flagged.
-4. `.claude/rules/robot-ownership.md` still assigns tovez elsewhere;
-   this session used it by stakeholder direction (2026-09-02).
+
+Robot assignment note: tovez was assigned for this work by the
+stakeholder on 2026-09-02. There is no standing rule about which agent
+owns which robot; the assignment is per session and per machine.
