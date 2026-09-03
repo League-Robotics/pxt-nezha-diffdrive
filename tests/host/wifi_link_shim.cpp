@@ -123,9 +123,15 @@ const char* wlLastReply(void* p) { return static_cast<Handle*>(p)->link.lastRepl
 int wlClearRxCalls(void* p) { return static_cast<Handle*>(p)->uart.clearRxCalls; }
 int wlBaud(void* p) { return static_cast<int>(static_cast<Handle*>(p)->uart.baud); }
 
-int wlBuildMdns(uint8_t* out, int cap, const char* hostname, const char* ip, int port) {
+int wlBuildMdns(uint8_t* out, int cap, const char* hostname, const char* ip, int port,
+                const char* proto) {
   return static_cast<int>(diffDrive::WifiLink::buildMdnsAnnouncement(
-      out, static_cast<size_t>(cap), hostname, ip, static_cast<uint16_t>(port), 120));
+      out, static_cast<size_t>(cap), hostname, ip, static_cast<uint16_t>(port), 120,
+      proto));
 }
+int wlNewClientEdge(void* p) { return static_cast<Handle*>(p)->link.pollNewClientEdge() ? 1 : 0; }
+int wlReplyLink(void* p) { return static_cast<Handle*>(p)->link.replyLink(); }
+int wlTcpMask(void* p) { return static_cast<Handle*>(p)->link.tcpOpenMask(); }
+int wlTcpServerOpen(void* p) { return static_cast<Handle*>(p)->link.tcpServerOpen() ? 1 : 0; }
 
 }  // extern "C"

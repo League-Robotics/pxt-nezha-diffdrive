@@ -259,12 +259,14 @@ void Protocol::emitWifiDebug() {
   // layer's debug output uses), through emitLine() so it reaches
   // serial, radio AND -- once up -- the WiFi host itself.
   snprintf(wifiDbgBuf_, sizeof(wifiDbgBuf_),
-           "DBG:wifi state=%d ip=%s peer=%s:%u restarts=%lu sent=%lu rx=%lu "
-           "drop=%lu mdns=%lu/%d cmd=%s reply=%s",
+           "DBG:wifi state=%d ip=%s peer=%s:%u tcp=%u/%d to=%d restarts=%lu "
+           "sent=%lu rx=%lu drop=%lu mdns=%lu/%d cmd=%s reply=%s",
            static_cast<int>(wifiLink_.state()),
            wifiLink_.ownIp()[0] ? wifiLink_.ownIp() : "-",
            wifiLink_.peerIp()[0] ? wifiLink_.peerIp() : "-",
            static_cast<unsigned>(wifiLink_.peerPort()),
+           static_cast<unsigned>(wifiLink_.tcpOpenMask()),
+           wifiLink_.tcpServerOpen() ? 1 : 0, wifiLink_.replyLink(),
            static_cast<unsigned long>(wifiLink_.restartCount()),
            static_cast<unsigned long>(wifiLink_.sentCount()),
            static_cast<unsigned long>(wifiLink_.receivedCount()),
@@ -306,6 +308,13 @@ void Protocol::serviceWifi() {
   // boot banner, exactly what a USB host sees at connect
   // (the wifi-link note, section 6.1's READY-on-new-peer edge).
   if (wifiLink_.pollNewPeerEdge()) {
+    wireHandlerWifi_.sendBanner();
+    emitWifiDebug();
+  }
+  // Likewise a TCP client that just connected -- it is the current
+  // reply target from its CONNECT line onward, so the banner reaches
+  // it, exactly what a USB host sees at connect.
+  if (wifiLink_.pollNewClientEdge()) {
     wireHandlerWifi_.sendBanner();
     emitWifiDebug();
   }

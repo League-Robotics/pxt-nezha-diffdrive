@@ -73,14 +73,15 @@ def lib(tmp_path_factory):
     for name in ("wlState", "wlPeerKnown", "wlPeerPort", "wlRestarts", "wlDrops",
                  "wlSent", "wlReceived", "wlNewPeerEdge", "wlStateChanged",
                  "wlTelemetryAllowed", "wlMdnsOpen", "wlMdnsCount",
-                 "wlClearRxCalls", "wlBaud"):
+                 "wlClearRxCalls", "wlBaud", "wlNewClientEdge", "wlReplyLink",
+                 "wlTcpMask", "wlTcpServerOpen"):
         getattr(lib, name).argtypes = [ctypes.c_void_p]
         getattr(lib, name).restype = ctypes.c_int
     for name in ("wlPeerIp", "wlOwnIp", "wlLastCommand", "wlLastReply"):
         getattr(lib, name).argtypes = [ctypes.c_void_p]
         getattr(lib, name).restype = ctypes.c_char_p
     lib.wlBuildMdns.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
-                                ctypes.c_char_p, ctypes.c_int]
+                                ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p]
     lib.wlBuildMdns.restype = ctypes.c_int
     return lib
 
@@ -95,6 +96,7 @@ class Link:
         self.lib.wlSetNow(1000)
         self.h = lib.wlCreate(ssid.encode(), password.encode(), hostname.encode())
         self._buf = ctypes.create_string_buffer(4096)
+        self.tcp_ok = True
 
     def close(self):
         self.lib.wlDestroy(self.h)
@@ -129,7 +131,7 @@ class Link:
         raise AssertionError(f"link never wrote {text!r} (state {self.state()})")
 
     def bring_up(self, own_ip="192.168.1.196", mdns_ok=True, join_query_hits=True,
-                 drain_mdns=True):
+                 drain_mdns=True, tcp_ok=True):
         for cmd in CONFIGURE_SEQUENCE:
             self.expect_command(cmd)
             self.reply("\r\nready\r\n" if cmd == "AT+RST" else "\r\nOK\r\n")
@@ -154,25 +156,43 @@ class Link:
         self.reply("4,CONNECT\r\n\r\nOK\r\n")
         self.expect_command('AT+CIPSTART=3,"UDP","224.0.0.251",5353,5353,0')
         self.reply("3,CONNECT\r\n\r\nOK\r\n" if mdns_ok else "\r\nERROR\r\n")
+        self.expect_command("AT+CIPSERVER=1,7654")
+        self.reply("\r\nOK\r\n" if tcp_ok else "\r\nERROR\r\n")
+        self.expect_command("AT+CIPSTO=0")
+        self.reply("\r\nOK\r\n")
         self.step()
         assert self.state() == READY
+        self.tcp_ok = tcp_ok
         # A ready link with a socket and an address announces itself on
-        # its first idle pass; most tests want that out of the way.
+        # its first idle pass (one packet per service type); most tests
+        # want that out of the way.
         if drain_mdns and mdns_ok and own_ip:
             self.drain_announcement()
 
     def drain_announcement(self):
-        """Service through one mDNS announcement (CIPSEND on link 3,
-        prompt, payload, SEND OK) and return the packet bytes."""
-        cmds = self.commands()
-        assert len(cmds) == 1 and cmds[0].startswith("AT+CIPSEND=3,"), cmds
-        n = int(cmds[0].split(",")[1])
-        self.reply(">")
-        raw = self.step()
-        assert len(raw) == n, (len(raw), n)
-        self.reply("SEND OK\r\n")
+        """Service through one mDNS announcement round (one CIPSEND on
+        link 3 per advertised service type: prompt, payload, SEND OK) and
+        return the packet bytes, in order."""
+        packets = []
+        for _ in range(2 if self.tcp_ok else 1):
+            cmds = self.commands()
+            assert len(cmds) == 1 and cmds[0].startswith("AT+CIPSEND=3,"), cmds
+            n = int(cmds[0].split(",")[1])
+            self.reply(">")
+            raw = self.step()
+            assert len(raw) == n, (len(raw), n)
+            self.reply("SEND OK\r\n")
+            self.step()
+            packets.append(raw)
+        return packets
+
+    def tcp_connect(self, link=0):
+        self.reply(f"{link},CONNECT\r\n")
         self.step()
-        return raw
+
+    def tcp_close(self, link=0):
+        self.reply(f"{link},CLOSED\r\n")
+        self.step()
 
     def datagram(self, payload, ip="192.168.1.40", port=7655, link=4, extended=True):
         data = payload.encode() if isinstance(payload, str) else payload
@@ -518,7 +538,7 @@ def _parse_packet(pkt):
 
 def test_mdns_announcement_decodes_to_the_five_dns_sd_records(lib):
     out = ctypes.create_string_buffer(512)
-    n = lib.wlBuildMdns(out, 512, b"tovez", b"192.168.1.196", 7654)
+    n = lib.wlBuildMdns(out, 512, b"tovez", b"192.168.1.196", 7654, b"_udp")
     assert 0 < n <= 256, n                          # fits one send slot
     pkt = out.raw[:n]
     recs = _parse_packet(pkt)
@@ -548,7 +568,7 @@ def test_mdns_announcement_decodes_to_the_five_dns_sd_records(lib):
         ln = txt_rdata[i]
         strings.append(txt_rdata[i + 1:i + 1 + ln].decode())
         i += 1 + ln
-    assert strings == ["name=tovez", "role=robot", "link=v6-udp", "port=7654"]
+    assert strings == ["name=tovez", "role=robot", "link=v6", "port=7654"]
 
     (a_name, a_class, a_rdata, _), = by_type[1]
     assert a_name == "tovez.local"
@@ -558,17 +578,28 @@ def test_mdns_announcement_decodes_to_the_five_dns_sd_records(lib):
 
 def test_mdns_announcement_refuses_a_bad_ip_or_empty_host(lib):
     out = ctypes.create_string_buffer(512)
-    assert lib.wlBuildMdns(out, 512, b"tovez", b"", 7654) == 0
-    assert lib.wlBuildMdns(out, 512, b"tovez", b"192.168.1", 7654) == 0
-    assert lib.wlBuildMdns(out, 512, b"", b"192.168.1.5", 7654) == 0
-    assert lib.wlBuildMdns(out, 64, b"tovez", b"192.168.1.5", 7654) == 0   # does not fit
+    assert lib.wlBuildMdns(out, 512, b"tovez", b"", 7654, b"_udp") == 0
+    assert lib.wlBuildMdns(out, 512, b"tovez", b"192.168.1", 7654, b"_udp") == 0
+    assert lib.wlBuildMdns(out, 512, b"", b"192.168.1.5", 7654, b"_udp") == 0
+    assert lib.wlBuildMdns(out, 64, b"tovez", b"192.168.1.5", 7654, b"_udp") == 0   # does not fit
+
+
+def test_mdns_tcp_announcement_advertises_the_tcp_service_type(lib):
+    out = ctypes.create_string_buffer(512)
+    n = lib.wlBuildMdns(out, 512, b"tovez", b"192.168.1.196", 7654, b"_tcp")
+    recs = _parse_packet(out.raw[:n])
+    names = [r[0] for r in recs]
+    assert "_robotlink._tcp.local" in names
+    assert "tovez robot link._robotlink._tcp.local" in names
+    assert "_robotlink._udp" not in " ".join(names)
 
 
 def test_ready_link_multicasts_the_announcement_on_link_3_and_repeats_each_minute(link):
     link.bring_up(own_ip="192.168.1.196", drain_mdns=False)
-    raw = link.drain_announcement()
-    recs = _parse_packet(raw)
+    udp_pkt, tcp_pkt = link.drain_announcement()
+    recs = _parse_packet(udp_pkt)
     assert recs[4][0] == "tovez.local" and recs[4][4] == bytes([192, 168, 1, 196])
+    assert "_robotlink._tcp.local" in [r[0] for r in _parse_packet(tcp_pkt)]
     assert link.lib.wlMdnsCount(link.h) == 1
     assert link.commands(30000) == []              # 30 s: nothing yet
     cmds = link.commands(30500)                    # 60.5 s: re-announced
@@ -597,3 +628,107 @@ def test_protocol_traffic_preempts_the_announcement(link):
     link.reply(">"); link.step(); link.reply("SEND OK\r\n"); link.step()
     cmds = link.commands()                        # only THEN the announcement
     assert cmds and cmds[0].startswith("AT+CIPSEND=3,"), cmds
+
+
+# ---------------------------------------------------------------- TCP
+
+def test_tcp_server_refusal_is_tolerated(link):
+    link.bring_up(tcp_ok=False)
+    assert link.state() == READY
+    assert link.lib.wlTcpServerOpen(link.h) == 0
+
+
+def test_tcp_connect_fires_the_client_edge_and_becomes_the_reply_target(link):
+    link.bring_up()
+    assert link.lib.wlNewClientEdge(link.h) == 0
+    link.tcp_connect(0)
+    assert link.lib.wlNewClientEdge(link.h) == 1
+    assert link.lib.wlNewClientEdge(link.h) == 0
+    assert link.lib.wlTcpMask(link.h) == 0b001
+    assert link.lib.wlReplyLink(link.h) == 0
+    # the banner Protocol sends on that edge goes out on link 0, TCP form
+    assert link.send("device NEZHA2 robot tovez 1")
+    link.expect_command("AT+CIPSEND=0,28")
+    link.reply(">")
+    assert link.step() == b"device NEZHA2 robot tovez 1\n"
+
+
+def test_tcp_stream_is_assembled_into_lines_across_frames(link):
+    link.bring_up()
+    link.tcp_connect(0)
+    link.datagram("PI", link=0); link.step()
+    assert link.receive() is None                  # no newline yet
+    link.datagram("NG\r\nSTATUS\nHEL", link=0); link.step()
+    assert link.receive() == b"PING"                # '\r' stripped
+    assert link.receive() == b"STATUS"
+    assert link.receive() is None
+    link.datagram("LO\n", link=0); link.step()
+    assert link.receive() == b"HELLO"
+    assert link.lib.wlReplyLink(link.h) == 0
+
+
+def test_tcp_bytes_from_an_unconnected_link_are_ignored(link):
+    link.bring_up()
+    link.datagram("PING\n", link=1); link.step()   # no 1,CONNECT was seen
+    assert link.receive() is None
+
+
+def test_reply_follows_the_carrier_of_the_last_inbound_line(link):
+    link.bring_up()
+    link.datagram("HELLO"); link.step()             # UDP host learned
+    assert link.receive() == b"HELLO"
+    link.tcp_connect(0)
+    link.datagram("PING\n", link=0); link.step()
+    assert link.receive() == b"PING"
+    assert link.send("pong 1")
+    link.expect_command("AT+CIPSEND=0,7")           # TCP form, no ip/port
+    link.reply(">"); link.step(); link.reply("SEND OK\r\n"); link.step()
+    link.datagram("PING"); link.step()              # now a UDP line
+    assert link.receive() == b"PING"
+    assert link.send("pong 2")
+    link.expect_command('AT+CIPSEND=4,7,"192.168.1.40",7655')
+
+
+def test_tcp_close_falls_back_to_the_udp_host(link):
+    link.bring_up()
+    link.datagram("HELLO"); link.step()
+    link.tcp_connect(0)
+    link.datagram("PING\n", link=0); link.step(); link.receive()
+    link.tcp_close(0)
+    assert link.lib.wlTcpMask(link.h) == 0
+    assert link.lib.wlReplyLink(link.h) == 4
+    assert link.send("x")
+    link.expect_command('AT+CIPSEND=4,2,"192.168.1.40",7655')
+
+
+def test_tcp_close_with_no_udp_host_drops_sends(link):
+    link.bring_up()
+    link.tcp_connect(0)
+    link.tcp_close(0)
+    assert not link.send("x")
+
+
+def test_newest_tcp_client_wins(link):
+    link.bring_up()
+    link.tcp_connect(0)
+    link.tcp_connect(1)
+    assert link.lib.wlTcpMask(link.h) == 0b011
+    assert link.lib.wlReplyLink(link.h) == 1
+    assert link.send("x")
+    link.expect_command("AT+CIPSEND=1,2")
+
+
+def test_tcp_overlong_line_is_discarded_whole(link):
+    link.bring_up()
+    link.tcp_connect(0)
+    link.datagram("x" * 200, link=0); link.step()
+    link.datagram("x" * 100 + "\nPING\n", link=0); link.step()
+    assert link.receive() == b"PING"               # the 300-byte line never arrives
+    assert link.receive() is None
+
+
+def test_telemetry_gate_accepts_a_tcp_client_with_no_udp_host(link):
+    link.bring_up()
+    assert link.lib.wlTelemetryAllowed(link.h) == 0
+    link.tcp_connect(0)
+    assert link.lib.wlTelemetryAllowed(link.h) == 1

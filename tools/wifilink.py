@@ -34,6 +34,13 @@ Also a CLI:
     uv run python tools/wifilink.py --robot tovez HELLO PING ID
     uv run python tools/wifilink.py --host 192.168.1.196 "STATUS"
     uv run python tools/wifilink.py --discover           # just find it
+    uv run python tools/wifilink.py --tcp --robot tovez PING STATUS
+                                                         # the TCP server
+
+The robot also runs a TCP server on the same port number. A TCP client
+is a plain line stream (like USB): no fixed local port, no keepalive,
+the banner arrives on connect, and `nc tovez.local 7654` works by hand.
+`TcpLink` below is that; `WifiLink` is the UDP plane.
 """
 import argparse
 import socket
@@ -166,6 +173,52 @@ def discover(robot, timeout=DISCOVERY_S, quiet=False):
              "module joined? (watch the robot's USB for `DBG:wifi state=5`)")
 
 
+class TcpLink:
+    """The robot's TCP server on the same port: a plain line stream, like
+    USB. No fixed local port, no keepalive, no peer-forget -- the robot
+    greets a new client with its `device ...` banner and replies to
+    whichever client spoke last. `nc tovez.local 7654` is the same
+    thing by hand."""
+
+    def __init__(self, host, port=ROBOT_PORT, timeout=10.0):
+        self.host, self.port = host, port
+        self.s = socket.create_connection((host, port), timeout=timeout)
+        self.s.settimeout(0.1)
+        self.buf = b""
+
+    def send(self, data):
+        if isinstance(data, str):
+            data = data.encode()
+        self.s.sendall(data)
+
+    def read(self, sec):
+        end = time.time() + sec
+        got = []
+        while time.time() < end:
+            try:
+                c = self.s.recv(4096)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            if not c:
+                break
+            self.buf += c
+            while b"\n" in self.buf:
+                r, self.buf = self.buf.split(b"\n", 1)
+                t = r.decode("ascii", "replace").strip()
+                if t:
+                    got.append(t)
+        return got
+
+    def ask(self, line, sec=0.8):
+        self.send(line.rstrip("\n") + "\n")
+        return self.read(sec)
+
+    def close(self):
+        self.s.close()
+
+
 class WifiLink:
     """One UDP socket, the `ask()`/`read()` shape tools/wire_acceptance.py's
     other links share, with a background keepalive."""
@@ -238,6 +291,8 @@ def main():
                     help="only discover and print the address")
     ap.add_argument("--browse", action="store_true",
                     help="list _robotlink._udp instances seen over mDNS")
+    ap.add_argument("--tcp", action="store_true",
+                    help="use the robot's TCP server on :7654 instead of UDP")
     ap.add_argument("--wait", type=float, default=1.0, help="seconds to read after each line")
     ap.add_argument("lines", nargs="*", help="wire lines to send, in order")
     a = ap.parse_args()
@@ -249,8 +304,11 @@ def main():
     if a.discover:
         print(host)
         return 0
-    link = WifiLink(host)
+    link = TcpLink(host) if a.tcp else WifiLink(host)
     try:
+        if a.tcp:
+            for t in link.read(1.0):          # the connect-time banner
+                print(f"< {t}")
         for line in a.lines or ["HELLO"]:
             print(f"> {line}")
             for t in link.ask(line, a.wait):

@@ -103,9 +103,11 @@ class WifiLink {
     const char* ssid;
     const char* password;
     const char* hostname;  // mDNS host label (e.g. "tovez") -> <hostname>.local
-    uint16_t port;         // our UDP protocol port (7654)
+    uint16_t port;         // our UDP protocol port (7654) -- and the TCP server's
     uint16_t hostPort;     // the host's fixed port (7655), CIPSTART's remote placeholder
-    Config() : ssid(""), password(""), hostname("robot"), port(7654), hostPort(7655) {}
+    bool tcpServer;        // also accept TCP clients on `port` (AT+CIPSERVER)
+    Config() : ssid(""), password(""), hostname("robot"), port(7654), hostPort(7655),
+               tcpServer(true) {}
   };
 
   // Wire-line ceiling, matching Wire::WireHandler::kMaxLineBytes /
@@ -118,9 +120,12 @@ class WifiLink {
   static constexpr int kRxSlots = 4;         // inbound datagrams parked for tryReceiveLine()
   static constexpr int kTxSlots = 8;         // outbound datagrams waiting for their CIPSEND
 
-  // ESP-AT link ids. Pinned so the demux routes by constant.
+  // ESP-AT link ids. Pinned so the demux routes by constant. The module
+  // hands INBOUND TCP clients the lowest free ids, 0..2, which is why
+  // our own two sockets sit at the top.
   static constexpr int kProtocolLink = 4;
   static constexpr int kMdnsLink = 3;
+  static constexpr int kMaxTcpLinks = 3;  // client ids 0, 1, 2
 
   // Timings (the wifi-link note, section 5.1 / 6.1 / 7; nezha-upy wifi_at.py).
   static constexpr uint32_t kCommandTimeoutMs = 4000;
@@ -147,10 +152,20 @@ class WifiLink {
   bool tryReceiveLine(uint8_t* outBuf, size_t outCap, size_t* outLen);
 
   // Queue one wire line (WITHOUT its trailing '\n' -- this appends it)
-  // as one UDP datagram to the learned host. Returns false -- and drops,
-  // never blocks -- when the link is not ready, no host is known, or the
-  // bounded queue is full (drop-NEWEST, counted in dropCount()).
+  // to the CURRENT CLIENT: the TCP client the last inbound line came
+  // from, or the learned UDP host (replyLink()). Returns false -- and
+  // drops, never blocks -- when the link is not ready, no client is
+  // known, or the bounded queue is full (drop-NEWEST, counted in
+  // dropCount()).
   bool sendLine(const uint8_t* data, size_t len);
+
+  // Where replies currently go: kProtocolLink (the UDP host) or a TCP
+  // client id 0..2. Set by tryReceiveLine() to whichever carrier the
+  // last inbound line arrived on, and by a TCP CONNECT (newest client
+  // wins); falls back to the UDP host when that client closes.
+  int replyLink() const { return replyLink_; }
+  uint8_t tcpOpenMask() const { return tcpOpenMask_; }
+  bool tcpServerOpen() const { return tcpServerOpen_; }
 
   // Telemetry gate (the wifi-link note, section 7.1, REQUIRED of every port):
   // periodic frames may only be queued when at least
@@ -180,6 +195,11 @@ class WifiLink {
   // this edge (the wifi-link note, section 6.1).
   bool pollNewPeerEdge();
 
+  // True exactly once per TCP client CONNECT -- Protocol greets the
+  // new client with the banner, exactly what a USB host sees at
+  // connect.
+  bool pollNewClientEdge();
+
   // True once per state transition since the last call -- lets the
   // caller emit one diagnostic line per change rather than per poll.
   bool pollStateChanged();
@@ -189,10 +209,13 @@ class WifiLink {
   // instance, A for the host) into `out`. Returns the packet length, or
   // 0 if it does not fit or no IP is known. Public and pure so
   // tests/host/ can decode the exact bytes the robot multicasts.
+  // `proto` is "_udp" or "_tcp": the same instance name is announced
+  // under both service types when the TCP server is up.
   static size_t buildMdnsAnnouncement(uint8_t* out, size_t cap,
                                       const char* hostname,
                                       const char* ownIp, uint16_t port,
-                                      uint32_t ttlSeconds);
+                                      uint32_t ttlSeconds,
+                                      const char* proto);
 
   // The service this robot advertises: `<hostname> robot link` on
   // `_robotlink._udp.local` -- the name of the robot is the instance
@@ -200,6 +223,7 @@ class WifiLink {
   // and the TXT record spells it out (name=tovez role=robot ...).
   static const char* serviceType() { return "_robotlink"; }
   static const char* serviceProto() { return "_udp"; }
+  static const char* serviceProtoTcp() { return "_tcp"; }
   static const char* instanceSuffix() { return " robot link"; }
 
  private:
@@ -239,6 +263,7 @@ class WifiLink {
 
   struct Slot {
     uint16_t len;
+    int8_t link;  // which ESP-AT link this arrived on / goes out on
     uint8_t data[kSlotBytes];
   };
 
@@ -254,7 +279,9 @@ class WifiLink {
   void pumpIncoming();
   void feedByte(uint8_t c);
   void feedStatusByte(uint8_t c);
+  void handleStatusLine();  // `<link>,CONNECT` / `<link>,CLOSED`
   void finishPayload();
+  void pushRxLine(int link, const uint8_t* data, size_t len);
   void traceReply(char c);
 
   void enterState(State next);
@@ -315,10 +342,22 @@ class WifiLink {
   char reportedPeerIp_[16];
   uint16_t reportedPeerPort_;
 
-  // inbound datagram ring for tryReceiveLine()
+  // inbound line ring for tryReceiveLine() -- UDP datagrams and
+  // completed TCP lines alike
   Slot rx_[kRxSlots];
   int rxHead_;
   int rxCount_;
+
+  // TCP clients: which ids are open, one line accumulator each (a TCP
+  // payload is a byte stream, not a line), the current reply target and
+  // the connect edge.
+  uint8_t tcpOpenMask_;
+  uint8_t tcpLine_[kMaxTcpLinks][kMaxLineBytes + 1];
+  uint16_t tcpLineLen_[kMaxTcpLinks];
+  bool tcpLineOverflow_[kMaxTcpLinks];
+  int8_t replyLink_;
+  bool tcpConnectEdge_;
+  bool tcpServerOpen_;
 
   // outbound datagram ring + the two-phase send in flight
   struct TxEntry {

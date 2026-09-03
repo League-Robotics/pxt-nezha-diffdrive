@@ -11,6 +11,7 @@ Good cases, bad cases, and whether the robot actually MOVES.
     uv run python tools/wire_acceptance.py --wifi tovez       # WiFi, by mDNS/broadcast
     uv run python tools/wire_acceptance.py --wifi 192.168.1.196
                                                               # WiFi, by address
+    uv run python tools/wire_acceptance.py --wifi-tcp tovez   # WiFi TCP server
 
 `--all-verbs` (default on) additionally exercises EVERY verb in the v6
 table -- HELLO PING ID VER STATUS HELP GET SET TLM WHEELS_X WHEELS_V
@@ -248,18 +249,19 @@ class TcpLink:
 
 class WifiLink:
     """The robot's own WiFi transport (src/comms/wifi_link.h): v6 over
-    UDP :7654, one datagram per line. `target` is an IP, or a robot name
-    resolved by mDNS (`<name>.local`) and then broadcast HELLO."""
+    UDP :7654, one datagram per line -- or, with `tcp=True`, its TCP
+    server on the same port. `target` is an IP, or a robot name resolved
+    by mDNS (`<name>.local`) and then broadcast HELLO."""
 
-    def __init__(self, target):
+    def __init__(self, target, tcp=False):
         if re.match(r'^\d+\.\d+\.\d+\.\d+$', target):
             host = target
         else:
             host = wifilink.discover(target)
         self.host = host
-        self.link = wifilink.WifiLink(host)
+        self.link = wifilink.TcpLink(host) if tcp else wifilink.WifiLink(host)
         time.sleep(0.3)
-        self.read(0.5)
+        self.read(0.8)
 
     def read(self, sec):
         return self.link.read(sec)
@@ -691,6 +693,8 @@ def main():
     g.add_argument('--wifi', metavar='NAME|IP',
                    help="the robot's own WiFi transport (UDP :7654); a name "
                         "is resolved by mDNS then broadcast")
+    g.add_argument('--wifi-tcp', metavar='NAME|IP',
+                   help="the robot's WiFi TCP server (TCP :7654)")
     ap.add_argument('--distance', type=int, default=200,
                     help='motion test distance per wheel in MM (default 200)')
     ap.add_argument('--no-motion', action='store_true',
@@ -715,6 +719,9 @@ def main():
     elif a.wifi:
         link = WifiLink(a.wifi)
         where = f'WiFi UDP {link.host}:{wifilink.ROBOT_PORT}'
+    elif a.wifi_tcp:
+        link = WifiLink(a.wifi_tcp, tcp=True)
+        where = f'WiFi TCP {link.host}:{wifilink.ROBOT_PORT}'
     else:
         link, where = RadioLink(a.radio), f'radio ch{a.radio}'
 

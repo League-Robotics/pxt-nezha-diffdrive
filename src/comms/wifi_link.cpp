@@ -188,13 +188,20 @@ WifiLink::WifiLink(WifiUart& uart, NowMsFn nowMs)
       awaitRejected_(false), payloadRemaining_(0), payloadLink_(-1),
       statusLen_(0), ownIpCapturing_(false), ownIpLen_(0), peerPort_(0),
       peerKnown_(false), lastPeerHeardMs_(0), reportedPeerPort_(0),
-      rxHead_(0), rxCount_(0), txHead_(0), txCount_(0), sendPhase_(kIdle),
+      rxHead_(0), rxCount_(0), tcpOpenMask_(0), replyLink_(kProtocolLink),
+      tcpConnectEdge_(false), tcpServerOpen_(false), txHead_(0), txCount_(0),
+      sendPhase_(kIdle),
       lastTelemetryMs_(0), telemetryEverSent_(false), mdnsSocketOpen_(false),
       lastMdnsMs_(0), mdnsAnnounceCount_(0), dropCount_(0), sentCount_(0),
       receivedCount_(0), promptRetryDeadline_(0), lastReplyLen_(0),
       stageLen_(0), stagePos_(0) {
   expectBuf_[0] = '\0';
   payload_.len = 0;
+  payload_.link = -1;
+  for (int i = 0; i < kMaxTcpLinks; ++i) {
+    tcpLineLen_[i] = 0;
+    tcpLineOverflow_[i] = false;
+  }
   ownIp_[0] = '\0';
   peerIp_[0] = '\0';
   reportedPeerIp_[0] = '\0';
@@ -218,6 +225,9 @@ void WifiLink::begin(const Config& config) {
   peerPort_ = 0;
   ownIp_[0] = '\0';
   mdnsSocketOpen_ = false;
+  tcpServerOpen_ = false;
+  tcpOpenMask_ = 0;
+  replyLink_ = kProtocolLink;
   txCount_ = 0;
   txHead_ = 0;
   sendPhase_ = kIdle;
@@ -243,6 +253,9 @@ void WifiLink::enterBackoff() {
   peerIp_[0] = '\0';
   peerPort_ = 0;
   mdnsSocketOpen_ = false;
+  tcpServerOpen_ = false;
+  tcpOpenMask_ = 0;
+  replyLink_ = kProtocolLink;
   txCount_ = 0;
   txHead_ = 0;
   sendPhase_ = kIdle;
@@ -328,8 +341,14 @@ void WifiLink::feedByte(uint8_t c) {
     if (payloadRemaining_ == 0) finishPayload();
     return;
   }
-  // 2. +IPD header parse.
+  // 2. +IPD header parse. The header's own characters have also been
+  // accumulating in the status-line buffer (step 3 sees every
+  // non-payload byte); a completed header is not a status line, so
+  // that buffer is cleared here -- otherwise a `0,CONNECT` following a
+  // payload with no newline between them would be glued onto the
+  // header text and never parse.
   if (ipd_.feed(static_cast<char>(c))) {
+    statusLen_ = 0;
     payloadRemaining_ = ipd_.length();
     payloadLink_ = ipd_.link();
     payload_.len = 0;
@@ -374,6 +393,7 @@ void WifiLink::feedByte(uint8_t c) {
 void WifiLink::feedStatusByte(uint8_t c) {
   if (c == '\r') return;
   if (c == '\n') {
+    handleStatusLine();
     statusLen_ = 0;
     return;
   }
@@ -384,16 +404,70 @@ void WifiLink::feedStatusByte(uint8_t c) {
   }
 }
 
+// `<link>,CONNECT` / `<link>,CLOSED` -- the module's TCP client
+// lifecycle, one line each. Links 3/4 are our own sockets and report the
+// same lines for their own lifecycle; those are ignored here.
+void WifiLink::handleStatusLine() {
+  if (statusLen_ < 3) return;
+  const uint8_t* s = statusLine_;
+  if (s[0] < '0' || s[0] > '9' || s[1] != ',') return;
+  const int link = s[0] - '0';
+  if (link < 0 || link >= kMaxTcpLinks) return;
+  const size_t restLen = statusLen_ - 2;
+  const bool connect = (restLen == 7 && memcmp(s + 2, "CONNECT", 7) == 0);
+  const bool closed = (restLen == 6 && memcmp(s + 2, "CLOSED", 6) == 0);
+  if (connect) {
+    tcpOpenMask_ |= static_cast<uint8_t>(1u << link);
+    tcpLineLen_[link] = 0;
+    tcpLineOverflow_[link] = false;
+    replyLink_ = static_cast<int8_t>(link);  // newest client wins
+    tcpConnectEdge_ = true;
+  } else if (closed) {
+    tcpOpenMask_ &= static_cast<uint8_t>(~(1u << link));
+    tcpLineLen_[link] = 0;
+    if (replyLink_ == link) replyLink_ = kProtocolLink;  // back to the UDP host
+  }
+}
+
+void WifiLink::pushRxLine(int link, const uint8_t* data, size_t len) {
+  ++receivedCount_;
+  if (rxCount_ >= kRxSlots) {
+    ++dropCount_;  // host out-ran the poll -- drop newest, counted
+    return;
+  }
+  Slot& slot = rx_[(rxHead_ + rxCount_) % kRxSlots];
+  if (len > kSlotBytes) len = kSlotBytes;
+  slot.len = static_cast<uint16_t>(len);
+  slot.link = static_cast<int8_t>(link);
+  memcpy(slot.data, data, len);
+  ++rxCount_;
+}
+
 void WifiLink::finishPayload() {
   if (payloadLink_ == kProtocolLink) {
-    ++receivedCount_;
-    if (rxCount_ < kRxSlots) {
-      Slot& slot = rx_[(rxHead_ + rxCount_) % kRxSlots];
-      slot.len = payload_.len;
-      memcpy(slot.data, payload_.data, payload_.len);
-      ++rxCount_;
-    } else {
-      ++dropCount_;  // host out-ran the poll -- drop newest, counted
+    // UDP: one datagram IS one line.
+    pushRxLine(kProtocolLink, payload_.data, payload_.len);
+  } else if (payloadLink_ >= 0 && payloadLink_ < kMaxTcpLinks &&
+             (tcpOpenMask_ & (1u << payloadLink_))) {
+    // TCP: a byte stream -- accumulate to '\n' per client, exactly as
+    // SerialTransport::tryReadLine() does for USB. An overlong line is
+    // discarded whole (never truncated into a shorter legal command).
+    const int link = payloadLink_;
+    for (size_t i = 0; i < payload_.len; ++i) {
+      const uint8_t c = payload_.data[i];
+      if (c == '\n') {
+        if (!tcpLineOverflow_[link]) {
+          pushRxLine(link, tcpLine_[link], tcpLineLen_[link]);
+        } else {
+          ++dropCount_;
+        }
+        tcpLineLen_[link] = 0;
+        tcpLineOverflow_[link] = false;
+      } else if (tcpLineLen_[link] < kMaxLineBytes) {
+        tcpLine_[link][tcpLineLen_[link]++] = c;
+      } else {
+        tcpLineOverflow_[link] = true;
+      }
     }
   }
   // any other link (the mDNS socket hears nothing useful) -- dropped
@@ -422,6 +496,12 @@ bool WifiLink::pollNewPeerEdge() {
   copyBounded(reportedPeerIp_, sizeof(reportedPeerIp_), peerIp_);
   reportedPeerPort_ = peerPort_;
   return true;
+}
+
+bool WifiLink::pollNewClientEdge() {
+  const bool edge = tcpConnectEdge_;
+  tcpConnectEdge_ = false;
+  return edge;
 }
 
 // --- bring-up states -----------------------------------------------------------
@@ -545,7 +625,7 @@ void WifiLink::serviceSocket() {
   // step 1: the mDNS announcer's multicast socket. Tolerant -- a module
   // that refuses it still carries the protocol; the robot is simply not
   // discoverable by name.
-  if (!awaiting_) {
+  if (step_ == 1 && !awaiting_) {
     snprintf(commandBuf_, sizeof(commandBuf_),
              "AT+CIPSTART=%d,\"UDP\",\"%s\",%u,%u,0", kMdnsLink, kMdnsAddress,
              static_cast<unsigned>(kMdnsPort), static_cast<unsigned>(kMdnsPort));
@@ -554,9 +634,47 @@ void WifiLink::serviceSocket() {
     startCommand(cmd, "OK", kCommandTimeoutMs);
     return;
   }
-  const Await outcome = pollAwait();
-  if (outcome == kPending) return;
-  mdnsSocketOpen_ = (outcome == kMatched);
+  if (step_ == 1) {
+    const Await outcome = pollAwait();
+    if (outcome == kPending) return;
+    mdnsSocketOpen_ = (outcome == kMatched);
+    if (!config_.tcpServer) {
+      lastMdnsMs_ = nowMs() - kMdnsPeriodMs;  // announce on the first ready pass
+      enterState(kReady);
+      return;
+    }
+    step_ = 2;
+    awaiting_ = false;
+    return;
+  }
+  if (step_ == 2) {
+    // The TCP server on the same port number: a client's socket is
+    // then a line stream, like USB, with no keepalive or fixed host
+    // port to remember. Tolerant -- a module that refuses still serves
+    // the UDP plane.
+    if (!awaiting_) {
+      snprintf(commandBuf_, sizeof(commandBuf_), "AT+CIPSERVER=1,%u",
+               static_cast<unsigned>(config_.port));
+      char cmd[kCommandBuffer];
+      copyBounded(cmd, sizeof(cmd), commandBuf_);
+      startCommand(cmd, "OK", kCommandTimeoutMs);
+      return;
+    }
+    const Await outcome = pollAwait();
+    if (outcome == kPending) return;
+    tcpServerOpen_ = (outcome == kMatched);
+    step_ = 3;
+    awaiting_ = false;
+    return;
+  }
+  // step 3: never time an idle TCP client out (the ESP-AT default
+  // closes one after 180 s of silence). Tolerant: an unsupported verb
+  // just leaves the default in place.
+  if (!awaiting_) {
+    startCommand("AT+CIPSTO=0", "OK", kCommandTimeoutMs);
+    return;
+  }
+  if (pollAwait() == kPending) return;
   lastMdnsMs_ = nowMs() - kMdnsPeriodMs;  // announce on the first ready pass
   enterState(kReady);
 }
@@ -644,6 +762,7 @@ bool WifiLink::tryReceiveLine(uint8_t* outBuf, size_t outCap, size_t* outLen) {
   Slot& slot = rx_[rxHead_];
   rxHead_ = (rxHead_ + 1) % kRxSlots;
   --rxCount_;
+  replyLink_ = slot.link;  // replies go back the way the line came
   size_t n = slot.len;
   while (n > 0 && (slot.data[n - 1] == '\n' || slot.data[n - 1] == '\r')) --n;
   if (n > outCap) n = outCap;
@@ -667,7 +786,15 @@ bool WifiLink::enqueueSend(int link, const uint8_t* data, size_t len) {
 }
 
 bool WifiLink::sendLine(const uint8_t* data, size_t len) {
-  if (state_ != kReady || !peerKnown()) return false;
+  if (state_ != kReady) return false;
+  int link = replyLink_;
+  if (link >= 0 && link < kMaxTcpLinks) {
+    if (!(tcpOpenMask_ & (1u << link))) {
+      link = kProtocolLink;  // that client is gone; fall back to the UDP host
+      replyLink_ = kProtocolLink;
+    }
+  }
+  if (link == kProtocolLink && !peerKnown()) return false;
   if (len > kMaxLineBytes) len = kMaxLineBytes;
   // Stage the framed line (body + '\n') through the payload slot's
   // sibling buffer: one memcpy into the ring, never a stack copy (the
@@ -677,7 +804,7 @@ bool WifiLink::sendLine(const uint8_t* data, size_t len) {
     return false;
   }
   TxEntry& e = tx_[(txHead_ + txCount_) % kTxSlots];
-  e.link = kProtocolLink;
+  e.link = link;
   memcpy(e.slot.data, data, len);
   e.slot.data[len] = '\n';
   e.slot.len = static_cast<uint16_t>(len + 1);
@@ -686,7 +813,10 @@ bool WifiLink::sendLine(const uint8_t* data, size_t len) {
 }
 
 bool WifiLink::telemetryAllowed() {
-  if (state_ != kReady || !peerKnown()) return false;
+  if (state_ != kReady) return false;
+  const int link = replyLink_;
+  const bool tcpTarget = link >= 0 && link < kMaxTcpLinks && (tcpOpenMask_ & (1u << link));
+  if (!tcpTarget && !peerKnown()) return false;
   if (txCount_ > kTxSlots - 2) return false;  // room for thdr + t
   const uint32_t now = nowMs();
   if (telemetryEverSent_ &&
@@ -794,7 +924,7 @@ bool parseIpv4(const char* text, uint8_t* octets) {
 
 size_t WifiLink::buildMdnsAnnouncement(uint8_t* out, size_t cap, const char* hostname,
                                        const char* ownIp, uint16_t port,
-                                       uint32_t ttlSeconds) {
+                                       uint32_t ttlSeconds, const char* proto) {
   uint8_t ip[4];
   if (hostname == nullptr || hostname[0] == '\0' || !parseIpv4(ownIp, ip)) return 0;
 
@@ -804,7 +934,7 @@ size_t WifiLink::buildMdnsAnnouncement(uint8_t* out, size_t cap, const char* hos
   snprintf(txtName, sizeof(txtName), "name=%s", hostname);
   snprintf(txtPort, sizeof(txtPort), "port=%u", static_cast<unsigned>(port));
   const char* txtRole = "role=robot";
-  const char* txtLink = "link=v6-udp";
+  const char* txtLink = "link=v6";
 
   Packer p(out, cap);
   p.u16(0);        // id
@@ -821,7 +951,7 @@ size_t WifiLink::buildMdnsAnnouncement(uint8_t* out, size_t cap, const char* hos
   p.rrHeader(12, false, ttlSeconds);
   size_t rd = p.rdlenStart();
   const size_t serviceOff = p.len;
-  p.label(serviceType()); p.label(serviceProto()); p.pointer(localOff);
+  p.label(serviceType()); p.label(proto); p.pointer(localOff);
   p.rdlenEnd(rd);
 
   // 2. _robotlink._udp.local PTR <instance>._robotlink._udp.local
@@ -859,16 +989,21 @@ size_t WifiLink::buildMdnsAnnouncement(uint8_t* out, size_t cap, const char* hos
 }
 
 void WifiLink::queueMdnsAnnouncement() {
-  // Build straight into the ring slot: no stack copy of a ~200-byte
-  // packet on the protocol fiber.
-  if (txCount_ >= kTxSlots) return;
-  TxEntry& e = tx_[(txHead_ + txCount_) % kTxSlots];
-  const size_t n = buildMdnsAnnouncement(e.slot.data, kSlotBytes, config_.hostname,
-                                         ownIp_, config_.port, kMdnsTtlSeconds);
-  if (n == 0) return;
-  e.link = kMdnsLink;
-  e.slot.len = static_cast<uint16_t>(n);
-  ++txCount_;
+  // Build straight into the ring slots: no stack copy of a ~200-byte
+  // packet on the protocol fiber. One packet per service type.
+  const char* protos[2] = {serviceProto(), serviceProtoTcp()};
+  const int count = tcpServerOpen_ ? 2 : 1;
+  for (int i = 0; i < count; ++i) {
+    if (txCount_ >= kTxSlots) return;
+    TxEntry& e = tx_[(txHead_ + txCount_) % kTxSlots];
+    const size_t n = buildMdnsAnnouncement(e.slot.data, kSlotBytes, config_.hostname,
+                                           ownIp_, config_.port, kMdnsTtlSeconds,
+                                           protos[i]);
+    if (n == 0) return;
+    e.link = kMdnsLink;
+    e.slot.len = static_cast<uint16_t>(n);
+    ++txCount_;
+  }
   ++mdnsAnnounceCount_;
 }
 
