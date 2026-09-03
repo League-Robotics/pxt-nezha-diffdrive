@@ -41,3 +41,37 @@ yet answers `AT` with `OK` and reports a join state; this one answers
 nothing. `rogo` cannot reach tovez until the module is physically
 checked. UNVERIFIED which of those it is; a look at the J1 cable and the
 module's LEDs would settle it.
+
+## Discriminator: is the brick powered? (2 mm kick over farm serial)
+
+The wifi-transport session pointed out the module is powered from the
+Nezha brick's rail through the RJ11 jack, so an unpowered brick and an
+unplugged J1 cable look identical from the UART. `connL`/`connR` are
+unwritten until the kernel steps ([[kernel-reads-are-published-snapshots]]),
+so the board got a 2 mm `MOVE_X` kick first. Transcript (meili:43659):
+
+```
+> HELLO
+< device NEZHA2 robot tovez 2314287040
+> STATUS
+< status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+> MOVE_X 2 0 60 1000 #1
+< ack 1 0 none
+> STATUS
+< status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=2 cyc=43 tlm=off next=2 done=1 reason=timeout
+> PING
+< pong 241223
+```
+
+- `connL=1 connR=1`, `cyc=43`, no wedge: the brick's LOGIC is powered
+  and answers encoder I2C. The board did not wedge on the I2C
+  transaction, so this is not the unpowered-brick-wedge case.
+- But the 2 mm move ended with `reason=timeout` (1000 ms) rather than
+  completing, and `i2cf=2`. Per `playfield-testing.md`, encoder I2C
+  answering is NOT proof the motor drive has power; the brick's logic
+  can run from the micro:bit's 3V3 while the battery switch is off.
+  A move that times out is what unpowered motors look like.
+- Net: consistent with tovez's battery switch being OFF (motor drive
+  and, if the RJ11 rail is battery-derived, the module both dark), or
+  with the J1 cable/module unseated. UNVERIFIED which; both need
+  someone at the bench. No further motion was commanded.
