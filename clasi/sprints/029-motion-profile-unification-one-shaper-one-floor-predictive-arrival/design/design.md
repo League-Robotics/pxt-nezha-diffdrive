@@ -102,6 +102,21 @@ in `rotationalSlip`, measured separately against camera truth.
 computed fresh, never cached, so a config read-back can never report a
 derived number as though it had been measured.
 
+### Motion-shaping authority (sprint 029)
+
+The speed floor and every acceleration/jerk/arrival limit are owned by
+one object, `MotionLimits`, consulted by one per-tick function,
+`VelocityShaper` — both in `src/motion/`. The kernel
+(`DifferentialDrive`) tracks whatever wheel velocity it is given and
+applies no floor of its own (`vMin = 0` in the fleet bake); this is a
+deliberate divergence from `radio-robot-lib`'s `motion-api.md` §4,
+which lists a "ratio-preserving speed floor" as a kernel feature — the
+ratio is still preserved, only the policy of *when* to floor moved up
+to the layer that knows which axis is dominant and in what units. See
+`src/DESIGN.md` §3 for the full object model and
+[`docs/design/motion-profile-unification.md`](../../docs/design/motion-profile-unification.md)
+for the design rationale.
+
 ### Protocol versioning
 
 The wire protocol is **v6**: an ASCII line grammar (UPPERCASE
