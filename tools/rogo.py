@@ -27,8 +27,25 @@ Discovery, in order:
      the robot also announces its A record, and macOS caches it. Used
      only when (1) turns up nothing in time.
 
+Both are passive. The robot only ANNOUNCES (an unsolicited response
+every 60 s, TTL 120) and answers no mDNS queries, so a host that has
+not heard an announcement yet can wait up to a minute for either path;
+a host that has (mDNSResponder caches the records) answers both
+instantly. rogo never sends the UDP broadcast `HELLO` that
+tools/wifilink.py's discover() falls back to, because `HELLO` is a
+session reset on the robot and TCP and UDP share one sequence counter.
+
 An argument that already looks like an address (an IPv4 literal or
 anything with a dot in it) skips discovery.
+
+What the TCP server does (per the wifi-transport branch's
+wifi_link module and its tovez verification, captures/tovez-wifi-20260902/
+in that worktree): on connect the robot sends the `device NEZHA2 robot
+<name> <serial>` banner and one `DBG:wifi state=... ip=... tcp=...`
+status line; lines are `\n`-terminated (`\r` is stripped), at most 240
+bytes, and an overlong line is discarded whole; up to three clients
+may be connected and replies go to whichever client spoke LAST, so a
+second rogo steals the first one's replies until it speaks again.
 
 Only the standard library; runs under `uv run python tools/rogo.py`
 or bare `python3`. `dns-sd` is macOS's; on a host without it step (1)
@@ -38,7 +55,9 @@ Wire reminders, since this is a raw pipe with no help from the tool:
 sequenced verbs (`GET SET TLM STOP RUN WHEELS_* MOVE_* GO_TO_*`) need a
 trailing `#<id>` counting from 1 or the robot silently drops them;
 `HELLO` resets that count (it is a session reset, not a liveness
-probe -- use `PING`). `ESTOP` latches until the board reboots.
+probe -- use `PING`), and since the TCP and UDP planes share the
+counter, start a session with `HELLO` and then count from 1. `ESTOP`
+latches until the board reboots.
 
 dns-sd output formats this parses were captured 2026-09-02 on the
 author's Mac with tovez announcing (the verbatim samples are the
