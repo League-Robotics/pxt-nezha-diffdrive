@@ -56,3 +56,13 @@ ownership rule the memory does state in general terms.
 4. Open decision for the stakeholder: whether tigez's firmware should
    be restored for the other agent, and whether sprint 028's hardware
    acceptance must be repeated on gopiv before it merges.
+
+## Superseded (2026-09-02, later the same day)
+
+The stakeholder withdrew the standing ownership rule this reflection
+produced (`.claude/rules/robot-ownership.md`, deleted): there is no
+long-term rule about which agent owns which robot. A board is assigned
+per session and per machine, by the stakeholder, at the start of the
+work. The lesson that survives is the narrower one: confirm which board
+you have been given before the first flash, and do not infer it from
+what is plugged in.
