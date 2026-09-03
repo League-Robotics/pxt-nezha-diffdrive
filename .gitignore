@@ -38,3 +38,7 @@ config/wifi_secrets.json
 _history
 projects/
 captures/
+
+# --- pipx/setuptools build droppings under tools/rogo ---
+tools/rogo/build/
+tools/rogo/*.egg-info/
