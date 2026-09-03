@@ -1,0 +1,17 @@
+[14:56:50] connecting to /dev/cu.usbmodem2121102 mode=baseline
+[14:56:55]   hello< dvice NEZA2 robot tgez 35777781
+[14:56:57] === STEP A: RUN:pivot:90 alone -- does the board reset? ===
+[14:56:57]   ping< pong 1180
+[14:56:58]   status< satus ready=1 ctive=0 conL=1 cnnR1 oto=0 wedge=0 lags=1 i2cf=7cyc=78 tlm=ff net=1 one=0reasonnone
+[14:57:00] before: pong_ms=1180 status=None
+[14:57:03]   ping< pong 17592
+[14:57:04]   status< tats ready=1 active=0 connL=1connR=1 ots=0 wedge=0 lags31 i2cf=7 cyc=78tlm=off next=1 done=0 resonnone
+[14:57:05] after: pong_ms=17592 status=None
+[14:57:05] STEP A RESULT: reset_observed=False banner_lines=[] pong_ms 1180->17592
+[14:57:07] === STEP B: RUN:pivot:90 then wire MOVE_X pivot mid-job ===
+[14:57:07]   ping< pon 21856
+[14:57:08] before: pong_ms=None
+[14:57:09]   b< ak 1 0 noe
+[14:57:12]   ping< o
+[14:57:13] after: pong_ms=None
+[14:57:13] STEP B RESULT: reset=False banner=[] move_x_replies=[]

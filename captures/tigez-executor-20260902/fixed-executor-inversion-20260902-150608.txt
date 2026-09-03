@@ -1,0 +1,107 @@
+[15:06:08] connecting to /dev/cu.usbmodem2121102 mode=fixed
+[15:06:12]   hello< device NEZHA2 robot tigez 3527777815
+[15:06:13] === STEP A: RUN:pivot:90 alone -- does the board reset? ===
+[15:06:14]   ping< pong 13759
+[15:06:15]   status< status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+[15:06:16] before: pong_ms=13759 status={'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '0', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+[15:06:16]   a< DBG:pivot:profile=open
+[15:06:17]   a< GAP:27
+[15:06:17]   a< PIVOT:end
+[15:06:19]   ping< pong 19507
+[15:06:21]   status< status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1 cyc=54 tlm=off next=1 done=0 reason=none
+[15:06:22] after: pong_ms=19507 status={'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '1', 'cyc': '54', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+[15:06:22] STEP A RESULT: reset_observed=False banner_lines=[] pong_ms 13759->19507
+[15:06:22] === STEP B: RUN:pivot:90 then wire MOVE_X pivot mid-job ===
+[15:06:22]   ping< pong 22219
+[15:06:23] before: pong_ms=22219
+[15:06:24]   b< DBG:pivot:profile=open
+[15:06:24]   b< ack 1 0 none
+[15:06:24]   b< err 10 #1
+[15:06:25]   b< GAP:27
+[15:06:25]   b< PIVOT:end
+[15:06:27]   ping< pong 27007
+[15:06:28] after: pong_ms=27007
+[15:06:28] STEP B RESULT: reset=False banner=[] move_x_replies=['ack 1 0 none', 'err 10 #1']
+[15:06:28] === STEP C: RUN:pivot:90 then RUN:abort mid-job ===
+[15:06:28]   ping< pong 28359
+[15:06:29] before: pong_ms=28359
+[15:06:30]   c< DBG:pivot:profile=open
+[15:06:30]   c< GAP:27
+[15:06:30]   c< PIVOT:end
+[15:06:32]   ping< pong 32019
+[15:06:33] after: pong_ms=32019
+[15:06:33] STEP C RESULT: reset=False banner=[]
+[15:06:33] === STEP D (fixed only): 12 back-to-back RUN pivot jobs ===
+[15:06:33]   ping< pong 33371
+[15:06:34] before: pong_ms=33371
+[15:06:34]   d0< DBG:pivot:profile=open
+[15:06:34]   d0< GAP:27
+[15:06:34]   d0< PIVOT:end
+[15:06:36]   ping< pong 36335
+[15:06:37]   after job 0 (deg=30): pong_ms=36335
+[15:06:37]   d1< DBG:pivot:profile=open
+[15:06:37]   d1< GAP:27
+[15:06:37]   d1< PIVOT:end
+[15:06:39]   ping< pong 39307
+[15:06:40]   after job 1 (deg=-30): pong_ms=39307
+[15:06:40]   d2< DBG:pivot:profile=open
+[15:06:40]   d2< GAP:27
+[15:06:40]   d2< PIVOT:end
+[15:06:42]   ping< pong 42271
+[15:06:43]   after job 2 (deg=30): pong_ms=42271
+[15:06:43]   d3< DBG:pivot:profile=open
+[15:06:43]   d3< GAP:27
+[15:06:43]   d3< PIVOT:end
+[15:06:45]   ping< pong 45227
+[15:06:46]   after job 3 (deg=-30): pong_ms=45227
+[15:06:46]   d4< DBG:pivot:profile=open
+[15:06:46]   d4< GAP:27
+[15:06:46]   d4< PIVOT:end
+[15:06:48]   ping< pong 48183
+[15:06:49]   after job 4 (deg=30): pong_ms=48183
+[15:06:49]   d5< DBG:pivot:profile=open
+[15:06:49]   d5< GAP:27
+[15:06:49]   d5< PIVOT:end
+[15:06:51]   ping< pong 51147
+[15:06:52]   after job 5 (deg=-30): pong_ms=51147
+[15:06:52]   d6< DBG:pivot:profile=open
+[15:06:52]   d6< GAP:27
+[15:06:52]   d6< PIVOT:end
+[15:06:54]   ping< pong 54103
+[15:06:55]   after job 6 (deg=30): pong_ms=54103
+[15:06:55]   d7< DBG:pivot:profile=open
+[15:06:55]   d7< GAP:27
+[15:06:55]   d7< PIVOT:end
+[15:06:57]   ping< pong 57067
+[15:06:58]   after job 7 (deg=-30): pong_ms=57067
+[15:06:58]   d8< DBG:pivot:profile=open
+[15:06:58]   d8< GAP:27
+[15:06:58]   d8< PIVOT:end
+[15:07:00]   ping< pong 60055
+[15:07:01]   after job 8 (deg=30): pong_ms=60055
+[15:07:01]   d9< DBG:pivot:profile=open
+[15:07:01]   d9< GAP:27
+[15:07:01]   d9< PIVOT:end
+[15:07:03]   ping< pong 63019
+[15:07:04]   after job 9 (deg=-30): pong_ms=63019
+[15:07:04]   d10< DBG:pivot:profile=open
+[15:07:04]   d10< GAP:27
+[15:07:04]   d10< PIVOT:end
+[15:07:06]   ping< pong 66071
+[15:07:07]   after job 10 (deg=30): pong_ms=66071
+[15:07:07]   d11< DBG:pivot:profile=open
+[15:07:07]   d11< GAP:27
+[15:07:07]   d11< PIVOT:end
+[15:07:09]   ping< pong 69075
+[15:07:10]   after job 11 (deg=-30): pong_ms=69075
+[15:07:10]   ping< pong 70427
+[15:07:12]   status< status ready=1 active=1 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=2 cyc=132 tlm=off next=2 done=0 reason=none
+[15:07:13] after: pong_ms=70427 status={'ready': '1', 'active': '1', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '2', 'cyc': '132', 'tlm': 'off', 'next': '2', 'done': '0', 'reason': 'none'}
+[15:07:13] STEP D RESULT: faults_at=[]
+[15:07:13] === STEP E (fixed only): wire MOVE_X refused while job runs ===
+[15:07:13]   e< DBG:pivot:profile=open
+[15:07:13]   e< GAP:27
+[15:07:13]   e< PIVOT:end
+[15:07:13]   e< ack 2 0 none
+[15:07:16] STEP E RESULT lines: ['DBG:pivot:profile=open', 'GAP:27', 'PIVOT:end', 'ack 2 0 none']
+[15:07:16] done

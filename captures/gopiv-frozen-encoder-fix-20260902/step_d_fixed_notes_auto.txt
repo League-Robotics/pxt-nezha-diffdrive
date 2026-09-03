@@ -1,0 +1,85 @@
+=== Step D frozen-encoder hold, 6 reps, 2026-09-02 16:23:00 ===
+banner: device NEZHA2 robot gopiv 2175407711
+seq synced to robot at 0
+shaping set
+  rep 0 side 1 (100 cm) done
+  rep 0 side 2 (60 cm) done
+  rep 0 side 3 (100 cm) done
+  rep 0 side 4 (60 cm) done
+  rep 1 side 1 (100 cm) done
+  rep 1 side 2 (60 cm) done
+  rep 1 side 3 (100 cm) done
+  rep 1 side 4 (60 cm) done
+  rep 2 side 1 (100 cm) done
+  rep 2 side 2 (60 cm) done
+  rep 2 side 3 (100 cm) done
+  rep 2 side 4 (60 cm) done
+  rep 3 side 1 (100 cm) done
+  rep 3 side 2 (60 cm) done
+  rep 3 side 3 (100 cm) done
+  rep 3 side 4 (60 cm) done
+  rep 4 side 1 (100 cm) done
+  rep 4 side 2 (60 cm) done
+  rep 4 side 3 (100 cm) done
+  rep 4 side 4 (60 cm) done
+  rep 5 side 1 (100 cm) done
+  rep 5 side 2 (60 cm) done
+  rep 5 side 3 (100 cm) done
+  rep 5 side 4 (60 cm) done
+wall clock 130.0 s, 1800 frames, 6 reps
+
+frozen-but-driven-encoder events found: 52
+  frame 62 side L: pos=12697 dut_before=0 dut_at=-1000 dut_next=-1200 i2cf 10->11 ticked=True stepped_toward_rail=True
+  frame 128 side L: pos=19139 dut_before=0 dut_at=-1000 dut_next=-1300 i2cf 16->17 ticked=True stepped_toward_rail=True
+  frame 129 side L: pos=19139 dut_before=-1000 dut_at=-1300 dut_next=-1600 i2cf 17->20 ticked=True stepped_toward_rail=True
+  frame 212 side R: pos=35667 dut_before=0 dut_at=1000 dut_next=1100 i2cf 24->25 ticked=True stepped_toward_rail=True
+  frame 234 side L: pos=29467 dut_before=0 dut_at=900 dut_next=1400 i2cf 25->25 ticked=False stepped_toward_rail=True
+  frame 234 side R: pos=36962 dut_before=0 dut_at=900 dut_next=1200 i2cf 25->25 ticked=False stepped_toward_rail=True
+  frame 278 side L: pos=37111 dut_before=0 dut_at=-1000 dut_next=-1100 i2cf 29->30 ticked=True stepped_toward_rail=True
+  frame 300 side L: pos=35906 dut_before=0 dut_at=1000 dut_next=1700 i2cf 32->33 ticked=True stepped_toward_rail=True
+  frame 346 side R: pos=57190 dut_before=2800 dut_at=3700 dut_next=3500 i2cf 37->40 ticked=True stepped_toward_rail=True
+  frame 362 side L: pos=48603 dut_before=0 dut_at=-800 dut_next=-1200 i2cf 40->40 ticked=False stepped_toward_rail=True
+  frame 362 side R: pos=58646 dut_before=0 dut_at=800 dut_next=1000 i2cf 40->40 ticked=False stepped_toward_rail=True
+  frame 384 side L: pos=47411 dut_before=0 dut_at=900 dut_next=1400 i2cf 42->42 ticked=False stepped_toward_rail=True
+  frame 384 side R: pos=59918 dut_before=0 dut_at=900 dut_next=1300 i2cf 42->42 ticked=False stepped_toward_rail=True
+  frame 428 side L: pos=55059 dut_before=0 dut_at=-1000 dut_next=-1200 i2cf 46->47 ticked=True stepped_toward_rail=True
+  frame 459 side R: pos=70065 dut_before=3000 dut_at=4000 dut_next=4400 i2cf 48->51 ticked=True stepped_toward_rail=True
+  frame 512 side L: pos=66584 dut_before=0 dut_at=-800 dut_next=-1100 i2cf 59->59 ticked=False stepped_toward_rail=True
+  frame 512 side R: pos=81563 dut_before=0 dut_at=800 dut_next=1000 i2cf 59->59 ticked=False stepped_toward_rail=True
+  frame 661 side L: pos=84545 dut_before=0 dut_at=-900 dut_next=-1200 i2cf 76->77 ticked=True stepped_toward_rail=True
+  frame 683 side L: pos=83350 dut_before=0 dut_at=900 dut_next=1400 i2cf 78->78 ticked=False stepped_toward_rail=True
+  frame 683 side R: pos=105799 dut_before=0 dut_at=900 dut_next=1300 i2cf 78->78 ticked=False stepped_toward_rail=True
+  frame 727 side L: pos=90989 dut_before=0 dut_at=-900 dut_next=-1100 i2cf 81->82 ticked=True stepped_toward_rail=True
+  frame 749 side L: pos=89778 dut_before=0 dut_at=900 dut_next=1400 i2cf 82->82 ticked=False stepped_toward_rail=True
+  frame 749 side R: pos=114710 dut_before=0 dut_at=900 dut_next=1300 i2cf 82->82 ticked=False stepped_toward_rail=True
+  frame 755 side R: pos=115307 dut_before=2100 dut_at=3200 dut_next=3500 i2cf 82->85 ticked=True stepped_toward_rail=True
+  frame 834 side R: pos=128723 dut_before=0 dut_at=1000 dut_next=1300 i2cf 90->91 ticked=True stepped_toward_rail=True
+  frame 878 side L: pos=108940 dut_before=0 dut_at=-800 dut_next=-1100 i2cf 95->95 ticked=False stepped_toward_rail=True
+  frame 878 side R: pos=136385 dut_before=0 dut_at=800 dut_next=1100 i2cf 95->95 ticked=False stepped_toward_rail=True
+  frame 900 side L: pos=107745 dut_before=0 dut_at=1000 dut_next=1600 i2cf 97->98 ticked=True stepped_toward_rail=True
+  frame 930 side R: pos=144718 dut_before=3200 dut_at=4400 dut_next=4500 i2cf 101->104 ticked=True stepped_toward_rail=True
+  frame 962 side L: pos=120454 dut_before=0 dut_at=-800 dut_next=-1100 i2cf 106->106 ticked=False stepped_toward_rail=True
+  frame 962 side R: pos=150385 dut_before=0 dut_at=800 dut_next=1000 i2cf 106->106 ticked=False stepped_toward_rail=True
+  frame 1028 side L: pos=126917 dut_before=0 dut_at=-800 dut_next=-1100 i2cf 111->111 ticked=False stepped_toward_rail=True
+  frame 1028 side R: pos=159318 dut_before=0 dut_at=800 dut_next=1100 i2cf 111->111 ticked=False stepped_toward_rail=True
+  frame 1051 side R: pos=160585 dut_before=900 dut_at=1600 dut_next=2100 i2cf 114->117 ticked=True stepped_toward_rail=True
+  frame 1134 side L: pos=137190 dut_before=0 dut_at=1000 dut_next=1600 i2cf 127->128 ticked=True stepped_toward_rail=True
+  frame 1178 side L: pos=144829 dut_before=0 dut_at=-900 dut_next=-1100 i2cf 130->131 ticked=True stepped_toward_rail=True
+  frame 1200 side L: pos=143623 dut_before=0 dut_at=1000 dut_next=1600 i2cf 135->136 ticked=True stepped_toward_rail=True
+  frame 1200 side R: pos=183490 dut_before=0 dut_at=1000 dut_next=1300 i2cf 135->136 ticked=True stepped_toward_rail=True
+  frame 1262 side L: pos=156332 dut_before=0 dut_at=-800 dut_next=-1100 i2cf 141->141 ticked=False stepped_toward_rail=True
+  frame 1262 side R: pos=196215 dut_before=0 dut_at=800 dut_next=1100 i2cf 141->141 ticked=False stepped_toward_rail=True
+  frame 1284 side L: pos=155126 dut_before=0 dut_at=900 dut_next=1400 i2cf 143->143 ticked=False stepped_toward_rail=True
+  frame 1284 side R: pos=197502 dut_before=0 dut_at=800 dut_next=1200 i2cf 143->143 ticked=False stepped_toward_rail=True
+  frame 1311 side R: pos=203591 dut_before=3000 dut_at=3800 dut_next=3900 i2cf 146->149 ticked=True stepped_toward_rail=True
+  frame 1328 side L: pos=162754 dut_before=0 dut_at=-800 dut_next=-1200 i2cf 152->152 ticked=False stepped_toward_rail=True
+  frame 1328 side R: pos=205180 dut_before=0 dut_at=800 dut_next=1000 i2cf 152->152 ticked=False stepped_toward_rail=True
+  frame 1412 side L: pos=174246 dut_before=0 dut_at=-1000 dut_next=-1200 i2cf 166->167 ticked=True stepped_toward_rail=True
+  frame 1434 side L: pos=173023 dut_before=0 dut_at=1000 dut_next=1500 i2cf 167->168 ticked=True stepped_toward_rail=True
+  frame 1434 side R: pos=220419 dut_before=0 dut_at=1000 dut_next=1400 i2cf 167->168 ticked=True stepped_toward_rail=True
+  frame 1562 side L: pos=192162 dut_before=0 dut_at=-1000 dut_next=-1200 i2cf 183->184 ticked=True stepped_toward_rail=True
+  frame 1650 side R: pos=252277 dut_before=0 dut_at=1000 dut_next=1400 i2cf 190->191 ticked=True stepped_toward_rail=True
+  frame 1682 side R: pos=259783 dut_before=3300 dut_at=4500 dut_next=4500 i2cf 194->197 ticked=True stepped_toward_rail=True
+  frame 1712 side L: pos=210076 dut_before=0 dut_at=-1000 dut_next=-1100 i2cf 200->201 ticked=True stepped_toward_rail=True
+
+summary: 52 frozen-driven events, 28 with i2cf tick, 52 with duty stepping toward rail

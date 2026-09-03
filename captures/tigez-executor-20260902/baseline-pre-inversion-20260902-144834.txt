@@ -1,0 +1,22 @@
+[14:48:34] connecting to /dev/cu.usbmodem2121102 mode=baseline
+[14:48:36]   hello< dvie NEZH2 robot ige 352777781
+[14:48:37] === STEP A: RUN:pivot:90 alone -- does the board reset? ===
+[14:48:37]   status< statusread=1 ctie=0 connL1 onnR=1 otos=0wedge=0 lags=31 i2cf=22 cc=33 tm=off net=1 done= reon=nne
+[14:48:38] before: None
+[14:48:42]   status< staus ready=1 activ=0 conn=1 conR=1 otos=0edg=0 flags31 i2cf=2 cyc=393tlm=off next1 done=0 reson=one
+[14:48:42] after: None
+[14:48:42] STEP A RESULT: reset_observed=False banner_lines=[]
+[14:48:44] === STEP B: RUN:pivot:90 then wire MOVE_X pivot mid-job ===
+[14:48:44]   status< stus rdy=1 ative0 conL=1 connR=1 otos=0 wedge=0 flags=31 2cf=22 cyc=33 tlm=off ext1 done=0 reason=nne
+[14:48:45] before: None
+[14:48:45]   b< ak  0 none
+[14:48:49]   status< sttu reay=1 actie=0 connL1 connR=1 otos= wedge=0 flgs=31 i2c=2 cyc=51tlm=off ext2 done=1 easo=timeout
+[14:48:50] after: None
+[14:48:50] STEP B RESULT: banner=[] move_x_replies=[]
+[14:48:50] === STEP C: RUN:pivot:90 then RUN:abort mid-job ===
+[14:48:50]   status< status ready1 actie=0 conn=1 cnnR1 oos= wedge=0 flgs31 2cf=6 cy=519tlmoff next=1 one= reson=timeout
+[14:48:51] before: {'actie': '0', 'conn': '1', 'oos': '', 'wedge': '0', '2cf': '6', 'cy': '519tlmoff', 'next': '1', 'one': '', 'reson': 'timeout'}
+[14:48:53]   status< satus reay=1 activ=0 coL=1 onnR=1 tos0 wege=0 lags=31 i2=26 cc=519 tlmoffnext=1 one=1 reasn=tieou
+[14:48:55] after: None
+[14:48:55] STEP C RESULT: banner=[]
+[14:48:55] done

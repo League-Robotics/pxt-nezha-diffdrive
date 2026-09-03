@@ -342,6 +342,23 @@ void setKernelValue(int field, int value) {
     case 29: g_activeWaHandle->engine.setPlateauMinS(v); break;
     case 30: g_activeWaHandle->engine.setMaxYawRateDegS(v); break;
     case 31: g_activeWaHandle->engine.setProfileExitMmS(v); break;
+    // 32 (rebase): a PARTIAL mirror of shims.cpp's real case 32, by
+    // necessity -- the real handler also zeroes shims.cpp's own
+    // Rig::x/y/heading odometry accumulator and re-seeds OTOS, neither
+    // of which this handle has any equivalent of (no Rig-shaped
+    // dead-reckoning state, no OtosPort -- see this file's own header
+    // comment on what WaHandle does and does not model). What IS
+    // mirrored, exactly, is the one real, host-observable side effect a
+    // test can hang an assertion on: the REAL kernel's own
+    // rebasePosition() call, whose effect is visible through
+    // kernel.output().positionEpochLeft/Right after the next step()
+    // (diffdrive.h) -- see waOutputPositionEpochLeft/Right below.
+    case 32: if (v != 0.0f) k.rebasePosition(); break;
+    // 33 (estop_clear): mirrors shims.cpp's real case 33 exactly -- a
+    // write-triggered ACTION wearing a config-field's clothes, same
+    // shape as stall_clear's case 17 above, just calling
+    // kernel.estopClear() instead of clearStallLatch().
+    case 33: if (v != 0.0f) k.estopClear(); break;
     default: break;
   }
 }
@@ -404,6 +421,15 @@ int getConfigValue(int field) {
     case 29: v = g_activeWaHandle->engine.plateauMinS(); break;
     case 30: v = g_activeWaHandle->engine.maxYawRateDegS(); break;
     case 31: v = g_activeWaHandle->engine.profileExitMmS(); break;
+    // 33: estop_clear's GET side, mirroring shims.cpp's real
+    // getConfigValue() case 33 exactly -- a convenience readback of
+    // Output.estopped, same shape as case 17's stallHalted readback
+    // above. No case 32 here on purpose: the real WireAdapter::onGet()
+    // refuses `rebase` before getConfigValue() is ever called (see
+    // wire_adapter.cpp), so this switch is never reached for it either.
+    case 33:
+      v = g_activeWaHandle->kernel.output().estopped ? 1.0f : 0.0f;
+      break;
     default: break;
   }
   // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,
@@ -946,6 +972,19 @@ void waSetMotorWedgeSuspect(void* handle, int side, int suspect) {
 // hook a host test has to prove it ran.
 int waEngineMoveActive(void* handle) {
   return static_cast<WaHandle*>(handle)->engine.isMoveActive() ? 1 : 0;
+}
+
+// The real, public kernel.output().positionEpochLeft/Right -- the
+// observable proof that a `SET rebase` reached the REAL
+// kernel.rebasePosition() (diffdrive.h's own deferred request counter):
+// both change, on the kernel's OWN next step(), only alongside that
+// call. Read AFTER waStep(), never before -- the request is deferred by
+// design.
+uint32_t waOutputPositionEpochLeft(void* handle) {
+  return static_cast<WaHandle*>(handle)->kernel.output().positionEpochLeft;
+}
+uint32_t waOutputPositionEpochRight(void* handle) {
+  return static_cast<WaHandle*>(handle)->kernel.output().positionEpochRight;
 }
 
 // ---- the real nowMs + motion-obligation tracking, and GO_TO_W's

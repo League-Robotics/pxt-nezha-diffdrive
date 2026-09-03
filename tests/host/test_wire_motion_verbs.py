@@ -45,6 +45,7 @@ Run with::
 import ctypes
 import math
 import pathlib
+import re
 
 import pytest
 
@@ -320,6 +321,14 @@ def _bind(lib):
     lib.waOnTlm.restype = ctypes.c_int
     lib.waHasLiveTelemetry.argtypes = [ctypes.c_void_p]
     lib.waHasLiveTelemetry.restype = ctypes.c_int
+
+    # sprint 028 ticket 002: `rebase`/`estop_clear` -- the real kernel's
+    # own positionEpochLeft/Right (the observable proof rebasePosition()
+    # actually ran).
+    lib.waOutputPositionEpochLeft.argtypes = [ctypes.c_void_p]
+    lib.waOutputPositionEpochLeft.restype = ctypes.c_uint32
+    lib.waOutputPositionEpochRight.argtypes = [ctypes.c_void_p]
+    lib.waOutputPositionEpochRight.restype = ctypes.c_uint32
 
     return lib
 
@@ -686,6 +695,17 @@ class WireAdapterHandle:
 
     def has_live_telemetry(self):
         return bool(self._lib.waHasLiveTelemetry(self._handle))
+
+    # ---- sprint 028 ticket 002: rebase/estop_clear ----------------------
+
+    def output_position_epoch_left(self):
+        """kernel.output().positionEpochLeft -- changes only alongside a
+        REAL kernel.rebasePosition() call, on the kernel's own NEXT
+        step() (the request is deferred by design). Read after step()."""
+        return self._lib.waOutputPositionEpochLeft(self._handle)
+
+    def output_position_epoch_right(self):
+        return self._lib.waOutputPositionEpochRight(self._handle)
 
 
 class Snapshot:
@@ -1815,6 +1835,16 @@ def test_set_value_large_but_sane_is_still_accepted(wa):
 #     arbitrary value (it structurally cannot; this file's own dedicated
 #     stall_clear tests elsewhere already cover its real write-then-clear
 #     behavior).
+#   - estop_clear (sprint 028 ticket 002): the same write-triggered-
+#     action shape as stall_clear immediately above -- its GET side
+#     reads `kernel.output().estopped`, NOT the value just SET. 0.0 is a
+#     legitimate no-op SET (only a nonzero value calls kernel.
+#     estopClear()) whose honest GET readback on a freshly created,
+#     never-estopped kernel is 0.0. `rebase` (ordinal 32) has NO entry
+#     here at all, deliberately -- it never appears in `names` in the
+#     first place, since its GET is refused outright rather than
+#     answering a convenience 0.0 (see wire_adapter.cpp's onGet() and
+#     test_rebase_get_is_refused).
 # crawl_pulse's own documented range is [-1, 1] (diffdrive.h) -- 0.75
 # stays inside it rather than picking an arbitrary out-of-contract value.
 _KFIELDS_REPRESENTATIVE_VALUES = {
@@ -1857,6 +1887,7 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "plateau_min_s": 0.15,
     "max_yaw_rate": 90.0,
     "profile_exit": 45.0,
+    "estop_clear": 0.0,
 }
 
 
@@ -2886,6 +2917,14 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"plateau_min_s",
         b"max_yaw_rate",
         b"profile_exit",
+        # sprint 028 ticket 002: ordinal 32 (rebase) is deliberately
+        # ABSENT here -- its GET is refused (WireAdapter::onGet(),
+        # wire_adapter.cpp), so it never appears in a bare dump; see
+        # test_rebase_get_is_refused below. Ordinal 33 (estop_clear) DOES
+        # have a real GET (a convenience readback of the live estop
+        # flag, same shape stall_clear's own GET already uses), so it is
+        # appended here in ordinal order like every field above it.
+        b"estop_clear",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 
@@ -3078,6 +3117,324 @@ def test_stall_clear_wire_field_clears_latch_and_reads_back(wa):
     prefix = _ack(8, 4, DONE_STALL) + b"get stall_clear "
     assert reply.startswith(prefix)
     assert float(reply[len(prefix):]) == pytest.approx(0.0, abs=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 028 ticket 002 (closing no-wire-verb-reaches-rebaseposition-so-
+# tours-cannot-zero-their-frame.md): `rebase` (ordinal 32) and
+# `estop_clear` (ordinal 33), the same write-triggered-action-wearing-a-
+# config-field's-clothes shape stall_clear (ordinal 17, tested above)
+# already established.
+# ---------------------------------------------------------------------------
+
+
+def test_rebase_is_sequenced_and_reaches_kernel_rebase_position(wa):
+    """`SET rebase 1` reaches the REAL kernel.rebasePosition() -- a
+    DEFERRED request (diffdrive.h) that only takes effect on the
+    kernel's own NEXT step(), observable there as
+    positionEpochLeft/Right both changing (this handle's own
+    waOutputPositionEpochLeft/Right), the same "prove the real kernel
+    method ran via a real Output field" shape
+    test_stall_clear_wire_field_clears_latch_and_reads_back above uses
+    for clearStallLatch()/stallHalted.
+
+    Also proves the field PARTICIPATES in the mandatory `#<id>`
+    ack/nack reliability layer, not merely accepts one (this ticket's
+    own acceptance criterion: "must be confirmed by a host test, not
+    assumed") -- a GAPPED id (here, #2 arriving first, with
+    expectedNext_ still 1) nacks and the underlying onSet() is never
+    called at all, so the epoch does not move even across a step().
+    Only once the missing #1 arrives does the request actually reach
+    the kernel.
+    """
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.step()  # baseline step so the epoch pair reads a stable value
+
+    before_left = wa.output_position_epoch_left()
+    before_right = wa.output_position_epoch_right()
+
+    # Gap: #2 arrives first -> nack, onSet() never runs.
+    wa.feed(b"SET rebase 1 #2\n")
+    assert wa.take_sink() == _nack(1)
+    wa.step()
+    assert wa.output_position_epoch_left() == before_left
+    assert wa.output_position_epoch_right() == before_right
+
+    # The missing #1 arrives, in order -> ack, request armed but still
+    # DEFERRED (no step() has run yet).
+    wa.feed(b"SET rebase 1 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.output_position_epoch_left() == before_left
+    assert wa.output_position_epoch_right() == before_right
+
+    # The kernel's own next step() applies the deferred request.
+    wa.step()
+    assert wa.output_position_epoch_left() == before_left + 1
+    assert wa.output_position_epoch_right() == before_right + 1
+
+
+def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
+    """rebase's OTOS re-seed and encoder-frame zero (the acceptance
+    criterion behind wire_adapter.cpp's kFields comment: "the
+    platform-layer pose-seed path seedPose() already uses so both pose
+    sources stay agreed at the zero point") live entirely in shims.cpp's
+    real setKernelValue() case 32 -- unlike every other case this file's
+    WaHandle mirrors, OtosPort cannot be compiled into ANY host test at
+    all (otos_port.h includes pxt.h unconditionally; wire_adapter.cpp's
+    own forward-declaration comment documents this same gap for GO_TO_W's
+    OTOS PoseSource). This is a text-based check instead, the same
+    "read the other file as text, no compiler needed" shape
+    test_wire_constants_drift.py already uses throughout: confirms case
+    32's own body calls kernel.rebasePosition(), zeroes x/y/heading, AND
+    re-seeds OTOS to that same zero -- so a future edit cannot silently
+    drop the OTOS half while the encoder half keeps passing every other
+    (compiled) test in this file."""
+    shims_text = (_SRC_DIR / "shims.cpp").read_text()
+    match = re.search(r"case 32:\s*\{?\s*if \(v != 0\.0f\) \{(.*?)\}\s*break;",
+                      shims_text, re.DOTALL)
+    assert match, "shims.cpp's setKernelValue() case 32 (rebase) body was not found"
+    body = match.group(1)
+    assert "k.rebasePosition();" in body, body
+    assert "r.x = 0.0f;" in body and "r.y = 0.0f;" in body and \
+        "r.heading = 0.0f;" in body, body
+    assert "otosRef().setPose(0.0f, 0.0f, 0.0f);" in body, body
+
+
+def test_rebase_get_is_refused(wa):
+    """rebase has no stored value and no boolean latch worth reading
+    back (unlike estop_clear immediately below) -- WireAdapter::onGet()
+    refuses it outright, the identical `err 1` (ERR_UNKNOWN) reply an
+    unrecognized field name gets
+    (test_get_set_unknown_field_name_is_unknown above), and it is
+    absent from a bare GET dump
+    (test_get_bare_dumps_all_sixteen_fields_no_wheels_entry above)."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.feed(b"GET rebase #1\n")
+    assert wa.take_sink() == _ack(1) + _err(1, 1)
+
+
+def test_estop_clear_reaches_kernel_estop_clear_and_reads_back(wa):
+    """`SET estop_clear 1` reaches the REAL kernel.estopClear() -- an
+    ESTOP first latches Output.estopped (via the real onEstop()'s own
+    estopAll()), GET estop_clear reads that live flag back (1 while
+    estopped, matching test_stall_clear's own "GET reads the live flag,
+    not a stored value" shape), then SET estop_clear clears it and a
+    subsequent GET/step confirms it stayed cleared.
+
+    Also confirms estop_clear is sequenced the same direct way rebase's
+    own test above proves it with a gap: immediately re-sending the SAME
+    #<id> a second time (the host never saw the first ack) re-acks
+    WITHOUT re-executing (S2.2's own stale-retransmit row --
+    test_stale_retransmit_reacks_already_accepted_id_and_does_not_reexecute,
+    tests/host/test_wire_reliability.py) rather than nacking or silently
+    dropping it. wire_handler.cpp always echoes `expectedNext_ - 1` for
+    a stale id, not literally the id resent -- so the retransmit below
+    reuses #2 right after its own first send, while #2 is still that
+    exact value, rather than resending an older id once the sequence has
+    moved further on.
+    """
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.step()
+
+    wa.feed(b"ESTOP\n")
+    assert wa.take_sink() == b"estop\n"
+    wa.step()  # Output.estopped only updates on the kernel's next step()
+
+    wa.feed(b"GET estop_clear #1\n")
+    reply = wa.take_sink()
+    prefix = _ack(1) + b"get estop_clear "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(1.0, abs=1e-3)
+
+    wa.feed(b"SET estop_clear 1 #2\n")
+    assert wa.take_sink() == _ack(2)
+
+    # The host never saw that ack and resends the SAME line, same id --
+    # re-acks #2 again (still expectedNext_ - 1) without re-executing.
+    wa.feed(b"SET estop_clear 1 #2\n")
+    assert wa.take_sink() == _ack(2)
+
+    wa.step()
+
+    wa.feed(b"GET estop_clear #3\n")
+    reply = wa.take_sink()
+    prefix = _ack(3) + b"get estop_clear "
+    assert reply.startswith(prefix)
+    assert float(reply[len(prefix):]) == pytest.approx(0.0, abs=1e-3)
+
+
+def test_rebase_and_estop_clear_refused_busy_during_live_motion(wa):
+    """Both new fields are refused (kBusy, wire err 10), not silently
+    accepted or ignored, while a motion obligation or move-engine move
+    is live -- the acceptance criterion this ticket adds for the first
+    time to any SET field. MOVE_X arms BOTH hasLiveMotionObligation()
+    (this class's own wire-motion-lease bookkeeping) and
+    engineMoveActive() (the shared MotionEngine's own move state); this
+    test proves the refusal via the observable side effect staying
+    inert -- kernel.rebasePosition() is never actually reached (the
+    position epoch does not move across a step()) -- not merely via
+    the wire error code, the same "prove the real effect, not just the
+    reply" standard test_rebase_is_sequenced_and_reaches_kernel_rebase_position
+    above holds itself to.
+    """
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.step()
+
+    before_left = wa.output_position_epoch_left()
+    before_right = wa.output_position_epoch_right()
+
+    wa.feed(b"MOVE_X 500 0 100 4000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.has_live_motion_obligation()
+    assert wa.engine_move_active()
+
+    wa.feed(b"SET rebase 1 #2\n")
+    assert wa.take_sink() == _ack(2) + _err(10, 2)
+    wa.step()
+    assert wa.output_position_epoch_left() == before_left
+    assert wa.output_position_epoch_right() == before_right
+
+    wa.feed(b"SET estop_clear 1 #3\n")
+    assert wa.take_sink() == _ack(3) + _err(10, 3)
+
+    # Once the move ends (STOP clears both signals), the SAME fields are
+    # accepted again -- the refusal tracks live motion, not a permanent
+    # lockout. STOP's OWN ack is formatted BEFORE onStop() resolves
+    # anything (dispatch() replies ack, then executes -- the same
+    # ordering test_explicit_stop_ends_a_pending_goal_directed_motion_as_stop
+    # in test_wire_motion_completion.py pins), so it still reports the
+    # PRE-stop default; the NEXT ack (#5 below) is the first to report
+    # MOVE_X #1's own resolution.
+    wa.feed(b"STOP #4\n")
+    assert wa.take_sink() == _ack(4)
+    assert not wa.has_live_motion_obligation()
+    assert not wa.engine_move_active()
+
+    wa.feed(b"SET rebase 1 #5\n")
+    assert wa.take_sink() == _ack(5, 1, DONE_STOP)
+    wa.step()
+    assert wa.output_position_epoch_left() == before_left + 1
+    assert wa.output_position_epoch_right() == before_right + 1
+
+
+def test_move_x_immediately_after_a_successful_rebase_delivers_its_full_commanded_rotation(wa):
+    """Sprint 028 ticket 002 hardware acceptance re-open (gopiv,
+    2026-09-02): `SET rebase 1` defers kernel.rebasePosition() to the
+    kernel's own NEXT step() (diffdrive.cpp's rebaseReq_/
+    seenRebaseReq_ check, honoured before that step()'s own command
+    processing). A MOVE_X issued right after a SUCCESSFUL rebase -- no
+    motion active in between, so the busy gate
+    (test_rebase_and_estop_clear_refused_busy_during_live_motion above)
+    never fires -- has its own startSegment() (motion_engine.cpp)
+    capture posLeft0/posRight0 from the kernel's STILL-OLD, pre-rebase
+    Output; the very step() that first drives this move is ALSO the
+    step() that finally honours the deferred rebase, resetting the
+    kernel's own encoder samples out from under that snapshot (and, on
+    real hardware, NezhaMotorPort::rebaseline() genuinely zeroes
+    position() -- nezha_port.cpp -- unlike FakeMotor's own no-op
+    rebaseline(), fake_ports.h, which this test works around by arming
+    the post-rebase position explicitly, below).
+
+    PRE-FIX, diffing the fresh near-zero post-rebase position against
+    the stale pre-rebase baseline produced a huge signed delta that
+    satisfied serviceMove()'s completion margin on the move's own
+    FIRST serviced tick -- MEASURED gopiv 2026-09-02,
+    captures/gopiv-acceptance-028-20260902/step_e_transcript.txt (Step
+    E.2): `MOVE_X 0 -900 60 3000` sent right after a successful `SET
+    rebase 1` delivered 11 of ~5160 commanded centidegrees and reported
+    itself complete (`vl=vr=0` within one tick). The fix
+    (motion_engine.{h,cpp}: MoveState::epochLeft0/epochRight0, captured
+    alongside posLeft0/posRight0 in startSegment() and checked at the
+    top of serviceMove()) re-anchors the baseline to the fresh
+    post-rebase position instead -- distTarget/yawTarget are RELATIVE
+    displacements and stay untouched, only the reference point they are
+    measured from moves, so the move keeps driving and still reaches
+    its own full commanded target.
+    """
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_now_ms(1000)
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    # The robot already has real accumulated position from an earlier
+    # move (e.g. a prior pivot, matching Step E.1's own pivot before its
+    # rebase) -- ASYMMETRIC left/right (a real pivot's own encoder
+    # split), not merely large: the bug lives entirely on the YAW
+    # (differential, right-minus-left) axis a pure pivot's completion
+    # check reads, so a SYMMETRIC prior position (equal on both wheels)
+    # would cancel out of that difference and mask the very regression
+    # this test exists to catch, however large its magnitude.
+    prior_left, prior_right = -4000.0, 4000.0
+    wa.arm_motor_position(LEFT, prior_left, sample_time_us=1)
+    wa.arm_motor_position(RIGHT, prior_right, sample_time_us=1)
+    wa.step()
+
+    before_left_epoch = wa.output_position_epoch_left()
+    before_right_epoch = wa.output_position_epoch_right()
+
+    # SET rebase 1 -- deferred, no step() yet: matches the real
+    # Protocol::run() loop exactly (protocol.cpp's serviceOnce()/run()),
+    # which only calls tickDrive() while hasLiveMotionObligation() is
+    # true, and a bare rebase (no move active yet) never arms that flag.
+    wa.feed(b"SET rebase 1 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.output_position_epoch_left() == before_left_epoch
+    assert wa.output_position_epoch_right() == before_right_epoch
+
+    # MOVE_X issued immediately after, no gap -- a pure pivot
+    # (distance == 0), matching Step E.2's own -900 mrad pivot.
+    # startSegment() runs synchronously inside this feed() call, before
+    # any step() -- so it captures posLeft0/posRight0 from the
+    # still-8000-count, pre-rebase Output.
+    wa.feed(b"MOVE_X 0 -900 60 3000 #2\n")
+    assert wa.take_sink() == _ack(2)
+    assert wa.engine_move_active()
+
+    # Simulate the real NezhaMotorPort::rebaseline() contract (position
+    # reads a genuine 0 immediately after -- nezha_port.cpp) landing on
+    # the SAME step() that also first drives the newly-issued move.
+    wa.arm_motor_position(LEFT, 0.0, sample_time_us=2)
+    wa.arm_motor_position(RIGHT, 0.0, sample_time_us=2)
+    wa.step()  # applies the deferred rebase AND the move's first drive tick
+
+    assert wa.output_position_epoch_left() == before_left_epoch + 1
+    assert wa.output_position_epoch_right() == before_right_epoch + 1
+
+    # THE FIX: the move must NOT resolve as complete on this first
+    # post-rebase tick. Pre-fix, the stale-baseline delta satisfied the
+    # completion margin here and this call returned False with
+    # essentially none of the commanded rotation delivered.
+    still_active = wa.service_move()
+    assert still_active, (
+        "move reported complete on its first post-rebase tick -- the "
+        "stale pre-rebase baseline bug has regressed"
+    )
+    assert wa.engine_move_active()
+
+    # Drive the move the rest of the way to a REAL completion, proving
+    # it still reaches its own full commanded target from the freshly
+    # re-anchored baseline -- not merely that it failed to end early.
+    rotation_rad = -900.0 * 0.001  # MOVE_X's own mrad -> rad, mradToRad()
+    yaw_target_counts = rotation_rad * 0.5 * b * cpm
+    left_target = -yaw_target_counts   # distance == 0: left = -yawTarget
+    right_target = yaw_target_counts   #                right = +yawTarget
+    wa.arm_motor_position(LEFT, left_target, sample_time_us=3)
+    wa.arm_motor_position(RIGHT, right_target, sample_time_us=3)
+    wa.step()
+    still_active = wa.service_move()
+    assert not still_active
+    assert not wa.engine_move_active()
+    assert wa.last_done_reason() == DONE_STOP  # polls resolvePendingIfDue()
 
 
 # ---------------------------------------------------------------------------

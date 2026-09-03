@@ -1,7 +1,7 @@
 ---
 id: 028
 title: Single executor, honest encoder velocity, and a frame-zeroing verb
-status: ticketing
+status: executing
 branch: sprint/028-single-executor-honest-encoder-velocity-and-a-frame-zeroing-verb
 use-cases:
 - SUC-001

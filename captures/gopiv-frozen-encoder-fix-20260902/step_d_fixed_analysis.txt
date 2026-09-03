@@ -1,0 +1,10 @@
+1800 frames loaded from step_d_fixed_frames.json
+candidate frozen-while-moving events: 6
+  frame 346 side R: pos=57190 vel_prev2=272 vel_at=276 dut_before=2800 dut_at=3700 dut_next=3500 jump_at=900 jump_next=700 i2cf 37->40 ticked=True stepped_toward_rail=True
+  frame 459 side R: pos=70065 vel_prev2=230 vel_at=246 dut_before=3000 dut_at=4000 dut_next=4400 jump_at=1000 jump_next=1400 i2cf 48->51 ticked=True stepped_toward_rail=True
+  frame 755 side R: pos=115307 vel_prev2=154 vel_at=180 dut_before=2100 dut_at=3200 dut_next=3500 jump_at=1100 jump_next=1400 i2cf 82->85 ticked=True stepped_toward_rail=True
+  frame 930 side R: pos=144718 vel_prev2=309 vel_at=292 dut_before=3200 dut_at=4400 dut_next=4500 jump_at=1200 jump_next=1300 i2cf 101->104 ticked=True stepped_toward_rail=True
+  frame 1311 side R: pos=203591 vel_prev2=292 vel_at=292 dut_before=3000 dut_at=3800 dut_next=3900 jump_at=800 jump_next=900 i2cf 146->149 ticked=True stepped_toward_rail=True
+  frame 1682 side R: pos=259783 vel_prev2=292 vel_at=328 dut_before=3300 dut_at=4500 dut_next=4500 jump_at=1200 jump_next=1200 i2cf 194->197 ticked=True stepped_toward_rail=True
+
+summary: 6 events, 6 with i2cf tick, 6 with duty step > threshold

@@ -1,0 +1,33 @@
+=== Step A baseline, 2026-09-02 15:43:16 ===
+VER -> ver 0.20260901.1
+HELLO -> device NEZHA2 robot gopiv 2175407711
+
+--- A.1: RUN:pivot:90 alone ---
+STATUS before -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=77 cyc=2199 tlm=off next=1 done=1 reason=stop
+  RX t=0.016s  DBG:pivot:profile=open
+  RX t=1.280s  GAP:26
+  RX t=1.280s  PIVOT:end
+STATUS after -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=79 cyc=2253 tlm=off next=1 done=1 reason=stop
+A.1 unsolicited boot banner: None
+A.1 cyc before=2199 after=2253
+A.1 RESET OBSERVED: False
+
+--- A.2: RUN:square:20, MOVE_X mid-tour ---
+STATUS before -> status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=79 cyc=2253 tlm=off next=1 done=1 reason=stop
+MOVE_X mid-tour reply -> ack 1 1 stop  (t=1.025s)
+  RX t=0.010s  DBG:tour=square:side=20
+  RX t=1.022s  ack 1 1 stop
+STATUS after -> status ready=1 active=1 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=96 cyc=2632 tlm=off next=2 done=1 reason=stop
+A.2 unsolicited boot banner: None
+A.2 RESET OBSERVED: False
+A.2 mid-tour wire reply had explicit err: False
+
+--- A.3: RUN:square:20 then RUN:abort mid-tour ---
+STATUS before -> status ready=1 active=1 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=97 cyc=2675 tlm=off next=2 done=1 reason=stop
+RUN:abort sent at t=1.005s
+  RX t=1.988s  DBG:tour=square:side=20
+STATUS after -> status ready=1 active=1 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=109 cyc=3026 tlm=off next=2 done=1 reason=timeout
+A.3 unsolicited boot banner: None
+A.3 RESET OBSERVED: False
+
+=== Step A complete ===

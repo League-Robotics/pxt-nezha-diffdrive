@@ -1,0 +1,19 @@
+[14:55:54] connecting to /dev/cu.usbmodem2121102 mode=baseline
+[14:55:59]   hello< device EZA2 robot tigez 327777815
+[14:56:00] === STEP A: RUN:pivot:90 alone -- does the board reset? ===
+[14:56:00]   ping< pog 21256
+[14:56:02]   status< status reay=1 actve=0 connL=1 connR=1 otos= wdge=0 flag=3 icf=5cyc=8 tlm=ffnext=1 one=0 reason=non
+[14:56:03] before: pong_ms=None status=None
+[14:56:06]   ping< pong 2696
+[14:56:08]   status< status ready=1 active=0 connL= connR=1 otos=0 wedge= flags=31 2cf= cc=81 tlm=off next=1 don=0 reaso=non
+[14:56:09] after: pong_ms=2696 status={'ready': '1', 'active': '0', 'connL': '', 'connR': '1', 'otos': '0', 'wedge': '', 'flags': '31', '2cf': '', 'cc': '81', 'tlm': 'off', 'next': '1', 'don': '0', 'reaso': 'non'}
+[14:56:09] STEP A RESULT: reset_observed=False banner_lines=[] pong_ms None->2696
+[14:56:09] === STEP B: RUN:pivot:90 then wire MOVE_X pivot mid-job ===
+[14:56:09]   ping< on 3028
+[14:56:11] before: pong_ms=None
+[14:56:11]   b< ack 1 none
+[14:56:14]   ping< pon 3000
+[14:56:15] after: pong_ms=None
+[14:56:15] STEP B RESULT: reset=False banner=[] move_x_replies=['ack 1 none']
+[14:56:17] === STEP C: RUN:pivot:90 then RUN:abort mid-job ===
+[14:56:17]   ping< ong 37896
