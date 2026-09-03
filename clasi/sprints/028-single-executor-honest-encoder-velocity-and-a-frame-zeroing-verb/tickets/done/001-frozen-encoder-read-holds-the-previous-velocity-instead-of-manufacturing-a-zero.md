@@ -146,6 +146,46 @@ stamp on this one additional case.
       provide one; `TLM`'s `kBuffer` mode is explicitly unimplemented,
       `src/comms/wire_adapter.cpp` `onTlm()`).
 
+      **Follow-up session, same day: root cause found and fixed —
+      hardware acceptance PARTIALLY confirmed, not a clean pass.** See
+      this ticket's own "Findings" section below for the full
+      root-cause analysis and
+      `captures/gopiv-frozen-encoder-fix-20260902/notes.md` for the
+      complete measurement writeup. Summary: the real trigger on
+      hardware was `EncoderGlitchArmor::Decision::kAcceptAsRebaseline`
+      (`NezhaMotorPort::collect()`), not the raw-unchanged case this
+      ticket originally scoped — that branch was advancing
+      `sampleTimeUs_` while forcing `pos == lastPosition_` by
+      construction, producing the same "honestly-derived-but-wrong
+      zero" this ticket's Description names, via a second,
+      previously-unaddressed path. Fixed by withholding
+      `sampleTimeUs_` on that branch too (same file, same pattern as
+      the existing guard). **MEASURED gopiv 2026-09-02,
+      `captures/gopiv-frozen-encoder-fix-20260902/step_d_fixed_frames.json`
+      + `step_d_fixed12_frames.json`, 18 reps / 5389 frames total: the
+      named defect (wire-reported velocity reading exactly 0 at a
+      genuinely-cruising frozen tick) occurs 0/20 times post-fix**, vs.
+      5/6 reps pre-this-session's-fix. Duty jumps also shrank
+      (pre-fix/still-failing ~11-17 points → post-fix mostly 4-12
+      points). **However, a smaller, real (non-fabricated) velocity/
+      duty transient still correlates with encoder-fault-recovery
+      events** (peak 447 mm/s vs. a no-recent-fault ceiling of
+      328-354 mm/s) — root-caused to
+      `DifferentialDrive::controlStep()` (`src/core/diffdrive.cpp`,
+      vendored kernel) computing the PID error against
+      `sampleLeft_/Right_.velocity` unconditionally, not gated on the
+      `freshLeft`/`freshRight` staleness flags it already computes for
+      bias-adaptation purposes — closing that residual would require
+      touching `src/core/diffdrive.{h,cpp}`, which this ticket's own
+      binding scope decision keeps byte-identical to upstream. Left
+      **unchecked** below: the criterion as literally written
+      ("confirm no speed excursion... and no overshoot") is not fully
+      met, even though the specific bug this ticket names is
+      hardware-confirmed fixed. Recommend a follow-up issue for the
+      kernel-side PID freshness-gating; leaving the accept/keep-open
+      call to the team-lead rather than self-certifying a partial
+      result as a full pass.
+
       Superseded BLOCKED note from the prior session (2026-09-02,
       before this hardware-acceptance re-run): build succeeded
       (`uv run python tools/make_deploy.py --robot gopiv`, clean
@@ -212,3 +252,54 @@ captures `glitchArmor_.lastGoodRaw()` into a local BEFORE calling
 condition on `decision == EncoderGlitchArmor::Decision::kAccept` (never
 `kAcceptAsRebaseline`) plus `raw == previousGoodRaw`. No new member,
 no header change.
+
+## Findings (added 2026-09-02, follow-up session after Step D's FAILED hardware acceptance)
+
+**Systematic-debugging summary** (full writeup:
+`captures/gopiv-frozen-encoder-fix-20260902/notes.md`).
+
+- **Evidence (Phase 1).** Step D's FAILED hardware acceptance
+  (`captures/gopiv-acceptance-028-20260902/notes.md`) showed the
+  originally-scoped fix (raw-unchanged guard) did not stop the named
+  defect: 5/6 tour reps still produced a genuinely-cruising tick where
+  wire-reported velocity read exactly 0, `i2cf` incremented, and duty
+  stepped 14-25 points toward the rail.
+- **Pattern (Phase 2).** Re-reading `NezhaMotorPort::collect()`
+  end-to-end: a successful I2C read has THREE possible
+  `EncoderGlitchArmor` outcomes, not two. `kAccept` (raw unchanged,
+  driven) and `kRejectPending` both already held `sampleTimeUs_`
+  correctly (the first via this ticket's own guard, the second
+  pre-existing). `kAcceptAsRebaseline` — the "counter restarted"
+  outcome, sprint 006 ticket 005 — did NOT: it re-anchors `encOffset_`
+  so `pos == lastPosition_` by construction (correctly avoiding a
+  multi-metre reintegration spike) but then fell through to the shared
+  accept-path code, which advances `sampleTimeUs_` unconditionally.
+  `DifferentialDrive::refreshSample()` (vendored kernel, unmodified)
+  then computes `(pos - sample.position) / interval` — with `pos`
+  forced equal to the pre-event position, this is a confidently-fresh,
+  honestly-derived velocity of exactly 0. Same defect shape as this
+  ticket's Description, second untouched trigger.
+- **Hypothesis + test (Phase 3).** Withholding `sampleTimeUs_` on
+  `kAcceptAsRebaseline` too, mirroring the sibling guards, should make
+  `refreshSample()` hold the prior real velocity instead of fabricating
+  a zero, without reopening the reintegration-spike risk
+  `kAcceptAsRebaseline` exists to prevent (the position re-anchor is
+  untouched — only the "also mint a fresh zero-velocity sample this
+  same tick" side effect is removed).
+- **Fix (Phase 4).** `src/platform/nezha_port.cpp::collect()`'s
+  `kAcceptAsRebaseline` branch now returns early (holds
+  `sampleTimeUs_`) after re-anchoring, instead of falling through.
+  `src/core/diffdrive.{h,cpp}` untouched (`git diff` empty, verified).
+- **Result.** MEASURED gopiv 2026-09-02, 18 reps / 5389 frames
+  (`captures/gopiv-frozen-encoder-fix-20260902/`): the named defect
+  (exact-zero velocity at a genuinely-cruising frozen tick) occurs
+  **0/20 times**, down from 5/6 reps. A smaller, mechanistically
+  distinct, real (non-fabricated) velocity/duty transient remains,
+  root-caused to `DifferentialDrive::controlStep()` computing the PID
+  error against `sampleLeft_/Right_.velocity` unconditionally rather
+  than gating on the `freshLeft`/`freshRight` staleness flags it
+  already computes (for bias adaptation only) — fixing that would
+  require editing `src/core/diffdrive.{h,cpp}`, out of this ticket's
+  binding scope. See the Hardware Acceptance criterion above for the
+  full numbers and the recommendation to track that residual as a
+  separate follow-up issue rather than block this ticket's fix on it.
