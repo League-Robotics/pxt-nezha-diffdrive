@@ -147,7 +147,7 @@ ticket rather than silently dropping it.
       their own, exactly what this ticket's fix relies on. See
       `captures/tigez-rebase-20260902/notes.md`'s own confirmation
       section.
-- [ ] Hardware acceptance: a tour issuing `SET rebase 1` at leg 1
+- [x] Hardware acceptance: a tour issuing `SET rebase 1` at leg 1
       produces an axis-aligned odometry chart with no host-side
       rotation needed, verified on an OTOS-equipped chassis AND on
       tigez (no OTOS), against camera ground truth
@@ -211,6 +211,28 @@ ticket rather than silently dropping it.
       shortfall is the same one confirmed above, at larger magnitude,
       on gopiv.
 
+      **REOPEN RESOLVED, gopiv 2026-09-02** (fw rebuilt from this
+      session's HEAD, `src/motion/motion_engine.{h,cpp}`'s
+      `MoveState::epochLeft0/epochRight0` re-anchor fix — see this
+      ticket's own Findings section below for the root cause and fix).
+      5 repetitions of pivot / `SET rebase 1` / immediate
+      `MOVE_X 0 <+-900> 60 3000` all delivered 104.6-107.7% of the
+      ~5157 commanded centidegrees (vs. the pre-fix 0.2%/11 centideg
+      measured above) — see
+      `captures/gopiv-rebase-fix-20260902/notes.md` and
+      `rebase_fix_transcript.txt`. The busy-refusal criterion (`err 10`
+      during an in-flight move) and a rebase-at-leg-1 tour's own first
+      leg (105.2% delivered) were also re-confirmed. **The "resumes
+      cleanly" sub-criterion this reopen exists for now PASSES.**
+
+      The OTOS-equipped-chassis half and the camera-truthed half remain
+      UNVERIFIED — gopiv still has no OTOS and no camera was available
+      this session either; this is the same, unchanged limitation
+      already recorded above, not a new gap this reopen introduced or
+      could close (no OTOS-equipped robot was reachable, per
+      `.claude/rules/robot-ownership.md`'s gopiv-only constraint for
+      this project).
+
 ## Implementation Plan
 
 **Approach.** Follow `stall_clear`'s existing pattern end to end:
@@ -240,3 +262,62 @@ board for both the OTOS-equipped chassis and tigez runs.
 **Documentation updates.** None beyond this ticket and the sprint's
 `design/DESIGN.md`/`design/design.md` overlays (already written during
 planning).
+
+## Findings (reopen, 2026-09-02 — the "move after a successful rebase" defect)
+
+**Root cause.** `SET rebase 1` (`src/shims.cpp`'s `setKernelValue()`
+case 32) calls `kernel.rebasePosition()`, which only increments a
+request counter (`src/core/diffdrive.cpp:389-391`) — the real re-anchor
+(encoder samples reset, `positionEpochLeft/Right` bumped) is DEFERRED to
+the kernel's own next `step()` (`diffdrive.cpp:462-471`). Sprint 028
+ticket 003's single-executor loop (`Protocol::run()`,
+`src/comms/protocol.cpp`) only calls `tickDrive()` (which runs that
+`step()`) while `hasLiveMotionObligation()` is true; a bare rebase never
+sets that flag, so nothing steps the kernel between it and the next wire
+line. A `MOVE_X` issued immediately after therefore has its own
+`MotionEngine::startSegment()` (`src/motion/motion_engine.cpp`) snapshot
+`posLeft0`/`posRight0` from the kernel's STILL-STALE, pre-rebase
+`Output` — and the move going active is what finally triggers the first
+`tickDrive()`/`step()` since the rebase request, which both honours the
+deferred rebase (resetting positions, bumping the epoch) AND delivers
+the new move's first drive tick in the SAME call. `serviceMove()`'s
+completion check then diffs the fresh post-rebase position against the
+stale pre-rebase baseline, producing a spurious huge delta that
+satisfies the yaw completion margin on the move's own first serviced
+tick. MEASURED gopiv 2026-09-02,
+`captures/gopiv-acceptance-028-20260902/step_e_transcript.txt` (Step
+E.2): `MOVE_X 0 -900 60 3000` delivered 11 of ~5160 commanded
+centidegrees and reported itself complete.
+
+**Fix.** `src/motion/motion_engine.h`'s `MoveState` gains
+`epochLeft0`/`epochRight0` (`uint32_t`), captured alongside
+`posLeft0`/`posRight0` in `startSegment()`. `serviceMove()` (and,
+non-mutating, `progress()`) checks at the top of its per-tick body
+whether `Output.positionEpochLeft/Right` has changed since that
+snapshot; if so, it re-anchors the baseline to the current position
+before computing progress. Since the commandable-state busy gate
+refuses `SET rebase 1` outright (`err 10`) while any motion is live, a
+rebase can only ever land at a move's very start, never mid-flight — so
+the epoch changing always means "this move's own first tick," and
+re-anchoring is the correct fix (distance/yaw targets stay untouched
+RELATIVE displacements) rather than a workaround.
+`src/core/diffdrive.{h,cpp}` (the vendored kernel) is unchanged.
+
+**Host test.**
+`tests/host/test_wire_motion_verbs.py::test_move_x_immediately_after_a_successful_rebase_delivers_its_full_commanded_rotation`
+reproduces the exact race with ASYMMETRIC prior left/right encoder
+positions (a symmetric prior position was tried first and found to
+cancel out of the yaw-axis completion check entirely, silently
+defeating the test). Verified RED against the pre-fix source (temporary
+`git stash` of just the two `motion_engine.{h,cpp}` files, restored
+after), GREEN with the fix. Full scoped suite (287 tests) plus the two
+pinned-constraint suites (23 tests) pass.
+
+**Hardware re-proof, gopiv 2026-09-02** (fw rebuilt from this session's
+HEAD): 5 repetitions of pivot / `SET rebase 1` / immediate
+`MOVE_X 0 <+-900> 60 3000` all delivered 104.6-107.7% of the ~5157
+commanded centidegrees (vs. the pre-fix 0.2%). Busy refusal (`err 10`)
+and a rebase-at-leg-1 tour's first leg (105.2% delivered) also
+re-confirmed. Full write-up, transcript, and scripts:
+`captures/gopiv-rebase-fix-20260902/notes.md`,
+`rebase_fix_transcript.txt`, `rebase_fix_retest.py`.

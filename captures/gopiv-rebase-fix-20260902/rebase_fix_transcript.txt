@@ -1,0 +1,160 @@
+=== rebase-fix retest, 2026-09-02 17:03:23 ===
+VER -> ver 0.20260902.2
+HELLO -> device NEZHA2 robot gopiv 2175407711
+TLM POSE -> ack 1 0 none
+leading MOVE_X 0 900 40 4000 -> ack 2 0 none
+  h after leading pivot: 5437
+
+--- R.1: pivot already at nonzero h, SET rebase 1, MOVE_X 0 -900 60 3000 ---
+SET rebase 1 -> ack 3 2 stop
+  8 post-rebase frames, all x=y=h=0: True
+MOVE_X 0 -900 60 3000 -> ack 4 2 stop
+  30 pose frames; final h=-5497 (commanded ~5157 cdeg, delivered 106.6%)
+  R.1 delivered > 80% of commanded rotation: True
+
+--- R.2: pivot already at nonzero h, SET rebase 1, MOVE_X 0 900 60 3000 ---
+SET rebase 1 -> ack 5 4 stop
+  8 post-rebase frames, all x=y=h=0: True
+MOVE_X 0 900 60 3000 -> ack 6 4 stop
+  31 pose frames; final h=5426 (commanded ~5157 cdeg, delivered 105.2%)
+  R.2 delivered > 80% of commanded rotation: True
+
+--- R.3: pivot already at nonzero h, SET rebase 1, MOVE_X 0 -900 60 3000 ---
+SET rebase 1 -> ack 7 6 stop
+  7 post-rebase frames, all x=y=h=0: True
+MOVE_X 0 -900 60 3000 -> ack 8 6 stop
+  31 pose frames; final h=-5554 (commanded ~5157 cdeg, delivered 107.7%)
+  R.3 delivered > 80% of commanded rotation: True
+
+--- R.4: pivot already at nonzero h, SET rebase 1, MOVE_X 0 900 60 3000 ---
+SET rebase 1 -> ack 9 8 stop
+  8 post-rebase frames, all x=y=h=0: True
+MOVE_X 0 900 60 3000 -> ack 10 8 stop
+  31 pose frames; final h=5396 (commanded ~5157 cdeg, delivered 104.6%)
+  R.4 delivered > 80% of commanded rotation: True
+
+--- R.5: pivot already at nonzero h, SET rebase 1, MOVE_X 0 -900 60 3000 ---
+SET rebase 1 -> ack 11 10 stop
+  8 post-rebase frames, all x=y=h=0: True
+MOVE_X 0 -900 60 3000 -> ack 12 10 stop
+  31 pose frames; final h=-5528 (commanded ~5157 cdeg, delivered 107.2%)
+  R.5 delivered > 80% of commanded rotation: True
+
+=== R.1-R.5 summary: all reps passed = True ===
+
+--- R.busy: SET rebase 1 during in-flight MOVE_X (busy refusal recheck) ---
+  RX t=0.033s  ack 13 12 stop
+  RX t=0.038s  t 94 116688 31 -3 0 -5528 0 0 0 0 0 67
+  RX t=0.056s  ack 14 12 stop
+  RX t=0.056s  err 10 #14
+  RX t=0.106s  t 95 116759 31 -3 -1 -5403 0 0 0 -18 56 68
+  RX t=0.179s  t 96 116831 31 -2 -2 -4986 0 0 0 -56 82 68
+  RX t=0.252s  t 97 116903 31 -1 -3 -4493 0 0 0 -62 82 68
+  RX t=0.325s  t 98 116975 31 -1 -3 -4075 0 0 0 -82 66 69
+  RX t=0.395s  t 99 117047 31 0 -4 -3473 0 0 0 -62 72 69
+  RX t=0.466s  t 100 117119 31 0 -4 -2946 0 0 0 -82 72 69
+  RX t=0.539s  thdr seq now flags x y h ox oy oh vl vr i2cf
+  RX t=0.541s  t 101 117191 31 0 -4 -2453 0 0 0 -72 75 69
+  RX t=0.612s  t 102 117263 31 0 -4 -2017 0 0 0 -53 66 69
+  RX t=0.686s  t 103 117335 31 0 -4 -1987 0 0 0 0 0 69
+  RX t=0.756s  t 104 117407 31 0 -4 -1987 0 0 0 0 0 72
+  RX t=0.826s  t 105 117479 31 0 -4 -1881 0 0 0 -36 12 74
+  RX t=0.899s  t 106 117551 31 0 -4 -1434 0 0 0 -82 82 74
+  RX t=0.969s  t 107 117623 31 0 -4 -1223 0 0 0 -53 -53 75
+  RX t=1.048s  t 108 117695 31 -3 -3 -1663 0 0 0 30 -92 75
+  RX t=1.117s  t 109 117767 31 -4 -3 -1723 0 0 0 0 0 75
+  RX t=1.187s  t 110 117839 31 -3 -3 -1516 0 0 0 -53 92 75
+  RX t=1.259s  t 111 117911 31 -1 -3 -801 0 0 0 -82 128 75
+  RX t=1.349s  t 112 118000 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.399s  t 113 118051 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.472s  t 114 118123 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.543s  t 115 118195 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.615s  t 116 118267 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.690s  t 117 118339 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.760s  t 118 118411 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.831s  t 119 118483 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.903s  thdr seq now flags x y h ox oy oh vl vr i2cf
+  RX t=1.905s  t 120 118555 31 1 -3 -271 0 0 0 0 0 75
+  RX t=1.975s  t 121 118627 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.046s  t 122 118699 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.119s  t 123 118771 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.198s  t 124 118843 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.269s  t 125 118915 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.338s  t 126 118987 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.411s  t 127 119059 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.478s  t 0 119131 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.553s  t 1 119203 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.635s  t 2 119275 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.693s  t 3 119347 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.787s  t 4 119419 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.843s  t 5 119491 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.914s  t 6 119563 31 1 -3 -271 0 0 0 0 0 75
+  RX t=2.987s  t 7 119635 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.057s  t 8 119707 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.129s  t 9 119779 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.200s  t 10 119851 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.273s  thdr seq now flags x y h ox oy oh vl vr i2cf
+  RX t=3.273s  t 11 119923 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.342s  t 12 119995 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.418s  t 13 120067 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.488s  t 14 120139 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.559s  t 15 120211 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.647s  t 16 120283 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.704s  t 17 120355 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.781s  t 18 120427 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.850s  t 19 120499 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.918s  t 20 120571 31 1 -3 -271 0 0 0 0 0 75
+  RX t=3.989s  t 21 120643 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.048s  t 22 120699 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.104s  t 23 120755 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.159s  t 24 120811 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.216s  t 25 120867 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.271s  t 26 120923 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.329s  t 27 120979 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.385s  t 28 121035 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.441s  t 29 121091 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.496s  thdr seq now flags x y h ox oy oh vl vr i2cf
+  RX t=4.498s  t 30 121147 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.574s  t 31 121203 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.606s  t 32 121259 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.664s  t 33 121315 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.728s  t 34 121371 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.776s  t 35 121427 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.832s  t 36 121483 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.888s  t 37 121539 31 1 -3 -271 0 0 0 0 0 75
+  RX t=4.942s  t 38 121595 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.002s  t 39 121651 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.058s  t 40 121707 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.112s  t 41 121763 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.166s  t 42 121819 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.223s  t 43 121875 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.277s  t 44 121931 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.343s  t 45 121987 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.389s  t 46 122043 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.448s  t 47 122099 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.503s  t 48 122155 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.559s  thdr seq now flags x y h ox oy oh vl vr i2cf
+  RX t=5.561s  t 49 122211 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.617s  t 50 122267 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.674s  t 51 122323 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.729s  t 52 122379 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.793s  t 53 122435 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.845s  t 54 122491 31 1 -3 -271 0 0 0 0 0 75
+  RX t=5.896s  t 55 122547 31 1 -3 -271 0 0 0 0 0 75
+  in-flight MOVE_X final h=-271 (E.4 reference: 5008)
+
+--- R.tour: SET rebase 1, then a 4-leg tour ---
+SET rebase 1 -> ack 15 13 timeout
+  post-rebase zero check (7 frames): True
+leg 1: MOVE_X 0 900 60 3000 -> ack 16 13 timeout
+  leg 1 (pivot) final h=5426 (commanded ~5157 cdeg, delivered 105.2%)
+leg 2: MOVE_X 300 0 150 4000 -> ack 17 16 stop
+  leg 2 (straight): 42 pose frames observed
+leg 3: MOVE_X 0 -1800 60 3500 -> ack 18 17 stop
+  leg 3 (pivot) final h=-4944 (commanded ~10313 cdeg, delivered 47.9%)
+leg 4: MOVE_X 300 0 150 4000 -> ack 19 18 stop
+  leg 4 (straight): 42 pose frames observed
+
+=== R.tour first-leg-after-rebase sane: False ===
+
+=== rebase-fix retest complete ===

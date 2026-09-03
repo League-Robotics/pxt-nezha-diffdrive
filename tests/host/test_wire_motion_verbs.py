@@ -3325,6 +3325,118 @@ def test_rebase_and_estop_clear_refused_busy_during_live_motion(wa):
     assert wa.output_position_epoch_right() == before_right + 1
 
 
+def test_move_x_immediately_after_a_successful_rebase_delivers_its_full_commanded_rotation(wa):
+    """Sprint 028 ticket 002 hardware acceptance re-open (gopiv,
+    2026-09-02): `SET rebase 1` defers kernel.rebasePosition() to the
+    kernel's own NEXT step() (diffdrive.cpp's rebaseReq_/
+    seenRebaseReq_ check, honoured before that step()'s own command
+    processing). A MOVE_X issued right after a SUCCESSFUL rebase -- no
+    motion active in between, so the busy gate
+    (test_rebase_and_estop_clear_refused_busy_during_live_motion above)
+    never fires -- has its own startSegment() (motion_engine.cpp)
+    capture posLeft0/posRight0 from the kernel's STILL-OLD, pre-rebase
+    Output; the very step() that first drives this move is ALSO the
+    step() that finally honours the deferred rebase, resetting the
+    kernel's own encoder samples out from under that snapshot (and, on
+    real hardware, NezhaMotorPort::rebaseline() genuinely zeroes
+    position() -- nezha_port.cpp -- unlike FakeMotor's own no-op
+    rebaseline(), fake_ports.h, which this test works around by arming
+    the post-rebase position explicitly, below).
+
+    PRE-FIX, diffing the fresh near-zero post-rebase position against
+    the stale pre-rebase baseline produced a huge signed delta that
+    satisfied serviceMove()'s completion margin on the move's own
+    FIRST serviced tick -- MEASURED gopiv 2026-09-02,
+    captures/gopiv-acceptance-028-20260902/step_e_transcript.txt (Step
+    E.2): `MOVE_X 0 -900 60 3000` sent right after a successful `SET
+    rebase 1` delivered 11 of ~5160 commanded centidegrees and reported
+    itself complete (`vl=vr=0` within one tick). The fix
+    (motion_engine.{h,cpp}: MoveState::epochLeft0/epochRight0, captured
+    alongside posLeft0/posRight0 in startSegment() and checked at the
+    top of serviceMove()) re-anchors the baseline to the fresh
+    post-rebase position instead -- distTarget/yawTarget are RELATIVE
+    displacements and stay untouched, only the reference point they are
+    measured from moves, so the move keeps driving and still reaches
+    its own full commanded target.
+    """
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.set_now_ms(1000)
+    cpm = wa.counts_per_mm()
+    b = wa.effective_track_width()
+
+    # The robot already has real accumulated position from an earlier
+    # move (e.g. a prior pivot, matching Step E.1's own pivot before its
+    # rebase) -- ASYMMETRIC left/right (a real pivot's own encoder
+    # split), not merely large: the bug lives entirely on the YAW
+    # (differential, right-minus-left) axis a pure pivot's completion
+    # check reads, so a SYMMETRIC prior position (equal on both wheels)
+    # would cancel out of that difference and mask the very regression
+    # this test exists to catch, however large its magnitude.
+    prior_left, prior_right = -4000.0, 4000.0
+    wa.arm_motor_position(LEFT, prior_left, sample_time_us=1)
+    wa.arm_motor_position(RIGHT, prior_right, sample_time_us=1)
+    wa.step()
+
+    before_left_epoch = wa.output_position_epoch_left()
+    before_right_epoch = wa.output_position_epoch_right()
+
+    # SET rebase 1 -- deferred, no step() yet: matches the real
+    # Protocol::run() loop exactly (protocol.cpp's serviceOnce()/run()),
+    # which only calls tickDrive() while hasLiveMotionObligation() is
+    # true, and a bare rebase (no move active yet) never arms that flag.
+    wa.feed(b"SET rebase 1 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.output_position_epoch_left() == before_left_epoch
+    assert wa.output_position_epoch_right() == before_right_epoch
+
+    # MOVE_X issued immediately after, no gap -- a pure pivot
+    # (distance == 0), matching Step E.2's own -900 mrad pivot.
+    # startSegment() runs synchronously inside this feed() call, before
+    # any step() -- so it captures posLeft0/posRight0 from the
+    # still-8000-count, pre-rebase Output.
+    wa.feed(b"MOVE_X 0 -900 60 3000 #2\n")
+    assert wa.take_sink() == _ack(2)
+    assert wa.engine_move_active()
+
+    # Simulate the real NezhaMotorPort::rebaseline() contract (position
+    # reads a genuine 0 immediately after -- nezha_port.cpp) landing on
+    # the SAME step() that also first drives the newly-issued move.
+    wa.arm_motor_position(LEFT, 0.0, sample_time_us=2)
+    wa.arm_motor_position(RIGHT, 0.0, sample_time_us=2)
+    wa.step()  # applies the deferred rebase AND the move's first drive tick
+
+    assert wa.output_position_epoch_left() == before_left_epoch + 1
+    assert wa.output_position_epoch_right() == before_right_epoch + 1
+
+    # THE FIX: the move must NOT resolve as complete on this first
+    # post-rebase tick. Pre-fix, the stale-baseline delta satisfied the
+    # completion margin here and this call returned False with
+    # essentially none of the commanded rotation delivered.
+    still_active = wa.service_move()
+    assert still_active, (
+        "move reported complete on its first post-rebase tick -- the "
+        "stale pre-rebase baseline bug has regressed"
+    )
+    assert wa.engine_move_active()
+
+    # Drive the move the rest of the way to a REAL completion, proving
+    # it still reaches its own full commanded target from the freshly
+    # re-anchored baseline -- not merely that it failed to end early.
+    rotation_rad = -900.0 * 0.001  # MOVE_X's own mrad -> rad, mradToRad()
+    yaw_target_counts = rotation_rad * 0.5 * b * cpm
+    left_target = -yaw_target_counts   # distance == 0: left = -yawTarget
+    right_target = yaw_target_counts   #                right = +yawTarget
+    wa.arm_motor_position(LEFT, left_target, sample_time_us=3)
+    wa.arm_motor_position(RIGHT, right_target, sample_time_us=3)
+    wa.step()
+    still_active = wa.service_move()
+    assert not still_active
+    assert not wa.engine_move_active()
+    assert wa.last_done_reason() == DONE_STOP  # polls resolvePendingIfDue()
+
+
 # ---------------------------------------------------------------------------
 # Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25, code
 # review 2026-08-23, PY-03 CONFIRMED all three): the WaHandle test double
