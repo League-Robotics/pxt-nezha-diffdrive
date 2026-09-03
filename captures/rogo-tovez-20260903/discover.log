@@ -1,0 +1,2 @@
+rogo: 'tovez robot link' -> tovez.local.:7654 -> 192.168.1.213 (txt name=tovez role=robot link=v6 port=7654)
+192.168.1.213 7654

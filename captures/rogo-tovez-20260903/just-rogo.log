@@ -1,0 +1,4 @@
+uv run python tools/rogo.py tovez PING --wait 1 -q
+device NEZHA2 robot tovez 2314287040
+pong 115754
+DBG:wifi state=5 ip=192.168.1.213 peer=-:0 tcp=1/1 to=0 restarts=0 sent=17 rx=9 drop=1 mdns=2/1 cmd=AT+CIPSEND=0,153 reply=..Recv 153 bytes....SEND OK..

@@ -40,3 +40,9 @@ blocks-plan *ARGS:
 # Apply reports/blocks-toolbox.csv to the block annotations.
 blocks-apply *ARGS:
     python3 tools/blocks_toolbox.py {{ARGS}}
+
+# `nc` for a robot: find `<name> robot link` on _robotlink._tcp by mDNS,
+# connect to the WiFi module's TCP server, pipe stdin/stdout to the v6
+# wire. `just rogo tovez`, `just rogo tovez PING STATUS`, `just rogo --browse`.
+rogo *ARGS:
+    uv run python tools/rogo.py {{ARGS}}

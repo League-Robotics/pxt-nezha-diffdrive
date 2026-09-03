@@ -29,6 +29,16 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   carriers deliver the same ASCII lines. The split matters: the USB
   cable only reaches the bench stand where the wheels are off the
   ground, so anything needing real motion runs untethered over radio.
+- **`rogo.py`** — `nc` for a robot over the Planet X WiFi module
+  (the `wifi-transport` branch's TCP server on :7654). Finds the
+  robot's own DNS-SD announcement (`<name> robot link` on
+  `_robotlink._tcp`, via `dns-sd -L`), takes the IP *and port* from
+  it, falls back to `<name>.local:7654`, then pipes stdin/stdout to the
+  socket: `just rogo tovez`, `just rogo tovez PING STATUS`,
+  `just rogo --browse`, `just rogo --discover tovez`. Standard library
+  only, no `#<id>` help — it is a raw pipe, the wire rules apply.
+  Pinned by `tests/tools/test_rogo.py` against captured `dns-sd` output;
+  MEASURED tovez 2026-09-03, `captures/rogo-tovez-20260903/notes.md`.
 - **`camlink.py`** — persistent gRPC stream to the aprilcam overhead-
   camera daemon. Carries the hard-won registration rules in its
   docstring: tag mount parameters are not persisted across daemon
