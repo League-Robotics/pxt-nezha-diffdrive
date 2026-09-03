@@ -24,7 +24,8 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   socket: `just rogo tovez`, `just rogo tovez PING STATUS`,
   `just rogo --browse`, `just rogo --discover tovez`. Standard library
   only, no `#<id>` help — it is a raw pipe, the wire rules apply.
-  Pinned by `tests/tools/test_rogo.py` against captured `dns-sd` output.
+  Pinned by `tests/tools/test_rogo.py` against captured `dns-sd` output;
+  MEASURED tovez 2026-09-03, `captures/rogo-tovez-20260903/notes.md`.
 - **`camlink.py`** — persistent gRPC stream to the aprilcam overhead-
   camera daemon. Carries the hard-won registration rules in its
   docstring: tag mount parameters are not persisted across daemon

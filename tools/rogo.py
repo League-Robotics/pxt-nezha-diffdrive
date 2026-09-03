@@ -61,7 +61,9 @@ latches until the board reboots.
 
 dns-sd output formats this parses were captured 2026-09-02 on the
 author's Mac with tovez announcing (the verbatim samples are the
-fixtures in tests/tools/test_rogo.py).
+fixtures in tests/tools/test_rogo.py). MEASURED tovez 2026-09-03,
+captures/rogo-tovez-20260903/: discovery, argument mode, stdin mode,
+by-IP and the `just` recipe all answered (banner, pong, status, id).
 """
 import argparse
 import re

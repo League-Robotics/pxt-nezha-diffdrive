@@ -1,0 +1,8 @@
+rogo: 'tovez robot link' -> tovez.local.:7654 -> 192.168.1.213 (txt name=tovez role=robot link=v6 port=7654)
+rogo: connected to 192.168.1.213:7654
+device NEZHA2 robot tovez 2314287040
+DBG:wifi state=5 ip=192.168.1.213 peer=-:0 tcp=1/1 to=0 restarts=0 sent=4 rx=0 drop=0 mdns=2/1 cmd=AT+CIPSEND=3,195 reply=..Recv 195 bytes....SEND OK..
+device NEZHA2 robot tovez 2314287040
+pong 104290
+status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+id diffdrive tovez 0.20260902.3 tovez
