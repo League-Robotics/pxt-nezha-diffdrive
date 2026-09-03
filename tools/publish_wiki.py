@@ -33,6 +33,7 @@ RPC = WIKI + "/lib/exe/jsonrpc.php/"
 # (repo path, wiki page id) -- the republish list. Keep this in step with
 # the "Published to" line at the top of each source doc.
 PUBLISHED = [
+    ("docs/robot-garage-start.md", "nezha-diffdrive:start"),
     ("docs/robot-connections.md", "nezha-diffdrive:connecting"),
 ]
 
@@ -62,6 +63,13 @@ def _inline(text):
 def md_to_dokuwiki(md):
     out = []
     lines = md.splitlines()
+    # YAML front matter (the knowledge docs carry one) is metadata, not
+    # content: drop it rather than render it as a paragraph.
+    if lines and lines[0].strip() == "---":
+        for j in range(1, len(lines)):
+            if lines[j].strip() == "---":
+                lines = lines[j + 1:]
+                break
     i = 0
     in_code = False
     code_lang = ""

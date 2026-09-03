@@ -132,6 +132,8 @@ int wlBuildMdns(uint8_t* out, int cap, const char* hostname, const char* ip, int
 int wlNewClientEdge(void* p) { return static_cast<Handle*>(p)->link.pollNewClientEdge() ? 1 : 0; }
 int wlReplyLink(void* p) { return static_cast<Handle*>(p)->link.replyLink(); }
 int wlTcpMask(void* p) { return static_cast<Handle*>(p)->link.tcpOpenMask(); }
+void wlMarkTelemetry(void* p, int on) { static_cast<Handle*>(p)->link.markTelemetry(on != 0); }
+int wlTxCount(void* p) { return static_cast<Handle*>(p)->link.queuedSends(); }
 int wlTcpServerOpen(void* p) { return static_cast<Handle*>(p)->link.tcpServerOpen() ? 1 : 0; }
 
 }  // extern "C"

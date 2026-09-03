@@ -93,6 +93,9 @@ def one_turn(link, cam, deg, rate, settle):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help="drive the robot over its WiFi TCP server instead of the "
+             "radio relay (the default carrier since 2026-09-02)")
     ap.add_argument('--angles', type=int, nargs='+',
                     default=[45, 90, 180, 360])
     ap.add_argument('--rates', type=int, nargs='+',
@@ -105,7 +108,7 @@ def main():
     cam = Cam()
     if cam.err or not cam.samples:
         raise SystemExit(f'camera not usable: {cam.err or "no tag seen"}')
-    link = open_link(radio=True)
+    link = open_link(radio=not a.wifi, wifi=a.wifi)
 
     print(f"{'cmd':>5} {'rate':>5} {'camera':>8} {'error':>7} {'act rate':>9}"
           f" {'ticks':>6} {'duty':>6}  note")

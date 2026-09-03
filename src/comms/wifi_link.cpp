@@ -189,8 +189,8 @@ WifiLink::WifiLink(WifiUart& uart, NowMsFn nowMs)
       statusLen_(0), ownIpCapturing_(false), ownIpLen_(0), peerPort_(0),
       peerKnown_(false), lastPeerHeardMs_(0), reportedPeerPort_(0),
       rxHead_(0), rxCount_(0), tcpOpenMask_(0), replyLink_(kProtocolLink),
-      tcpConnectEdge_(false), tcpServerOpen_(false), txHead_(0), txCount_(0),
-      sendPhase_(kIdle),
+      tcpConnectEdge_(false), tcpServerOpen_(false), telemetryMode_(false),
+      txHead_(0), txCount_(0), sendPhase_(kIdle),
       lastTelemetryMs_(0), telemetryEverSent_(false), mdnsSocketOpen_(false),
       lastMdnsMs_(0), mdnsAnnounceCount_(0), dropCount_(0), sentCount_(0),
       receivedCount_(0), promptRetryDeadline_(0), lastReplyLen_(0),
@@ -209,6 +209,7 @@ WifiLink::WifiLink(WifiUart& uart, NowMsFn nowMs)
   lastReply_[0] = '\0';
   commandBuf_[0] = '\0';
   inFlight_.link = -1;
+  inFlight_.telemetry = false;
   inFlight_.slot.len = 0;
   ownIpTag_.reset("ip:\"");
 }
@@ -796,15 +797,18 @@ bool WifiLink::sendLine(const uint8_t* data, size_t len) {
   }
   if (link == kProtocolLink && !peerKnown()) return false;
   if (len > kMaxLineBytes) len = kMaxLineBytes;
-  // Stage the framed line (body + '\n') through the payload slot's
-  // sibling buffer: one memcpy into the ring, never a stack copy (the
-  // protocol fiber's stack is small -- see radio_transport.h).
+  // A reply never waits behind stale frames: discard whatever periodic
+  // telemetry is still queued (see telemetryAllowed()'s comment).
+  if (!telemetryMode_) purgeTelemetry();
+  // One memcpy into the ring, never a stack copy (the protocol fiber's
+  // stack is small -- see radio_transport.h).
   if (txCount_ >= kTxSlots) {
     ++dropCount_;
     return false;
   }
   TxEntry& e = tx_[(txHead_ + txCount_) % kTxSlots];
   e.link = link;
+  e.telemetry = telemetryMode_;
   memcpy(e.slot.data, data, len);
   e.slot.data[len] = '\n';
   e.slot.len = static_cast<uint16_t>(len + 1);
@@ -812,12 +816,23 @@ bool WifiLink::sendLine(const uint8_t* data, size_t len) {
   return true;
 }
 
+void WifiLink::purgeTelemetry() {
+  int kept = 0;
+  for (int i = 0; i < txCount_; ++i) {
+    TxEntry& e = tx_[(txHead_ + i) % kTxSlots];
+    if (e.telemetry) continue;
+    if (kept != i) tx_[(txHead_ + kept) % kTxSlots] = e;
+    ++kept;
+  }
+  txCount_ = kept;
+}
+
 bool WifiLink::telemetryAllowed() {
   if (state_ != kReady) return false;
   const int link = replyLink_;
   const bool tcpTarget = link >= 0 && link < kMaxTcpLinks && (tcpOpenMask_ & (1u << link));
   if (!tcpTarget && !peerKnown()) return false;
-  if (txCount_ > kTxSlots - 2) return false;  // room for thdr + t
+  if (txCount_ != 0 || sendPhase_ != kIdle) return false;  // engine must be idle
   const uint32_t now = nowMs();
   if (telemetryEverSent_ &&
       static_cast<int32_t>(now - (lastTelemetryMs_ + kTelemetryMinIntervalMs)) < 0) {
@@ -1001,6 +1016,7 @@ void WifiLink::queueMdnsAnnouncement() {
                                            protos[i]);
     if (n == 0) return;
     e.link = kMdnsLink;
+    e.telemetry = true;  // purgeable: a reply outranks an announcement
     e.slot.len = static_cast<uint16_t>(n);
     ++txCount_;
   }

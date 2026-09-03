@@ -11,15 +11,18 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
 ## Link layer — what everything talks through
 
 - **`wifilink.py`** (2026-09-02) — the robot over its own WiFi
-  transport: a UDP link to `:7654` bound on the fixed host port `:7655`
-  (the robot learns its host from the first datagram, so the host end
-  must not be ephemeral), a 15 s bare-newline keepalive (the robot
-  forgets a host after 60 s of silence), and discovery by mDNS
-  (`<name>.local`, which the robot announces itself) with a broadcast
-  `HELLO` fallback. `wire_acceptance.py --wifi <name|ip>` and `--tcp
-  <farm-node>:<port>` (a farm serial daemon) both build on it; its
-  `--all-verbs` section exercises every entry in the v6 verb table so
-  a transport is judged against the whole protocol.
+  transport: `TcpLink` (the robot's TCP server on `:7654`, a plain line
+  stream, the default carrier) and the UDP `WifiLink` bound on the
+  fixed host port `:7655` with a 15 s keepalive (the robot learns its
+  host from the first datagram and forgets it after 60 s), plus
+  discovery by mDNS (`<name>.local`, which the robot announces itself)
+  with a broadcast `HELLO` fallback. `robotlink.open_link(wifi=...)`
+  wraps `TcpLink` in the pyserial shape `Link` expects, so every tour
+  tool takes `--wifi <name>`. `wire_acceptance.py --wifi-tcp`, `--wifi`
+  and `--tcp <farm-node>:<port>` build on it; its every-verb section
+  exercises the whole v6 table so a transport is judged against the
+  whole protocol. `publish_wiki.py` renders a repo Markdown doc onto
+  the Robot Garage DokuWiki (re-run after editing a published doc).
 - **`robotlink.py`** — one `Link` object that talks to the robot over
   USB serial or the zavaz radio relay (`--radio`; channel 4, group
   10 — vevov's assignment; never retune getez's channel 3). Both

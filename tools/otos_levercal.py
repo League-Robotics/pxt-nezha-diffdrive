@@ -66,6 +66,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('port', nargs='?', default=None,
                     help='serial port; omit with --radio for the zavaz default')
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help='drive the robot over its WiFi TCP server (default carrier since 2026-09-02)')
     ap.add_argument('--radio', action='store_true',
                     help='drive the robot over the zavaz relay (playfield). '
                          'REQUIRED for real calibration -- on the bench '
@@ -80,7 +82,7 @@ def main():
     ap.add_argument('--timeout', type=float, default=120.0)
     a = ap.parse_args()
 
-    link = open_link(a.port, radio=a.radio)
+    link = open_link(a.port, radio=a.radio, wifi=a.wifi)
     # OCAL:begin is the delivery receipt -- resend only if it never
     # arrives, never blindly (a duplicate RUN:cal runs the whole
     # calibration again).

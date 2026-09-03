@@ -37,7 +37,7 @@ wheels = [
 
 [[package]]
 name = "aprilcam"
-version = "0.20260824.2"
+version = "0.20260902.1"
 source = { editable = "../aprilcam" }
 dependencies = [
     { name = "grpcio" },
@@ -1136,7 +1136,7 @@ wheels = [
 
 [[package]]
 name = "pxt-nezha-diffdrive-host-tests"
-version = "1.20260902.2"
+version = "0.20260902.2"
 source = { virtual = "." }
 dependencies = [
     { name = "aprilcam", extra = ["daemon"] },

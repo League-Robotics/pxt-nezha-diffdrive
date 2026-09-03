@@ -74,7 +74,7 @@ def lib(tmp_path_factory):
                  "wlSent", "wlReceived", "wlNewPeerEdge", "wlStateChanged",
                  "wlTelemetryAllowed", "wlMdnsOpen", "wlMdnsCount",
                  "wlClearRxCalls", "wlBaud", "wlNewClientEdge", "wlReplyLink",
-                 "wlTcpMask", "wlTcpServerOpen"):
+                 "wlTcpMask", "wlTcpServerOpen", "wlTxCount"):
         getattr(lib, name).argtypes = [ctypes.c_void_p]
         getattr(lib, name).restype = ctypes.c_int
     for name in ("wlPeerIp", "wlOwnIp", "wlLastCommand", "wlLastReply"):
@@ -82,6 +82,7 @@ def lib(tmp_path_factory):
         getattr(lib, name).restype = ctypes.c_char_p
     lib.wlBuildMdns.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p,
                                 ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p]
+    lib.wlMarkTelemetry.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.wlBuildMdns.restype = ctypes.c_int
     return lib
 
@@ -482,10 +483,44 @@ def test_telemetry_gate_enforces_50ms_floor_and_queue_room(link):
     assert link.lib.wlTelemetryAllowed(link.h) == 0
     link.step(2)
     assert link.lib.wlTelemetryAllowed(link.h) == 1
-    for i in range(7):
-        assert link.send(f"t {i}")                     # fill to 7 of 8 slots
-    link.lib.wlAdvance(100)                            # floor satisfied, queue still full
-    assert link.lib.wlTelemetryAllowed(link.h) == 0   # no room for thdr + t
+    assert link.send("ack 9 0 none")                   # one reply queued
+    link.lib.wlAdvance(100)                            # floor satisfied, engine busy
+    assert link.lib.wlTelemetryAllowed(link.h) == 0   # frames only into an idle engine
+
+
+def test_reply_purges_queued_telemetry_and_goes_out_first(link):
+    """A TCP host with delayed acks makes every queued line slow; a reply
+    must never sit behind stale frames. Queued frames are discarded
+    when a reply arrives; the frame in flight finishes."""
+    link.bring_up()
+    link.datagram("HELLO"); link.step()
+    link.lib.wlMarkTelemetry(link.h, 1)
+    assert link.send("thdr seq now")
+    assert link.send("t 1 2")
+    assert link.send("t 3 4")
+    link.lib.wlMarkTelemetry(link.h, 0)
+    assert link.lib.wlTxCount(link.h) == 3
+    assert link.send("ack 1 0 none")                   # a reply
+    assert link.lib.wlTxCount(link.h) == 1              # the frames are gone
+    link.expect_command('AT+CIPSEND=4,13,"192.168.1.40",7655')
+
+
+def test_purge_keeps_replies_in_order_and_spares_the_frame_in_flight(link):
+    link.bring_up()
+    link.datagram("HELLO"); link.step()
+    link.lib.wlMarkTelemetry(link.h, 1)
+    assert link.send("t 0")
+    link.lib.wlMarkTelemetry(link.h, 0)
+    link.expect_command('AT+CIPSEND=4,4,"192.168.1.40",7655')   # the frame is in flight
+    link.lib.wlMarkTelemetry(link.h, 1); assert link.send("t 9"); link.lib.wlMarkTelemetry(link.h, 0)
+    assert link.send("r1") and link.send("r2")
+    assert link.lib.wlTxCount(link.h) == 2                     # t 9 purged, r1 r2 kept
+    link.reply(">"); link.step(); link.reply("SEND OK\r\n"); link.step()
+    link.expect_command('AT+CIPSEND=4,3,"192.168.1.40",7655')
+    link.reply(">"); assert link.step() == b"r1\n"
+    link.reply("SEND OK\r\n"); link.step()
+    link.expect_command('AT+CIPSEND=4,3,"192.168.1.40",7655')
+    link.reply(">"); assert link.step() == b"r2\n"
 
 
 def test_line_over_the_wire_cap_is_clipped_not_overflowed(link):

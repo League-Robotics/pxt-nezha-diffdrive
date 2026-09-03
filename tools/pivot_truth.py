@@ -68,6 +68,9 @@ def send_pivot(link, deg):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help="drive the robot over its WiFi TCP server instead of the "
+             "radio relay (the default carrier since 2026-09-02)")
     ap.add_argument('--reps', type=int, default=3)
     ap.add_argument('--tag', type=int, default=53)
     a = ap.parse_args()
@@ -75,7 +78,7 @@ def main():
     cam = Cam(tag=a.tag)
     if cam.latest is None:
         raise SystemExit(f'camera cannot see tag {a.tag}')
-    link = open_link(radio=True)
+    link = open_link(radio=not a.wifi, wifi=a.wifi)
 
     print(f"{'cmd':>6} {'CAMERA':>8} {'gyro':>8} {'cam/cmd':>8}"
           f" {'gyro/cam':>9} {'drift cm':>9}  verdict")

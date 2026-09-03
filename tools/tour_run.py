@@ -125,6 +125,9 @@ def place(link, cam, x, y, h, tol_cm=2.5, tol_deg=4.0, tries=3):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help="drive the robot over its WiFi TCP server instead of the "
+             "radio relay (the default carrier since 2026-09-02)")
     ap.add_argument('--tour', default='world')
     ap.add_argument('--runs', type=int, default=1)
     ap.add_argument('--out', default='.tmp/runs')
@@ -136,7 +139,7 @@ def main():
     cam = Cam()
     if cam.latest is None:
         raise SystemExit('camera cannot see the robot')
-    link = open_link(radio=True)
+    link = open_link(radio=not a.wifi, wifi=a.wifi)
 
     for run in range(1, a.runs + 1):
         print(f'\n=== {a.tour} tour, run {run} ===')

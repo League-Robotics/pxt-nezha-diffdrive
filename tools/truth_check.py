@@ -126,6 +126,9 @@ def total_turn(before, after, commanded):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help="drive the robot over its WiFi TCP server instead of the "
+             "radio relay (the default carrier since 2026-09-02)")
     ap.add_argument('--cam', default='arducam-ov9782-usb-camera')
     ap.add_argument('--tag', type=int, default=53)
     ap.add_argument('--pivots', type=float, nargs='+',
@@ -136,7 +139,7 @@ def main():
         raise SystemExit(f'camera cannot see tag {a.tag} -- is the robot '
                          'inside the field of view?')
 
-    link = open_link(radio=True)
+    link = open_link(radio=not a.wifi, wifi=a.wifi)
     # --- fail loud: a dead instrument must not cost a run (SUC-001) ---
     try:
         stream = tlm.require_stream(link, timeout=3.0)

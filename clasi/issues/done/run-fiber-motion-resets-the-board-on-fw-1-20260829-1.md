@@ -161,3 +161,26 @@ MEASURED gopiv 2026-09-01, `reports/run-tours-20260901`: 0/10
 the board that reset 3/3 the same morning. The radio-traffic wedge
 retest this issue asked for is still open — tracked in
 `next/fw-1-20260829-1-wedges-on-radio-traffic-during-motion.md`.
+
+## gopiv acceptance, sprint 028, 2026-09-02
+
+MEASURED gopiv 2026-09-02, sprint 028's own hardware-acceptance
+session, old firmware `ver 0.20260901.1` (the baseline before sprint
+028's executor-inversion ticket landed, i.e. the same VFP-guard-fixed
+generation this issue's own 2026-09-02 triage covers, not a regression
+target): `RUN:pivot:90` sent alone produced **no reset** — `PIVOT:end`
+at t=1.280s, `cyc` monotonic 2199->2253, no unsolicited `device
+NEZHA2` boot banner. Consistent with this issue's own "DONE" triage
+above; re-confirmed here as a byproduct of sprint 028's baseline step,
+not a new investigation.
+`captures/gopiv-acceptance-028-20260902/step_a_transcript.txt`.
+
+Separately (not a `RUN:`-reset finding, noted here only because it
+surfaced in the same baseline step): `RUN:abort` sent mid-`RUN:square:20`
+on this same old firmware did not stop the tour quickly — `STATUS`
+stayed `active=1`/`reason=timeout` for several seconds after the abort
+before settling. This is the pre-028 "`RUN:abort` works by accident"
+architecture issue (`single-executor-for-command-dispatch.md`,
+resolved by sprint 028 ticket 003, hardware-confirmed fixed at ~40 ms
+on the same board — see that ticket's own Hardware acceptance
+section), not a recurrence of this issue's reset defect.

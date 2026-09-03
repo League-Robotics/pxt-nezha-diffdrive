@@ -73,11 +73,13 @@ def send_pivot(link, deg):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('port', nargs='?', default=None)
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help='drive the robot over its WiFi TCP server (default carrier since 2026-09-02)')
     ap.add_argument('--radio', action='store_true')
     ap.add_argument('--reps', type=int, default=1)
     a = ap.parse_args()
 
-    link = open_link(a.port, radio=a.radio)
+    link = open_link(a.port, radio=a.radio, wifi=a.wifi)
     # --- fail loud: a dead instrument must not cost a run (SUC-001) ---
     try:
         stream = tlm.require_stream(link, timeout=3.0)

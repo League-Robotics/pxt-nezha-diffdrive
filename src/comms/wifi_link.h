@@ -166,13 +166,26 @@ class WifiLink {
   int replyLink() const { return replyLink_; }
   uint8_t tcpOpenMask() const { return tcpOpenMask_; }
   bool tcpServerOpen() const { return tcpServerOpen_; }
+  int queuedSends() const { return txCount_; }
 
   // Telemetry gate (the wifi-link note, section 7.1, REQUIRED of every port):
   // periodic frames may only be queued when at least
   // kTelemetryMinIntervalMs has passed since the last one AND the send
-  // queue has room for a whole frame (thdr + t = 2 lines). Replies/acks
+  // engine is IDLE (nothing queued, nothing in flight). Replies/acks
   // never consult this. Consumes the interval when it returns true.
+  //
+  // "Idle", not merely "room for a frame": a TCP client's SEND OK waits
+  // for the client's TCP acknowledgement, and a host that delays its
+  // acks (macOS does, ~200 ms) turns every queued line into hundreds of
+  // milliseconds. A queue of frames then holds a reply behind seconds
+  // of stale telemetry. So frames are only ever queued into an empty
+  // engine, and a reply purges any frames still waiting (sendLine()).
   bool telemetryAllowed();
+
+  // Bracket the caller's telemetry emission: lines sent while `on` are
+  // tagged as periodic frames, which a later reply may discard unsent
+  // (a stale frame is worthless; a late ack is a stalled host).
+  void markTelemetry(bool on) { telemetryMode_ = on; }
 
   // --- introspection, for the DBG:wifi line and bench tools ---
   State state() const { return state_; }
@@ -298,7 +311,7 @@ class WifiLink {
   bool enqueueSend(int link, const uint8_t* data, size_t len);
   void popNextSend();
   void queueMdnsAnnouncement();
-  int txCount() const { return txCount_; }
+  int txCount() const { return txCount_; }  // (test introspection)
 
   WifiUart& uart_;
   NowMsFn nowMs_;
@@ -362,8 +375,11 @@ class WifiLink {
   // outbound datagram ring + the two-phase send in flight
   struct TxEntry {
     int link;
+    bool telemetry;  // a periodic frame (or announcement): purgeable by a reply
     Slot slot;
   };
+  bool telemetryMode_;
+  void purgeTelemetry();  // drop every queued telemetry entry, keep order of the rest
   TxEntry tx_[kTxSlots];
   int txHead_;
   int txCount_;

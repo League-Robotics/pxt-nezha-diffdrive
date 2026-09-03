@@ -303,12 +303,70 @@ class Link:
         self.p.close()
 
 
-def open_link(port=None, radio=False):
-    """Open a link. radio=True does the full zavaz data-plane handshake.
+class WifiSerial:
+    """The robot's WiFi TCP server (src/comms/wifi_link.h, port 7654)
+    wearing the three pyserial methods `Link` uses -- `write()`,
+    `readline()` with a read timeout, `close()` -- so every tool built on
+    `open_link()` runs over the net unchanged. Resolution is by mDNS
+    (`<name>.local`) with a broadcast-HELLO fallback (tools/wifilink.py).
+    The connect-time banner is left in the stream for `Link.hello()` to
+    consume, exactly like USB."""
+
+    def __init__(self, target, timeout=0.3):
+        import os
+        import re
+        import socket
+        import sys as _sys
+        _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import wifilink
+        host = target if re.match(r'^\d+\.\d+\.\d+\.\d+$', target) \
+            else wifilink.discover(target)
+        self.host = host
+        self.s = socket.create_connection((host, wifilink.ROBOT_PORT), timeout=10)
+        self.s.settimeout(timeout)
+        self._buf = b''
+        self._socket = socket
+
+    def write(self, data):
+        self.s.sendall(data)
+
+    def readline(self):
+        while b'\n' not in self._buf:
+            try:
+                c = self.s.recv(4096)
+            except self._socket.timeout:
+                return b''
+            except OSError:
+                return b''
+            if not c:
+                return b''
+            self._buf += c
+        line, self._buf = self._buf.split(b'\n', 1)
+        return line + b'\n'
+
+    def reset_input_buffer(self):
+        self._buf = b''
+
+    def close(self):
+        self.s.close()
+
+
+def open_link(port=None, radio=False, wifi=None):
+    """Open a link. radio=True does the full zavaz data-plane handshake;
+    wifi='<name>' (or an IP) connects to the robot's own WiFi TCP server
+    instead -- the untethered carrier since 2026-09-02, with no relay and
+    no channel to tune. The v6 radio link is OFF by default in the test
+    program (tools/make_deploy.py --radio-link turns it on), so a tool
+    that still asks for radio=True against a default build gets silence.
 
     The relay drops back to its control plane whenever its serial port
     closes, so the handshake is redone on every open -- never cached.
     """
+    if wifi:
+        link = Link(WifiSerial(wifi), False)
+        link.wifi = wifi
+        link.hello()
+        return link
     if radio:
         path = port or probe_port('zavaz')
         if path is None:

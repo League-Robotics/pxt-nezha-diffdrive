@@ -1,0 +1,12 @@
+=== no abort (baseline timing) ===
+  [ 0.037s] DBG:pivot:profile=open
+  [ 1.286s] GAP:27
+  [ 1.287s] PIVOT:end
+no-abort: PIVOT:end at 1.2868940839980496
+=== with abort at 0.3s ===
+  [ 0.307s] DBG:pivot:profile=open
+  [ 0.342s] GAP:27
+  [ 0.343s] PIVOT:end
+abort@0.3s: PIVOT:end at 0.34252720899530686
+
+SUMMARY: no-abort=1.2868940839980496s abort@0.3s=0.34252720899530686s

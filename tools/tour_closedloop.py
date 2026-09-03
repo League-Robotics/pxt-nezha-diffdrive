@@ -66,6 +66,9 @@ class Robot:
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help="drive the robot over its WiFi TCP server instead of the "
+             "radio relay (the default carrier since 2026-09-02)")
     ap.add_argument('--laps', type=int, default=1)
     ap.add_argument('--tol', type=float, default=2.5)
     ap.add_argument('--tries', type=int, default=3)
@@ -80,7 +83,7 @@ def main():
         time.sleep(2)
         if cam.latest is None:
             raise SystemExit(f'camera unusable: {cam.err or "no tag"}')
-    link = open_link(radio=True)
+    link = open_link(radio=not a.wifi, wifi=a.wifi)
     bot = Robot(link, cam)
 
     t_start = time.time()

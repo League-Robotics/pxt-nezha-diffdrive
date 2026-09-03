@@ -159,6 +159,9 @@ def chart(name, run, pose, camrows, sc, path, stem):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help="drive the robot over its WiFi TCP server instead of the "
+             "radio relay (the default carrier since 2026-09-02)")
     ap.add_argument('--tours', nargs='+', default=['robot', 'world'])
     ap.add_argument('--runs', type=int, default=2)
     ap.add_argument('--outdir', default='.tmp/practice')
@@ -168,7 +171,7 @@ def main():
     cam = Cam()
     if cam.err or cam.latest is None:
         raise SystemExit(f'camera not usable: {cam.err or "no tag"}')
-    link = open_link(radio=True)
+    link = open_link(radio=not a.wifi, wifi=a.wifi)
     rep = Repositioner(link, cam)
 
     results = []

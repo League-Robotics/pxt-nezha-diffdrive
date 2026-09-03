@@ -30,6 +30,15 @@ primary deploy.
   uv run python tools/make_deploy.py --testrig  # build/type-check
                                                  # testrig.ts alone, in
                                                  # its own scratch copy
+  uv run python tools/make_deploy.py --robot tovez --radio-link
+                                                 # ALSO bring the v6 radio
+                                                 # link up at boot (off by
+                                                 # default since 2026-09-02;
+                                                 # WiFi is the carrier)
+
+WiFi credentials: the gitignored `config/wifi_secrets.json`
+(`{"ssid": ..., "password": ...}`) is baked into the scratch copy by
+`_inject_wifi_secrets()`; absent, the WiFi link stays disabled.
 
 `--robot` selects more than the flash target: after `sync()` populates
 the scratch copy, this script reads the target robot's own
@@ -295,6 +304,8 @@ EXPECTED_CPP_FILES = [
     'src/comms/protocol.cpp',
     'src/comms/radio_transport.cpp',
     'src/comms/serial_transport.cpp',
+    'src/comms/wifi_link.cpp',
+    'src/comms/wifi_uart.cpp',
     'src/comms/wire_adapter.cpp',
     'src/comms/wire_handler.cpp',
     'src/core/diffdrive.cpp',
@@ -851,6 +862,40 @@ def format_boot_version(version):
 # exist as substitutable placeholders at all).
 _BOOT_VERSION_RE = re.compile(r'(const BOOT_VERSION = )"[^"]*"')
 _BOOT_ROBOT_RE = re.compile(r'(const BOOT_ROBOT = )"[^"]*"')
+_BOOT_RADIO_LINK_RE = re.compile(r'(const BOOT_RADIO_LINK = )(true|false)')
+
+
+def _read_robot_radio_link(robot):
+    """The robot config's `connection.v6_radio_link` (bool), or False
+    when the key is absent -- the v6 radio link is OFF unless a config
+    or `--radio-link` asks for it (2026-09-02: the WiFi link is the
+    untethered carrier; the radio is left to MakeCode's own blocks)."""
+    try:
+        data = json.load(open(_robot_config_path(robot)))
+    except (OSError, ValueError):
+        return False
+    value = (data.get('connection') or {}).get('v6_radio_link', False)
+    return bool(value)
+
+
+def _inject_radio_link(deploy_dir, enabled):
+    """Substitute `deploy_dir`'s own copy of `test/test.ts`'s
+    `BOOT_RADIO_LINK` placeholder with `enabled`. Scratch-copy-only,
+    like `_inject_boot_banner()`; the checked-in `test.ts` keeps
+    `false`, so a build made any other way never takes the radio over."""
+    path = os.path.join(deploy_dir, 'test', 'test.ts')
+    text = open(path).read()
+    literal = 'true' if enabled else 'false'
+    text, n = _BOOT_RADIO_LINK_RE.subn(rf'\g<1>{literal}', text)
+    if n != 1:
+        sys.exit(f"make_deploy: expected exactly one BOOT_RADIO_LINK "
+                 f"placeholder in {path}, found {n} -- test.ts's shape has "
+                 "changed, update _BOOT_RADIO_LINK_RE")
+    with open(path, 'w') as f:
+        f.write(text)
+    print(f'make_deploy: v6 radio link {"ENABLED" if enabled else "off"} '
+          f'in test.ts (BOOT_RADIO_LINK = {literal})')
+    return enabled
 
 
 # ---- per-robot geometry bake --------------------------------------------
@@ -1152,6 +1197,15 @@ def main():
                           "its own scratch copy -- never combined with "
                           "the primary test.ts deploy (see module "
                           "docstring); produces no flashable hex")
+    ap.add_argument('--radio-link', dest='radio_link', action='store_true',
+                     default=None,
+                     help="bring the v6 RADIO link up at boot in test.ts "
+                          "(takes the radio over from MakeCode's own "
+                          "blocks). Default: the robot config's "
+                          "connection.v6_radio_link, else OFF -- the WiFi "
+                          "link is the untethered carrier")
+    ap.add_argument('--no-radio-link', dest='radio_link', action='store_false',
+                     help="force the v6 radio link OFF regardless of config")
     a = ap.parse_args()
     if a.testrig:
         if a.flash:
@@ -1170,6 +1224,9 @@ def main():
         print(f'make_deploy: geometry bake {_name} = {_value:g}')
     _inject_version(DEPLOY)
     _inject_boot_banner(DEPLOY, a.robot)
+    radio_link = (a.radio_link if a.radio_link is not None
+                  else _read_robot_radio_link(a.robot))
+    _inject_radio_link(DEPLOY, radio_link)
     build()
     if a.flash:
         flash(a.robot)

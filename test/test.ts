@@ -47,7 +47,16 @@ const BOOT_ROBOT = "unknown"
 // No channel argument on purpose: enableRadioLink() uses the per-robot
 // channel make_deploy.py injected into kChannel, so `--robot tovez`
 // still lands on channel 3 rather than vevov's 4.
-diffDrive.enableRadioLink()
+//
+// 2026-09-02: OFF BY DEFAULT. The WiFi link (below) is now the
+// untethered carrier; the v6 radio is only brought up when the deploy
+// says so -- `tools/make_deploy.py --radio-link`, or
+// `connection.v6_radio_link: true` in the robot's radio-robot-lib
+// config -- substituted into this placeholder in the scratch copy.
+// While it stays false, the radio is untouched and MakeCode's own
+// `radio` blocks (a student's joystick) work in the same program.
+const BOOT_RADIO_LINK = false
+if (BOOT_RADIO_LINK) diffDrive.enableRadioLink()
 
 // The WiFi transport (Planet X Ai-WB2-12F on J1) is opt-in the same way:
 // the same v6 wire on UDP :7654, plus an mDNS advertisement. A build

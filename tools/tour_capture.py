@@ -37,6 +37,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('port', nargs='?', default=None,
                     help='serial port; omit with --radio for zavaz')
+    ap.add_argument('--wifi', metavar='NAME|IP', default=None,
+        help='drive the robot over its WiFi TCP server (default carrier since 2026-09-02)')
     ap.add_argument('--radio', action='store_true',
                     help='capture over the zavaz relay (robot on the '
                          'playfield). The bench stand holds the wheels off '
@@ -53,7 +55,7 @@ def main():
     ap.add_argument('--out-prefix', default='.tmp/tour')
     a = ap.parse_args()
 
-    link = open_link(a.port, radio=a.radio)
+    link = open_link(a.port, radio=a.radio, wifi=a.wifi)
     p = link.p
 
     # --- fail loud: a dead instrument must not cost a run (SUC-001) ---
