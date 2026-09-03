@@ -47,7 +47,7 @@ bytes, and an overlong line is discarded whole; up to three clients
 may be connected and replies go to whichever client spoke LAST, so a
 second rogo steals the first one's replies until it speaks again.
 
-Only the standard library; runs under `uv run python tools/rogo.py`
+Only the standard library; runs under `uv run python tools/rogo/rogo.py`
 or bare `python3`. `dns-sd` is macOS's; on a host without it step (1)
 is skipped and step (2) needs an mDNS-aware resolver (avahi).
 

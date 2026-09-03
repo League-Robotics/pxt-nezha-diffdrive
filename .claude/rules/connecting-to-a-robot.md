@@ -4,7 +4,8 @@ Full guide: `docs/robot-connections.md` (also published at
 http://robot-garage.home/doku.php?id=nezha-diffdrive:connecting).
 Read it before the first connection of a session. The short version:
 
-- **WiFi TCP is the default carrier.** `nc <name>.local 7654`, or
+- **WiFi TCP is the default carrier.** `rogo <name>` (pipx-installable
+  from `tools/rogo`), `nc <name>.local 7654`, or
   `uv run python tools/wifilink.py --tcp --robot <name> PING STATUS`.
   The robot announces `<name>.local` and "`<name> robot link`" on
   `_robotlink._tcp`/`_udp` over mDNS every 60 s; `wifilink.discover()`

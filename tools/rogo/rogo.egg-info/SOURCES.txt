@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+rogo.py
+rogo.egg-info/PKG-INFO
+rogo.egg-info/SOURCES.txt
+rogo.egg-info/dependency_links.txt
+rogo.egg-info/entry_points.txt
+rogo.egg-info/top_level.txt

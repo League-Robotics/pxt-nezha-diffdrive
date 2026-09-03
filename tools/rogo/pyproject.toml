@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rogo"
+version = "0.20260903.1"
+description = "nc for a robot: find it by mDNS, then pipe stdin/stdout to its v6 wire over the Planet X WiFi module's TCP server"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+# Standard library only, on purpose: rogo must install anywhere pipx does.
+dependencies = []
+
+[project.scripts]
+rogo = "rogo:main"
+
+[tool.setuptools]
+py-modules = ["rogo"]

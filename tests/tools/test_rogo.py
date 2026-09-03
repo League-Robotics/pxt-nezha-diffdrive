@@ -1,4 +1,4 @@
-"""tests/tools/test_rogo.py -- pins tools/rogo.py, the mDNS-discovering
+"""tests/tools/test_rogo.py -- pins tools/rogo/rogo.py, the mDNS-discovering
 netcat for the WiFi transport's TCP server.
 
 No network, no subprocess: the dns-sd parsers are fed verbatim output
@@ -19,7 +19,7 @@ import threading
 
 import pytest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tools"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "tools" / "rogo"))
 import rogo  # noqa: E402
 
 # `dns-sd -L "tovez robot link" _robotlink._tcp local.`, 2026-09-02.

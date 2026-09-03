@@ -45,4 +45,4 @@ blocks-apply *ARGS:
 # connect to the WiFi module's TCP server, pipe stdin/stdout to the v6
 # wire. `just rogo tovez`, `just rogo tovez PING STATUS`, `just rogo --browse`.
 rogo *ARGS:
-    uv run python tools/rogo.py {{ARGS}}
+    uv run python tools/rogo/rogo.py {{ARGS}}

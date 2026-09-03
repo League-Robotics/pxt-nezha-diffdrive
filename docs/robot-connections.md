@@ -53,11 +53,21 @@ print(link.ask('PING'))          # ['pong 13513487']
 link.close()
 ```
 
-A standalone, stdlib-only equivalent, `tools/rogo.py` (`rogo <name>
-[lines...]`, `rogo --browse`, `rogo --discover <name>`; also `just
-rogo`), is on the `claude/planetx-wifi-interface-5a5ebf` branch and
-uses only mDNS (`dns-sd -L` on `_robotlink._tcp`, then
-`<name>.local:7654`), never the broadcast `HELLO`.
+A standalone, stdlib-only equivalent, **`rogo`**, installs with pipx
+and needs no checkout on the machine that runs it:
+
+```bash
+pipx install "git+https://github.com/League-Robotics/pxt-nezha-diffdrive.git#subdirectory=tools/rogo"
+rogo tovez                      # interactive
+rogo tovez PING STATUS          # one shot
+rogo --browse                   # every robot announcing itself
+rogo --discover tovez           # "<ip> <port>"
+```
+
+(From a checkout: `pipx install tools/rogo`, or `just rogo tovez`.) It
+uses only mDNS -- `dns-sd -L` on `_robotlink._tcp`, then
+`<name>.local:7654` -- never the broadcast `HELLO`, and it is a raw
+pipe: the wire rules below apply as typed.
 
 TCP facts:
 

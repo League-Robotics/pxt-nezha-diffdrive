@@ -29,8 +29,10 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   carriers deliver the same ASCII lines. The split matters: the USB
   cable only reaches the bench stand where the wheels are off the
   ground, so anything needing real motion runs untethered over radio.
-- **`rogo.py`** — `nc` for a robot over the Planet X WiFi module
-  (the `wifi-transport` branch's TCP server on :7654). Finds the
+- **`rogo/`** — `rogo`, `nc` for a robot over the Planet X WiFi module's
+  TCP server on :7654. Its own pipx-installable project (`pipx install
+  tools/rogo`, or from git with `#subdirectory=tools/rogo`); `just rogo`
+  runs it from the checkout. Finds the
   robot's own DNS-SD announcement (`<name> robot link` on
   `_robotlink._tcp`, via `dns-sd -L`), takes the IP *and port* from
   it, falls back to `<name>.local:7654`, then pipes stdin/stdout to the
