@@ -175,6 +175,14 @@ class Protocol {
   static void fiberEntry(void* self);
   void run();
 
+  // Debug-build-only scaffold: fills this fiber's own currently-unused
+  // stack region with a fixed byte pattern, once, before run()'s loop
+  // ever starts -- so an offline memory scan can later find the
+  // deepest point any call this fiber makes actually reached. A no-op
+  // body outside a debug forensics build (see the .cpp for the gating
+  // macro): a normal build never runs the fill loop at all.
+  static void paintStackCanary();
+
   // One pass of the WiFi transport's own servicing, called from
   // serviceOnce() when wifiEnabled_: lazily begin()s the link, pumps
   // its AT state machine, greets a newly-learned host with the banner,

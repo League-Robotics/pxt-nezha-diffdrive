@@ -502,6 +502,40 @@ const void* Protocol::defaultCurrentFiber() {
 
 Protocol::CurrentFiberFn Protocol::currentFiberFn_ = &Protocol::defaultCurrentFiber;
 
+// ---- stack-canary fill: measurement scaffold, no production effect --
+//
+// Gated on the same macro nezha_port.cpp's own fault-forensics spin
+// already uses: a debug build built for a bench pyOCD session, never a
+// normal build. Painting happens exactly once, as literally the first
+// thing run() does, so the "unused below here" boundary this function
+// computes is the shallowest possible point in this fiber's own
+// lifetime -- everything from there down through stack_bottom is
+// guaranteed untouched so far, and everything from there up through
+// this call's own frame is left alone.
+//
+// A local variable's own address stands in for "the current stack
+// pointer": on this ABI it sits within a few words of the true SP,
+// comfortably above anything this very call still needs, so the fill
+// below can never overwrite a byte this function is using. currentFiber
+// is the same CODAL global defaultCurrentFiber() above already reaches
+// unqualified; its stack_bottom/stack_top bound the heap-allocated
+// region a later offline memory read can scan.
+#ifdef DIFFDRIVE_FAULT_SPIN
+void Protocol::paintStackCanary() {
+  constexpr uint8_t kFillByte = 0xA5;
+  volatile uint8_t sentinel = 0;
+  uintptr_t ceiling = reinterpret_cast<uintptr_t>(&sentinel);
+  uintptr_t low = static_cast<uintptr_t>(currentFiber->stack_bottom);
+  uintptr_t high = static_cast<uintptr_t>(currentFiber->stack_top);
+  if (ceiling < high) high = ceiling;
+  for (uintptr_t addr = low; addr < high; ++addr) {
+    *reinterpret_cast<volatile uint8_t*>(addr) = kFillByte;
+  }
+}
+#else
+void Protocol::paintStackCanary() {}
+#endif
+
 uint32_t Protocol::runDropCount() const { return runQueue_.dropped(); }
 uint32_t Protocol::emitDropCount() const { return emitQueue_.dropped(); }
 
@@ -711,6 +745,11 @@ void Protocol::serviceOnce() {
 }
 
 void Protocol::run() {
+  // Must come before anything else in this function: see
+  // paintStackCanary()'s own comment above for why this fiber's frame
+  // has to still be as shallow as possible at the moment it runs.
+  paintStackCanary();
+
   // Captured once, the first (and only) time this fiber body executes
   // -- see serviceHookEntry()'s own comment (protocol.h) for the whole
   // reason this fiber's own identity has to be knowable at all. Same
