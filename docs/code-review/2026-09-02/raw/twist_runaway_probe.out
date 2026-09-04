@@ -1,0 +1,4 @@
+WHEELS_V 200 200, right wheel +5%, lag 80ms, twistHoldGain 0: after 1.9 s vL=200 vR=200 mm/s (min vL 0, max vR 241) heading 0.8 deg y=4 mm
+WHEELS_V 200 200, right wheel +5%, lag 80ms, twistHoldGain 2: after 1.9 s vL=202 vR=198 mm/s (min vL 0, max vR 239) heading -1.7 deg y=-3 mm
+MOVE_X 600 0 200, right wheel +5%, lag 80ms, twistHoldGain 0: ticks 134 end (599, 12) heading 0.8 deg
+MOVE_X 600 0 200, right wheel +5%, lag 80ms, twistHoldGain 2: ticks 134 end (598, -22) heading -6.2 deg

@@ -13,6 +13,7 @@ depends-on:
 - '006'
 - '007'
 - 009
+- '010'
 github-issue: ''
 issue: ''
 completes_issue: true

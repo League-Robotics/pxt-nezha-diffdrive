@@ -12,6 +12,7 @@ depends-on:
 - '004'
 - '006'
 - 009
+- '010'
 github-issue: ''
 issue:
 - code-review/pivot-end-predictive-termination-and-yaw-floor.md
