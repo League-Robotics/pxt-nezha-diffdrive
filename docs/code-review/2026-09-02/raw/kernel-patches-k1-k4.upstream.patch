@@ -1,18 +1,24 @@
 # kernel-patches-k1-k4.upstream.patch
 
 Sprint 029 ticket 001 (K1-K4: post-floor twist-hold reference, stale-tick
-freeze, anti-windup, rearmReferences()). Design:
-docs/design/motion-profile-unification.md §4.5. Issue:
-clasi/sprints/029-motion-profile-unification-one-shaper-one-floor-predictive-arrival/issues/kernel-reference-handling-twist-floor-stale-tick-antiwindup.md.
+freeze, anti-windup, rearmReferences()), with K1 CORRECTED by sprint 029
+ticket 010 (the twist-hold reference now integrates the floored
+COMMANDED twist, never the post-floor TRIMMED targets -- see the K1
+bullet in step 3 below). Design: docs/design/motion-profile-unification.md
+§4.5. Issue: clasi/sprints/029-motion-profile-unification-one-shaper-one-floor-predictive-arrival/issues/kernel-reference-handling-twist-floor-stale-tick-antiwindup.md.
 
 ## What this is
 
 A `git diff` of THIS repo's own vendored copy
-(`src/core/diffdrive.{h,cpp}`) before/after this ticket's four patches --
-produced by `git diff -- src/core/diffdrive.h src/core/diffdrive.cpp` on
-the sprint branch, immediately after landing K1-K4 and before any other
-change touched those two files. It is the exact, tested change; nothing
-here is hand-written or re-derived.
+(`src/core/diffdrive.{h,cpp}`) between the pre-sprint-029 baseline
+(commit 13450ef, the parent of ticket 001's own e207cc0) and the CURRENT
+state -- produced by `git diff 13450ef -- src/core/diffdrive.h
+src/core/diffdrive.cpp` on the sprint branch, after ticket 010 landed
+the K1 correction. It is the exact, tested change (K1-K4 as they stand
+today, not ticket 001's own first landing); nothing here is hand-written
+or re-derived. Regenerated from the same baseline commit ticket 001 used,
+per that ticket's own convention -- see this file's own git history for
+the version staged after ticket 001 alone, before the K1 correction.
 
 ## How to apply it upstream
 
@@ -20,7 +26,7 @@ Upstream is `radio-robot-elite/src/firm/diffdrive/differential_drive.{h,cpp}`
 (read-only from this worktree -- this ticket does not, and must not, edit
 that repository directly). Per the paired-PR default (design §12, issue
 `decide-the-kernel-fork.md`; the stakeholder had not ruled on the fork
-question as of ticket start):
+question as of ticket 001's start):
 
 1. In a `radio-robot-elite` checkout, open
    `src/firm/diffdrive/differential_drive.h` and
@@ -35,15 +41,37 @@ question as of ticket start):
    hunk will not match even though the CODE they touch is
    byte-identical. Apply each hunk BY HAND: locate the same function
    (`rebasePosition()`, `step()`, `controlStep()`, `positionError()`,
-   the `DifferentialDrive` class body for the header) and make the same
-   edit, adapting only comment wording that upstream already phrases
-   differently.
+   `applySpeedFloor()`, the `DifferentialDrive` class body for the
+   header) and make the same edit, adapting only comment wording that
+   upstream already phrases differently.
 3. The four patches, in the order they appear below:
-   - K1 (`positionError`... no -- `controlStep()`): decide `twistHoldActive`
-     up front; drop the pre-floor `scaledTwist` integration line; move the
-     `twistRef_.reference += 0.5f * (speedRight - speedLeft) * dt` line to
-     AFTER `applySpeedFloor()`; source `headroom` from `lastSpeedLeft_`/
-     `lastSpeedRight_` instead of `scaledLeft`/`scaledRight`.
+   - K1 (`controlStep()`), CORRECTED 2026-09-04 (sprint 029 ticket 010):
+     decide `twistHoldActive` up front so the same condition governs
+     both `trim` and whether the reference integrates; have
+     `applySpeedFloor()` report the scale it applied as a new
+     `float& floorScale` out-parameter (1.0 when the floor does not
+     bind) and store it (`lastFloorScale_`, plus a `lastFloorScale()`
+     diagnostic accessor); source the twist-hold `headroom` clamp from
+     `lastSpeedLeft_`/`lastSpeedRight_` (the PREVIOUS cycle's floored
+     speeds); AFTER `applySpeedFloor()` runs, integrate
+     `twistRef_.reference += (0.5f * (scaledRight - scaledLeft)) *
+     floorScale * dt` -- `scaledLeft`/`scaledRight` computed BEFORE
+     `trim` is folded in, never the post-floor `speedLeft`/`speedRight`
+     (which already have `trim` folded in). Ticket 001's own first
+     landing integrated `0.5f * (speedRight - speedLeft) * dt` of those
+     TRIMMED targets instead: the twist-hold servo's own `trim` output
+     fed back into the reference it is judged against next tick, a
+     positive-feedback loop ideal (matched) wheels never excite but a
+     real per-wheel mismatch does -- MEASURED on tovez
+     (`captures/bench-acceptance-029-20260904c/`), `WHEELS_V 200 200`
+     drove one wheel negative and the other to 492 mm/s under that
+     landing (reports/bench-acceptance-029-20260904c.md §6). With
+     `vMin = 0` (this design's own fleet bake, K5) `floorScale` is
+     always 1.0 and the corrected line reduces to the ORIGINAL
+     pre-K1-patch line, `scaledTwist * dt` -- which was right; only the
+     floor-bound case (ticket 001's own MEASURED -11% reverse duty on a
+     cruise-100 pivot) needed a fix, and the corrected form still fixes
+     it via `floorScale`.
    - K2/K3 (`positionError()`): add the `bool advanced` parameter (and
      update its declaration in the header and both call sites in
      `controlStep()` to pass `sampleAdvancedLeft_`/`sampleAdvancedRight_`);
@@ -60,39 +88,43 @@ question as of ticket start):
      `rebasePosition()`/`rebaseReq_`/`seenRebaseReq_`); consume it at the
      top of `step()`, before `controlStep()`, disarming
      `posRefLeft_.armed`/`posRefRight_.armed`/`twistRef_.armed`.
-   - The three diagnostic accessors on `DifferentialDrive`
+   - The four diagnostic accessors on `DifferentialDrive`
      (`twistReferenceCounts()`, `twistReferenceArmed()`,
-     `positionReferenceCounts()`) are host-test support only (this
-     repo's `tests/host/test_kernel_reference_handling.py`), not part of
-     the control law. Upstream may adopt them for its own test coverage
-     of the same patches, or omit them -- they have no effect on
-     behavior either way.
+     `positionReferenceCounts()`, and ticket 010's own
+     `lastFloorScale()`) are host-test support only (this repo's
+     `tests/host/test_kernel_reference_handling.py`), not part of the
+     control law. Upstream may adopt them for its own test coverage of
+     the same patches, or omit them -- they have no effect on behavior
+     either way.
 4. After applying, run upstream's own fidelity/host-test suite for
    `differential_drive.{h,cpp}` (per this repo's own
    `tests/host/test_kernel_harness.py` pattern -- confirm the equivalent
-   exists there) and confirm it stays green, the same bar this ticket
-   held itself to in this repo (`tests/host/test_kernel_harness.py`,
+   exists there) and confirm it stays green, the same bar these tickets
+   held themselves to in this repo (`tests/host/test_kernel_harness.py`,
    `test_motion_engine_primitives.py`, `test_motion_engine_reductions.py`,
    `test_motion_engine_estop_and_refusal.py`,
    `test_regression_yaw_taper_pure_turn.py`,
    `test_motion_engine_acceleration_profile.py`,
-   `test_frozen_encoder_hold.py`, plus the two new files this ticket adds,
-   `test_kernel_reference_handling.py` and `test_profile_probe_kernel.py`).
-5. Record the upstream PR/commit reference back on this ticket
-   (`clasi/sprints/029-.../tickets/001-...md`) once it lands. As of this
-   ticket's own close, the upstream PR is NOT yet opened -- this file is
-   the artifact that unblocks opening it, not evidence it has landed.
+   `test_frozen_encoder_hold.py`, `test_kernel_reference_handling.py`
+   and `test_profile_probe_kernel.py`/`test_profile_probe.py` -- the
+   last two now also cover the asymmetric-wheel/lag regression ticket
+   010 added).
+5. Record the upstream PR/commit reference back on ticket 001
+   (`clasi/sprints/029-.../tickets/001-...md`) once it lands. As of
+   ticket 010's own close, the upstream PR is still NOT opened -- this
+   file is the artifact that unblocks opening it, not evidence it has
+   landed.
 
 ## The diff (this repo's own before/after, src/core/diffdrive.{h,cpp})
 
 diff --git a/src/core/diffdrive.cpp b/src/core/diffdrive.cpp
-index 363a411..b758864 100644
+index 363a411..55f0088 100644
 --- a/src/core/diffdrive.cpp
 +++ b/src/core/diffdrive.cpp
 @@ -390,6 +390,10 @@ void DifferentialDrive::rebasePosition() {
    ++rebaseReq_;
  }
- 
+
 +void DifferentialDrive::rearmReferences() {
 +  ++rearmReq_;
 +}
@@ -116,9 +148,9 @@ index 363a411..b758864 100644
 +    posRefRight_.armed = false;
 +    twistRef_.armed = false;
 +  }
- 
+
    const Command cmd = snapshotCommand();
- 
+
 @@ -509,6 +525,14 @@ void DifferentialDrive::step() {
        sampleRight_.sampleTime == stampRightBefore) {
      ++i2cFaultCount_;
@@ -131,11 +163,11 @@ index 363a411..b758864 100644
 +  // requestSample()/tick() pair.
 +  sampleAdvancedLeft_ = sampleLeft_.sampleTime != stampLeftBefore;
 +  sampleAdvancedRight_ = sampleRight_.sampleTime != stampRightBefore;
- 
+
    const uint64_t busyEndUs = clock_.nowMicros();
    publishOutput(nowMs, cycleStartUs, busyEndUs, measuredPeriodUs,
 @@ -584,11 +608,15 @@ void DifferentialDrive::controlStep(const Command& cmd, uint8_t effectiveMode,
- 
+
    float scaledLeft = lambda_ * rawLeft;
    float scaledRight = lambda_ * rawRight;
 -  const float scaledTwist = lambda_ * cmd.twist;
@@ -145,7 +177,7 @@ index 363a411..b758864 100644
 +  // the reference is allowed to integrate once the floor has run.
 +  const bool twistHoldActive = active_.twistHoldGain > 0.0f &&
 +                               sampleLeft_.connected && sampleRight_.connected;
- 
+
    float trim = 0.0f;
 -  if (active_.twistHoldGain > 0.0f && sampleLeft_.connected &&
 -      sampleRight_.connected) {
@@ -176,30 +208,44 @@ index 363a411..b758864 100644
      trim = clampf(active_.twistHoldGain * twistError, -headroom, headroom);
    } else {
      twistRef_.armed = false;
-@@ -616,6 +648,19 @@ void DifferentialDrive::controlStep(const Command& cmd, uint8_t effectiveMode,
-   float speedLeft, speedRight;
-   applySpeedFloor(targetLeft, targetRight, speedLeft, speedRight);
- 
-+  // K1: integrate the twist-hold reference from the POST-floor
-+  // half-differential -- what the wheels are ACTUALLY commanded this
-+  // cycle -- instead of from lambda*cmd.twist the way the reference
-+  // used to integrate before applySpeedFloor() ever touched it.
-+  // Whenever the floor bound, the old pre-floor integration lagged the
-+  // real (floored, larger) half-differential, the error went negative,
-+  // and trim braked the turn (MEASURED -11% reverse duty on a
-+  // cruise-100 pivot, review MK-02 / design §4.5 K1). This line always
-+  // matches what stageDuty() below will actually send the wheels.
-+  if (twistHoldActive && dt > 0.0f) {
-+    twistRef_.reference += 0.5f * (speedRight - speedLeft) * dt;
-+  }
+@@ -613,8 +645,31 @@ void DifferentialDrive::controlStep(const Command& cmd, uint8_t effectiveMode,
+   float targetLeft = scaledLeft - trim;
+   float targetRight = scaledRight + trim;
+
+-  float speedLeft, speedRight;
+-  applySpeedFloor(targetLeft, targetRight, speedLeft, speedRight);
++  float speedLeft, speedRight, floorScale;
++  applySpeedFloor(targetLeft, targetRight, speedLeft, speedRight, floorScale);
++  lastFloorScale_ = floorScale;  // [1] host-test diagnostic (lastFloorScale())
 +
++  // K1, corrected 2026-09-04 (design §4.5): integrate the FLOORED
++  // COMMANDED twist -- scaledTwist * floorScale, computed from
++  // scaledLeft/scaledRight BEFORE trim is folded in -- never the
++  // post-floor targets (speedLeft/speedRight), which already contain
++  // +/-trim. The first landing (ticket 001) integrated
++  // 0.5*(speedRight - speedLeft) of those trimmed targets: the servo's
++  // own trim output fed straight back into the reference it is judged
++  // against next tick, a positive-feedback loop ideal (matched) wheels
++  // never excite because their trim stays near zero. MEASURED tovez
++  // 2026-09-04, captures/bench-acceptance-029-20260904c/: WHEELS_V 200
++  // 200 drove the left wheel negative (~-76 mm/s) and the right to
++  // 492 mm/s under this defect. floorScale (1.0 when the floor does
++  // not bind) still applies the floor's rescale to the reference, so
++  // K1's original fix (integrate the FLOORED value, not the pre-floor
++  // one) is preserved; only the trim contribution is now excluded.
++  // With vMin == 0, floorScale == 1.0 always and this reduces to the
++  // pre-K1-patch line, scaledTwist * dt.
++  if (twistHoldActive && dt > 0.0f) {
++    const float scaledTwist = 0.5f * (scaledRight - scaledLeft);
++    twistRef_.reference += scaledTwist * floorScale * dt;
++  }
+
    const float correctedLeft =
        correctedCommand(speedLeft, lastSpeedLeft_, true, biasLeft_);
-   const float correctedRight =
-@@ -643,10 +688,10 @@ void DifferentialDrive::controlStep(const Command& cmd, uint8_t effectiveMode,
+@@ -643,10 +698,10 @@ void DifferentialDrive::controlStep(const Command& cmd, uint8_t effectiveMode,
    const float errLeft = speedLeft - sampleLeft_.velocity;
    const float errRight = speedRight - sampleRight_.velocity;
- 
+
 -  const float posErrorLeft =
 -      positionError(speedLeft, sampleLeft_, posRefLeft_, dt);
 -  const float posErrorRight =
@@ -211,9 +257,9 @@ index 363a411..b758864 100644
    const float pidLeft =
        (speedLeft == 0.0f) ? 0.0f
                            : fastPid(posErrorLeft, errLeft, cmdAccelLeft_);
-@@ -854,7 +899,8 @@ float DifferentialDrive::fastPid(float posError, float err, float aCmd) const {
+@@ -854,7 +909,8 @@ float DifferentialDrive::fastPid(float posError, float err, float aCmd) const {
  }
- 
+
  float DifferentialDrive::positionError(float speed, const WheelSample& wheel,
 -                                       PositionRef& ref, float dt) {
 +                                       PositionRef& ref, float dt,
@@ -221,7 +267,7 @@ index 363a411..b758864 100644
    if (speed == 0.0f || dt <= 0.0f || !wheel.connected ||
        ref.epoch != epoch_ || !ref.armed) {
      ref.armed = (speed != 0.0f) && wheel.connected;
-@@ -863,7 +909,31 @@ float DifferentialDrive::positionError(float speed, const WheelSample& wheel,
+@@ -863,7 +919,31 @@ float DifferentialDrive::positionError(float speed, const WheelSample& wheel,
      ref.reference = 0.0f;
      return 0.0f;
    }
@@ -254,11 +300,32 @@ index 363a411..b758864 100644
    float error = ref.reference - (wheel.position - ref.origin);     // [counts]
    if (active_.posErrMax > 0.0f) {
      if (error > active_.posErrMax) error = active_.posErrMax;
+@@ -904,9 +984,11 @@ float DifferentialDrive::crawlDuty(float duty, float& carry) const {
+
+ void DifferentialDrive::applySpeedFloor(float rawLeft, float rawRight,
+                                         float& speedLeft,
+-                                        float& speedRight) const {
++                                        float& speedRight,
++                                        float& floorScale) const {
+   speedLeft = rawLeft;
+   speedRight = rawRight;
++  floorScale = 1.0f;  // [1] no rescale unless the floor binds below
+   if (active_.vMin <= 0.0f) return;
+   const float dominantMag =
+       std::max(std::fabs(rawLeft), std::fabs(rawRight));
+@@ -914,6 +996,7 @@ void DifferentialDrive::applySpeedFloor(float rawLeft, float rawRight,
+   const float scale = active_.vMin / dominantMag;
+   speedLeft = rawLeft * scale;
+   speedRight = rawRight * scale;
++  floorScale = scale;  // [1]
+ }
+
+ void DifferentialDrive::updateLatch(bool conditionNow, float window,
 diff --git a/src/core/diffdrive.h b/src/core/diffdrive.h
-index dcaa442..8a33c35 100644
+index dcaa442..4c36f1c 100644
 --- a/src/core/diffdrive.h
 +++ b/src/core/diffdrive.h
-@@ -200,11 +200,37 @@ class DifferentialDrive {
+@@ -200,11 +200,45 @@ class DifferentialDrive {
    void emergencyStopMotors();
    void clearStallLatch();
    void rebasePosition();
@@ -273,11 +340,11 @@ index dcaa442..8a33c35 100644
 +  // COMMAND is changing (e.g. a pivot-to-straight handoff) but the
 +  // measured position itself is still valid.
 +  void rearmReferences();
- 
+
    Output output() const;
- 
+
    void step();
- 
+
 +  // ---- Diagnostic accessors (sprint 029 ticket 001; host-test support
 +  // for K1/K3/K4) -- read-only windows into the reference integrators
 +  // those patches govern. Not part of the control law, not written by
@@ -292,11 +359,19 @@ index dcaa442..8a33c35 100644
 +  float positionReferenceCounts(bool leftWheel) const {  // [counts]
 +    return (leftWheel ? posRefLeft_ : posRefRight_).reference;
 +  }
++  // K1, corrected (sprint 029 ticket 010, design §4.5): the scale
++  // applySpeedFloor() applied on the MOST RECENT controlStep() call
++  // (1.0 when the floor did not bind). Exposed so a host test can
++  // reconstruct twistRef_'s expected increment (scaledTwist *
++  // floorScale * dt) independently, without re-deriving floorScale
++  // from observed duty -- which would be indirect and, once trim is
++  // folded into duty, no longer equal to floorScale at all.
++  float lastFloorScale() const { return lastFloorScale_; }  // [1]
 +
   private:
    struct Command {
      uint8_t mode = kModeNeutral;
-@@ -258,7 +284,8 @@ class DifferentialDrive {
+@@ -258,12 +292,13 @@ class DifferentialDrive {
                           float bias) const;
    float fastPid(float posError, float err, float aCmd) const;  // [counts] [counts/s] [counts/s^2]
    float positionError(float speed, const WheelSample& wheel, PositionRef& ref,
@@ -306,19 +381,25 @@ index dcaa442..8a33c35 100644
    void adaptBias(float& bias, float err, float aCmd, float vCmdMagnitude,
                   bool fresh, float dt) const;
    float crawlDuty(float duty, float& carry) const;
-@@ -286,8 +313,10 @@ class DifferentialDrive {
- 
+   void applySpeedFloor(float rawLeft, float rawRight, float& speedLeft,
+-                       float& speedRight) const;
++                       float& speedRight, float& floorScale) const;  // [1]
+   void updateLatch(bool conditionNow, float window, uint32_t now,
+                    uint32_t& since, bool& latched) const;  // [ms]
+
+@@ -286,8 +321,10 @@ class DifferentialDrive {
+
    volatile uint32_t clearStallReq_ = 0;
    volatile uint32_t rebaseReq_ = 0;
 +  volatile uint32_t rearmReq_ = 0;   // K4: rearmReferences()'s own counter
    uint32_t seenClearStallReq_ = 0;
    uint32_t seenRebaseReq_ = 0;
 +  uint32_t seenRearmReq_ = 0;
- 
+
    Status lastError_ = Status::kOk;
    void noteRefusal(Status status) {
-@@ -303,6 +332,15 @@ class DifferentialDrive {
- 
+@@ -303,6 +340,15 @@ class DifferentialDrive {
+
    WheelSample sampleLeft_;
    WheelSample sampleRight_;
 +  // K2 (design §4.5): did the PREVIOUS step()'s own collect actually
@@ -330,6 +411,14 @@ index dcaa442..8a33c35 100644
 +  // has run -- behaves like an ordinary fresh tick, not a frozen one.
 +  bool sampleAdvancedLeft_ = true;
 +  bool sampleAdvancedRight_ = true;
- 
+
    PositionRef posRefLeft_;
    PositionRef posRefRight_;
+@@ -321,6 +367,7 @@ class DifferentialDrive {
+   float biasRight_ = 0.0f;         // [counts/s]
+   float lastSpeedLeft_ = 0.0f;     // [counts/s] Stage A direction-of-change memory
+   float lastSpeedRight_ = 0.0f;    // [counts/s]
++  float lastFloorScale_ = 1.0f;    // [1] applySpeedFloor()'s most recent scale
+   float lastPidLeft_ = 0.0f;       // [counts/s]
+   float lastPidRight_ = 0.0f;      // [counts/s]
+   float crawlCarryLeft_ = 0.0f;    // Bresenham accumulators

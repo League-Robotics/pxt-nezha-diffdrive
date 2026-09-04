@@ -103,6 +103,15 @@ void meSetFullDutyVelocity(void* handle, float v) {
 void meSetTwistHoldGain(void* handle, float v) {
   static_cast<Handle*>(handle)->kernel.setTwistHoldGain(v);
 }
+// Sprint 029 ticket 010 (K1 corrected): thin passthrough to the
+// kernel's own diagnostic accessor (core/diffdrive.h), mirroring
+// kernel_shim.cpp's kdTwistReferenceCounts -- lets a MotionEngine-level
+// host test (test_profile_probe.py's Rig/LaggedRig) reconstruct the
+// twist-hold servo's error without re-deriving it from duty, the same
+// reason that accessor exists at the raw-kernel level.
+float meTwistReferenceCounts(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.twistReferenceCounts();
+}
 int meBegin(void* handle) {
   return static_cast<int>(static_cast<Handle*>(handle)->kernel.begin());
 }

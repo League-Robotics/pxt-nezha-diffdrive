@@ -200,6 +200,14 @@ float kdPositionReferenceCounts(void* handle, int leftWheel) {
   return static_cast<Handle*>(handle)->kernel.positionReferenceCounts(
       leftWheel != 0);
 }
+// sprint 029 ticket 010 (K1 corrected): applySpeedFloor()'s most recent
+// scale factor -- lets a host test reconstruct twistRef_'s expected
+// per-tick increment (scaledTwist * floorScale * dt) without re-deriving
+// floorScale from observed duty, which is no longer possible once trim
+// is folded into duty (that IS the defect this ticket fixes).
+float kdLastFloorScale(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.lastFloorScale();
+}
 
 // ---- FakeMotor control/readback ---------------------------------------
 // `side`: 0 == left, 1 == right.

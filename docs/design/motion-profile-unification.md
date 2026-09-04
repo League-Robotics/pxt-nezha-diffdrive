@@ -298,7 +298,7 @@ fix in its own right, to be made in both trees:
 
 | # | change | where | why |
 |---|---|---|---|
-| K1 | Integrate the twist-hold reference from the **floored commanded twist** — `scaledTwist · floorScale`, where `floorScale` is the factor `applySpeedFloor()` applied (1 when the floor does not bind) — **never from the trimmed wheel targets** | `controlStep()`: have `applySpeedFloor()` report its scale; `twistRef_.reference += scaledTwist · floorScale · dt` after it runs | MEASURED −11 % reverse kick, pivot 1.9° short with the servo on vs 2.5° long with it off (review MK-02). **Corrected 2026-09-04 after the first hardware run:** the first landing integrated `0.5·(speedRight − speedLeft)` of the floored *targets*, which include `∓trim` — the servo's own output fed its reference, a positive-feedback loop that ideal wheels never excite. MEASURED on tovez (`captures/bench-acceptance-029-20260904c/`): `WHEELS_V 200 200` drove the left wheel negative and the right to 492 mm/s; on the host model with a 5 % wheel mismatch and 80 ms lag (`raw/twist_runaway_probe.cpp`) the servo turned a −0.8° heading drift over 600 mm into −6.2°. With `vMin = 0` the corrected form reduces to the original pre-patch line, which was right |
+| K1 | Integrate the twist-hold reference from the **floored commanded twist** — `scaledTwist · floorScale`, where `floorScale` is the factor `applySpeedFloor()` applied (1 when the floor does not bind) — **never from the trimmed wheel targets** | `controlStep()`: have `applySpeedFloor()` report its scale; `twistRef_.reference += scaledTwist · floorScale · dt` after it runs | MEASURED −11 % reverse kick, pivot 1.9° short with the servo on vs 2.5° long with it off (review MK-02). **Corrected 2026-09-04 after the first hardware run:** the first landing integrated `0.5·(speedRight − speedLeft)` of the floored *targets*, which include `∓trim` — the servo's own output fed its reference, a positive-feedback loop that ideal wheels never excite. MEASURED on tovez (`captures/bench-acceptance-029-20260904c/`): `WHEELS_V 200 200` drove the left wheel negative and the right to 492 mm/s; on the host model with a 5 % wheel mismatch and 80 ms lag (`raw/twist_runaway_probe.cpp`) the servo turned a −0.8° heading drift over 600 mm into −6.2°. With `vMin = 0` the corrected form reduces to the original pre-patch line, which was right. Landed sprint 029 ticket 010 — `tests/host/test_kernel_reference_handling.py::test_k1_corrected_asymmetric_wheel_move_x_does_not_run_away`/`..._wheels_v_does_not_run_away` port this exact model against the corrected kernel through the real `MotionEngine` and MEASURE the fix: `WHEELS_V 200 200` heading drift 1.515° (servo on, uncorrected K1) → 0.021° (corrected) vs 0.685° servo-off; `MOVE_X 600 0 200` −5.611° (uncorrected) → 0.309° (corrected) vs 0.733° servo-off, closely matching this row's own −6.2°/−0.8° host-model citation above |
 | K2 | Do not advance a wheel's position reference on a tick whose sample did not advance | `positionError()`: take `fresh` as an argument; `if (!fresh) return lastError` without `ref.reference += speed·dt` | MEASURED +6 duty points from one frozen tick through the position I-term (review MK-03 ⟲); this is the actual mechanism behind `pid-error-uses-a-stale-velocity-sample…` |
 | K3 | Anti-windup: after updating, clamp `ref.reference` to `(position − origin) ± posErrMax` | `positionError()` | the reference otherwise carries an unbounded backlog into the taper and discharges it there (the "end bump" memory) |
 | K4 | `rearmReferences()`: a deferred request (same shape as `rebasePosition()`) that disarms `posRefLeft_/Right_` and `twistRef_` at the start of the next `step()`, before `controlStep()` | new public method + request counter | lets a segment boundary re-anchor the integrators without the engine having to sacrifice a neutral tick (`awaitingHandoffNeutral` goes away) |
@@ -630,6 +630,19 @@ exactly this kind of residual; it stays 0 (unmeasured) in this host
 model, since §10.2's bench sweep is a later ticket's job. The constant
 `+2°` the fleet used to calibrate away becomes `v_floor·lag`, which the
 model predicts rather than fits, modulo this same residual.
+
+**Re-measured again 2026-09-04** (sprint 029 ticket 010, K1 corrected —
+the twist-hold servo runs during this same pure-pivot scenario, so
+correcting its reference integration shifts this table too, even though
+nothing in `VelocityShaper::advance()` changed): 5 of the 6 cells above
+hold or improve (e.g. 80 ms/cruise 200 moves from +2.2° to +0.77°); the
+worst cell, 150 ms/cruise 200, moves from −1.6° to **−3.47°** — MEASURED,
+same citation. This is the OLD K1 bug's own trim-feedback accidentally
+helping this one cell land closer to 90°, the identical mechanism that
+ran away under real wheel asymmetry (§4.5 K1 row, `twist_runaway_probe`).
+`tests/host/test_profile_probe.py`'s own `_LAG_MODEL_ARRIVAL_BOUND_DEG`
+widens from 2.5° to 3.75° to cover it; no change to the arrival formula
+or `stopDistance` is implicated.
 
 The old margins (`arriveDist`, `arriveYaw`) survive only as the
 window inside which a segment is *considered done without a further

@@ -645,20 +645,30 @@ void DifferentialDrive::controlStep(const Command& cmd, uint8_t effectiveMode,
   float targetLeft = scaledLeft - trim;
   float targetRight = scaledRight + trim;
 
-  float speedLeft, speedRight;
-  applySpeedFloor(targetLeft, targetRight, speedLeft, speedRight);
+  float speedLeft, speedRight, floorScale;
+  applySpeedFloor(targetLeft, targetRight, speedLeft, speedRight, floorScale);
+  lastFloorScale_ = floorScale;  // [1] host-test diagnostic (lastFloorScale())
 
-  // K1: integrate the twist-hold reference from the POST-floor
-  // half-differential -- what the wheels are ACTUALLY commanded this
-  // cycle -- instead of from lambda*cmd.twist the way the reference
-  // used to integrate before applySpeedFloor() ever touched it.
-  // Whenever the floor bound, the old pre-floor integration lagged the
-  // real (floored, larger) half-differential, the error went negative,
-  // and trim braked the turn (MEASURED -11% reverse duty on a
-  // cruise-100 pivot, review MK-02 / design §4.5 K1). This line always
-  // matches what stageDuty() below will actually send the wheels.
+  // K1, corrected 2026-09-04 (design §4.5): integrate the FLOORED
+  // COMMANDED twist -- scaledTwist * floorScale, computed from
+  // scaledLeft/scaledRight BEFORE trim is folded in -- never the
+  // post-floor targets (speedLeft/speedRight), which already contain
+  // +/-trim. The first landing (ticket 001) integrated
+  // 0.5*(speedRight - speedLeft) of those trimmed targets: the servo's
+  // own trim output fed straight back into the reference it is judged
+  // against next tick, a positive-feedback loop ideal (matched) wheels
+  // never excite because their trim stays near zero. MEASURED tovez
+  // 2026-09-04, captures/bench-acceptance-029-20260904c/: WHEELS_V 200
+  // 200 drove the left wheel negative (~-76 mm/s) and the right to
+  // 492 mm/s under this defect. floorScale (1.0 when the floor does
+  // not bind) still applies the floor's rescale to the reference, so
+  // K1's original fix (integrate the FLOORED value, not the pre-floor
+  // one) is preserved; only the trim contribution is now excluded.
+  // With vMin == 0, floorScale == 1.0 always and this reduces to the
+  // pre-K1-patch line, scaledTwist * dt.
   if (twistHoldActive && dt > 0.0f) {
-    twistRef_.reference += 0.5f * (speedRight - speedLeft) * dt;
+    const float scaledTwist = 0.5f * (scaledRight - scaledLeft);
+    twistRef_.reference += scaledTwist * floorScale * dt;
   }
 
   const float correctedLeft =
@@ -974,9 +984,11 @@ float DifferentialDrive::crawlDuty(float duty, float& carry) const {
 
 void DifferentialDrive::applySpeedFloor(float rawLeft, float rawRight,
                                         float& speedLeft,
-                                        float& speedRight) const {
+                                        float& speedRight,
+                                        float& floorScale) const {
   speedLeft = rawLeft;
   speedRight = rawRight;
+  floorScale = 1.0f;  // [1] no rescale unless the floor binds below
   if (active_.vMin <= 0.0f) return;
   const float dominantMag =
       std::max(std::fabs(rawLeft), std::fabs(rawRight));
@@ -984,6 +996,7 @@ void DifferentialDrive::applySpeedFloor(float rawLeft, float rawRight,
   const float scale = active_.vMin / dominantMag;
   speedLeft = rawLeft * scale;
   speedRight = rawRight * scale;
+  floorScale = scale;  // [1]
 }
 
 void DifferentialDrive::updateLatch(bool conditionNow, float window,

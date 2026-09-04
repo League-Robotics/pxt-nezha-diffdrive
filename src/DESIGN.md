@@ -114,13 +114,28 @@ host that owns its loop drives `step()` directly).
   `docs/code-review/2026-09-02/raw/kernel-patches-k1-k4.upstream.patch`
   (not yet opened as an upstream PR as of this ticket's own close):
   - **K1** — the twist-hold reference (`twistRef_.reference`,
-    `controlStep()`) now integrates the POST-`applySpeedFloor()`
-    half-differential (`0.5·(speedRight − speedLeft)`) instead of the
-    pre-floor commanded twist, and its headroom clamp is sourced from
-    the previous cycle's floored speeds. Previously, whenever the
-    speed floor bound, the reference under-tracked the wheels' real
-    differential and the servo braked the turn (MEASURED −11% reverse
-    duty on a cruise-100 pivot).
+    `controlStep()`) integrates the FLOORED COMMANDED twist —
+    `scaledTwist · floorScale`, computed from `scaledLeft`/`scaledRight`
+    BEFORE `trim` is folded in, where `floorScale` is the scale
+    `applySpeedFloor()` reports it applied (1.0 when the floor does not
+    bind) — never the post-floor TRIMMED targets, and its headroom
+    clamp is still sourced from the previous cycle's floored speeds.
+    Ticket 001's own first landing integrated
+    `0.5·(speedRight − speedLeft)` of the floored *targets* instead —
+    which already have `∓trim` folded in — so the servo's own output
+    fed back into the reference it is judged against next tick, a
+    positive-feedback loop ideal (matched) wheels never excite but a
+    real wheel mismatch does: MEASURED on tovez
+    (`captures/bench-acceptance-029-20260904c/`), `WHEELS_V 200 200`
+    drove one wheel negative and the other to 492 mm/s under that
+    landing. **Corrected sprint 029 ticket 010** (design §4.5's K1 row);
+    ticket 001's own defect (speed-floor binding making the OLD
+    pre-patch line under-track the real differential, MEASURED −11%
+    reverse duty on a cruise-100 pivot) stays fixed because `floorScale`
+    still rescales the reference exactly as before — only the trim
+    contribution is now excluded. With `vMin = 0` (this design's own
+    fleet bake, K5) `floorScale` is always 1.0 and the corrected form
+    reduces to the original pre-K1-patch line.
   - **K2** — `positionError()` takes a per-wheel `advanced` bool (did
     the PREVIOUS `step()`'s own collect actually move that wheel's
     cached sample) and skips `ref.reference += speed·dt` when false,

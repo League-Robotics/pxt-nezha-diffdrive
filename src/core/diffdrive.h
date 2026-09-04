@@ -230,6 +230,14 @@ class DifferentialDrive {
   float positionReferenceCounts(bool leftWheel) const {  // [counts]
     return (leftWheel ? posRefLeft_ : posRefRight_).reference;
   }
+  // K1, corrected (sprint 029 ticket 010, design §4.5): the scale
+  // applySpeedFloor() applied on the MOST RECENT controlStep() call
+  // (1.0 when the floor did not bind). Exposed so a host test can
+  // reconstruct twistRef_'s expected increment (scaledTwist *
+  // floorScale * dt) independently, without re-deriving floorScale
+  // from observed duty -- which would be indirect and, once trim is
+  // folded into duty, no longer equal to floorScale at all.
+  float lastFloorScale() const { return lastFloorScale_; }  // [1]
 
  private:
   struct Command {
@@ -290,7 +298,7 @@ class DifferentialDrive {
                  bool fresh, float dt) const;
   float crawlDuty(float duty, float& carry) const;
   void applySpeedFloor(float rawLeft, float rawRight, float& speedLeft,
-                       float& speedRight) const;
+                       float& speedRight, float& floorScale) const;  // [1]
   void updateLatch(bool conditionNow, float window, uint32_t now,
                    uint32_t& since, bool& latched) const;  // [ms]
 
@@ -359,6 +367,7 @@ class DifferentialDrive {
   float biasRight_ = 0.0f;         // [counts/s]
   float lastSpeedLeft_ = 0.0f;     // [counts/s] Stage A direction-of-change memory
   float lastSpeedRight_ = 0.0f;    // [counts/s]
+  float lastFloorScale_ = 1.0f;    // [1] applySpeedFloor()'s most recent scale
   float lastPidLeft_ = 0.0f;       // [counts/s]
   float lastPidRight_ = 0.0f;      // [counts/s]
   float crawlCarryLeft_ = 0.0f;    // Bresenham accumulators

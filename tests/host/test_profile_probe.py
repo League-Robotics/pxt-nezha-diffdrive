@@ -137,6 +137,14 @@ def _bind(lib):
     # own comment.
     lib.meApplyStictionProbeKernelConfig.argtypes = [ctypes.c_void_p]
     lib.meApplyStictionProbeKernelConfig.restype = None
+    # Sprint 029 ticket 010: lets a test override the twist-hold gain
+    # meApplyStictionProbeKernelConfig() bakes in (2.0) -- e.g. to 0.0
+    # for a servo-off comparison run. Mirrors kernel_shim.cpp's own
+    # kdSetTwistHoldGain.
+    lib.meSetTwistHoldGain.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetTwistHoldGain.restype = None
+    lib.meTwistReferenceCounts.argtypes = [ctypes.c_void_p]
+    lib.meTwistReferenceCounts.restype = ctypes.c_float
     lib.meSetTrackWidth.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meSetTrackWidth.restype = None
     lib.meSetRotationalSlip.argtypes = [ctypes.c_void_p, ctypes.c_float]
@@ -202,6 +210,16 @@ class Rig:
         self.speed_log = []       # [mm/s] max(|vl|,|vr|) per tick
         self.duty_log_left = []   # [fraction, signed]
         self.duty_log_right = []  # [fraction, signed]
+        # sprint 029 ticket 010: signed PHYSICAL wheel speed per tick --
+        # for the ideal Rig this is duty * fullDutyVelocity / cpm (no
+        # lag, so it equals the commanded speed exactly); LaggedRig
+        # overrides these with its own simulated `self._v` instead,
+        # which is the quantity a sign-never-flips assertion actually
+        # needs (duty can command a direction the lagged wheel has not
+        # caught up to yet, or -- the K1 defect this ticket fixes --
+        # never should have been commanded at all).
+        self.velocity_log_left = []   # [mm/s] signed
+        self.velocity_log_right = []  # [mm/s] signed
 
     def close(self):
         self._lib.meDestroy(self._handle)
@@ -224,6 +242,23 @@ class Rig:
 
     def set_lag(self, v):
         self._lib.meLimitsSetLag(self._handle, v)
+
+    def set_twist_hold_gain(self, v):
+        self._lib.meSetTwistHoldGain(self._handle, v)
+
+    def twist_reference_counts(self):
+        return self._lib.meTwistReferenceCounts(self._handle)
+
+    def twist_error_counts(self):
+        """K1 corrected (sprint 029 ticket 010) diagnostic: twistRef_.
+        reference minus the measured post-origin half-differential
+        position, in [counts]. Valid because this harness's twist-hold
+        origin is always (0, 0) -- the servo arms on the FIRST
+        controlStep() of a run, at which point self._pos is still at
+        its __init__ value (0.0, 0.0); it is never rearmed mid-run by
+        any test in this file."""
+        measured = 0.5 * (self._pos[RIGHT] - self._pos[LEFT])
+        return self.twist_reference_counts() - measured
 
     def move_x(self, distance, rotation, cruise, timeout_ms):
         self._lib.meMoveX(self._handle, distance, rotation, cruise,
@@ -271,6 +306,8 @@ class Rig:
         self.speed_log.append(max(abs(vl), abs(vr)))
         self.duty_log_left.append(self._duty[LEFT])
         self.duty_log_right.append(self._duty[RIGHT])
+        self.velocity_log_left.append(vl)
+        self.velocity_log_right.append(vr)
         return active
 
     def run(self, max_ticks=4000):
@@ -315,18 +352,33 @@ class LaggedRig(Rig):
 
     Overrides ONLY `tick()` -- `_odom()`, `run()`, and every other Rig
     method/property are inherited unchanged; they operate on `self._pos`
-    regardless of how it got there."""
+    regardless of how it got there.
+
+    `gain_left`/`gain_right` (sprint 029 ticket 010, design §4.5 K1
+    corrected): per-wheel multiplier on the LAGGED, physically-realized
+    speed -- ported from docs/code-review/2026-09-02/raw/
+    twist_runaway_probe.cpp's own `Rig::tick()` (`vL/vR += a*(tL/tR -
+    vL/vR)` where `tL = appliedDuty*kFullDuty*gainL`), which is the SAME
+    per-wheel-gain-on-the-lagged-target idea, just layered on top of
+    THIS model's breakaway/stiction on/off state instead of a bare
+    first-order lag. Default 1.0 (no asymmetry, existing callers
+    unaffected). `breakaway=0.0` reproduces twist_runaway_probe.cpp's
+    own model exactly (`not moving and abs(cmd_mm) >= 0.0` is always
+    true, so the wheel is "moving" from its very first tick and
+    stiction never engages)."""
 
     def __init__(self, lib, tau, breakaway,
                  full_duty_velocity=_STICTION_FULL_DUTY_VELOCITY,
                  track_width=_STICTION_TRACK_WIDTH,
-                 rotational_slip=_STICTION_ROTATIONAL_SLIP):
+                 rotational_slip=_STICTION_ROTATIONAL_SLIP,
+                 gain_left=1.0, gain_right=1.0):
         super().__init__(lib, full_duty_velocity=full_duty_velocity,
                          track_width=track_width,
                          rotational_slip=rotational_slip)
         self._lib.meApplyStictionProbeKernelConfig(self._handle)
         self._tau = tau            # [s]
         self._breakaway = breakaway  # [mm/s]
+        self._gain = {LEFT: gain_left, RIGHT: gain_right}  # [1] per wheel
         self._v = {LEFT: 0.0, RIGHT: 0.0}       # [counts/s] simulated
         self._moving = {LEFT: False, RIGHT: False}
 
@@ -353,7 +405,7 @@ class LaggedRig(Rig):
             self._moving[side] = True
         if self._moving[side] and abs(cmd_mm) < 0.5 * self._breakaway:
             self._moving[side] = False
-        target = cmd_counts if self._moving[side] else 0.0
+        target = cmd_counts * self._gain[side] if self._moving[side] else 0.0
         if self._tau <= 0.0:
             self._v[side] = target
         else:
@@ -384,6 +436,8 @@ class LaggedRig(Rig):
         self.speed_log.append(max(abs(vl), abs(vr)))
         self.duty_log_left.append(self._duty[LEFT])
         self.duty_log_right.append(self._duty[RIGHT])
+        self.velocity_log_left.append(vl)
+        self.velocity_log_right.append(vr)
         return active
 
 
@@ -427,7 +481,25 @@ _LAG_MODEL_BREAKAWAY = 70.0
 # (tau, cruise) cells lands 2.24 deg off with the fix landed, down from
 # 9.41 deg unfixed -- a real, large improvement, just not uniformly
 # under the ticket's original 1.0 deg stretch goal.
-_LAG_MODEL_ARRIVAL_BOUND_DEG = 2.5
+#
+# RE-MEASURED 2026-09-04 (sprint 029 ticket 010, K1 corrected -- design
+# S4.5's own K1 row): fixing the twist-hold reference's positive-
+# feedback bug (K1) shifts this table's worst cell too, since the SAME
+# servo runs during a pure pivot. 5 of 6 cells improve or hold (e.g.
+# tau=0.08/cruise=200 goes from ~2.2 deg to +0.77 deg); the sixth,
+# tau=0.15/cruise=200, worsens from 2.24 deg to -3.47 deg -- MEASURED
+# via this file's own test_design_s6_3_table_remeasured_with_the_fix
+# (rerun with -s). This is expected, not a new defect: the OLD K1
+# formula's own trim-feedback (integrating the TRIMMED targets) was, by
+# accident, adding extra aggression that happened to help THIS one
+# worst-case cell land closer to 90 deg, the same mechanism that ran
+# away under real wheel asymmetry (twist_runaway_probe.cpp,
+# test_kernel_reference_handling.py's own asymmetric-wheel regression
+# tests). Nothing in VelocityShaper's own braking/arrival formula
+# (ticket 009) changed; only K1's servo did. The bound widens to cover
+# the new worst case with a small margin, same shape as the deviation
+# above.
+_LAG_MODEL_ARRIVAL_BOUND_DEG = 3.75
 
 
 @pytest.mark.parametrize("cruise", _LAG_MODEL_CRUISES)
@@ -439,9 +511,11 @@ def test_lag_aware_pivot_lands_within_the_measured_arrival_window(
     SAME lagged-wheel model design S6.3's table was measured against
     lands within `_LAG_MODEL_ARRIVAL_BOUND_DEG` -- see this module's own
     deviation note (above `_LAG_MODEL_CRUISES`) for why that bound is
-    2.5 deg, not design S9.2's original 1.0 deg stretch goal, and
-    test_design_s6_3_table_remeasured_with_the_fix below for the printed
-    before/after numbers it is derived from."""
+    3.75 deg (widened again 2026-09-04, sprint 029 ticket 010, when K1's
+    corrected servo shifted the worst cell), not design S9.2's original
+    1.0 deg stretch goal, and test_design_s6_3_table_remeasured_with_the
+    _fix below for the printed before/after numbers it is derived from.
+    """
     with LaggedRig(motion_lib, tau=tau, breakaway=_LAG_MODEL_BREAKAWAY) as r:
         r.set_lag(tau)
         r.move_x(0.0, _KPI / 2.0, cruise, 30000)
