@@ -268,3 +268,20 @@ def test_fails_loudly_when_the_lag_declaration_moves(tmp_path, monkeypatch):
                                     {"firmware_bake": {"lag_s": 0.08}})))
     with pytest.raises(SystemExit):
         make_deploy._inject_geometry(str(deploy), "vevov")
+
+
+def test_measured_zero_is_a_legal_bake_for_the_motion_limits_keys(tmp_path, monkeypatch):
+    """stop_distance_mm 0 / lag_s 0 are MEASURED values (tovez 2026-09-04),
+    not absent ones; the geometry scales stay strictly positive."""
+    deploy = _deploy(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "tovez", {"firmware_bake": {
+                            "stop_distance_mm": 0.0, "lag_s": 0.0}})))
+    applied = make_deploy._inject_geometry(str(deploy), "tovez")
+    assert dict(applied) == {"stop_distance_mm": 0.0, "lag_s": 0.0}
+    assert "float stopDistance = 0.0f;" in _read_limits(deploy)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "tovez", {"firmware_bake": {
+                            "trackwidth": 0.0}})))
+    with pytest.raises(SystemExit):
+        make_deploy._inject_geometry(str(_deploy(tmp_path / "b")), "tovez")

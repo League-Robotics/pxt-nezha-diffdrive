@@ -1,0 +1,12 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+VER -> ['ver 1.20260903.1']
+STATUS -> ['status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none']
+GET rotational_slip #1 -> ['ack 1 0 none', 'get rotational_slip 1.010000']
+GET lag #2 -> ['ack 2 0 none', 'get lag 0.100000']
+GET stop_distance #3 -> ['ack 3 0 none', 'get stop_distance 0.000000']
+pose before (10.409911233480655, 3.5410649250547683, 90.30040044742292)
+pose after  (10.403318275573199, 3.542836135533315, 90.33389001033972)
+PROBE: moved 0.01 cm at bearing 165.0; daemon heading 90.3; bearing - heading = +74.7 deg -> NOT FORWARD (FAIL)
+back at (10.396815955119378, 3.5411445741866094, 90.50488009088257)
+direction still wrong -- stopping

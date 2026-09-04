@@ -1,0 +1,19 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=35 i2cf=22 cyc=163 tlm=off next=1 done=3 reason=stall']
+SET stall_clear 1 #1 -> ['ack 1 3 stall']
+SET estop_clear 1 #2 -> ['ack 2 3 stall']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=35 i2cf=22 cyc=163 tlm=off next=3 done=3 reason=stall']
+GET stall_speed #3 -> ['ack 3 3 stall', 'get stall_speed 191.400009']
+GET stall_demand #4 -> ['ack 4 3 stall', 'get stall_demand 510.400024']
+GET stall_window #5 -> ['ack 5 3 stall', 'get stall_window 500.000031']
+TLM FULL #6 -> ['ack 6 3 stall', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr']
+WHEELS_V 100 0 800: frames 54 moving 8 peak duty L/R (1800, 800) posl/posr end ('0', '0'); camera moved 0.0 cm at 145 deg (heading 90), dh -0.0
+STATUS -> ['thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 'status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=35 i2cf=46 cyc=198 tlm=full next=8 done=7 reason=stall', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr']
+WHEELS_V 0 100 800: frames 63 moving 0 peak duty L/R (0, 0) posl/posr end ('0', '0'); camera moved 0.0 cm at -66 deg (heading 90), dh +0.1
+STATUS -> ['thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 'status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=35 i2cf=46 cyc=233 tlm=full next=9 done=8 reason=stall']
+WHEELS_V 100 100 800: frames 69 moving 0 peak duty L/R (0, 0) posl/posr end ('0', '0'); camera moved 0.0 cm at 8 deg (heading 90), dh -0.6
+STATUS -> ['thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr']
+WHEELS_V -100 -100 800: frames 135 moving 0 peak duty L/R (0, 0) posl/posr end ('0', '0'); camera moved 0.0 cm at 26 deg (heading 91), dh -0.1
+STATUS -> ['thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 'status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=35 i2cf=46 cyc=303 tlm=full next=11 done=10 reason=stall']
+TLM OFF #11 -> ['ack 11 10 stall']

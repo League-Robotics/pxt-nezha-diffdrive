@@ -400,7 +400,7 @@ time. A pivot's PASS/FAIL survives this (heading deltas cancel a
 constant offset); every drive's absolute bearing came out rotated by
 the extra +90° — exactly this section's finding. Separately, MEASURED
 2026-09-04, `captures/bench-acceptance-029-20260904d/heading-probe.log`:
-tovez's tag plate is physically mounted ~180° from the fleet convention
+tovez APPEARED to have its tag plate mounted ~180° from the fleet convention — CORRECTED the same afternoon: the plate is fine, the firmware was driving tovez backwards (vevov's motor mapping compiled in; tovez is wired left = port 2 (−1) / right = port 1 (+1)); fixed by `make_deploy.py::_inject_motors()` baking `firmware_bake.motors`, report §9. As first read
 (a 5 cm probe displaced the tag at bearing +11.4° while the
 0°-residual-registered daemon reported yaw −165.8° for the same pose).
 Fixed via a new pure function, `field.pose_from_registered_samples()`

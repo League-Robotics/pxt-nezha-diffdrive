@@ -41,14 +41,14 @@
       "_parallax_note": "The tag rides 11.8 cm above the field, so the camera reports every DISPLACEMENT scaled by this about its own nadir. Divide any camera distance by it for truth. MEASURED as 1.1167 +- 0.0022 over three 60 cm legs driven in opposing directions; implies a camera height near 113 cm. Closure measured at equal heading still needs it, since closure is a displacement."
     },
     "tovez": {
-      "_provenance": "mount_yaw_residual_deg MEASURED tovez 2026-09-04, captures/bench-acceptance-029-20260904d/heading-probe.log: with the tag registered at the fleet -90 deg convention the daemon reported yaw -165.8 deg while a 5 cm MOVE_X probe displaced the tag 4.87 cm at bearing +11.4 deg (bearing - reported yaw = +177.3 deg). The plate on tovez is therefore mounted 180 deg from the fleet convention (its 'up' points backward); the residual records that physical fact until the plate is remounted, at which point set it back to 0. mount_x_cm sign flipped to +4.1 for the same reason (the tag sits in FRONT of the centre in the 2026-09-04 deskewed frame; magnitude still UNVERIFIED, carried over from the old camlink MOUNTS[52] table). mount_y_cm/mount_z_cm/lever_cm/parallax_k remain UNVERIFIED -- see _lever_parallax_note.",
+      "_provenance": "mount_yaw_residual_deg 0.0: the plate is mounted on the fleet convention (tag arrow = robot front; stakeholder 2026-09-04, confirmed on the camera). A 180 deg residual was recorded earlier the same day from captures/bench-acceptance-029-20260904d/heading-probe.log (tag moved at bearing +11 deg while the daemon reported -166 deg) and was WRONG: the robot was driving BACKWARDS -- the firmware carried vevov's motor mapping (left{1,-1}/right{2,+1}) and tovez is wired left=port 2 (-1), right=port 1 (+1); swap+invert reverses travel and leaves rotation alone, which is exactly why pivots passed and straights went the other way. Fixed by baking radio-robot-lib tovez.json geometry.firmware_bake.motors via make_deploy.py _inject_motors(). mount_x_cm -4.1 (tag BEHIND the centre) per radio-robot-lib vision.tag_offset_x -41 mm, magnitude still UNVERIFIED here. Lesson: a residual near +-180 or +-90 is never a plate finding until a probe move has been checked against the ARROW, not against the daemon's heading.",
       "tag_family": "apriltag",
       "tag_number": 52,
       "camera": "arducam-ov9782-usb-camera",
-      "mount_x_cm": 4.1,
+      "mount_x_cm": -4.1,
       "mount_y_cm": 0.05,
       "mount_z_cm": 11.3,
-      "mount_yaw_residual_deg": 180.0,
+      "mount_yaw_residual_deg": 0.0,
       "_radio_note": "No explicit override -- radio_address('tovez') falls through to make_deploy.derive_radio_from_name('tovez') = (55, 108), matching the MEASURED fleet table in .claude/rules/playfield-testing.md (2026-08-30).",
       "lever_cm": [
         0.0,

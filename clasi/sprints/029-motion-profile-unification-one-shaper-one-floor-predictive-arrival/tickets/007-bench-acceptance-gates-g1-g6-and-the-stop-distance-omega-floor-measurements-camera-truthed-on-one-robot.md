@@ -815,3 +815,24 @@ squarely in this ticket's own remaining scope (`stop_distance`/
 `omega_floor`/G1-G6) rather than a new firmware defect to escalate. The
 ticket's core deliverable (dance passing cleanly, G1-G6,
 `stop_distance`/`omega_floor` measured and baked) is still not met.
+
+
+## Correction (2026-09-04, 12:45): tovez's plate is correct; the firmware drove it backwards
+
+The exception block above lists "rotate tovez's tag plate" as a
+decision. Withdrawn: the stakeholder checked the camera (the tag arrow
+points at the front), and the 180° residual recorded at 11:10 was
+masking a robot driving BACKWARDS -- `src/shims.cpp`'s tracked motor
+mapping is vevov's wiring and tovez (left = port 2 sign −1, right =
+port 1 sign +1, per its radio-robot-lib `motors` block since August)
+had nothing baking its own. Fixed: `tools/make_deploy.py::
+_inject_motors()` bakes `geometry.firmware_bake.motors`
+(`tests/tools/test_make_deploy_motors.py`); the bake block was added to
+`radio-robot-lib/config/robots/tovez.json` with this session's
+measured `rotational_slip`, `lag_s`, `stop_distance_mm`; the
+calibration residual is back to 0; the rule file's 180° section now
+says to check the arrow first. Report §9. The hardware confirmation of
+the new hex did not complete: after that flash the board reported
+`otos=0` at boot and stopped actuating (report §9.1), and tovez was
+then removed from the field. Every §7 magnitude stands; the absolute
+facings in §7 are mirrored.

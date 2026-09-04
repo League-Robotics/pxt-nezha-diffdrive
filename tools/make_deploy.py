@@ -1071,9 +1071,16 @@ def _inject_geometry(deploy_dir, robot):
         for key in keys:
             pattern = _GEOMETRY_BAKE_RES[key]
             value = bake[key]
-            if not isinstance(value, (int, float)) or value <= 0:
+            # lag_s / stop_distance_mm may legitimately be 0 (a MEASURED
+            # zero: tovez 2026-09-04, captures/bench-acceptance-029-
+            # 20260904d/pivot-gates-gain2.log); the geometry scales
+            # must stay strictly positive.
+            zero_ok = key in ('lag_s', 'stop_distance_mm')
+            if (not isinstance(value, (int, float)) or value < 0
+                    or (value == 0 and not zero_ok)):
                 sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
-                          f"'{robot}' is {value!r}; expected a positive "
+                          f"'{robot}' is {value!r}; expected a "
+                          f"{'non-negative' if zero_ok else 'positive'} "
                           f"number")
             # MUST keep a decimal point: `%g` renders 128.0 as `128`, and
             # `128f` is not a valid C++ literal (an integer literal
@@ -1093,6 +1100,73 @@ def _inject_geometry(deploy_dir, robot):
         with open(path, 'w') as f:
             f.write(text)
         applied.extend(file_applied)
+    return applied
+
+
+# ---- per-robot motor mapping bake ----------------------------------------
+#
+# `geometry.firmware_bake.motors` -- {left_port, right_port,
+# fwd_sign_left, fwd_sign_right} -- names which Nezha port is each side
+# and the sign that makes +command drive that wheel FORWARD. The tracked
+# default in shims.cpp (`NezhaMotorPort left{1, -1}; right{2, +1};`) is
+# vevov's wiring, VERIFIED on vevov 2026-08-20. tovez is wired the other
+# way round: MEASURED tovez 2026-09-04,
+# captures/bench-acceptance-029-20260904d/heading-probe.log -- with the
+# vevov mapping a `MOVE_X 50` moved the tag 4.87 cm at bearing +11 deg
+# while the tag's arrow (robot front) pointed the opposite way, and every
+# pivot still turned the commanded way (swap + invert reverses travel
+# and leaves rotation alone). Its fleet config (radio-robot-lib
+# motors.left_port 2 / fwd_sign_left -1 / right_port 1 / fwd_sign_right
+# +1) had said so since August; nothing baked it. Opt-in like the rest
+# of firmware_bake: robots without the block keep the tracked default.
+_MOTOR_BAKE_RES = {
+    'left_port': re.compile(r'(NezhaMotorPort left\{)\d+(,)'),
+    'fwd_sign_left': re.compile(r'(NezhaMotorPort left\{\d+, )[-+]?\d+(\})'),
+    'right_port': re.compile(r'(NezhaMotorPort right\{)\d+(,)'),
+    'fwd_sign_right': re.compile(r'(NezhaMotorPort right\{\d+, )[-+]?\d+(\})'),
+}
+
+
+def _inject_motors(deploy_dir, robot):
+    """Substitute `deploy_dir`'s copy of `src/shims.cpp`'s two
+    `NezhaMotorPort` lines with `robot`'s `firmware_bake.motors`, when it
+    declares one. All four keys are required together: a port without
+    its sign (or vice versa) is exactly the half-fix radio-robot-lib's
+    own `_port_note` warns reverses forward travel. Returns the list of
+    `(name, value)` injected, like `_inject_geometry()`."""
+    bake = _read_robot_firmware_bake(robot)
+    motors = bake.get('motors') if bake else None
+    if motors is None:
+        return []
+    if not isinstance(motors, dict) or set(_MOTOR_BAKE_RES) - set(motors):
+        sys.exit(f"make_deploy: geometry.firmware_bake.motors for '{robot}' "
+                  f"must be an object with all of {sorted(_MOTOR_BAKE_RES)}")
+    for key in ('left_port', 'right_port'):
+        if motors[key] not in (1, 2, 3, 4):
+            sys.exit(f"make_deploy: firmware_bake.motors.{key} for '{robot}' "
+                      f"is {motors[key]!r}; expected a Nezha port 1-4")
+    for key in ('fwd_sign_left', 'fwd_sign_right'):
+        if motors[key] not in (1, -1):
+            sys.exit(f"make_deploy: firmware_bake.motors.{key} for '{robot}' "
+                      f"is {motors[key]!r}; expected +1 or -1")
+    if motors['left_port'] == motors['right_port']:
+        sys.exit(f"make_deploy: firmware_bake.motors for '{robot}' puts both "
+                  f"wheels on port {motors['left_port']}")
+    path = os.path.join(deploy_dir, 'src', 'shims.cpp')
+    with open(path) as f:
+        text = f.read()
+    applied = []
+    for key, pattern in _MOTOR_BAKE_RES.items():
+        value = int(motors[key])
+        literal = f'{value:+d}' if key.startswith('fwd_sign') else str(value)
+        text, n = pattern.subn(rf'\g<1>{literal}\g<2>', text)
+        if n != 1:
+            sys.exit(f"make_deploy: expected exactly 1 site for motors.{key} "
+                      f"in {path}, found {n} -- if shims.cpp's Rig motor "
+                      f"lines changed, update _MOTOR_BAKE_RES")
+        applied.append((key, value))
+    with open(path, 'w') as f:
+        f.write(text)
     return applied
 
 
@@ -1323,6 +1397,8 @@ def main():
     _inject_wifi_secrets(DEPLOY)
     for _name, _value in _inject_geometry(DEPLOY, a.robot):
         print(f'make_deploy: geometry bake {_name} = {_value:g}')
+    for _name, _value in _inject_motors(DEPLOY, a.robot):
+        print(f'make_deploy: motor bake {_name} = {_value:+d}')
     _inject_version(DEPLOY)
     _inject_boot_banner(DEPLOY, a.robot)
     radio_link = (a.radio_link if a.radio_link is not None

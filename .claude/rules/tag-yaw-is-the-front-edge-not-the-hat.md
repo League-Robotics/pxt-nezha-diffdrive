@@ -136,34 +136,38 @@ the tag registered this session, check with
 it explicitly first — registering twice is harmless (TL-02: `register()`
 overwrites the daemon's stored entry, it does not compound).
 
-## A 180° residual is a real physical state, not a bug
+## A residual near ±180° means the ROBOT is driving backwards, not that the plate is on backwards
 
-`mount_yaw_residual_deg` is supposed to be "sub-degree" for a normally
-mounted plate, but a plate mounted **backward** (its "up" pointing
-robot-REARWARD instead of robot-forward) is a real, if unusual, mount
-state — not a probe-fitted absolute convention value sneaking back in.
-The two look different: a re-derived absolute clusters near ±90° (the
-TL-11 regression this file's "do not measure it again" section
-guards against); a backward plate clusters near ±180°.
+A probe that comes back "travel bearing = daemon heading + 180°" has
+two candidate explanations, and only one of them is the plate:
+
+| candidate | how to tell | what to change |
+|---|---|---|
+| the plate's "up" points robot-rearward | **look at the camera frame**: the green arrow on the tag does not point at the robot's front | remount the plate; until then `mount_yaw_residual_deg: 180` |
+| the firmware drives the robot backwards (wrong motor mapping for this wiring) | the arrow DOES point at the front; pivots still turn the commanded way (a swapped-and-inverted pair reverses travel and leaves rotation alone) | bake the robot's `firmware_bake.motors`; residual stays 0 |
 
 **MEASURED tovez 2026-09-04**,
 `captures/bench-acceptance-029-20260904d/heading-probe.log`: with the
-tag registered at the fleet's normal −90° convention (zero residual),
-the daemon reported `yaw_rad` = −165.8°, while a 5 cm `MOVE_X 50 0 100
-5000` probe displaced the tag 4.87 cm at bearing +11.4° — `bearing −
-reported_yaw = +177.3°`, i.e. the plate is mounted ~180° from the
-fleet convention. `tools/field_calibration.json` now carries
-`mount_yaw_residual_deg: 180.0` for tovez (with `mount_x_cm` sign
-flipped to match — the tag sits in front of, not behind, the centre of
-rotation once the plate's "up" is reversed); a follow-up register +
-probe confirmed the daemon then reports `yaw_rad` = +15.2° against the
-robot facing ≈+11° (the residual difference is probe noise over a 5 cm
-displacement, not a further correction to chase). Re-measure and reset
-to 0 (or whatever the new physical skew is) if the plate is ever
-remounted the right way round.
+tag registered at the fleet's −90° convention the daemon reported
+`yaw_rad` = −165.8° while a 5 cm `MOVE_X 50 0 100 5000` displaced the
+tag 4.87 cm at bearing +11.4° — the +177° gap. It was recorded as a
+backward plate and `mount_yaw_residual_deg: 180` carried the rest of
+that day's acceptance runs. It was the second row: the stakeholder
+looked at the camera (the arrow pointed at the front, north, while the
+daemon with the 180° residual said south), and the firmware's tracked
+motor mapping is vevov's (`left{1,-1}/right{2,+1}` in `shims.cpp`)
+while tovez is wired left = port 2 (−1), right = port 1 (+1) — a
+fact `radio-robot-lib/config/robots/tovez.json`'s `motors` block had
+recorded since August without anything baking it. Fixed by
+`make_deploy.py::_inject_motors()` reading
+`geometry.firmware_bake.motors`; the residual is back to 0.
+
+So: before writing any residual larger than a few degrees, look at the
+frame and check the arrow against the direction the robot moved. The
+daemon's heading is the thing under test; the arrow is the truth.
 `tests/tools/test_camlink.py::test_real_calibration_file_has_no_mounts_table_leftovers`
-accepts a residual near 0° OR near ±180° for exactly this reason, and
-still rejects one near ±90°.
+still accepts ±180° for the genuine backward-plate case and rejects
+±90°.
 
 Related: `playfield-testing.md` (camera section),
 `measurement-citations.md`.

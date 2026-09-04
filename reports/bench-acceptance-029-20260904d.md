@@ -523,3 +523,81 @@ Decisions for the stakeholder:
   in the calibration file (it is recorded and works).
 - Two new issues filed: `parallax-k-and-registered-mount-z-correct-twice.md`,
   `wire-done-reason-is-resolved-lazily.md`.
+
+## 9. CORRECTION (2026-09-04, 12:15): tovez's plate is fine -- the firmware was driving it BACKWARDS
+
+The stakeholder looked at the camera: the green arrow on tag 52 (the
+robot's front) pointed north while this session's tooling, carrying the
+180 deg residual from §5/§7.1, said south. The plate is on the fleet
+convention. Re-reading `heading-probe.log` with that fact: `MOVE_X +50`
+moved the tag 4.87 cm toward the robot's REAR. The firmware drives
+tovez backwards.
+
+Mechanism: `src/shims.cpp`'s tracked `Rig` motor mapping is vevov's
+wiring (`left{1,-1}` / `right{2,+1}`, VERIFIED on vevov 2026-08-20).
+tovez is wired left = port 2 (fwd sign −1), right = port 1 (fwd sign
++1) — `radio-robot-lib/config/robots/tovez.json`'s `motors` block has
+said so since August, and its `_port_note` even records the symptom
+("a commanded +150 mm leg travelled −152 mm"). Nothing baked it:
+`make_deploy.py` only read `geometry.firmware_bake`, and tovez had
+none. With the wheels swapped AND inverted, forward travel reverses
+and rotation does not (left-back/right-forward maps onto
+right-forward/left-back), which is exactly why every pivot in this
+report turned the commanded way while the 5 cm probe went the other
+way, and why the earlier session's ~90 deg bearing error was +90 and
+not −90.
+
+Fix: `make_deploy.py::_inject_motors()` bakes
+`geometry.firmware_bake.motors` (`left_port`, `right_port`,
+`fwd_sign_left`, `fwd_sign_right`, all four required) into the scratch
+`shims.cpp`; `tests/tools/test_make_deploy_motors.py`. tovez's
+radio-robot-lib config gained a `firmware_bake` block: the motors, plus
+this session's measured `rotational_slip 1.01`, `lag_s 0.10`,
+`stop_distance_mm 0` (the bake now accepts a measured zero for the two
+motion-limits keys). `field_calibration.json`'s residual is back to
+0.0 with `mount_x_cm −4.1` (tag behind the centre, per the fleet
+config). `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`'s
+"180° residual" section now says to check the arrow first.
+
+What this does and does not change in §7: every magnitude (leg lengths,
+closure, lag, pivot errors, arc endpoints) stands — they are
+displacement and heading-delta measurements, indifferent to which end
+the firmware calls the front. Every statement of absolute facing in §7
+("facing east", "forward legs drift right") is mirrored: the robot was
+physically facing west and reversing along those legs. Confirmation
+run on the rebuilt firmware follows in §9.1.
+
+### 9.1 Confirmation run -- NOT COMPLETED: the board stopped actuating after the reflash, then tovez left the field
+
+`confirm-direction.log`, `confirm-direction-2.log`, `wheel-identify.log`,
+`wheel-identify-2.log`. The motor-baked hex (`.tmp/deploy-head/built/
+binary.hex`, 1,689,641 bytes; bake lines in the build log: left_port 2,
+fwd_sign_left −1, right_port 1, fwd_sign_right +1, rotational_slip
+1.01, lag_s 0.1, stop_distance_mm 0) was flashed at 12:27. The camera
+side is now right: with the residual back to 0 the daemon reported
+tovez's heading as +90.3° (north), matching the arrow.
+
+But from that boot onward the board reported `otos=0` (it had been
+`otos=1` on every earlier boot today), `i2cf` climbed 22 → 46 across
+four 0.8 s holds, and no move actuated: `WHEELS_V 100 0 800` put 18 %
+duty on the left output for eight frames with both encoders at 0 and
+the camera showing 0.0 cm of motion, after which the stall latch
+tripped (`reason=stall`, flags 35) and every later command got zero
+duty. Clearing the latches (`SET stall_clear 1`, `SET estop_clear 1`,
+`RUN:clearestop`) and a second flash of the same hex (12:34, a reset)
+did not change it: `otos=0` again at a fresh boot. The mapping change
+cannot explain an OTOS that is not found at boot or a fault counter
+that climbs while both ports are the same two ports the earlier build
+drove in both directions. This is the brick/bus state
+`.claude/rules/playfield-testing.md` and the project memory describe
+(unpowered brick, or a wedge the second flash did not clear). Before
+the second wheel test could run, tag 52 disappeared from the camera and
+a frame showed the field cleared (12:40): tovez had been taken off the
+table. The direction confirmation therefore stands UNVERIFIED on
+hardware; the mapping is the fleet config's own, and the build log
+proves it is in the hex.
+
+Next, when tovez is back on the field: check the brick has motor
+power, `STATUS` must read `otos=1` at boot; then
+`captures/bench-acceptance-029-20260904d/confirm_direction.py` (5 cm
+probe against the arrow, then the dance from the south corridor).

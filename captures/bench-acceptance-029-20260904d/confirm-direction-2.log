@@ -1,0 +1,21 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=35 i2cf=22 cyc=42 tlm=off next=1 done=6 reason=stall']
+RUN:clearestop -> ['ESTOP:cleared']
+MOVE_X 2 0 100 3000 #1 -> ['ack 1 6 stall']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=35 i2cf=22 cyc=128 tlm=off next=2 done=1 reason=stall']
+cam before (10.382673716833558, 3.5325850186577705, 90.75073014650087)
+TLM FULL #2 -> ['ack 2 1 stall', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 't 1 60071 35 0 0 0 0 0 0 0 0 22 128 0 0 0 0 0 0 0', 't 2 60127 35 0 0 0 0 0 0 0 0 22 128 0 0 0 0 0 0 0', 't 3 60183 35 0 0 0 0 0 0 0 0 22 128 0 0 0 0 0 0 0', 't 4 60239 35 0 0 0 0 0 0 0 0 22 128 0 0 0 0 0 0 0']
+frames 26
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+  vl 0 vr 0 dutl 0 dutr 0 posl 0 posr 0
+TLM OFF #4 -> ['t 36 62203 35 0 0 0 0 0 0 0 0 22 163 0 0 0 0 0 0 0', 'ack 4 3 stall']
+cam after  (10.382673716833558, 3.5325850186577705, 90.75073014650087)
+moved 0.00 cm at bearing 0.0, heading 90.8, off -90.8
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=35 i2cf=22 cyc=163 tlm=off next=5 done=3 reason=stall']

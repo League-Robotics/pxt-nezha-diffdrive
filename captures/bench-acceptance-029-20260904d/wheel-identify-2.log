@@ -1,0 +1,8 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+STATUS -> ['status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none']
+RUN:clearestop -> ['ESTOP:cleared']
+TLM FULL #1 -> ['ack 1 0 none']
+Traceback (most recent call last):
+  File "<stdin>", line 32, in <module>
+  File "<stdin>", line 27, in hold
+TypeError: 'NoneType' object is not subscriptable
