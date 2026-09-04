@@ -1,0 +1,16 @@
+link: vevov serial daemon 192.168.4.53:42153
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '66', 'cyc': '331', 'tlm': 'off', 'next': '1', 'done': '6', 'reason': 'stop'}
+accel=400.000031 lag=0.0 (live)
+camera: tag 53 at (-7.6, 17.3) cm heading 7.7 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+trial 1 sign +1: 42 frames, ack ack 8 6 timeout, fit {'vl': {'lag': 0.125, 'rms': 11.5, 'n': 20}, 'vr': {'lag': 0.13, 'rms': 14.4, 'n': 20}}, steady {'vl': 198.8, 'vr': 192.5}, camera travel 26.5 cm
+trial 2 sign -1: 42 frames, ack ack 11 8 timeout, fit {'vl': {'lag': 0.115, 'rms': 8.3, 'n': 20}, 'vr': {'lag': 0.13, 'rms': 13.9, 'n': 20}}, steady {'vl': -198.4, 'vr': -196.0}, camera travel 26.1 cm
+trial 3 sign +1: 43 frames, ack ack 14 11 timeout, fit {'vl': {'lag': 0.145, 'rms': 12.6, 'n': 20}, 'vr': {'lag': 0.17, 'rms': 12.8, 'n': 20}}, steady {'vl': 202.0, 'vr': 203.1}, camera travel 27.1 cm
+trial 4 sign -1: 41 frames, ack ack 17 14 timeout, fit {'vl': {'lag': 0.115, 'rms': 11.6, 'n': 20}, 'vr': {'lag': 0.115, 'rms': 15.7, 'n': 20}}, steady {'vl': -202.1, 'vr': -204.4}, camera travel 26.8 cm
+LAG per trial: {'vl': [0.125, 0.115, 0.145, 0.115], 'vr': [0.13, 0.13, 0.17, 0.115]}
+vl: mean 0.125 s  min 0.115  max 0.145
+vr: mean 0.136 s  min 0.115  max 0.170
+lag_s (both wheels): 0.131
+SET lag 0.131 -> ack 19 17 timeout; GET lag -> 0.131
+wrote reports/turn-cal-029-20260904/vevov-01-lag/lag-trials.json

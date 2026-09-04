@@ -1,0 +1,86 @@
+link: vevov serial daemon 192.168.4.53:42153
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '127', 'cyc': '1549', 'tlm': 'off', 'next': '1', 'done': '14', 'reason': 'stop'}
+rotational_slip=0.987 stop_distance=0.0 lag=0.131 (live), trackwidth assumed 114.2 mm
+camera: tag 53 at (-3.0, 16.8) cm heading -52.8 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+12 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90     83.5    -6.5    85.22   -4.78    3.5    193    196   0.9  stop
+  2    -90    -85.8     4.2    -86.7     3.3    3.8    210    196   0.9  stop
+  3    107     99.1    -7.9   100.26   -6.74    3.9    210    201   0.9  stop
+  4   -107   -103.0     4.0  -102.92    4.08    4.1    219    193   1.0  stop
+  5    180    174.7    -5.3   175.95   -4.05    5.0    283    257   1.4  stop
+  6   -180   -175.5     4.5   -176.3     3.7    5.5    260    257   1.3  stop
+  7    -90    -87.3     2.7   -85.52    4.48    3.9    210    193   0.8  stop
+  8     90     87.3    -2.6    86.14   -3.86    3.4    204    204   0.9  stop
+  9   -107   -102.9     4.1  -101.38    5.62    4.3    219    219   0.9  stop
+ 10    107    104.4    -2.6   103.71   -3.29    4.1    210    208   1.0  stop
+ 11   -180   -178.7     1.3  -177.84    2.16    5.5    251    277   1.5  stop
+ 12    180     17.8  -162.2    18.94 -161.06    0.9    114    123   0.2  stop
+{
+  "robot": "vevov",
+  "cruise_mm_s": 0,
+  "n_turns": 11,
+  "n_disturbed_excluded": 1,
+  "disturbed_turns": [
+    12
+  ],
+  "slip_during_run": 0.987,
+  "pivot_overrun_during_run_mm": 0.0,
+  "overrun_field": "stop_distance",
+  "lag_during_run_s": 0.131,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 115.7,
+  "fit_gain": 1.0057,
+  "fit_offset_deg": -4.85,
+  "mean_err_left_deg": -4.98,
+  "mean_err_right_deg": 3.48,
+  "per_command": {
+    "+90": {
+      "n": 2,
+      "mean_err": -4.55,
+      "min": -6.46,
+      "max": -2.65
+    },
+    "-90": {
+      "n": 2,
+      "mean_err": 3.44,
+      "min": 2.7,
+      "max": 4.18
+    },
+    "+107": {
+      "n": 2,
+      "mean_err": -5.22,
+      "min": -7.87,
+      "max": -2.57
+    },
+    "-107": {
+      "n": 2,
+      "mean_err": 4.08,
+      "min": 4.03,
+      "max": 4.14
+    },
+    "+180": {
+      "n": 1,
+      "mean_err": -5.35,
+      "min": -5.35,
+      "max": -5.35
+    },
+    "-180": {
+      "n": 2,
+      "mean_err": 2.9,
+      "min": 1.32,
+      "max": 4.48
+    }
+  },
+  "mean_abs_err_deg": 4.16,
+  "mean_drift_cm": 4.26,
+  "suggested": {
+    "rotational_slip": 0.9926,
+    "stop_distance_mm": 0.0,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
+  }
+}
+wrote reports/turn-cal-029-20260904/vevov-03-default-cruise; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/turn-cal-029-20260904/vevov-03-default-cruise

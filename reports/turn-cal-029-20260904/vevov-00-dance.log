@@ -1,0 +1,13 @@
+link: vevov serial daemon 192.168.4.53:42153
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '1', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.987 stop_distance=0.0 lag=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 53 at (-1.6, 24.5) cm heading -3.1 deg
+home (-1.6, 21.8) h=2.3
+turn  +90: camera   +95.1 (unwrapped   +94.7, 7 samples) PASS
+turn +180: camera  +181.1 (unwrapped  +180.3, 10 samples) PASS
+turn  +90: camera   +92.2 (unwrapped   +91.8, 8 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 7.5 cm; net heading +4.8 deg
+DANCE PASSED -- left is left, forward is forward, and it comes home.

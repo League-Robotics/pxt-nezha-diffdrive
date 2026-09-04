@@ -1,0 +1,65 @@
+{
+  "robot": "vevov",
+  "cruise_mm_s": 0,
+  "n_turns": 11,
+  "n_disturbed_excluded": 1,
+  "disturbed_turns": [
+    12
+  ],
+  "slip_during_run": 0.987,
+  "pivot_overrun_during_run_mm": 0.0,
+  "overrun_field": "stop_distance",
+  "lag_during_run_s": 0.131,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 115.7,
+  "fit_gain": 1.0057,
+  "fit_offset_deg": -4.85,
+  "mean_err_left_deg": -4.98,
+  "mean_err_right_deg": 3.48,
+  "per_command": {
+    "+90": {
+      "n": 2,
+      "mean_err": -4.55,
+      "min": -6.46,
+      "max": -2.65
+    },
+    "-90": {
+      "n": 2,
+      "mean_err": 3.44,
+      "min": 2.7,
+      "max": 4.18
+    },
+    "+107": {
+      "n": 2,
+      "mean_err": -5.22,
+      "min": -7.87,
+      "max": -2.57
+    },
+    "-107": {
+      "n": 2,
+      "mean_err": 4.08,
+      "min": 4.03,
+      "max": 4.14
+    },
+    "+180": {
+      "n": 1,
+      "mean_err": -5.35,
+      "min": -5.35,
+      "max": -5.35
+    },
+    "-180": {
+      "n": 2,
+      "mean_err": 2.9,
+      "min": 1.32,
+      "max": 4.48
+    }
+  },
+  "mean_abs_err_deg": 4.16,
+  "mean_drift_cm": 4.26,
+  "suggested": {
+    "rotational_slip": 0.9926,
+    "stop_distance_mm": 0.0,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
+  }
+}
