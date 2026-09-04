@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Fiber-identity check on the tick service hook; kBlock motion owner
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on:
