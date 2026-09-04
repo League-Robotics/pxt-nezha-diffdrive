@@ -54,8 +54,8 @@
         0.0,
         0.0
       ],
-      "parallax_k": 1.1167434292898253,
-      "_lever_parallax_note": "STILL A PLACEHOLDER. Added 2026-09-04 for sprint 029 ticket 007's bench session so field_dance.py could run at all (it requires both keys unconditionally). lever_cm=[0,0] is harmless for field_dance.py's PASS/FAIL: turn() only reads the heading delta (lever-independent) and drive() differences two poses taken at the same heading, so a constant-but-wrong lever cancels in the delta. parallax_k borrowed from vevov (tag height 11.8 cm vs tovez's 11.3 cm -- close enough for the dance's 3 cm tolerance). The dance FAILED that same session (large, inconsistent pivot/drive errors, not a clean convention offset) and evidence-gathering pointed at a suspected kernel wedge on tovez, not at these placeholders -- see captures/bench-acceptance-029-20260904/notes.md. No pivot-triple/translation-probe fit was attempted; do not trust these two values for a real distance/angle measurement until they are replaced with a MEASURED fit after tovez is recovered."
+      "parallax_k": 1.0,
+      "_lever_parallax_note": "parallax_k = 1.0 because the daemon already applies the tag-height (mount_z_cm = 11.3) parallax correction for a REGISTERED tag (aprilcam list_tag_parameters reports mount_z_applied: true for tag 52), so a tool dividing by a parallax factor on top of that corrects twice. MEASURED tovez 2026-09-04, captures/bench-acceptance-029-20260904d/heading-probe.log: a 5 cm MOVE_X displaced the daemon-reported (registered) tag position by 4.87 cm -- i.e. already undilated; the old k=1.1167 borrowed from vevov made every dance drive read ~12 % short (field-dance-refit-run1/2.log: 17.6 cm for 20, 35.3 cm for 40 = 20/1.1167, 40/1.1167). vevov's entry still needs its k because tag 53 is registered with mount_z 0 -- see clasi/issues/parallax-k-and-registered-mount-z-correct-twice.md. lever_cm=[0,0] remains a PLACEHOLDER (harmless for the dance: turn() reads heading deltas, drive() differences two poses at one heading)."
     }
   }
 }
