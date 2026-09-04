@@ -267,6 +267,9 @@ def _bind(lib):
     lib.waSetMotorWedgeSuspect.restype = None
     lib.waEngineMoveActive.argtypes = [ctypes.c_void_p]
     lib.waEngineMoveActive.restype = ctypes.c_int
+    # Sprint 029 ticket 010: isDriving() (seg_.active || hold_.active).
+    lib.waEngineIsDriving.argtypes = [ctypes.c_void_p]
+    lib.waEngineIsDriving.restype = ctypes.c_int
 
     # ---- sprint 003 ticket 012: real nowMs + motion-obligation, and
     # GO_TO_W's FakePoseSource ----
@@ -665,6 +668,12 @@ class WireAdapterHandle:
         prove the PRIVATE cancelMove() ran (see setWheelsTimed()'s own
         comment, wire_motion_verb_shim.cpp)."""
         return bool(self._lib.waEngineMoveActive(self._handle))
+
+    def engine_is_driving(self):
+        """MotionEngine::isDriving() -- seg_.active || hold_.active
+        (sprint 029 ticket 010). Unlike engine_move_active() above, also
+        true for a continuous WHEELS_V/MOVE_V hold."""
+        return bool(self._lib.waEngineIsDriving(self._handle))
 
     # ---- sprint 003 ticket 012: real nowMs + motion-obligation, and
     # GO_TO_W's FakePoseSource ----
@@ -1088,6 +1097,216 @@ def test_wheels_v_real_effect_differential_reconstructs_left_right(wa):
         100.0, 300.0, cpm, _WHEELS_V_FULL_DUTY_VELOCITY)
     assert wa.motor_last_staged_duty(LEFT) == pytest.approx(expected_left)
     assert wa.motor_last_staged_duty(RIGHT) == pytest.approx(expected_right)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 029 ticket 010: STATUS/TLM staleness after a continuous hold
+# ends -- reports/bench-acceptance-029-20260904c.md S8 (a distinct bug
+# from that report's own S6 wheel-control defect, K1 above): after a
+# WHEELS_V hold ended, STATUS's `active` bit and TLM FULL's per-tick
+# fields stayed at their last real value for 100+ s while `cyc`/`seq`/
+# `now` kept advancing, even though the robot was independently
+# confirmed at rest by camera.
+#
+# ROOT CAUSE (read src/motion/motion_engine.h/.cpp, src/shims.cpp,
+# src/comms/wire_adapter.cpp, src/comms/protocol.cpp per this ticket's
+# own instructions): kernel.step() is called ONLY from shims.cpp's
+# tickDrive(), itself called ONLY from protocol.cpp's run() loop while
+# wireAdapter_.hasLiveMotionObligation() (the WIRE lease) reads true.
+# When a Segment-type move (MOVE_X/GO_TO_R/GO_TO_W) reaches ITS OWN
+# goal while STILL being ticked, tickDrive()'s own post-move logic
+# (`if (wasActive && !moveActive) { engine.settleToRest(); ... }`)
+# steps the kernel a FEW more times so it can actually MEASURE (not
+# just command) a real stop before ticking stops -- MotionEngine::
+# settleToRest()'s own doc comment: "one extra step's own encoder read
+# can land mid-spin-down, freezing Output... at a nonzero velocity
+# forever" otherwise. But `wasActive` reads MotionEngine::isMoveActive()
+# (seg_.active ALONE) -- which is ALWAYS false for a continuous
+# WHEELS_V/MOVE_V hold (hold_.active, a DIFFERENT flag) -- so a Hold
+# reaching ITS OWN deadline inside service() (motion_engine.cpp's
+# `holdExpired` branch: stages kernel_.neutral(), clears hold_.active,
+# returns false) never gets the settle treatment: the staged neutral
+# has no FURTHER kernel.step() to ever commit before
+# hasLiveMotionObligation() (computed from the SAME wire-level
+# `duration`) goes false and protocol.cpp's run() loop abandons
+# tickDrive() for good. kernel.output() -- and everything STATUS
+# (`active`, from diagValue(kDiagVelocityLeft/Right)) and TLM FULL
+# (`dutl`/`dutr`/`posl`/`posr`, all diagValue() reads too) project from
+# it -- freezes at its last DRIVING (nonzero) reading. `cyc`/`seq`/`now`
+# are NOT sourced from this same frozen Output in every case (`now` is
+# wall-clock; `seq_`/telemetry framing runs off wireAdapter_.
+# telemetryEnabled(), gated separately from hasLiveMotionObligation() in
+# protocol.cpp's serviceOnce(); `cyc` itself IS part of the same frozen
+# Output, but a bench session issuing FURTHER motion commands later --
+# this session's own G1 pivots came after G5's WHEELS_V hold -- would
+# tick it again for each new command before freezing again at THAT
+# command's own end, consistent with G5 (the session's LAST hold before
+# the staleness was noticed) being exactly the kind of move this gap
+# leaves unsettled).
+#
+# THE FIX (src/shims.cpp::tickDrive()): `wasActive` now reads
+# MotionEngine::isDriving() (seg_.active || hold_.active), not
+# isMoveActive() -- the SAME isMoveActive()->isDriving() widening
+# commandLooksActive() (the starvation watchdog's own check, this same
+# file) already got in an earlier ticket (its own comment: "isDriving()
+# covers the hold immediately... isMoveActive()'s old Segment-only
+# reading would let this fall through"), evidently missed for
+# tickDrive()'s own sibling check at the time.
+#
+# shims.cpp::tickDrive() is production CODAL/Rig code and is not
+# host-compilable (pxt.h, platform/nezha_port.h, the real fiber
+# launcher). These tests reproduce its exact sequence -- `kernel.step();
+# wasActive = <isDriving() or isMoveActive()>; engine.service(); if
+# (wasActive && !moveActive) { settle };` -- by hand against the `wa`
+# fixture's REAL WireAdapter/kernel/MotionEngine, toggling only the ONE
+# line under test, the same "reimplement the decision, don't compile
+# the CODAL file" approach test_regression_post_move_neutral.py already
+# established for this exact function's SIBLING settle-loop fix (commit
+# 3e919e5).
+# ---------------------------------------------------------------------------
+
+_HOLD_FULL_DUTY_VELOCITY = 5000.0  # [counts/s] matches _WHEELS_V_FULL_DUTY_VELOCITY
+_HOLD_TICK_MS = 24  # [ms] matches Config::cyclePeriod's own default
+
+
+def _drive_wheels_v_to_deadline_and_settle(wa, use_is_driving,
+                                            left_mm_s=200.0,
+                                            right_mm_s=200.0,
+                                            duration_ms=240):
+    """Drives `WHEELS_V left right duration` through the real wire to
+    ITS OWN natural deadline, arming realistic ADVANCING encoder
+    positions each tick while driving -- so the kernel's OWN measured
+    velocity (Output.velocityLeft/Right, refreshSample()'s position-
+    delta computation) genuinely reads nonzero while held, not a
+    feedforward-only zero -- then reproduces tickDrive()'s own settle
+    branch by hand at the deadline tick, `use_is_driving` selecting the
+    OLD (isMoveActive(), the bug) or NEW (isDriving(), the fix)
+    `wasActive` source.
+
+    When the settle branch fires (fixed variant only), models the wheel
+    as having come to a genuine physical stop AT the deadline: position
+    held FROZEN, sample time still advancing each settle tick -- the
+    same "no simulated physics, arm exactly what should be measured"
+    simplification every FakeMotor-backed host test in this tree uses
+    (fake_ports.h's own header comment), here standing in for "the robot
+    really is at rest, camera-confirmed" rather than a decay curve.
+
+    Returns with NO further step() ever issued after the deadline tick
+    (plus its settle steps, if any) -- mirroring production's own
+    abandonment the instant hasLiveMotionObligation() (computed from
+    this SAME wire-level `duration_ms`) reads false and protocol.cpp's
+    run() loop stops calling tickDrive() at all.
+    """
+    fdv = _HOLD_FULL_DUTY_VELOCITY
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(fdv)
+    assert wa.begin() == STATUS_OK
+    wa.on_tlm(TLM_FULL)
+
+    t_ms = 0
+    wa.set_now_ms(t_ms)
+    wa.arm_motor_position(LEFT, 0.0, t_ms * 1000)
+    wa.arm_motor_position(RIGHT, 0.0, t_ms * 1000)
+    wa.step()  # baseline sample -- velocity stays 0 until a second one
+
+    wa.feed(
+        ("WHEELS_V %d %d %d #1\n"
+        % (int(left_mm_s), int(right_mm_s), duration_ms)).encode())
+    wa.take_sink()  # discard the ack -- not under test here
+
+    pos_left = pos_right = 0.0
+    ticks = duration_ms // _HOLD_TICK_MS
+    move_active = True
+    settled = False
+    for i in range(ticks):
+        t_ms += _HOLD_TICK_MS
+        wa.set_now_ms(t_ms)
+        duty_left = wa.motor_last_staged_duty(LEFT)
+        duty_right = wa.motor_last_staged_duty(RIGHT)
+        pos_left += duty_left * fdv * (_HOLD_TICK_MS / 1000.0)
+        pos_right += duty_right * fdv * (_HOLD_TICK_MS / 1000.0)
+        wa.arm_motor_position(LEFT, pos_left, t_ms * 1000)
+        wa.arm_motor_position(RIGHT, pos_right, t_ms * 1000)
+
+        was_active = (wa.engine_is_driving() if use_is_driving
+                     else wa.engine_move_active())
+        wa.step()
+        move_active = wa.service_move()
+        if was_active and not move_active:
+            # The Hold's own deadline was JUST reached this tick --
+            # tickDrive()'s settle branch: fires with the fix, never
+            # with the bug (was_active is always False for a Hold under
+            # the OLD isMoveActive() source).
+            settled = True
+            for _ in range(12):
+                t_ms += _HOLD_TICK_MS
+                wa.set_now_ms(t_ms)
+                wa.arm_motor_position(LEFT, pos_left, t_ms * 1000)
+                wa.arm_motor_position(RIGHT, pos_right, t_ms * 1000)
+                wa.step()
+            break
+
+    assert not move_active, (
+        "WHEELS_V did not reach its own deadline within the ticks "
+        "budgeted here -- test setup bug, not the thing under test"
+    )
+    assert settled == use_is_driving, (
+        "the settle branch's own firing must track use_is_driving "
+        "exactly -- if not, this helper's model of the bug/fix is wrong"
+    )
+    return pos_left, pos_right
+
+
+def _snapshot_columns(wa):
+    snapshot = wa.build_snapshot()
+    return {name: value for name, value, _ in snapshot.columns()}
+
+
+def test_wheels_v_hold_expiry_without_settle_fix_leaves_status_stale(wa):
+    """Reproduces the BUG: with tickDrive()'s OLD wasActive
+    (isMoveActive(), seg_.active only), a continuous WHEELS_V hold's
+    own natural deadline never triggers the settle-to-rest branch, so
+    kernel.output() -- and therefore STATUS's `active` bit and TLM
+    FULL's `dutl`/`dutr` -- freeze at their LAST DRIVING (nonzero)
+    reading the instant ticking stops. Exactly the symptom reports/
+    bench-acceptance-029-20260904c.md S8 found on tovez: `active` stuck
+    at 1 and per-tick fields stuck at their last real value for 100+ s
+    after the robot was independently confirmed at rest by camera."""
+    _drive_wheels_v_to_deadline_and_settle(wa, use_is_driving=False)
+
+    wa.feed(b"STATUS #2\n")
+    reply = wa.take_sink().decode()
+    assert " active=1 " in reply, (
+        f"expected the STALE active=1 reading (the bug), got: {reply!r}"
+    )
+
+    columns = _snapshot_columns(wa)
+    assert columns["dutl"] != 0 or columns["dutr"] != 0, (
+        f"expected STALE (nonzero) duty in the snapshot without the "
+        f"settle fix, got: {columns}"
+    )
+
+
+def test_wheels_v_hold_expiry_settles_and_status_reads_fresh(wa):
+    """The fix: with tickDrive()'s CORRECTED wasActive (isDriving(),
+    seg_.active || hold_.active), the SAME scenario's settle-to-rest
+    branch fires for the Hold too, and STATUS/TLM read fresh: `active`
+    correctly reads 0 (no wheel measurably moving -- the settle loop's
+    own extra kernel.step() calls let refreshSample() see the frozen
+    position and compute a genuine 0 velocity) and TLM FULL's `dutl`/
+    `dutr` read 0 (the staged neutral actually committed), not stuck at
+    the WHEELS_V 200 200 driving reading."""
+    _drive_wheels_v_to_deadline_and_settle(wa, use_is_driving=True)
+
+    wa.feed(b"STATUS #2\n")
+    reply = wa.take_sink().decode()
+    assert " active=0 " in reply, (
+        f"expected active=0 (fresh, at rest), got: {reply!r}"
+    )
+
+    columns = _snapshot_columns(wa)
+    assert columns["dutl"] == 0, columns
+    assert columns["dutr"] == 0, columns
 
 
 def test_wheels_v_duration_over_ceiling_is_range_error(wa):

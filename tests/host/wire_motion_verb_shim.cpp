@@ -1024,6 +1024,19 @@ int waEngineMoveActive(void* handle) {
   return static_cast<WaHandle*>(handle)->engine.isMoveActive() ? 1 : 0;
 }
 
+// Sprint 029 ticket 010: the real, public MotionEngine::isDriving()
+// (seg_.active || hold_.active) -- unlike waEngineMoveActive() above
+// (seg_.active alone), this also reads true for a continuous WHEELS_V/
+// MOVE_V hold. Lets a host test drive shims.cpp::tickDrive()'s own
+// `wasActive` decision by hand (that function is production CODAL/Rig
+// code, not host-compilable) with EITHER source, to reproduce the
+// STATUS/TLM staleness-after-a-hold-ends bug this ticket found (the
+// OLD isMoveActive()-based wasActive never triggers the post-hold
+// settle-to-rest step) and confirm the fix (isDriving()) closes it.
+int waEngineIsDriving(void* handle) {
+  return static_cast<WaHandle*>(handle)->engine.isDriving() ? 1 : 0;
+}
+
 // The real, public kernel.output().positionEpochLeft/Right -- the
 // observable proof that a `SET rebase` reached the REAL
 // kernel.rebasePosition() (diffdrive.h's own deferred request counter):

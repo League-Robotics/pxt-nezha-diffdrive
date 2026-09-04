@@ -666,7 +666,34 @@ bool tickDrive() {
   r.stepBusy = true;
   r.kernel.step();
 
-  const bool wasActive = r.engine.isMoveActive();
+  // isDriving() (seg_.active || hold_.active), NOT isMoveActive()
+  // (seg_.active alone) -- this used to read isMoveActive(), which
+  // mirrored updateMove()'s own gate just below
+  // but, unlike THAT gate, feeds the settle-loop decision a few lines
+  // down. A continuous WHEELS_V/MOVE_V hold reaching ITS OWN deadline
+  // inside service() (Hold's "holdExpired" branch, motion_engine.cpp)
+  // sets hold_.active = false and stages kernel_.neutral() exactly like
+  // a Segment's own arrival does -- but with the OLD isMoveActive()
+  // read, `wasActive` was ALWAYS false for a Hold (seg_.active is never
+  // true for one), so `wasActive && !moveActive` never fired and the
+  // settle loop below never ran for a Hold's natural end, only for a
+  // Segment's. The staged neutral then had to wait for a FURTHER
+  // kernel.step() to ever commit -- and once this wire-issued Hold's
+  // own lease (hasLiveMotionObligation(), wire_adapter.cpp) elapses at
+  // essentially the same instant, protocol.cpp's run() loop stops
+  // calling tickDrive() at all, so that further step() never comes:
+  // Output (velocityLeft/Right, appliedDutyLeft/Right, positionLeft/
+  // Right, cycleCount) freezes at its last mid-drive, nonzero reading
+  // forever, and STATUS's `active` bit (computed from that same frozen
+  // velocity) reads stuck "still moving" indefinitely -- MEASURED via
+  // this ticket's own host test,
+  // tests/host/test_wire_motion_verbs.py::test_wheels_v_hold_expiry_settles_and_status_reads_fresh,
+  // which reproduces the freeze with the OLD isMoveActive() read and
+  // confirms it is gone with isDriving(). commandLooksActive() (this
+  // file, below) already made this exact isMoveActive()->isDriving()
+  // fix for the starvation watchdog; this was the same bug in the
+  // sibling check tickDrive() itself makes, missed at the time.
+  const bool wasActive = r.engine.isDriving();
   // odomUpdate() now runs UNCONDITIONALLY, every tick (sprint 006 ticket
   // 003, closes R-09/BLK-05, continuous-mode-odometry-chord-error.md):
   // this used to read `if (wasActive) odomUpdate(r);`, matching
@@ -685,7 +712,10 @@ bool tickDrive() {
   // is a different concern (folding post-move coast counts into pose)
   // and is unaffected by this change. updateMove()'s OWN odometry gate
   // -- a different caller, serving the TypeScript layer's blocking-move
-  // poll -- is untouched; see its own comment.
+  // poll -- is untouched; see its own comment. (updateMove() has the
+  // SAME isMoveActive()-vs-isDriving() gap in its own `wasActive`, for
+  // the TS blocking-poll path rather than the wire path this ticket
+  // scoped -- flagged, not fixed here; see this ticket's session notes.)
   odomUpdate(r);
   const bool moveActive = r.engine.service();
 
@@ -699,6 +729,9 @@ bool tickDrive() {
   // corruption. (It was intermittent only because the protocol fiber's
   // former co-ticking sometimes delivered this step by accident.) Run
   // one extra step here so the stop lands before we report "done".
+  // This now also catches a continuous Hold's own natural deadline
+  // (wasActive is isDriving(), above), not just a Segment's arrival --
+  // same mechanism, same reason.
   if (wasActive && !moveActive) {
     // Settling before reporting "done": kernel.neutral() only STAGES a
     // zero command, and one extra step's own encoder read can land
