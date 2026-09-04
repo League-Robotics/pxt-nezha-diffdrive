@@ -1,8 +1,8 @@
 ---
-id: '032'
+id: '033'
 title: 'Cohesion: odometry object, config descriptor table, Protocol diet'
 status: roadmap
-branch: sprint/032-cohesion-odometry-object-config-descriptor-table-protocol-diet
+branch: sprint/033-cohesion-odometry-object-config-descriptor-table-protocol-diet
 use-cases: []
 issues:
 - code-review/odometry-object-and-kernel-rearm-references.md
@@ -12,7 +12,7 @@ issues:
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
-# Sprint 032: Cohesion: odometry object, config descriptor table, Protocol diet
+# Sprint 033: Cohesion: odometry object, config descriptor table, Protocol diet
 
 ## Goals
 

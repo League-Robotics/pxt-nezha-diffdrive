@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '031'
 ---
 
 # tovez drivetrain tuning: leg yaw asymmetry, kernel tracking overshoot, and acceptance bars restated at the instrument's resolution

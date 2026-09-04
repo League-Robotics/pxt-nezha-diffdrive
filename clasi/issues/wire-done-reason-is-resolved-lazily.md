@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '031'
 ---
 
 # Wire `done= reason=` is resolved lazily, so an early arrival reads `timeout`

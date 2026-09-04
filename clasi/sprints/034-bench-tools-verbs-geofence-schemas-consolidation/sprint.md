@@ -1,8 +1,8 @@
 ---
-id: '033'
+id: '034'
 title: 'Bench tools: verbs, geofence, schemas, consolidation'
 status: roadmap
-branch: sprint/033-bench-tools-verbs-geofence-schemas-consolidation
+branch: sprint/034-bench-tools-verbs-geofence-schemas-consolidation
 use-cases: []
 issues:
 - code-review/tools-v6-verbs-geofence-pose-csv-schema.md
@@ -12,7 +12,7 @@ issues:
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
-# Sprint 033: Bench tools: verbs, geofence, schemas, consolidation
+# Sprint 034: Bench tools: verbs, geofence, schemas, consolidation
 
 ## Goals
 

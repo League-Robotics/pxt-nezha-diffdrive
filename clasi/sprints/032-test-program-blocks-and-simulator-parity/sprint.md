@@ -1,8 +1,8 @@
 ---
-id: '031'
+id: '032'
 title: Test program, blocks and simulator parity
 status: roadmap
-branch: sprint/031-test-program-blocks-and-simulator-parity
+branch: sprint/032-test-program-blocks-and-simulator-parity
 use-cases: []
 issues:
 - code-review/test-program-job-lifecycle-abort-profile-terminal-line.md
@@ -12,7 +12,7 @@ issues:
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
-# Sprint 031: Test program, blocks and simulator parity
+# Sprint 032: Test program, blocks and simulator parity
 
 ## Goals
 

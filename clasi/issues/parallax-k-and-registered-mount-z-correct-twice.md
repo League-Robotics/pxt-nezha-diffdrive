@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '031'
 ---
 
 # `parallax_k` and a registered `mount_z_cm` correct the same parallax twice
