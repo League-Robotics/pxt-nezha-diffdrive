@@ -191,7 +191,35 @@ def resolve_serial_service(robot, timeout=4.0):
     return ip or host, port
 
 
+RELAY_HOST, RELAY_PORT = 'torture', 8760   # the micro:bit relay pool
+
+
+def robot_radio(robot):
+    """(channel, group) from the robot's radio-robot-lib config."""
+    import json
+    path = pathlib.Path('/Volumes/Proj/proj/RobotProjects/radio-robot-lib/config/robots') / f'{robot}.json'
+    c = json.loads(path.read_text()).get('connection', {})
+    return int(c['radio_channel']), int(c.get('radio_group', 10))
+
+
+class RelayLink(Link):
+    """The robot over the torture relay pool: the same line pipe after
+    the relay's control-plane setup (`!CG <ch> <grp>`, `!GO`). LOSSY --
+    66-83 % per-line delivery measured -- so seqd()'s retries matter and
+    telemetry frames will have gaps."""
+
+    def __init__(self, channel, group, host=RELAY_HOST, port=RELAY_PORT):
+        super().__init__(host, port)
+        time.sleep(1.0)
+        for c in ('!ECHO OFF', f'!CG {channel} {group}', '!GO'):
+            self.send(c)
+            time.sleep(0.5)
+
+
 def open_link(a):
+    if a.radio:
+        ch, grp = robot_radio(a.robot)
+        return RelayLink(ch, grp), f'radio relay ch {ch} grp {grp} ({RELAY_HOST}:{RELAY_PORT})'
     if a.wifi:
         sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'tools'))
         import wifilink
@@ -663,12 +691,64 @@ def render(out):
     print(f'rendered {out}/REPORT.md, wheel-speeds.png, turn-error.png, fit.png')
 
 
+def compare(dirs, out):
+    """One chart across robots/runs: per-angle direction-folded error
+    (mean, sd) side by side, plus a +90 wheel-speed overlay."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    out = pathlib.Path(out); out.mkdir(parents=True, exist_ok=True)
+    angles, data = None, []
+    for d in dirs:
+        d = pathlib.Path(d)
+        rows = list(csv.DictReader(open(d / 'turns.csv')))
+        summ = json.loads((d / 'summary.json').read_text()) if (d / 'summary.json').exists() else {}
+        label = f"{summ.get('robot', d.name)} ({d.name})"
+        angs = sorted(set(int(abs(float(r['commanded']))) for r in rows))
+        angles = angles or angs
+        stats = {}
+        for ang in angs:
+            e = [float(r['error_deg']) * (1 if float(r['commanded']) > 0 else -1) for r in rows if abs(float(r['commanded'])) == ang]
+            enc = [float(r['encoder_error_deg']) * (1 if float(r['commanded']) > 0 else -1) for r in rows
+                   if abs(float(r['commanded'])) == ang and r.get('encoder_error_deg') not in ('', 'None', None)]
+            stats[ang] = (sum(e) / len(e), (sum((x - sum(e) / len(e)) ** 2 for x in e) / len(e)) ** 0.5, len(e),
+                          sum(enc) / len(enc) if enc else float('nan'))
+        data.append((label, stats, d))
+    fig, ax = plt.subplots(figsize=(9, 5))
+    w = 0.8 / max(1, len(data))
+    for i, (label, stats, _) in enumerate(data):
+        xs = [k + (i - (len(data) - 1) / 2) * w for k in range(len(angles))]
+        ax.bar(xs, [stats[a][0] for a in angles], width=w, yerr=[stats[a][1] for a in angles], capsize=3, label=label)
+        ax.scatter(xs, [stats[a][3] for a in angles], marker='x', color='k', zorder=3)
+    ax.axhline(0, color='k', lw=0.8); ax.set_xticks(range(len(angles))); ax.set_xticklabels([f'{a} deg' for a in angles])
+    ax.set_ylabel('camera over (+) / under (-) [deg]; x = encoder-believed'); ax.legend(fontsize=8); ax.grid(axis='y', alpha=0.3)
+    ax.set_title('Pivot error by robot')
+    fig.tight_layout(); fig.savefig(out / 'compare-error.png', dpi=120); plt.close(fig)
+    fig, ax = plt.subplots(figsize=(9, 4))
+    for label, _stats, d in data:
+        frames = list(csv.DictReader(open(d / 'frames.csv')))
+        tn = next((int(f['turn']) for f in frames if float(f['commanded']) == angles[0]), None)
+        fs = [f for f in frames if int(f['turn']) == tn]
+        ax.plot([float(f['t_rel']) for f in fs], [int(f['vr']) for f in fs], label=f'{label} vr')
+    ax.set_title(f'+{angles[0]} deg pivot: right wheel speed'); ax.set_xlabel('s'); ax.set_ylabel('mm/s'); ax.legend(fontsize=7); ax.grid(alpha=0.3)
+    fig.tight_layout(); fig.savefig(out / 'compare-wheel-speed.png', dpi=120); plt.close(fig)
+    lines = ['# Pivot comparison', '', '| robot / run | ' + ' | '.join(f'{a} deg mean (sd, n) / encoder' for a in angles) + ' |',
+             '|---|' + '---|' * len(angles)]
+    for label, stats, _ in data:
+        lines.append(f'| {label} | ' + ' | '.join(f'{stats[a][0]:+.1f} ({stats[a][1]:.1f}, {stats[a][2]}) / {stats[a][3]:+.1f}' for a in angles) + ' |')
+    lines += ['', '![error](compare-error.png)', '', '![wheel speed](compare-wheel-speed.png)', '']
+    (out / 'COMPARE.md').write_text('\n'.join(lines))
+    print(f'wrote {out}/COMPARE.md, compare-error.png, compare-wheel-speed.png')
+
+
 # ------------------------------------------------------------------ main
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--robot', default='tigez')
     ap.add_argument('--host'); ap.add_argument('--port', type=int)
     ap.add_argument('--wifi', metavar='NAME|IP')
+    ap.add_argument('--radio', action='store_true',
+                    help="drive over the torture relay pool on the robot's own channel/group (lossy)")
     ap.add_argument('--tag', type=int)
     ap.add_argument('--heading-offset', type=float, default=0.0,
                     help='deg added to the camera yaw (0 when the tag mount is registered)')
@@ -688,9 +768,12 @@ def main():
                     help='cm from a rail the robot must clear before anything moves (pivots only: 12)')
     ap.add_argument('--out', default=None)
     ap.add_argument('--render', metavar='DIR', help='only render charts + REPORT.md from an existing --out')
+    ap.add_argument('--compare', nargs='+', metavar='DIR', help='overlay several runs/robots into --out')
     a = ap.parse_args()
     if a.render:
         render(a.render); return 0
+    if a.compare:
+        compare(a.compare, a.out or 'reports/turn-compare'); return 0
 
     tag = a.tag or TAGS.get(a.robot)
     if not tag:

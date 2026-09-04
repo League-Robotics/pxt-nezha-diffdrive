@@ -1,0 +1,8 @@
+0005587 I Loading /tmp/mbdeploy-flash-ml5h3_qw.hex [load_cmd]
+0008403 I Erasing... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0020326 I Programming... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0038040 I Erased 418816 bytes (103 sectors), programmed 418816 bytes (103 pages), identical 0 bytes (0 pages) at 13.80 kB/s [loader]

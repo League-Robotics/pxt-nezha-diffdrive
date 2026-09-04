@@ -1,0 +1,40 @@
+=== Fri Sep  4 10:30:31 PDT 2026 build
+make_deploy: no /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/config/wifi_secrets.json -- WiFi link stays DISABLED in this build (copy one in to enable: {"ssid": ..., "password": ...})
+make_deploy: geometry bake travel_calib = 0.78623
+make_deploy: geometry bake trackwidth = 114.4
+make_deploy: geometry bake rotational_slip = 0.9617
+make_deploy: geometry bake pivot_overrun_mm = 5.5
+make_deploy: v6 radio link ENABLED in test.ts (BOOT_RADIO_LINK = true)
+hex: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.tmp/deploy-head/built/binary.hex  (1682486 bytes)  [attempt 1]
+BUILD tigez ok
+make_deploy: no /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/config/wifi_secrets.json -- WiFi link stays DISABLED in this build (copy one in to enable: {"ssid": ..., "password": ...})
+make_deploy: geometry bake travel_calib = 0.70066
+make_deploy: geometry bake trackwidth = 128
+make_deploy: geometry bake rotational_slip = 0.987
+make_deploy: geometry bake pivot_overrun_mm = 2.2
+make_deploy: v6 radio link ENABLED in test.ts (BOOT_RADIO_LINK = true)
+hex: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.tmp/deploy-head/built/binary.hex  (1682576 bytes)  [attempt 1]
+BUILD vevov ok
+make_deploy: WiFi link ENABLED, ssid='Busboom Mesh'
+make_deploy: v6 radio link ENABLED in test.ts (BOOT_RADIO_LINK = true)
+hex: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.tmp/deploy-head/built/binary.hex  (1682441 bytes)  [attempt 1]
+BUILD gopiv ok
+=== Fri Sep  4 10:41:09 PDT 2026 flash
+FLASH tigez ok (try 1)
+FLASH vevov ok (try 1)
+FLASH gopiv ok (try 1)
+=== Fri Sep  4 10:44:29 PDT 2026 verify
+tigez (192.168.1.150:44771):
+    ID -> ['id diffdrive tigez 1.20260903.2 tigez']
+    VER -> ['ver 1.20260903.2']
+    STATUS -> ['status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none']
+    GET rotational_slip #1 -> ['get rotational_slip 0.962000']
+    GET pivot_overrun #2 -> ['get pivot_overrun 5.500000']
+    GET default_cruise #3 -> ['get default_cruise 150.000000']
+no _mbserial._tcp service named 'vevov' on the LAN
+=== Fri Sep  4 10:45:04 PDT 2026 done
+Traceback (most recent call last):
+  File "<stdin>", line 22, in <module>
+  File "<stdin>", line 18, in rd
+ConnectionResetError: [Errno 54] Connection reset by peer
+wifilink: gopiv not found by mDNS (gopiv.local) or by broadcast HELLO on :7654 within 8s -- is the module joined? (watch the robot's USB for `DBG:wifi state=5`)

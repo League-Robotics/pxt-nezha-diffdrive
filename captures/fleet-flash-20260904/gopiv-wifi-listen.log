@@ -1,0 +1,6 @@
+gopiv serial 192.168.1.148:33659, 40 s: 5 lines, 5 DBG:wifi
+   19.5s DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=4 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CIPSERVER=0 reply=
+   29.5s DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=4 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply=
+   31.5s DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=5 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply=
+   36.6s DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=5 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply=
+other: []
