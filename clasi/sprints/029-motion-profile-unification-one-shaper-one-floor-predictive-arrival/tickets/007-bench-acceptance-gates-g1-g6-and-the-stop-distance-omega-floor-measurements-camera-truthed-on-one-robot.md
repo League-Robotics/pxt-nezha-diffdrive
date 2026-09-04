@@ -2,7 +2,7 @@
 id: '007'
 title: 'Bench acceptance: gates G1-G6 and the stop_distance/omega_floor measurements,
   camera-truthed, on one robot'
-status: in-progress
+status: exception
 use-cases:
 - SUC-001
 - SUC-002
@@ -18,6 +18,30 @@ issue:
 - code-review/pivot-end-predictive-termination-and-yaw-floor.md
 - code-review/one-velocity-shaper-profile-object-out-of-servicemove.md
 completes_issue: true
+exception:
+  thrown_by: programmer
+  thrown_at: '2026-09-04T18:57:38.756557+00:00'
+  attempted: 'Full acceptance run on tovez 2026-09-04 (team-lead OOP session, commit
+    3e9509d): field_dance convention checks pass; lag (L 0.115 s / R 0.146 s), stop_distance
+    (0) and omega_floor (no hard floor) MEASURED; G1-G6 all run and cited in reports/bench-acceptance-029-20260904d.md
+    S7-S8. G3 leg length (597-598 mm, no end bump) and G6 closure (12/10/10 mm) PASS.
+    G1 (mean|err| 2.07 deg, sd 2.29), G2 (endpoint mean 10 mm, 1/6 within 5 mm), and
+    the wheel-speed/acceleration bars in G3/G4/G5 (peak 226-240 mm/s on a 200 command;
+    measured accel to 938 on a 400-limited command) FAIL as written. Five tooling/mount
+    faults and one engine defect (Segment::wrongWay margin) were found and fixed along
+    the way; the design''s mechanisms are all confirmed on hardware.'
+  conflict: 'The failing bars cannot be met by this ticket''s scope: (1) the overhead
+    camera''s heading noise at rest is sd 1.03 deg per sample (0.65 deg on a difference
+    of 5-sample means) and its position repeatability is several mm, below G1''s 0.4
+    deg sd and G2''s 5 mm bars; (2) the wheel-speed and acceleration overshoot is
+    kernel FF/I tracking, which design S2 lists as a non-goal (gains untouched). Stakeholder
+    decision needed: accept the measured results as sprint 029''s acceptance and restate
+    the G1/G2/G4/G5 bars (instrument-resolved, or measured on the command rather than
+    the wheel) in a follow-up ticket, or hold the sprint for a kernel-gain retune
+    on tovez. Also outstanding: the cross-repo firmware_bake for tovez (lag_s ~0.10-0.13,
+    stop_distance_mm 0, its own geometry), and whether to physically rotate tovez''s
+    tag plate (mounted 180 deg from the fleet convention; recorded as the residual).'
+  surface: user-visible
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
