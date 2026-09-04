@@ -1,9 +1,13 @@
 ---
 id: 029
 title: 'Motion profile unification: one shaper, one floor, predictive arrival'
-status: ticketing
+status: executing
 branch: sprint/029-motion-profile-unification-one-shaper-one-floor-predictive-arrival
-use-cases: [SUC-001, SUC-002, SUC-003, SUC-004]
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
 issues:
 - code-review/decide-the-kernel-fork.md
 - code-review/kernel-reference-handling-twist-floor-stale-tick-antiwindup.md

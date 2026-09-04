@@ -114,6 +114,11 @@ void kdClearStallLatch(void* handle) {
 void kdRebasePosition(void* handle) {
   static_cast<Handle*>(handle)->kernel.rebasePosition();
 }
+// sprint 029 ticket 001 (K4): rearmReferences()'s own deferred request --
+// same wiring as kdRebasePosition() above.
+void kdRearmReferences(void* handle) {
+  static_cast<Handle*>(handle)->kernel.rearmReferences();
+}
 void kdStep(void* handle) { static_cast<Handle*>(handle)->kernel.step(); }
 int kdLastError(void* handle) {
   return static_cast<int>(static_cast<Handle*>(handle)->kernel.lastError());
@@ -178,6 +183,22 @@ uint32_t kdOutCycleCount(void* handle) {
 }
 uint32_t kdOutI2cFaultCount(void* handle) {
   return static_cast<Handle*>(handle)->kernel.output().i2cFaultCount;
+}
+
+// ---- K1/K3/K4 diagnostic accessors (sprint 029 ticket 001) -------------
+// Thin passthroughs to DifferentialDrive's own diagnostic accessors
+// (src/core/diffdrive.h) -- see that header for why they exist. Test
+// scaffolding only, like the rest of this file.
+
+float kdTwistReferenceCounts(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.twistReferenceCounts();
+}
+int kdTwistReferenceArmed(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.twistReferenceArmed() ? 1 : 0;
+}
+float kdPositionReferenceCounts(void* handle, int leftWheel) {
+  return static_cast<Handle*>(handle)->kernel.positionReferenceCounts(
+      leftWheel != 0);
 }
 
 // ---- FakeMotor control/readback ---------------------------------------

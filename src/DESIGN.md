@@ -74,11 +74,18 @@ readers never block the stepper).
 **Public interface.** Fluent `setXxx()` config setters / `setConfig`;
 `begin()`; `drive(velocity, twist, lease)` / `driveDuty()` /
 `neutral()` / `estop()` / `estopClear()` / `emergencyStopMotors()` /
-`clearStallLatch()` / `rebasePosition()`; `output()`; `step()` — and
+`clearStallLatch()` / `rebasePosition()` / `rearmReferences()`
+(sprint 029 ticket 001, K4 — a deferred request shaped exactly like
+`rebasePosition()` that disarms the position and twist references at
+the start of the next `step()`, letting a segment boundary re-anchor
+without sacrificing a neutral tick); `output()`; `step()` — and
 `start()`, which launches the kernel's own paced fiber but is
 **deliberately not called anywhere in this package** (see §9, tick
 model). Refusals surface as a `Status` return plus a latched
-`lastError()`.
+`lastError()`. Three read-only diagnostic accessors
+(`twistReferenceCounts()`, `twistReferenceArmed()`,
+`positionReferenceCounts()`) exist for host-test coverage of the
+reference integrators below; no production caller writes through them.
 
 **Ports it defines** (the complete surface a platform implements):
 `Motor` (staged duty writes, split-phase encoder sampling, immediate
@@ -88,10 +95,49 @@ host that owns its loop drives `step()` directly).
 **Dependencies.** None. This is the bottom of the stack.
 
 **Invariants.**
-- *Vendored, synced copy*: extracted from the radio-robot firmware
-  (`src/firm/control/`); a fidelity suite in that repo holds the two
-  byte-for-byte to the same control law. Fix kernel bugs in both
-  repos, never only here.
+- *Vendored, synced copy, paired-PR regime*: vendored from
+  `radio-robot-elite/src/firm/diffdrive/differential_drive.{h,cpp}`.
+  The "byte-identical to upstream" invariant is no longer literally
+  true — `cycleGapCount`/`cycleGapCount_` was already a local
+  divergence not yet ported back, and this repo has not yet dropped
+  byte-identity in favor of a local fork with its own fidelity test
+  (that decision is still open — see
+  `clasi/sprints/029-motion-profile-unification-one-shaper-one-floor-predictive-arrival/issues/decide-the-kernel-fork.md`).
+  Until it resolves one way or the other, the regime in effect is:
+  **fix kernel bugs in both trees, via a paired PR** (see
+  `.claude/rules/fiber-yield-safety.md`'s own "do not edit" carve-out).
+  Sprint 029 ticket 001 landed the first change under that regime, four
+  patches (design `docs/design/motion-profile-unification.md` §4.5),
+  each independently justified by a MEASURED defect
+  (`docs/code-review/2026-09-02/raw/motion-and-kernel.md` MK-02/MK-03)
+  and each implemented here with a diff staged for upstream at
+  `docs/code-review/2026-09-02/raw/kernel-patches-k1-k4.upstream.patch`
+  (not yet opened as an upstream PR as of this ticket's own close):
+  - **K1** — the twist-hold reference (`twistRef_.reference`,
+    `controlStep()`) now integrates the POST-`applySpeedFloor()`
+    half-differential (`0.5·(speedRight − speedLeft)`) instead of the
+    pre-floor commanded twist, and its headroom clamp is sourced from
+    the previous cycle's floored speeds. Previously, whenever the
+    speed floor bound, the reference under-tracked the wheels' real
+    differential and the servo braked the turn (MEASURED −11% reverse
+    duty on a cruise-100 pivot).
+  - **K2** — `positionError()` takes a per-wheel `advanced` bool (did
+    the PREVIOUS `step()`'s own collect actually move that wheel's
+    cached sample) and skips `ref.reference += speed·dt` when false,
+    returning the prior (unchanged) error instead. Previously a stale
+    collect let the reference advance a full tick against a
+    wheel.position that had not moved, injecting a duty kick the
+    instant the sample caught up (MEASURED +6 duty points off one
+    frozen tick).
+  - **K3** — `positionError()` now also clamps the STORED
+    `ref.reference` itself to `(position − origin) ± posErrMax` after
+    each update, not just the value it returns. Previously the
+    reference could accumulate an unbounded backlog that discharged
+    all at once once the wheel caught up (the taper "end bump").
+  - **K4** — `rearmReferences()` (above).
+  Everything else in the kernel — the FF+I law, lambda, bias, stall/
+  deficit latches, lease, e-stop, output publication — is untouched by
+  this ticket.
 - Each `step()` runs split-phase encoder sampling:
   `requestSample()` → 4 ms settle sleep → `tick()` per wheel. Anything
   that lands other I2C traffic inside that settle window destroys the

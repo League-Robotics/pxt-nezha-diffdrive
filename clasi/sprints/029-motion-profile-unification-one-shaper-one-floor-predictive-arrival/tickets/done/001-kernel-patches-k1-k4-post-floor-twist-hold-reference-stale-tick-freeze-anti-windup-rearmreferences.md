@@ -2,8 +2,10 @@
 id: '001'
 title: 'Kernel patches K1-K4: post-floor twist-hold reference, stale-tick freeze,
   anti-windup, rearmReferences()'
-status: open
-use-cases: [SUC-001, SUC-002]
+status: done
+use-cases:
+- SUC-001
+- SUC-002
 depends-on: []
 github-issue: ''
 issue:
@@ -76,30 +78,60 @@ this sprint, not overlay-mediated).
 
 ## Acceptance Criteria
 
-- [ ] K1: a floored command produces a twist reference equal to the
+- [x] K1: a floored command produces a twist reference equal to the
       floored half-differential (host test).
-- [ ] K2: a frozen tick leaves the position reference unchanged (host
+      `tests/host/test_kernel_reference_handling.py::test_k1_floored_twist_reference_tracks_post_floor_half_differential`.
+- [x] K2: a frozen tick leaves the position reference unchanged (host
       test).
-- [ ] K3: a 50 mm lag yields a reference backlog of exactly
+      `tests/host/test_kernel_reference_handling.py::test_k2_frozen_sample_leaves_reference_unchanged_and_does_not_kick_duty`.
+- [x] K3: a 50 mm lag yields a reference backlog of exactly
       `posErrMax` (host test).
-- [ ] K4: `rearmReferences()` zeroes both the position and twist
+      `tests/host/test_kernel_reference_handling.py::test_k3_anti_windup_bounds_the_stored_reference_backlog`
+      (uses counts, the kernel's own unit, in place of an mm
+      conversion diffdrive.cpp never performs itself; see the test's
+      own docstring).
+- [x] K4: `rearmReferences()` zeroes both the position and twist
       references at the next `step()`, and the twist error is zero on
       the tick after a phase change (host test).
-- [ ] Probe-as-test: no negative right duty during a cruise-100 pivot
+      `tests/host/test_kernel_reference_handling.py::test_k4_rearm_references_zeroes_twist_error_on_the_next_tick`
+      and `::test_k4_rearm_references_zeroes_position_references_too`.
+- [x] Probe-as-test: no negative right duty during a cruise-100 pivot
       with the twist servo on; the frozen-tick duty kick (E5) is zero.
-- [ ] Shipped as a paired change against
+      `tests/host/test_profile_probe_kernel.py` (via
+      `tests/host/profile_probe_kernel_check.cpp`, a duplicated copy of
+      `profile_probe.cpp`'s own `Rig` run as a standalone check binary
+      — ticket 003 owns the full `test_profile_probe.py`). MEASURED
+      against the patched kernel, this same probe binary run directly:
+      E3d most-negative right duty +0.0% across cruise 60/100/200 with
+      twist-hold gain 2 (was −13.0%/−11.0%/0% before this ticket); E5
+      duty step +0.85 points on the tick after the freeze (was ~+6).
+- [x] Shipped as a paired change against
       `radio-robot-elite/src/firm/diffdrive/` (default) or as a locally
       owned fork with a new behavioral fidelity test — whichever the
       stakeholder has decided by ticket start; if undecided, proceed
       under the paired-PR default per design §12.
-- [ ] `.claude/rules/fiber-yield-safety.md`'s "do not edit
+      Proceeded under the paired-PR default (undecided at ticket
+      start). The four patches are implemented here; the equivalent
+      diff for upstream is staged at
+      `docs/code-review/2026-09-02/raw/kernel-patches-k1-k4.upstream.patch`,
+      including the manual-application note (upstream's own comments
+      have already diverged from this repo's vendored copy, so the
+      hunks will not `git apply` cleanly). **The upstream PR against
+      `radio-robot-elite` has NOT been opened as of this ticket's own
+      close** — that repository is read-only from this worktree and
+      opening a PR there is out of this ticket's reach; the patch file
+      is the artifact that unblocks it. Tracked as an open follow-up.
+- [x] `.claude/rules/fiber-yield-safety.md`'s "do not edit
       diffdrive.{h,cpp}" note is updated to reflect whichever regime
       was used.
-- [ ] `src/DESIGN.md` §2's kernel invariants bullet is updated in the
+- [x] `src/DESIGN.md` §2's kernel invariants bullet is updated in the
       real file to describe the four patches and the fork regime in
       effect.
-- [ ] Everything else in the kernel (FF+I law, lambda, bias, stall/
+- [x] Everything else in the kernel (FF+I law, lambda, bias, stall/
       deficit latches, lease, e-stop, output publication) is untouched.
+      Confirmed by the existing pinned host-test suite staying green
+      unchanged (no pinned expectation needed updating): see the
+      ticket's own "Testing plan" / this session's final report.
 
 ## Implementation Plan
 

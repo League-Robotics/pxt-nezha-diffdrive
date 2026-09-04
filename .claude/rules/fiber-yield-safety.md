@@ -62,9 +62,22 @@ same way `serial_transport.cpp` does.
 ## Related invariants
 
 - `src/core/diffdrive.{h,cpp}` is the vendored kernel. **Do not edit
-  it.** Its two encoder settle sleeps are already covered, because it
-  reaches the sleeper through a true indirect virtual call and
-  `CodalSleeper`'s methods are guarded.
+  it** -- except via a paired upstream PR, see
+  `clasi/sprints/029-motion-profile-unification-one-shaper-one-floor-predictive-arrival/issues/decide-the-kernel-fork.md`. Sprint 029 ticket 001
+  (K1-K4: post-floor twist-hold reference, stale-tick freeze,
+  anti-windup, `rearmReferences()`) is the first change to land under
+  that carve-out: the same four patches were written against this
+  repo's copy and staged as a diff for
+  `radio-robot-elite/src/firm/diffdrive/` (see
+  `docs/code-review/2026-09-02/raw/kernel-patches-k1-k4.upstream.patch`
+  for the exact diff and how to apply it there); the upstream PR was
+  not yet opened as of that ticket's own close. Any further kernel edit
+  follows the same shape -- implement in both trees, or get an explicit
+  stakeholder decision to drop byte-identity in favor of a local fork
+  with its own behavioral fidelity test (`decide-the-kernel-fork.md`
+  covers both regimes). Its two encoder settle sleeps are already
+  covered, because it reaches the sleeper through a true indirect
+  virtual call and `CodalSleeper`'s methods are guarded.
 - Every OTOS transaction must run on the same fiber that ticks the
   kernel. An OTOS read landing inside the encoder select-to-read window
   destroys that encoder sample.
