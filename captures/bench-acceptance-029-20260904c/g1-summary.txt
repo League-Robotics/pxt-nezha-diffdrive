@@ -1,0 +1,13 @@
+mean|err|=8.131 deg, sd=8.828 deg, n=12
+pivot  0 cmd= +90 err=-11.05 ack=ack 1 1 stop
+pivot  1 cmd= -90 err=4.10 ack=ack 2 2 stop
+pivot  2 cmd= +90 err=-12.37 ack=ack 3 2 stop
+pivot  3 cmd= -90 err=13.72 ack=ack 4 3 stop
+pivot  4 cmd= +90 err=-8.61 ack=ack 5 4 timeout
+pivot  5 cmd= -90 err=3.67 ack=ack 6 5 stop
+pivot  6 cmd= +90 err=-2.05 ack=ack 7 7 stop
+pivot  7 cmd= -90 err=8.03 ack=ack 8 7 stop
+pivot  8 cmd= +90 err=-9.52 ack=ack 9 8 timeout
+pivot  9 cmd= -90 err=9.84 ack=ack 10 9 stop
+pivot 10 cmd= +90 err=-9.71 ack=ack 11 10 stop
+pivot 11 cmd= -90 err=4.90 ack=ack 12 12 stop

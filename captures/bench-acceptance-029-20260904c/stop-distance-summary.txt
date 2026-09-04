@@ -1,0 +1,13 @@
+cruise=70 mm/s (v_floor)
+mean err=0.562 deg, mean|err|=6.580 deg, sd=6.706 deg, n=10
+implied per-wheel overshoot = 0.534 mm
+pivot 0 cmd=+90 err=-7.305444605690923 ack=ack 1 12 stop
+pivot 1 cmd=-90 err=5.60708499226476 ack=ack 2 1 stop
+pivot 2 cmd=+90 err=-7.632573816708259 ack=ack 3 2 stop
+pivot 3 cmd=-90 err=6.427813433252993 ack=ack 4 3 stop
+pivot 4 cmd=+90 err=-4.593100661174731 ack=ack 5 4 stop
+pivot 5 cmd=-90 err=8.726802713323849 ack=ack 6 6 stop
+pivot 6 cmd=+90 err=-4.024754603507404 ack=ack 7 6 stop
+pivot 7 cmd=-90 err=6.919356484578714 ack=ack 8 7 stop
+pivot 8 cmd=+90 err=-6.530525006073617 ack=ack 9 8 timeout
+pivot 9 cmd=-90 err=8.029957878535583 ack=ack 10 9 timeout

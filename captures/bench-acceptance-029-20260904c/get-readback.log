@@ -1,0 +1,13 @@
+KICK MOVE_X 2 0 50 3000: ack 1 0 none
+STATUS(after kick): status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=4 cyc=107 tlm=off next=2 done=1 reason=stop
+GET accel: ack 2 1 stop
+GET decel: ack 3 1 stop
+GET v_max: ack 4 1 stop
+GET omega_max: ack 5 1 stop
+GET v_floor: ack 6 1 stop
+GET omega_floor: ack 7 1 stop
+GET stop_distance: ack 8 1 stop
+GET lag: ack 9 1 stop
+GET arrive_dist: ack 10 1 stop
+GET arrive_yaw: ack 11 1 stop
+GET (bare): ack 12 1 stop

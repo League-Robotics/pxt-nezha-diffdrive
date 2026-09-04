@@ -1,0 +1,11 @@
+GET accel: {"ack": "ack 1 1 stop", "all_lines": ["ack 1 1 stop", "get accel 400.000031"]}
+GET decel: {"ack": "ack 2 1 stop", "all_lines": ["ack 2 1 stop", "get decel 400.000031"]}
+GET v_max: {"ack": "ack 3 1 stop", "all_lines": ["ack 3 1 stop", "get v_max 250.000015"]}
+GET omega_max: {"ack": "ack 4 1 stop", "all_lines": ["ack 4 1 stop", "get omega_max 0.000000"]}
+GET v_floor: {"ack": "ack 5 1 stop", "all_lines": ["ack 5 1 stop", "get v_floor 70.000000"]}
+GET omega_floor: {"ack": "ack 6 1 stop", "all_lines": ["ack 6 1 stop", "get omega_floor 20.000000", "DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply="]}
+GET stop_distance: {"ack": "ack 7 1 stop", "all_lines": ["ack 7 1 stop", "get stop_distance 0.000000"]}
+GET lag: {"ack": "ack 8 1 stop", "all_lines": ["ack 8 1 stop", "get lag 0.000000"]}
+GET arrive_dist: {"ack": "ack 9 1 stop", "all_lines": ["ack 9 1 stop", "get arrive_dist 1.000000"]}
+GET arrive_yaw: {"ack": "ack 10 1 stop", "all_lines": ["ack 10 1 stop", "get arrive_yaw 0.300000"]}
+GET (bare): {"ack": "ack 11 1 stop", "all_lines": ["get pid_ki 6.000000", "get pid_i_max 765.600037", "get accel_kaff 0.000000", "get pid_max 1276.000000", "get twist_hold_gain 2.000000", "get v_floor 70.000000", "get pos_err_max 127.600006", "get stall_speed 191.400009", "get stall_demand 510.400024", "get stall_window 500.000031", "get lambda_enabled 0.000000", "get crawl_pulse 0.000000", "get default_cruise 150.000000", "get rotational_slip 0.952000", "get stall_clear 0.000000", "get stop_distance 0.000000", "get accel 400.000031", "get decel 400.000031", "get v_max 250.000015", "DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=", "ack 11 1 stop"]}

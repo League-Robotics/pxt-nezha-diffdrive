@@ -1,0 +1,6 @@
+STATUS before: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=25 cyc=1868 tlm=full next=1 done=10 reason=timeout
+camera before: (41.12637054832243, 25.114345835538806, 9.4898106052431)
+MOVE_X 200 0 100 8000 ack: ack 1 1 stop
+camera after: (36.14033191646708, 21.714125121711835, 60.94736930799735)
+STATUS after: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=28 cyc=2127 tlm=full next=2 done=1 reason=stop
+dist=6.04cm bearing=-145.7deg want=9.5deg off=-155.2deg

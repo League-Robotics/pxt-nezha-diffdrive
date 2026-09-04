@@ -1,0 +1,2 @@
+ESTOP: estop
+STATUS after: status ready=1 active=1 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=10 cyc=170 tlm=full next=1 done=2 reason=timeout

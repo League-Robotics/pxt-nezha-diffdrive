@@ -1,0 +1,8 @@
+v= 70 mm/s  dh=139.0697166968821  rate=92.71314446458807 deg/s  ack=ack 1 1 timeout
+v= 50 mm/s  dh=-158.4958436728283  rate=-105.66389578188553 deg/s  ack=ack 2 1 timeout
+v= 35 mm/s  dh=-132.45082318417838  rate=-88.30054878945225 deg/s  ack=ack 3 2 timeout
+v= 25 mm/s  dh=-114.5593873997152  rate=-76.37292493314347 deg/s  ack=ack 4 3 timeout
+v= 20 mm/s  dh=-104.73028478651175  rate=-69.82018985767449 deg/s  ack=ack 5 4 timeout
+v= 15 mm/s  dh=-92.82041122910707  rate=-61.880274152738046 deg/s  ack=ack 6 5 timeout
+v= 12 mm/s  dh=-92.37950012971328  rate=-61.58633341980885 deg/s  ack=ack 7 7 timeout
+v= 10 mm/s  dh=-75.53818910623897  rate=-50.35879273749265 deg/s  ack=ack 8 7 timeout

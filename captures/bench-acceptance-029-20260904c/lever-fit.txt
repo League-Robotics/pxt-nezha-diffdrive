@@ -1,0 +1,4 @@
+centre=(36.629,23.078) cm  lever=(0.619,-0.902) cm
+residual rms = 9.87 mm
+implied centre spread: x [35.11,38.39] y [21.60,24.54]
+n samples = 13

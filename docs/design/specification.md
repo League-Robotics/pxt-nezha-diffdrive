@@ -817,6 +817,30 @@ Nezha port shaping defaults (`nezha_port.h`, used as-is —
 `outputDeadband` 0.03, `reversalDwell` 100 ms, `slewRate` 25 pct/tick,
 `writeThrottle` 19,000 µs.
 
+**`MotionLimits` fields (design §4.1/§10.2), compiled defaults and this
+sprint's bench-acceptance status:**
+
+| Field | Compiled default | Units | Status (sprint 029 ticket 007) |
+|---|---|---|---|
+| `vFloor` | 70.0 | mm/s | MEASURED tovez/gopiv 2026-08-29 |
+| `omegaFloor` | 20.0 | deg/s | UNVERIFIED (compiled placeholder). Ticket 007's 2026-09-04c bench sweep (`WHEELS_V ±v ∓v 1500`, v: 70→10 mm/s, `captures/bench-acceptance-029-20260904c/omega-floor-summary.txt`) did **not** find a clean floor — v=10 mm/s still produced sustained rotation (−50.4°/s) and the rate was non-monotonic in v (v=50 rotated faster than v=70) — left unmeasured, compiled default unchanged |
+| `lag` | 0.0 | s | MEASURED (partial) tovez 2026-09-04c, `captures/bench-acceptance-029-20260904c/lag-capture-frames.json`: right wheel fits a first-order lag at τ≈126 ms (grid-search least squares against the `accel`-ramped commanded target); left wheel does not fit at all (overshoots to 210 mm/s, settles at 134 mm/s vs the right wheel's 240 mm/s on an identical 200/200 command) — `SET lag 0.126` applied for the rest of that session (wire-only; not baked into `firmware_bake`, see the ticket's cross-repo follow-up note) |
+| `stopDistance` | 0.0 | mm | Attempted, not trustworthy: 10 floor-cruise pivots (`stop-distance-summary.txt`) gave a naive per-wheel overshoot of 0.53 mm from the mean *signed* error, but the underlying per-pivot errors (mean|err| 6.58°, sd 6.71°) show the same systematic CW/CCW asymmetry as the G1 gate (below) — the near-zero signed mean is likely sign cancellation of that asymmetry, not a clean `stopDistance` reading. Compiled default left unchanged. |
+
+Same session, G1 (12× alternating ±90° `MOVE_X` pivots, gate bar mean
+|error| ≤0.5°/sd ≤0.4°) measured mean|error| 8.13°, sd 8.83°
+(`captures/bench-acceptance-029-20260904c/g1-summary.txt`) — a
+systematic, direction-dependent bias (+90° pivots undershoot, −90°
+pivots overshoot), most likely `trackWidth`/`rotationalSlip` tuned for
+vevov and unbaked for tovez (no `geometry.firmware_bake` block exists
+for tovez, confirmed 2026-09-04b). A separate G5 attempt (`WHEELS_V 200
+200 2000`) found a live, camera-corroborated closed-loop defect: the
+left wheel's commanded +200 mm/s settled at a **negative** measured
+velocity while the right wheel overshot to 492 mm/s against a 210 mm/s
+gate ceiling — see `src/DESIGN.md` §3 and
+`reports/bench-acceptance-029-20260904c.md` for the full account. G2–G4
+and G6 were not attempted this session given that finding.
+
 ## 12. Provenance and maintenance boundary
 
 - The wheel kernel (`diffdrive.h`/`diffdrive.cpp`) is vendored from

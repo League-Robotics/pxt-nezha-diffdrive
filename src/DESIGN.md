@@ -282,6 +282,58 @@ a literal replacement of design §6.1's own pseudocode — see
 reason), so a robot with `lag` left at 0 sees no behavior change at
 all.
 
+**MEASURED tovez 2026-09-04c** (sprint 029 ticket 007 bench acceptance,
+`captures/bench-acceptance-029-20260904c/`, firmware `1.20260903.1`,
+no `geometry.firmware_bake` for tovez — compiled defaults above apply
+unbaked): a `WHEELS_V 200 200 1500` step from rest with `TLM FULL`
+(`lag-capture-frames.json`) fits the RIGHT wheel cleanly to a
+first-order lag of the commanded `accel`-ramped target,
+**τ ≈ 126 ms** (grid-search least-squares over the ODE
+`dv/dt=(v_cmd(t)-v)/τ`, `v_cmd(t)=min(200, 400·t)`) — inside this
+design's own 50–150 ms expected order (§6.3). The LEFT wheel does
+**not** fit a first-order model at all (visible overshoot to 210 mm/s
+at t≈0.5 s before settling to a *different* steady value, 134 mm/s,
+than the right wheel's 240 mm/s, against an identical 200/200 mm/s
+command) — a first-order lag is monotonic and cannot produce that
+overshoot, so this session set `lag = 0.126` (the right wheel's clean
+fit) and flags the left-wheel asymmetry as a separate, unexplained
+defect rather than folding it into `lag`. `stop_distance` and
+`omega_floor` were both attempted per §10.2 the same session
+(`stop-distance-summary.txt`, `omega-floor-summary.txt`) but neither
+produced a trustworthy number: the same session's G1 pivot gate
+(12× alternating ±90°) measured a systematic, direction-dependent bias
+(+90° pivots undershoot 4–12°, −90° pivots overshoot 4–14°, mean
+|error| 8.13°, sd 8.83° — this design's ±0.5°/0.4° gate bar, badly
+missed) that a pure `stop_distance`/`omega_floor` measurement cannot
+separate from a real geometry mismatch (`trackWidth`/`rotationalSlip`
+tuned for vevov, unbaked for tovez). The `omega_floor` sweep (`WHEELS_V
+±v ∓v 1500`, v: 70→10 mm/s) never found a speed with no sustained
+rotation — even v=10 mm/s produced −75.5° in 1.5 s (−50.4°/s), and the
+rotation rate was **not monotonic in v** (v=50 rotated faster than
+v=70), inconsistent with a clean floor measurement and left
+unresolved. The same session's G5 attempt (`WHEELS_V 200 200 2000`,
+`g5-frames.json`) is the most serious finding: the left wheel's
+commanded +200 mm/s settled at a **negative** measured velocity
+(−76 mm/s, with negative `dutl`) while the right wheel overshot to
+**492 mm/s** against a 210 mm/s gate ceiling and a 200 mm/s command —
+a live, non-frozen, camera-corroborated closed-loop control defect
+(the robot drove to within 1.4 cm of the field safety margin before an
+`ESTOP`), not a telemetry artifact. G2–G4/G6 were not attempted this
+session as a result — see the ticket's own session notes and
+`reports/bench-acceptance-029-20260904c.md` for the full writeup. This
+is now the second and better-evidenced hardware session (2026-09-04
+first suspected a kernel wedge; this session's live, updating,
+camera-corroborated telemetry during active moves rules that out and
+points at a real per-wheel control/geometry defect instead) — a
+`STATUS`/`TLM` staleness bug was ALSO independently confirmed this
+session (the `active` STATUS bit and `TLM FULL`'s per-tick pose/duty
+fields both stuck at their last real value for 100+ seconds after the
+robot was camera-confirmed at rest, while `cyc`/`seq`/`now` kept
+advancing normally) — this is a separate defect from the control-loop
+one above, and is the same failure mode the 2026-09-04b diagnostic
+session's Hypothesis 1 predicted from `evidence-pivot90-full-frames.json`
+alone; today's session supplies the first live confirmation of it.
+
 **Dependencies.** Holds references to a caller-owned kernel and
 `Clock` (the shaper's `dt` and the deadline backstop need wall time
 independent of kernel stepping). Owns **no odometry** — pose stays a

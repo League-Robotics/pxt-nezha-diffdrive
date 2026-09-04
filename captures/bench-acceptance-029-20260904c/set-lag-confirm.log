@@ -1,0 +1,2 @@
+SET lag 0.126: ack 1 2 timeout
+GET lag: ack 2 2 timeout

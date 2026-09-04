@@ -83,19 +83,77 @@ ticket's close-out if it cannot be completed from this repo alone.
       `captures/bench-acceptance-029-20260904/notes.md` §3) and
       evidence-gathering afterward pointed at a suspected kernel wedge,
       not a convention/mount problem. Blocked pending hardware recovery.
+      STILL UNMET 2026-09-04c (new session, same robot, hardware
+      recovered/reflashed with ticket 009's fix): the dance FAILED
+      again, but with a DIFFERENT shape -- two of three pivots now
+      PASS (the third misses by only 14 deg, a real improvement over
+      2026-09-04's +47..+58 deg per pivot), but all three drives still
+      fail badly (30+ cm off, inconsistent bearings, one with no
+      motion at all). `captures/bench-acceptance-029-20260904c/field-dance.log`;
+      full account in `reports/bench-acceptance-029-20260904c.md` §4.
 - [ ] G1-G6 all pass, each cited with its capture artifact
       (`.claude/rules/measurement-citations.md`). NOT RUN 2026-09-04 --
       blocked behind the failed dance above; driving a robot that
       cannot reliably stop where commanded is unsafe.
+      2026-09-04c: G1 and G5 were RUN and FAILED, cited
+      (`captures/bench-acceptance-029-20260904c/g1-summary.txt`,
+      `g5-frames.json`; report §5-6). G1: mean|error| 8.13 deg / sd
+      8.83 deg vs the 0.5/0.4 deg bar, a systematic direction-dependent
+      bias. G5 found a live, camera-corroborated control-loop defect --
+      a WHEELS_V 200 200 hold left one wheel's measured velocity
+      NEGATIVE while the other overshot to 492 mm/s against a 210 mm/s
+      ceiling, and drove the robot to within 1.4 cm of the field safety
+      margin before an ESTOP. G2, G3, G4, G6 were NOT attempted this
+      session -- running 600 mm straights or a square tour on top of
+      that defect was judged unsafe (no reliable pre-flight projection
+      is possible when actual behavior deviates this much from
+      commanded). See `reports/bench-acceptance-029-20260904c.md` for
+      the full tables and the "what a human needs to do next" list.
 - [ ] `stop_distance` and `omega_floor` measured, recorded in
       `firmware_bake.stop_distance_mm` and `MotionLimits::omegaFloor`'s
       default, and cited with their capture artifacts. NOT MEASURED
       2026-09-04 -- same blocker.
+      2026-09-04c: BOTH ATTEMPTED, NEITHER TRUSTWORTHY. `stop_distance`
+      (10 floor-cruise pivots,
+      `captures/bench-acceptance-029-20260904c/stop-distance-summary.txt`):
+      naive calc (0.53 mm/wheel) lands in the design's expected order
+      by what looks like coincidental sign-cancellation of the same
+      CW/CCW asymmetry G1 shows (individual pivot errors -4..-7.6 deg
+      / +5.6..+8.7 deg) -- not recorded as measured.  `omega_floor`
+      (`WHEELS_V` sweep 70->10 mm/s,
+      `captures/bench-acceptance-029-20260904c/omega-floor-summary.txt`):
+      no floor found -- even 10 mm/s produced -50.4 deg/s of sustained
+      rotation, and the rate was NOT monotonic in commanded speed (v=50
+      rotated faster than v=70) -- left unmeasured. `lag` (design
+      S10.2's first measurement, a precondition for `stop_distance`)
+      WAS measured, partially: the right wheel fits a first-order lag
+      at tau=126 ms (inside the design's 50-150 ms expected order); the
+      left wheel does not fit the model at all (overshoots, settles at
+      a different steady speed than the right wheel on an identical
+      command) --
+      `captures/bench-acceptance-029-20260904c/lag-capture-frames.json`.
+      `SET lag 0.126` applied for the session (wire-only, not baked).
+      None of the three numbers are written into
+      `firmware_bake`/`MotionLimits` defaults -- see the report's
+      cross-repo follow-up (§10) for what to bake once cleanly
+      remeasured.
 - [ ] `src/DESIGN.md` §3 updated (real file) with the measured
       constants' field-comment history. NOT DONE -- no measured
       constants exist yet to record.
+      2026-09-04c: PARTIALLY DONE -- `lag`'s partial measurement (one
+      wheel) and this session's G1/G5/stop_distance/omega_floor
+      findings are now recorded with citations in `src/DESIGN.md` §3
+      (the paragraph after the `travelCalib`/`trackWidth`/
+      `rotationalSlip` geometry-defaults paragraph). Left unchecked
+      because `stopDistance`/`omegaFloor` still have no trustworthy
+      measured value to record -- only the attempt and why it is not
+      trustworthy.
 - [ ] `docs/design/specification.md`'s constants table updated. NOT
       DONE -- same reason.
+      2026-09-04c: PARTIALLY DONE -- added a `MotionLimits` fields
+      table (compiled defaults + this sprint's bench-acceptance status
+      per field) to specification.md §11, plus the G1/G5 summary.
+      Left unchecked for the same reason as `src/DESIGN.md` §3 above.
 - [x] `pivot_overrun` retired from every robot config this repo
       controls; the `radio-robot-lib` cross-repo side is explicitly
       flagged if not completed here. This repo controls no robot config
@@ -108,7 +166,7 @@ ticket's close-out if it cannot be completed from this repo alone.
       fleet), rename the `firmware_bake` key `pivot_overrun_mm` to
       `stop_distance_mm` once ticket 007's `stop_distance` measurement
       exists to populate it with (design §8's knob-compatibility table).
-- [ ] Design §7's predicted "after" numbers (already confirmed on ideal
+- [x] Design §7's predicted "after" numbers (already confirmed on ideal
       wheels by ticket 003's probe) are now confirmed or contradicted on
       real hardware — record which. UNRESOLVED 2026-09-04: real
       hardware data was gathered (two isolated 90° pivots, +110° and
@@ -119,6 +177,25 @@ ticket's close-out if it cannot be completed from this repo alone.
       rotation) -- cannot honestly attribute this to the new engine
       versus the wedge without a clean re-run after hardware recovery.
       See `captures/bench-acceptance-029-20260904/notes.md` §4.
+      **CONTRADICTED, confirmed 2026-09-04c, no longer confounded.**
+      This session's `lag`/G5 captures show LIVE, tick-by-tick updating
+      telemetry during active moves (ruling out the 2026-09-04 "frozen
+      telemetry means the camera reading might be stale/misattributed"
+      concern), and G1's 12-pivot camera-only measurement independently
+      confirms the same order of error via a completely different
+      instrument path: mean|error| 8.13 deg, over 16x the design's
+      +-0.5 deg bar. The ±0.5° prediction is contradicted on real
+      hardware even with ticket 009's lag-aware fix landed. Separately,
+      this session ALSO confirms (not just hypothesizes) a distinct
+      telemetry-staleness bug: STATUS's `active` bit and TLM's
+      per-tick pose/duty fields both stuck at their last real value for
+      100+ seconds after the robot was camera-confirmed at rest, while
+      `cyc`/`seq`/`now` kept advancing -- this is the live confirmation
+      of the 2026-09-04b diagnostic session's Hypothesis 1, but it is a
+      SEPARATE bug from the pivot-accuracy contradiction and from the
+      G5 wheel-sign-reversal control defect (also newly found this
+      session) -- do not conflate the three when triaging. Full account:
+      `reports/bench-acceptance-029-20260904c.md` §8.
 
 ## Implementation Plan
 
@@ -470,3 +547,119 @@ No hardware was touched this session -- build only, per dispatch scope.
 `git status` shows only the pre-existing `.clasi/.clasi.db` diff (not
 from this session) plus this ticket-file edit; `pxt_modules`/
 `node_modules`/`.tmp/` are gitignored and not committed.
+
+## Session Notes (2026-09-04c, tovez, PARTIAL -- link recovered, real hardware data gathered, new control-loop defect found and blocks the remaining translation gates)
+
+Full account: `reports/bench-acceptance-029-20260904c.md` (all capture
+logs cited below live in
+`captures/bench-acceptance-029-20260904c/`, force-added).
+
+**Carrier recovered.** Unlike 2026-09-04b's diagnostic session (no
+reachable carrier at all), this session reached tovez over the torture
+radio relay (channel 55 / group 108, `tools/fieldlink.py`) throughout.
+`HELLO`/`PING`x4/`STATUS` all healthy; the documented 2 mm kick cleared
+the never-ticked `ready=0` state left over from the prior session's
+flash.
+
+**GET readback mystery resolved**: the "bare GET returns nothing" open
+question from 2026-09-04b was a client bug in `tools/fieldlink.py`'s
+`seqd()` (it discards every line except the one matching `ack`/`err`),
+not a firmware regression. Reading the full response window shows both
+the bare dump and every individually-addressed field GET answering
+correctly.
+
+**`lag` measured (one wheel) and set.** `WHEELS_V 200 200 1500` +
+`TLM FULL` fits the right wheel to tau=126 ms (inside design S6.3's
+50-150 ms expected order); the left wheel does not fit a first-order
+model at all (overshoot + a different steady-state speed than the
+right wheel on an identical command) -- flagged as a distinct,
+unexplained per-wheel asymmetry. `SET lag 0.126` applied for the
+session.
+
+**`field_dance.py` FAILED again, differently.** Pivots much improved
+(2/3 pass, the third misses by 14 deg vs 2026-09-04's +47..+58 deg);
+drives still badly broken (30+ cm off, inconsistent bearings, one with
+no motion).
+
+**G1 (pivot accuracy): FAILED, cited.** 12 alternating +-90 pivots,
+camera before/after each: mean|error| 8.13 deg, sd 8.83 deg vs the
+0.5/0.4 deg bar -- a systematic, direction-dependent (CW vs CCW) bias,
+not random noise. `i2cf` (STATUS's I2C fault counter) climbed steadily
+through this run and essentially every other move this session (4 -> 152
+by session end) -- never during idle periods.
+
+**A lever/mount-residual fit was attempted** from the G1 pivot camera
+fixes (least squares, 13 poses) but produced a 9.87 mm residual RMS and
+a ~3.3 cm implied centre spread -- an order of magnitude worse than
+vevov's own 0.28 mm fit, meaning the robot was not pivoting cleanly in
+place. **Not written into `field_calibration.json`** -- overwriting an
+already-UNVERIFIED placeholder with an equally untrustworthy number
+would not help the next session.
+
+**`stop_distance` and `omega_floor`: attempted, neither trustworthy.**
+`stop_distance`'s naive per-wheel-overshoot calculation (0.53 mm) lands
+inside the design's expected order, but only by apparent coincidental
+cancellation of the same CW/CCW asymmetry G1 shows -- not recorded as
+measured. `omega_floor`'s sweep (70 -> 10 mm/s) never found a floor,
+and the rotation rate was NOT monotonic in commanded speed (v=50
+rotated faster than v=70) -- left unmeasured.
+
+**G5 (continuous WHEELS_V): FAILED with a serious, newly-found
+control-loop defect.** `WHEELS_V 200 200 2000` from rest: the LEFT
+wheel's measured velocity went NEGATIVE (settled ~-76 mm/s, with
+negative commanded duty) while the RIGHT wheel overshot to 492 mm/s
+against the gate's 210 mm/s ceiling -- both wheels commanded
+identically. This is not a telemetry-freeze artifact (the trace updates
+live, tick to tick, and the camera independently confirms real, if
+confusing, displacement). **The resulting drift put tovez within 1.4 cm
+of the field's safety margin before an ESTOP was sent.** Robot confirmed
+at rest and safe afterward (two independent camera polls, <0.1 cm
+apart).
+
+**G2, G3, G4, G6: NOT attempted.** G3/G4 command 600 mm straights (3x
+the distance of the drive-probe that showed +51 deg of uncommanded
+heading swing on just 20 cm) and G6 composes several such legs into a
+square tour -- running either on top of the G5 defect was judged unsafe,
+since actual behavior deviates too far from commanded for a normal
+pre-flight path projection to bound.
+
+**A separate telemetry-staleness bug was independently confirmed**
+(not just hypothesized, as in 2026-09-04b): STATUS's `active` bit and
+TLM's per-tick pose/duty fields both stuck at their last real value for
+100+ seconds after the robot was camera-confirmed at rest, while
+`cyc`/`seq`/`now` kept advancing normally. This is the live
+confirmation of the 2026-09-04b diagnostic session's Hypothesis 1, and
+it is a DIFFERENT bug from the G5 control-loop defect above -- keep them
+separate when this gets engineering attention.
+
+`.claude/rules/fiber-yield-safety.md`'s OTOS/encoder-fiber note
+("an OTOS read landing inside the encoder select-to-read window
+destroys that encoder sample") is offered as a plausible, unconfirmed
+mechanism tying the steadily-climbing `i2cf` counter to the pivot
+asymmetry, the stop_distance/omega_floor confound, and the G5
+sign-reversal/overshoot -- a hypothesis for `radio-robot-elite`
+firmware engineering, not a diagnosis; no kernel or motion-engine file
+was touched this session.
+
+**Docs updated**: `src/DESIGN.md` §3 (measured `lag` field-comment
+history + this session's findings), `docs/design/specification.md`
+§11 (new `MotionLimits` fields table with per-field bench-acceptance
+status). Both are partial -- `stopDistance`/`omegaFloor` still have no
+trustworthy measured value.
+
+**Needs a human / next session**: (1) the G5 wheel-sign-reversal
+defect is the priority -- safety-relevant, independent of geometry
+calibration; (2) bake tovez's real geometry (`geometry.firmware_bake`
+in `radio-robot-lib/config/robots/tovez.json`) -- G1's asymmetry is
+consistent with running vevov's unbaked numbers; (3) investigate the
+`active`/TLM staleness bug separately; (4) once (1) is resolved,
+re-run `field_dance.py` clean and resume at G2. `field_calibration.json`
+is unchanged this session (still `default_robot: tovez`, still the
+UNVERIFIED tovez mount placeholder).
+
+Ticket left `status: in-progress` -- real progress was made (lag
+measured, G1/G5 run and cited, design S7 now answered with clean
+evidence) but the ticket's core deliverable (G1-G6 passing,
+stop_distance/omega_floor measured and baked) is not met, and a newly
+discovered control-loop defect blocks the remaining gates until
+firmware engineering addresses it.
