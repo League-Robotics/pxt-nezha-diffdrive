@@ -35,15 +35,16 @@ dance measures which you have).
 Outputs (in --out): turns.csv (one row per pivot), frames.csv (every
 telemetry frame, tagged with its turn), camera.csv (every camera
 sample), summary.json (fits and the suggested `rotational_slip` /
-`pivot_overrun`), and after --render: wheel-speeds.png,
+`stop_distance` -- `pivot_overrun` on pre-029 firmware), and after --render: wheel-speeds.png,
 turn-error.png, fit.png and REPORT.md.
 
 Calibration model (motion_engine.h): the firmware turns its wheels
 |theta| * b_eff / 2 each, b_eff = trackWidth / rotationalSlip. If the
 camera sees gain g = measured/commanded, the corrected slip is
 slip * g; a constant offset (deg) is a per-wheel overrun of
-offset_rad * b_eff / 2 mm, the `pivot_overrun` knob. Both can be tried
-live with `--set rotational_slip=... pivot_overrun=...` before baking
+offset_rad * b_eff / 2 mm, the `stop_distance` knob (`pivot_overrun`
+before sprint 029; on 029 firmware SET `lag` first, design S10.2). Both can
+be tried live with `--set rotational_slip=... stop_distance=...` before baking
 into the robot's radio-robot-lib config.
 """
 import argparse
@@ -570,15 +571,24 @@ def analyze(rows, a):
         # over-rotation; the fit's `off` is the signed per-turn overrun.
         slip_new = a.slip_now * g
         overrun_mm = max(0.0, math.radians(off) * b_eff / 2.0 + a.overrun_now)
+        field = getattr(a, 'overrun_field', 'pivot_overrun')
         suggested = {'rotational_slip': round(slip_new, 4),
-                     'pivot_overrun_mm': round(overrun_mm, 2),
+                     f'{field}_mm': round(overrun_mm, 2),
                      'model': 'camera = gain*cmd + offset; slip_new = slip*gain; '
-                              'overrun_new = overrun + offset_rad*b_eff/2'}
+                              f'{field}_new = {field} + offset_rad*b_eff/2'}
+        if field == 'stop_distance':
+            # design motion-profile-unification.md S10.2: stop_distance is
+            # the residual AFTER lag is set; an unmeasured lag shows up
+            # here as a speed-dependent offset that stop_distance cannot
+            # absorb.
+            suggested['note'] = ('029 firmware: measure and SET lag first (S10.2); '
+                                 'this stop_distance is only valid at the cruise it was fitted at')
     return {
         'robot': a.robot, 'cruise_mm_s': a.cruise, 'n_turns': len(rows),
         'n_disturbed_excluded': len(all_rows) - len(rows),
         'disturbed_turns': [r.get('turn') for r in all_rows if disturbed(r)],
         'slip_during_run': a.slip_now, 'pivot_overrun_during_run_mm': a.overrun_now,
+        'overrun_field': getattr(a, 'overrun_field', 'pivot_overrun'), 'lag_during_run_s': getattr(a, 'lag_now', None),
         'trackwidth_assumed_mm': a.trackwidth_mm, 'b_eff_mm': round(b_eff, 2),
         'fit_gain': None if g is None else round(g, 4),
         'fit_offset_deg': None if off is None else round(off, 2),
@@ -787,7 +797,9 @@ def render(out):
                   f"right mean {summary.get('mean_err_right_deg')}; mean centre drift {summary.get('mean_drift_cm')} cm.", '']
     if summary.get('suggested'):
         s = summary['suggested']
-        lines += [f"Suggested: `SET rotational_slip {s['rotational_slip']}`, `SET pivot_overrun {s['pivot_overrun_mm']}` ({s['model']}).", '']
+        fld = next((k[:-3] for k in s if k.endswith('_mm')), 'pivot_overrun')
+        lines += [f"Suggested: `SET rotational_slip {s['rotational_slip']}`, `SET {fld} {s[fld + '_mm']}` ({s['model']})."
+                  + (f" {s['note']}" if s.get('note') else ''), '']
     lines += ['| # | cmd | camera | err | encoder err | drift cm | peak vl | peak vr | dur s | reason |', '|---|---|---|---|---|---|---|---|---|---|']
     for r in turns:
         enc = '' if r['encoder_error_deg'] is None else f"{r['encoder_error_deg']:+.1f}"
@@ -912,8 +924,19 @@ def main():
             return float(s.split()[2])
         return None
     a.slip_now = get('rotational_slip') or 0.952
-    a.overrun_now = get('pivot_overrun') or 0.0
-    print(f'rotational_slip={a.slip_now} pivot_overrun={a.overrun_now} (live), trackwidth assumed {a.trackwidth_mm} mm')
+    # Sprint 029 renamed the per-wheel end-of-move coast `pivot_overrun` to
+    # `stop_distance` (mm) and added `lag` (s); pre-029 firmware still
+    # answers `pivot_overrun`. Ask for the new name first and remember
+    # which vocabulary the robot speaks so the suggestion uses it.
+    sd = get('stop_distance')
+    if sd is not None:
+        a.overrun_field, a.overrun_now = 'stop_distance', sd
+        a.lag_now = get('lag')
+    else:
+        a.overrun_field, a.overrun_now = 'pivot_overrun', (get('pivot_overrun') or 0.0)
+        a.lag_now = None
+    lag_txt = '' if a.lag_now is None else f' lag={a.lag_now}'
+    print(f'rotational_slip={a.slip_now} {a.overrun_field}={a.overrun_now}{lag_txt} (live), trackwidth assumed {a.trackwidth_mm} mm')
 
     lights_on()
     cam = Camera(tag, a.heading_offset)
