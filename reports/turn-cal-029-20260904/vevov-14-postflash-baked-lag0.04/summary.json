@@ -1,0 +1,62 @@
+{
+  "robot": "vevov",
+  "cruise_mm_s": 0,
+  "n_turns": 12,
+  "n_disturbed_excluded": 0,
+  "disturbed_turns": [],
+  "slip_during_run": 0.952,
+  "pivot_overrun_during_run_mm": 0.0,
+  "overrun_field": "pivot_overrun",
+  "lag_during_run_s": null,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 119.96,
+  "fit_gain": 1.0061,
+  "fit_offset_deg": -2.27,
+  "mean_err_left_deg": -1.82,
+  "mean_err_right_deg": 1.19,
+  "per_command": {
+    "+90": {
+      "n": 2,
+      "mean_err": -1.61,
+      "min": -2.02,
+      "max": -1.2
+    },
+    "-90": {
+      "n": 2,
+      "mean_err": 1.96,
+      "min": 0.6,
+      "max": 3.31
+    },
+    "+107": {
+      "n": 2,
+      "mean_err": -1.83,
+      "min": -3.35,
+      "max": -0.31
+    },
+    "-107": {
+      "n": 2,
+      "mean_err": 1.25,
+      "min": 0.14,
+      "max": 2.36
+    },
+    "+180": {
+      "n": 2,
+      "mean_err": -2.01,
+      "min": -2.59,
+      "max": -1.44
+    },
+    "-180": {
+      "n": 2,
+      "mean_err": 0.36,
+      "min": -0.21,
+      "max": 0.93
+    }
+  },
+  "mean_abs_err_deg": 1.54,
+  "mean_drift_cm": 0.54,
+  "suggested": {
+    "rotational_slip": 0.9578,
+    "pivot_overrun_mm": 0.0,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; pivot_overrun_new = pivot_overrun + offset_rad*b_eff/2"
+  }
+}

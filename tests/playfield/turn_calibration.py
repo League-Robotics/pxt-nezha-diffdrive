@@ -928,11 +928,14 @@ def main():
         k, v = kv.split('=', 1)
         tid, ack = link.seqd(f'SET {k} {v}', wait=2.0)
         print(f'SET {k} {v} -> {ack}')
-    def get(field):
-        tid, ack = link.seqd(f'GET {field}', wait=2.0)
-        t0 = time.time() - 2.5
-        for _, s in link.since(t0, f'get {field} '):
-            return float(s.split()[2])
+    def get(field, tries=3):
+        # a fresh WiFi session drops the odd first reply (vevov 2026-09-04:
+        # the post-flash read came back with firmware defaults); ask again
+        for _ in range(tries):
+            tid, ack = link.seqd(f'GET {field}', wait=2.0)
+            t0 = time.time() - 2.5
+            for _, s in link.since(t0, f'get {field} '):
+                return float(s.split()[2])
         return None
     a.slip_now = get('rotational_slip') or 0.952
     # Sprint 029 renamed the per-wheel end-of-move coast `pivot_overrun` to
