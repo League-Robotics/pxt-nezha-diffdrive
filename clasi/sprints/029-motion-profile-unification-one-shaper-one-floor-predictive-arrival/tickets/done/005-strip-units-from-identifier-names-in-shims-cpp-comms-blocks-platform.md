@@ -1,9 +1,12 @@
 ---
 id: '005'
 title: Strip units from identifier names in shims.cpp, comms/, blocks/, platform/
-status: open
-use-cases: [SUC-001, SUC-002]
-depends-on: ['004']
+status: done
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '004'
 github-issue: ''
 issue: code-review/strip-units-from-identifier-names.md
 completes_issue: true
@@ -34,20 +37,20 @@ the rule and the issue.
 
 ## Acceptance Criteria
 
-- [ ] A source-pin test (new) fails the build on any new
+- [x] A source-pin test (new) fails the build on any new
       `MmS`/`Ms`/`Us`/`Mm`/`Rad`/`Deg`/`Counts`/`Pct` identifier suffix
       outside `src/core/` and outside a small, explicit allow-list of
       conversion functions.
-- [ ] The pin test is green with an **empty** allow-list except the
+- [x] The pin test is green with an **empty** allow-list except the
       documented conversions (`mradToRad`, `countsPerMm`,
       `writePoseMm`, and any others named explicitly in the test).
-- [ ] `shims.cpp`, `src/comms/*`, `src/blocks/*`, `src/platform/*` carry
+- [x] `shims.cpp`, `src/comms/*`, `src/blocks/*`, `src/platform/*` carry
       no unit-suffixed identifier; every renamed field/parameter/local
       keeps a trailing `// [unit]` comment.
-- [ ] `src/core/` and `src/motion/` are unaffected by this ticket (core
+- [x] `src/core/` and `src/motion/` are unaffected by this ticket (core
       is excluded by rule; motion/ was already done in ticket 003 —
       this ticket does not re-touch it).
-- [ ] Full existing test suite for the touched files stays green — this
+- [x] Full existing test suite for the touched files stays green — this
       is a pure rename, no behavior change.
 
 ## Implementation Plan
