@@ -10,6 +10,7 @@ issues:
 - wire-done-reason-is-resolved-lazily.md
 - parallax-k-and-registered-mount-z-correct-twice.md
 - pid-error-uses-a-stale-velocity-sample-after-an-encoder-fault.md
+- sprint-030-hardware-acceptance-needs-one-bench-session.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
