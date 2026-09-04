@@ -1,0 +1,8 @@
+HELLO -> device NEZHA2 robot gopiv 2175407711
+STATUS -> status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+MOVE_X 20 0 0 2000 #1 -> ack 1 0 none
+STATUS after kick -> []
+no status line, retry; saw: []
+no status line, retry; saw: []
+no status line, retry; saw: []
+after the kick: NO pong in 6 s | DBG:wifi lines: 0 | total lines: 0
