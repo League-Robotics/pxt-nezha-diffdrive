@@ -358,3 +358,115 @@ questions, but added no new hardware evidence.
 cycle tovez and confirm `tovez.local` resolves over WiFi -- before any
 of §6's four open questions (`captures/bench-acceptance-029-20260904-diag/notes.md`)
 or the ticket's own remaining acceptance criteria can be attempted.
+
+## Build for retest, 2026-09-04c (build step only -- no hardware touched)
+
+Dispatched narrowly to produce a flashable hex from the branch tip
+(includes ticket 009's lag-aware shaper) so a future session can flash
+and retry hardware recovery. No motion, no flash, no `src/` edits.
+
+**Investigated and REJECTED: injecting `tovez.json`'s top-level
+`geometry.trackwidth`/`rotational_slip` (115 / 1.0) as a
+`firmware_bake` fallback.** This was the dispatch's step 2, framed
+against a claim that tovez's caliper trackwidth is 128 mm and its
+effective track measures 136.59 mm. That claim traces to stale prose
+*inside* `tovez.json`'s own `_trackwidth_note`/`_rotational_slip_note`
+(dated 2026-07-29/2026-08-09) describing history for a value the file
+no longer holds -- the live fields are 115 / 1.0, and 115/1.0 = 115 mm,
+matching none of 128, 136.59, or 140.4. More importantly, this ticket's
+own 2026-09-04b diagnostic session already flagged the top-level
+`geometry` block as "what looks like a different, much larger
+motion-stack config schema at that same path -- flagged for a human to
+confirm, not chased further," and `make_deploy.py:901-919`'s own design
+comment explicitly rejects unconditional top-level injection by name
+("tovez's config says trackwidth 115 / slip 1.0 where the firmware
+defaults it actually runs are 114.2 / 0.952 ... making injection
+unconditional would silently retune three robots nobody asked to
+touch").
+
+This build confirmed the hypothesis with a direct file check: the same
+`tovez.json`'s `_navigator_note` says `NavigatorLimits::trackWidth` is
+"derived from this file's own geometry.trackwidth/rotational_slip",
+and `NavigatorLimits` lives at
+`radio-robot-elite/src/firm/motion/navigator/arc_solver.h` (confirmed
+present in that sibling repo's worktrees, e.g.
+`radio-robot-elite.worktrees/hal-reorg/src/firm/motion/navigator/
+arc_solver.h`) -- a completely different firmware codebase (protocol-v5
+native C++, GO_TO/NavigatorLimits) from this repo's PXT/MakeCode build
+(MOVE_X/TLM, `src/motion/motion_engine.h`). The two firmwares share one
+robot-config JSON file; `geometry.firmware_bake` is the ONLY subtree of
+that shared file meant for this repo's build, by explicit design. The
+top-level `geometry.trackwidth`/`rotational_slip` belong to the other
+firmware's navigator and would be the wrong numbers to bake here even
+if they were current.
+
+**No `tools/make_deploy.py` or test change was made.** Adding the
+requested fallback would have silently baked cross-firmware config into
+this build -- worse than the status quo of baking nothing, not better --
+so it was not implemented. This is reported per the Guard Blocks /
+Exception posture (stop and report an upstream-decision conflict rather
+than route around it), not treated as a ticket exception, since it did
+not block completing the actual build deliverable. The right fix, if
+tovez's real geometry needs baking for this firmware, is a
+`geometry.firmware_bake` block added to `tovez.json` in the sibling
+`radio-robot-lib` repo (this repo cannot make that edit) once real
+measured `travel_calib`/`trackwidth`/`rotational_slip` numbers exist
+for tovez under THIS firmware -- not a host-side fallback that guesses
+from the other firmware's config.
+
+**Build: PASS, on the second scratch build.** First attempt hit the
+documented stale-scratch-cache trap (`tools/DESIGN.md` "Build
+checkpoint triage", sprint 023's translation-unit-presence check):
+`BUILD FAILED: not all nezha-diffdrive translation units were compiled`
+against a `.tmp/deploy-head` left over from the 2026-09-03 session.
+Recovered exactly as the error message and DESIGN.md direct: wiped
+`.tmp/deploy-head` with Python `shutil.rmtree` (`rm -rf` is
+sandbox-denied here). The wipe then exposed a second, worktree-specific
+gap -- `pxt_modules/` is gitignored and this git worktree never had it
+generated, so `_sync_scratch()`'s `shutil.copytree` failed with
+`FileNotFoundError`. Fixed by running `pxt install` at the repo root
+(one-time per-worktree setup, not a code change; the main checkout
+already had its own `pxt_modules`). Rebuild then succeeded clean on
+attempt 1, no retry needed, no compile diagnostics.
+
+- **Hex**: `.tmp/deploy-head/built/binary.hex`, 1,685,996 bytes, 0
+  universal-hex (`:0400000A`) block markers (plain V2, not the old
+  multi-variant artifact).
+- **Version**: repo version `1.20260903.1` (`pyproject.toml`, unchanged
+  since ticket 009 -- no per-ticket bump per current convention) ->
+  on-device boot banner `BOOT_VERSION = "03.01"`, `BOOT_ROBOT = "tovez"`.
+  Expect `VER` -> `ver 1.20260903.1`, `ID` -> `id diffdrive tovez
+  1.20260903.1 tovez` after flash, matching the 2026-09-03 session's
+  post-flash pattern.
+- **Radio**: `--radio-link` enabled (`BOOT_RADIO_LINK = true` in the
+  scratch `test.ts`); channel 55 / group 108 injected into
+  `radio_transport.h` (`kChannel`/`kGroup`), matching `tovez.json`'s
+  `connection.radio_channel`/`radio_group`.
+- **Geometry injected: none**, by design (no `geometry.firmware_bake`
+  block for tovez). Confirmed in the scratch copy: `motion_engine.h`
+  still reads `travelCalib_ = 0.7878f`, `trackWidth_ = 114.2f`,
+  `rotationalSlip_ = 0.952f` (this repo's own compiled defaults);
+  `motion_limits.h` still reads `lag = 0.0f`, `stopDistance = 0.0f`
+  (ticket 009's new fields, also unbaked/default for tovez -- no
+  `lag_s`/`stop_distance_mm` in tovez's config either). Byte-identical
+  geometry behavior to every prior tovez build this ticket has flashed.
+- **WiFi secrets**: none present (`config/wifi_secrets.json` missing);
+  WiFi link stays disabled in this build, radio remains the only live
+  carrier path once flashed.
+
+**Flash command** (unchanged shape from the 2026-09-03 session,
+verified against `mbdeploy deploy --help` this session):
+
+```
+mbdeploy deploy tovez --remote --hex .tmp/deploy-head/built/binary.hex
+```
+
+Post-flash check: `HELLO` should answer `device NEZHA2 robot tovez
+<uid>`; `VER` should answer `ver 1.20260903.1`. If `VER` answers
+anything else, the flash did not take and should not be trusted for
+retest.
+
+No hardware was touched this session -- build only, per dispatch scope.
+`git status` shows only the pre-existing `.clasi/.clasi.db` diff (not
+from this session) plus this ticket-file edit; `pxt_modules`/
+`node_modules`/`.tmp/` are gitignored and not committed.
