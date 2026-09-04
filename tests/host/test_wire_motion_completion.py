@@ -141,6 +141,49 @@ def test_wheels_v_natural_timeout_then_poll_clears_the_obligation_flag(wa):
     assert not wa.has_live_motion_obligation()
 
 
+def test_wheels_v_natural_timeout_self_resolves_via_has_live_motion_obligation_alone(wa):
+    """CM-02's own acceptance criterion, taken literally: arm a
+    short-timeout verb via the WireAdapter test seam, let it finish, and
+    confirm hasLiveMotionObligation() reads false on the very next call
+    with NO intervening lastDone()/lastDoneReason() call anywhere.
+
+    For a lease-style verb like WHEELS_V, the raw deadline check alone
+    already reads false once `now` passes the deadline (that was true
+    before this ticket too) -- what this test adds is proving that
+    has_live_motion_obligation() ALONE also performs a REAL commit, not
+    just a time-window read: the sibling test above
+    (test_wheels_v_natural_timeout_then_poll_clears_the_obligation_flag)
+    shows the wraparound-immunity a last_done_reason()-driven commit
+    gives; this shows has_live_motion_obligation() gives the SAME
+    immunity entirely on its own, and that the commit it makes is
+    visible afterward through last_done_reason() too -- proving it is a
+    real, shared resolution, not a private effect of this one accessor.
+    """
+    _ready(wa)
+    wa.set_now_ms(1000)
+
+    wa.feed(b"WHEELS_V 100 100 1000 #1\n")  # deadline 2000
+    assert wa.take_sink() == _ack(1)
+
+    wa.set_now_ms(2001)  # past the deadline -- naturally timed out
+
+    # The ONLY call since the deadline elapsed -- no last_done() or
+    # last_done_reason() anywhere before it.
+    assert not wa.has_live_motion_obligation()
+
+    # Jump the clock back inside the ORIGINAL lease window (1000..2000):
+    # if the call above had only performed the raw time check (not a
+    # real resolvePendingIfDue() commit), this would read true again --
+    # the same wraparound-style hazard the sibling test above documents
+    # for the last_done_reason()-driven path.
+    wa.set_now_ms(1500)
+    assert not wa.has_live_motion_obligation()
+
+    # And the resolution is independently observable via the OTHER
+    # accessor, confirming it was a real, committed kTimeout.
+    assert wa.last_done_reason() == DONE_TIMEOUT
+
+
 def test_move_x_deadline_elapses_before_reaching_goal_reports_timeout(wa):
     """GOAL-DIRECTED verb, the OTHER half of kTimeout: MOVE_X's own
     deadline elapses while MotionEngine's move-engine state is STILL
@@ -178,7 +221,12 @@ def test_move_x_reaching_its_own_goal_early_reports_stop(wa):
     """GOAL-DIRECTED verb: the move reaches distDone/yawDone (a REAL
     encoder position, armed via FakeMotor) well before its own generous
     deadline -- distinguished from kTimeout by engineMoveActive() going
-    false while hasLiveMotionObligation() is STILL true."""
+    false while the wire lease deadline itself has NOT yet elapsed
+    (resolvePendingReason()'s own distinguishing signal, unchanged by
+    ticket 003). Ticket 003 makes hasLiveMotionObligation() ITSELF
+    resolve this immediately (see the assertion below) -- unlike
+    before, where only last_done()/last_done_reason() did that, leaving
+    hasLiveMotionObligation() reading true regardless."""
     _ready(wa)
     wa.set_now_ms(1000)
     cpm = wa.counts_per_mm()
@@ -216,28 +264,34 @@ def test_move_x_reaching_its_own_goal_early_reports_stop(wa):
 
     # Nowhere near the 5000ms deadline (now is still ~1000-1050ms) --
     # this is a REAL early completion, not a coincidental deadline hit.
-    assert wa.has_live_motion_obligation()
+    # Ticket 003: merely ASKING has_live_motion_obligation() now resolves
+    # and clears it, so this reads false -- not because the lease
+    # expired (it has 3950ms left), but because the motion is genuinely
+    # done. last_done()/last_done_reason() below report the same
+    # already-committed resolution.
+    assert not wa.has_live_motion_obligation()
     assert wa.last_done() == 1
     assert wa.last_done_reason() == DONE_STOP
 
 
-def test_move_x_reaching_its_own_goal_early_then_poll_clears_the_obligation_flag(wa):
-    """sprint 016 ticket 003 (closing wire-motion-obligation-never-clears.md):
-    the GOAL-DIRECTED counterpart of
+def test_move_x_reaching_its_own_goal_early_self_resolves_via_has_live_motion_obligation(wa):
+    """Closes clear-motion-obligation-on-the-fiber-loop-and-tlm-now's
+    CM-02: the GOAL-DIRECTED counterpart of
     test_wheels_v_natural_timeout_then_poll_clears_the_obligation_flag
-    above, and the scenario this ticket actually exists for -- unlike a
-    lease-style verb, a goal-directed move can reach its own goal LONG
-    before its declared `timeout`. Pre-fix, motionObligationActive_ stayed
-    armed until that full declared timeout elapsed (or an explicit
-    STOP/ESTOP) even though the move had already finished -- so
-    protocol.cpp's fiber loop (`hasLiveMotionObligation()` is its own tick
-    gate, protocol.cpp:355) kept ticking the kernel at 24 ms for the rest
-    of that window for no reason. Post-fix, polling last_done_reason()
-    (which observes the early kStop via engineMoveActive() going false)
-    also clears the obligation immediately, well before the 5000ms
-    deadline -- no clock trickery needed here, unlike the lease-style
-    test above, because this early-completion gap is directly observable
-    with `now` never advancing past the real deadline at all."""
+    above, and the scenario the fiber-loop half of this fix exists for
+    -- unlike a lease-style verb, a goal-directed move can reach its own
+    goal LONG before its declared `timeout`. Before this fix,
+    motionObligationActive_ stayed armed until that full declared
+    timeout elapsed (or an explicit STOP/ESTOP) even though the move had
+    already finished, UNLESS something happened to also poll
+    last_done()/last_done_reason() -- and protocol.cpp's fiber loop polls
+    ONLY has_live_motion_obligation() every pass, never those two, so in
+    production the obligation genuinely never cleared until the full
+    declared window elapsed. After this fix, has_live_motion_obligation()
+    performs that same resolution itself, so THIS accessor alone --
+    still with no clock trickery, no `now` advance past 1000-1050ms, and
+    critically no last_done()/last_done_reason() call anywhere before
+    it -- already reads false the moment the move actually finishes."""
     _ready(wa)
     wa.set_now_ms(1000)
     cpm = wa.counts_per_mm()
@@ -260,16 +314,19 @@ def test_move_x_reaching_its_own_goal_early_then_poll_clears_the_obligation_flag
     assert not still_active
     assert not wa.engine_move_active()
 
-    # Nowhere near the 5000ms deadline (now is still ~1000-1050ms).
-    assert wa.has_live_motion_obligation()
-    assert wa.last_done_reason() == DONE_STOP  # polls resolvePendingIfDue()
-
-    # The declared timeout has NOT elapsed -- pre-fix, the internal flag
-    # stayed armed regardless, so hasLiveMotionObligation()'s time gate
-    # alone would still read true here. Post-fix, resolvePendingIfDue()'s
-    # own commit (triggered by last_done_reason() just above) already
-    # cleared it.
+    # Nowhere near the 5000ms deadline (now is still ~1000-1050ms), and
+    # -- the point of this test -- NOTHING has polled last_done() or
+    # last_done_reason() yet. This has_live_motion_obligation() call is
+    # the very first read of anything on this adapter since the early
+    # completion above.
     assert not wa.has_live_motion_obligation()
+
+    # The resolution it just performed is real, not a side effect
+    # local to this one accessor: last_done_reason() reports the SAME
+    # already-committed kStop, read fresh from the pair the call above
+    # already settled.
+    assert wa.last_done() == 1
+    assert wa.last_done_reason() == DONE_STOP
 
 
 def test_explicit_stop_ends_a_pending_lease_style_motion_as_stop(wa):
@@ -569,21 +626,30 @@ def test_obligation_window_narrows_after_natural_completion(wa):
     `cyc` (diagValue(16), telemetry's own `cyc` column) advances
     (shims.cpp: kernel.step() is called nowhere outside tickDrive()).
 
-    BEFORE ticket 003 (verified directly against the pre-fix
-    wire_adapter.cpp via `git stash`, recorded in ticket 003's own
-    Findings): hasLiveMotionObligation() stays true for the ENTIRE
-    declared timeout regardless of when the move actually finishes, or
-    until an explicit STOP/ESTOP -- polling lastDone()/lastDoneReason() in
-    between changes nothing pre-fix, because resolvePendingIfDue()/
-    forceResolvePending() never touched motionObligationActive_ then.
+    Two fixes' worth of history are folded into this one test:
 
-    AFTER ticket 003 (asserted here, against the current, fixed code): the
-    window closes as soon as something next polls
-    lastDone()/lastDoneReason() following the real completion -- which in
-    production only happens via WireHandler::replyAck()/replyNack() (S8.8,
-    wire_handler.cpp:583-593: read fresh on every ack/nack, i.e. on the
-    NEXT wire line of ANY kind, not only another motion verb), simulated
-    here by the direct last_done_reason() poll below.
+    BEFORE sprint 016 ticket 003: hasLiveMotionObligation() -- the ONLY
+    thing protocol.cpp's fiber loop ever polled -- stayed true for the
+    ENTIRE declared timeout regardless of when the move actually
+    finished, or until an explicit STOP/ESTOP; polling
+    lastDone()/lastDoneReason() in between changed nothing pre-fix,
+    because resolvePendingIfDue()/forceResolvePending() never touched
+    motionObligationActive_ at all.
+
+    AFTER sprint 016 ticket 003, BEFORE this sprint's own CM-02 fix:
+    lastDone()/lastDoneReason() (reached via WireHandler::replyAck()/
+    replyNack()/STATUS in production, S8.8: read fresh on every ack/nack)
+    now self-resolved and cleared the obligation -- but
+    hasLiveMotionObligation() ITSELF still did not, so a caller that
+    (like protocol.cpp's own fiber loop) polls only that one accessor
+    still saw the obligation stay live for the whole declared window.
+    That is exactly the gap CM-02 closes.
+
+    AFTER this sprint's CM-02 fix (asserted here, against the current,
+    fixed code): the window closes the instant ANYTHING next polls
+    hasLiveMotionObligation() -- simulated here by the direct call
+    itself below, with no last_done()/last_done_reason() call anywhere
+    before it.
     """
     _ready(wa)
     wa.set_now_ms(0)
@@ -616,10 +682,16 @@ def test_obligation_window_narrows_after_natural_completion(wa):
                          # mirrors the existing tests' own "~1000-1050ms
                          # against a several-thousand-ms deadline" shape
     wa.set_now_ms(completion_ms)
-    assert wa.has_live_motion_obligation()  # nothing has POLLED yet
 
-    assert wa.last_done_reason() == DONE_STOP  # the poll that notices it
-    assert not wa.has_live_motion_obligation()  # post-003: closes right here
+    # The window closes right here -- has_live_motion_obligation() is
+    # the very first thing polled since the completion above, and it
+    # now performs its own resolution (CM-02) rather than requiring a
+    # separate last_done()/last_done_reason() call first.
+    assert not wa.has_live_motion_obligation()
+
+    # The commit it just made is real, not local to that one accessor --
+    # last_done_reason() reports the same already-settled kStop.
+    assert wa.last_done_reason() == DONE_STOP
 
     # Quantify what this saves: pre-003, the fiber would have kept calling
     # tickDrive() (and therefore kernel.step()) roughly once per 24 ms for

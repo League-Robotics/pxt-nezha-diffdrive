@@ -1174,4 +1174,14 @@ int waHasLiveTelemetry(void* handle) {
   return static_cast<WaHandle*>(handle)->adapter.telemetryEnabled() ? 1 : 0;
 }
 
+// The real WireAdapter::consumeOneShotTelemetry() -- lets a test drive
+// TLM NOW's own one-shot arm/consume cycle directly, the same way
+// waOnTlm() above already exposes onTlm() directly, bypassing the wire
+// grammar entirely.
+int waConsumeOneShotTelemetry(void* handle) {
+  return static_cast<WaHandle*>(handle)->adapter.consumeOneShotTelemetry()
+             ? 1
+             : 0;
+}
+
 }  // extern "C"

@@ -727,6 +727,32 @@ window regardless. `resolvePendingIfDue()` and `forceResolvePending()`
 the moment either one commits a resolution — the natural-completion
 path that was the actual gap.
 
+**Sprint 030 (CM-02): the sprint 016 fix only fired when something
+polled it.** `resolvePendingIfDue()` was reached from exactly two
+places — `lastDone()` and `lastDoneReason()` — both driven by a host
+explicitly asking "are you done" (`replyAck`/`replyNack`/`STATUS`).
+Nothing called either one from protocol.cpp's own `run()` loop, which
+instead read `hasLiveMotionObligation()` directly to decide whether to
+call `tickDrive()` — a check that read `motionObligationActive_` and
+the deadline, but never resolved a completed-but-unpolled motion
+first. A host that sent a timed verb, learned (by any means other than
+`STATUS`/`lastDone`) that it finished early, and immediately sent a
+cleartext `RUN:tour` got it refused by `dispatchJob()`'s
+`motionOwner_ != kNone` gate for the rest of the original verb's
+declared duration, even though the kernel had been idle since the
+verb's own goal was reached. **Fix:** `hasLiveMotionObligation()` now
+calls `resolvePendingIfDue()` first, so the one check `run()`'s loop
+already makes every pass is also the one place a stale-but-finished
+obligation gets cleared — no second poll site added to `run()`. The
+internal raw deadline test that method used to BE is split out as
+`motionObligationDeadlineLive()`, a private helper `resolvePendingReason()`
+now calls instead — `hasLiveMotionObligation()` resolves first and
+`resolvePendingReason()` runs INSIDE that resolution, so the two must
+never call each other. This is additive to the sprint 016 fix, not a
+replacement for it: `lastDone()`/`lastDoneReason()` still resolve
+eagerly for a host that does poll; this closes the case where nothing
+does.
+
 **Telemetry projection (sprint 004 ticket 004).** `buildSnapshot()`
 returns a `const Wire::Snapshot&` into a member (mirroring
 radio-robot-lib's own `DiffDriveAdapter::buildSnapshot()`), built from
@@ -757,6 +783,23 @@ a session with no subscriber (see §8's Fiber loop). `computeFlags()`
 (wire_adapter.cpp, anonymous namespace) is now the single source both
 `status()` and `buildSnapshot()` read, so STATUS's `flags=`/`i2cf=`
 and the telemetry `flags`/`i2cf` columns can never drift apart.
+
+**Sprint 030 (CM-04): `TLM NOW` actually does something.** Through
+sprint 029, `onTlm(TlmMode::kNow)` acked `kOk` and changed nothing —
+no code anywhere ever emitted a frame in response, so a host with
+telemetry off had no way to ask for a single pose fix without
+subscribing to a stream it would then have to unsubscribe from.
+`onTlm()` now sets a `oneShotTelemetryDue_` flag on `kNow` (still never
+writing `mode_`, preserving the "does not change the current
+subscription" contract). `consumeOneShotTelemetry()` reads and clears
+that flag in one call; `Protocol::serviceOnce()` calls it once per
+fiber pass, UNGATED by the periodic emission timer and by
+`telemetryEnabled()` — a one-shot request must be served on the very
+next pass regardless of subscription state, not wait for either. When
+due, it builds and emits one `thdr`+`t` pair on every enabled
+transport, via the exact same `buildSnapshot()`/`emitTelemetry()` pair
+the periodic path already uses (called one additional time, not
+duplicated).
 
 **Motion-completion resolution (sprint 005 ticket 004).**
 `lastDone()`/`lastDoneReason()` are the wire's completion channel, not
@@ -1042,10 +1085,50 @@ unwrapped, matching `shims.cpp`'s existing odometry contract (§3's
 conventions). Host-portable and host-tested the same way
 `FakePoseSource` already is.
 
-**Bus discipline (system invariant).** The Nezha brick and the OTOS
-share one I2C bus. Every OTOS transaction must run on the same fiber
-that ticks the kernel; an OTOS read interposed in the encoder's
-select→read settle window destroys the encoder sample.
+**Bus discipline (system invariant; structural as of sprint 030).** The
+Nezha brick and the OTOS share one I2C bus. Every OTOS transaction must
+run on the same fiber that ticks the kernel; an OTOS read interposed in
+the encoder's select→read settle window destroys the encoder sample
+(the documented Phase-F signature, `platform/nezha_port.cpp`).
+
+Through sprint 029 this was a documented convention enforced at exactly
+one call site: `tickDrive()`'s own inline `stepBusy` bool serialized
+`kernel.step()` against a second concurrent `tickDrive()` call, but
+nothing else on the bus took it — every OTOS shim entry point
+(`otosBegin`/`otosRead`/`otosZero`/`otosCalibrate`/`otosSetOffset`/
+`seedPose`, plus `otosGet`'s own `case 8` read, in `shims.cpp`) issued
+I2C unconditionally, `SET rebase`'s OTOS zero ran synchronously on
+whichever fiber called it, and `test.ts` ran a free-running
+`control.inBackground` sampler with no mutual exclusion against the bus
+at all. Any one of those landing inside the encoder's settle window hit
+the same failure mode.
+
+**Sprint 030** promotes `stepBusy` from that bare bool to `BusGuard`
+(`core/bus_guard.h` — host-portable, no `pxt.h`, alongside
+`encoder_glitch_armor.h`/`heading_wrap.h`): `acquire(Sleeper&)` spins
+`while (busy_) sleeper.sleepMillis(1)` then claims the bus (byte-
+identical to the old inline loop, extracted so `tests/host/
+test_bus_guard.py` can script it against a fake sleeper), `release()`
+clears it. `Rig::stepBusy` (`shims.cpp`) becomes `Rig::busGuard`, held
+by `tickDrive()` around `kernel.step()` and by all seven OTOS call
+sites above (the six named entry points, plus `otosGet`'s `case 8`) —
+each a short acquire/I2C-call/release bracket, provably (a source-pin
+test walks `otos_port.cpp`'s own I2C surface and confirms every
+`shims.cpp` caller of it is guarded) rather than by convention alone.
+`SET rebase`'s OTOS zero becomes a deferred `Rig::pendingOtosZero`
+flag, performed inside `tickDrive()` immediately after `busGuard`
+releases from that tick's own `kernel.step()` — the same deferred-
+request shape `kernel.rebasePosition()` already uses — rather than a
+second fiber's synchronous write racing the guard. `test.ts`'s OTOS
+sampler moves from that free-running background fiber into
+`tickToCompletion()`, the one tick loop every tour/pivot/leg already
+runs through, sampled every `OTOS_SAMPLE_TICKS` ticks on the SAME fiber
+that is already ticking; `startDrive()`'s own background loop
+(`blocks/motion.ts`) samples `readWorld()` itself for the same reason.
+The known behavior change: telemetry's `ox`/`oy`/`oh` now update only
+while something is actively ticking, not continuously while the robot
+sits idle between moves — an accepted trade, not a regression nobody
+decided on.
 
 **Yield discipline (system invariant).** The build enables the hardware
 FPU (`-mfpu=fpv4-sp-d16 -mfloat-abi=softfp`) and **CODAL's context
@@ -1115,10 +1198,14 @@ report different `seq`/`now` to serial vs radio for what should read
 as the same instant; with telemetry off (the boot default, or on any
 tick where no host has subscribed), the tick emits nothing at all —
 2026-08-26: `emitReliability()` is deleted (no unsolicited ack/nack on
-any path; §"Reliability layer" above); and while
-`wireAdapter_.hasLiveMotionObligation()`, call `tickDrive()` itself
-(the fiber is the tick source for wire-issued motion), else
-`fiber_sleep(5)`.
+any path; §"Reliability layer" above); every pass, independent of that
+50 ms timer, `wireAdapter_.consumeOneShotTelemetry()` (CM-04, sprint
+030) is checked and, if a `TLM NOW` is due, one extra
+`buildSnapshot()`/`emitTelemetry()` round goes out on every enabled
+transport regardless of subscription state; and while
+`wireAdapter_.hasLiveMotionObligation()` (itself now self-resolving,
+CM-02, sprint 030), call `tickDrive()` itself (the fiber is the tick
+source for wire-issued motion), else `fiber_sleep(5)`.
 
 **Sprint 028: one execution model, not three.** Before this sprint,
 wire motion ticked on this fiber (above) while `RUN:` motion ticked on
@@ -1138,7 +1225,7 @@ MessageBus event for a second fiber to pick up. A running job's own
 tick loop still exists (its explicit `startMove()` + `driveTick()`
 shape, which `test/test.ts` calls deliberately, is unchanged) — only
 *which fiber* advances its iterations changes: a service hook fires
-after `stepBusy = false` and before this loop's own pacing sleep,
+after `busGuard` releases and before this loop's own pacing sleep,
 letting the job's tick loop advance one iteration per pass of this
 same fiber, the same "invert the pump, don't move the tick" decision
 sprint 026's Design Rationale already reasoned through (arming the
@@ -1219,7 +1306,7 @@ graph TD
     TSDispatch -->|student onRun handler, own MessageBus fiber| StudentCode[Student RUN / button handler]
     StudentCode -->|startMove/driveTwist/engineGoToRArmed: takes kBlock| MotionOwner
     Protocol -->|motionOwner_ arbitration: kNone/kWire/kJob/kBlock| MotionOwner{motionOwner_}
-    MotionOwner -->|tickDrive after stepBusy=false| Rig[shims.cpp Rig / DifferentialDrive kernel]
+    MotionOwner -->|tickDrive, busGuard held only around kernel.step| Rig[shims.cpp Rig / DifferentialDrive kernel]
     Protocol -->|serviceHookEntry: fiber identity check, not motionOwner_| ServiceHook{currentFiber == protocolFiberId_?}
     ServiceHook -->|only the protocol fiber's own tickDrive call| Protocol
     Protocol -->|every yield| VfpGuard[vfp_guard.h]
@@ -1341,8 +1428,10 @@ Pieces the kernel deliberately does not contain:
 - **Tick engine** (`tickDrive()`): one `kernel.step()` +
   `serviceMove()` on the caller's fiber, then absolute-deadline
   self-pacing to the kernel's configured 24 ms cadence (re-anchored
-  after gaps). A cooperative-fiber `stepBusy` flag serializes
-  concurrent tickers. **Sprint 008**: on the tick that ends a move,
+  after gaps). `Rig::busGuard` (`core/bus_guard.h`, promoted from a
+  bare `stepBusy` bool in sprint 030 — see §7's "Bus discipline")
+  serializes concurrent tickers and every OTOS shim entry point alike.
+  **Sprint 008**: on the tick that ends a move,
   `tickDrive()` now calls a new `MotionEngine` settle helper instead of
   running its own inline loop — the helper steps the kernel up to 12
   times, breaking early once both wheels measure at rest, identical

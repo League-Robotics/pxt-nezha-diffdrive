@@ -686,6 +686,28 @@ void Protocol::serviceOnce() {
     }
     lastEmit_ = now;
   }
+
+  // TLM NOW's one-shot frame: independent of the periodic timer just
+  // above and of whether a subscription is even active -- see
+  // WireAdapter::consumeOneShotTelemetry()'s own comment for why a
+  // one-shot request must not wait for either. Reuses the exact same
+  // buildSnapshot()/emitTelemetry() pair the periodic block above uses,
+  // called one additional time here rather than through any new
+  // emission path, and mirrors that block's own per-transport gating
+  // exactly so a one-shot frame reaches every transport a periodic one
+  // would have.
+  if (wireAdapter_.consumeOneShotTelemetry()) {
+    const Wire::Snapshot& snapshot = wireAdapter_.buildSnapshot();
+    wireHandler_.emitTelemetry(snapshot);
+    if (radioEnabled_) {
+      wireHandlerRadio_.emitTelemetry(snapshot);
+    }
+    if (wifiEnabled_ && wifiLink_.telemetryAllowed()) {
+      wifiLink_.markTelemetry(true);
+      wireHandlerWifi_.emitTelemetry(snapshot);
+      wifiLink_.markTelemetry(false);
+    }
+  }
 }
 
 void Protocol::run() {

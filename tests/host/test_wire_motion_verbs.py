@@ -325,6 +325,8 @@ def _bind(lib):
     lib.waOnTlm.restype = ctypes.c_int
     lib.waHasLiveTelemetry.argtypes = [ctypes.c_void_p]
     lib.waHasLiveTelemetry.restype = ctypes.c_int
+    lib.waConsumeOneShotTelemetry.argtypes = [ctypes.c_void_p]
+    lib.waConsumeOneShotTelemetry.restype = ctypes.c_int
 
     # sprint 028 ticket 002: `rebase`/`estop_clear` -- the real kernel's
     # own positionEpochLeft/Right (the observable proof rebasePosition()
@@ -759,6 +761,14 @@ class WireAdapterHandle:
 
     def has_live_telemetry(self):
         return bool(self._lib.waHasLiveTelemetry(self._handle))
+
+    def consume_one_shot_telemetry(self):
+        """Calls the REAL WireAdapter::consumeOneShotTelemetry() -- reads
+        and clears the TLM NOW one-shot flag in a single call, the same
+        way the real method is meant to be called exactly once by
+        whichever code (here, the test itself) is about to build and
+        emit the frame."""
+        return bool(self._lib.waConsumeOneShotTelemetry(self._handle))
 
     # ---- sprint 028 ticket 002: rebase/estop_clear ----------------------
 

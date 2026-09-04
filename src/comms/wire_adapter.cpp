@@ -773,12 +773,26 @@ Wire::Result WireAdapter::onStop(bool /*immediate*/, uint32_t /*id*/) {
   return Wire::Result::kOk;
 }
 
-bool WireAdapter::hasLiveMotionObligation() const {
+bool WireAdapter::motionObligationDeadlineLive() const {
   if (!motionObligationActive_ || now_ == nullptr) return false;
   const uint32_t sample = now_();  // [ms]
   // Wraparound-safe elapsed check (signed-difference idiom), same one
   // sprint 002's original obligation tracking used in protocol.cpp.
   return static_cast<int32_t>(sample - motionObligationDeadline_) < 0;
+}
+
+bool WireAdapter::hasLiveMotionObligation() const {
+  // Resolve a completed-but-unpolled motion FIRST -- this is what lets
+  // a caller that polls only THIS accessor (protocol.cpp's fiber loop
+  // is exactly that caller) see the obligation clear itself the moment
+  // the motion actually finished, not only after something else also
+  // happens to call lastDone()/lastDoneReason(). resolvePendingIfDue()
+  // reaches resolvePendingReason(), which reads
+  // motionObligationDeadlineLive() directly rather than this method --
+  // see that method's own comment (wire_adapter.h) for why calling
+  // back into this method from there would recurse.
+  resolvePendingIfDue();
+  return motionObligationDeadlineLive();
 }
 
 // ---- sprint 005 ticket 004: motion-completion resolution (S8.8) --------
@@ -806,18 +820,18 @@ Wire::DoneReason WireAdapter::resolvePendingReason() const {
     // condition EARLY (kStop); already elapsed means the deadline is
     // what ended it (kTimeout).
     if (engineMoveActive()) return Wire::DoneReason::kNone;
-    return hasLiveMotionObligation() ? Wire::DoneReason::kStop
-                                      : Wire::DoneReason::kTimeout;
+    return motionObligationDeadlineLive() ? Wire::DoneReason::kStop
+                                           : Wire::DoneReason::kTimeout;
   }
   // WHEELS_V/WHEELS_X/MOVE_V: no engine read needed -- these resolve
   // entirely from the SAME lease-deadline bookkeeping
-  // hasLiveMotionObligation() already provides ("no new dependency
+  // motionObligationDeadlineLive() already provides ("no new dependency
   // needed for these three verbs," sprint.md's own Design Rationale).
   // A still-live lease means not yet resolved; an elapsed one with
   // nothing having superseded or stopped it (both handled elsewhere,
   // see forceResolvePending()) means it simply ran out the clock.
-  return hasLiveMotionObligation() ? Wire::DoneReason::kNone
-                                    : Wire::DoneReason::kTimeout;
+  return motionObligationDeadlineLive() ? Wire::DoneReason::kNone
+                                         : Wire::DoneReason::kTimeout;
 }
 
 void WireAdapter::resolvePendingIfDue() const {
@@ -832,7 +846,7 @@ void WireAdapter::resolvePendingIfDue() const {
   // clearing point that was missing before (only onEstop()/onStop() ever
   // cleared this flag). `reason` was computed by resolvePendingReason()
   // just above, which itself reads the pre-clear value of
-  // motionObligationActive_ (via hasLiveMotionObligation()) for the
+  // motionObligationActive_ (via motionObligationDeadlineLive()) for the
   // lease-style branch -- so clearing it AFTER that read, not before, is
   // required for correctness here too, same ordering rule onStop()'s own
   // comment documents for forceResolvePending() below.
@@ -964,15 +978,29 @@ Wire::Result WireAdapter::onTlm(Wire::TlmMode mode) {
   if (mode == Wire::TlmMode::kBuffer) return Wire::Result::kUnimplemented;
   // TLM NOW is a one-shot request in the CURRENT subscription's shape,
   // not a new subscription (protocol.md S6.1: "does not change mode") --
-  // so it is deliberately never stored into mode_. TLM AUTO is a
+  // so it is deliberately never stored into mode_. Instead it arms
+  // oneShotTelemetryDue_, which consumeOneShotTelemetry() (below) hands
+  // to protocol.cpp's fiber loop -- previously this arm was the ONLY
+  // thing missing: nothing ever read a "one-shot due" signal, so TLM
+  // NOW acked kOk and emitted nothing at all. TLM AUTO is a
   // documented ALIAS for TLM POSE as of this same ticket -- it stores
   // mode_ = kAuto here like any other mode, but buildSnapshot() below
   // already treats every stored mode other than kFull identically, so
   // kAuto needs no separate branch there to behave exactly like kPose
   // (same 12 columns, same cadence). Everything else (kOff/kPose/kFull/
   // kAuto) becomes the persisted mode.
-  if (mode != Wire::TlmMode::kNow) mode_ = mode;
+  if (mode == Wire::TlmMode::kNow) {
+    oneShotTelemetryDue_ = true;
+  } else {
+    mode_ = mode;
+  }
   return Wire::Result::kOk;
+}
+
+bool WireAdapter::consumeOneShotTelemetry() {
+  if (!oneShotTelemetryDue_) return false;
+  oneShotTelemetryDue_ = false;
+  return true;
 }
 
 bool WireAdapter::telemetryEnabled() const {
