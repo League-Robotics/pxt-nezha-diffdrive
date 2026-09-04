@@ -1,0 +1,85 @@
+I0904 12:33:58.995984 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998139 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998143 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998145 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998146 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998149 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998151 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998152 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998153 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998155 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998156 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998157 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998158 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998159 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998160 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998162 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998334 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998338 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998340 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998341 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998342 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998344 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998345 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998346 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998347 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998348 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998349 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998350 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998352 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998353 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998354 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998355 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998356 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998357 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998359 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998360 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998361 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998363 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998364 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998365 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998366 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998367 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998368 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998369 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998370 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998371 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998386 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998388 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998389 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998390 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998391 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998392 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998395 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+I0904 12:33:58.998396 14134219 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(5, generation: 1)
+status: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=0 cyc=42 tlm=off next=1 done=6 reason=stop
+home (  -4.7,  27.5) h=-177.6
+
+step                     expected   measured      err  result
+turn +90 deg               +90.0d     +80.7d    -9.3d  **FAIL**
+turn +180 deg             +180.0d      -1.4d  +178.6d  **FAIL**
+turn +90 deg               +90.0d     +77.3d   -12.7d  **FAIL**
+drive +20 cm                20.0c      19.5c    -0.5c  PASS  (bearing off +2 deg)
+drive -40 cm                40.0c      13.4c   -26.6c  **FAIL**  (bearing off -3 deg)
+drive +20 cm                20.0c      19.5c    -0.5c  PASS  (bearing off +0 deg)
+
+returned home                0.0c      26.4c   +26.4c  **FAIL**
+
+ACCURACY (not a gate): net heading drift over the three pivots +153.6 deg, i.e. +51.2 deg per 90 deg pivot.
+  ^ worth retuning stop_distance before precision work.
+
+DANCE FAILED: turn +90, turn +180, turn +90, drive -40, return home
+Do NOT drive the field until this passes.
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+VER -> ['ver 1.20260903.1']
+STATUS -> ['status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none']
+GET rotational_slip #1 -> ['ack 1 0 none', 'get rotational_slip 1.010000']
+GET lag #2 -> ['ack 2 0 none', 'get lag 0.100000']
+GET stop_distance #3 -> ['ack 3 0 none', 'get stop_distance 0.000000']
+pose before (-0.22953855327759057, 27.413402453136143, -176.54257467245029)
+pose after  (-4.68530110700623, 27.443836631512955, -177.45540966347534)
+PROBE: moved 4.46 cm at bearing 179.6; daemon heading -176.5; bearing - heading = -3.8 deg -> FORWARD (PASS)
+back at (-4.68651993470458, 27.439039866431443, -177.58112648500142)
+corridor pose (-4.682246908446199, 27.45997634964373, -177.58112648500142)
+--- field_dance:

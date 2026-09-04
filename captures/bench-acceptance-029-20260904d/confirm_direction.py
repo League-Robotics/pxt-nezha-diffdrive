@@ -57,11 +57,17 @@ print(f'PROBE: moved {math.hypot(dx,dy):.2f} cm at bearing {b:.1f}; daemon headi
 move('MOVE_X -50 0 100 5000'); p2 = pose(); print('back at', p2)
 if abs(off) >= 20:
     L.close(); raise SystemExit('direction still wrong -- stopping')
-# to the south corridor
+# NORTH half only now (stakeholder 2026-09-04 12:50): stay in y in [8, 33]
 p = pose()
-if p[1] > -20:
-    face(-90.0); move(f'MOVE_X {int(round((p[1] + 25) * 10))} 0 150 10000')
-p = face(0.0); print('corridor pose', p)
+if p[1] < 8:
+    face(90.0); move(f'MOVE_X {int(round((25 - p[1]) * 10))} 0 150 10000')
+p = pose(); print('corridor pose', p)
+if not (8 <= p[1] <= 33): raise SystemExit('not in the north corridor -- not running the dance')
+# the dance drives +20/-40/+20 cm along the current heading: project it
+import math as _m
+for d in (20, -20, 20):
+    ex = p[0] + d * _m.cos(_m.radians(p[2])); ey = p[1] + d * _m.sin(_m.radians(p[2]))
+    if abs(ex) > 55 or not (8 <= ey <= 33): raise SystemExit(f'dance leg would reach ({ex:.0f},{ey:.0f}) -- outside the north corridor')
 L.close()
 print('--- field_dance:')
 subprocess.run([sys.executable, 'tools/field_dance.py', '--tcp', sys.argv[1]])

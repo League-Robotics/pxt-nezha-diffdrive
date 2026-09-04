@@ -1,0 +1,85 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=37 cyc=2603 tlm=off next=1 done=18 reason=timeout']
+SET stall_clear 1 #1 -> ['ack 1 18 timeout']
+RUN:clearestop -> ['ESTOP:cleared']
+pose (20.17684744823725, 12.824804012614042, 13.276677348177445)
+TLM FULL #2 -> ['ack 2 18 timeout']
+--- MOVE_X -200 0 150 6000: ['ack 3 18 timeout']; camera moved 19.6 cm at -169 (heading 14), dh -0.8; frames 97
+    0.00s vl     0 vr     0 dutl      0 dutr      0 posl   2563 posr   7275 h   188.7 flags 31
+    1.58s vl     0 vr     0 dutl   -800 dutr   -800 posl   2563 posr   7275 h   188.7 flags 31
+    1.65s vl   -39 vr   -56 dutl  -1600 dutr  -1500 posl   2543 posr   7238 h   188.1 flags 31
+    1.72s vl  -102 vr  -102 dutl  -2200 dutr  -2100 posl   2479 posr   7163 h   187.6 flags 31
+    1.79s vl  -148 vr  -164 dutl  -2500 dutr  -2300 posl   2365 posr   7019 h   186.4 flags 31
+    1.86s vl  -174 vr  -200 dutl  -2500 dutr  -2100 posl   2215 posr   6841 h   185.3 flags 31
+    1.94s vl  -174 vr  -190 dutl  -2500 dutr  -1800 posl   2057 posr   6661 h   184.4 flags 31
+    2.01s vl  -164 vr  -164 dutl  -2500 dutr  -1600 posl   1910 posr   6502 h   183.9 flags 31
+    2.08s vl  -171 vr  -154 dutl  -2400 dutr  -1500 posl   1752 posr   6361 h   184.6 flags 31
+    2.15s vl  -184 vr  -138 dutl  -2300 dutr  -1500 posl   1593 posr   6230 h   185.8 flags 31
+    2.22s vl  -164 vr  -128 dutl  -2200 dutr  -1500 posl   1449 posr   6102 h   186.4 flags 31
+    2.30s vl  -144 vr  -144 dutl  -2200 dutr  -1600 posl   1310 posr   5975 h   186.9 flags 31
+    2.37s vl  -164 vr  -148 dutl  -2100 dutr  -1600 posl   1163 posr   5841 h   187.4 flags 31
+    2.44s vl  -144 vr  -138 dutl  -2100 dutr  -1700 posl   1027 posr   5713 h   187.7 flags 31
+    2.51s vl  -154 vr  -128 dutl  -2200 dutr  -1700 posl    885 posr   5586 h   188.3 flags 31
+    2.58s vl  -154 vr  -154 dutl  -2200 dutr  -1800 posl    746 posr   5494 h   190.2 flags 31
+    2.66s vl  -144 vr  -148 dutl  -2200 dutr  -1500 posl    610 posr   5313 h   188.4 flags 31
+    2.73s vl  -144 vr  -128 dutl  -1900 dutr  -1300 posl    477 posr   5191 h   188.8 flags 31
+    2.80s vl  -135 vr  -108 dutl  -1400 dutr  -1000 posl    349 posr   5083 h   189.6 flags 31
+    2.87s vl   -92 vr   -72 dutl  -1000 dutr   -700 posl    254 posr   5000 h   190.1 flags 31
+    2.94s vl   -69 vr   -53 dutl   -900 dutr   -600 posl    189 posr   4936 h   190.1 flags 31
+    3.02s vl   -48 vr   -62 dutl   -800 dutr   -600 posl    141 posr   4880 h   189.8 flags 31
+    3.09s vl   -46 vr   -53 dutl   -900 dutr   -700 posl    100 posr   4836 h   189.7 flags 31
+    3.17s vl     0 vr     0 dutl      0 dutr      0 posl     61 posr   4788 h   189.3 flags 31
+    6.46s vl     0 vr     0 dutl      0 dutr      0 posl     61 posr   4788 h   189.3 flags 31
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=38 cyc=2855 tlm=full next=4 done=3 reason=timeout']
+--- MOVE_X 200 0 150 6000: ['ack 4 3 timeout']; camera moved 1.4 cm at 11 (heading 14), dh +1.0; frames 99
+    0.00s vl     0 vr     0 dutl      0 dutr      0 posl     61 posr   4788 h   189.3 flags 31
+    1.76s vl     8 vr    56 dutl   1200 dutr   1400 posl     66 posr   4808 h   189.9 flags 31
+    1.84s vl    72 vr   108 dutl   2000 dutr   1900 posl    111 posr   4880 h   191.0 flags 31
+    1.95s vl     0 vr     0 dutl      0 dutr      0 posl    204 posr   5008 h   192.4 flags 31
+    6.61s vl     0 vr     0 dutl      0 dutr      0 posl    204 posr   5008 h   192.4 flags 31
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=39 cyc=3108 tlm=full next=5 done=4 reason=timeout']
+--- MOVE_X 0 1571 100 5000: ['ack 5 4 timeout']; camera moved 1.0 cm at 102 (heading 16), dh +90.8; frames 111
+    0.00s vl     0 vr     0 dutl      0 dutr      0 posl    204 posr   5008 h   192.4 flags 31
+    2.36s vl     0 vr    36 dutl   -700 dutr    700 posl    204 posr   5019 h   192.8 flags 31
+    2.44s vl     0 vr    46 dutl  -1000 dutr   1200 posl    204 posr   5050 h   194.1 flags 31
+    2.51s vl   -56 vr    82 dutl  -1700 dutr   1800 posl    172 posr   5119 h   198.1 flags 31
+    2.58s vl   -82 vr   128 dutl  -2000 dutr   1900 posl    116 posr   5233 h   204.9 flags 31
+    2.65s vl  -118 vr   154 dutl  -2000 dutr   1700 posl     19 posr   5366 h   214.1 flags 31
+    2.72s vl  -118 vr   148 dutl  -1900 dutr   1500 posl    -92 posr   5497 h   223.8 flags 31
+    2.80s vl  -128 vr   108 dutl  -1800 dutr   1300 posl   -206 posr   5608 h   232.7 flags 31
+    2.87s vl  -102 vr    92 dutl  -1700 dutr   1200 posl   -306 posr   5708 h   240.7 flags 31
+    2.94s vl   -93 vr   110 dutl  -1700 dutr   1300 posl   -400 posr   5802 h   248.2 flags 31
+    3.01s vl  -111 vr    92 dutl  -1700 dutr   1200 posl   -495 posr   5897 h   255.8 flags 31
+    3.08s vl   -92 vr   108 dutl  -1500 dutr   1000 posl   -584 posr   5994 h   263.2 flags 31
+    3.16s vl   -92 vr    92 dutl  -1000 dutr    600 posl   -667 posr   6075 h   269.8 flags 31
+    3.23s vl   -56 vr    46 dutl   -600 dutr    300 posl   -728 posr   6125 h   274.2 flags 31
+    3.30s vl   -10 vr    46 dutl   -500 dutr    300 posl   -756 posr   6161 h   276.8 flags 31
+    3.37s vl   -20 vr    16 dutl   -600 dutr    300 posl   -773 posr   6180 h   278.2 flags 31
+    3.44s vl   -10 vr    20 dutl   -700 dutr    300 posl   -784 posr   6197 h   279.3 flags 31
+    3.52s vl   -20 vr    10 dutl   -600 dutr    300 posl   -795 posr   6208 h   280.2 flags 31
+    3.58s vl     0 vr     0 dutl      0 dutr      0 posl   -806 posr   6219 h   281.1 flags 31
+    7.23s vl     0 vr     0 dutl      0 dutr      0 posl   -806 posr   6219 h   281.1 flags 31
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=45 cyc=3318 tlm=full next=6 done=5 reason=timeout']
+--- MOVE_X 0 -1571 100 5000: ['ack 6 5 timeout']; camera moved 1.3 cm at -47 (heading 107), dh -89.9; frames 100
+    0.00s vl     0 vr     0 dutl      0 dutr      0 posl   -806 posr   6219 h   281.1 flags 31
+    1.82s vl     0 vr   -16 dutl    700 dutr   -600 posl   -806 posr   6208 h   280.6 flags 31
+    1.89s vl    36 vr   -46 dutl   1200 dutr  -1200 posl   -789 posr   6172 h   278.5 flags 31
+    1.96s vl    36 vr   -82 dutl   2000 dutr  -1800 posl   -756 posr   6113 h   274.9 flags 31
+    2.04s vl    82 vr  -128 dutl   2100 dutr  -1900 posl   -678 posr   6002 h   267.3 flags 31
+    2.11s vl   128 vr  -154 dutl   1900 dutr  -1700 posl   -567 posr   5869 h   257.6 flags 31
+    2.18s vl   128 vr  -128 dutl   1800 dutr  -1500 posl   -456 posr   5747 h   248.3 flags 31
+    2.25s vl   102 vr  -102 dutl   1600 dutr  -1300 posl   -350 posr   5641 h   239.8 flags 31
+    2.32s vl   112 vr  -121 dutl   1600 dutr  -1300 posl   -250 posr   5538 h   231.7 flags 31
+    2.40s vl   108 vr   -92 dutl   1600 dutr  -1300 posl   -156 posr   5452 h   224.5 flags 31
+    2.47s vl    92 vr   -92 dutl   1600 dutr  -1300 posl    -67 posr   5363 h   217.4 flags 31
+    2.54s vl    82 vr  -108 dutl   1400 dutr  -1100 posl     22 posr   5269 h   210.1 flags 31
+    2.61s vl    92 vr   -66 dutl   1000 dutr   -600 posl    105 posr   5191 h   203.7 flags 31
+    2.68s vl    56 vr   -52 dutl    700 dutr   -400 posl    161 posr   5136 h   199.2 flags 31
+    2.76s vl    26 vr   -28 dutl    500 dutr   -300 posl    194 posr   5108 h   196.8 flags 31
+    2.83s vl     8 vr   -17 dutl    800 dutr   -300 posl    207 posr   5091 h   195.6 flags 31
+    2.90s vl    10 vr   -16 dutl    500 dutr   -300 posl    227 posr   5072 h   194.1 flags 31
+    2.97s vl    10 vr   -20 dutl    600 dutr   -300 posl    243 posr   5063 h   193.1 flags 31
+    3.05s vl     0 vr     0 dutl      0 dutr      0 posl    254 posr   5058 h   192.4 flags 31
+    6.63s vl     0 vr     0 dutl      0 dutr      0 posl    254 posr   5058 h   192.4 flags 31
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=47 cyc=3528 tlm=full next=7 done=6 reason=timeout']
+TLM OFF #7 -> ['ack 7 6 timeout']

@@ -567,37 +567,40 @@ the firmware calls the front. Every statement of absolute facing in §7
 physically facing west and reversing along those legs. Confirmation
 run on the rebuilt firmware follows in §9.1.
 
-### 9.1 Confirmation run -- NOT COMPLETED: the board stopped actuating after the reflash, then tovez left the field
+### 9.1 Confirmation run -- PASSED (12:55-13:15, north half, motor-baked firmware)
 
-`confirm-direction.log`, `confirm-direction-2.log`, `wheel-identify.log`,
-`wheel-identify-2.log`. The motor-baked hex (`.tmp/deploy-head/built/
-binary.hex`, 1,689,641 bytes; bake lines in the build log: left_port 2,
-fwd_sign_left −1, right_port 1, fwd_sign_right +1, rotational_slip
-1.01, lag_s 0.1, stop_distance_mm 0) was flashed at 12:27. The camera
-side is now right: with the residual back to 0 the daemon reported
-tovez's heading as +90.3° (north), matching the arrow.
+The 12:27 dead state was the brick, not the mapping: when tovez came
+back on the field (12:50, north half only from here) the same hex
+booted with `otos=1`, and everything below ran on it.
 
-But from that boot onward the board reported `otos=0` (it had been
-`otos=1` on every earlier boot today), `i2cf` climbed 22 → 46 across
-four 0.8 s holds, and no move actuated: `WHEELS_V 100 0 800` put 18 %
-duty on the left output for eight frames with both encoders at 0 and
-the camera showing 0.0 cm of motion, after which the stall latch
-tripped (`reason=stall`, flags 35) and every later command got zero
-duty. Clearing the latches (`SET stall_clear 1`, `SET estop_clear 1`,
-`RUN:clearestop`) and a second flash of the same hex (12:34, a reset)
-did not change it: `otos=0` again at a fresh boot. The mapping change
-cannot explain an OTOS that is not found at boot or a fault counter
-that climbs while both ports are the same two ports the earlier build
-drove in both directions. This is the brick/bus state
-`.claude/rules/playfield-testing.md` and the project memory describe
-(unpowered brick, or a wedge the second flash did not clear). Before
-the second wheel test could run, tag 52 disappeared from the camera and
-a frame showed the field cleared (12:40): tovez had been taken off the
-table. The direction confirmation therefore stands UNVERIFIED on
-hardware; the mapping is the fleet config's own, and the build log
-proves it is in the hex.
+- **Direction probe** (`confirm-direction-3.log`): `MOVE_X +50` moved
+  the tag 4.46 cm at bearing 179.6 deg against a daemon heading of
+  −176.5 deg (residual 0) -- **forward is toward the arrow**, 3.8 deg
+  off. Before the bake the same probe read +177 deg off.
+- **Per-wheel identification** (`wheel-identify-3.log`): each wheel
+  driven alone in each direction turns the robot the right way (left
+  forward -> CW −36 deg, right forward -> CCW +40, left back -> CCW
+  +33, right back -> CW −37), both encoders count with their wheel,
+  `WHEELS_V 100 100` goes forward 7.1 cm on heading, `−100 −100` goes
+  back 6.9 cm, `−100 100` spins +76 deg in 0.8 s.
+- **Nine segment moves** (`abort-hunt-raw.log`, STATUS polled): ±200 mm
+  straights 19.5-19.8 cm, ±400 mm 39.6/39.8 cm, pivots +90.1 / −89.3 /
+  +179.7 deg, every one ending by arrival (`stop`), wrong-way counter
+  flat.
+- **Dance** (`field-dance-motorbake.log`): **PASSED** -- turns +87.6 /
+  +178.9 / +88.9, drives 19.7 / 39.7 / 19.5 cm with bearings within 1
+  deg, home within 2.1 cm, net pivot drift −1.2 deg per 90. The first
+  clean dance of the sprint.
 
-Next, when tovez is back on the field: check the brick has motor
-power, `STATUS` must read `otos=1` at boot; then
-`captures/bench-acceptance-029-20260904d/confirm_direction.py` (5 cm
-probe against the arrow, then the dance from the south corridor).
+One thing left open: in the first minutes after that boot four
+segment moves ended early (`confirm-direction-3.log`'s dance: the
++180 pivot rotated −1.4 deg and the −40 cm drive went 13.4 cm;
+`segment-reverse-probe.log`: a `MOVE_X −50` did not move and a
+`MOVE_X +200` stopped after 11 mm), while `WHEELS_V` holds were fine
+throughout. The engine's wrong-way counter read 2 at the start of the
+clean nine-move run, so two of the four were wrong-way aborts on
+pivots (the 25 % margin from §7.10 is evidently still not enough at
+the very first moves after a boot, when the two wheels' start-up skew
+is largest); the two straight-line stops are not explained by any
+counter in the frames and did not recur in 15 later moves. Filed as
+`clasi/issues/segment-moves-end-early-just-after-boot.md`.

@@ -831,8 +831,5 @@ _inject_motors()` bakes `geometry.firmware_bake.motors`
 `radio-robot-lib/config/robots/tovez.json` with this session's
 measured `rotational_slip`, `lag_s`, `stop_distance_mm`; the
 calibration residual is back to 0; the rule file's 180° section now
-says to check the arrow first. Report §9. The hardware confirmation of
-the new hex did not complete: after that flash the board reported
-`otos=0` at boot and stopped actuating (report §9.1), and tovez was
-then removed from the field. Every §7 magnitude stands; the absolute
+says to check the arrow first. Report §9. Hardware confirmation on the new hex (report §9.1): 5 cm probe forward toward the arrow (3.8 deg off), per-wheel identification correct in all four directions, nine segment moves clean (±200/±400 mm straights within 0.5 cm, pivots +90.1/−89.3/+179.7), and `field_dance.py` PASSED outright (`field-dance-motorbake.log`). The 12:27 dead state was the brick, cleared when tovez came back on the field. Every §7 magnitude stands; the absolute
 facings in §7 are mirrored.
