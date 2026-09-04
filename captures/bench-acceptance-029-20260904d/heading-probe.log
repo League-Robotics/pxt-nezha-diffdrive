@@ -1,0 +1,8 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=53 cyc=2103 tlm=off next=1 done=10 reason=timeout']
+pose before (x,y,daemon_yaw_deg,n): (41.6591427484072, 9.690002650766264, -165.6818269856349, 2)
+MOVE_X 50 0 100 5000 #1 -> ['DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=', 'ack 1 10 timeout']
+pose after : (46.42872282645501, 10.653505470106046, -165.83405581625013, 3)
+displacement 4.87 cm at bearing 11.4 deg; daemon yaw -165.8 deg; bearing - yaw = 177.3 deg
+MOVE_X -50 0 100 5000 #2 -> ['DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=', 'ack 2 1 timeout']
+pose returned: (41.84583791696143, 9.212144410832568, -164.22691259504936, 1)

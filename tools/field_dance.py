@@ -167,8 +167,15 @@ def main(tcp=None):
     # (measurement-citations.md: do not invent one). `v_floor` keeps its
     # compiled default instead (70 mm/s, MEASURED tovez/gopiv
     # 2026-08-29, motion_limits.h).
-    for f, v in (('accel', 400), ('decel', 400),
-                 ('stop_distance', 3.7), ('twist_hold_gain', 8)):
+    # The dance is a CONVENTION check, so it must not retune the robot.
+    # It used to SET stop_distance 3.7 and twist_hold_gain 8 (pre-029
+    # values): MEASURED tovez 2026-09-04,
+    # captures/bench-acceptance-029-20260904d/pivot-timing.log vs
+    # pivot-gates.log -- gain 8 with the measured 0.13 s drivetrain lag
+    # made every cruise-100 pivot hunt until its 5 s deadline (peak wheel
+    # speed 164-190 mm/s against a 100 mm/s command); at the compiled
+    # default 2.0 the same pivots complete in 1.4 s within 0.9 deg.
+    for f, v in (('accel', 400), ('decel', 400)):
         L.seqd(f'SET {f} {v}')
 
     home = pose()

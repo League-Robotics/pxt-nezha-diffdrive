@@ -296,3 +296,27 @@ enough now (≤3.1° each) that a lever-triple fit is worth attempting
 once a session is not otherwise blocked. (4) `pivot_overrun_mm` ->
 `stop_distance_mm` cross-repo rename in `radio-robot-lib/config/robots/
 tovez.json` is still outstanding.
+
+## 6. Provenance of the remaining files (team-lead, 2026-09-04 afternoon)
+
+`field-dance-lag050.log`, `field-dance-lag142.log`, `g1-raw.log`,
+`g1-summary.json`, `g5-frames.json`, `g5-raw.log`,
+`lag-capture-e-frames.json`, `lag-capture-e-raw.log`,
+`omega-floor-raw.log`, `omega-floor-sweep.json`: written by the third
+programmer dispatch, which the stakeholder interrupted at ~11:00 after
+it had already driven the robot (kernel cyc 9455 -> 19486). Kept as
+data, NOT cited by the report; its own G1 (mean|err| 1.59 deg, sd 1.81)
+is consistent with the team-lead's `g1-run.log`. It left `lag 0.05` and
+`omega_floor 29` SET on the board, which is why `lag_measure.py`'s
+`GET lag` read 0.05 and `pivot_gates.py`'s `GET omega_floor` read 29
+before the 11:55 reflash.
+
+Everything from `heading-probe.log` onward (`lag_measure.py`,
+`pivot_gates.py`, `pivot_timing.py`, `g1_run.py`, `g3_run.py`,
+`g2_run.py`, `probe_arc.py`, `g6_run.py`, `omega_floor.py` and their
+`.log`/`.json`) is the team-lead's OOP session, 11:05-12:10, over
+`zilch.local:43671`; from 12:15 confined to the south corridor
+(y in [-33, -8] cm) because other robots were working the north half.
+Firmware: ticket-010 build until 11:55, then the wrong-way-margin build
+(`src/motion/segment.h`, hex 1,689,686 bytes) for `omega_floor.py` and
+`g2-run-b.log`. See `reports/bench-acceptance-029-20260904d.md` §7-§8.

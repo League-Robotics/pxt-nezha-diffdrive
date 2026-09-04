@@ -1,0 +1,32 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=303 cyc=708 tlm=off next=1 done=14 reason=timeout']
+SET accel 400 #1 -> ['ack 1 14 timeout']
+SET decel 400 #2 -> ['ack 2 14 timeout']
+SET twist_hold_gain 2 #3 -> ['ack 3 14 timeout']
+SET lag 0.095 #4 -> ['ack 4 14 timeout']
+SET stop_distance 0 #5 -> ['ack 5 14 timeout']
+SET rotational_slip 1.01 #6 -> ['ack 6 14 timeout']
+GET lag #7 -> ['ack 7 14 timeout', 'get lag 0.095000']
+GET rotational_slip #8 -> ['ack 8 14 timeout', 'get rotational_slip 1.010000']
+start pose (-40.11185315107106, -25.214195102264636, -70.86094522755404)
+face 0.0: at -71.4, delta +71.4
+face 0.0: at -2.8, delta +2.8
+face 0.0: at -1.7, delta +1.7
+arcs start pose (-41.380647713462835, -24.823766000488575, -1.6785709989550999)
+TLM FULL #11 -> ['ack 11 10 stop']
+arc 0 d=300 th=0.785 from (-41.4,-24.8,-1.8) -> projected (-14.0,-14.5) ok=True
+  end body (+268,+118) expected (+270,+112) err 7 mm; dh +52.5 (err +7.5); done 5.09s stop peak 132
+arc 1 d=-300 th=-0.785 from (-14.2,-13.8,51.1) -> projected (-39.9,-27.8) ok=True
+  end body (-263,+132) expected (-270,+112) err 21 mm; dh -54.7 (err -9.7); done 4.21s stop peak 118
+arc 2 d=300 th=0.785 from (-41.0,-26.0,-3.5) -> projected (-13.3,-16.5) ok=True
+  end body (+268,+112) expected (+270,+112) err 2 mm; dh +49.4 (err +4.4); done 3.93s stop peak 118
+arc 3 d=-300 th=-0.785 from (-13.6,-16.4,44.9) -> projected (-40.6,-27.5) ok=True
+  end body (-265,+114) expected (-270,+112) err 5 mm; dh -42.5 (err +2.4); done 4.19s stop peak 121
+arc 4 d=300 th=0.785 from (-40.4,-27.0,1.9) -> projected (-13.8,-14.9) ok=True
+  end body (+274,+98) expected (+270,+112) err 14 mm; dh +45.5 (err +0.6); done 3.85s stop peak 123
+arc 5 d=-300 th=-0.785 from (-13.3,-16.3,47.8) -> projected (-39.7,-28.8) ok=True
+  end body (-267,+122) expected (-270,+112) err 11 mm; dh -46.0 (err -1.0); done 4.04s stop peak 118
+TLM OFF #18 -> ['ack 18 17 stop']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=377 cyc=1804 tlm=off next=19 done=17 reason=stop']
+G2: endpoint err mean 10.1 mm max 21.3 mm (1/6 within 5 mm); heading err mean +0.69 sd 5.40 deg

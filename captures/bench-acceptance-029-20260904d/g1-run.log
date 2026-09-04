@@ -1,0 +1,29 @@
+camera heading at rest: n=20 sd=1.033 deg, peak-to-peak 4.215 deg
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+SET accel 400 #1 -> ['ack 1 37 stop']
+SET decel 400 #2 -> ['ack 2 37 stop']
+SET twist_hold_gain 2 #3 -> ['ack 3 37 stop']
+SET lag 0.13 #4 -> ['ack 4 37 stop']
+SET stop_distance 0 #5 -> ['ack 5 37 stop']
+GET twist_hold_gain #6 -> ['ack 6 37 stop', 'get twist_hold_gain 2.000000']
+GET lag #7 -> ['ack 7 37 stop', 'get lag 0.130000']
+GET stop_distance #8 -> ['ack 8 37 stop', 'get stop_distance 0.000000']
+TLM FULL #9 -> ['ack 9 37 stop']
+pivot  0 cmd  +90 cam  +90.96 err +0.96 odo   86.02 done 1.41s stop peak 148 rev=False nfr=48
+pivot  1 cmd  -90 cam  -88.69 err +1.31 odo  -85.19 done 1.28s stop peak 138 rev=False nfr=44
+pivot  2 cmd  +90 cam  +90.35 err +0.35 odo   86.05 done 1.45s stop peak 148 rev=False nfr=47
+pivot  3 cmd  -90 cam  -93.08 err -3.08 odo  -86.95 done 1.42s stop peak 134 rev=False nfr=47
+pivot  4 cmd  +90 cam  +93.19 err +3.19 odo   87.03 done 1.43s stop peak 154 rev=False nfr=46
+pivot  5 cmd  -90 cam  -91.20 err -1.20 odo  -86.85 done 1.45s stop peak 144 rev=False nfr=47
+pivot  6 cmd  +90 cam  +91.87 err +1.87 odo   86.47 done 1.43s stop peak 144 rev=False nfr=46
+pivot  7 cmd  -90 cam  -92.22 err -2.22 odo  -87.29 done 1.45s stop peak 138 rev=False nfr=47
+pivot  8 cmd  +90 cam  +92.75 err +2.75 odo   86.32 done 1.45s stop peak 154 rev=False nfr=47
+pivot  9 cmd  -90 cam  -93.81 err -3.81 odo  -87.49 done 1.45s stop peak 148 rev=False nfr=47
+pivot 10 cmd  +90 cam  +92.30 err +2.30 odo   86.43 done 1.28s stop peak 148 rev=False nfr=44
+pivot 11 cmd  -90 cam  -91.81 err -1.81 odo  -86.73 done 1.43s stop peak 144 rev=False nfr=46
+TLM OFF #22 -> ['ack 22 21 stop']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1166 cyc=30964 tlm=off next=23 done=21 reason=stop']
+G1 camera: mean|err| 2.07 sd 2.29 mean +0.05
+odometry vs command: mean -0.18 sd 3.48;  camera minus odometry: mean +0.23 sd 5.35
+durations [1.41, 1.28, 1.45, 1.42, 1.43, 1.45, 1.43, 1.45, 1.45, 1.45, 1.28, 1.43] reasons ['stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop', 'stop'] reversals 0

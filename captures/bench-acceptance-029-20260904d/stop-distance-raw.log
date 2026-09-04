@@ -1,0 +1,51 @@
+RUN:clearestop -> ESTOP:cleared
+STATUS pre: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=249 cyc=14405 tlm=off next=1 done=5 reason=timeout
+ack 1 5 timeout
+get v_floor 70.000000
+ack 2 5 timeout
+get lag 0.050000
+--- pivot 1 (+90 at cruise 70): before (24.16,-15.96,58.50) ---
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+ack 3 5 timeout
+after (24.47,-16.18,151.68)  got=+93.18  err=+3.177  ack=True
+--- pivot 2 (-90 at cruise 70): before (24.46,-16.17,151.65) ---
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+ack 4 3 timeout
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+after (23.16,-15.90,57.37)  got=-94.29  err=-4.287  ack=True
+--- pivot 3 (+90 at cruise 70): before (23.14,-15.91,57.78) ---
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+ack 5 4 timeout
+after (23.71,-16.25,150.96)  got=+93.17  err=+3.172  ack=True
+--- pivot 4 (-90 at cruise 70): before (23.72,-16.25,151.05) ---
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+ack 6 5 timeout
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+after (22.53,-15.90,60.43)  got=-90.61  err=-0.612  ack=True
+--- pivot 5 (+90 at cruise 70): before (22.50,-15.89,59.95) ---
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+ack 7 6 timeout
+after (22.88,-16.26,152.17)  got=+92.21  err=+2.215  ack=True
+--- pivot 6 (-90 at cruise 70): before (22.88,-16.28,151.84) ---
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+ack 8 7 timeout
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+after (21.46,-15.98,59.07)  got=-92.76  err=-2.764  ack=True
+--- pivot 7 (+90 at cruise 70): before (21.46,-15.98,59.09) ---
+ack 9 8 timeout
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+after (21.91,-16.56,151.26)  got=+92.17  err=+2.173  ack=True
+--- pivot 8 (-90 at cruise 70): before (21.90,-16.56,151.28) ---
+ack 10 9 timeout
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+after (20.69,-16.25,59.84)  got=-91.44  err=-1.445  ack=True
+--- pivot 9 (+90 at cruise 70): before (20.67,-16.24,59.74) ---
+ack 11 10 timeout
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+after (21.15,-16.46,151.15)  got=+91.41  err=+1.410  ack=True
+--- pivot 10 (-90 at cruise 70): before (21.15,-16.46,151.19) ---
+ack 12 11 timeout
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+after (19.93,-16.20,59.12)  got=-92.07  err=-2.074  ack=True
+STATUS post: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=280 cyc=17755 tlm=off next=13 done=12 reason=timeout

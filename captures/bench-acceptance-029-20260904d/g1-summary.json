@@ -1,0 +1,135 @@
+{
+  "errs_deg": [
+    3.3481821992833716,
+    0.7958461853904168,
+    0.39324653045662217,
+    -0.04901271072387203,
+    1.9933111166672006,
+    -2.943297513113322,
+    3.7974256688357286,
+    -0.6143774325668403,
+    0.9725342032074877,
+    -0.8675914892236563,
+    2.4743035302071235,
+    0.8472347373185869
+  ],
+  "mean_abs_err_deg": 1.591363609749519,
+  "sd_deg": 1.8118121206565876,
+  "any_duty_sign_issue": true,
+  "records": [
+    {
+      "i": 1,
+      "sign": 1,
+      "err_deg": 3.3481821992833716,
+      "ack": true,
+      "n_frames": 87,
+      "duty_issues": [],
+      "n_tail": 10
+    },
+    {
+      "i": 2,
+      "sign": -1,
+      "err_deg": 0.7958461853904168,
+      "ack": true,
+      "n_frames": 89,
+      "duty_issues": [],
+      "n_tail": 10
+    },
+    {
+      "i": 3,
+      "sign": 1,
+      "err_deg": 0.39324653045662217,
+      "ack": true,
+      "n_frames": 108,
+      "duty_issues": [],
+      "n_tail": 10
+    },
+    {
+      "i": 4,
+      "sign": -1,
+      "err_deg": -0.04901271072387203,
+      "ack": true,
+      "n_frames": 88,
+      "duty_issues": [],
+      "n_tail": 10
+    },
+    {
+      "i": 5,
+      "sign": 1,
+      "err_deg": 1.9933111166672006,
+      "ack": true,
+      "n_frames": 86,
+      "duty_issues": [
+        "dutl sign reversal in tail: [-800, -1100, -1400, -1600, -1600, -900, -300, 300, 0, -1100]"
+      ],
+      "n_tail": 10
+    },
+    {
+      "i": 6,
+      "sign": -1,
+      "err_deg": -2.943297513113322,
+      "ack": true,
+      "n_frames": 98,
+      "duty_issues": [
+        "dutl sign reversal in tail: [1000, 1300, 1500, 1700, 1600, 800, 300, -300, 0, 1200]"
+      ],
+      "n_tail": 10
+    },
+    {
+      "i": 7,
+      "sign": 1,
+      "err_deg": 3.7974256688357286,
+      "ack": true,
+      "n_frames": 107,
+      "duty_issues": [],
+      "n_tail": 10
+    },
+    {
+      "i": 8,
+      "sign": -1,
+      "err_deg": -0.6143774325668403,
+      "ack": true,
+      "n_frames": 104,
+      "duty_issues": [],
+      "n_tail": 10
+    },
+    {
+      "i": 9,
+      "sign": 1,
+      "err_deg": 0.9725342032074877,
+      "ack": true,
+      "n_frames": 94,
+      "duty_issues": [],
+      "n_tail": 10
+    },
+    {
+      "i": 10,
+      "sign": -1,
+      "err_deg": -0.8675914892236563,
+      "ack": true,
+      "n_frames": 93,
+      "duty_issues": [],
+      "n_tail": 10
+    },
+    {
+      "i": 11,
+      "sign": 1,
+      "err_deg": 2.4743035302071235,
+      "ack": true,
+      "n_frames": 108,
+      "duty_issues": [
+        "dutl sign reversal in tail: [-800, -1000, -1500, -1600, -1600, -900, -300, 300, 0, -1100]"
+      ],
+      "n_tail": 10
+    },
+    {
+      "i": 12,
+      "sign": -1,
+      "err_deg": 0.8472347373185869,
+      "ack": true,
+      "n_frames": 106,
+      "duty_issues": [],
+      "n_tail": 10
+    }
+  ]
+}

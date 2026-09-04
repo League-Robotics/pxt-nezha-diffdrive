@@ -1,0 +1,28 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1248 cyc=33020 tlm=off next=1 done=29 reason=stop']
+SET accel 400 #1 -> ['ack 1 29 stop']
+SET decel 400 #2 -> ['ack 2 29 stop']
+SET twist_hold_gain 2 #3 -> ['ack 3 29 stop']
+SET lag 0.095 #4 -> ['ack 4 29 stop']
+SET stop_distance 0 #5 -> ['ack 5 29 stop']
+SET rotational_slip 1.01 #6 -> ['ack 6 29 stop']
+GET lag #7 -> ['ack 7 29 stop', 'get lag 0.095000']
+GET rotational_slip #8 -> ['ack 8 29 stop', 'get rotational_slip 1.010000']
+start pose (-16.045855986850427, -25.419814405053337, -4.3533794441672224)
+face 0.0: at -3.7, delta +3.7
+face 0.0: at -3.4, delta +3.4
+face 0.0: at 1.7, delta -1.7
+arcs start pose (-16.41074125126306, -25.651767629559416, 1.6706786052574303)
+TLM FULL #11 -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1258 cyc=33109 tlm=off next=11 done=10 reason=stop', 'ack 11 10 stop']
+arc 0 d=300 th=0.785 from (-16.4,-25.7,1.8) -> projected (10.2,-13.7) ok=True
+  end body (+3,-1) expected (+270,+112) err 290 mm; dh +0.5 (err -44.5); done Nones None peak 26
+arc 1 d=-300 th=-0.785 from (-16.1,-25.7,2.2) -> projected (-43.6,-15.6) ok=True
+  end body (-262,+126) expected (-270,+112) err 16 mm; dh -46.8 (err -1.8); done 4.13s stop peak 118
+arc 2 d=300 th=0.785 from (-42.8,-14.2,-44.9) -> projected (-15.8,-25.3) ok=True
+  end body (+2,+1) expected (+270,+112) err 290 mm; dh -2.1 (err -47.1); done Nones None peak 13
+arc 3 d=-300 th=-0.785 from (-42.5,-14.3,-47.5) -> projected (-52.5,13.2) ok=False
+would leave the corridor -- stopping
+TLM OFF #15 -> ['ack 15 14 stop']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1268 cyc=33314 tlm=off next=16 done=14 reason=stop']
+G2: endpoint err mean 198.7 mm max 290.2 mm (0/3 within 5 mm); heading err mean -31.13 sd 20.75 deg

@@ -1,0 +1,45 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=939 cyc=20067 tlm=off next=1 done=16 reason=timeout']
+SET accel 400 #1 -> ['ack 1 16 timeout']
+SET decel 400 #2 -> ['ack 2 16 timeout']
+SET lag 0.13 #3 -> ['ack 3 16 timeout']
+SET stop_distance 0 #4 -> ['ack 4 16 timeout']
+GET lag #5 -> ['ack 5 16 timeout', 'get lag 0.130000']
+GET stop_distance #6 -> ['ack 6 16 timeout', 'get stop_distance 0.000000']
+GET v_floor #7 -> ['ack 7 16 timeout', 'get v_floor 70.000000']
+GET omega_floor #8 -> ['ack 8 16 timeout', 'get omega_floor 29.000002']
+
+=== Phase A: stop_distance at floor cruise 70
+pivot  0 cmd  +90 got  +83.07 err  -6.93  ack 11 10 stop  rev=None
+pivot  1 cmd  -90 got  -82.22 err  +7.78  ack 12 11 stop  rev=None
+pivot  2 cmd  +90 got  +86.60 err  -3.40  ack 13 12 stop  rev=None
+pivot  3 cmd  -90 got  -81.42 err  +8.58  ack 14 13 stop  rev=None
+pivot  4 cmd  +90 got  +86.58 err  -3.42  ack 15 14 stop  rev=None
+pivot  5 cmd  -90 got  -85.00 err  +5.00  ack 16 15 stop  rev=None
+pivot  6 cmd  +90 got  +86.44 err  -3.56  ack 17 16 stop  rev=None
+pivot  7 cmd  -90 got  -84.22 err  +5.78  ack 18 17 stop  rev=None
+pivot  8 cmd  +90 got  +88.11 err  -1.89  ack 19 18 stop  rev=None
+pivot  9 cmd  -90 got  -81.89 err  +8.11  ack 20 19 stop  rev=None
+overshoot per pivot [deg, +=long]: [-6.93, -7.78, -3.4, -8.58, -3.42, -5.0, -3.56, -5.78, -1.89, -8.11]
+per-wheel coast [mm]: mean -5.43 sd 2.21 (CW mean -7.02, CCW mean -3.83)
+SET stop_distance 0.0 #21 -> ['ack 21 20 stop']
+GET stop_distance #22 -> ['ack 22 20 stop', 'get stop_distance 0.000000']
+
+=== Phase B: G1, 12 alternating 90 deg pivots at cruise 100, TLM FULL
+TLM FULL #23 -> ['ack 23 20 stop']
+pivot  0 cmd  +90 got  +90.88 err  +0.88  ack 24 20 stop  rev=False
+pivot  1 cmd  -90 got  -92.77 err  -2.77  ack 25 24 timeout  rev=False
+pivot  2 cmd  +90 got  +92.45 err  +2.45  ack 26 25 timeout  rev=False
+pivot  3 cmd  -90 got  -93.70 err  -3.70  ack 27 26 stop  rev=False
+pivot  4 cmd  +90 got  +92.73 err  +2.73  ack 28 27 stop  rev=False
+pivot  5 cmd  -90 got  -86.92 err  +3.08  ack 29 28 timeout  rev=False
+pivot  6 cmd  +90 got  +89.00 err  -1.00  ack 30 29 stop  rev=False
+pivot  7 cmd  -90 got  -91.90 err  -1.90  ack 31 30 stop  rev=False
+pivot  8 cmd  +90 got  +91.78 err  +1.78  ack 32 31 timeout  rev=False
+pivot  9 cmd  -90 got  -91.68 err  -1.68  ack 33 32 timeout  rev=False
+pivot 10 cmd  +90 got  +92.81 err  +2.81  ack 34 33 timeout  rev=False
+pivot 11 cmd  -90 got  -93.68 err  -3.68  ack 35 34 timeout  rev=False
+TLM OFF #36 -> ['thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr']
+G1: mean|err| 2.37 deg, sd 2.53 deg, mean signed -0.08, CCW mean +1.61, CW mean -1.77, reversals 0/12, acks ['stop', 'timeout', 'timeout', 'stop', 'stop', 'timeout', 'stop', 'stop', 'timeout', 'timeout', 'timeout', 'timeout']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1040 cyc=24556 tlm=off next=37 done=35 reason=stop']

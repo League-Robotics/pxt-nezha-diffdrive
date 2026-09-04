@@ -1,0 +1,48 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1197 cyc=32005 tlm=off next=1 done=14 reason=stop']
+SET accel 400 #1 -> ['ack 1 14 stop']
+SET decel 400 #2 -> ['ack 2 14 stop']
+SET twist_hold_gain 2 #3 -> ['ack 3 14 stop']
+SET lag 0.095 #4 -> ['ack 4 14 stop']
+SET stop_distance 0 #5 -> ['ack 5 14 stop']
+SET rotational_slip 1.01 #6 -> ['ack 6 14 stop']
+GET lag #7 -> ['ack 7 14 stop', 'get lag 0.095000']
+GET stop_distance #8 -> ['ack 8 14 stop', 'get stop_distance 0.000000']
+GET rotational_slip #9 -> ['ack 9 14 stop', 'get rotational_slip 1.010000']
+GET v_floor #10 -> ['ack 10 14 stop', 'get v_floor 70.000000']
+GET v_max #11 -> ['ack 11 14 stop', 'get v_max 250.000015']
+start pose (-14.894926123304295, -32.930844984088985, -0.6557792797801311)
+face 0.0: at -0.7, delta +0.7
+legs start pose (-14.89302515747284, -32.925967096656855, -0.6911040343618445)
+TLM FULL #12 -> ['ack 12 14 stop']
+leg 0 from (-14.9,-32.9,-0.7) +600 mm -> projected (45.1,-33.7) ok=False
+leg would leave the corridor -- re-centring to y=-20
+TLM OFF #13 -> ['ack 13 14 stop']
+face 90.0: at -0.7, delta +90.7
+face 90.0: at 93.0, delta -3.0
+face 90.0: at 90.9, delta -0.9
+face 0.0: at 90.1, delta -90.1
+face 0.0: at -0.4, delta +0.4
+TLM FULL #18 -> ['ack 18 17 stop']
+leg 0 from (-15.7,-25.3,0.5) +600 mm -> projected (44.3,-24.8) ok=True
+  cam 597 mm (err -3) odo 596 lateral -50 mm dh +0.55 done 4.18s stop peak 226 first 19.5 accel[-618,917] tail_monotone=False tail=[200.0, 215.0, 197.0, 184.0, 162.5, 118.0, 98.5, 74.0, 65.5, 52.0]
+leg 1 from (43.9,-29.8,0.5) -600 mm -> projected (-16.1,-30.3) ok=True
+  cam 597 mm (err -3) odo 596 lateral +8 mm dh -3.62 done 3.62s stop peak 227 first 26.0 accel[-806,708] tail_monotone=True tail=[210.5, 207.0, 200.0, 200.0, 169.0, 118.0, 97.0, 82.0, 54.5, 56.0]
+leg 2 from (-15.8,-31.0,-3.8) +600 mm -> projected (44.0,-35.0) ok=False
+leg would leave the corridor -- re-centring to y=-20
+TLM OFF #21 -> ['ack 21 20 stop']
+face 90.0: at -3.5, delta +93.5
+face 90.0: at 94.0, delta -4.0
+face 90.0: at 93.4, delta -3.4
+face 0.0: at 92.8, delta -92.8
+face 0.0: at -1.5, delta +1.5
+TLM FULL #27 -> ['ack 27 26 stop']
+leg 2 from (-15.8,-20.1,-2.2) +600 mm -> projected (44.2,-22.4) ok=True
+  cam 597 mm (err -3) odo 595 lateral -38 mm dh +1.23 done 3.72s stop peak 230 first 41.0 accel[-549,750] tail_monotone=False tail=[190.0, 184.5, 200.5, 184.0, 159.0, 119.5, 90.5, 64.0, 52.5, 53.0]
+leg 3 from (43.6,-26.2,-0.1) -600 mm -> projected (-16.4,-26.1) ok=True
+  cam 597 mm (err -3) odo 595 lateral -7 mm dh -3.77 done 4.83s stop peak 230 first 33.0 accel[-819,507] tail_monotone=False tail=[195.0, 190.0, 205.0, 182.5, 149.5, 113.0, 87.0, 72.0, 67.0, 54.0]
+TLM OFF #30 -> ['ack 30 29 stop']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1248 cyc=33020 tlm=off next=31 done=29 reason=stop']
+G3: leg length err mean -3.0 mm sd 0.4 max|err| 3; peak v max 230; tail monotone 1/4; lateral mean -22 mm; dh mean -1.40
+G4: first moving v [19.5, 26.0, 41.0, 33.0]; max accel [917, 708, 750, 507]; min accel [-618, -806, -549, -819]

@@ -110,7 +110,19 @@ struct Segment {
     const float dRight = out.positionRight - posRight0;
     const float diffProgress = 0.5f * (dRight - dLeft);
     const float toward = yawTarget > 0.0f ? diffProgress : -diffProgress;
-    return toward < -kWrongWayMargin;
+    // The margin scales with the yaw target: on a blended arc the yaw
+    // axis is small next to the travel axis, and the wheels do not
+    // start together -- MEASURED tovez 2026-09-04,
+    // captures/bench-acceptance-029-20260904d/ (lag-measure.log: left
+    // lag 0.115 s vs right 0.146 s; g2-run.log: two of three forward
+    // LEFT 45 deg arcs, MOVE_X 300 785, ended on their first tick with
+    // no motion while every right arc ran; probe-arc.log: the same
+    // command ran when the wheels happened to start together). A fixed
+    // 12-count margin read that start-up skew as a wrong-way turn. A
+    // quarter of the yaw target still catches a genuinely inverted
+    // wheel within the first few degrees of any real pivot.
+    const float margin = 0.25f * std::fabs(yawTarget);
+    return toward < -(margin > kWrongWayMargin ? margin : kWrongWayMargin);
   }
 
   // [0..1] fraction of whichever axis (or axes, for a blended arc) has

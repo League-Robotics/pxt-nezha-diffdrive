@@ -1,0 +1,33 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+pose (-42.54905611433964, -14.249138183794845, -47.34034203379772)
+MOVE_X 0 -746 100 6000 #1 -> ['ack 1 14 stop']
+MOVE_X 0 -142 100 6000 #2 -> ['ack 2 1 timeout']
+MOVE_X 0 -59 100 6000 #3 -> ['ack 3 2 timeout']
+MOVE_X 128 0 120 6000 #4 -> ['ack 4 3 timeout']
+MOVE_X 0 1624 100 6000 #5 -> ['ack 5 4 timeout']
+MOVE_X 0 527 100 6000 #6 -> ['ack 6 5 timeout']
+MOVE_X 0 110 100 6000 #7 -> ['ack 7 6 stop']
+facing east at (-45.2329085836642, -26.532342511021444, -5.170100413723647)
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1284 cyc=35071 tlm=off next=8 done=7 reason=timeout']
+--- sending MOVE_X 300 785 100 8000
+MOVE_X 300 785 100 8000 #8 -> ['ack 8 7 timeout']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1285 cyc=35226 tlm=off next=9 done=8 reason=stop']
+DIAG -> []
+  moved 29.1 cm, dh +49.3
+MOVE_X -300 -785 100 8000 #9 -> ['ack 9 8 stop']
+  back at (-45.03071220164028, -27.007479543470588, -3.60359385740044)
+--- sending MOVE_X 300 -785 100 8000
+MOVE_X 300 -785 100 8000 #10 -> ['ack 10 9 timeout']
+STATUS -> ['status ready=1 active=1 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1294 cyc=35706 tlm=off next=11 done=9 reason=timeout']
+DIAG -> []
+  moved 28.7 cm, dh -42.4
+MOVE_X -300 785 100 8000 #11 -> ['ack 11 10 timeout']
+  back at (-46.16634757203562, -29.229166020779836, -2.2115490793237784)
+--- sending MOVE_X 300 400 100 8000
+MOVE_X 300 400 100 8000 #12 -> ['ack 12 11 timeout']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1309 cyc=36386 tlm=off next=13 done=12 reason=stop']
+DIAG -> []
+  moved 29.7 cm, dh +22.9
+MOVE_X -300 -400 100 8000 #13 -> ['ack 13 12 stop']
+  back at (-46.14438923018301, -29.82194213220306, 0.15284985097416268)

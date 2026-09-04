@@ -1,0 +1,28 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1195 cyc=31697 tlm=full next=1 done=19 reason=stop']
+SET accel 400 #1 -> ['ack 1 19 stop']
+SET decel 400 #2 -> ['ack 2 19 stop']
+SET twist_hold_gain 2 #3 -> ['ack 3 19 stop']
+SET lag 0.095 #4 -> ['ack 4 19 stop']
+SET stop_distance 0 #5 -> ['ack 5 19 stop']
+SET rotational_slip 1.01 #6 -> ['ack 6 19 stop']
+GET lag #7 -> ['ack 7 19 stop', 'get lag 0.095000']
+GET stop_distance #8 -> ['ack 8 19 stop', 'get stop_distance 0.000000']
+GET rotational_slip #9 -> ['ack 9 19 stop', 'get rotational_slip 1.010000']
+GET v_floor #10 -> ['ack 10 19 stop', 'get v_floor 70.000000']
+GET v_max #11 -> ['ack 11 19 stop', 'get v_max 250.000015']
+start pose (-14.920164954018086, -26.84853376010355, 2.777213467461461)
+face 0.0: at 1.6, delta -1.6
+legs start pose (-14.947597658829432, -26.750746409305272, 1.5690804158461318)
+TLM FULL #12 -> ['ack 12 19 stop']
+leg 0 from (-14.9,-26.8,2.6) +600 mm -> projected (45.0,-24.1) ok=True
+  cam 598 mm (err -2) odo 596 lateral -58 mm dh +0.27 done 3.59s stop peak 237 first 32.5 accel[-562,938] tail_monotone=True tail=[200.0, 200.0, 200.0, 167.0, 126.5, 105.0, 77.0, 67.0, 51.0, 51.0]
+leg 1 from (44.8,-29.9,2.5) -600 mm -> projected (-15.1,-32.5) ok=True
+  cam 598 mm (err -2) odo 595 lateral +4 mm dh -3.43 done 3.92s stop peak 236 first 31.0 accel[-757,528] tail_monotone=True tail=[197.0, 192.0, 200.0, 188.0, 169.0, 138.0, 100.0, 72.0, 67.0, 56.0]
+leg 2 from (-14.9,-33.0,-0.3) +600 mm -> projected (45.1,-33.3) ok=False
+leg would leave the margin -- stopping the legs here
+TLM OFF #15 -> ['ack 15 14 stop']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=1197 cyc=32005 tlm=off next=16 done=14 reason=stop']
+G3: leg length err mean -1.9 mm sd 0.1 max|err| 2; peak v max 237; tail monotone 2/2; lateral mean -27 mm; dh mean -1.58
+G4: first moving v [32.5, 31.0]; max accel [938, 528]; min accel [-562, -757]

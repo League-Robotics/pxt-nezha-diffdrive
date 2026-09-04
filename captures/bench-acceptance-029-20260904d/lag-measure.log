@@ -1,0 +1,26 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=918 cyc=19486 tlm=off next=1 done=26 reason=timeout']
+pose (35.114648215617095, 0.3634700150983643, 95.53179777751326)
+projected fwd end (32.0,32.2) back end (38.2,-31.5)
+SET accel 400 #1 -> ['ack 1 26 timeout']
+SET decel 400 #2 -> ['ack 2 26 timeout']
+GET lag #3 -> ['ack 3 26 timeout', 'get lag 0.050000']
+MOVE_X 30 0 100 4000 #4 -> ['ack 4 26 timeout']
+MOVE_X -30 0 100 4000 #5 -> ['ack 5 4 stop']
+TLM FULL #6 -> ['ack 6 5 timeout', 't 60 5189439 31 -456 52 41044 0 427 16958 0 0 922 19774 -7131 3777 0 0 0 0 0', 't 61 5189495 31 -456 52 41044 0 427 16958 0 0 922 19774 -7131 3777 0 0 0 0 0']
+TLM OFF #8 -> ['t 112 5192815 31 -296 235 41131 233 365 17089 0 0 929 19848 -4042 6889 0 0 0 0 0', 'ack 8 7 timeout']
+trial 0 sign +1: 42 frames, fit {'vl': {'lag': 0.135, 'rms': 9.502210269195269, 'n': 20}, 'vr': {'lag': 0.165, 'rms': 19.38452991434149, 'n': 20}}, steady {'vl': 200.125, 'vr': 199.375}, camera travel 24.5 cm
+TLM FULL #9 -> ['ack 9 7 timeout', 'thdr seq now flags x y h ox oy oh vl vr i2cf cyc posl posr dutl dutr lexc wrng cycovr', 't 113 5200767 31 -296 235 41131 233 364 17108 0 0 929 19848 -4042 6889 0 0 0 0 0']
+TLM OFF #11 -> ['t 37 5204123 31 -451 35 41210 -19 403 17154 0 0 931 19921 -7275 3677 0 0 0 0 0', 'ack 11 10 timeout']
+trial 1 sign -1: 42 frames, fit {'vl': {'lag': 0.095, 'rms': 12.657092873167993, 'n': 20}, 'vr': {'lag': 0.13, 'rms': 11.500086956192984, 'n': 20}}, steady {'vl': -198.75, 'vr': -204.25}, camera travel 25.5 cm
+TLM FULL #12 -> ['ack 12 10 timeout', 't 38 5212467 31 -451 35 41210 -19 403 17174 0 0 931 19921 -7275 3677 0 0 0 0 0', 't 39 5212523 31 -451 35 41210 -19 403 17175 0 0 931 19921 -7275 3677 0 0 0 0 0']
+TLM OFF #14 -> ['t 91 5215879 31 -294 227 41319 221 352 17343 0 0 936 19994 -4142 6839 0 0 0 0 0', 'ack 14 13 timeout']
+trial 2 sign +1: 42 frames, fit {'vl': {'lag': 0.125, 'rms': 11.859257986906263, 'n': 20}, 'vr': {'lag': 0.155, 'rms': 17.523127574722498, 'n': 20}}, steady {'vl': 200.125, 'vr': 202.25}, camera travel 25.0 cm
+TLM FULL #15 -> ['ack 15 13 timeout', 't 92 5220695 31 -294 227 41319 221 352 17355 0 0 936 19994 -4142 6839 0 0 0 0 0', 't 93 5220751 31 -294 227 41319 221 352 17355 0 0 936 19994 -4142 6839 0 0 0 0 0']
+TLM OFF #17 -> ['t 14 5223939 31 -443 21 41379 -32 381 17370 0 0 939 20067 -7375 3622 0 0 0 0 0', 'ack 17 16 timeout']
+trial 3 sign -1: 42 frames, fit {'vl': {'lag': 0.105, 'rms': 14.081264147795821, 'n': 20}, 'vr': {'lag': 0.135, 'rms': 17.469172848191754, 'n': 20}}, steady {'vl': -200.875, 'vr': -206.125}, camera travel 25.5 cm
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=939 cyc=20067 tlm=off next=18 done=16 reason=timeout']
+LAG per trial: {'vl': [0.135, 0.095, 0.125, 0.105], 'vr': [0.165, 0.13, 0.155, 0.135]}
+vl: mean 0.115 s  min 0.095  max 0.135
+vr: mean 0.146 s  min 0.130  max 0.165

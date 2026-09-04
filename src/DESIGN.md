@@ -421,6 +421,40 @@ exist to characterize. Full account:
 `captures/bench-acceptance-029-20260904d/notes.md` §5,
 `reports/bench-acceptance-029-20260904d.md` §5-6.
 
+**MEASURED tovez 2026-09-04 (afternoon, team-lead OOP session,
+`captures/bench-acceptance-029-20260904d/`, report §7).** The
+"magnitude" findings above were two more tooling faults, not motion
+ones: the dance divided by `parallax_k` on a tag whose registered
+`mount_z` the daemon already corrects (`heading-probe.log`: 4.87 cm raw
+for a 5 cm move), and it had left `twist_hold_gain 8` on the board —
+at that gain, with the measured 0.13 s drivetrain lag, every cruise-100
+pivot hunted until its deadline (`pivot-gates.log`: peak wheel 164-190
+mm/s on a 100 mm/s command); at the compiled 2.0 the same pivots
+complete in 1.3-1.5 s (`pivot-timing.log`). With those removed:
+`lag` MEASURED per wheel from four `WHEELS_V ±200 ±200 1500` step
+responses (`lag-measure.log`): left 0.115 s, right 0.146 s
+(0.095-0.165 across trials), both wheels holding 199-206 mm/s — the K1
+fix on hardware. `stopDistance` MEASURED as 0: ten floor-cruise (70
+mm/s) pivots with `lag 0.13` UNDER-shoot by 5.9 mm/wheel (sd 2.2,
+`pivot-gates-gain2.log`), i.e. the lag term alone over-predicts coast
+at the floor, while cruise-100 pivots are centred (mean signed +0.05°,
+`g1-run.log`); coast is not `v·lag` across speeds (§8 of the report).
+G1 at cruise 100: mean|err| 2.07°, sd 2.29°, of which the camera's own
+rest noise is sd 1.03°/sample (0.65° on a difference of 5-sample
+means) and the camera/odometry rotation ratio is 1.061 ± 0.010 with
+vevov's geometry running on tovez (`rotational_slip 1.01` restores
+agreement; radio-robot-lib's tovez.json says `rotation_gain_pos 1.061`
+independently). Straights: six `MOVE_X ±600 0 200` legs 597-598 mm by
+camera, monotone deceleration tails, no end bump (`g3-run*.log`); peak
+wheel speed 226-237 and measured acceleration up to 938 mm/s² on a
+400-limited command are kernel tracking overshoot, outside this design
+(§2 non-goals). Square closure (host-driven `MOVE_X 200 0 150` /
+`MOVE_X 0 1571 100` ×4, three laps): 12, 10, 10 mm (`g6-run.log`). One
+engine defect found and fixed: `Segment::wrongWay()`'s fixed 12-count
+margin aborted forward-left 45° arcs on their first tick (the wheels
+start 30 ms apart, `g2-run.log`, `probe-arc.log`); the margin now
+scales with the yaw target (this session's commit); on the reflashed board 6 of 6 arcs ran (`g2-run-b.log`, endpoint mean 10 mm). `omegaFloor`: no hard floor with `vMin = 0` -- full commanded rotation down to 30 mm/s per wheel, ~50 % at 10 (`omega-floor.log`); the compiled 20 deg/s stays.
+
 **Dependencies.** Holds references to a caller-owned kernel and
 `Clock` (the shaper's `dt` and the deadline backstop need wall time
 independent of kernel stepping). Owns **no odometry** — pose stays a

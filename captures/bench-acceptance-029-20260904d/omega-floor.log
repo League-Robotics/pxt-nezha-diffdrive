@@ -1,0 +1,19 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none']
+SET twist_hold_gain 2 #1 -> ['ack 1 0 none']
+SET rotational_slip 1.01 #2 -> ['ack 2 0 none']
+GET omega_floor #3 -> ['ack 3 0 none', 'get omega_floor 20.000000']
+GET v_floor #4 -> ['ack 4 0 none', 'get v_floor 70.000000']
+MOVE_X 2 0 100 3000 #5 -> ['ack 5 0 none']
+v= 70 mm/s (cmd  70.9 deg/s): rate first   +0.0 last   +0.0 mean  -55.0 deg/s, total -105.1 deg, sustained=False
+v= 60 mm/s (cmd  60.8 deg/s): rate first   +0.0 last   +0.0 mean  +19.0 deg/s, total  +91.3 deg, sustained=False
+v= 50 mm/s (cmd  50.7 deg/s): rate first   +0.0 last   +0.0 mean  -70.7 deg/s, total  -81.1 deg, sustained=False
+v= 40 mm/s (cmd  40.5 deg/s): rate first  +27.3 last  +37.3 mean  +33.4 deg/s, total  +47.4 deg, sustained=True
+v= 30 mm/s (cmd  30.4 deg/s): rate first   +0.0 last   +0.0 mean  -28.6 deg/s, total  -44.2 deg, sustained=False
+v= 25 mm/s (cmd  25.3 deg/s): rate first   +0.0 last   +0.0 mean  +14.2 deg/s, total  +32.6 deg, sustained=False
+v= 20 mm/s (cmd  20.3 deg/s): rate first   -1.1 last   +0.0 mean   -3.9 deg/s, total  -21.8 deg, sustained=False
+v= 15 mm/s (cmd  15.2 deg/s): rate first   +0.0 last   +0.0 mean   +0.0 deg/s, total  +13.6 deg, sustained=False
+v= 10 mm/s (cmd  10.1 deg/s): rate first   +0.0 last   +0.0 mean   -3.5 deg/s, total   -7.9 deg, sustained=False
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=303 cyc=708 tlm=off next=15 done=14 reason=timeout']
+omega_floor: lowest sustained v = 40 mm/s per wheel -> 40.53852000575351 deg/s commanded

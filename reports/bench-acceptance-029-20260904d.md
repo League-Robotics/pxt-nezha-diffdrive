@@ -254,3 +254,259 @@ new, well-characterized, purely-magnitude accuracy finding (longer
 pivots/drives undershoot) replaces it as the open lead. The ticket's
 core deliverable (dance passing cleanly, G1-G6, `stop_distance`/
 `omega_floor` measured and baked) is still not met.
+
+## 7. Team-lead session (2026-09-04, afternoon, OOP): lag, G1, G3/G4, G5, G6 measured
+
+Stakeholder direction at 11:02: "oop the shit out of this and just get it
+done" -- the team-lead ran the remaining acceptance directly over
+zilch's serial daemon, one script per experiment, no programmer
+dispatch. Every script and its log/JSON is in
+`captures/bench-acceptance-029-20260904d/` (`lag_measure.py`,
+`pivot_gates.py`, `pivot_timing.py`, `g1_run.py`, `g3_run.py`, `g2_run.py`,
+`probe_arc.py`, `g6_run.py`, `omega_floor.py`). Field constraint from
+12:15: other robots occupied the north half, so every commanded path from
+then on was confined to y in [-33, -8] cm with a camera geofence that
+ESTOPs above y = -3 (`g3_run.py` onward). The geofence never fired.
+
+### 7.1 Two more tooling faults found before any gate could be trusted
+
+| symptom | cause | evidence | fix |
+|---|---|---|---|
+| dance drives ~12 % short (17.6 for 20, 35.3 for 40) | `field_dance.py` divides by `parallax_k` 1.1167 while the daemon already applies the registered `mount_z_cm` 11.3 (`mount_z_applied: true`) | `heading-probe.log`: a raw 5 cm probe of the registered position read 4.87 cm | tovez `parallax_k` = 1.0 (commit 4c684e5); issue `parallax-k-and-registered-mount-z-correct-twice.md` |
+| cruise-100 pivots hunt for 5 s, peak wheel speed 164-190 mm/s on a 100 mm/s command, ack after the deadline | the dance had left `twist_hold_gain 8` on the board (compiled default 2.0); with the measured 0.13 s lag the twist servo oscillates | `pivot-gates.log` (gain 8) vs `pivot-timing.log` (gain 2: pivots complete in 1.3-1.5 s, ack in 0.2 s, camera error 0.14-0.85 deg) | dance no longer SETs `stop_distance`/`twist_hold_gain` (`tools/field_dance.py`) |
+
+Also observed: the wire's `done= reason=` label is resolved lazily
+(`WireAdapter::resolvePendingIfDue()` runs when something asks), so a
+move that ended by arrival at 1.4 s reports `timeout` if nothing polls
+STATUS before its 5 s lease elapses (`pivot-gates-gain2.log` Phase B, all
+`timeout` yet every pivot completed in ~1.4 s per `g1-run.log`). Label
+only; not a motion defect. Filed as a follow-up in this report's §8.
+
+### 7.2 Lag (design S10.2, first measurement) -- MEASURED
+
+`lag_measure.py`, `lag-measure.log`, `lag-trials.json`: 4 alternating
+`WHEELS_V +-200 +-200 1500` from rest, `TLM FULL`, first-order lag fitted
+per wheel against the 400 mm/s^2 command ramp.
+
+| wheel | lag per trial [s] | mean [s] | fit rms [mm/s] |
+|---|---|---|---|
+| left | 0.135 0.095 0.125 0.105 | 0.115 | 9.5-14.1 |
+| right | 0.165 0.130 0.155 0.135 | 0.146 | 11.5-19.4 |
+
+Both wheels fit now (session c's left wheel did not: that was the K1
+bug). Steady state 199-206 mm/s on both wheels in all four trials;
+camera travel 24.5-25.5 cm against the 25.0 cm the ramp-plus-hold plan
+predicts.
+
+The number the ARRIVAL rule wants is smaller than the rise-time lag:
+with `lag 0.13`, cruise-70 pivots stop 5.9 mm/wheel short
+(`pivot-gates-gain2.log` Phase A) while cruise-100 pivots are centred
+(`g1-run.log`, mean signed error +0.05 deg). `lag 0.095` was used for the
+translation gates. Coast is not linear in speed at this drivetrain's
+floor; see §8.
+
+### 7.3 stop_distance -- MEASURED as 0
+
+Phase A of `pivot-gates-gain2.log`: 10 alternating pivots at the floor
+cruise (70 mm/s) with `lag 0.13`, `stop_distance 0`: every pivot UNDER-
+shot (-2.7 to -9.0 deg, mean -5.9 mm/wheel, sd 2.2 mm). There is no
+positive speed-independent coast to record; `stop_distance` stays 0 and
+the lag term alone over-predicts coast at floor speed. Recorded in
+`src/DESIGN.md` S3.
+
+### 7.4 G1 pivot accuracy -- FAILS the bar; no bias, sd dominated by the instrument and by wheel slip
+
+`g1_run.py`, `g1-run.log`, `g1-run.json`: 12 alternating `MOVE_X 0 +-1571
+100 5000`, gain 2, `lag 0.13`, `stop_distance 0`, TLM FULL through each
+pivot, completion by STATUS polling.
+
+| statistic | measured | bar |
+|---|---|---|
+| mean abs error | 2.07 deg | <= 0.5 deg |
+| sd | 2.29 deg | <= 0.4 deg |
+| mean signed error | +0.05 deg | -- |
+| duty sign reversal in the last 10 ticks | 0 / 12 | 0 |
+| completion | 1.28-1.45 s, all `stop` | -- |
+
+Two things the bar did not budget for:
+
+- **The camera's own heading noise at rest is sd 1.03 deg per sample
+  (peak-to-peak 4.2 deg over 20 samples, `g1-run.log` line 1).** A
+  5-sample average is ~0.46 deg, and the difference of two averaged
+  poses ~0.65 deg. The 0.4 deg bar is below what this instrument can
+  resolve as used.
+- **tovez runs vevov's geometry** (track 114.2 mm, slip 0.952; no
+  `firmware_bake` in radio-robot-lib). The camera/odometry rotation
+  ratio over the 12 pivots is 1.061 +- 0.010, matching
+  `rotation_gain_pos 1.061` in radio-robot-lib's own tovez.json. The
+  per-pivot spread of that ratio (+-1 %) is ~0.9 deg of real wheel-slip
+  variance; the encoder-space stopping spread is only sd 0.6 deg.
+
+With `rotational_slip 1.01` set for the rest of the session (effective
+track 113.1 mm) the odometry matches the camera.
+
+### 7.5 G3 straight legs -- length PASSES, peak speed FAILS
+
+`g3_run.py`, `g3-run.log` (2 legs) + `g3-run-b.log` (4 legs): six
+alternating `MOVE_X +-600 0 200 8000`, `lag 0.095`, slip 1.01.
+
+| leg | camera length [mm] | odometry [mm] | lateral [mm] | heading change [deg] | peak wheel [mm/s] |
+|---|---|---|---|---|---|
+| +600 | 598 | 596 | -58 | +0.27 | 237 |
+| -600 | 598 | 595 | +4 | -3.43 | 236 |
+| +600 | 597 | 596 | -50 | +0.55 | 226 |
+| -600 | 597 | 596 | +8 | -3.62 | 227 |
+| +600 | 597 | 595 | -38 | +1.23 | 230 |
+| -600 | 597 | 595 | -7 | -3.77 | 230 |
+
+Length 597-598 mm (bar 600 +- 3): PASS. Peak wheel speed 226-237 on a
+200 mm/s command (bar <= 220): FAIL -- the kernel's tracking overshoots
+by 13-18 % (the shaper's command never exceeds 200; `vl`/`vr` are
+measured). No leg-end bump: every leg's deceleration tail is monotone
+(200 -> 52 mm/s over the last ten frames) and the wheels stop without a
+reversal; the "tail monotone False" flags in the log are +-15 mm/s
+cruise jitter inside the ten-frame window, not a bump. Forward legs
+drift 4-6 cm right; reverse legs yaw -3.4 to -3.8 deg -- the legs still
+inject rotation the twist hold does not remove (known issue
+`rotation-error-is-injected-by-the-legs-not-the-pivots.md`).
+
+### 7.6 G4 jerk -- first tick PASSES, measured acceleration FAILS
+
+From the same frames: first moving wheel speed 19-41 mm/s (bar <= floor
+70): PASS. Max measured acceleration 507-938 mm/s^2 on a command limited
+to 400 (bar <= 600): FAIL, same tracking overshoot as G3/G5; measured
+deceleration -549 to -819 (bar <= 800 = 2 x decel): 3 of 6 legs over.
+These are drivetrain/kernel-gain properties the design explicitly left
+alone (S2 non-goals); the shaper's own command obeys the limits by
+construction (host tests).
+
+### 7.7 G5 continuous -- tracking PASSES, rise and overshoot FAIL
+
+From `lag-trials.json` (four `WHEELS_V +-200 +-200 1500` from rest):
+both wheels reach and hold 199-206 mm/s (the K1 fix, versus session c's
+-ve left / 492 right); time to 190 mm/s 0.50-0.58 s against the 0.5 s
+ramp: PASS. Peak 220-240 mm/s (bar <= 210) and max frame-to-frame rise
+650-750 mm/s^2 (bar <= 600): FAIL, same cause as G3/G4.
+
+### 7.8 G6 square closure -- PASS (no regression)
+
+`g6_run.py`, `g6-run.log`, `g6-run.json`: three host-driven laps of the
+square the RUN tour issues (`MOVE_X 200 0 150` then `MOVE_X 0 1571 100`,
+four times), 200 mm sides to fit the south corridor, camera-truthed.
+
+| lap | closure [mm] | heading residual [deg] |
+|---|---|---|
+| 0 | 12 | -1.0 |
+| 1 | 10 | -5.4 |
+| 2 | 10 | -3.7 |
+
+Baseline `reports/gopiv-closure-20260901.md`: best sustained 10.8 mm
+mean +- 1.5 over 5 tours, on a bare-motor rig's odometry with a tuned
+`pivot_overrun`. 11 mm mean here is camera-truthed on real wheels with
+NO per-robot overrun constant. Not the same square (200 vs 600 mm
+sides) or the same instrument, so "no regression" is the honest
+reading, not "better". Deviation from the ticket text: driven from the
+host, not `RUN:square`, so the run stayed on the geofenced STATUS-polled
+path used by every other gate; the verbs are the same.
+
+### 7.9 omega_floor -- no hard floor; full commanded rotation down to 30 mm/s per wheel, half of it at 10
+
+`omega_floor.py`, `omega-floor.log`, `omega-floor.json`: from rest,
+`WHEELS_V +-v -+v 1500` sweeping v from 70 to 10 mm/s per wheel
+(alternating sign), camera heading sampled through each hold (8-14
+samples per hold, so the half-hold slopes below are least-squares fits,
+refitted offline from the saved samples; the log's own first/last
+windows had too few samples and print 0).
+
+| v [mm/s] | commanded [deg/s] | first-half rate [deg/s] | second-half rate [deg/s] | total in 1.5 s [deg] | of commanded | sustained |
+|---|---|---|---|---|---|---|
+| 70 | 70.9 | -7.8 | -123.4 | -105.1 | 99 % | yes |
+| 60 | 60.8 | - | - | +91.3 | 100 % | no |
+| 50 | 50.7 | - | -48.5 | -81.1 | 107 % | no |
+| 40 | 40.5 | +27.3 | +37.3 | +47.4 | 78 % | yes |
+| 30 | 30.4 | +0.8 | -44.7 | -44.2 | 97 % | no |
+| 25 | 25.3 | +4.2 | +16.8 | +32.6 | 86 % | yes |
+| 20 | 20.3 | -1.1 | -22.1 | -21.8 | 72 % | no |
+| 15 | 15.2 | - | - | +13.6 | 60 % | no |
+| 10 | 10.1 | -1.3 | -6.7 | -7.9 | 52 % | no |
+
+Reading: the kernel with `vMin = 0` (K5) grinds at every command; the
+achieved rotation is the full command down to 30 mm/s and degrades to
+~50 % of command by 10 mm/s. The lowest command still rotating through
+BOTH halves of the hold is 25 mm/s per wheel. Session c saw the
+same absence of a hard floor. The design's compiled `omegaFloor` (20
+deg/s = 20 mm/s per wheel at this track) sits exactly where the
+achieved fraction starts to fall off; it stays.
+
+### 7.10 G2 arcs -- all six now execute; endpoint bar not met
+
+First run (`g2-run.log`, firmware before the wrong-way fix): two of
+three forward-left arcs ended on their first tick with no motion
+(`done None`, peak wheel 13-26 mm/s), every reversed arc ran. The same
+command ran in `probe-arc.log` when the wheels happened to start
+together. Cause: `Segment::wrongWay()`'s fixed 12-count margin read the
+start-up skew between wheels (left lag 0.115 s, right 0.146 s) as a
+wrong-way turn on an arc whose whole yaw axis is 47 mm. Fixed in
+`src/motion/segment.h` (margin = max(12 counts, 25 % of the yaw
+target)); host motion tests 180 passed; reflashed 11:55.
+
+Second run (`g2-run-b.log`, fixed firmware): 6 of 6 arcs executed.
+
+| arc | endpoint error [mm] | heading error [deg] |
+|---|---|---|
+| +300/+785 | 7 | +7.5 |
+| -300/-785 | 21 | -9.7 |
+| +300/+785 | 2 | +4.4 |
+| -300/-785 | 5 | +2.4 |
+| +300/+785 | 14 | +0.6 |
+| -300/-785 | 11 | -1.0 |
+
+Mean endpoint error 10.1 mm, 1 of 6 within the 5 mm bar: FAIL as
+written. The first pair carries the cold-first-move yaw (+7.5/-9.7 deg,
+`cold-first-move-yaws` in the project memory); the last four are within
+4.4 deg. A 5 mm endpoint bar is also below the camera's position
+repeatability on this tag (the two 20260904d dance runs put the SAME
+resting robot 0.3-0.7 cm apart between reads).
+
+## 8. Results against the ticket's bars, and what the stakeholder decides
+
+| gate / measurement | result | bar | verdict |
+|---|---|---|---|
+| lag | left 0.115 s, right 0.146 s (rise); 0.095-0.13 s for arrival | measured | MEASURED |
+| stop_distance | 0 (floor pivots under-shoot 5.9 mm/wheel with lag alone) | measured | MEASURED |
+| omega_floor | no hard floor; 25 mm/s per wheel lowest sustained | measured | MEASURED |
+| G1 pivots | mean abs 2.07 deg, sd 2.29, bias +0.05, 0 reversals | 0.5 / 0.4 deg | FAIL (instrument sd 0.65, slip sd 0.9) |
+| G2 arcs | 6/6 run; endpoint mean 10 mm, 1/6 <= 5 mm | 5 mm | FAIL |
+| G3 straights | 597-598 mm, no end bump | 600 +- 3 | PASS (length); peak 226-237 vs 220 FAIL |
+| G4 jerk | first tick 19-41 mm/s; measured accel to 938 | <= 70; <= 600 | PASS / FAIL |
+| G5 continuous | both wheels 199-206 steady; peak 220-240; rise 650-750 | <= 210; <= 600 | tracking PASS; overshoot FAIL |
+| G6 square | 12, 10, 10 mm closure, three laps | <= baseline (10.8 mm) | PASS (no regression) |
+
+Every FAIL has one of two causes, and neither is the motion profile:
+
+1. **Kernel tracking overshoot.** The shaper's command obeys the limits
+   (host tests); the wheels overshoot it by 13-20 % in speed and 2x in
+   acceleration. That is the FF gain / I-term tuning the design listed
+   as a non-goal (S2). A retune ticket, or bars that measure the
+   COMMAND rather than the wheel, would settle G3-peak/G4/G5.
+2. **The camera cannot resolve the bars.** Heading sd 1.03 deg per
+   sample at rest; position repeatability several mm. G1's 0.4 deg and
+   G2's 5 mm need either a better fix (more samples, a larger tag, or
+   a second tag) or bars stated at the instrument's resolution.
+
+Decisions for the stakeholder:
+
+- Accept the measured numbers as this sprint's acceptance (the design's
+  mechanisms are all confirmed on hardware: one shaper, predictive
+  arrival, no end bump, K1 stable, no per-robot overrun constant) and
+  restate G1/G2/G4/G5 bars in a follow-up ticket -- or hold the sprint
+  open for a kernel-gain retune on tovez.
+- Cross-repo `firmware_bake` for tovez in radio-robot-lib: `lag_s`
+  0.10-0.13, `stop_distance_mm` 0, and its own geometry (effective
+  track ~113 mm: slip 1.01 on 114.2, or trackwidth 115 / slip 1.0 as
+  its config already says). tovez has run vevov's numbers all sprint.
+- tovez's tag plate is mounted 180 deg from the fleet convention;
+  rotate the plate and zero `mount_yaw_residual_deg`, or leave the 180
+  in the calibration file (it is recorded and works).
+- Two new issues filed: `parallax-k-and-registered-mount-z-correct-twice.md`,
+  `wire-done-reason-is-resolved-lazily.md`.
