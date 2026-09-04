@@ -73,7 +73,7 @@ let touring = false
 // OCAL: corner fixes once an abort lands. Reset to false at the START of
 // each tour, so a previous abort does not poison the next run.
 let aborted = false
-let maxGapMs = 0
+let maxGap = 0  // [ms]
 // The yaw rate the NEXT RUN:pivot uses -- set by RUN:turnrate, so
 // turn_sweep.py's rate-then-angle two-step (RUN:turnrate:<rate> then
 // RUN:pivot:<deg>) mirrors its old two-RUN-command shape. RUN:pivot
@@ -83,13 +83,13 @@ let maxGapMs = 0
 let pivotYawRate = 90
 
 // Tick driveTick() to completion on this fiber, tracking the largest
-// gap between calls (maxGapMs) -- the shared runner behind
+// gap between calls (maxGap) -- the shared runner behind
 // tickedMove/tickedGoTo below, so the tick loop itself is written once.
 function tickToCompletion() {
     let last = control.millis()
     while (diffDrive.driveTick()) {
         const now = control.millis()
-        if (now - last > maxGapMs) maxGapMs = now - last
+        if (now - last > maxGap) maxGap = now - last
         last = now
         // RUN:abort landed mid-leg -- stop() for real (stopMove(), a real
         // stop since sprint 016 ticket 001) and return early instead of
@@ -149,7 +149,7 @@ function tickArcSampled(d: number, y: number) {
     let last = control.millis()
     while (diffDrive.driveTick()) {
         const now = control.millis()
-        if (now - last > maxGapMs) maxGapMs = now - last
+        if (now - last > maxGap) maxGap = now - last
         last = now
         if (hSamples.length < ARC_SAMPLE_CAP) {
             hSamples.push(Math.round(diffDrive.heading() * 100))
@@ -374,7 +374,7 @@ function tourRobot() {
     touring = true
     aborted = false
     openLoopProfile()
-    maxGapMs = 0
+    maxGap = 0
     // Anchor BOTH sources at the start: encoder pose is the local
     // frame's origin, and the IMU heading is zeroed to it.
     diffDrive.resetPose()
@@ -390,7 +390,7 @@ function tourRobot() {
         if (aborted) break
         logFix("c" + (i + 1))
     }
-    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("GAP:" + maxGap)
     // How the tour ended: an abort takes priority even if e-stop also
     // tripped at the same moment (the operator's actual intent), then
     // e-stop (diffDrive.probe(1) -- Output.estopped, shims.cpp's
@@ -408,7 +408,7 @@ function tourWheels() {
     touring = true
     aborted = false
     openLoopProfile()
-    maxGapMs = 0
+    maxGap = 0
     diffDrive.resetPose()
     diffDrive.seedPose(START_X, START_Y, START_H)
     diffDrive.emitLine("DBG:tour=wheels:profile=open")
@@ -424,7 +424,7 @@ function tourWheels() {
         if (aborted) break
         logFix("c" + (i + 1))
     }
-    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("GAP:" + maxGap)
     // See tourRobot()'s identical comment above for the reason priority.
     const reason = aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
     diffDrive.emitLine("TOUR:end:" + reason)
@@ -447,11 +447,11 @@ function straightRun(cm: number) {
     if (touring) return
     touring = true
     openLoopProfile()
-    maxGapMs = 0
+    maxGap = 0
     diffDrive.resetPose()
     diffDrive.emitLine("DBG:straight=" + cm + ":profile=open")
     tickedMove(cm, 0)
-    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("GAP:" + maxGap)
     // cm x100, so a 1 mm drift is still visible as an integer.
     diffDrive.emitLine("STRAIGHT:end:"
         + Math.round(diffDrive.poseX() * 100) + ":"
@@ -483,7 +483,7 @@ function tourWorld() {
     // reading was actually the yaw-taper double-count bug
     // (MotionEngine::serviceMove) masking as a profile problem.
     openLoopProfile()
-    maxGapMs = 0
+    maxGap = 0
     // NO seed here: the host has already seeded the true world pose
     // from the overhead camera (RUN:seedxy), so the robot can start
     // anywhere on the field and simply drive to the first dot.
@@ -509,7 +509,7 @@ function tourWorld() {
         if (aborted) break
         logFix("c" + (i + 1))
     }
-    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("GAP:" + maxGap)
     // See tourRobot()'s identical comment above for the reason priority.
     const reason = aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
     diffDrive.emitLine("TOUR:end:" + reason)
@@ -630,7 +630,7 @@ diffDrive.onRun("probe", function (arg: number) {
 })
 
 diffDrive.onRun("gap", function (arg: number) {
-    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("GAP:" + maxGap)
 })
 
 diffDrive.onRun("seed", function (arg: number) {
@@ -721,9 +721,9 @@ diffDrive.onRun("pivot", function (arg: number) {
     // but now deterministic rather than implicit.
     diffDrive.setDefaultYawRate(pivotYawRate)
     diffDrive.emitLine("DBG:pivot:profile=open")
-    maxGapMs = 0
+    maxGap = 0
     tickedMove(0, diffDrive.runArg(0))
-    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("GAP:" + maxGap)
     diffDrive.emitLine("PIVOT:end")
     touring = false
 })
@@ -750,9 +750,9 @@ diffDrive.onRun("arc", function (arg: number) {
     touring = true
     openLoopProfile()
     diffDrive.emitLine("DBG:arc:profile=open")
-    maxGapMs = 0
+    maxGap = 0
     tickArcSampled(20, diffDrive.runArg(0))
-    diffDrive.emitLine("GAP:" + maxGapMs)
+    diffDrive.emitLine("GAP:" + maxGap)
     diffDrive.emitLine("ARC:end")
     emitTrajectory()
     touring = false

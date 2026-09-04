@@ -291,12 +291,12 @@ namespace diffDrive {
         // bearing-then-chord split and short-arc wrap instead
         // (motion_engine.cpp), reaching (x, y) exactly.
         if (x == 0 && y == 0) return
-        const xMm = Math.round(x * 10)
-        const yMm = Math.round(y * 10)
-        const speedMmS = Math.round(defaultSpeed * 10)
+        const goalX = Math.round(x * 10)  // [mm]
+        const goalY = Math.round(y * 10)  // [mm]
+        const goalSpeed = Math.round(defaultSpeed * 10)  // [mm/s]
         // arrive: 1 mm -- tight enough that "on target" means on
         // target, loose enough not to fight int-mm rounding.
-        const arriveMm = 1
+        const goalArrive = 1  // [mm]
         // timeout: goToR() drives a <=180 deg pivot (its own short-arc
         // wrap) THEN the straight-line chord -- two SEQUENTIAL phases,
         // not one blended segment like startMove()'s reconciliation, so
@@ -307,12 +307,12 @@ namespace diffDrive {
         const chordCm = Math.sqrt(x * x + y * y)
         const pivotS = 180 / defaultYawRate
         const straightS = chordCm / defaultSpeed
-        const timeoutMs = Math.round((pivotS + straightS) * 1000) + 1500
+        const timeout = Math.round((pivotS + straightS) * 1000) + 1500  // [ms]
         // Must precede _goToR() immediately -- see
-        // Rig::pendingGoToDeadlineMs_'s comment (shims.cpp) for the
+        // Rig::pendingGoToDeadline_'s comment (shims.cpp) for the
         // one-shot handoff contract this pair relies on.
-        _setGoToDeadline(timeoutMs)
-        _goToR(xMm, yMm, speedMmS, arriveMm)
+        _setGoToDeadline(timeout)
+        _goToR(goalX, goalY, goalSpeed, goalArrive)
     }
 
     /**
