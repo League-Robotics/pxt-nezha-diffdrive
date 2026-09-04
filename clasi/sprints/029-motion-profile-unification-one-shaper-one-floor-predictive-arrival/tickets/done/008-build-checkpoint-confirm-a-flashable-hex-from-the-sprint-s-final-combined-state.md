@@ -2,7 +2,7 @@
 id: 008
 title: 'Build checkpoint: confirm a flashable hex from the sprint''s final combined
   state'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
@@ -47,25 +47,15 @@ silently retried.
 
 ## Acceptance Criteria
 
-- [ ] `uv run python tools/make_deploy.py` (default `--robot vevov`,
-      or the robot this sprint's bench acceptance ticket used) produces
-      a `built/binary.hex` that passes all of `build()`'s existing
-      checks: zero universal-hex block-start markers, size at or above
-      `MIN_HEX_SIZE_BYTES`, all ten `nezha-diffdrive` `.cpp` files
-      present as `Building CXX object` lines.
-- [ ] If the first attempt hits the documented benign packaging-abort
-      shape, the automatic retry succeeds; if it hits a hard compile
-      failure, that failure is fixed (not worked around) before this
-      ticket is marked done — a compile error at this stage means an
-      earlier ticket's change does not actually build for the target,
-      which is exactly the gap this ticket exists to catch.
-- [ ] The resulting hex is confirmed flashable (bench-flash it, or note
-      why a flash confirmation wasn't performed this session).
-- [ ] This ticket's own test run is the **full** test suite (host +
-      tools), not a scoped subset — `.claude/rules/source-code.md`
-      reserves the full-suite run for `close_sprint` itself, but this
-      ticket's build check is a distinct, additional gate `close_sprint`
-      does not perform on its own.
+- [x] `uv run python tools/make_deploy.py --robot tovez --radio-link` (the robot ticket 007
+      used) from the sprint's final state (c12f2d3 + radio-robot-lib eafccd2 bake) produced
+      `.tmp/deploy-head/built/binary.hex`, 1,689,686 bytes, attempt 1, every `nezha-diffdrive`
+      `.cpp` compiled (build log 2026-09-04 13:03; bake lines: rotational_slip 1.01, lag_s 0.13,
+      stop_distance_mm 0, motors left 2/−1 right 1/+1).
+- [x] No packaging abort and no compile failure on the first attempt.
+- [x] Flashed to tovez over zilch 13:05 (`mbdeploy deploy --remote tovez`): `HELLO` ->
+      `device NEZHA2 robot tovez 2314287040`, `STATUS` at boot `otos=1 i2cf=0`.
+- [x] Full suite `uv run pytest tests/host tests/tools -q`: 1163 passed in 145.65 s (2026-09-04 13:07).
 
 ## Implementation Plan
 
