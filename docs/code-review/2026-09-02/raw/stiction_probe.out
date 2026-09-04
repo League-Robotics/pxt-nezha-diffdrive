@@ -1,0 +1,19 @@
+== NEW engine, 90 deg pivot, tovez geometry (b=128/0.9617), limits accel/decel 400, omegaFloor 20 ==
+ideal wheels                                 cruise  40: ticks  112 yaw 90.1 deg (err +0.1)  stale 0  peak duty 6%
+lag 80 ms                                    cruise  40: ticks  111 yaw 92.7 deg (err +2.7)  stale 0  peak duty 8%
+lag 80 ms + breakaway 70 mm/s                cruise  40: ticks  100 yaw 95.6 deg (err +5.6)  stale 0  peak duty 11%
+lag 80 + breakaway 70 + 10% stale            cruise  40: ticks   89 yaw 95.0 deg (err +5.0)  stale 14  peak duty 12%
+lag 150 + breakaway 70                       cruise  40: ticks   98 yaw 98.8 deg (err +8.8)  stale 0  peak duty 12%
+lag 80 + brk 70, omegaFloor 67               cruise  40: ticks   55 yaw 95.8 deg (err +5.8)  stale 0  peak duty 15%
+ideal wheels                                 cruise 100: ticks   56 yaw 90.0 deg (err +0.0)  stale 0  peak duty 14%
+lag 80 ms                                    cruise 100: ticks   48 yaw 93.8 deg (err +3.8)  stale 0  peak duty 19%
+lag 80 ms + breakaway 70 mm/s                cruise 100: ticks   48 yaw 93.4 deg (err +3.4)  stale 0  peak duty 21%
+lag 80 + breakaway 70 + 10% stale            cruise 100: ticks   47 yaw 99.6 deg (err +9.6)  stale 9  peak duty 21%
+lag 150 + breakaway 70                       cruise 100: ticks   46 yaw 94.5 deg (err +4.5)  stale 0  peak duty 22%
+lag 80 + brk 70, omegaFloor 67               cruise 100: ticks   44 yaw 95.7 deg (err +5.7)  stale 0  peak duty 20%
+ideal wheels                                 cruise 200: ticks   46 yaw 90.0 deg (err -0.0)  stale 0  peak duty 25%
+lag 80 ms                                    cruise 200: ticks   31 yaw 98.8 deg (err +8.8)  stale 0  peak duty 31%
+lag 80 ms + breakaway 70 mm/s                cruise 200: ticks   31 yaw 99.4 deg (err +9.4)  stale 0  peak duty 32%
+lag 80 + breakaway 70 + 10% stale            cruise 200: ticks   36 yaw 94.9 deg (err +4.9)  stale 9  peak duty 30%
+lag 150 + breakaway 70                       cruise 200: ticks   31 yaw 116.1 deg (err +26.1)  stale 0  peak duty 35%
+lag 80 + brk 70, omegaFloor 67               cruise 200: ticks   27 yaw 100.0 deg (err +10.0)  stale 0  peak duty 33%

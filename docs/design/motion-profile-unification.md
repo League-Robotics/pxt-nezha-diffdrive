@@ -147,9 +147,14 @@ struct MotionLimits {
   float omegaFloor = 20.0f;    // [deg/s] UNVERIFIED; sized so one tick is ~0.5 deg
 
   // Arrival.
-  float stopDistance = 0.0f;   // [mm] per-wheel coast after the last nonzero
-                               //   command lands; replaces pivot_overrun.
-                               //   0 until measured (see 10.2)
+  float lag = 0.0f;            // [s] drivetrain response lag: the wheel follows
+                               //   a command change about this much later, so
+                               //   it coasts ~v*lag past any command. 0 until
+                               //   measured (see 10.2); 0.08 is the order the
+                               //   host model needed to reproduce tovez (6.3)
+  float stopDistance = 0.0f;   // [mm] per-wheel coast that does not scale with
+                               //   speed (brick latency at zero); replaces
+                               //   pivot_overrun. 0 until measured (see 10.2)
   float arriveDist = 1.0f;     // [mm] distance-axis arrival window
   float arriveYaw = 0.3f;      // [deg] pure-turn arrival window
 
@@ -423,11 +428,19 @@ is [mm/s], every acceleration [mm/s²], `jerk` [mm/s³], `stopDistance`
 [mm].
 
 ```
+// 0. what the wheel is ACTUALLY doing: the kernel's last measured
+//    dominant-axis speed (mean(vl, vr) for travel, half-differential for
+//    yaw), not this shaper's own last command. With a real drivetrain
+//    the wheel lags the command by `lag`, so planning against the
+//    command over-brakes late and lands long (see 6.3, MEASURED).
+vAct = measured >= 0 ? measured : v_prev
+
 // 1. braking plan: the highest speed from which decel can still stop
 //    inside what remains, less the coast the hardware adds after the
-//    last command lands (stopDistance), less one tick of pipeline.
+//    last command lands (stopDistance), less what the wheel travels
+//    before it can respond at all: one tick of pipeline plus the lag.
 if remain >= 0:
-    usable  = max(remain - stopDistance - v_prev*dt, 0)
+    usable  = max(remain - stopDistance - vAct*(dt + lag), 0)
     vBrake  = sqrt(2 * decel * usable)
     vGoal   = min(target, vBrake, cap)
 else:
@@ -449,8 +462,9 @@ if jerk > 0:
 //    never command less. This is the ONLY floor in the system.
 if remain >= 0 and vNext < floor: vNext = floor
 
-// 5. arrival (6.3)
-arriving = remain >= 0 and remain <= vNext*dt + stopDistance
+// 5. arrival (6.3): the wheel, at its MEASURED speed, will cover what
+//    remains during the pipeline tick plus the lag plus the fixed coast
+arriving = remain >= 0 and remain <= vAct*(dt + lag) + stopDistance
 
 v_prev = vNext; a_prev = (vNext - v_prev_before) / dt
 return {vNext, arriving}
@@ -522,9 +536,37 @@ most: 0.5° with the yaw floor, 1.7 mm on a straight) rather than by two
 ticks.
 
 `stopDistance` is the per-wheel coast after the last nonzero command
-lands: brick latency plus mechanical run-on. It is the physical quantity
-`pivot_overrun` was approximating (2.2 mm ≈ one tick at 70 mm/s plus
-~0.5 mm of coast). It is measured, not fitted, by §10.2.
+lands that does not scale with speed: brick latency at zero. It is the
+physical quantity `pivot_overrun` was approximating (2.2 mm ≈ one tick
+at 70 mm/s plus ~0.5 mm of coast). It is measured, not fitted, by §10.2.
+
+**Plan against the measured speed, and model the lag.** This was added
+after the first hardware run (tovez, 2026-09-04,
+`captures/bench-acceptance-029-20260904/`): 90° pivots at cruise 100
+ended +13…+56° long in the robot's own odometry while the ideal-wheel
+probe had predicted ±0.5°. The host model with a first-order wheel lag
+reproduces it — MEASURED against the sprint-029 engine as first landed,
+[`raw/stiction_probe.cpp`](../code-review/2026-09-02/raw/stiction_probe.cpp)
+/ [`.out`](../code-review/2026-09-02/raw/stiction_probe.out):
+
+| wheel model | cruise 40 | cruise 100 | cruise 200 |
+|---|---|---|---|
+| ideal | +0.1° | +0.0° | −0.0° |
+| lag 80 ms | +2.7° | +3.8° | +8.8° |
+| lag 80 ms + breakaway 70 mm/s | +5.6° | +3.4° | +9.4° |
+| lag 150 ms + breakaway | +8.8° | +4.5° | **+26.1°** |
+
+The old taper was insensitive to lag because it crawled the last
+degrees at the floor; a constant-decel plan brakes from cruise and is
+sensitive to it in proportion to speed. Two changes close it: the
+braking plan and the arrival test use the kernel's *measured*
+dominant-axis speed (`Output.velocityLeft/Right`, already sampled every
+tick) instead of the shaper's own last command, and a per-robot `lag`
+[s] enters both as `vAct·(dt + lag)`. `stopDistance` keeps only the
+speed-independent remainder. The pivot then lands within the arrival
+window on the lagged model (to be shown by the same probe before the
+next hardware run) and the constant `+2°` the fleet used to calibrate
+away becomes `v_floor·lag`, which the model predicts rather than fits.
 
 The old margins (`arriveDist`, `arriveYaw`) survive only as the
 window inside which a segment is *considered done without a further
@@ -683,12 +725,17 @@ applies: every number names its capture):
 | G5 continuous | `WHEELS_V 200 200 2000` from rest | `vl/vr` rise from the floor at ≤ 1.5 × `accel`; no overshoot above 210 mm/s |
 | G6 square tour closure | `RUN:square` × 3, camera | closure ≤ the current baseline (`reports/gopiv-closure-20260901.md`); no regression is the bar, improvement is expected |
 
-### 10.2 The two measurements the limits need
+### 10.2 The three measurements the limits need
 
+- **`lag`**: a `WHEELS_V 200 200 1500` step from rest with `TLM FULL`;
+  fit `vl`/`vr` against the commanded ramp (the shaper's own `accel`
+  limit) as a first-order response; the time constant is `lag`. Store in
+  `firmware_bake.lag_s`. Expected order: 50-150 ms (the host model needs
+  ~80-150 ms to reproduce tovez's 2026-09-04 overshoots).
 - **`stop_distance`**: 10 pivots at the yaw floor only (`MOVE_X 0 1571
-  <floor-equivalent cruise>`), residual overshoot at rest by camera,
-  converted to per-wheel mm. Store in `firmware_bake.stop_distance_mm`.
-  Expected order: 0.3-1 mm (the old 2.2 minus one tick of floor crawl).
+  <floor-equivalent cruise>`) with `lag` already set, residual overshoot
+  at rest by camera, converted to per-wheel mm. Store in
+  `firmware_bake.stop_distance_mm`. Expected order: 0.3-1 mm.
 - **`omega_floor`**: from rest, `WHEELS_V ±v ∓v 1500` sweeping v down
   from 70 mm/s per wheel; the lowest v at which the encoders show
   sustained rotation over the whole 1.5 s is the floor. Expected order:
