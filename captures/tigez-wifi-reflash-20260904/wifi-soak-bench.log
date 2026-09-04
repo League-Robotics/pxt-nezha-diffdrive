@@ -1,0 +1,23 @@
+hello: device NEZHA2 robot tigez 3527777815
+move  1 ang +1571 ack=True done=True pong=True
+move  2 ang -1571 ack=True done=True pong=True
+move  3 ang +1571 ack=True done=True pong=True
+move  4 ang -1571 ack=True done=True pong=True
+move  5 ang +1571 ack=True done=True pong=True
+move  6 ang -1571 ack=True done=True pong=True
+move  7 ang +1571 ack=True done=True pong=True
+move  8 ang -1571 ack=True done=True pong=True
+move  9 ang +1571 ack=True done=True pong=True
+move 10 ang -1571 ack=True done=True pong=True
+move 11 ang +1571 ack=True done=True pong=True
+move 12 ang -1571 ack=True done=True pong=True
+move 13 ang +1571 ack=True done=True pong=True
+move 14 ang -1571 ack=True done=True pong=True
+move 15 ang +1571 ack=True done=True pong=True
+move 16 ang -1571 ack=True done=True pong=True
+move 17 ang +1571 ack=True done=True pong=True
+move 18 ang -1571 ack=True done=True pong=True
+move 19 ang +1571 ack=True done=True pong=True
+move 20 ang -1571 ack=True done=True pong=True
+soak: 20 alive / 0 silent checks in 46 s
+final: status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=44 cyc=1483 tlm=off next=21 done=20 reason=stop

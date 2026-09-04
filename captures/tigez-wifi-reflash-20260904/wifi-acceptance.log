@@ -1,0 +1,32 @@
+> PING
+< pong 69975
+> STATUS
+< status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+> ID
+< id diffdrive tigez 1.20260904.2 tigez
+== wire acceptance
+      ['pong 103723']
+  - WHEELS_X: WHEELS TURNED (vl/vr non-zero)
+      0 frames
+  - STOP after WHEELS_X -> ack
+      ['pong 109611']
+  - MOVE_X: WHEELS TURNED (vl/vr non-zero)
+      0 frames
+  - STOP after MOVE_X -> ack
+      ['pong 115692']
+  - MOVE_V: WHEELS TURNED (vl/vr non-zero)
+      0 frames
+  - STOP after MOVE_V -> ack
+      ['pong 121699']
+  - GO_TO_R: WHEELS TURNED (vl/vr non-zero)
+      1 frames
+  - STOP after GO_TO_R -> ack
+      ['pong 127651']
+  - GO_TO_W: WHEELS TURNED (vl/vr non-zero)
+      1 frames
+  - STOP after GO_TO_W -> ack
+      ['pong 133587']
+  - STOP now -> ack
+      ['ack 20 0 none']
+  - v6 RUN <unknown> -> ack + err 1 (empty allowlist)
+      ['ack 21 0 none']

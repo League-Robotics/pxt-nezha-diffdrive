@@ -61,3 +61,8 @@ the playfield (link ON in this build).
   radio the robot then stops hearing commands (HELLO/TLM OFF/STOP
   unanswered across ~30 tries on tigez) and only a power cycle clears it.
   Some pool relays (guvov) need `!GO` before passing lines through.
+
+**Update, 2026-09-04 afternoon:** tigez reflashed on meili with the secrets
+copied in -- WiFi link up, 40/40 acceptance, 20/20 bench pivots over TCP:
+`captures/tigez-wifi-reflash-20260904/notes.md`. vevov still carries the
+WiFi-disabled build.

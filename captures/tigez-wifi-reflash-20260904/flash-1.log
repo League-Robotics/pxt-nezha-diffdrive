@@ -1,0 +1,10 @@
+0006423 I Loading /tmp/mbdeploy-flash-mwbv1q0u.hex [load_cmd]
+0010272 I Erasing... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========0017696 C flash erase sector failure (address 0x00000000; result code 0x67) [__main__]
+flash failed — attempting CTRL-AP mass erase to recover a locked device, then retrying.
+0005346 I Mass erasing device... [eraser]
+0005555 I Mass erase complete [eraser]
+0013276 C Timeout reading from probe 99063602000528203b43773cab0210ea000000006e052820 [__main__]
+Error: flash still failed after mass erase (exit 1) — tigez WAS ERASED AND NOW HAS NO FIRMWARE. It will not run until it is successfully reflashed.
+Error: flash failed (exit 1)
