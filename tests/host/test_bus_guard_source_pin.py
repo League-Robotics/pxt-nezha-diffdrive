@@ -37,18 +37,24 @@ answers separately:
    `otosSetOffset`, `seedPose`) each bracket their OtosPort call with
    `busGuard.acquire()`/`release()`.
 
-**Known, deliberately out-of-scope gap** (see this ticket's own final
-report / a spawned follow-up task, not fixed here): `otosGet()`'s case
-8 (`shims.cpp`) reads `o.imuCalibrationSamplesRemaining()`, which this
-file's own call-graph walk confirms IS an I2C-touching method
-(`readReg8`) -- but `otosGet()` is not one of the six entry points this
-ticket's issue names, and is not guarded. `resetTracking()` is also
-I2C-touching but is never called from `shims.cpp` at all (dead from the
-shim layer's perspective), so it is not a live hole. Neither is
-asserted against here, to avoid this test silently going green the
-moment someone "fixes" `otosGet()` in a way this file was never told
-about -- see the two `test_known_gap_*` functions below, which pin the
-CURRENT state instead of hiding it.
+**`otosGet()` case 8 was a known gap; it is now closed.** This file's
+own call-graph walk found that `otosGet()`'s case 8 (`shims.cpp`) reads
+`o.imuCalibrationSamplesRemaining()`, an I2C-touching method
+(`readReg8`) -- but `otosGet()` was not one of the six entry points the
+originating issue named, and was initially shipped unguarded on
+scope-discipline grounds. The ticket was reopened to close it instead:
+case 8 now brackets the call in `busGuard.acquire()`/`release()` the
+same as the six named entry points, and
+`test_otosget_case_8_acquires_and_releases_bus_guard` below asserts
+that positively (replacing the earlier known-gap pin).
+
+**Remaining known, deliberately out-of-scope gap.** `resetTracking()`
+is also I2C-touching (per the call-graph walk) but is never called from
+`shims.cpp` at all (dead from the shim layer's perspective), so it is
+not a live hole -- only a dead method that would need a guarded entry
+point the day something starts calling it.
+`test_known_gap_reset_tracking_is_unguarded_but_also_unreachable` below
+pins that CURRENT state instead of hiding it.
 
 Run with::
 
@@ -377,35 +383,48 @@ def test_guarded_entry_calls_an_i2c_touching_method(entry_name, method_name):
     )
 
 
-# ---- known, deliberately out-of-scope gaps (pinned, not hidden) --------
-
-def test_known_gap_otosget_case_8_reads_an_i2c_touching_method_unguarded():
-    """PINS a known gap this ticket's issue does not name and this
-    ticket does not fix: shims.cpp's otosGet() case 8 calls
-    o.imuCalibrationSamplesRemaining(), which this file's own inventory
-    (above) confirms touches I2C -- but otosGet() is not one of the six
-    entry points enforce-the-one-fiber-i2c-invariant.md names, and is
-    not wrapped in busGuard.acquire()/release(). This test asserts the
-    CURRENT (undesirable) state so a future fix has to touch this file
-    deliberately rather than this gap silently going unnoticed forever.
-    If this starts failing because otosGet() now guards case 8, that is
-    good news -- delete this test and add otosGet() to the covered set
-    (or to _GUARDED_FUNCTIONS above) instead."""
-    m = re.search(r"\bint\s+otosGet\s*\(\s*int\s+what\s*\)\s*\{", _SHIMS_STRIPPED)
-    assert m, "otosGet() not found in shims.cpp -- has it been renamed?"
-    body = _function_body(_SHIMS_STRIPPED, re.escape(m.group(0)), "otosGet")
-    assert "imuCalibrationSamplesRemaining" in body, (
-        "otosGet() no longer calls imuCalibrationSamplesRemaining() -- "
-        "this known gap may already be resolved; re-check before "
-        "deleting this test."
+def test_otosget_case_8_acquires_and_releases_bus_guard():
+    """otosGet()'s case 8 is the only case in this switch that touches
+    I2C -- it calls o.imuCalibrationSamplesRemaining(), which this
+    file's own inventory (above) confirms reaches readReg8(). Every
+    other case reads a cached field set by the last read()/begin()
+    (x/y/heading/vx/vy/omega/productId/connected), so only case 8 needs
+    a guard. This replaces the earlier known-gap pin
+    (test_known_gap_otosget_case_8_reads_an_i2c_touching_method_unguarded)
+    now that the gap is closed: case 8 brackets its I2C call in
+    busGuard.acquire()/release() exactly like the six named entry points
+    above, isolated to case 8's own braced block so the other seven
+    cases (which must NOT take the guard -- they touch no I2C) are not
+    silently satisfying this assertion instead."""
+    fn_match = re.search(
+        r"\bint\s+otosGet\s*\(\s*int\s+what\s*\)\s*\{", _SHIMS_STRIPPED
     )
-    assert "busGuard" not in body, (
-        "otosGet() now mentions busGuard -- the known gap this test "
-        "pins appears to be fixed. Delete this test and fold otosGet() "
-        "into the covered inventory instead of leaving a stale "
-        "known-gap pin around."
+    assert fn_match, "otosGet() not found in shims.cpp -- has it been renamed?"
+    fn_body = _function_body(_SHIMS_STRIPPED, re.escape(fn_match.group(0)), "otosGet")
+
+    case_match = re.search(r"case 8:\s*\{", fn_body)
+    assert case_match, (
+        "otosGet(): case 8 no longer opens its own braced block -- has "
+        "the guard been removed or the case body reshaped? (a bare "
+        "`case 8: return ...;` with no braces would mean the gap is "
+        "back)"
+    )
+    case_body = _function_body(
+        fn_body, re.escape(case_match.group(0)), "otosGet case 8"
+    )
+    assert "imuCalibrationSamplesRemaining" in case_body, (
+        "otosGet(): case 8 no longer calls imuCalibrationSamplesRemaining() "
+        f"-- has it moved to a different case?:\n{case_body}"
+    )
+    assert re.search(r"busGuard\.acquire\s*\(", case_body), (
+        f"otosGet(): case 8 has no busGuard.acquire(...) call:\n{case_body}"
+    )
+    assert re.search(r"busGuard\.release\s*\(\s*\)", case_body), (
+        f"otosGet(): case 8 has no busGuard.release() call:\n{case_body}"
     )
 
+
+# ---- known, deliberately out-of-scope gap (pinned, not hidden) --------
 
 def test_known_gap_reset_tracking_is_unguarded_but_also_unreachable():
     """PINS the OTHER known gap: OtosPort::resetTracking() touches I2C

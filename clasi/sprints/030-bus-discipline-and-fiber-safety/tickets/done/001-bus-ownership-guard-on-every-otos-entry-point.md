@@ -109,14 +109,25 @@ kernel and shaping fields only.
       entry points (`otosBegin/Read/Zero/Calibrate/SetOffset`,
       `seedPose`), acquires/releases `BusGuard` (grep-based, matching
       the style of existing source-pin tests in `tests/tools/` or
-      `tests/host/`). NOTE: `tests/host/test_bus_guard_source_pin.py`
-      also discovered and pins two OTHER I2C-touching OtosPort call
-      sites this ticket's own six-entry list does not name --
-      `otosGet()`'s case 8 (`imuCalibrationSamplesRemaining()`, a live
-      but unguarded gap) and `resetTracking()` (unguarded but also
-      unreachable from `shims.cpp`, so not a live hole). Flagged as a
-      follow-up task rather than fixed here (out of this ticket's
-      named scope) -- see the final report / spawned task.
+      `tests/host/`). REOPENED: `tests/host/test_bus_guard_source_pin.py`
+      also discovered a SEVENTH live hole this ticket's own six-entry
+      list did not name -- `otosGet()`'s case 8
+      (`imuCalibrationSamplesRemaining()`) -- initially shipped as a
+      pinned known-gap test rather than fixed, which the team-lead
+      judged the wrong resolution against the sprint's own Success
+      Criteria ("every OTOS I2C caller reaches the bus through the
+      guard"). Closed in the reopened dispatch: case 8 now brackets its
+      I2C call in `busGuard.acquire()`/`release()` exactly like the six
+      named entry points (`src/shims.cpp` `otosGet()` case 8), and
+      `test_otosget_case_8_acquires_and_releases_bus_guard` replaces the
+      earlier known-gap pin with a positive assertion. Re-audited every
+      other `otosGet()` case (0-7, plus `engineGoToW()`/
+      `engineGoToWChord()`'s `otos.connected()`/`pose.x()`/`pose.y()`
+      reads): all read cached fields set by the last `read()`/`begin()`
+      call, no further I2C -- no other hole found. `resetTracking()`
+      remains correctly pinned as unguarded-but-unreachable dead code
+      (no call site in `shims.cpp`), per the team-lead's explicit
+      instruction to leave that judgment as-is.
 - [x] `test/test.ts` has no `control.inBackground` block that calls
       `readWorld()`/`otosRead()`.
 - [x] `SET rebase`'s OTOS zero is deferred to `tickDrive()`, not

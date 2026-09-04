@@ -1642,7 +1642,18 @@ int otosGet(int what) {
     case 5: return static_cast<int>(std::lround(o.omega() * kRadToCdeg));
     case 6: return o.productId();
     case 7: return o.connected() ? 1 : 0;
-    case 8: return o.imuCalibrationSamplesRemaining();
+    case 8: {
+      // Bus-ownership guard: imuCalibrationSamplesRemaining() issues a
+      // live I2C read (otos_port.cpp readReg8), unlike every other case
+      // above (cached fields set by the last read()/begin()) -- same
+      // three-line acquire/I2C-call/release bracket as the six named
+      // OTOS entry points above.
+      Rig& r = ensure();
+      r.busGuard.acquire(r.sleeper);
+      const int remaining = o.imuCalibrationSamplesRemaining();
+      r.busGuard.release();
+      return remaining;
+    }
     default: return 0;
   }
 }
