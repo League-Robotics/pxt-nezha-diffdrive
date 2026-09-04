@@ -172,6 +172,19 @@ struct Rig {
   // heading reset stay SYNCHRONOUS, as before -- only the OTOS write
   // becomes deferred.
   bool pendingOtosZero = false;
+  // Staged cross-fiber stop: a stop requested while busGuard is held
+  // (i.e. some fiber is mid kernel.step(), possibly parked in its own
+  // encoder settle sleep) cannot write the motor ports immediately
+  // without racing THAT fiber's own I2C traffic on the shared bus --
+  // the exact hazard busGuard exists to prevent. Setting this flag
+  // instead defers the port-level zero write to the fiber that already
+  // holds the guard, delivered from inside tickDrive() itself, still
+  // inside the guarded window, right before it releases the guard (see
+  // that function's own comment for the exact point). When the guard
+  // is free (the overwhelming majority of stops), deliverStopNow()
+  // still writes immediately -- this flag is never touched for that
+  // path.
+  bool pendingStop_ = false;
   uint32_t tickOverrunCount = 0; // Rig-level: tickDrive() calls that ran
                                   // past their own paced deadline.
                                   // Distinct from the kernel's own
@@ -367,7 +380,25 @@ static void odomUpdate(Rig& r) {
 // stays in the same resumable "soft stop" family stopAll()/the watchdog
 // already established: a fresh drive()/tickDrive() call resumes motion
 // with no clear step needed.
+//
+// Staged instead of immediate while busGuard is held: writing the
+// motor ports HERE, on whichever fiber called this, would race the
+// I2C traffic of whichever OTHER fiber currently holds the guard (mid
+// kernel.step(), possibly parked in its own encoder settle sleep) --
+// the exact bus-collision hazard the guard exists to prevent. Setting
+// Rig::pendingStop_ instead defers the port write to that busy fiber
+// itself, delivered from inside tickDrive() before it releases the
+// guard (see that function's own comment), which still lands within
+// the SAME tick the request was made in -- the same "no later than
+// this tick" guarantee this function has always given, just delivered
+// by the fiber that can safely touch the bus rather than this one.
+// When the guard is free (the common case), the write still happens
+// immediately, right here, exactly as before.
 static void deliverStopNow(Rig& r) {
+  if (r.busGuard.held()) {
+    r.pendingStop_ = true;
+    return;
+  }
   r.left.emergencyStop();
   r.right.emergencyStop();
 }
@@ -804,6 +835,22 @@ bool tickDrive() {
     r.engine.settleToRest();
     odomUpdate(r);  // coast counts -> pose before the final TLM
   }
+
+  // Staged cross-fiber stop delivery: some OTHER fiber called
+  // deliverStopNow() (or the watchdog) while THIS fiber held the guard
+  // above and could not write the motor ports itself without racing
+  // this fiber's own I2C traffic -- see Rig::pendingStop_'s and
+  // deliverStopNow()'s own comments. Deliver it now, still inside the
+  // guarded window this fiber already owns, so no other fiber can
+  // interleave its own I2C traffic between this write and release()
+  // below. This lands within the SAME tick the request was staged in,
+  // the same guarantee an unstaged deliverStopNow() call has always
+  // given.
+  if (r.pendingStop_) {
+    r.pendingStop_ = false;
+    r.left.emergencyStop();
+    r.right.emergencyStop();
+  }
   r.busGuard.release();
 
   // Deferred OTOS zero: SET rebase
@@ -961,10 +1008,15 @@ static void watchdogEntry(void* context) {
     const uint64_t sinceLastTick = now - r.lastTick;  // [us]
     if (sinceLastTick <= kWatchdogTimeout) continue;
     if (!commandLooksActive(r)) continue;
-    r.kernel.neutral();      // commands neutral for whenever step() next runs
-    r.engine.endMove();      // clears the move-engine's own in-flight state
-    r.left.emergencyStop();  // port-level zero write, NOW, tick-independent
-    r.right.emergencyStop();
+    r.kernel.neutral();  // commands neutral for whenever step() next runs
+    r.engine.endMove();  // clears the move-engine's own in-flight state
+    // Port-level zero write, tick-independent -- staged instead of
+    // immediate if busGuard is currently held, so this fiber cannot
+    // land its own I2C traffic inside another fiber's settle window.
+    // See deliverStopNow()'s own comment above for the full reasoning;
+    // this watchdog is the other caller that used to write the ports
+    // directly here, unconditionally.
+    deliverStopNow(r);
     // An abandoned block-motion call (started, never ticked) would
     // otherwise hold kBlock forever with nothing left to notice it is
     // idle -- this is the one background fiber that still can.

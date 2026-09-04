@@ -1033,6 +1033,23 @@ caller; the class is otherwise unaware of I2C, CODAL, or the kernel.
 Host-tested directly (no fakes needed — it has no hardware dependency
 to fake); see §11 for this module's C++11 syntax-gate coverage.
 
+**Sprint 030: explicit raw-zero rejection.** The 0x46 counter is never
+device-reset, so a destroyed sample from a bus collision (the "Bus
+discipline" hazard below, or a brick power-up before the first real
+read) reads back as raw `0`. The pre-030 two-strike rule only compared
+magnitudes (`|raw - lastGoodRaw| > kMaxDeltaCounts`), so for the first
+~40 cm of travel after power-up — while `lastGoodRaw` is still small —
+a destroyed `0` reading sits within `kMaxDeltaCounts` of the last good
+value and was silently accepted as `kAccept`, teleporting position
+toward 0 and back. `evaluate()` gains one condition ahead of the
+existing magnitude check: `raw == 0 && lastGoodRaw_ != 0` returns
+`kRejectPending` unconditionally, regardless of magnitude — the
+documented Phase-F signature is now named explicitly rather than
+relying on it happening to also be a large-magnitude jump. A genuine
+counter restart (two consistent implausible non-zero reads, or two
+consistent zero reads) still reaches `kAcceptAsRebaseline` through the
+existing two-strike path, unchanged.
+
 **OtosPort** (SparkFun OTOS, I2C 0x17; implements `PoseSource`).
 Ported verbatim from the reference firmware: register map, distinct
 velocity LSB scales (decoding velocity with the position constants
@@ -1129,6 +1146,23 @@ The known behavior change: telemetry's `ox`/`oy`/`oh` now update only
 while something is actively ticking, not continuously while the robot
 sits idle between moves — an accepted trade, not a regression nobody
 decided on.
+
+**Staged stop under a live guard (sprint 030).** `deliverStopNow()`
+and the starvation watchdog write the motor register from whichever
+fiber calls them, by design (sprint 006) — a genuine safety path that
+must not wait on anything. That is still true when the bus is idle.
+When `BusGuard` is held, sprint 030 changes this to a *staged* stop:
+the caller sets a `pendingStop_` flag on the Rig instead of writing
+across the guard, and the busy fiber delivers it itself — still inside
+the same guarded window it already owns, immediately before its own
+`busGuard.release()` — in the same place `tickDrive()` already delivers
+a post-move settle stop, above. This lands within the same tick the
+stop was requested in, milliseconds later at worst. The not-busy case
+(the overwhelming majority of stops) is unchanged — an immediate
+write, no staging, no added latency for the common path. The starvation
+watchdog now routes through `deliverStopNow()` itself rather than
+writing the ports directly, so it gets the same guard-aware staging for
+free instead of carrying a second copy of the decision.
 
 **Yield discipline (system invariant).** The build enables the hardware
 FPU (`-mfpu=fpv4-sp-d16 -mfloat-abi=softfp`) and **CODAL's context

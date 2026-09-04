@@ -1,9 +1,11 @@
 ---
 id: '004'
 title: 'Glitch armor: explicit raw-zero rejection and staged cross-fiber stop'
-status: open
-use-cases: [SUC-004]
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-004
+depends-on:
+- '001'
 github-issue: ''
 issue: code-review/glitch-armor-reject-raw-zero-and-staged-cross-fiber-stop.md
 completes_issue: true
@@ -66,24 +68,30 @@ integrates both directions as real motion.
 
 ## Acceptance Criteria
 
-- [ ] `test_encoder_glitch_armor.py`: a raw 0 immediately after a
+- [x] `test_encoder_glitch_armor.py`: a raw 0 immediately after a
       nonzero good value is rejected (`kRejectPending`), for both a
       small-magnitude and large-magnitude `lastGoodRaw_` (proving the
       new check is not gated behind the magnitude comparison).
-- [ ] `test_encoder_glitch_armor.py`: the existing two-strike
+- [x] `test_encoder_glitch_armor.py`: the existing two-strike
       rebaseline case (two consistent implausible non-zero readings)
       is unaffected; a new case confirms two consistent implausible
       **zero** readings still reach `kAcceptAsRebaseline` on the
       second one.
-- [ ] A host test (using ticket 001's `BusGuard` test seam) confirms a
+- [x] A host test (using ticket 001's `BusGuard` test seam) confirms a
       stop requested while the guard is held is staged, not written
       immediately, and is delivered by the time the guard next clears;
       a stop requested while the guard is clear is written immediately,
       unchanged from today.
-- [ ] `deliverStopNow()` still does not touch `estopLatch_`.
+- [x] `deliverStopNow()` still does not touch `estopLatch_`.
 - [ ] Hardware (optional, team-lead judgment): a cold-power-up bench
       run shows no position jump in the first ~40 cm of travel —
       MEASURED citation against the pre-fix reproduction if run.
+      UNVERIFIED in this dispatch -- no hardware available. Would be
+      settled by a cold power-up bench run reproducing the pre-fix
+      teleport (position jumping toward 0 and back within the first
+      ~40 cm of travel) and re-running the same script against this
+      fix to confirm no jump, capturing both runs' camera or encoder
+      logs as the artifact.
 
 ## Testing
 

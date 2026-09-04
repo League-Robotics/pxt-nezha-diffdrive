@@ -41,6 +41,10 @@ void bgRelease(void* handle) {
   static_cast<BusGuardHandle*>(handle)->guard.release();
 }
 
+bool bgHeld(void* handle) {
+  return static_cast<BusGuardHandle*>(handle)->guard.held();
+}
+
 // ---- FakeSleeper readback -------------------------------------------
 
 int bgSleepCalls(void* handle) {

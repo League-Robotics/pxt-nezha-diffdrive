@@ -81,6 +81,16 @@ class BusGuard {
   // no defensive re-check).
   void release() { busy_ = false; }
 
+  // Non-blocking peek at ownership: true iff some caller is currently
+  // between an acquire() and its matching release(). Safe to read from
+  // any fiber with no locking of its own -- CODAL's cooperative
+  // scheduler only switches fibers at an explicit yield/sleep call, so
+  // a plain read here can never race a concurrent write to busy_ the
+  // way it would under preemption. Lets a caller that must never block
+  // (a stop request that has to stay tick-independent) choose to defer
+  // its own I2C write instead of spinning through acquire().
+  bool held() const { return busy_; }
+
  private:
   bool busy_ = false;
 };

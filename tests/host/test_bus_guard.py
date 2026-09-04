@@ -62,6 +62,8 @@ def lib(tmp_path_factory):
     loaded.bgAcquire.restype = None
     loaded.bgRelease.argtypes = [ctypes.c_void_p]
     loaded.bgRelease.restype = None
+    loaded.bgHeld.argtypes = [ctypes.c_void_p]
+    loaded.bgHeld.restype = ctypes.c_bool
     loaded.bgSleepCalls.argtypes = [ctypes.c_void_p]
     loaded.bgSleepCalls.restype = ctypes.c_int
     loaded.bgArmReleaseOnSleepCall.argtypes = [ctypes.c_void_p, ctypes.c_int]
@@ -94,6 +96,9 @@ class Guard:
 
     def release(self):
         self._lib.bgRelease(self._handle)
+
+    def held(self):
+        return bool(self._lib.bgHeld(self._handle))
 
     def sleep_calls(self):
         return self._lib.bgSleepCalls(self._handle)
@@ -169,3 +174,36 @@ def test_release_without_a_prior_acquire_leaves_the_guard_free(lib):
         guard.release()
         guard.acquire()
         assert guard.sleep_calls() == 0
+
+
+# ---- held(): the non-blocking peek a staged-stop caller needs ----------
+
+def test_held_is_false_on_a_fresh_never_acquired_guard(lib):
+    """A guard nobody has ever touched reads as not-held -- the same
+    default a caller must be able to trust before its first acquire()."""
+    with Guard(lib) as guard:
+        assert guard.held() is False
+
+
+def test_held_is_true_between_acquire_and_release(lib):
+    """The whole point of this accessor: a caller that must never block
+    (a staged-stop decision) can tell "someone is mid-transaction" apart
+    from "the bus is free" without spinning through acquire() itself."""
+    with Guard(lib) as guard:
+        guard.acquire()
+        assert guard.held() is True
+        guard.release()
+        assert guard.held() is False
+
+
+def test_held_reflects_the_scripted_mid_spin_release_too(lib):
+    """held() must track the SAME busy_ state acquire()'s own spin loop
+    waits on -- confirmed here via the identical scripted-release seam
+    the contention tests above use, so this is not a second, drifting
+    notion of "held"."""
+    with Guard(lib) as guard:
+        guard.acquire()
+        assert guard.held() is True
+        guard.arm_release_on_sleep_call(2)
+        guard.acquire()  # second holder waits, then the callback releases
+        assert guard.held() is True  # ...and immediately reclaims it
