@@ -1,0 +1,6 @@
+> PING
+< pong 1250327
+> STATUS
+< status ready=1 active=0 connL=0 connR=0 otos=0 wedge=0 flags=1 i2cf=1 cyc=1 tlm=off next=1 done=1 reason=timeout
+> ID
+< id diffdrive gopiv 1.20260904.3 gopiv

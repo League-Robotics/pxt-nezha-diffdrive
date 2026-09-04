@@ -1,0 +1,90 @@
+wifilink: gopiv.local -> 192.168.1.215 (mDNS)
+transport : WiFi TCP 192.168.1.215:7654
+identity  : device NEZHA2 robot gopiv 2175407711
+
+=== ALL VERBS: every entry in the v6 table, over this transport ===
+  [PASS   ] HELLO -> device banner
+  [PASS   ] PING -> pong
+  [PASS   ] ID -> id
+  [PASS   ] VER -> ver
+  [PASS   ] STATUS -> status
+  [PASS   ] ID carries drivetrain profile version NAME (4 fields)
+  [PASS   ] HELP lists all 18 verbs
+  [PASS   ] bare GET -> ack + one `get` line per field
+  [PASS   ] GET max_duty -> get max_duty <v>
+  [PASS   ] SET max_duty <same> -> ack, no err
+  [PASS   ] GET reads back the SET value
+  [PASS   ] TLM POSE -> ack, thdr, t frames
+  [PASS   ] TLM FULL -> ack + a (wider) thdr
+  [PASS   ] TLM AUTO -> ack
+  [PASS   ] TLM BUFFER -> ack
+  [PASS   ] TLM NOW (while subscribed) -> ack, mode unchanged
+  [PASS   ] TLM OFF -> ack, frames stop
+  [PASS   ] TLM NOW (while off) -> ack
+  [PASS   ] TLM NOW never starts a stream
+  [PASS   ] WHEELS_V: ack, no err
+  [PASS   ] WHEELS_V: WHEELS TURNED (vl/vr non-zero)
+  [PASS   ] STOP after WHEELS_V -> ack
+  [PASS   ] WHEELS_X: ack, no err
+  [PASS   ] WHEELS_X: WHEELS TURNED (vl/vr non-zero)
+  [PASS   ] STOP after WHEELS_X -> ack
+  [PASS   ] MOVE_X: ack, no err
+  [PASS   ] MOVE_X: WHEELS TURNED (vl/vr non-zero)
+  [PASS   ] STOP after MOVE_X -> ack
+  [PASS   ] MOVE_V: ack, no err
+  [PASS   ] MOVE_V: WHEELS TURNED (vl/vr non-zero)
+  [PASS   ] STOP after MOVE_V -> ack
+  [PASS   ] GO_TO_R: ack, no err
+  [PASS   ] GO_TO_R: WHEELS TURNED (vl/vr non-zero)
+  [PASS   ] STOP after GO_TO_R -> ack
+  [PASS   ] GO_TO_W: ack, no err
+  [PASS   ] GO_TO_W: WHEELS TURNED (vl/vr non-zero)
+  [PASS   ] STOP after GO_TO_W -> ack
+  [PASS   ] STOP now -> ack
+  [PASS   ] v6 RUN <unknown> -> ack + err 1 (empty allowlist)
+  [PASS   ] cleartext RUN:gap carve-out -> GAP: line
+  (ESTOP skipped: --no-estop, so a second transport can run motion on this boot)
+
+==================================================================
+  PASS     HELLO -> device banner
+  PASS     PING -> pong
+  PASS     ID -> id
+  PASS     VER -> ver
+  PASS     STATUS -> status
+  PASS     ID carries drivetrain profile version NAME (4 fields)
+  PASS     HELP lists all 18 verbs
+  PASS     bare GET -> ack + one `get` line per field
+  PASS     GET max_duty -> get max_duty <v>
+  PASS     SET max_duty <same> -> ack, no err
+  PASS     GET reads back the SET value
+  PASS     TLM POSE -> ack, thdr, t frames
+  PASS     TLM FULL -> ack + a (wider) thdr
+  PASS     TLM AUTO -> ack
+  PASS     TLM BUFFER -> ack
+  PASS     TLM NOW (while subscribed) -> ack, mode unchanged
+  PASS     TLM OFF -> ack, frames stop
+  PASS     TLM NOW (while off) -> ack
+  PASS     TLM NOW never starts a stream
+  PASS     WHEELS_V: ack, no err
+  PASS     WHEELS_V: WHEELS TURNED (vl/vr non-zero)
+  PASS     STOP after WHEELS_V -> ack
+  PASS     WHEELS_X: ack, no err
+  PASS     WHEELS_X: WHEELS TURNED (vl/vr non-zero)
+  PASS     STOP after WHEELS_X -> ack
+  PASS     MOVE_X: ack, no err
+  PASS     MOVE_X: WHEELS TURNED (vl/vr non-zero)
+  PASS     STOP after MOVE_X -> ack
+  PASS     MOVE_V: ack, no err
+  PASS     MOVE_V: WHEELS TURNED (vl/vr non-zero)
+  PASS     STOP after MOVE_V -> ack
+  PASS     GO_TO_R: ack, no err
+  PASS     GO_TO_R: WHEELS TURNED (vl/vr non-zero)
+  PASS     STOP after GO_TO_R -> ack
+  PASS     GO_TO_W: ack, no err
+  PASS     GO_TO_W: WHEELS TURNED (vl/vr non-zero)
+  PASS     STOP after GO_TO_W -> ack
+  PASS     STOP now -> ack
+  PASS     v6 RUN <unknown> -> ack + err 1 (empty allowlist)
+  PASS     cleartext RUN:gap carve-out -> GAP: line
+==================================================================
+40 passed, 0 failed, 0 blocked

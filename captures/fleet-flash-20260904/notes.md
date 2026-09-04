@@ -66,3 +66,8 @@ the playfield (link ON in this build).
 copied in -- WiFi link up, 40/40 acceptance, 20/20 bench pivots over TCP:
 `captures/tigez-wifi-reflash-20260904/notes.md`. vevov still carries the
 WiFi-disabled build.
+vevov and gopiv reflashed the same afternoon (1.20260904.3): vevov 40/40
++ 20/20 soak (`captures/vevov-wifi-reflash-20260904/`); gopiv's module was
+silent until its brick was switched on, then 40/40 + 20/20
+(`captures/gopiv-wifi-reflash-20260904/`). All three boards now run WiFi
++ radio builds.

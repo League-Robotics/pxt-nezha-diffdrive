@@ -1,0 +1,5 @@
+move 18 ang -1571 ack=True done=True pong=True
+move 19 ang +1571 ack=True done=True pong=True
+move 20 ang -1571 ack=True done=True pong=True
+soak: 20/20 alive, link held, 46 s
+final: ['status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=159 cyc=1494 tlm=off next=21 done=20 reason=stop']

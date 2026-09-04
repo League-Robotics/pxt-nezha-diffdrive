@@ -23,3 +23,27 @@ so an unpowered brick explains the silent module AND the wedge, and a
 weak battery browning out under motor load would fit the field dropout.
 UNVERIFIED until the brick switch/charge is checked and the robot
 power-cycled.
+
+## Resolved: the brick was switched off
+
+Stakeholder switched gopiv's brick on (13:15). Within seconds gopiv
+announced `gopiv robot link` and gopiv.local:7654 opened -- and `pong
+1250327` shows the micro:bit was NOT reset: its uptime kept counting from
+the flash. The I2C wedge cleared by itself once the brick answered, so
+the "wedge" is CODAL blocking on the transaction until the slave replies.
+`wifi-first-contact.log`: `id diffdrive gopiv 1.20260904.3 gopiv`.
+
+- `wire_acceptance.py --wifi-tcp gopiv --only-all-verbs --no-estop`,
+  first run (`wifi-acceptance-full.log`): 39/40, GO_TO_W "wheels turned"
+  failed, with `STATUS` still reading `connL=0 connR=0 i2cf=1` at that
+  point (brick I2C still coming up). Second run
+  (`wifi-acceptance-full-2.log`): **40 passed, 0 failed, 0 blocked**.
+- `wifi-soak-bench.log`: 20 alternating MOVE_X pivots over one TCP
+  session, 20/20 acked / done / pong, link held, 46 s; final `STATUS
+  connL=1 connR=1`.
+
+So gopiv's WiFi hardware is fine. The field dropout this morning stays
+UNVERIFIED but a brick battery low enough to brown out the RJ11 rail
+under motor load is now the leading explanation: the same brick was
+found switched off / dead on the bench twice (2026-09-03 evening,
+2026-09-04). Charge it before the next field run.
