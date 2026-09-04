@@ -1,0 +1,1 @@
+zavaz relay not found by `mbdeploy probe` -- is it plugged in? (never hard-code a port; it moves on replug. last known: /dev/cu.usbmodem2121302)

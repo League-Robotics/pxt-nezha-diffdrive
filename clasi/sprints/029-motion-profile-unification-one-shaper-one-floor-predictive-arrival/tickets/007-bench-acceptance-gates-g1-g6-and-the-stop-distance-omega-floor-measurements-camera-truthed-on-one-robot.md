@@ -275,3 +275,85 @@ this ticket.
 `field_calibration.json`'s `default_robot` is left as `tovez` (was
 `vevov`) for continuity with this blocked session -- a future session
 on a different robot must switch it back.
+
+## Diagnostic session 2026-09-04b (tovez, BLOCKED -- no reachable carrier this session; re-analysis only)
+
+Full account: `captures/bench-acceptance-029-20260904-diag/notes.md`.
+
+**No commanded motion was sent.** Both carriers
+`.claude/rules/connecting-to-a-robot.md` documents were tried and both
+failed from this machine this session: the radio relay has no USB
+device present at all (`mbdeploy probe`/`mbdeploy list --remote` show
+no `zavaz` entry and no reachable farm node; `ls /dev/cu.*` shows no
+DAPLink-style device), and WiFi TCP discovery
+(`tools/wifilink.py --tcp --robot tovez`) timed out finding `tovez` by
+mDNS or broadcast HELLO, confirmed independently with a `dns-sd -B
+_robotlink._tcp` browse that found nothing advertised. This machine
+otherwise has normal LAN access (the Shelly light controller at
+`192.168.1.122` answered normally throughout). This is an
+infrastructure access gap, not a firmware or process finding --
+`captures/bench-acceptance-029-20260904-diag/notes.md` §1 has the exact
+commands/output.
+
+**With the robot unreachable, this session instead re-analyzed the
+existing 2026-09-04 evidence** (`captures/bench-acceptance-029-20260904/`)
+against the source and against a fuller column-by-column parse of
+`evidence-pivot90-full-frames.json` than the original write-up did.
+Findings (all cited to source/capture in the notes file, none of them a
+new hardware measurement):
+
+- **No geometry-bake regression.** `radio-robot-lib/config/robots/
+  tovez.json` carries no `geometry.firmware_bake` block, so
+  `make_deploy.py` injects nothing for tovez by design
+  (`make_deploy.py:901-919`'s own comment names this exact robot) --
+  GET should read this repo's compiled defaults (travelCalib_=0.7878,
+  trackWidth_=114.2, rotationalSlip_=0.952), not `tovez.json`'s
+  unrelated top-level `geometry.trackwidth`/`rotational_slip` (115/1.0,
+  belonging to what looks like a different, much larger motion-stack
+  config schema at that same path -- flagged for a human to confirm,
+  not chased further).
+- **`travel_calib`/`track_width` are not wire-exposed fields at all**
+  (`src/comms/wire_adapter.cpp`'s `kFields[]` has no such names) -- a
+  live `GET` for either is expected to answer `err 1`, which is
+  correct behavior, not a regression. Whether the bare `GET` dump's
+  zero-lines result (`evidence-get-and-status.log`) is a tool/radio-loss
+  artifact or a real ticket-004 enumeration regression is still
+  UNRESOLVED -- untestable without the robot.
+- **Probe 1 re-read at full resolution**: `h` is flat across the ENTIRE
+  ~5.85 s during-move capture window, not just at its two endpoints,
+  and the expected UN-ramped pivot duration at cruise 100 (~0.9-1.5 s)
+  is far shorter than either the 2.27 s pre-capture gap or the 5000 ms
+  deadline -- the most parsimonious reading is the pivot physically
+  completed, overshot (+103.17° odometry / +110.08° camera against a
+  commanded +90°), and stopped, all within that first 2.27 s gap, not
+  that it spun for the full deadline. This favors "late/wrong arrival"
+  over "spun until timeout" for probe 1 specifically.
+- **Probe 2 re-read at full column resolution**: EVERY pose/motion
+  column is dead flat for the full 6.43 s window, not only the four
+  named in the original write-up -- including the RAW encoder counts
+  `posl`/`posr` and `ox`/`oy`, not just derived `h`. Only `cyc`
+  (climbing for ~3 s then pinning at 2336) and `oh` (a 23-unit,
+  noise-level wobble that does NOT track the camera's confirmed
+  +123.32° of real rotation) show any variation at all. Three ranked
+  hypotheses are recorded in the notes file: (1) a stale/cached
+  telemetry Snapshot reused across ticks -- best fit, explains every
+  frozen column at once; (2) a stuck encoder/OTOS I2C read, matching
+  this fleet's own documented wedge history and consistent with the
+  same probe's own `RUN:clearestop` non-reply; (3) a genuine
+  kernel/fiber wedge (the original 2026-09-04 conclusion) -- worst fit,
+  since it does not explain `cyc` climbing normally for the first ~3 s
+  while pose was ALREADY frozen from frame 1. None of the three is
+  confirmed; this is a ranking to falsify live, not a conclusion.
+
+**No acceptance criterion changed status.** `field_dance.py` still has
+not passed since the 2026-09-04 FAIL; G1-G6 and the two §10.2
+measurements are still NOT RUN; design §7 is still UNRESOLVED. This
+session narrowed the confounding (one hypothesis -> three ranked,
+falsifiable ones) and cleared the geometry-bake/field-name side
+questions, but added no new hardware evidence.
+
+**Needs a human**: get a working carrier to tovez for the next session
+-- plug the zavaz relay into whichever machine will run it, or power
+cycle tovez and confirm `tovez.local` resolves over WiFi -- before any
+of §6's four open questions (`captures/bench-acceptance-029-20260904-diag/notes.md`)
+or the ticket's own remaining acceptance criteria can be attempted.
