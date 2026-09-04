@@ -1,0 +1,4 @@
+move 18 ang -1571 ack=True done=True pong=True
+move 19 ang +1571 ack=True done=True pong=True
+move 20 ang -1571 ack=True done=True pong=True
+soak: 20/20 alive, link held, 46 s
