@@ -1,9 +1,11 @@
 ---
 id: '002'
 title: Fiber-identity check on the tick service hook; kBlock motion owner
-status: open
-use-cases: [SUC-002]
-depends-on: ['001']
+status: in-progress
+use-cases:
+- SUC-002
+depends-on:
+- '001'
 github-issue: ''
 issue: code-review/service-hook-must-check-fiber-identity.md
 completes_issue: true
@@ -75,20 +77,44 @@ indistinguishable from a genuine stop the host itself caused.
 
 ## Acceptance Criteria
 
-- [ ] `serviceHookEntry()` checks fiber identity via the injectable
-      accessor, not `motionOwner_`.
-- [ ] A host test (decision-logic only, via the injectable seam — real
+- [x] `serviceHookEntry()` checks fiber identity via the injectable
+      accessor, not `motionOwner_`. Implemented as
+      `diffDrive::shouldServiceHookRun(protocolFiberId_, currentFiberFn_())`
+      (`src/core/fiber_identity.h`, called from
+      `Protocol::serviceHookEntry()`, `src/comms/protocol.cpp`);
+      `protocolFiberId_` is captured once at the top of `Protocol::run()`
+      and `currentFiberFn_` defaults to a real CODAL `currentFiber`
+      global read (`Protocol::defaultCurrentFiber()`), overridable via
+      the `CurrentFiberFn` function-pointer seam.
+- [x] A host test (decision-logic only, via the injectable seam — real
       CODAL fibers cannot be exercised host-side) confirms: given
       fiber A's id captured as "the protocol fiber" and a call
       presenting fiber B's id, the hook does not invoke `serviceOnce()`.
-- [ ] `MotionOwner::kBlock` exists; a host test (same seam) or a
-      documented code-review check confirms a block-motion entry point
-      takes it and a wire verb arriving while it is held is refused
-      `kBusy`.
-- [ ] `motionOwner_`/`jobOwnsMotion_` duplication (CM-14) is resolved
-      to one field.
-- [ ] `src/DESIGN.md` §8 documents the fiber-identity check and the
+      `tests/host/test_fiber_identity_gate.py` (via
+      `tests/host/fiber_identity_shim.cpp`), 4 cases, all passing.
+- [x] `MotionOwner::kBlock` exists (`src/core/motion_owner.h`); a host
+      test confirms a block-motion entry point takes it and a wire verb
+      arriving while it is held is refused `kBusy`.
+      `tests/host/test_motion_owner.py` pins the pure take/release
+      arbitration directly; `tests/host/test_wire_motion_verbs.py`
+      already exercises `WireAdapter`'s `kBusy` refusal via the same
+      `externalOwner_ != MotionOwner::kNone` check every motion verb
+      shares (unchanged behavior, only the field/type changed);
+      `tests/host/test_kblock_ownership_source_pin.py` source-pins that
+      `startMove()`/`driveTwist()`/`engineGoToRArmed()` (`src/shims.cpp`)
+      actually call `protocolTryTakeBlockOwnership()` and check its
+      result before proceeding — the real end-to-end call (a live CODAL
+      fiber) is hardware-only, `protocol.cpp`/`shims.cpp` include `pxt.h`.
+- [x] `motionOwner_`/`jobOwnsMotion_` duplication (CM-14) is resolved
+      to one field: `WireAdapter::jobOwnsMotion_` (a bare bool) is
+      replaced by `WireAdapter::externalOwner_` (`MotionOwner`, the SAME
+      shared enum `Protocol::motionOwner_` uses), set via the renamed
+      `setExternalOwner(MotionOwner)` (was `setJobOwnsMotion(bool)`).
+- [x] `src/DESIGN.md` §8 documents the fiber-identity check and the
       `kBlock` decision (apply this sprint's `design/` overlay text).
+      Applied, adjusted for the actual implementation names above —
+      prose paragraph plus the component diagram's `ServiceHook`/
+      `MotionOwner` edges.
 - [ ] Not fully host-testable — `protocol.cpp` includes `pxt.h`.
       Hardware acceptance (team-lead session, not programmer-dispatched
       per this sprint's Test Strategy): a button-handler tour running
@@ -96,7 +122,9 @@ indistinguishable from a genuine stop the host itself caused.
       block-side `startMove()` during a live wire obligation is refused
       or reported rather than silently superseding — MEASURED citation
       required, against both the pre-fix reproduction and the fixed
-      build, same board, same scenario.
+      build, same board, same scenario. UNVERIFIED — no hardware access
+      in this dispatch; left for the team-lead's own scripted bench
+      session per the sprint's Test Strategy.
 
 ## Testing
 

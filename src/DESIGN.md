@@ -1153,9 +1153,61 @@ already-working abort behavior (previously "by accident," per the
 issue, because the second fiber ran concurrently) as a deliberate fast
 path instead.
 
+**Sprint 030: the service hook checks fiber identity, and the block
+program's fiber becomes a third `motionOwner_` value.** Two gaps
+survived sprint 028's collapse, both from the same root cause — a
+CODAL `MessageBus` handler (a button press, in `test.ts`) runs on its
+**own** fiber, a THIRD executor `motionOwner_`'s two-way `kWire`/`kJob`
+split never accounted for:
+
+1. `serviceHookEntry()` gated on `motionOwner_ == kJob` — a piece of
+   STATE — not on which fiber was calling `tickDrive()`. A button-
+   handler fiber calling `tickDrive()` while a job ran on the protocol
+   fiber satisfied that state check and ran `serviceOnce()` a second
+   time, concurrently, corrupting the wire dispatcher's shared line
+   buffer mid-yield (the ack write yields; the other fiber's `feed()`
+   overwrote the buffer during that yield). Fixed by capturing the
+   protocol fiber's own identity (`protocolFiberId_`, set once in
+   `run()`) and comparing it against an injectable "current fiber"
+   reader (`currentFiberFn_`, defaulting to a real CODAL global read)
+   through `shouldServiceHookRun()` — a pure, host-portable function
+   (`core/fiber_identity.h`) so its decision logic gets a host test even
+   though `protocol.cpp` itself cannot be host-compiled. No fiber but
+   the protocol fiber's own `tickDrive()` call ever runs
+   `serviceOnce()` now, regardless of what `motionOwner_` says.
+2. `motionOwner_` had no value for "the block program's own fiber is
+   driving" — `startMove()`/`driveTwist()`/`engineGoToRArmed()`
+   (`shims.cpp`, reached from any TS fiber) called the engine
+   unconditionally, so a button-handler tour could supersede a
+   still-live wire move with no arbitration at all; the wire's own
+   completion channel then resolved that superseded move as `kStop`,
+   indistinguishable from a normal stop. **Decision:** `motionOwner_`
+   (now `MotionOwner`, `core/motion_owner.h` — shared with
+   `WireAdapter`'s own mirror, `externalOwner_`, closing their prior
+   duplication as a bare bool that only ever meant "a job is in the
+   way") gains `kBlock`, not a blanket refusal — `test.ts`'s existing
+   button-triggered tours are a real, working, idle-time use of the
+   robot and refusing them outright would regress that, so the
+   block-motion entry points (`startMove`/`engineGoToRArmed`/
+   `driveTwist` — the last also reached by `startDrive()`, which calls
+   this same block-facing `driveTwist()` before starting its own tick
+   loop) take `kBlock` ownership via `tryTakeBlockOwnership()`
+   (refused, not silently superseding, unless `motionOwner_` is
+   `kNone`), releasing it back to `kNone` via `releaseBlockOwnership()`
+   once the drivetrain next looks idle (`tickDrive()`, the starvation
+   watchdog for an abandoned call that was never ticked, and the three
+   explicit stop paths `endMove()`/`stopAll()`/`estopAll()`). A wire
+   motion verb arriving while `motionOwner_ == kBlock` is refused the
+   same `kBusy` a `kJob`-held drivetrain already answers with — one
+   arbitration rule, four owners, not two special cases plus a hole.
+   `setWheelSpeeds()`'s own shim (`setWheels()`) is deliberately NOT
+   one of these entry points (not named in the originating issue) and
+   stays unarbitrated — a known, documented gap
+   (`tests/host/test_kblock_ownership_source_pin.py`), not a fix this
+   round.
+
 Component diagram (target shape, reused from sprint 026's own
-Architecture section, drawn there before this collapse was
-implemented):
+Architecture section, extended here for the third motion owner):
 
 ```mermaid
 graph TD
@@ -1164,9 +1216,12 @@ graph TD
     Protocol -->|enqueue on RUN: prefix| RunQueue[run_queue.h ring]
     RunQueue -->|dropped counter| DiagValue[shims.cpp diagValue ordinal table]
     Protocol -->|dispatchJob: dequeue + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
-    TSDispatch -->|student onRun handler| StudentCode[Student RUN handler]
-    Protocol -->|motionOwner_ arbitration| MotionOwner{wire vs job}
+    TSDispatch -->|student onRun handler, own MessageBus fiber| StudentCode[Student RUN / button handler]
+    StudentCode -->|startMove/driveTwist/engineGoToRArmed: takes kBlock| MotionOwner
+    Protocol -->|motionOwner_ arbitration: kNone/kWire/kJob/kBlock| MotionOwner{motionOwner_}
     MotionOwner -->|tickDrive after stepBusy=false| Rig[shims.cpp Rig / DifferentialDrive kernel]
+    Protocol -->|serviceHookEntry: fiber identity check, not motionOwner_| ServiceHook{currentFiber == protocolFiberId_?}
+    ServiceHook -->|only the protocol fiber's own tickDrive call| Protocol
     Protocol -->|every yield| VfpGuard[vfp_guard.h]
     Rig -->|encoder settle sleeps, via CodalSleeper| VfpGuard
     Rig -->|SET rebase / SET estop_clear| WireAdapter[wire_adapter.cpp SET handler]

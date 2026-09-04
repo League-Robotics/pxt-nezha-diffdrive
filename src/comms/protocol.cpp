@@ -1,6 +1,7 @@
 // protocol.cpp -- see protocol.h.
 #include "protocol.h"
 
+#include "../core/fiber_identity.h"
 #include "../platform/vfp_guard.h"
 
 #include <cstdio>  // plain snprintf, not std::snprintf: newlib-nano's
@@ -436,10 +437,36 @@ void Protocol::dispatchJob() {
   runQueue_.release(slot);
 
   motionOwner_ = MotionOwner::kJob;
-  wireAdapter_.setJobOwnsMotion(true);
+  wireAdapter_.setExternalOwner(MotionOwner::kJob);
   runDispatch();
-  wireAdapter_.setJobOwnsMotion(false);
+  wireAdapter_.setExternalOwner(MotionOwner::kNone);
   motionOwner_ = MotionOwner::kNone;
+}
+
+bool Protocol::tryTakeBlockOwnership() {
+  if (!diffDrive::tryTakeBlockOwnership(&motionOwner_)) return false;
+  wireAdapter_.setExternalOwner(MotionOwner::kBlock);
+  return true;
+}
+
+void Protocol::releaseBlockOwnership() {
+  if (motionOwner_ != MotionOwner::kBlock) return;
+  diffDrive::releaseBlockOwnership(&motionOwner_);
+  wireAdapter_.setExternalOwner(MotionOwner::kNone);
+}
+
+// shims.cpp's own seam onto the two methods above -- same same-package
+// forward-declaration convention as registerTickServiceHook()/
+// runDispatch() (this file's own top-of-file forward declarations):
+// only Protocol can see a wire request, a dispatched job, AND a block-
+// motion call together, so a block-motion entry point reaches this
+// singleton through a plain free function rather than holding a
+// reference of its own.
+bool protocolTryTakeBlockOwnership() {
+  return protocol().tryTakeBlockOwnership();
+}
+void protocolReleaseBlockOwnership() {
+  protocol().releaseBlockOwnership();
 }
 
 void Protocol::invokeRunDispatch(const char* text) {
@@ -455,9 +482,25 @@ void Protocol::setCurrentRunText(const char* text) {
 const char* Protocol::currentRunText() const { return currentRunText_; }
 
 void Protocol::serviceHookEntry() {
-  if (protocol().motionOwner_ != MotionOwner::kJob) return;
-  protocol().serviceOnce();
+  Protocol& p = protocol();
+  if (!diffDrive::shouldServiceHookRun(p.protocolFiberId_,
+                                       p.currentFiberFn_()))
+    return;
+  p.serviceOnce();
 }
+
+// The real "current fiber" reader: currentFiber is CODAL's own global
+// scheduler pointer, reached unqualified via MicroBit.h's own
+// "using namespace codal" -- the same path microbit_friendly_name()/
+// microbit_serial_number() (buildIdentity(), above) and create_fiber()
+// (platform_ports.h) already reach their own globals through. Compared
+// only for pointer identity by shouldServiceHookRun(), never
+// dereferenced.
+const void* Protocol::defaultCurrentFiber() {
+  return static_cast<const void*>(currentFiber);
+}
+
+Protocol::CurrentFiberFn Protocol::currentFiberFn_ = &Protocol::defaultCurrentFiber;
 
 uint32_t Protocol::runDropCount() const { return runQueue_.dropped(); }
 uint32_t Protocol::emitDropCount() const { return emitQueue_.dropped(); }
@@ -646,6 +689,14 @@ void Protocol::serviceOnce() {
 }
 
 void Protocol::run() {
+  // Captured once, the first (and only) time this fiber body executes
+  // -- see serviceHookEntry()'s own comment (protocol.h) for the whole
+  // reason this fiber's own identity has to be knowable at all. Same
+  // "read now that this fiber is actually executing" timing buildIdentity()
+  // below needs, for the same underlying reason: neither is safe or
+  // meaningful before this fiber has actually started.
+  protocolFiberId_ = currentFiberFn_();
+
   // Real identity, read now that this fiber is actually executing --
   // see buildIdentity()'s own comment (protocol.h) for why this is
   // deliberately NOT done at Protocol construction time. Must happen
@@ -664,8 +715,8 @@ void Protocol::run() {
 
   // Register this fiber's own servicing as tickDrive()'s service hook --
   // see serviceHookEntry()'s own comment (protocol.h) for what it does
-  // and why it is a deliberate no-op outside a dispatched job's own
-  // call span.
+  // and why it only ever runs on THIS fiber, regardless of which fiber
+  // called tickDrive().
   registerTickServiceHook(&Protocol::serviceHookEntry);
 
   while (true) {

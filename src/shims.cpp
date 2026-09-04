@@ -62,6 +62,19 @@ constexpr float kRadToCdeg = 1.0f / kCdegToRad;
 // fiber.
 static void watchdogEntry(void* context);
 
+// Forward declarations: motion-owner arbitration lives on the Protocol
+// singleton (comms/protocol.cpp) -- it is the one object that can see a
+// wire request, a dispatched job, AND a block program's own call, all
+// three. Same same-package forward-declaration convention as
+// protocolEmitLine()/protocolCurrentRunText() elsewhere in this file.
+// protocolTryTakeBlockOwnership() takes ownership and returns true iff
+// nothing else currently holds the drivetrain, else leaves it alone and
+// returns false -- refused, not silently superseded.
+// protocolReleaseBlockOwnership() is a no-op unless this fiber's own
+// call actually holds it.
+bool protocolTryTakeBlockOwnership();
+void protocolReleaseBlockOwnership();
+
 // ---- composition ----------------------------------------------------
 
 struct Rig {
@@ -370,6 +383,12 @@ void setWheels(int left, int right) {  // [mm/s] [mm/s]
 
 //%
 void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
+  // Refused (a silent no-op), not superseding, while a wire motion or a
+  // dispatched job already holds the drivetrain -- see
+  // protocolTryTakeBlockOwnership()'s own comment above. Also the entry
+  // point startDrive() (blocks/motion.ts) reaches, since it calls this
+  // same block-facing driveTwist() before starting its own tick loop.
+  if (!protocolTryTakeBlockOwnership()) return;
   Rig& r = ensure();
   const float yaw = static_cast<float>(yawRate) * kCdegToRad;  // [rad]
   const float twist = yaw * 0.5f * r.engine.effectiveTrackWidth();  // [mm/s]
@@ -522,6 +541,10 @@ bool engineMoveActive() {
 //%
 void startMove(int distance, int yaw, int speed, int yawRate) {
   // [mm] [cdeg] [mm/s] [cdeg/s]
+  // Refused (a silent no-op), not superseding, while a wire motion or a
+  // dispatched job already holds the drivetrain -- see
+  // protocolTryTakeBlockOwnership()'s own comment above.
+  if (!protocolTryTakeBlockOwnership()) return;
   Rig& r = ensure();
   odomUpdate(r);
   const float distanceF = static_cast<float>(distance);  // [mm]
@@ -568,7 +591,12 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
     yawDuration = std::fabs(yawTarget) / twistSpeed;
   const float duration = distDuration > yawDuration ? distDuration
                                                       : yawDuration;
-  if (duration <= 0.0f) return;  // nothing to do
+  if (duration <= 0.0f) {
+    // Nothing to do -- release right away rather than leaving kBlock
+    // held with no move in flight and no tick loop coming to notice.
+    protocolReleaseBlockOwnership();
+    return;
+  }
 
   const float left = distTarget - yawTarget;
   const float right = distTarget + yawTarget;
@@ -830,7 +858,14 @@ bool tickDrive() {
     r.sleeper.yield();
   }
 
-  return commandLooksActive(r);
+  const bool active = commandLooksActive(r);
+  // Releases kBlock ownership the first tick this drivetrain looks
+  // idle -- a no-op unless a block-motion entry point actually holds
+  // it (protocolReleaseBlockOwnership()'s own comment above), mirroring
+  // how a wire obligation's own owner value drops back to kNone the
+  // first pass it clears (run(), protocol.cpp).
+  if (!active) protocolReleaseBlockOwnership();
+  return active;
 }
 
 // cycleStat(): read-only tick/cycle diagnostics for desk verification
@@ -930,6 +965,10 @@ static void watchdogEntry(void* context) {
     r.engine.endMove();      // clears the move-engine's own in-flight state
     r.left.emergencyStop();  // port-level zero write, NOW, tick-independent
     r.right.emergencyStop();
+    // An abandoned block-motion call (started, never ticked) would
+    // otherwise hold kBlock forever with nothing left to notice it is
+    // idle -- this is the one background fiber that still can.
+    protocolReleaseBlockOwnership();
   }
 }
 
@@ -959,6 +998,12 @@ void endMove() {
   // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop move"
   // block's own entry point -- see deliverStopNow()'s comment above.
   deliverStopNow(*rig);
+  // The block program itself says this move is over -- release right
+  // away rather than waiting for tickDrive() to next notice the
+  // drivetrain looks idle. A no-op if this call was never the one
+  // holding kBlock in the first place (protocolReleaseBlockOwnership()'s
+  // own comment above).
+  protocolReleaseBlockOwnership();
 }
 
 // ---- stopping -------------------------------------------------------
@@ -972,6 +1017,11 @@ void stopAll() {
   // and the wire's STOP verb both land here -- see deliverStopNow()'s
   // comment above.
   deliverStopNow(r);
+  // No-op unless THIS call is the one holding kBlock -- see
+  // protocolReleaseBlockOwnership()'s own comment above (a wire-issued
+  // STOP reaching this same function never holds kBlock in the first
+  // place, so this is harmless for that caller too).
+  protocolReleaseBlockOwnership();
 }
 
 //%
@@ -980,6 +1030,8 @@ void estopAll() {
   r.engine.endMove();
   r.kernel.estop();
   r.kernel.emergencyStopMotors();
+  // See stopAll()'s identical call just above.
+  protocolReleaseBlockOwnership();
 }
 
 //%
@@ -1463,6 +1515,13 @@ void engineSetGoToDeadline(uint32_t timeout) {  // [ms]
 // call site stays in exactly one place.
 //%
 void engineGoToRArmed(float x, float y, float speed, float arrive) {
+  // Refused (a silent no-op), not superseding, while a wire motion or a
+  // dispatched job already holds the drivetrain -- see
+  // protocolTryTakeBlockOwnership()'s own comment above (shims.cpp's
+  // own top section). This is startGoTo()'s (blocks/motion.ts) own
+  // entry point onto the move engine, the goTo() counterpart of
+  // startMove() above.
+  if (!protocolTryTakeBlockOwnership()) return;
   Rig& r = ensure();
   engineGoToR(x, y, speed, arrive, r.pendingGoToDeadline_);
 }
