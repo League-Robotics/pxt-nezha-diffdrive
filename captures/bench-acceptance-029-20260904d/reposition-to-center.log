@@ -1,0 +1,12 @@
+HELLO -> device NEZHA2 robot tovez 2314287040
+STATUS -> status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=58 cyc=2523 tlm=off next=1 done=2 reason=timeout
+MOVE_X -250 0 100 6000 -> ack 1 2 timeout
+STATUS after -> status ready=1 active=1 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=59 cyc=2608 tlm=off next=2 done=2 reason=timeout
+
+--- camera pose, pre-flight check, and verification (2026-09-04, this session) ---
+pre-move camera (registered tag 52): world (41.810217, 9.226814) cm, yaw_rad 0.249235 (14.28 deg)
+projected end (backward 25 cm along current heading): (17.582679, 3.060258)
+field.check_path([(41.81,9.23),(17.58,3.06)]) -> offenders: [] (clears LIMITS (67.15,44.65) reduced by MARGIN 12 -> usable +-55.15/+-32.65)
+post-move camera (registered tag 52): world (17.634584, 3.111408) cm, yaw_rad 0.260666 (14.94 deg)
+match: projected (17.58,3.06) vs measured (17.63,3.11) -- within 0.1 cm; heading essentially unchanged (14.28 -> 14.94 deg, consistent with a straight backward drive)
+margin after reposition: |x|=17.63 (37.5 cm from the 55.15 cm east/west margin), |y|=3.11 (29.5 cm from the 32.65 cm north/south margin) -- comfortable room for G1-G6.

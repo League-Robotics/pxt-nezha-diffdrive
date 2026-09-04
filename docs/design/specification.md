@@ -859,6 +859,28 @@ directional defect, distinct from the pivot behavior and from
 2026-09-04c's G5 sign-reversal defect. See `src/DESIGN.md` §3
 (2026-09-04d paragraph) for the full account.
 
+**2026-09-04d continuation session** (same day, after the above):
+root-caused and fixed. The ~90° drive-bearing "defect" was
+`tools/field_dance.py`'s `pose()` double-adding the fixed +90° AprilCam
+convention on top of a REGISTERED tag's already-corrected `yaw_rad`
+(`tools/field.py` gained `pose_from_registered_samples()` to fix it),
+compounded by tovez's tag plate being physically mounted ~180° from the
+fleet convention (MEASURED, `heading-probe.log`; `field_calibration.json`'s
+tovez entry now carries `mount_yaw_residual_deg: 180.0`). Verified on
+hardware: two `field_dance.py --tcp` re-runs from a repositioned,
+margin-safe start show every bearing error ≤4° (was 86-91°) — the
+directional defect is gone. `DANCE FAILED` printed both times anyway,
+on a DIFFERENT, purely-magnitude finding: the longer move of each pair
+(180° pivot, 40 cm drive) undershoots by ~9-9.6°/~4.6-4.7 cm
+consistently across both runs, while the paired 90° pivots/20 cm drives
+pass comfortably — an accuracy question for `stop_distance`/
+`omega_floor`/G1-G6 to characterize, not a new directional defect. No
+`MotionLimits` field values changed (nothing in this table was
+re-measured this session — the dance still has not passed cleanly, so
+per the ticket's ordering G1-G6 and the two §10.2 measurements are
+still not attempted). See `src/DESIGN.md` §3 and
+`reports/bench-acceptance-029-20260904d.md` §5-6 for the full account.
+
 ## 12. Provenance and maintenance boundary
 
 - The wheel kernel (`diffdrive.h`/`diffdrive.cpp`) is vendored from

@@ -152,3 +152,147 @@ future session re-sends it.
    drive defect is resolved and a cleaner pivot run is available.
 4. `default_robot` in `field_calibration.json` left as `tovez` for
    session continuity, matching every prior session in this ticket.
+
+## 5. Root cause + probe, and the fix (2026-09-04, continuation session)
+
+**Timeline.** After this session's own dance FAIL above (§2), the
+team-lead investigated further (still 2026-09-04, before this
+continuation session started) and ran an isolated heading probe:
+`heading-probe.log`. With tovez's tag registered at the fleet's normal
+`mount_yaw_residual_deg: 0.0` (the still-UNVERIFIED entry this session
+had been running with), `HELLO`/`STATUS` read healthy, then:
+
+```
+pose before (x,y,daemon_yaw_deg,n): (41.66, 9.69, -165.68, 2)
+MOVE_X 50 0 100 5000 -> ack 1 10 timeout
+pose after : (46.43, 10.65, -165.83, 3)
+displacement 4.87 cm at bearing 11.4 deg; daemon yaw -165.8 deg
+bearing - yaw = 177.3 deg
+```
+
+A 5 cm forward `MOVE_X` displaced the tag at bearing +11.4°, while the
+daemon (with the tag registered) reported yaw −165.8° for the SAME
+pose -- 177.3° apart, not the ~0° a correctly-registered reading should
+show. Two things were stacked:
+
+1. **`tools/field_dance.py`'s `pose()` double-added the +90° convention.**
+   `camlink.py` registers a robot tag with `mount_yaw_rad = -pi/2 +
+   residual`, so the daemon's reported `yaw_rad` for a REGISTERED tag
+   already IS the robot's heading (`tools/field.py`'s own
+   `robot_heading_from_tag_yaw()` docstring already said as much: "do
+   not add 90 again on top of a registered/corrected reading"). But
+   `field_dance.py`'s `pose()` ran that already-corrected `yaw_rad`
+   through `robot_heading_from_tag_yaw()` anyway, adding the convention
+   a SECOND time. A pivot's PASS/FAIL survives this (heading DELTAS
+   cancel a constant offset); an absolute-bearing check (every drive)
+   does not -- exactly the +87°/+91°/+86° pattern this session's own
+   dance table (§2) shows.
+2. **tovez's tag plate is physically mounted ~180° from the fleet
+   convention** (its "up" points robot-REARWARD instead of forward).
+   With the convention-only (residual=0) registration, `bearing -
+   reported_yaw = +177.3°` -- once item 1's double-add is also
+   accounted for, this resolves to a clean ~180° physical mount
+   finding, not a further tooling bug.
+
+**Fix (this continuation session):**
+- `tools/field.py` gained `pose_from_registered_samples()`, a pure
+  function that reads a registered sample's `yaw_rad` unchanged (mean
+  position with lever correction, circular mean of yaw -- no +90 add).
+  `tools/field_dance.py`'s `pose()` now calls it instead of
+  `robot_heading_from_tag_yaw()`. Audited every other `tools/*.py`
+  script that reads tag yaw (`reposition.py`, `park.py`,
+  `pivot_truth.py`, `rotation_check.py`, `truth_check.py`, `tour_*.py`,
+  `turn_sweep.py`, `arc_capture.py`, `leg_analysis.py`) -- none had the
+  same bug; the rotation-only tools use heading DELTAS (immune to a
+  constant offset either way) and every absolute-heading tool already
+  goes through `camproc.Cam`/`camlink.py`'s registered daemon reading
+  directly, with no second correction anywhere else in the tree.
+- `tools/field_calibration.json`'s tovez entry: `mount_yaw_residual_deg`
+  set to `180.0` (the MEASURED physical mount finding above),
+  `mount_x_cm` sign flipped to `+4.1` to match (the tag now sits in
+  FRONT of the centre of rotation once the plate's "up" is reversed).
+  Re-registered (`camlink.py --register tovez`); a follow-up camera
+  read (§ below) confirms the daemon now reports `yaw_rad` ≈ +14.3°
+  with the robot facing the same real-world direction it always was --
+  the earlier −165.8° reading was an artifact of registering with the
+  wrong (0°) residual, not a change in the robot's actual pose.
+- New tests: `tests/tools/test_field.py` pins
+  `pose_from_registered_samples()` (unchanged yaw, lever correction,
+  multi-sample averaging, circular mean across the wrap, empty input).
+  `tests/tools/test_camlink.py`'s TL-11 regression guard
+  (`test_real_calibration_file_has_no_mounts_table_leftovers`) updated
+  to accept a residual near 0° OR near ±180° (a real physical
+  backward-mount state) while still rejecting one near ±90° (the
+  original probe-fitted-absolute regression signature it exists to
+  catch). `uv run pytest tests/tools -q`: 360 passed.
+- `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md` updated with
+  a "registered vs raw: who adds the 90" section and the tovez 180°
+  plate finding, both citing this file and `heading-probe.log`.
+
+**Verification: reposition, then two dance re-runs.** Camera confirmed
+tovez at world (41.81, 9.23) cm, 13.3 cm from the east margin (usable
+±55.15 cm) -- too close for the longer moves later gates need, so
+before re-running the dance a single, pre-flight-checked `MOVE_X -250 0
+100 6000` (25 cm straight backward along the current heading, no pivot
+needed -- see `park.py`'s reversing-is-cheaper idea, though this was a
+hand-computed single move, not a `park.plan()` call) moved it to
+(17.63, 3.11) cm, matching the projected (17.58, 3.06) to within 0.1 cm
+-- `reposition-to-center.log`, `field.check_path()` cleared the margin
+on the projected path before the move was sent.
+
+`field_dance.py --tcp zilch.local:43671` then ran TWICE from there
+(`field-dance-refit-run1.log`, `field-dance-refit-run2.log`):
+
+| step | run 1 | run 2 |
+|---|---|---|
+| turn +90 | +92.8° (err +2.8°) PASS | +92.9° (err +2.9°) PASS |
+| turn +180 | −171.1° (err +8.9°) **FAIL** | −170.4° (err +9.6°) **FAIL** |
+| turn +90 | +92.3° (err +2.3°) PASS | +93.1° (err +3.1°) PASS |
+| drive +20 | 17.6 cm (err −2.4 cm), bearing off −2° PASS | 17.6 cm (err −2.4 cm), bearing off −2° PASS |
+| drive −40 | 35.3 cm (err −4.7 cm), bearing off +0° **FAIL** | 35.4 cm (err −4.6 cm), bearing off +1° **FAIL** |
+| drive +20 | 17.6 cm (err −2.4 cm), bearing off −2° PASS | 17.7 cm (err −2.3 cm), bearing off −4° PASS |
+| returned home | 4.2 cm PASS | 3.4 cm PASS |
+
+**Reading this result.** Both runs still print `DANCE FAILED`, so per
+this ticket's own mandatory ordering ("It must PASS ... do not proceed
+to gates" on a FAIL), no lag/G1-G6/stop_distance/omega_floor work was
+attempted this session either. But the SHAPE of the failure changed
+completely and confirms the diagnosis:
+
+- **Every bearing error is now ≤4°** (−2°, +0°/+1°, −2°/−4° across the
+  two runs) -- the ~90° drive-bearing defect this ticket's 2026-09-04d
+  session found is GONE. This is the double-add bug, now fixed,
+  confirmed on real hardware.
+- **What remains is a real, repeatable MAGNITUDE undershoot on the
+  LONGER of each move pair, consistent across both runs**: the 180°
+  pivot lands ~9-9.6° short (170.4-171.1° actual) both times, and the
+  40 cm reverse drive lands ~4.6-4.7 cm short (35.3-35.4 cm actual)
+  both times, while the shorter 90° pivots and 20 cm drives in the SAME
+  runs pass comfortably (≤3.1° / ≤2.4 cm). This is an ACCURACY finding,
+  not a CONVENTION one (`.claude/rules/field-dance-first.md`: "the gate
+  is CONVENTION, not accuracy") -- and it is exactly the kind of
+  systematic undershoot this ticket's own `stop_distance`/`omega_floor`
+  measurements and G1-G6 gates exist to characterize precisely. Not
+  chased further this session -- no kernel/motion-engine file was read
+  or touched, per the dance's own mandatory stop-on-FAIL ordering.
+
+Robot ended safe both times: post-run-2 camera fix (18.96, −5.24) cm,
+well inside margin (37.2 cm from the east margin, 27.4 cm from the
+north/south margin); `STATUS` healthy and non-frozen throughout
+(`post-refit-dance-status.log`: `ready=1 active=0 ... wedge=0 cyc=5966`,
+`cyc` had climbed steadily across both runs, no repeat of the
+2026-09-04c telemetry-staleness bug).
+
+**Needs a human / next session**: (1) the ~90° drive-bearing defect
+this ticket was chasing is RESOLVED -- it was tooling, not firmware;
+close that lead. (2) The new priority is the magnitude-undershoot-on-
+longer-moves pattern above (180° pivot, 40 cm drive) -- a good
+candidate to chase with `stop_distance`/`omega_floor` measurement and
+G1 (which uses the same 90° pivots that already pass here, so G1 itself
+may well pass) plus a dedicated look at 180°-class pivots and >30 cm
+drives specifically. (3) tovez's `field_calibration.json` mount entry
+(`lever_cm`, `parallax_k`) is still UNVERIFIED -- pivots are close
+enough now (≤3.1° each) that a lever-triple fit is worth attempting
+once a session is not otherwise blocked. (4) `pivot_overrun_mm` ->
+`stop_distance_mm` cross-repo rename in `radio-robot-lib/config/robots/
+tovez.json` is still outstanding.

@@ -389,6 +389,38 @@ the next session/firmware engineering to chase — it is now
 characterized cleanly enough (consistent magnitude, consistent ~90°
 angle, three-for-three) to be a real lead rather than noise.
 
+**The ~90° drive-bearing defect above was tooling, not firmware —
+ROOT-CAUSED AND FIXED same-day (2026-09-04d continuation session,
+sprint 029 ticket 007).** `tools/field_dance.py`'s `pose()` was running
+a REGISTERED tag's `yaw_rad` (already the robot's heading —
+`tools/camlink.py`'s `mount_yaw_rad = -pi/2 + residual` registration
+bakes the +90° convention in at the daemon) through
+`field.robot_heading_from_tag_yaw()`, adding the convention a SECOND
+time. A pivot's PASS/FAIL survives this (heading deltas cancel a
+constant offset); every drive's absolute bearing came out rotated by
+the extra +90° — exactly this section's finding. Separately, MEASURED
+2026-09-04, `captures/bench-acceptance-029-20260904d/heading-probe.log`:
+tovez's tag plate is physically mounted ~180° from the fleet convention
+(a 5 cm probe displaced the tag at bearing +11.4° while the
+0°-residual-registered daemon reported yaw −165.8° for the same pose).
+Fixed via a new pure function, `field.pose_from_registered_samples()`
+(reads a registered sample's `yaw_rad` unchanged), and
+`field_calibration.json`'s tovez entry now carries
+`mount_yaw_residual_deg: 180.0` plus a matching `mount_x_cm` sign flip.
+Verified on real hardware: two `field_dance.py --tcp` re-runs from a
+repositioned, margin-safe start
+(`field-dance-refit-run1.log`/`run2.log`) show every bearing error now
+≤4° (was 86–91°) — the directional defect is gone. What remains, seen
+identically in both re-runs, is a real, repeatable MAGNITUDE
+undershoot on the LONGER move of each pair (180° pivot lands ~9–9.6°
+short; 40 cm reverse drive lands ~4.6–4.7 cm short) while the paired
+90° pivots and 20 cm drives in the same runs pass comfortably (≤3.1° /
+≤2.4 cm) — an ACCURACY finding, not a CONVENTION one, and squarely
+what this ticket's `stop_distance`/`omega_floor` measurements and G1-G6
+exist to characterize. Full account:
+`captures/bench-acceptance-029-20260904d/notes.md` §5,
+`reports/bench-acceptance-029-20260904d.md` §5-6.
+
 **Dependencies.** Holds references to a caller-owned kernel and
 `Clock` (the shaper's `dt` and the deadline backstop need wall time
 independent of kernel stepping). Owns **no odometry** — pose stays a

@@ -111,6 +111,35 @@ ticket's close-out if it cannot be completed from this repo alone.
       own "returned home" step PASSed at 3.1 cm).
       `captures/bench-acceptance-029-20260904d/field-dance.log`; full
       account in `reports/bench-acceptance-029-20260904d.md` §2.
+      STILL UNMET, same-day continuation session (2026-09-04):
+      root-caused and FIXED the ~90 deg drive-bearing defect above --
+      it was tooling (`tools/field_dance.py`'s `pose()` double-added
+      the fixed +90 deg AprilCam convention on a REGISTERED tag's
+      already-corrected yaw_rad) compounded by tovez's tag plate being
+      physically mounted ~180 deg from the fleet convention (MEASURED,
+      `captures/bench-acceptance-029-20260904d/heading-probe.log`).
+      Fixed in `tools/field.py`/`tools/field_dance.py`/
+      `tools/field_calibration.json`, pinned by new tests
+      (`tests/tools/test_field.py`, `uv run pytest tests/tools -q`: 360
+      passed), and VERIFIED on real hardware: two `field_dance.py --tcp`
+      re-runs from a repositioned, margin-safe start show every bearing
+      error now <=4 deg (was 86-91 deg) -- the directional defect is
+      gone. `DANCE FAILED` printed both times anyway, on a DIFFERENT,
+      purely-magnitude finding: the 180 deg pivot lands ~9-9.6 deg
+      short and the 40 cm reverse drive lands ~4.6-4.7 cm short,
+      identically in both runs, while the paired 90 deg pivots/20 cm
+      drives in the same runs pass comfortably (<=3.1 deg / <=2.4 cm).
+      This is an ACCURACY finding (the gate is CONVENTION, not
+      accuracy per `.claude/rules/field-dance-first.md`), and is
+      exactly what `stop_distance`/`omega_floor`/G1-G6 exist to
+      characterize -- not chased further this session per the dance's
+      own mandatory stop-on-FAIL ordering. Robot ended safe both times
+      (camera-confirmed (18.96, -5.24) cm, well inside margin; `STATUS`
+      healthy and non-frozen throughout).
+      `captures/bench-acceptance-029-20260904d/field-dance-refit-run1.log`,
+      `field-dance-refit-run2.log`; full account in
+      `captures/bench-acceptance-029-20260904d/notes.md` §5 and
+      `reports/bench-acceptance-029-20260904d.md` §5-6.
 - [ ] G1-G6 all pass, each cited with its capture artifact
       (`.claude/rules/measurement-citations.md`). NOT RUN 2026-09-04 --
       blocked behind the failed dance above; driving a robot that
@@ -131,6 +160,13 @@ ticket's close-out if it cannot be completed from this repo alone.
       the full tables and the "what a human needs to do next" list.
       2026-09-04d: NOT RUN -- still blocked behind the failed dance
       (see above); no gate work was attempted this session.
+      Same-day continuation session: STILL NOT RUN -- the dance's
+      convention/directional defect is now fixed and verified (see
+      above), but the dance itself still FAILs on the 180 deg
+      pivot/40 cm drive magnitude-undershoot finding, so per the
+      ticket's own mandatory ordering no gate work was attempted. G1
+      (12x 90 deg pivots, the same size that already passes cleanly in
+      both dance re-runs) is the best next candidate.
 - [ ] `stop_distance` and `omega_floor` measured, recorded in
       `firmware_bake.stop_distance_mm` and `MotionLimits::omegaFloor`'s
       default, and cited with their capture artifacts. NOT MEASURED
@@ -162,6 +198,8 @@ ticket's close-out if it cannot be completed from this repo alone.
       2026-09-04d: NOT ATTEMPTED -- blocked behind the failed dance;
       the prior session's `SET lag 0.126` is not known to still be in
       effect (fresh boot, no `SET lag` sent this session).
+      Same-day continuation session: STILL NOT ATTEMPTED, same blocker
+      (dance not yet cleanly passing) -- see the "G1-G6" item above.
 - [ ] `src/DESIGN.md` §3 updated (real file) with the measured
       constants' field-comment history. NOT DONE -- no measured
       constants exist yet to record.
@@ -179,6 +217,13 @@ ticket's close-out if it cannot be completed from this repo alone.
       defect), cited to `captures/bench-acceptance-029-20260904d/`.
       Still no `stopDistance`/`omegaFloor` measured value to record;
       left unchecked for the same reason.
+      Same-day continuation session: STILL PARTIAL -- appended a
+      paragraph recording the root-cause/fix/verification (double-add
+      bug, tovez's 180 deg plate, the two hardware re-runs and the new
+      magnitude-undershoot finding), cited to
+      `captures/bench-acceptance-029-20260904d/notes.md` §5. Still no
+      `stopDistance`/`omegaFloor` measured value to record; left
+      unchecked for the same reason.
 - [ ] `docs/design/specification.md`'s constants table updated. NOT
       DONE -- same reason.
       2026-09-04c: PARTIALLY DONE -- added a `MotionLimits` fields
@@ -189,6 +234,11 @@ ticket's close-out if it cannot be completed from this repo alone.
       noting this session's dance FAIL and pointing at `src/DESIGN.md`
       §3; no `MotionLimits` field values changed (nothing new
       measured). Left unchecked for the same reason.
+      Same-day continuation session: STILL PARTIAL -- appended a
+      paragraph to §11 recording the root-cause/fix/verification and
+      pointing at `src/DESIGN.md` §3. No `MotionLimits` field values
+      changed (nothing new measured this session either). Left
+      unchecked for the same reason.
 - [x] `pivot_overrun` retired from every robot config this repo
       controls; the `radio-robot-lib` cross-repo side is explicitly
       flagged if not completed here. This repo controls no robot config
@@ -774,3 +824,142 @@ that removes relay loss as a confound going forward, a pivot result
 close to passing (corroborating ticket 010's K1 fix), and a newly
 well-characterized drive-bearing defect to hand to firmware
 engineering. The ticket's core deliverable is still not met.
+
+## Session Notes (2026-09-04, tovez, same-day continuation -- ~90 deg drive-bearing defect ROOT-CAUSED, FIXED, and VERIFIED; a new, purely-magnitude accuracy finding replaces it)
+
+Full account: `captures/bench-acceptance-029-20260904d/notes.md` §5,
+`reports/bench-acceptance-029-20260904d.md` §5-6.
+
+**Root cause of the 2026-09-04d ~90 deg drive-bearing defect: tooling,
+not firmware.** `tools/field_dance.py`'s `pose()` was running a
+REGISTERED tag's `yaw_rad` (already the robot's heading -- the daemon
+applies the fixed +90 deg AprilCam convention at registration time,
+`tools/camlink.py`'s `mount_yaw_rad = -pi/2 + residual`) through
+`field.robot_heading_from_tag_yaw()`, adding the convention a SECOND
+time. A pivot's PASS/FAIL survives this (heading deltas cancel a
+constant offset); every drive's absolute bearing came out rotated by
+the extra +90 deg -- exactly the earlier session's +87/+91/+86 deg
+pattern. Separately, MEASURED 2026-09-04,
+`captures/bench-acceptance-029-20260904d/heading-probe.log`: tovez's
+tag plate is physically mounted ~180 deg from the fleet convention (a
+5 cm `MOVE_X` probe displaced the tag at bearing +11.4 deg while the
+0-deg-residual-registered daemon reported yaw -165.8 deg for the same
+pose -- bearing minus reported yaw = +177.3 deg).
+
+**Fix (item 1 -- tooling audit and repair).** `tools/field.py` gained
+`pose_from_registered_samples()`, a pure function that reads a
+registered sample's `yaw_rad` unchanged (mean position with lever
+correction, circular mean of yaw); `tools/field_dance.py`'s `pose()`
+now calls it instead of double-correcting. Audited every other
+`tools/*.py` script that reads tag yaw (`reposition.py`, `park.py`,
+`pivot_truth.py`, `rotation_check.py`, `truth_check.py`, `tour_*.py`,
+`turn_sweep.py`, `arc_capture.py`, `leg_analysis.py`) -- none had the
+same bug: the rotation-only tools use heading DELTAS (immune to a
+constant offset either way) and every absolute-heading tool already
+reads the registered daemon value directly via `camproc.Cam`/
+`camlink.py`, with no second correction anywhere else in the tree.
+`tools/field_calibration.json`'s tovez entry now carries
+`mount_yaw_residual_deg: 180.0` (the measured physical mount finding)
+and a matching `mount_x_cm` sign flip (was already made, uncommitted,
+by the team-lead before this session; committed here). New tests:
+`tests/tools/test_field.py` pins `pose_from_registered_samples()`
+(unchanged yaw, lever correction, multi-sample averaging, circular
+mean across the wrap, empty input); `tests/tools/test_camlink.py`'s
+TL-11 regression guard widened to accept a residual near 0 deg OR near
++-180 deg (a real physical backward-mount state) while still rejecting
+one near +-90 deg (the original probe-fitted-absolute regression
+signature). `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`
+gained a "registered vs raw: who adds the 90" section and the tovez
+180 deg plate finding. `uv run pytest tests/tools -q`: 360 passed.
+Committed separately (fix(029/007): field_dance.py double-added the
++90 convention on a registered tag) before any hardware was touched
+this session.
+
+**Verification on real hardware (item 2 -- resumed acceptance
+sequence).** Camera confirmed tovez at world (41.81, 9.23) cm, 13.3 cm
+from the east margin (usable +-55.15 cm) -- too tight for the longer
+moves later gates need. A single, pre-flight-checked (`field.
+check_path()`) `MOVE_X -250 0 100 6000` (25 cm straight backward along
+the current heading -- no pivot needed, the current heading already
+nearly faced away from centre) repositioned it to (17.63, 3.11) cm,
+matching the projected (17.58, 3.06) to within 0.1 cm
+(`reposition-to-center.log`). `field_dance.py --tcp
+zilch.local:43671` then ran TWICE from there
+(`field-dance-refit-run1.log`, `field-dance-refit-run2.log`):
+
+| step | run 1 | run 2 |
+|---|---|---|
+| turn +90 | +92.8 deg (err +2.8) PASS | +92.9 deg (err +2.9) PASS |
+| turn +180 | -171.1 deg (err +8.9) **FAIL** | -170.4 deg (err +9.6) **FAIL** |
+| turn +90 | +92.3 deg (err +2.3) PASS | +93.1 deg (err +3.1) PASS |
+| drive +20 | 17.6 cm (err -2.4), bearing off -2 deg PASS | 17.6 cm (err -2.4), bearing off -2 deg PASS |
+| drive -40 | 35.3 cm (err -4.7), bearing off +0 deg **FAIL** | 35.4 cm (err -4.6), bearing off +1 deg **FAIL** |
+| drive +20 | 17.6 cm (err -2.4), bearing off -2 deg PASS | 17.7 cm (err -2.3), bearing off -4 deg PASS |
+| returned home | 4.2 cm PASS | 3.4 cm PASS |
+
+Both runs still print `DANCE FAILED`, so per this ticket's own
+mandatory ordering ("It must PASS ... do not proceed to gates" on a
+FAIL) no lag/G1-G6/`stop_distance`/`omega_floor` work was attempted
+this session either -- but the diagnosis is now conclusive. **Every
+bearing error is now <=4 deg** (was 86-91 deg) -- the directional
+defect is gone, confirmed twice on real hardware, not just by source
+reading. What remains, identical in shape across both runs, is a real,
+repeatable MAGNITUDE undershoot specific to the LONGER move of each
+pair: the 180 deg pivot lands ~9-9.6 deg short and the 40 cm reverse
+drive lands ~4.6-4.7 cm short, both times, while the paired 90 deg
+pivots and 20 cm drives in the same runs pass comfortably (<=3.1 deg /
+<=2.4 cm). This is an ACCURACY finding, not a CONVENTION one
+(`.claude/rules/field-dance-first.md`: "the gate is CONVENTION, not
+accuracy") -- and it is exactly what this ticket's own
+`stop_distance`/`omega_floor` measurements and G1-G6 gates exist to
+characterize. Two consecutive identical-shape FAILs (not a single
+ambiguous one) rules out measurement noise as the explanation; not
+chased further this session, per the dance's own mandatory
+stop-on-FAIL ordering -- no kernel or motion-engine file was read or
+touched.
+
+Robot ended safe both times: post-run-2 camera fix (18.96, -5.24) cm,
+well inside margin (37.2 cm from the east margin, 27.4 cm from the
+north/south margin); `STATUS` healthy and non-frozen throughout
+(`post-refit-dance-status.log`: `ready=1 active=0 wedge=0 cyc=5966`,
+`cyc` climbed steadily across both runs).
+
+**Docs updated**: `src/DESIGN.md` §3 (root-cause/fix/verification
+paragraph after the 2026-09-04d paragraph), `docs/design/
+specification.md` §11 (matching paragraph), `reports/
+bench-acceptance-029-20260904d.md` (new §5 replacing the "new ~90 deg
+drive defect" conclusion with the root-cause finding, new §6 "what a
+human needs to do next" superseding the old §5), and this ticket's
+acceptance-criteria checklist above.
+
+**Needs a human / next session**: (1) the ~90 deg drive-bearing lead is
+CLOSED -- it was tooling plus a physically-reversed tag plate, both
+fixed and verified; do not re-open it as a firmware suspect. (2) New
+priority: the magnitude-undershoot-on-longer-moves pattern (180 deg
+pivot, 40 cm drive) found above -- G1 uses only 90 deg pivots (which
+already pass cleanly in both dance re-runs), so G1 itself may well
+pass; a dedicated look at 180-deg-class pivots and >30 cm drives is the
+more targeted next step, alongside `stop_distance`/`omega_floor`. (3)
+Once the dance passes cleanly (or the undershoot is understood well
+enough to proceed per the ticket's ordering), resume at lag
+remeasurement, then G1/G5, then the rest of G1-G6. (4) tovez's mount
+fit (`lever_cm`, `parallax_k`) is still UNVERIFIED -- pivots are close
+enough now (<=3.1 deg each) that a lever-triple fit is worth attempting
+once a session is not otherwise blocked. (5) the
+`pivot_overrun_mm`->`stop_distance_mm` cross-repo rename in
+`radio-robot-lib/config/robots/tovez.json` is still outstanding. (6)
+the still-open 2026-09-04c G5 sign-reversal defect and the STATUS/TLM
+staleness bug remain separate, unresolved leads -- keep them distinct
+from (2) above when triaging.
+
+Ticket left `status: in-progress`. Real, load-bearing progress this
+session: the drive-bearing defect that looked like it might implicate
+the sprint's motion-profile work (K1's fix, ticket 010) is now shown to
+be tooling, fixed, and verified twice on hardware -- the sprint's
+firmware changes are not implicated in any remaining directional
+error. A new, well-characterized, purely-magnitude accuracy finding
+(longer pivots/drives undershoot) replaces it as the open lead, and is
+squarely in this ticket's own remaining scope (`stop_distance`/
+`omega_floor`/G1-G6) rather than a new firmware defect to escalate. The
+ticket's core deliverable (dance passing cleanly, G1-G6,
+`stop_distance`/`omega_floor` measured and baked) is still not met.

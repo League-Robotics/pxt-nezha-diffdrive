@@ -155,35 +155,102 @@ session re-sends it.
   no `MotionLimits` field values changed (nothing new was measured
   this session, the compiled-default table itself is unchanged).
 
-## 5. What a human needs to do next
+## 5. Root cause of the ~90° drive-bearing defect — NOT a firmware defect
 
-1. **Chase the ~90° drive-bearing defect first.** It is now clean
-   enough (consistent angle, consistent magnitude, three-for-three) to
-   be a good lead: an isolated `MOVE_X <mm> 0 ...` probe with `TLM
-   FULL`, checking whether the drive path's internal heading reference
-   or axis selection is rotated ~90° from the turn path's. This
-   sits alongside the still-open 2026-09-04c G5 sign-reversal defect
-   and the STATUS/TLM staleness bug as open `radio-robot-elite`
-   firmware leads from this ticket; keep the three separate when
-   triaging (drive-bearing is new this session, and distinct in shape
-   from both).
-2. Once addressed, re-run `field_dance.py --tcp zilch.local:<port>`
-   (re-resolve the port — it is dynamic) from a clean boot; if it
-   passes, resume at lag/G1/G5 per the ticket's ordering.
-3. tovez's `field_calibration.json` mount entry is still UNVERIFIED. A
-   real lever-triple fit needs pivots clean enough to trust; this
-   session's pivots are close but the 180° pivot still FAILed, so this
-   was not attempted.
-4. `firmware_bake`/`pivot_overrun_mm`→`stop_distance_mm` rename in
+**Superseding §5's original framing.** The "new, cleanly-characterized
+~90° bearing defect" reported above was tooling, not firmware. Found by
+the team-lead after this session ended, confirmed and fixed in a
+same-day continuation session
+(`captures/bench-acceptance-029-20260904d/notes.md` §5 has the full
+account and timeline).
+
+Two things stacked:
+
+1. **`tools/field_dance.py`'s `pose()` double-added the fixed +90°
+   AprilCam convention.** `tools/camlink.py` registers a robot tag with
+   `mount_yaw_rad = -pi/2 + residual`, so the aprilcam daemon's reported
+   `yaw_rad` for a REGISTERED tag already IS the robot's heading
+   (`tools/field.py`'s own `robot_heading_from_tag_yaw()` docstring
+   already said not to add 90 again on a registered reading) —
+   `field_dance.py`'s `pose()` did it anyway. A pivot's PASS/FAIL
+   survives this (heading deltas cancel a constant offset); every
+   drive's bearing came out rotated by the extra +90° — exactly this
+   session's +87°/+91°/+86° pattern.
+2. **tovez's tag plate is physically mounted ~180° from the fleet
+   convention** (its "up" points robot-rearward, not forward). MEASURED
+   2026-09-04, `captures/bench-acceptance-029-20260904d/
+   heading-probe.log`: with the tag registered at the fleet's normal
+   0°-residual convention, a 5 cm `MOVE_X 50 0 100 5000` probe displaced
+   the tag 4.87 cm at bearing +11.4° while the daemon reported yaw
+   −165.8° for the same pose — `bearing − reported_yaw = +177.3°`.
+
+**Fix**: `tools/field.py` gained `pose_from_registered_samples()` (reads
+a registered sample's `yaw_rad` unchanged); `field_dance.py`'s `pose()`
+now calls it instead of double-correcting. Every other `tools/*.py`
+tag-yaw consumer was audited and found clean (rotation-only tools use
+heading deltas, immune either way; every absolute-heading tool already
+reads the registered daemon value directly). `tools/field_calibration.json`'s
+tovez entry now carries `mount_yaw_residual_deg: 180.0` (the measured
+physical mount finding) and a matching `mount_x_cm` sign flip. New
+tests pin the fix (`tests/tools/test_field.py`); the existing TL-11
+regression guard in `tests/tools/test_camlink.py` was widened to accept
+a residual near 0° or ±180° while still rejecting one near ±90°.
+`.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md` gained a
+"registered vs raw: who adds the 90" section documenting this class of
+bug and the tovez finding.
+
+**Verification on real hardware, same-day continuation session**:
+after a pre-flight-checked reposition toward field centre (13.3 cm from
+the east margin was too tight for the longer moves later gates need),
+`field_dance.py --tcp` was run TWICE. Both runs still print `DANCE
+FAILED`, but the failure shape changed completely: every bearing error
+is now ≤4° (was 86-91°) — the drive-bearing defect is gone, confirmed
+on hardware, not just by source reading. What remains is a real,
+repeatable MAGNITUDE undershoot specific to the LONGER move in each
+pair (180° pivot lands ~9-9.6° short both runs; 40 cm reverse drive
+lands ~4.6-4.7 cm short both runs) while the shorter 90° pivots and
+20 cm drives in the same runs pass comfortably. This is an ACCURACY
+finding, not a CONVENTION one, and is exactly what this ticket's own
+`stop_distance`/`omega_floor` measurements and G1-G6 gates exist to
+characterize — not a new defect to chase separately. Full table and
+citations: `captures/bench-acceptance-029-20260904d/notes.md` §5
+(`field-dance-refit-run1.log`, `field-dance-refit-run2.log`,
+`reposition-to-center.log`, `post-refit-dance-status.log`).
+
+## 6. What a human needs to do next
+
+1. **The ~90° drive-bearing lead is closed** — it was tooling plus a
+   physically-reversed tag plate, both fixed and verified above. Do not
+   re-open it as a firmware suspect.
+2. **New priority: the magnitude-undershoot-on-longer-moves pattern**
+   (180° pivot, 40 cm drive) found in the two dance re-runs above. G1
+   uses only 90° pivots (which already pass cleanly here), so G1 itself
+   may well pass; a dedicated look at 180°-class pivots and >30 cm
+   drives is the more targeted next step, alongside the ticket's own
+   `stop_distance`/`omega_floor` measurements.
+3. Once the dance passes cleanly (or the undershoot is understood well
+   enough to proceed per the ticket's ordering), resume at lag
+   re-measurement, then G1/G5, then the rest of G1-G6.
+4. tovez's `field_calibration.json` mount entry (`lever_cm`,
+   `parallax_k`) is still UNVERIFIED — pivots are close enough now
+   (≤3.1° each) that a lever-triple fit is worth attempting once a
+   session is not otherwise blocked.
+5. `firmware_bake`/`pivot_overrun_mm`→`stop_distance_mm` rename in
    `radio-robot-lib/config/robots/tovez.json` (design §12 open question
    2, flagged in every prior session) is still outstanding and still
    cannot be done from this repo.
+6. The still-open 2026-09-04c G5 sign-reversal defect and the
+   STATUS/TLM staleness bug remain separate, unresolved leads — keep
+   them distinct from both items above when triaging.
 
 ## Ticket status
 
-Left `status: in-progress`. Real, useful progress: a lossless carrier
-that removes relay loss as a confound for future sessions, a much
-cleaner pivot result that corroborates ticket 010's K1 fix, and a
-newly well-characterized drive-bearing defect to hand to firmware
-engineering. The ticket's core deliverable (dance passing, G1-G6,
-`stop_distance`/`omega_floor` measured and baked) is still not met.
+Left `status: in-progress`. Real, useful progress this continuation
+session: the ~90° drive-bearing defect is now root-caused (tooling, not
+firmware), fixed, and verified twice on real hardware — a load-bearing
+result, since it means the sprint's motion-profile work (K1's fix,
+ticket 010) is not implicated in any remaining directional error. A
+new, well-characterized, purely-magnitude accuracy finding (longer
+pivots/drives undershoot) replaces it as the open lead. The ticket's
+core deliverable (dance passing cleanly, G1-G6, `stop_distance`/
+`omega_floor` measured and baked) is still not met.
