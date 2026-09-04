@@ -2,7 +2,7 @@
 id: 008
 title: 'Build checkpoint: confirm a flashable hex from the sprint''s final combined
   state'
-status: open
+status: in-progress
 use-cases:
 - SUC-001
 - SUC-002

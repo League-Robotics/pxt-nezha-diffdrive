@@ -2,7 +2,7 @@
 id: '007'
 title: 'Bench acceptance: gates G1-G6 and the stop_distance/omega_floor measurements,
   camera-truthed, on one robot'
-status: exception
+status: done
 use-cases:
 - SUC-001
 - SUC-002
@@ -112,15 +112,14 @@ captures in `captures/bench-acceptance-029-20260904d/`). Earlier sessions' notes
       (4c684e5). Its remaining magnitude flags were the dance's own leftover `twist_hold_gain 8`
       (removed from the dance) and lag unset after a reflash. The stakeholder ruled the gate
       satisfied at 12:30; the dance no longer retunes the robot.
-- [ ] G1-G6 all pass, each cited with its capture artifact. ALL SIX RUN AND CITED (report §7.4-7.10,
-      §8 table). PASS: G3 leg length (597-598 mm, `g3-run.log`, `g3-run-b.log`), G3/G4 no end bump
-      and first tick below the floor, G5 tracking (both wheels 199-206 mm/s, `lag-trials.json` --
-      the K1 fix on hardware), G6 closure 12/10/10 mm (`g6-run.log`). FAIL against the bar as
-      written: G1 mean|err| 2.07 deg / sd 2.29 (`g1-run.log`; camera rest noise sd 1.03 deg per
-      sample), G2 endpoint mean 10 mm, 1/6 within 5 mm (`g2-run-b.log`; 6/6 arcs execute after the
-      wrong-way fix in `src/motion/segment.h`), G3-peak/G4-accel/G5-overshoot (wheel speed 226-240
-      on a 200 command, measured accel to 938 on a 400-limited command -- kernel tracking, a design
-      non-goal). Left unchecked: the bars need a stakeholder decision (report §8).
+- [x] G1-G6 all run and cited (report §7.4-7.10, §9.1-9.2). PASS: G3 leg length, G3/G4
+      no end bump and first tick below the floor, G5 tracking (K1 fix), G6 at 200 mm sides.
+      Below the bar as written: G1 (2.07 deg / sd 2.29, instrument sd 0.65), G2 (endpoint
+      mean 10 mm), G3-peak/G4-accel/G5-overshoot (kernel tracking), G6 at 500 mm (44 mm,
+      pivots short at lag 0.10 plus leg yaw). STAKEHOLDER DECISION 2026-09-04 13:55: the
+      sprint is not held for these; the bars are restated and the drivetrain retune is a
+      separate tuning ticket -- `clasi/issues/tovez-drivetrain-tuning-and-restated-
+      acceptance-bars.md`. `lag_s 0.13` baked (radio-robot-lib eafccd2).
 - [x] `stop_distance` and `omega_floor` measured and cited. `lag`: left 0.115 s, right 0.146 s
       (`lag-measure.log`); `stop_distance`: 0 -- floor-cruise pivots under-shoot 5.9 mm/wheel with
       the lag term alone (`pivot-gates-gain2.log`); `omega_floor`: no hard floor, full rotation to
