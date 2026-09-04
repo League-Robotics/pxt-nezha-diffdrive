@@ -727,30 +727,26 @@ window regardless. `resolvePendingIfDue()` and `forceResolvePending()`
 the moment either one commits a resolution — the natural-completion
 path that was the actual gap.
 
-**Sprint 030 (CM-02): the sprint 016 fix only fired when something
-polled it.** `resolvePendingIfDue()` was reached from exactly two
-places — `lastDone()` and `lastDoneReason()` — both driven by a host
-explicitly asking "are you done" (`replyAck`/`replyNack`/`STATUS`).
-Nothing called either one from protocol.cpp's own `run()` loop, which
-instead read `hasLiveMotionObligation()` directly to decide whether to
-call `tickDrive()` — a check that read `motionObligationActive_` and
-the deadline, but never resolved a completed-but-unpolled motion
-first. A host that sent a timed verb, learned (by any means other than
-`STATUS`/`lastDone`) that it finished early, and immediately sent a
-cleartext `RUN:tour` got it refused by `dispatchJob()`'s
+**Sprint 030: the sprint 016 fix only fires when something polls it.**
+`resolvePendingIfDue()` is reached from exactly two places —
+`lastDone()` and `lastDoneReason()` — both driven by a host explicitly
+asking "are you done" (`replyAck`/`replyNack`/`STATUS`). Nothing calls
+either one from protocol.cpp's own `run()` loop, which instead reads
+`hasLiveMotionObligation()` directly to decide whether to call
+`tickDrive()` — a check that reads `motionObligationActive_` and the
+deadline, but never resolves a completed-but-unpolled motion first. A
+host that sends a timed verb, sees (by any means other than
+`STATUS`/`lastDone`) that it finished early, and immediately sends a
+cleartext `RUN:tour` gets it refused by `dispatchJob()`'s
 `motionOwner_ != kNone` gate for the rest of the original verb's
-declared duration, even though the kernel had been idle since the
-verb's own goal was reached. **Fix:** `hasLiveMotionObligation()` now
-calls `resolvePendingIfDue()` first, so the one check `run()`'s loop
-already makes every pass is also the one place a stale-but-finished
-obligation gets cleared — no second poll site added to `run()`. The
-internal raw deadline test that method used to BE is split out as
-`motionObligationDeadlineLive()`, a private helper `resolvePendingReason()`
-now calls instead — `hasLiveMotionObligation()` resolves first and
-`resolvePendingReason()` runs INSIDE that resolution, so the two must
-never call each other. This is additive to the sprint 016 fix, not a
+declared duration, even though the kernel has been idle since the
+verb's own goal was reached. **Fix:** `hasLiveMotionObligation()` calls
+`resolvePendingIfDue()` first, so the one check `run()`'s loop already
+makes every pass is now also the one place a stale-but-finished
+obligation gets cleared — no second poll site to add, no new call for
+`run()` to make. This is additive to the sprint 016 fix, not a
 replacement for it: `lastDone()`/`lastDoneReason()` still resolve
-eagerly for a host that does poll; this closes the case where nothing
+eagerly for a host that DOES poll; this closes the case where nothing
 does.
 
 **Telemetry projection (sprint 004 ticket 004).** `buildSnapshot()`
@@ -784,22 +780,25 @@ a session with no subscriber (see §8's Fiber loop). `computeFlags()`
 `status()` and `buildSnapshot()` read, so STATUS's `flags=`/`i2cf=`
 and the telemetry `flags`/`i2cf` columns can never drift apart.
 
-**Sprint 030 (CM-04): `TLM NOW` actually does something.** Through
-sprint 029, `onTlm(TlmMode::kNow)` acked `kOk` and changed nothing —
-no code anywhere ever emitted a frame in response, so a host with
-telemetry off had no way to ask for a single pose fix without
-subscribing to a stream it would then have to unsubscribe from.
-`onTlm()` now sets a `oneShotTelemetryDue_` flag on `kNow` (still never
-writing `mode_`, preserving the "does not change the current
-subscription" contract). `consumeOneShotTelemetry()` reads and clears
-that flag in one call; `Protocol::serviceOnce()` calls it once per
-fiber pass, UNGATED by the periodic emission timer and by
-`telemetryEnabled()` — a one-shot request must be served on the very
-next pass regardless of subscription state, not wait for either. When
-due, it builds and emits one `thdr`+`t` pair on every enabled
-transport, via the exact same `buildSnapshot()`/`emitTelemetry()` pair
-the periodic path already uses (called one additional time, not
-duplicated).
+**Sprint 030: `TLM NOW` actually does something.** Through sprint 029,
+`onTlm(TlmMode::kNow)` fell into the `mode != kNow` guard's else branch
+— i.e. it changed nothing and returned `kOk` — with no code anywhere
+that ever emitted a frame in response (`grep -n kNow src/comms` found
+only the mode-decode path, never a producer). A host with telemetry off
+had no way to ask for a single pose fix without subscribing to a
+stream it would then have to unsubscribe from. `onTlm()` now sets a
+`oneShotDue_` flag on `kNow` (still never writing `mode_`, preserving
+the "does not change the current subscription" contract §"protocol.md
+S6.1" already established); `serviceOnce()` checks `oneShotDue_`
+alongside `telemetryEnabled()` each pass and, when set, builds and
+emits exactly one `thdr`+`t` pair on both handlers and clears the flag
+— the same `buildSnapshot()`/`emitTelemetry()` pair the periodic path
+already uses, called one extra time rather than duplicated. If a later
+ticket's investigation finds emitting mid-stream awkward for some
+`TlmMode` combination not yet exercised, the documented fallback is an
+honest `kUnimplemented` refusal (the same shape `TLM BUFFER` already
+uses above) rather than the silent no-op this replaces — either
+outcome is better than "acks and emits nothing."
 
 **Motion-completion resolution (sprint 005 ticket 004).**
 `lastDone()`/`lastDoneReason()` are the wire's completion channel, not
@@ -905,6 +904,40 @@ capacity: that is `radio-rx-capacity-fragmentation.md`'s scope (sprint
 010), which also already tracks the adjacent, still-open finding that a
 legal `FULL`-mode telemetry frame can itself reach up to 239 bytes,
 above this same cap (§10's Open Questions).
+
+**Sprint 030: `execRun()`'s locals, and the protocol fiber's stack
+margin under the sprint 028 call chain.** The radio scratch-buffer
+overflow just above (measured, pre-sprint-004) is the standing reason
+this fiber's stack gets this much attention: it has already hard-faulted
+from large stack locals once. Since sprint 028 the protocol fiber hosts
+the *entire* TS job call chain — `run()` → `serviceOnce()` →
+`dispatchJob()` → `runAction0()` → the student's handler → `tickDrive()`
+→ the service hook → `serviceOnce()` again → `drainEmitQueue()` (a
+241-byte local) → `emitLineNow()` → `sendLine()` — and every yield in
+that chain pays CODAL's context-switch stack copy for however deep it
+currently is. `WireHandler::execRun()` (`comms/wire_handler.cpp`)
+declares `argv[kMaxRunArgs]` (16 pointers) and `result[kMaxRunResultBytes]`
+(224 bytes) before `adapter_.onRun()` can even return a refusal, then
+`sanitized[kMaxRunResultBytes]` (224 bytes) and `buf[kMaxLineBytes + 1]`
+(241 bytes) before the final write — committed regardless of whether
+the call chain above ever gets deep enough for it to matter. **Fix
+(unconditional, independent of measurement):** move `sanitized`/`buf`
+below the `if (outcome != Result::kOk) return;` / `if (!hasResult)
+return;` early returns they already follow textually but not
+stack-allocation-wise (C++ locals are live for their enclosing scope,
+not from point of first use), and move `result` to a member (`emitBuf_`
+already established that pattern in `WireHandler`) if the "commit
+before the adapter can refuse" ordering can't otherwise be avoided —
+whichever ticket 005 finds actually shrinks the pre-refusal high-water
+mark. **Measurement:** a `DIFFDRIVE_FAULT_SPIN` build with a
+stack-canary fill, one full `RUN:tour` plus a `RUN x #1` over radio
+mid-tour, high-water mark read by pyOCD — hardware-only, no host-test
+substitute (this file, `protocol.cpp`, and the TS dispatch path all
+require `pxt.h`). The buffer relocation ships regardless of what the
+measurement shows; the measurement's job is to say whether more
+headroom is needed beyond that, and is recorded as MEASURED with its
+capture artifact or explicitly left UNVERIFIED with what was tried, per
+`.claude/rules/measurement-citations.md`.
 
 **Layering.** Both know bytes and framing only — no verbs, no COBS,
 no semantics. Siblings under Protocol, deliberately uncoupled from
@@ -1105,47 +1138,49 @@ conventions). Host-portable and host-tested the same way
 **Bus discipline (system invariant; structural as of sprint 030).** The
 Nezha brick and the OTOS share one I2C bus. Every OTOS transaction must
 run on the same fiber that ticks the kernel; an OTOS read interposed in
-the encoder's select→read settle window destroys the encoder sample
-(the documented Phase-F signature, `platform/nezha_port.cpp`).
+the encoder's select→read settle window destroys the encoder sample.
 
 Through sprint 029 this was a documented convention enforced at exactly
-one call site: `tickDrive()`'s own inline `stepBusy` bool serialized
+one call site: `tickDrive()`'s own `stepBusy` flag serialized
 `kernel.step()` against a second concurrent `tickDrive()` call, but
-nothing else on the bus took it — every OTOS shim entry point
-(`otosBegin`/`otosRead`/`otosZero`/`otosCalibrate`/`otosSetOffset`/
-`seedPose`, plus `otosGet`'s own `case 8` read, in `shims.cpp`) issued
-I2C unconditionally, `SET rebase`'s OTOS zero ran synchronously on
-whichever fiber called it, and `test.ts` ran a free-running
-`control.inBackground` sampler with no mutual exclusion against the bus
-at all. Any one of those landing inside the encoder's settle window hit
-the same failure mode.
+nothing else on the bus took it — every OTOS shim entry
+(`otosBegin/Read/Zero/Calibrate/SetOffset`, `seedPose`, all in
+`shims.cpp`) issued I2C unconditionally, `SET rebase`'s OTOS write ran
+synchronously on the protocol fiber, `test.ts` ran a 10 Hz OTOS sampler
+on its own `control.inBackground` fiber, and the `start drive` block's
+background ticker left `read world position`/`set world pose`/
+`calibrate world sensor` reachable from the main fiber with no
+coordination at all. Four independent holes, one shared failure mode
+(§ above, "the documented Phase-F signature").
 
-**Sprint 030** promotes `stepBusy` from that bare bool to `BusGuard`
+**Sprint 030** promotes `stepBusy` from a bare `bool` to `BusGuard`
 (`core/bus_guard.h` — host-portable, no `pxt.h`, alongside
 `encoder_glitch_armor.h`/`heading_wrap.h`): `acquire(Sleeper&)` spins
-`while (busy_) sleeper.sleepMillis(1)` then claims the bus (byte-
-identical to the old inline loop, extracted so `tests/host/
-test_bus_guard.py` can script it against a fake sleeper), `release()`
-clears it. `Rig::stepBusy` (`shims.cpp`) becomes `Rig::busGuard`, held
-by `tickDrive()` around `kernel.step()` and by all seven OTOS call
-sites above (the six named entry points, plus `otosGet`'s `case 8`) —
-each a short acquire/I2C-call/release bracket, provably (a source-pin
-test walks `otos_port.cpp`'s own I2C surface and confirms every
-`shims.cpp` caller of it is guarded) rather than by convention alone.
-`SET rebase`'s OTOS zero becomes a deferred `Rig::pendingOtosZero`
-flag, performed inside `tickDrive()` immediately after `busGuard`
-releases from that tick's own `kernel.step()` — the same deferred-
-request shape `kernel.rebasePosition()` already uses — rather than a
-second fiber's synchronous write racing the guard. `test.ts`'s OTOS
-sampler moves from that free-running background fiber into
-`tickToCompletion()`, the one tick loop every tour/pivot/leg already
-runs through, sampled every `OTOS_SAMPLE_TICKS` ticks on the SAME fiber
-that is already ticking; `startDrive()`'s own background loop
-(`blocks/motion.ts`) samples `readWorld()` itself for the same reason.
-The known behavior change: telemetry's `ox`/`oy`/`oh` now update only
-while something is actively ticking, not continuously while the robot
-sits idle between moves — an accepted trade, not a regression nobody
-decided on.
+`while (busy_) sleeper.sleepMillis(1)` then sets `busy_ = true`
+(byte-identical logic to the old inline loop, extracted so
+`tests/host/test_bus_guard.py` can script it against `FakeSleeper::
+onSleep`), `release()` clears it. `Rig::stepBusy` (`shims.cpp`) becomes
+`Rig::busGuard`; `tickDrive()` and every OTOS entry point above acquire
+it — three lines per entry, matching the issue's own estimate. `SET
+rebase`'s OTOS write becomes a deferred `pendingOtosZero` flag on the
+Rig, performed inside `tickDrive()` after the guard clears, the same
+deferred-request shape `kernel.rebasePosition()` already uses.
+`test.ts`'s sampler moves into the job's own tick loop (sampled every
+k-th tick, inside the already-guarded `tickDrive()` call) instead of a
+free-running background fiber. `startDrive`'s background loop
+(`blocks/motion.ts`) now owns its own periodic `readWorld()` call
+inside the same loop that calls `_tickDrive()` — one guarded fiber, one
+list of things it does per pass — rather than leaving `read world
+position` a separate, ungated block a student could call from any
+fiber; that block's own doc comment now says explicitly that it is a
+live bus transaction (the file-level comment already said so; the
+per-function one did not).
+
+The result: every I2C caller on this bus reaches it through
+`BusGuard::acquire()`/`release()`, provably (a source-pin test greps
+`otos_port.cpp`'s `uBit.i2c` callers and `shims.cpp`'s OTOS entry
+points against the guard) rather than by three-plus call sites each
+independently remembering a documented rule.
 
 **Staged stop under a live guard (sprint 030).** `deliverStopNow()`
 and the starvation watchdog write the motor register from whichever
@@ -1153,16 +1188,11 @@ fiber calls them, by design (sprint 006) — a genuine safety path that
 must not wait on anything. That is still true when the bus is idle.
 When `BusGuard` is held, sprint 030 changes this to a *staged* stop:
 the caller sets a `pendingStop_` flag on the Rig instead of writing
-across the guard, and the busy fiber delivers it itself — still inside
-the same guarded window it already owns, immediately before its own
-`busGuard.release()` — in the same place `tickDrive()` already delivers
-a post-move settle stop, above. This lands within the same tick the
-stop was requested in, milliseconds later at worst. The not-busy case
-(the overwhelming majority of stops) is unchanged — an immediate
-write, no staging, no added latency for the common path. The starvation
-watchdog now routes through `deliverStopNow()` itself rather than
-writing the ports directly, so it gets the same guard-aware staging for
-free instead of carrying a second copy of the decision.
+across the guard, and the busy fiber delivers it itself in the same
+place `tickDrive()` already delivers a post-move settle stop (§ above),
+milliseconds later at worst. The not-busy case (the overwhelming
+majority) is unchanged — an immediate write, no staging, no added
+latency for the common path.
 
 **Yield discipline (system invariant).** The build enables the hardware
 FPU (`-mfpu=fpv4-sp-d16 -mfloat-abi=softfp`) and **CODAL's context
@@ -1232,14 +1262,10 @@ report different `seq`/`now` to serial vs radio for what should read
 as the same instant; with telemetry off (the boot default, or on any
 tick where no host has subscribed), the tick emits nothing at all —
 2026-08-26: `emitReliability()` is deleted (no unsolicited ack/nack on
-any path; §"Reliability layer" above); every pass, independent of that
-50 ms timer, `wireAdapter_.consumeOneShotTelemetry()` (CM-04, sprint
-030) is checked and, if a `TLM NOW` is due, one extra
-`buildSnapshot()`/`emitTelemetry()` round goes out on every enabled
-transport regardless of subscription state; and while
-`wireAdapter_.hasLiveMotionObligation()` (itself now self-resolving,
-CM-02, sprint 030), call `tickDrive()` itself (the fiber is the tick
-source for wire-issued motion), else `fiber_sleep(5)`.
+any path; §"Reliability layer" above); and while
+`wireAdapter_.hasLiveMotionObligation()`, call `tickDrive()` itself
+(the fiber is the tick source for wire-issued motion), else
+`fiber_sleep(5)`.
 
 **Sprint 028: one execution model, not three.** Before this sprint,
 wire motion ticked on this fiber (above) while `RUN:` motion ticked on
@@ -1259,7 +1285,7 @@ MessageBus event for a second fiber to pick up. A running job's own
 tick loop still exists (its explicit `startMove()` + `driveTick()`
 shape, which `test/test.ts` calls deliberately, is unchanged) — only
 *which fiber* advances its iterations changes: a service hook fires
-after `busGuard` releases and before this loop's own pacing sleep,
+after `stepBusy = false` and before this loop's own pacing sleep,
 letting the job's tick loop advance one iteration per pass of this
 same fiber, the same "invert the pump, don't move the tick" decision
 sprint 026's Design Rationale already reasoned through (arming the
@@ -1281,54 +1307,42 @@ CODAL `MessageBus` handler (a button press, in `test.ts`) runs on its
 **own** fiber, a THIRD executor `motionOwner_`'s two-way `kWire`/`kJob`
 split never accounted for:
 
-1. `serviceHookEntry()` gated on `motionOwner_ == kJob` — a piece of
-   STATE — not on which fiber was calling `tickDrive()`. A button-
-   handler fiber calling `tickDrive()` while a job ran on the protocol
-   fiber satisfied that state check and ran `serviceOnce()` a second
-   time, concurrently, corrupting the wire dispatcher's shared line
-   buffer mid-yield (the ack write yields; the other fiber's `feed()`
-   overwrote the buffer during that yield). Fixed by capturing the
-   protocol fiber's own identity (`protocolFiberId_`, set once in
-   `run()`) and comparing it against an injectable "current fiber"
-   reader (`currentFiberFn_`, defaulting to a real CODAL global read)
-   through `shouldServiceHookRun()` — a pure, host-portable function
-   (`core/fiber_identity.h`) so its decision logic gets a host test even
-   though `protocol.cpp` itself cannot be host-compiled. No fiber but
-   the protocol fiber's own `tickDrive()` call ever runs
-   `serviceOnce()` now, regardless of what `motionOwner_` says.
+1. `serviceHookEntry()` gated on `protocol().motionOwner_ ==
+   MotionOwner::kJob` — a piece of STATE — not on which fiber was
+   calling `tickDrive()`. A button-handler fiber calling `tickDrive()`
+   while a `RUN:tour` job is live on the protocol fiber satisfied that
+   state check and ran `serviceOnce()` a second time, concurrently,
+   corrupting the wire dispatcher's shared `lineBuf_` mid-yield (the ack
+   write yields; the other fiber's `feed()` overwrote the buffer during
+   that yield). Fixed by capturing the protocol fiber's own identity
+   (an injectable "current fiber" accessor, so a host test can pin a
+   fake value) the first time `run()` executes, and checking THAT
+   instead of `motionOwner_`: `serviceHookEntry()` now returns unless
+   `currentFiber() == protocolFiberId_`, full stop — no fiber but the
+   protocol fiber's own `tickDrive()` calls ever run `serviceOnce()`,
+   regardless of what `motionOwner_` says.
 2. `motionOwner_` had no value for "the block program's own fiber is
-   driving" — `startMove()`/`driveTwist()`/`engineGoToRArmed()`
-   (`shims.cpp`, reached from any TS fiber) called the engine
-   unconditionally, so a button-handler tour could supersede a
-   still-live wire move with no arbitration at all; the wire's own
-   completion channel then resolved that superseded move as `kStop`,
-   indistinguishable from a normal stop. **Decision:** `motionOwner_`
-   (now `MotionOwner`, `core/motion_owner.h` — shared with
-   `WireAdapter`'s own mirror, `externalOwner_`, closing their prior
-   duplication as a bare bool that only ever meant "a job is in the
-   way") gains `kBlock`, not a blanket refusal — `test.ts`'s existing
-   button-triggered tours are a real, working, idle-time use of the
-   robot and refusing them outright would regress that, so the
-   block-motion entry points (`startMove`/`engineGoToRArmed`/
-   `driveTwist` — the last also reached by `startDrive()`, which calls
-   this same block-facing `driveTwist()` before starting its own tick
-   loop) take `kBlock` ownership via `tryTakeBlockOwnership()`
-   (refused, not silently superseding, unless `motionOwner_` is
-   `kNone`), releasing it back to `kNone` via `releaseBlockOwnership()`
-   once the drivetrain next looks idle (`tickDrive()`, the starvation
-   watchdog for an abandoned call that was never ticked, and the three
-   explicit stop paths `endMove()`/`stopAll()`/`estopAll()`). A wire
-   motion verb arriving while `motionOwner_ == kBlock` is refused the
-   same `kBusy` a `kJob`-held drivetrain already answers with — one
-   arbitration rule, four owners, not two special cases plus a hole.
-   `setWheelSpeeds()`'s own shim (`setWheels()`) is deliberately NOT
-   one of these entry points (not named in the originating issue) and
-   stays unarbitrated — a known, documented gap
-   (`tests/host/test_kblock_ownership_source_pin.py`), not a fix this
-   round.
+   driving" — `startMove()`/`driveTwist()`/`startDrive()` (`shims.cpp`,
+   reached from any TS fiber) called the engine unconditionally, so a
+   button-handler tour could supersede a still-live wire move with no
+   arbitration at all; the wire's own completion channel then resolved
+   that superseded move as `kStop`, indistinguishable from a normal
+   stop. **Decision:** `motionOwner_` gains `kBlock`, not a blanket
+   refusal — test.ts's existing button-triggered tours are a real,
+   working, idle-time use of the robot and refusing them outright would
+   regress that, so the block-motion entry points
+   (`startMove`/`startGoTo`/`driveTwist`/`startDrive`) take `kBlock`
+   ownership the same way `dispatchJob()` takes `kJob`, releasing it
+   back to `kNone` when their own move ends. A wire motion verb arriving
+   while `motionOwner_ == kBlock` is refused the same `kBusy` a
+   `kJob`-held drivetrain already answers with — one arbitration rule,
+   three owners, not two special cases plus a hole. `motionOwner_`/
+   `jobOwnsMotion_`'s pre-existing duplication (CM-14) is folded into
+   this same one-owner field as a byproduct, not a separate change.
 
 Component diagram (target shape, reused from sprint 026's own
-Architecture section, extended here for the third motion owner):
+Architecture section and extended here for the bus guard and the third
+motion owner):
 
 ```mermaid
 graph TD
@@ -1338,9 +1352,10 @@ graph TD
     RunQueue -->|dropped counter| DiagValue[shims.cpp diagValue ordinal table]
     Protocol -->|dispatchJob: dequeue + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
     TSDispatch -->|student onRun handler, own MessageBus fiber| StudentCode[Student RUN / button handler]
-    StudentCode -->|startMove/driveTwist/engineGoToRArmed: takes kBlock| MotionOwner
+    StudentCode -->|startMove/driveTwist/startDrive: takes kBlock| MotionOwner
     Protocol -->|motionOwner_ arbitration: kNone/kWire/kJob/kBlock| MotionOwner{motionOwner_}
-    MotionOwner -->|tickDrive, busGuard held only around kernel.step| Rig[shims.cpp Rig / DifferentialDrive kernel]
+    MotionOwner -->|tickDrive, guard held only inside step| Rig[shims.cpp Rig / DifferentialDrive kernel]
+    Rig -->|acquire/release, every OTOS + kernel.step caller| BusGuard[core/bus_guard.h]
     Protocol -->|serviceHookEntry: fiber identity check, not motionOwner_| ServiceHook{currentFiber == protocolFiberId_?}
     ServiceHook -->|only the protocol fiber's own tickDrive call| Protocol
     Protocol -->|every yield| VfpGuard[vfp_guard.h]
@@ -1348,6 +1363,7 @@ graph TD
     Rig -->|SET rebase / SET estop_clear| WireAdapter[wire_adapter.cpp SET handler]
     WireAdapter -->|rebasePosition / estopClear| Kernel[core/diffdrive.cpp, byte-identical]
     NezhaPort[platform/nezha_port.cpp collect] -->|held sampleTime_ on frozen-but-acked read| Kernel
+    NezhaPort -->|EncoderGlitchArmor: raw==0 rejected explicitly| Kernel
 ```
 
 **RUN bridge.** `RUN:<name>[:<arg>…]` parks the payload in an 8-slot
@@ -1462,10 +1478,8 @@ Pieces the kernel deliberately does not contain:
 - **Tick engine** (`tickDrive()`): one `kernel.step()` +
   `serviceMove()` on the caller's fiber, then absolute-deadline
   self-pacing to the kernel's configured 24 ms cadence (re-anchored
-  after gaps). `Rig::busGuard` (`core/bus_guard.h`, promoted from a
-  bare `stepBusy` bool in sprint 030 — see §7's "Bus discipline")
-  serializes concurrent tickers and every OTOS shim entry point alike.
-  **Sprint 008**: on the tick that ends a move,
+  after gaps). A cooperative-fiber `stepBusy` flag serializes
+  concurrent tickers. **Sprint 008**: on the tick that ends a move,
   `tickDrive()` now calls a new `MotionEngine` settle helper instead of
   running its own inline loop — the helper steps the kernel up to 12
   times, breaking early once both wheels measure at rest, identical

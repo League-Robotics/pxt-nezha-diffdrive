@@ -1,7 +1,7 @@
 ---
 id: '030'
 title: Bus discipline and fiber safety
-status: executing
+status: done
 branch: sprint/030-bus-discipline-and-fiber-safety
 use-cases:
 - SUC-001
