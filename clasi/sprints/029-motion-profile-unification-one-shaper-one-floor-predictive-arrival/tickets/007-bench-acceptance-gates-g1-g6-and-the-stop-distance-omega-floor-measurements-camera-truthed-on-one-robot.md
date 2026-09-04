@@ -2,9 +2,15 @@
 id: '007'
 title: 'Bench acceptance: gates G1-G6 and the stop_distance/omega_floor measurements,
   camera-truthed, on one robot'
-status: open
-use-cases: [SUC-001, SUC-002, SUC-003, SUC-004]
-depends-on: ['004', '006']
+status: in-progress
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+depends-on:
+- '004'
+- '006'
 github-issue: ''
 issue:
 - code-review/pivot-end-predictive-termination-and-yaw-floor.md
@@ -118,3 +124,43 @@ hardware.
 **Documentation updates**: `src/DESIGN.md` §3, `docs/design/
 specification.md`, plus whatever `reports/` writeup the bench session
 produces.
+
+## Session Notes (2026-09-03, tovez, PARTIAL -- stopped at placement check)
+
+Full account: `captures/bench-acceptance-029-20260903/notes.md`
+(includes camera captures cited below).
+
+**Build and flash: PASS.** `make_deploy.py --robot tovez --radio-link`
+failed its first attempt on a real defect -- `src/shims.cpp:1481`'s
+`setLimits()` (added by ticket 004) had its `//%` shim declaration
+split across two lines, which the PXT packager cannot parse (every
+other `//%` shim in the file is single-line; the file's other
+multi-line declarations are deliberately *not* `//%`-annotated).
+Fixed by joining the declaration onto one line; no behavior change.
+Rebuilt clean: `.tmp/deploy-head/built/binary.hex` (1680281 bytes).
+Flashed via `mbdeploy deploy tovez --remote --hex ...` to farm node
+meili (ENUM 6) -- first erase attempt failed
+(`result code 0x67`), mbdeploy's automatic CTRL-AP mass-erase recovery
+fixed it, retry programmed cleanly (418816 bytes, 0 identical). Post-
+flash: `HELLO` -> `device NEZHA2 robot tovez 2314287040`, `VER` ->
+`ver 1.20260903.1`, `ID` -> `id diffdrive tovez 1.20260903.1 tovez`.
+
+**Camera/placement check: STOPPED, no motion commanded.**
+`mcp__aprilcam__get_tags` on `arducam-ov9782-usb-camera`, two polls
+~8 s apart, returned only the ArUco border tags -- no AprilTag-family
+tag at all, meaning neither AprilTag 1 (field centre) nor AprilTag 52
+(tovez) was visible. A raw and a deskewed frame
+(`captures/bench-acceptance-029-20260903/raw-frame-placement-check.jpeg`,
+`deskewed-frame-placement-check.jpeg`) show why: **the playfield
+currently has the KIPR line-following mat laid over it with soda cans
+as obstacles**, covering AprilTag 1, and tovez is not on the field at
+all. Lights confirmed on both by the Shelly (`output: true`) and by
+the frame itself (not dark).
+
+Per the ticket's mandatory order, this is a stop condition: no
+`field_dance.py`, mount registration, or `MOVE_X` was run. **Needs a
+human**: clear the KIPR mat and cans off the playfield, place tovez at
+field centre, before the next session can continue from step 3
+(`field_dance.py` / mount registration) through G1-G6 and the §10.2
+measurements. All of the ticket's acceptance criteria beyond
+build/flash remain unmet for that reason -- see checklist below.

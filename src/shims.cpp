@@ -1478,8 +1478,7 @@ void setRampMs(int ms) {
 // plain student units straight through, matching startMove()'s own
 // int-parameter shims.
 //%
-void setLimits(int accel, int decel, int vMax,
-               int omegaMax) {  // [mm/s^2] [mm/s^2] [mm/s] [deg/s]
+void setLimits(int accel, int decel, int vMax, int omegaMax) {  // [mm/s^2] [mm/s^2] [mm/s] [deg/s]
   Rig& r = ensure();
   MotionLimits& lim = r.engine.limits();
   lim.setAccel(static_cast<float>(accel));
