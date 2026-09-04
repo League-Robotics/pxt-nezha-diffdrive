@@ -73,7 +73,20 @@ Kernel kick (`kick.log`): pre-kick `STATUS` read `ready=0 ... cyc=0`
 `STATUS` → `ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 i2cf=2
 cyc=126`. `i2cf` was already 2 right after the kick alone.
 
-## 2. `field_dance.py --tcp zilch.local:43671` — FAILED
+## 2. `field_dance.py --tcp zilch.local:43671` — FAILED (11:00) — SUPERSEDED: the ~90° bearing error was two stacked rotations in the TOOLING and the MOUNT, both fixed the same day
+
+> **Read §5 and §7.1 before this section.** The "new, cleanly-characterized
+> ~90° bearing defect" described below was never a motion defect. It was
+> (a) `field_dance.py::pose()` adding the +90° camera convention a second
+> time on a tag the daemon had already corrected (fixed, commit fc5588f,
+> host test `tests/tools/test_field.py`), stacked on (b) tovez's tag plate
+> being mounted 180° from the fleet convention (`heading-probe.log`;
+> recorded as `mount_yaw_residual_deg: 180` in `field_calibration.json`).
+> After both fixes every drive bearing is within 4°
+> (`field-dance-refit-run1/2.log`) and every leg, arc and square lap in §7
+> went where it was pointed. The paragraphs below are kept as the record
+> of what the 11:00 session saw, not as an open finding.
+
 
 Full transcript: `captures/bench-acceptance-029-20260904d/field-dance.log`.
 
