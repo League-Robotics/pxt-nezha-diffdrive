@@ -36,7 +36,7 @@ _HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 
 from aprilcam.mcp import connection as _conn          # noqa: E402
-from fieldlink import FieldLink                        # noqa: E402
+from fieldlink import FieldLink, TcpFieldLink            # noqa: E402
 from field import robot_heading_from_tag_yaw            # noqa: E402
 from make_deploy import derive_radio_from_name          # noqa: E402
 
@@ -122,8 +122,15 @@ def settle(timeout=9.0):
     return False
 
 
-def main():
-    L = FieldLink(CH, GRP); L.hello()
+def main(tcp=None):
+    # Sprint 029 ticket 007 (2026-09-04d): a robot with a lossless
+    # on-robot serial daemon (e.g. tovez's `zilch` Pi) should be driven
+    # over that, not the lossy torture radio relay -- `--tcp host:port`
+    # selects TcpFieldLink instead of the default FieldLink. Both share
+    # the same unseq/seqd/hello/close contract (fieldlink.py), so
+    # nothing below this line needs to know which carrier it is on.
+    L = TcpFieldLink(tcp) if tcp else FieldLink(CH, GRP)
+    L.hello()
     # A latched e-stop refuses every move and looks EXACTLY like a broken
     # heading convention: each step measures zero motion. Clear it first,
     # and confirm the robot says it is ready, so a refusal can never be
@@ -241,4 +248,11 @@ if __name__ == '__main__':
     if any(a in ('-h', '--help') for a in sys.argv[1:]):
         print(__doc__)
         sys.exit(0)
-    sys.exit(main())
+    _tcp = None
+    _argv = sys.argv[1:]
+    if '--tcp' in _argv:
+        _i = _argv.index('--tcp')
+        if _i + 1 >= len(_argv):
+            raise SystemExit('field_dance: --tcp needs a host:port argument')
+        _tcp = _argv[_i + 1]
+    sys.exit(main(tcp=_tcp))

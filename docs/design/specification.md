@@ -841,6 +841,24 @@ gate ceiling — see `src/DESIGN.md` §3 and
 `reports/bench-acceptance-029-20260904c.md` for the full account. G2–G4
 and G6 were not attempted this session given that finding.
 
+**2026-09-04d session** (same ticket, after ticket 010's K1 fix
+landed, carrier switched from the lossy torture radio relay to tovez's
+own lossless on-robot TCP serial daemon — `tools/fieldlink.
+TcpFieldLink`, new this session): `field_dance.py` still FAILED
+(`captures/bench-acceptance-029-20260904d/field-dance.log`), so no
+gate or §10.2 measurement in this table was re-attempted or updated —
+per this ticket's own mandatory ordering, a failing dance blocks
+everything below it. Pivots improved sharply versus 2026-09-04c (net
+drift +14.2° over three pivots vs the prior session's mixed 2-pass/1
+miss-by-14°, and far past 2026-09-04's +47.6…+57.6° per pivot),
+consistent with K1 fixing at least part of the pivot-accuracy defect.
+The three drives failed with a new, cleanly-characterized ~90°
+bearing error (+87°/+91°/+86° off expected heading, magnitudes
+tracking commanded distance reasonably) — a straight-line-specific
+directional defect, distinct from the pivot behavior and from
+2026-09-04c's G5 sign-reversal defect. See `src/DESIGN.md` §3
+(2026-09-04d paragraph) for the full account.
+
 ## 12. Provenance and maintenance boundary
 
 - The wheel kernel (`diffdrive.h`/`diffdrive.cpp`) is vendored from

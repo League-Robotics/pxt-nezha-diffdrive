@@ -349,6 +349,46 @@ one above, and is the same failure mode the 2026-09-04b diagnostic
 session's Hypothesis 1 predicted from `evidence-pivot90-full-frames.json`
 alone; today's session supplies the first live confirmation of it.
 
+**MEASURED tovez 2026-09-04d** (sprint 029 ticket 007 bench acceptance,
+`captures/bench-acceptance-029-20260904d/`, firmware unchanged at
+`1.20260903.1` — this session flashed nothing, only re-ran the same
+build after ticket 010 landed K1's fix: the twist-hold reference now
+integrates the floored *commanded* twist rather than the trimmed
+targets, the defect the 2026-09-04c G5 sign-reversal/492 mm/s overshoot
+traced to). Carrier also changed: this session drove tovez over its
+on-robot `zilch` Pi's lossless TCP serial daemon
+(`tools/fieldlink.TcpFieldLink`, new this session) rather than the
+lossy torture radio relay every prior tovez session in this ticket
+used — ruling out relay loss as a confound for what follows.
+`field_dance.py` (`field-dance.log`) **still FAILED, but the shape
+changed again, and mostly for the better**: the three pivots are now
+close to clean (+90→+91.5° err +1.5°, PASS; +180→−170.4° err +9.6°,
+FAIL; +90→+90.0° err −0.0°, PASS; net drift over the three only
++14.2°/+4.7° per pivot, versus 2026-09-04's +47.6…+57.6° per pivot and
+2026-09-04c's 2-of-3 pass/14° miss) — consistent with K1 being at least
+part of the pivot-accuracy story. The **drives are the new finding**:
+all three (+20, −40, +20 cm) failed with a strikingly consistent
+bearing error of **+87°, +91°, +86°** off the expected heading — a
+~90° systematic direction defect on straight-line moves specifically,
+distinct from anything characterized in the 2026-09-04c session (whose
+drives failed with large, inconsistent bearings and no such pattern).
+Magnitudes tracked commanded distance reasonably (16.9/35.5/17.7 cm
+vs 20/40/20 commanded) — this is a directional defect, not a
+runaway — and the dance still **returned home** (3.1 cm off, PASS),
+confirming the net excursion stayed safe throughout (camera-confirmed
+final position (41.7, 9.8) cm, well inside the field margin). `i2cf`
+climbed 2→53 across the run (same steadily-climbing-during-motion
+pattern as every prior session), `STATUS` stayed healthy and
+non-frozen afterward (`ready=1 active=0 cyc=2103`, `cyc` had advanced
+normally the whole time) — no repeat of the telemetry-staleness bug in
+this simple post-dance check. Per this ticket's own mandatory ordering
+(`field_dance.py` must PASS before any other commanded motion), this
+session stopped here: no lag/G1/G5/stop_distance/omega_floor/G2-G4/G6
+work was attempted. The ~90° drive-bearing defect is the priority for
+the next session/firmware engineering to chase — it is now
+characterized cleanly enough (consistent magnitude, consistent ~90°
+angle, three-for-three) to be a real lead rather than noise.
+
 **Dependencies.** Holds references to a caller-owned kernel and
 `Clock` (the shaper's `dt` and the deadline backstop need wall time
 independent of kernel stepping). Owns **no odometry** — pose stays a

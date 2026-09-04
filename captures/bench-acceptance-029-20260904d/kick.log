@@ -1,0 +1,5 @@
+hello: device NEZHA2 robot tovez 2314287040
+status0: status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+clearestop: ESTOP:cleared
+kick: ack 1 0 none
+status1: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=2 cyc=126 tlm=off next=2 done=1 reason=timeout

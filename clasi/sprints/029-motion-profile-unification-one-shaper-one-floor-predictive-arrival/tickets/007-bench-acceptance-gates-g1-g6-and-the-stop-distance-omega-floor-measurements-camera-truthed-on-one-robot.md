@@ -92,6 +92,25 @@ ticket's close-out if it cannot be completed from this repo alone.
       fail badly (30+ cm off, inconsistent bearings, one with no
       motion at all). `captures/bench-acceptance-029-20260904c/field-dance.log`;
       full account in `reports/bench-acceptance-029-20260904c.md` §4.
+      STILL UNMET 2026-09-04d (new session, tovez reflashed 09:38 with
+      ticket 010's K1 fix, driven over a NEW lossless TCP carrier --
+      tovez's on-robot `zilch` Pi -- instead of the lossy torture
+      relay, ruling out relay loss as a confound): the dance FAILED
+      again, but the shape changed for the better in one respect and
+      newly, cleanly, in another. Pivots: net drift only +14.2 deg
+      over three pivots (+90/+180/+90), close to a clean run and a
+      further improvement over 2026-09-04c -- consistent with K1
+      addressing the pivot-accuracy defect. Drives: all three FAILED
+      with a consistent ~90 deg bearing error (+87/+91/+86 deg off
+      expected heading) while magnitude tracked commanded distance
+      reasonably (16.9/35.5/17.7 cm vs 20/40/20 cm) -- a new,
+      cleanly-characterized directional defect distinct from the
+      earlier sessions' large/inconsistent drive errors, and distinct
+      from 2026-09-04c's G5 sign-reversal defect. Robot ended safe
+      (camera-confirmed (41.7, 9.8) cm, well inside margin; dance's
+      own "returned home" step PASSed at 3.1 cm).
+      `captures/bench-acceptance-029-20260904d/field-dance.log`; full
+      account in `reports/bench-acceptance-029-20260904d.md` §2.
 - [ ] G1-G6 all pass, each cited with its capture artifact
       (`.claude/rules/measurement-citations.md`). NOT RUN 2026-09-04 --
       blocked behind the failed dance above; driving a robot that
@@ -110,6 +129,8 @@ ticket's close-out if it cannot be completed from this repo alone.
       is possible when actual behavior deviates this much from
       commanded). See `reports/bench-acceptance-029-20260904c.md` for
       the full tables and the "what a human needs to do next" list.
+      2026-09-04d: NOT RUN -- still blocked behind the failed dance
+      (see above); no gate work was attempted this session.
 - [ ] `stop_distance` and `omega_floor` measured, recorded in
       `firmware_bake.stop_distance_mm` and `MotionLimits::omegaFloor`'s
       default, and cited with their capture artifacts. NOT MEASURED
@@ -138,6 +159,9 @@ ticket's close-out if it cannot be completed from this repo alone.
       `firmware_bake`/`MotionLimits` defaults -- see the report's
       cross-repo follow-up (§10) for what to bake once cleanly
       remeasured.
+      2026-09-04d: NOT ATTEMPTED -- blocked behind the failed dance;
+      the prior session's `SET lag 0.126` is not known to still be in
+      effect (fresh boot, no `SET lag` sent this session).
 - [ ] `src/DESIGN.md` §3 updated (real file) with the measured
       constants' field-comment history. NOT DONE -- no measured
       constants exist yet to record.
@@ -149,12 +173,22 @@ ticket's close-out if it cannot be completed from this repo alone.
       because `stopDistance`/`omegaFloor` still have no trustworthy
       measured value to record -- only the attempt and why it is not
       trustworthy.
+      2026-09-04d: STILL PARTIAL -- appended a further paragraph
+      recording this session's carrier change, dance table, and the
+      two findings (pivot improvement, new ~90 deg drive-bearing
+      defect), cited to `captures/bench-acceptance-029-20260904d/`.
+      Still no `stopDistance`/`omegaFloor` measured value to record;
+      left unchecked for the same reason.
 - [ ] `docs/design/specification.md`'s constants table updated. NOT
       DONE -- same reason.
       2026-09-04c: PARTIALLY DONE -- added a `MotionLimits` fields
       table (compiled defaults + this sprint's bench-acceptance status
       per field) to specification.md §11, plus the G1/G5 summary.
       Left unchecked for the same reason as `src/DESIGN.md` §3 above.
+      2026-09-04d: STILL PARTIAL -- appended a short paragraph to §11
+      noting this session's dance FAIL and pointing at `src/DESIGN.md`
+      §3; no `MotionLimits` field values changed (nothing new
+      measured). Left unchecked for the same reason.
 - [x] `pivot_overrun` retired from every robot config this repo
       controls; the `radio-robot-lib` cross-repo side is explicitly
       flagged if not completed here. This repo controls no robot config
@@ -664,3 +698,79 @@ evidence) but the ticket's core deliverable (G1-G6 passing,
 stop_distance/omega_floor measured and baked) is not met, and a newly
 discovered control-loop defect blocks the remaining gates until
 firmware engineering addresses it.
+
+## Session Notes (2026-09-04d, tovez, BLOCKED -- dance FAILED again, but cleanly split into a fixed-looking pivot path and a new drive-bearing defect)
+
+Full account: `reports/bench-acceptance-029-20260904d.md` (all capture
+logs cited below live in
+`captures/bench-acceptance-029-20260904d/`, force-added).
+
+**Firmware unchanged, carrier changed.** tovez was already reflashed
+(09:38, before this session) with ticket 010's K1 fix; `VER` still
+reads `1.20260903.1` per the no-mid-sprint-bump convention. This
+session drove tovez over a NEW lossless carrier -- its own on-robot
+`zilch` Pi's TCP serial daemon (`zilch.local:43671`, resolved via
+`dns-sd -L`) -- instead of the lossy torture radio relay every prior
+tovez session in this ticket used. `tools/fieldlink.py` gained
+`TcpFieldLink` (shares an `unseq`/`seqd`/`hello`/`close` contract with
+the existing `FieldLink` via a new `_SequencedLink` base);
+`tools/field_dance.py` gained a `--tcp host:port` flag selecting it,
+default (relay) behavior unchanged. New host test:
+`tests/tools/test_fieldlink.py` (5 tests, real loopback TCP, no
+hardware) -- passes; `test_robotlink.py`/`test_field.py`/
+`test_camlink.py` re-run clean (80 passed, no regressions).
+
+**Lights/camera/mount/kick: PASS.** Shelly `output: true`. Tag 1 reads
+(0,0) within noise; tag 52 (tovez) at (42.78, 12.86) cm, well inside
+the usable envelope. `camlink.py --register tovez` succeeded (same
+still-UNVERIFIED mount entry, unchanged). Kernel kick cleared a
+never-ticked `ready=0` post-flash state the same way every prior
+session's kick has.
+
+**`field_dance.py --tcp` FAILED, but split cleanly into two findings.**
+Pivots: net drift +14.2 deg over three pivots (+90/+180/+90) -- close
+to a clean run, a further improvement over 2026-09-04c's mixed
+2-pass/1-miss-by-14-deg and 2026-09-04's +47.6..+57.6 deg/pivot --
+consistent with K1 addressing the pivot-accuracy defect. Drives: all
+three FAILED with a consistent ~90 deg bearing error (+87/+91/+86 deg
+off expected heading) while magnitude tracked commanded distance
+reasonably (16.9/35.5/17.7 cm vs 20/40/20 cm) -- a NEW,
+cleanly-characterized directional defect on straight-line `MOVE_X`
+moves specifically, distinct from the earlier sessions' large,
+inconsistent drive errors and from 2026-09-04c's G5 sign-reversal
+defect. The robot ended safe throughout: dance's own "returned home"
+step PASSed (3.1 cm), post-dance camera fix (41.70, 9.76) cm, `STATUS`
+healthy and non-frozen (`cyc` advanced normally the whole session,
+`i2cf` climbed 2->53 during motion as in every prior session).
+
+**No commanded motion was sent beyond the dance.** Per the ticket's own
+mandatory ordering, the FAIL stopped this session here: no lag
+remeasurement, no G1-G6, no `stop_distance`/`omega_floor`. 2026-09-04c's
+`SET lag 0.126` is not known to still be in effect (fresh boot, nothing
+re-sent this session).
+
+**Docs updated**: `src/DESIGN.md` §3 (2026-09-04d paragraph: carrier
+change, dance table, both findings, cited) and
+`docs/design/specification.md` §11 (short paragraph pointing at
+`src/DESIGN.md` §3; no `MotionLimits` field values changed -- nothing
+new was measured this session).
+
+**Needs a human / next session**: (1) the ~90 deg drive-bearing defect
+is the new priority -- clean enough now (consistent angle, consistent
+proportional magnitude, three-for-three) to chase with an isolated
+`MOVE_X <mm> 0 ...` probe plus `TLM FULL`; keep it separate from the
+still-open 2026-09-04c G5 sign-reversal defect and the STATUS/TLM
+staleness bug when triaging -- three distinct leads now, not one; (2)
+re-run `field_dance.py --tcp zilch.local:<port>` (re-resolve the
+port) once addressed, resume at lag/G1/G5 from there; (3) tovez's mount
+fit is still UNVERIFIED -- pivots are close to clean enough to trust a
+lever-triple fit but the 180 deg pivot still FAILed, so this was not
+attempted; (4) the `pivot_overrun_mm`->`stop_distance_mm` cross-repo
+rename in `radio-robot-lib/config/robots/tovez.json` (flagged every
+prior session) is still outstanding.
+
+Ticket left `status: in-progress`. Real progress: a lossless carrier
+that removes relay loss as a confound going forward, a pivot result
+close to passing (corroborating ticket 010's K1 fix), and a newly
+well-characterized drive-bearing defect to hand to firmware
+engineering. The ticket's core deliverable is still not met.
