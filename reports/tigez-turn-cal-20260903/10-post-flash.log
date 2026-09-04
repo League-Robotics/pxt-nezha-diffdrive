@@ -1,0 +1,92 @@
+link: tigez serial daemon 192.168.4.53:42181
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '0', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.962 pivot_overrun=5.5 (live), trackwidth assumed 114.2 mm
+camera: tag 57 at (40.0, -25.2) cm heading 92.8 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+24 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180, 90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90     90.5     0.5     88.8    -1.2    1.0    183    154   0.7  stop
+  2    -90    -90.7    -0.7   -90.28   -0.28    0.3    174    180   0.7  stop
+  3    107    104.5    -2.5   105.01   -1.99    1.0    190    164   0.8  stop
+  4   -107   -110.9    -3.9  -108.79   -1.79    0.4    164    183   0.8  stop
+  5    180    178.1    -1.9   178.09   -1.91    0.8    190    174   1.3  stop
+  6   -180   -179.2     0.8  -177.87    2.13    0.2    164    173   1.3  stop
+  7    -90    -91.0    -1.0   -88.57    1.43    0.1    164    174   0.7  stop
+  8     90     94.8     4.8    90.69    0.69    0.8    183    164   0.7  stop
+  9   -107   -108.7    -1.7  -105.61    1.39    0.1    174    200   0.8  stop
+ 10    107    111.4     4.4   107.36    0.36    0.8    183    164   0.8  stop
+ 11   -180   -178.8     1.2  -178.06    1.94    0.1    164    183   1.3  stop
+ 12    180  -- no camera fix after the turn
+ 13     90     88.5    -1.5    88.69   -1.31    0.5    180    154   0.7  stop
+ 14    -90    -96.5    -6.5   -91.72   -1.72    0.3    174    183   0.7  stop
+ 15    107    107.7     0.7   105.69   -1.31    0.5    180    164   0.8  stop
+ 16   -107   -112.1    -5.1  -107.62   -0.62    0.4    174    184   0.7  stop
+ 17    180    179.7    -0.3   177.68   -2.32    0.3    183    180   1.3  stop
+ 18   -180   -180.0    -0.0  -177.12    2.88    0.6    180    193   1.2  stop
+ 19    -90    -88.6     1.4   -88.16    1.84    0.2    170    183   0.7  stop
+ 20     90     88.5    -1.5    89.94   -0.06    1.0    193    164   0.7  stop
+ 21   -107   -103.2     3.8   -104.7     2.3    0.2    183    180   0.8  stop
+ 22    107    108.6     1.6   106.48   -0.52    1.1    190    164   0.8  stop
+ 23   -180   -179.8     0.2  -178.81    1.19    0.4    164    173   1.3  stop
+ 24    180    180.8     0.8   179.76   -0.24    1.2    183    174   1.3  stop
+{
+  "robot": "tigez",
+  "cruise_mm_s": 0,
+  "n_turns": 23,
+  "slip_during_run": 0.962,
+  "pivot_overrun_during_run_mm": 5.5,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 118.71,
+  "fit_gain": 0.9796,
+  "fit_offset_deg": 3.24,
+  "mean_err_left_deg": 0.46,
+  "mean_err_right_deg": -0.97,
+  "per_command": {
+    "+90": {
+      "n": 4,
+      "mean_err": 0.58,
+      "min": -1.48,
+      "max": 4.76
+    },
+    "-90": {
+      "n": 4,
+      "mean_err": -1.7,
+      "min": -6.49,
+      "max": 1.43
+    },
+    "+107": {
+      "n": 4,
+      "mean_err": 1.05,
+      "min": -2.45,
+      "max": 4.37
+    },
+    "-107": {
+      "n": 4,
+      "mean_err": -1.74,
+      "min": -5.11,
+      "max": 3.78
+    },
+    "+180": {
+      "n": 3,
+      "mean_err": -0.47,
+      "min": -1.93,
+      "max": 0.81
+    },
+    "-180": {
+      "n": 4,
+      "mean_err": 0.52,
+      "min": -0.02,
+      "max": 1.16
+    }
+  },
+  "mean_abs_err_deg": 2.03,
+  "mean_drift_cm": 0.54,
+  "suggested": {
+    "rotational_slip": 0.9424,
+    "pivot_overrun_mm": 8.86,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; overrun_new = overrun + offset_rad*b_eff/2"
+  }
+}
+wrote reports/tigez-turn-cal-20260903/10-post-flash; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/tigez-turn-cal-20260903/10-post-flash

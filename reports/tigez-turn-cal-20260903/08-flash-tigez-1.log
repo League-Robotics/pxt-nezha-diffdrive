@@ -1,0 +1,8 @@
+0004083 I Loading /tmp/mbdeploy-flash-j14v1d2x.hex [load_cmd]
+0007382 I Erasing... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0018553 I Programming... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0035633 I Erased 418816 bytes (103 sectors), programmed 418816 bytes (103 pages), identical 0 bytes (0 pages) at 14.48 kB/s [loader]
