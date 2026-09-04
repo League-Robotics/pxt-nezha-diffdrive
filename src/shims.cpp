@@ -32,6 +32,7 @@
 // getConfigValue/diagValue and the engine* wire forwards. Keep
 // signatures compatible with their forward-declaration blocks.
 #include "pxt.h"
+#include "core/bus_guard.h"
 #include "core/diffdrive.h"
 #include "platform/encoder_pose_source.h"
 #include "motion/motion_engine.h"
@@ -135,9 +136,29 @@ struct Rig {
   uint64_t tickDeadline = 0;   // [us] tickDrive()'s own absolute-
                                   // deadline pacing anchor. 0 = no tick
                                   // has run yet -- re-anchor to now.
-  bool stepBusy = false;         // concurrency guard around
-                                  // kernel.step() inside tickDrive();
-                                  // see that function's own comment.
+  // Bus-ownership guard (core/bus_guard.h): serializes kernel.step()
+  // inside tickDrive() against a second fiber also calling tickDrive()
+  // -- see that function's own comment -- AND, as of this change,
+  // against every OTOS shim entry point below (otosBegin/Read/Zero/
+  // Calibrate/SetOffset, seedPose), which now acquire/release the SAME
+  // guard around their own I2C body. Formerly a bare `bool stepBusy`
+  // known only to tickDrive(); promoted to BusGuard so "the bus has
+  // exactly one owner at a time" covers every I2C-touching entry
+  // point, not just the kernel step.
+  BusGuard busGuard;
+  // Deferred OTOS zero: SET rebase
+  // (setKernelValue() case 32) used to call otosRef().setPose(0,0,0)
+  // SYNCHRONOUSLY on whichever fiber issued it (typically the protocol
+  // fiber), with no relationship to busGuard at all -- exactly the
+  // hole this ticket closes for the other six entry points. Setting
+  // this flag instead defers the actual I2C write to tickDrive(),
+  // after busGuard.release() (see that function's own comment for the
+  // exact point), the same deferred-request shape
+  // kernel.rebasePosition() already uses for the kernel's own position
+  // reference. kernel.rebasePosition() and the encoder-odometry x/y/
+  // heading reset stay SYNCHRONOUS, as before -- only the OTOS write
+  // becomes deferred.
+  bool pendingOtosZero = false;
   uint32_t tickOverrunCount = 0; // Rig-level: tickDrive() calls that ran
                                   // past their own paced deadline.
                                   // Distinct from the kernel's own
@@ -617,6 +638,13 @@ bool updateMove() {
 // what it checks, and tickDrive()'s own comment below for why).
 static bool commandLooksActive(const Rig& r);
 
+// Forward declaration: otosRef() (the OTOS lazy singleton) is defined
+// further down, alongside the other OTOS shim entry points -- see its
+// own comment there. tickDrive() below needs it too now, to perform
+// the deferred pendingOtosZero write after busGuard.release() -- see
+// that section of tickDrive()'s own comment.
+static OtosPort& otosRef();
+
 // ---- tick engine --------------------------------------------------------
 // tickDrive(): the caller-driven replacement for the kernel's own
 // now-unwired fiber (see ensure()'s comment). Runs exactly one
@@ -659,11 +687,10 @@ bool tickDrive() {
   // second fiber also calling tickDrive() -- it just waits (a short
   // timed poll, since the busy fiber may itself be parked in step()'s
   // settle sleeps) until the flag clears rather than racing
-  // kernel.step().
-  while (r.stepBusy) {
-    r.sleeper.sleepMillis(1);
-  }
-  r.stepBusy = true;
+  // kernel.step(). This is now the SAME BusGuard every OTOS shim
+  // entry point acquires, not a private stepBusy flag -- see
+  // Rig::busGuard's own comment.
+  r.busGuard.acquire(r.sleeper);
   r.kernel.step();
 
   // isDriving() (seg_.active || hold_.active), NOT isMoveActive()
@@ -749,18 +776,36 @@ bool tickDrive() {
     r.engine.settleToRest();
     odomUpdate(r);  // coast counts -> pose before the final TLM
   }
-  r.stepBusy = false;
+  r.busGuard.release();
+
+  // Deferred OTOS zero: SET rebase
+  // (setKernelValue() case 32) only ARMS pendingOtosZero -- the actual
+  // I2C write happens HERE, on whichever fiber is ticking, exactly like
+  // kernel.rebasePosition()'s own deferred-request shape. Consumed
+  // AFTER busGuard.release() (so this tick's own kernel.step() is not
+  // held up by an extra I2C round trip) but the write itself still
+  // acquires/releases the SAME guard around its own body -- with no
+  // yield between this release() and that reacquire(), no other fiber
+  // can interleave here (see BusGuard's own comment), so this is safe
+  // even though the guard is briefly unheld in between.
+  if (r.pendingOtosZero) {
+    r.pendingOtosZero = false;
+    r.busGuard.acquire(r.sleeper);
+    otosRef().setPose(0.0f, 0.0f, 0.0f);
+    r.busGuard.release();
+  }
 
   // Service hook: fires exactly here on EVERY call -- after this tick's
-  // own kernel.step()/settle work is done (stepBusy just cleared above)
-  // and before the pacing sleep below -- and NEVER inside the stepBusy
-  // window: step() already yields twice in there for its own encoder
-  // select-to-read settle, and landing arbitrary wire/radio/dispatch
-  // work in that window would break bus discipline. Null whenever
-  // nothing has registered one (a host test, or before the protocol
-  // fiber starts); see Rig::serviceHook's own comment for what the
-  // registered callback actually does and why it is itself a no-op for
-  // most callers of this function.
+  // own kernel.step()/settle work and the deferred OTOS zero above are
+  // both done (busGuard released again) and before the pacing sleep
+  // below -- and NEVER inside a busGuard-held window: step() already
+  // yields twice in there for its own encoder select-to-read settle,
+  // and landing arbitrary wire/radio/dispatch work in that window would
+  // break bus discipline. Null whenever nothing has registered one (a
+  // host test, or before the protocol fiber starts); see
+  // Rig::serviceHook's own comment for what the registered callback
+  // actually does and why it is itself a no-op for most callers of this
+  // function.
   if (r.serviceHook) r.serviceHook();
 
   // Absolute-deadline self-pacing, lifted from DifferentialDrive::run()
@@ -1239,6 +1284,18 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // here; odomUpdate()'s own positionEpochLeft/Right check above is
     // what keeps that later, legitimate discontinuity from being
     // mis-read as a spurious jump the next time pose is read.
+    //
+    // The OTOS write is now ALSO deferred, the
+    // same shape as kernel.rebasePosition() above -- this used to call
+    // otosRef().setPose(0,0,0) synchronously, right here, on whichever
+    // fiber issued this SET (typically the protocol fiber), with no
+    // relationship to busGuard at all: exactly the hole this ticket
+    // closes for the other six OTOS entry points. Setting
+    // pendingOtosZero instead defers the actual I2C write to
+    // tickDrive(), after busGuard.release() (see that function's own
+    // comment). kernel.rebasePosition() and the encoder-odometry x/y/
+    // heading reset immediately below stay SYNCHRONOUS, as before --
+    // only the OTOS write moves.
     case 32:
       if (v != 0.0f) {
         odomUpdate(r);        // consume pending deltas before the zero
@@ -1246,7 +1303,7 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
         r.x = 0.0f;
         r.y = 0.0f;
         r.heading = 0.0f;
-        otosRef().setPose(0.0f, 0.0f, 0.0f);
+        r.pendingOtosZero = true;
       }
       break;
     // 33: estop_clear -- a write-triggered ACTION wearing a
@@ -1551,13 +1608,27 @@ int probe(int what) { return diagValue(what); }
 int otosBegin() {  // -> raw product id, for diagnostics only; readiness
                     // is OtosPort::connected(), gated on otos_port.h's
                     // kExpectedProductId -- not this return value
+  // Bus-ownership guard: begin() issues several
+  // I2C writes and a polled read (otos_port.cpp) -- see BusGuard's own
+  // comment for why every OTOS entry point now brackets its I2C body
+  // this way. productId() below is a cached read, no I2C, safe outside
+  // the guard.
+  Rig& r = ensure();
   OtosPort& o = otosRef();
+  r.busGuard.acquire(r.sleeper);
   o.begin();
+  r.busGuard.release();
   return o.productId();
 }
 
 //%
-bool otosRead() { return otosRef().read(); }
+bool otosRead() {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  const bool ok = otosRef().read();
+  r.busGuard.release();
+  return ok;
+}
 
 //%
 int otosGet(int what) {
@@ -1577,11 +1648,19 @@ int otosGet(int what) {
 }
 
 //%
-void otosZero() { otosRef().zeroPose(); }
+void otosZero() {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  otosRef().zeroPose();
+  r.busGuard.release();
+}
 
 //%
 void otosCalibrate(int samples) {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
   otosRef().calibrateImu(static_cast<uint8_t>(samples));
+  r.busGuard.release();
 }
 
 // Emit a test-result line on BOTH transports. TypeScript's
@@ -1656,9 +1735,12 @@ void registerTickServiceHook(void (*hook)()) { ensure().serviceHook = hook; }
 
 //%
 void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
   otosRef().setOffset(static_cast<float>(x) * 0.1f,
                       static_cast<float>(y) * 0.1f,
                       static_cast<float>(yaw) * kCdegToRad);
+  r.busGuard.release();
 }
 
 // V6 SEED (protocol-v6-spec.md 5.5): declare the world pose from an
@@ -1673,7 +1755,9 @@ void seedPose(int x, int y, int heading) {  // [mm] [mm] [cdeg]
   r.x = static_cast<float>(x);
   r.y = static_cast<float>(y);
   r.heading = h;
+  r.busGuard.acquire(r.sleeper);
   otosRef().setPose(static_cast<float>(x), static_cast<float>(y), h);
+  r.busGuard.release();
 }
 
 }  // namespace diffDrive

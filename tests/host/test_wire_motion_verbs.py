@@ -3460,9 +3460,20 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     "read the other file as text, no compiler needed" shape
     test_wire_constants_drift.py already uses throughout: confirms case
     32's own body calls kernel.rebasePosition(), zeroes x/y/heading, AND
-    re-seeds OTOS to that same zero -- so a future edit cannot silently
-    drop the OTOS half while the encoder half keeps passing every other
-    (compiled) test in this file."""
+    arms the OTOS re-seed to that same zero -- so a future edit cannot
+    silently drop the OTOS half while the encoder half keeps passing
+    every other (compiled) test in this file.
+
+    Sprint 030 ticket 001 (enforce-the-one-fiber-i2c-invariant.md): the
+    OTOS re-seed is now DEFERRED -- case 32 sets `r.pendingOtosZero =
+    true` instead of calling `otosRef().setPose(0.0f, 0.0f, 0.0f)`
+    synchronously on whichever fiber issued this SET. The actual I2C
+    write happens inside tickDrive() after busGuard.release()
+    (test_bus_guard_source_pin.py pins that half, which lives in
+    tickDrive()'s own body, not case 32's). This test's own assertion
+    changes from "the synchronous call is present" to "the deferred
+    flag is armed, and the synchronous call is gone" -- the exact
+    substance of the fix."""
     shims_text = (_SRC_DIR / "shims.cpp").read_text()
     match = re.search(r"case 32:\s*\{?\s*if \(v != 0\.0f\) \{(.*?)\}\s*break;",
                       shims_text, re.DOTALL)
@@ -3471,7 +3482,12 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     assert "k.rebasePosition();" in body, body
     assert "r.x = 0.0f;" in body and "r.y = 0.0f;" in body and \
         "r.heading = 0.0f;" in body, body
-    assert "otosRef().setPose(0.0f, 0.0f, 0.0f);" in body, body
+    assert "r.pendingOtosZero = true;" in body, body
+    assert "otosRef().setPose" not in body, (
+        "case 32 still calls otosRef().setPose(...) synchronously -- "
+        "the OTOS re-seed must be deferred via pendingOtosZero instead "
+        "(sprint 030 ticket 001): " + body
+    )
 
 
 def test_rebase_get_is_refused(wa):

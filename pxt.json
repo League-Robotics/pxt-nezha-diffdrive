@@ -22,6 +22,7 @@
         "src/platform/platform_ports.h",
         "src/core/heading_wrap.h",
         "src/core/encoder_glitch_armor.h",
+        "src/core/bus_guard.h",
         "src/platform/encoder_pose_source.h",
         "src/platform/nezha_port.h",
         "src/platform/nezha_port.cpp",

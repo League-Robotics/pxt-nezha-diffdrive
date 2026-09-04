@@ -1,8 +1,9 @@
 ---
 id: '001'
 title: Bus-ownership guard on every OTOS entry point
-status: open
-use-cases: [SUC-001]
+status: done
+use-cases:
+- SUC-001
 depends-on: []
 github-issue: ''
 issue: code-review/enforce-the-one-fiber-i2c-invariant.md
@@ -96,36 +97,52 @@ kernel and shaping fields only.
 
 ## Acceptance Criteria
 
-- [ ] `core/bus_guard.h` exists, host-portable (compiles under the
+- [x] `core/bus_guard.h` exists, host-portable (compiles under the
       `-std=c++20` host build and the `-std=c++11` syntax gate), no
       `pxt.h` include.
-- [ ] A host test (`tests/host/test_bus_guard.py` or similar) scripts
+- [x] A host test (`tests/host/test_bus_guard.py` or similar) scripts
       `FakeSleeper::onSleep` to fire while `BusGuard::acquire()` is
       mid-spin and confirms the caller does not proceed until
       `release()` is called from the scripted callback.
-- [ ] A source-pin test asserts: every `uBit.i2c` caller in
+- [x] A source-pin test asserts: every `uBit.i2c` caller in
       `platform/otos_port.cpp`, and every one of `shims.cpp`'s six OTOS
       entry points (`otosBegin/Read/Zero/Calibrate/SetOffset`,
       `seedPose`), acquires/releases `BusGuard` (grep-based, matching
       the style of existing source-pin tests in `tests/tools/` or
-      `tests/host/`).
-- [ ] `test/test.ts` has no `control.inBackground` block that calls
+      `tests/host/`). NOTE: `tests/host/test_bus_guard_source_pin.py`
+      also discovered and pins two OTHER I2C-touching OtosPort call
+      sites this ticket's own six-entry list does not name --
+      `otosGet()`'s case 8 (`imuCalibrationSamplesRemaining()`, a live
+      but unguarded gap) and `resetTracking()` (unguarded but also
+      unreachable from `shims.cpp`, so not a live hole). Flagged as a
+      follow-up task rather than fixed here (out of this ticket's
+      named scope) -- see the final report / spawned task.
+- [x] `test/test.ts` has no `control.inBackground` block that calls
       `readWorld()`/`otosRead()`.
-- [ ] `SET rebase`'s OTOS zero is deferred to `tickDrive()`, not
+- [x] `SET rebase`'s OTOS zero is deferred to `tickDrive()`, not
       synchronous on the protocol fiber — confirmed by reading the
       diff (not host-testable directly, `otos_port.h` includes
       `pxt.h`).
-- [ ] `blocks/world.ts`'s `readWorld()`, `seedPose()`, and
+- [x] `blocks/world.ts`'s `readWorld()`, `seedPose()`, and
       `calibrateWorldSensor()` JSDoc comments each state they are live
       bus transactions.
-- [ ] Existing host suite (`tests/host/`) and the C++11 syntax gate
-      (`tests/host/test_cxx11_syntax_gate.py`) pass unchanged.
+- [x] Existing host suite (`tests/host/`) and the C++11 syntax gate
+      (`tests/host/test_cxx11_syntax_gate.py`) pass unchanged. One
+      pre-existing test (`tests/host/test_wire_motion_verbs.py::
+      test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos`)
+      pinned the OLD synchronous `otosRef().setPose(0,0,0)` call this
+      ticket deliberately replaces with the deferred
+      `pendingOtosZero` flag -- updated to pin the new behavior
+      instead of the old one, since the change is this ticket's own
+      Remedy, not a regression.
 - [ ] Hardware (team-lead session, deferred to sprint close or a
       dedicated bench session): a wire-issued OTOS read scripted to
       land during a live drive no longer corrupts the encoder sample
       (`i2cf` does not climb) where the pre-fix build reproduces it —
       MEASURED citation required per
-      `.claude/rules/measurement-citations.md`.
+      `.claude/rules/measurement-citations.md`. UNVERIFIED in this
+      dispatch: no hardware/board access. Left for the team-lead
+      session per the ticket's own note.
 
 ## Testing
 

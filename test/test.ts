@@ -85,12 +85,31 @@ let pivotYawRate = 90
 // Tick driveTick() to completion on this fiber, tracking the largest
 // gap between calls (maxGap) -- the shared runner behind
 // tickedMove/tickedGoTo below, so the tick loop itself is written once.
+// OTOS_SAMPLE_TICKS: sample the world sensor every Nth driveTick() call
+// inside tickToCompletion() (sprint 030 ticket 001 -- see that
+// function's own comment and the "OTOS sampling" section above for why
+// this replaces the old free-running background fiber). driveTick()
+// paces to the kernel's own cyclePeriod, 24 ms
+// (src/core/diffdrive.h's Config::cyclePeriod default, src/shims.cpp's
+// tickDrive() reads it directly rather than a duplicated constant) --
+// 4 ticks is 96 ms, the closest whole-tick match to the old sampler's
+// 10 Hz (100 ms) rate.
+const OTOS_SAMPLE_TICKS = 4
+let otosSampleTickCount = 0
+
 function tickToCompletion() {
     let last = control.millis()
     while (diffDrive.driveTick()) {
         const now = control.millis()
         if (now - last > maxGap) maxGap = now - last
         last = now
+        // Sample the world sensor on THIS fiber, between ticks -- never
+        // concurrently with one. See OTOS_SAMPLE_TICKS's own comment.
+        otosSampleTickCount += 1
+        if (otosSampleTickCount >= OTOS_SAMPLE_TICKS) {
+            otosSampleTickCount = 0
+            diffDrive.readWorld()
+        }
         // RUN:abort landed mid-leg -- stop() for real (stopMove(), a real
         // stop since sprint 016 ticket 001) and return early instead of
         // ticking this move to its own completion. The single choke point
@@ -820,20 +839,30 @@ if (diffDrive.otosGet(7) != 0) {
 // ox=oy=oh=0 while the encoders logged 246 mm of travel. That is also
 // what the orange-dots tour recorded and had to chart as "no data".
 //
-// Sampled from a BACKGROUND fiber, not a RUN handler -- RUN-handler I2C
-// hangs the board outright (see the boot init above for the
-// measurement). 10 Hz is deliberately slower than the 50 ms telemetry
-// tick: wire_adapter.h warns that an OTOS transaction interposed in the
-// Nezha encoder's select->read settle window destroys that encoder
-// sample, and the two ports share the bus with NO mutual exclusion.
-// `i2cf` in STATUS is the counter that would expose it if this starts
-// colliding -- watch it before trusting a run.
-control.inBackground(function () {
-    while (true) {
-        diffDrive.readWorld()
-        basic.pause(100)
-    }
-})
+// Sprint 030 ticket 001 (enforce-the-one-fiber-i2c-invariant.md):
+// this USED to be a free-running `control.inBackground` fiber calling
+// diffDrive.readWorld() at 10 Hz with, by this comment's own former
+// wording, "NO mutual exclusion" against the bus -- an OTOS transaction
+// from that fiber could land inside the Nezha encoder's select->read
+// settle window on whichever OTHER fiber was ticking and destroy that
+// encoder sample (the documented Phase-F signature,
+// src/platform/nezha_port.cpp:376-380). It is now sampled from INSIDE
+// tickToCompletion() (below) -- the one tick loop every tour/pivot/leg
+// in this file already runs through -- every OTOS_SAMPLE_TICKS ticks,
+// so the read always lands on the SAME fiber that is already ticking,
+// never concurrently with it. otosRead()/otosBegin()/etc. also now
+// acquire the kernel's own BusGuard around their I2C body
+// (src/shims.cpp), so even a call from a genuinely different fiber
+// (e.g. a student script's own diffDrive.readWorld()) is serialized
+// against a live tick rather than racing it -- this tick-loop sampling
+// is belt-and-suspenders on top of that, not the only thing making it
+// safe.
+//
+// KNOWN CHANGE IN BEHAVIOR: telemetry's ox/oy/oh now update only while
+// something is actively ticking (a tour, a pivot, a move) -- not
+// continuously while the robot sits idle between them, the way the old
+// background fiber did. This is the ticket's own explicit trade: see
+// enforce-the-one-fiber-i2c-invariant.md's Remedy.
 
 
 // ---- Tour programs, callable over the wire as RUN:<name> --------------
