@@ -1,0 +1,93 @@
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.962 pivot_overrun=5.5 (live), trackwidth assumed 114.2 mm
+camera: tag 57 at (-0.7, 27.8) cm heading -150.3 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+24 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180, 90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90     94.5     4.5    92.97    2.97    1.1    200    164   0.6  stop
+  2    -90    -88.3     1.7   -87.71    2.29    0.1    180    171   0.6  stop
+  3    107    106.0    -0.9   106.19   -0.81    1.1    190    164   0.7  stop
+  4   -107   -106.7     0.3   -106.0     1.0    0.0    174   3168   0.8  stop
+  5    180    198.5    18.5   195.22   15.22    1.6    190   6393   1.1  stop
+  6   -180   -180.1    -0.1  -176.81    3.19    0.1    180    194   1.3  stop
+  7    -90    -97.0    -7.0    -94.3    -4.3    0.4    180   3440   0.6  stop
+  8     90     90.2     0.2    88.12   -1.88    0.8    190    180   0.7  stop
+  9   -107   -107.5    -0.5  -104.63    2.37    0.4    200    203   0.6  stop
+ 10    107    100.1    -6.9    96.23  -10.77    0.4    200    164   0.7  stop
+ 11   -180   -183.9    -3.9  -178.29    1.71    0.2    171    200   1.2  stop
+ 12    180    180.9     0.9    177.3    -2.7    0.3    200    164   1.1  stop
+ 13     90     92.5     2.5    92.56    2.56    0.5    200   1792   0.6  stop
+ 14    -90    -88.8     1.2   -88.96    1.04    0.2    184    180   0.6  stop
+ 15    107  -- MOVE_X not accepted: None
+ 16   -107   -104.8     2.1  -104.93    2.07    0.2    183   2457   0.8  stop
+ 17    180    177.0    -3.0   176.47   -3.53    1.0    193    616   1.2  stop
+ 18   -180   -176.7     3.3  -177.12    2.88    0.2    174   5567   1.2  stop
+ 19    -90    -41.8    48.2   -41.24   48.76    0.2    134    144   0.3  stop
+ 20     90     88.4    -1.6     87.9    -2.1    0.4    183    174   0.6  stop
+ 21   -107   -107.1    -0.1  -103.99    3.01    0.3    180    308   0.7  stop
+ 22    107    109.1     2.1   105.16   -1.84    0.5    180   2827   0.8  stop
+ 23   -180   -183.5    -3.5   -177.0     3.0    0.4    174    184   1.2  stop
+ 24    180    182.2     2.2   177.08   -2.92    0.3    190   4576   1.3  stop
+{
+  "robot": "tigez",
+  "cruise_mm_s": 0,
+  "n_turns": 23,
+  "slip_during_run": 0.962,
+  "pivot_overrun_during_run_mm": 5.5,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 118.71,
+  "fit_gain": 1.0767,
+  "fit_offset_deg": -10.71,
+  "mean_err_left_deg": 1.67,
+  "mean_err_right_deg": 3.48,
+  "per_command": {
+    "+90": {
+      "n": 4,
+      "mean_err": 1.39,
+      "min": -1.61,
+      "max": 4.46
+    },
+    "-90": {
+      "n": 4,
+      "mean_err": 11.04,
+      "min": -6.97,
+      "max": 48.21
+    },
+    "+107": {
+      "n": 3,
+      "mean_err": -1.92,
+      "min": -6.9,
+      "max": 2.1
+    },
+    "-107": {
+      "n": 4,
+      "mean_err": 0.45,
+      "min": -0.53,
+      "max": 2.15
+    },
+    "+180": {
+      "n": 4,
+      "mean_err": 4.64,
+      "min": -3.02,
+      "max": 18.46
+    },
+    "-180": {
+      "n": 4,
+      "mean_err": -1.06,
+      "min": -3.86,
+      "max": 3.28
+    }
+  },
+  "mean_abs_err_deg": 5.01,
+  "mean_drift_cm": 0.47,
+  "suggested": {
+    "rotational_slip": 1.0357,
+    "pivot_overrun_mm": 0.0,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; overrun_new = overrun + offset_rad*b_eff/2"
+  }
+}
+wrote reports/turn-compare-20260904/tigez-baked2; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/turn-compare-20260904/tigez-baked2
+CHAIN-EXIT 0

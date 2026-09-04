@@ -1,0 +1,7 @@
+link: radio relay ch 37 grp 43 (torture:8760)
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '2', 'cyc': '167', 'tlm': 'off', 'next': '1', 'done': '5', 'reason': 'stop'}
+rotational_slip=0.987 pivot_overrun=2.2 (live), trackwidth assumed 114.2 mm
+camera: tag 53 at (-52.9, -29.6) cm heading -72.4 deg
+no thdr after TLM FULL -- telemetry not streaming
+CHAIN-EXIT 1

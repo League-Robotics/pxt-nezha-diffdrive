@@ -20,25 +20,26 @@
   },
   "robots": {
     "vevov": {
-      "_provenance": "MEASURED vevov 2026-09-02 on main-playfield. Re-measure after any tag remount, camera move, or robot change.",
+      "_provenance": "MEASURED vevov 2026-09-02 16:50-17:05 on main-playfield (KIPR line mat in place), captures/vevov-cal-20260902/. Tag 53 plate remounted 12.0 cm high and moved forward on 2026-09-02; re-measure after any tag remount, camera move, or robot change. Converted into the sprint 029 robots: schema at the 2026-09-04 merge; master's single-robot file (heading_offset_deg 91.28 = 90 + 1.28 residual) is the source of every number here.",
       "tag_family": "apriltag",
       "tag_number": 53,
       "camera": "arducam-ov9782-usb-camera",
-      "mount_x_cm": -3.61,
-      "mount_y_cm": -0.05,
-      "mount_z_cm": 11.8,
-      "mount_yaw_residual_deg": 1.116162341754432,
-      "_mount_yaw_note": "robot heading = tag yaw + 90 (fixed convention) + this residual. Fitted from a translation probe, not assumed: the two candidate conventions differ by 180 deg and picking wrong is how a robot ends up in a rail. Was stored pre-sprint-029 as the absolute heading_offset_deg (91.11616234175443 = 90 + this); TL-11 split the fixed convention back out.",
+      "mount_x_cm": -2.44,
+      "mount_y_cm": 0.2,
+      "mount_z_cm": 12.0,
+      "mount_yaw_residual_deg": 1.2800000000000011,
+      "_mount_yaw_note": "robot heading = tag yaw + this. +90.00 is AprilCam's fixed front-edge convention (see .claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md); the remainder is plate skew plus probe noise. Re-measured 2026-09-02 from a 50 cm out-and-back probe: +90.50 and +92.05 (captures/vevov-cal-20260902/04-probe-50cm.txt); the field dance the same session drove forward with bearings within 3 deg, so the plate is NOT reversed. Stored here as the residual only (TL-11): 91.28 - 90 = 1.28.",
       "radio_channel": 37,
       "radio_group": 43,
       "_radio_note": "MEASURED 2026-08-30 (.claude/rules/playfield-testing.md fleet table); also the base-5 name-derived pair (make_deploy.derive_radio_from_name('vevov')) -- kept explicit here since this is the file robotlink.radio_address() reads first.",
       "lever_cm": [
-        0.42172451948736417,
-        -6.380598743114215
+        0.227,
+        -2.727
       ],
-      "_lever_note": "Tag 53 relative to the centre of rotation, in the TAG frame. Solved from an in-place pivot triple, least squares over tag = centre + R(yaw)*lever: residual 0.28 mm rms, and the three implied centres agreed to 0.7 mm, which is the proof the robot pivoted in place. The raw tag swings 68 mm across a pivot, so an uncorrected trace carries that at every corner.",
-      "parallax_k": 1.1167434292898253,
-      "_parallax_note": "The tag rides 11.8 cm above the field, so the camera reports every DISPLACEMENT scaled by this about its own nadir. Divide any camera distance by it for truth. MEASURED as 1.1167 +- 0.0022 over three 60 cm legs driven in opposing directions; implies a camera height near 113 cm. Closure measured at equal heading still needs it, since closure is a displacement."
+      "_lever_note": "Tag 53 relative to the centre of rotation, in the TAG frame, as the camera REPORTS it (parallax-dilated, so it is applied to raw positions without dividing by parallax_k). Mean of two 4x90 deg in-place pivot solves, least squares over tag = centre + R(yaw)*lever: pass1 (+90s) (0.287,-2.638) rms 1.08 mm, pass2 (-90s) (0.167,-2.816) rms 1.18 mm; implied centres per pose agree to +-0.2 cm. captures/vevov-cal-20260902/02-levercal-pass1.txt, 03-levercal-pass2.txt. True (undilated) lever is about 2.44 cm behind the centre. Previous plate position (6.38 cm behind) is obsolete.",
+      "parallax_k": 1.1192,
+      "_parallax_note": "The tag rides 12.0 cm above the field, so the camera reports every DISPLACEMENT scaled by this about its own nadir. Divide any camera distance by it for truth. MEASURED 2026-09-02 over two opposing 50 cm legs: 1.1167 and 1.1217 (captures/vevov-cal-20260902/04-probe-50cm.txt); the previous 1.1167 at 11.8 cm implies a camera height of ~113 cm, which predicts 1.1189 at 12.0 cm -- consistent. NOTE the daemon's stored camera_position.height_cm is 128.23, which disagrees with the ~113 cm the parallax measures; that is why this tool uses the raw tag plus its own k rather than a daemon mount_z.",
+      "_mount_note": "mount_x/y_cm: tag 53 relative to the centre of rotation in the ROBOT frame for daemon registration, undilated -- master's 2026-09-02 lever solve puts the tag 2.727 cm behind as the camera reports it (parallax-dilated by 1.1192), i.e. ~2.44 cm true; y from the 0.227 cm lateral term. UNVERIFIED as a daemon registration (the solve was made for the raw-tag + lever_cm path below); re-fit with camlink --register + a pivot triple before trusting the registered centre to better than 1 cm."
     },
     "tovez": {
       "_provenance": "mount_yaw_residual_deg 0.0: the plate is mounted on the fleet convention (tag arrow = robot front; stakeholder 2026-09-04, confirmed on the camera). A 180 deg residual was recorded earlier the same day from captures/bench-acceptance-029-20260904d/heading-probe.log (tag moved at bearing +11 deg while the daemon reported -166 deg) and was WRONG: the robot was driving BACKWARDS -- the firmware carried vevov's motor mapping (left{1,-1}/right{2,+1}) and tovez is wired left=port 2 (-1), right=port 1 (+1); swap+invert reverses travel and leaves rotation alone, which is exactly why pivots passed and straights went the other way. Fixed by baking radio-robot-lib tovez.json geometry.firmware_bake.motors via make_deploy.py _inject_motors(). mount_x_cm -4.1 (tag BEHIND the centre) per radio-robot-lib vision.tag_offset_x -41 mm, magnitude still UNVERIFIED here. Lesson: a residual near +-180 or +-90 is never a plate finding until a probe move has been checked against the ARROW, not against the daemon's heading.",

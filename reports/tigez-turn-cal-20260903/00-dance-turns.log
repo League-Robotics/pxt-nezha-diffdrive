@@ -1,0 +1,12 @@
+link: tigez serial daemon 192.168.4.53:42181
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '20', 'cyc': '6233', 'tlm': 'off', 'next': '1', 'done': '1', 'reason': 'timeout'}
+rotational_slip=0.952 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 57 at (49.6, -0.6) cm heading 89.9 deg
+home (49.6, -0.6) h=90.8
+turn  +90: camera   +95.9 (unwrapped   +95.5, 25 samples) PASS
+turn +180: camera  +186.6 (unwrapped  +186.4, 33 samples) PASS
+turn  +90: camera   +93.1 (unwrapped   +93.0, 24 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 0.6 cm; net heading +14.3 deg
+DANCE PASSED -- left is left, forward is forward, and it comes home.

@@ -1,0 +1,14 @@
+link: radio relay ch 37 grp 43 (torture:8760)
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '0', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.987 pivot_overrun=2.2 (live), trackwidth assumed 114.2 mm
+camera: tag 53 at (-51.5, -29.4) cm heading -87.2 deg
+home (-51.5, -29.5) h=-86.8
+turn  +90: camera   +95.0 (unwrapped   +94.1, 13 samples) PASS
+turn +180: camera  +184.7 (unwrapped  +183.7, 16 samples) PASS
+turn  +90: camera   +95.4 (unwrapped   +95.6, 10 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 1.4 cm; net heading +14.3 deg
+DANCE PASSED -- left is left, forward is forward, and it comes home.
+DANCE-OK

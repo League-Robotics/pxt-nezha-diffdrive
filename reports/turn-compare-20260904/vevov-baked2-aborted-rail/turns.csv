@@ -1,0 +1,2 @@
+turn,commanded,cruise,id,reason,camera_deg,error_deg,unwrapped_deg,cam_samples,encoder_deg,encoder_error_deg,x0,y0,x1,y1,drift_cm,peak_vl,peak_vr,duration_s,frames,ready_before
+1,90,0,4,stop,95.76,5.76,97.38,14,93.88,3.88,-52.89,-29.58,-54.53,-33.08,3.87,172,178,0.79,363,1

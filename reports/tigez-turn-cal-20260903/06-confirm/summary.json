@@ -1,0 +1,58 @@
+{
+  "robot": "tigez",
+  "cruise_mm_s": 0,
+  "n_turns": 36,
+  "slip_during_run": 0.96,
+  "pivot_overrun_during_run_mm": 5.5,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 118.96,
+  "fit_gain": 0.9875,
+  "fit_offset_deg": 2.37,
+  "mean_err_left_deg": 0.22,
+  "mean_err_right_deg": -1.39,
+  "per_command": {
+    "+90": {
+      "n": 6,
+      "mean_err": -0.83,
+      "min": -2.74,
+      "max": 0.92
+    },
+    "-90": {
+      "n": 6,
+      "mean_err": -2.35,
+      "min": -9.12,
+      "max": 1.99
+    },
+    "+107": {
+      "n": 6,
+      "mean_err": 2.01,
+      "min": -2.18,
+      "max": 13.63
+    },
+    "-107": {
+      "n": 6,
+      "mean_err": -1.27,
+      "min": -14.03,
+      "max": 2.11
+    },
+    "+180": {
+      "n": 6,
+      "mean_err": -0.52,
+      "min": -2.62,
+      "max": 2.51
+    },
+    "-180": {
+      "n": 6,
+      "mean_err": -0.55,
+      "min": -1.78,
+      "max": 1.31
+    }
+  },
+  "mean_abs_err_deg": 2.45,
+  "mean_drift_cm": 0.56,
+  "suggested": {
+    "rotational_slip": 0.948,
+    "pivot_overrun_mm": 7.96,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; overrun_new = overrun + offset_rad*b_eff/2"
+  }
+}

@@ -62,3 +62,14 @@ interface Iterable<T> {
 interface Array<T> extends Iterable<T> {
   [Symbol.iterator](): Iterator<T>;
 }
+
+// pins.i2cReadNumber / i2cWriteNumber are TypeScript helpers defined in
+// pxt_modules/core/pins.ts (over the i2cReadBuffer/i2cWriteBuffer shims in
+// shims.d.ts). pins.ts as a whole does not type-check under this harness's
+// deliberately narrow file list (added 2026-09-02, tsc crashed inside its
+// diagnostics), so the two helpers test/linefollow.ts uses are declared
+// here with pins.ts's own signatures. Device builds never see this file.
+declare namespace pins {
+    function i2cReadNumber(address: number, format: NumberFormat, repeated?: boolean): number;
+    function i2cWriteNumber(address: number, value: number, format: NumberFormat, repeated?: boolean): void;
+}

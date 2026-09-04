@@ -1,0 +1,24 @@
+{
+  "robot": "vevov",
+  "cruise_mm_s": 0,
+  "n_turns": 1,
+  "slip_during_run": 0.987,
+  "pivot_overrun_during_run_mm": 2.2,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 115.7,
+  "fit_gain": null,
+  "fit_offset_deg": null,
+  "mean_err_left_deg": 5.76,
+  "mean_err_right_deg": null,
+  "per_command": {
+    "+90": {
+      "n": 1,
+      "mean_err": 5.76,
+      "min": 5.76,
+      "max": 5.76
+    }
+  },
+  "mean_abs_err_deg": 5.76,
+  "mean_drift_cm": 3.87,
+  "suggested": null
+}

@@ -1,0 +1,36 @@
+link: radio relay ch 37 grp 43 (torture:8760)
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '2', 'cyc': '167', 'tlm': 'off', 'next': '1', 'done': '5', 'reason': 'stop'}
+rotational_slip=0.987 pivot_overrun=2.2 (live), trackwidth assumed 114.2 mm
+camera: tag 53 at (-52.9, -29.6) cm heading -72.3 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+24 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180, 90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90     95.8     5.8    93.88    3.88    3.9    172    178   0.8  stop
+STOP: robot at (-54.5, -33.1) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
+{
+  "robot": "vevov",
+  "cruise_mm_s": 0,
+  "n_turns": 1,
+  "slip_during_run": 0.987,
+  "pivot_overrun_during_run_mm": 2.2,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 115.7,
+  "fit_gain": null,
+  "fit_offset_deg": null,
+  "mean_err_left_deg": 5.76,
+  "mean_err_right_deg": null,
+  "per_command": {
+    "+90": {
+      "n": 1,
+      "mean_err": 5.76,
+      "min": 5.76,
+      "max": 5.76
+    }
+  },
+  "mean_abs_err_deg": 5.76,
+  "mean_drift_cm": 3.87,
+  "suggested": null
+}
+wrote reports/turn-compare-20260904/vevov-baked2; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/turn-compare-20260904/vevov-baked2
+CHAIN-EXIT 0

@@ -1,0 +1,6 @@
+HELLO -> ['device NEZHA2 robot tigez 3527777815']
+ID -> ['id diffdrive tigez 1.20260903.1 tigez']
+VER -> ['ver 1.20260903.1']
+STATUS -> ['status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none']
+GET rotational_slip #1 -> ['ack 1 0 none', 'get rotational_slip 0.962000']
+GET pivot_overrun #2 -> ['ack 2 0 none', 'get pivot_overrun 5.500000']

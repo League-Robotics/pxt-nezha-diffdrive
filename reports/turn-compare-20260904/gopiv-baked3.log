@@ -1,0 +1,97 @@
+link: radio relay ch 47 grp 60 (torture:8760)
+robot: device NEZHA2 robot gopiv 2175407711
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '229', 'cyc': '2645', 'tlm': 'off', 'next': '1', 'done': '27', 'reason': 'stop'}
+rotational_slip=0.952 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 54 at (39.9, 14.3) cm heading 148.4 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+24 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180, 90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90    103.3    13.3    98.66    8.66    0.8    164    190   0.6  stop
+  2    -90   -102.0   -12.0   -97.23   -7.23    2.1    138    201   0.8  stop
+  3    107    122.4    15.4   116.76    9.76    0.7    184    200   0.7  stop
+  4   -107   -118.3   -11.3  -113.18   -6.18    1.9    148    210   0.8  stop
+WARNING: tracker unwrapped -168.7 vs rest-to-rest +189.4 (15 samples) -- trusting the rest fixes
+  5    180    189.4     9.4    184.6     4.6    0.1    194    200   1.3  stop
+WARNING: tracker unwrapped +167.5 vs rest-to-rest -191.1 (14 samples) -- trusting the rest fixes
+  6   -180   -191.1   -11.1  -186.26   -6.26    2.8    174    226   1.4  stop
+  7    -90    -96.0    -6.0    -94.3    -4.3    2.0    135    200   0.6  stop
+  8     90    100.2    10.2    97.54    7.54    0.8    174    200   0.7  stop
+  9   -107   -114.3    -7.3  -112.06   -5.06    2.1    148    220   0.9  stop
+ 10    107    118.0    10.9   114.13    7.13    0.3    164    206   0.8  stop
+ 11   -180   -135.3    44.7  -129.52   50.48    2.0    154    220   0.9  stop
+WARNING: tracker unwrapped -171.0 vs rest-to-rest +189.2 (14 samples) -- trusting the rest fixes
+ 12    180    189.2     9.2   185.54    5.54    1.1    181    220   1.3  stop
+ 13     90     97.0     7.0    95.43    5.43    0.6    190    181   0.7  stop
+ 14    -90   -102.9   -12.9   -98.89   -8.89    1.9    164    204   0.8  stop
+ 15    107    115.9     8.9   112.47    5.47    0.8    174    181   0.8  None
+ 16   -107  -- MOVE_X not accepted: None
+ 17    180  -- MOVE_X not accepted: None
+ 18   -180  -- MOVE_X not accepted: None
+ 19    -90  -- MOVE_X not accepted: None
+ 20     90  -- MOVE_X not accepted: None
+ 21   -107  -- MOVE_X not accepted: None
+ 22    107  -- MOVE_X not accepted: None
+ 23   -180  -- MOVE_X not accepted: None
+ 24    180  -- MOVE_X not accepted: None
+{
+  "robot": "gopiv",
+  "cruise_mm_s": 0,
+  "n_turns": 15,
+  "n_disturbed_excluded": 0,
+  "disturbed_turns": [],
+  "slip_during_run": 0.952,
+  "pivot_overrun_during_run_mm": 0.0,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 119.96,
+  "fit_gain": 0.8349,
+  "fit_offset_deg": 26.45,
+  "mean_err_left_deg": 10.54,
+  "mean_err_right_deg": -2.28,
+  "per_command": {
+    "+90": {
+      "n": 3,
+      "mean_err": 10.15,
+      "min": 6.96,
+      "max": 13.29
+    },
+    "-90": {
+      "n": 3,
+      "mean_err": -10.32,
+      "min": -12.93,
+      "max": -5.99
+    },
+    "+107": {
+      "n": 3,
+      "mean_err": 11.75,
+      "min": 8.88,
+      "max": 15.42
+    },
+    "-107": {
+      "n": 2,
+      "mean_err": -9.32,
+      "min": -11.32,
+      "max": -7.32
+    },
+    "+180": {
+      "n": 2,
+      "mean_err": 9.33,
+      "min": 9.24,
+      "max": 9.42
+    },
+    "-180": {
+      "n": 2,
+      "mean_err": 16.83,
+      "min": -11.08,
+      "max": 44.74
+    }
+  },
+  "mean_abs_err_deg": 12.65,
+  "mean_drift_cm": 1.34,
+  "suggested": {
+    "rotational_slip": 0.7948,
+    "pivot_overrun_mm": 27.69,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; overrun_new = overrun + offset_rad*b_eff/2"
+  }
+}
+wrote reports/turn-compare-20260904/gopiv-baked3; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/turn-compare-20260904/gopiv-baked3
+CHAIN-EXIT 0

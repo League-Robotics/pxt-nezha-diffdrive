@@ -1,0 +1,15 @@
+wifilink: gopiv.local -> 192.168.1.215 (mDNS)
+link: WiFi TCP 192.168.1.215:7654
+robot: device NEZHA2 robot gopiv 2175407711
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '0', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.952 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 54 at (-4.5, 21.4) cm heading -85.8 deg
+home (-4.5, 21.4) h=-85.6
+turn  +90: camera  +102.0 (unwrapped   +99.7, 13 samples) **FAIL**
+turn +180: camera  +191.4 (unwrapped  +191.3, 14 samples) PASS
+turn  +90: camera   +97.1 (unwrapped   +96.5, 13 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 1.7 cm; net heading +29.3 deg
+DANCE FAILED: turn +90
+DANCE-OK
