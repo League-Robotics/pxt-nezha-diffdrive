@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '032'
 ---
 
 # Strip units from identifier names in src/comms/wifi_link.*

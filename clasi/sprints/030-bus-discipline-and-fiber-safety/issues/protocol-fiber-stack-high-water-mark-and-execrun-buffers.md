@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '030'
+tickets:
+- 030-005
 ---
 
 # Measure the protocol fiber's stack high-water mark under a tour; move execRun buffers below its early returns

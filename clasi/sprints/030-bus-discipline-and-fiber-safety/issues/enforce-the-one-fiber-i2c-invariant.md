@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '030'
+tickets:
+- 030-001
 ---
 
 # Enforce the one-fiber I2C invariant: bus guard on every OTOS entry, deferred rebase write, no background samplers

@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '030'
+tickets:
+- 030-004
 ---
 
 # Glitch armor: reject a raw-zero encoder read explicitly; prefer a staged stop over a cross-fiber write while stepBusy

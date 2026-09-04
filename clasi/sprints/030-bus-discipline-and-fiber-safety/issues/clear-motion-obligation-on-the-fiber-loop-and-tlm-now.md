@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '030'
+tickets:
+- 030-003
 ---
 
 # Clear the wire motion obligation on the fiber loop; make TLM NOW implement-or-refuse

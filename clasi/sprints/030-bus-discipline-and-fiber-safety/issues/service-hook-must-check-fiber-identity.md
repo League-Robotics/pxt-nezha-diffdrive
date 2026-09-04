@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '030'
+tickets:
+- 030-002
 ---
 
 # The tick service hook must check fiber identity; decide the block fiber's place in motionOwner_
