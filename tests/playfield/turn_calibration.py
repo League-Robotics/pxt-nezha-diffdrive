@@ -357,7 +357,7 @@ def check_safe(pose, margin=SAFE_MARGIN):
     return None
 
 
-def one_turn(link, cam, deg, cruise, timeout_ms, cols, out_frames, turn_idx, settle_s):
+def one_turn(link, cam, deg, cruise, timeout_ms, cols, out_frames, turn_idx, settle_s, poll=True):
     a = cam.fix()
     if a is None:
         return None, 'no camera fix before the turn'
@@ -373,6 +373,11 @@ def one_turn(link, cam, deg, cruise, timeout_ms, cols, out_frames, turn_idx, set
     # until the camera sees it at rest.
     reason = None
     end = time.time() + timeout_ms / 1000.0 + 5.0
+    if not poll:
+        # --no-poll: nothing else on the wire during the move; the camera
+        # decides when it is over (settle below)
+        time.sleep(0.6)
+        end = 0
     while time.time() < end:
         st = link.status()
         if st.get('done') == str(tid):
@@ -439,7 +444,7 @@ def run_sweep(link, cam, a, out):
     out.mkdir(parents=True, exist_ok=True)
     # telemetry on, FULL columns
     cols = None
-    for _attempt in range(2):
+    for _attempt in range(0 if a.no_tlm else 2):
         t0 = time.time() - 0.5
         tid, ack = link.seqd('TLM FULL', wait=2.0)
         for _ in range(60):          # a lossy carrier drops headers; they repeat every ~1 s
@@ -451,7 +456,10 @@ def run_sweep(link, cam, a, out):
         if cols:
             break
     if not cols:
-        print('WARNING: no thdr after TLM FULL -- continuing on camera alone (no wheel speeds)')
+        if a.no_tlm:
+            print('telemetry OFF (--no-tlm): camera-only scoring, no wheel speeds or encoder heading')
+        else:
+            print('WARNING: no thdr after TLM FULL -- continuing on camera alone (no wheel speeds)')
         cols = []
     print(f'telemetry columns: {cols}')
 
@@ -473,7 +481,7 @@ def run_sweep(link, cam, a, out):
         if bad:
             print(f'STOP: {bad}')
             break
-        row, err = one_turn(link, cam, deg, a.cruise, a.timeout_ms, cols, frames_out, i, a.settle)
+        row, err = one_turn(link, cam, deg, a.cruise, a.timeout_ms, cols, frames_out, i, a.settle, poll=not a.no_poll)
         if err:
             print(f'{i:3d} {deg:6d}  -- {err}')
             continue
@@ -484,7 +492,8 @@ def run_sweep(link, cam, a, out):
         _write_csv(out / 'turns.csv', rows)
         _write_csv(out / 'frames.csv', frames_out)
         time.sleep(a.pause)
-    link.seqd('TLM OFF', wait=1.5)
+    if not a.no_tlm:
+        link.seqd('TLM OFF', wait=1.5)
     with cam.lock:
         cam_rows = [{'t': s[0], 'x': s[1], 'y': s[2], 'heading': s[3], 'speed': s[4]} for s in cam.samples]
     _write_csv(out / 'camera.csv', cam_rows)
@@ -882,6 +891,8 @@ def main():
     ap.add_argument('--settle', type=float, default=1.0)
     ap.add_argument('--pause', type=float, default=0.5)
     ap.add_argument('--set', nargs='*', default=[], metavar='FIELD=VALUE', help='SET wire fields before the sweep')
+    ap.add_argument('--no-tlm', action='store_true', help='no TLM FULL during the sweep (camera-only scoring)')
+    ap.add_argument('--no-poll', action='store_true', help='no STATUS polling during a move; the camera decides when it is over')
     ap.add_argument('--trackwidth-mm', type=float, default=TRACKWIDTH_DEFAULT_MM)
     ap.add_argument('--dance', action='store_true', help='run the convention check first')
     ap.add_argument('--dance-only', action='store_true')
