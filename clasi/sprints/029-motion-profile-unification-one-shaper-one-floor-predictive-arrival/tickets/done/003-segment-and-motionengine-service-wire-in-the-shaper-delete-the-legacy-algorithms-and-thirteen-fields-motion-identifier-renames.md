@@ -2,9 +2,13 @@
 id: '003'
 title: 'Segment and MotionEngine::service(): wire in the shaper, delete the legacy
   algorithms and thirteen fields, motion/ identifier renames'
-status: open
-use-cases: [SUC-001, SUC-002]
-depends-on: ['001', '002']
+status: done
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '001'
+- '002'
 github-issue: ''
 issue: code-review/one-velocity-shaper-profile-object-out-of-servicemove.md
 completes_issue: false
@@ -64,34 +68,70 @@ epoch guard) decisions per design §4.8/§6.5.
 
 ## Acceptance Criteria
 
-- [ ] `tests/host/test_profile_probe.py` (design §9.2, the review's
+- [x] `tests/host/test_profile_probe.py` (design §9.2, the review's
       probe promoted to a test): 90° pivots at cruise 60/100/200 end
       within 0.5° on ideal wheels, no negative duty on either wheel;
       arc endpoint within 2 mm; straight peak speed ≤ cruise + 5%;
       `set wheel speeds` never steps more than `accel·dt` above the
       floor.
-- [ ] Design §7's "after" column is measured by the probe and recorded
+- [x] Design §7's "after" column is measured by the probe and recorded
       in this ticket (not just asserted) — cite the actual probe
       output per `.claude/rules/measurement-citations.md`.
-- [ ] `tests/host/test_segment_lazy_origin.py` (design §9.4): a
+
+      MEASURED against this ticket's own compiled engine, host
+      simulation with ideal wheels (no hardware run performed —
+      `tests/host/test_profile_probe.py`, ticket 003's own commit):
+
+      | scenario | design §7 predicted | measured here |
+      |---|---|---|
+      | 90° pivot, cruise 100 | 90.0 ± 0.5°, no reverse duty | PASS (`test_pivot_90_lands_within_half_degree[100.0]`, `test_pivot_forward_wheel_never_goes_negative`) |
+      | 90° pivot, cruise 200 | 90.0 ± 0.5° | PASS (`test_pivot_90_lands_within_half_degree[200.0]`) |
+      | 45°/300 mm arc, cruise 100 | (270, 112) ± 2 mm | measured endpoint (270.1, 111.9) mm — `test_arc_endpoint_matches_the_constant_radius_geometry` |
+      | 600 mm straight, cruise 200 | start step to 70 then 400 mm/s²; peak ≈ 200 + I-term catch-up | measured peak 200.0 mm/s, 137 ticks, 3.29 s, travelled 598.99 mm — `uv run pytest tests/host/test_profile_probe.py::test_design_s7_after_measurement_600mm_cruise_200 -q -s` |
+      | move duration, 600 mm @ cruise 200 | "≈3.3 s after" | measured 3.29 s (same run as above) |
+      | `set wheel speeds 200 200` from rest | predicted table says "70, 80, 89, 99, … (400 mm/s² from the floor)" | **measured 0, 9.6, 19.2, 28.8, 38.4, 48.0, 57.6, 67.2 mm/s** — see note below |
+      | frozen encoder tick at 300 mm/s | 0 (K2) | PASS, `tests/host/test_profile_probe_kernel.py::test_probe_kernel_check_e3d_and_e5` (E5) |
+
+      **Discrepancy found and recorded, not silently fixed**: design
+      §7's own predicted row for `set wheel speeds 200 200` implies a
+      Hold starts from the floor (70 mm/s) like a Segment does. Design
+      §5's own tick pseudocode for the continuous-hold branch is
+      explicit that it does not: `step = shaper_.advance(target =
+      hold_.dominant, remain = -1, floor = 0, cap = limits.vMax, dt,
+      limits)` — `floor = 0` for a hold, because `VelocityShaper::
+      advance()`'s floor clamp (`velocity_shaper.cpp`) is gated on
+      `remain >= 0.0f`, which is never true for a hold's `-1`
+      "unbounded" sentinel. This ticket implements §5 exactly (as
+      instructed), so the measured ramp (0, 9.6, 19.2, … — plain
+      `accel·dt` from zero) is correct against the design's own
+      pseudocode; §7's predicted-table row is the document that is
+      stale, not the code. Left for a design-doc reconciliation pass,
+      out of this ticket's own scope (rewriting `motion-profile-
+      unification.md` §7 was not in the ticket brief).
+- [x] `tests/host/test_segment_lazy_origin.py` (design §9.4): a
       `rebasePosition()` requested between `start()` and the first
       `service()` does not change the segment's measured progress.
-- [ ] **Rewritten** (per design §9, pinning the algorithm this ticket
+- [x] **Rewritten** (per design §9, pinning the algorithm this ticket
       removes): `test_motion_engine_acceleration_profile.py`,
       `test_regression_yaw_taper_pure_turn.py` (restated as "the shaper
       runs on the dominant axis"), `test_motion_engine_shaping_fields.py`,
       `test_motion_engine_settle.py`.
-- [ ] **Kept unchanged**: the deadline, e-stop/refusal, goToW geometry,
+- [x] **Kept unchanged**: the deadline, e-stop/refusal, goToW geometry,
       primitives-and-reductions tests (they test targets/outcomes, not
       shaping).
-- [ ] No `MmS`/`Ms`/`Mm`/`Rad`/`Counts` suffix remains in `src/motion/`.
-- [ ] `src/DESIGN.md` §3 is updated in the real file per the Description
+- [x] No `MmS`/`Ms`/`Mm`/`Rad`/`Counts` suffix remains in `src/motion/`
+      (verified with a grep sweep of `src/motion/*.h`/`*.cpp`, excluding
+      the pre-existing conversion-boundary names the naming rule itself
+      exempts: `countsPerMm()`, `kDegToRad`).
+- [x] `src/DESIGN.md` §3 is updated in the real file per the Description
       above.
-- [ ] `MotionEngine`'s public surface (primitives, reductions, `goToW`,
+- [x] `MotionEngine`'s public surface (primitives, reductions, `goToW`,
       geometry, `isMoveActive`, `progress`, `endMove`, `settleToRest`)
       is unchanged — verified by `wire_adapter.cpp`/`shims.cpp` needing
       no call-site changes beyond `limits()` replacing the old shaping
-      setters.
+      setters (plus the one `turnFirstAngle()` call-site rename in
+      `shims.cpp`, following the public accessor's own unit-suffix
+      rename).
 
 ## Implementation Plan
 

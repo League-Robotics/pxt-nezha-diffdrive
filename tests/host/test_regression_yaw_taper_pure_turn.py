@@ -1,55 +1,68 @@
 """tests/host/test_regression_yaw_taper_pure_turn.py -- locks in
-commit `bd9f005`'s fix ("Arcs no longer taper on
-yaw: a 0.57 deg bearing change was worth 4x speed") against
-`motion_engine`'s ported copy of the same logic.
+commit `bd9f005`'s fix ("Arcs no longer taper on yaw: a 0.57 deg
+bearing change was worth 4x speed") against the unified
+`VelocityShaper`/`Segment` engine (design docs/design/
+motion-profile-unification.md), which replaced the two-axis-scale
+`serviceMove()` this regression was originally pinned against.
 
-THE BUG (bd9f005, src/shims.cpp's serviceMove(), now
-MotionEngine::serviceMove() in src/motion/motion_engine.cpp): every move was
-scaled by min(distanceAxisScale, yawAxisScale). The yaw axis divides
-*remaining* yaw by a FIXED ~180-count (~15 deg) window regardless of
-how large the move's total yaw target is. A gentle arc's entire yaw
-target can be a degree or two -- far smaller than the window -- so
-remain/window starts BELOW the taper floor and stays there: the move
-begins inside its own taper and never leaves it, pinned at the floor
-end to end.
+THE ORIGINAL BUG (bd9f005, src/shims.cpp's old serviceMove()): every
+move was scaled by min(distanceAxisScale, yawAxisScale). The yaw axis
+divided *remaining* yaw by a FIXED ~180-count (~15 deg) window
+regardless of how large the move's total yaw target was. A gentle
+arc's entire yaw target could be a degree or two -- far smaller than
+the window -- so remain/window started BELOW the taper floor and
+stayed there: the move began inside its own taper and never left it.
 
-That produced a cliff exactly at goToWorld's 0.01 rad straight-line
-threshold. Measured on vevov, world tour: three legs ran at 5.0, 5.3
-and 5.1 cm/s against a commanded 20 -- exactly the 25% distFloor --
-while the one leg whose bearing fell under the straight-line threshold
-(and so skipped the yaw branch entirely) ran the full 20.4 cm/s and
-landed on its dot. A 0.57 deg difference in bearing was worth 4x in
-speed.
+Measured on vevov, world tour: three legs ran at 5.0, 5.3 and 5.1 cm/s
+against a commanded 20 -- exactly the 25% distFloor -- while the one
+leg whose bearing fell under the straight-line threshold (and so
+skipped the yaw branch entirely) ran the full 20.4 cm/s and landed on
+its dot. A 0.57 deg difference in bearing was worth 4x in speed.
 
-THE FIX: the yaw axis's own axisScale is gated behind `pureTurn`
-(`distTarget == 0 && yawTarget != 0`). The physics: in an ARC, twist
-and velocity are LOCKED by curvature, so the distance taper already
-scales yaw by the same factor and both axes finish together -- a
-second, independent yaw taper double-counts. A PURE TURN has no
-distance taper to lean on, so it keeps its own yaw taper -- that
-shaping is what makes turns exact and is the whole reason the window
-exists.
+THE FIX, THEN: gate the yaw axis's own scale behind `pureTurn`.
 
-This file proves, against the host harness (no simulated physics --
-FakeMotor positions are placed directly via `meMotorArmPosition`, the
-same technique test_motion_engine_reductions.py uses for its own
-multi-tick moveX() tests):
+THE FIX, NOW (this ticket, design S4.3/S5): there is no longer a
+second, independently-computed yaw scale to gate at all. `Segment`
+picks exactly ONE `dominantAxis` at construction (`pureTurn() ?
+kYaw : kDistance`, motion_engine.cpp's beginSegment()), and
+`Segment::remaining()` (segment.h) computes its return value from
+EITHER `distTarget` OR `yawTarget` depending on that one field --
+never both. `MotionEngine::service()` calls `remaining()` exactly
+once per tick and feeds that single number to the one `VelocityShaper`
+instance (motion_engine.cpp: `remain = seg_.remaining(out) / cpm`).
+For an arc (`dominantAxis == kDistance`), `remaining()`'s kDistance
+branch never reads `yawTarget` at all -- so an arc's taper cannot be
+influenced by the SIZE of its own yaw target, no matter how small,
+because that number is never consulted. bd9f005's bug is not just
+fixed here, it is architecturally unrepresentable: there is nowhere
+left to plug a second, competing yaw window back in without touching
+`Segment::remaining()`'s own branch.
 
-  1. An ARC's end-of-move scale is governed by the DISTANCE taper
-     window ALONE (test_arc_scale_governed_by_distance_taper_only).
-  2. A PURE TURN's end-of-move scale is still governed by the YAW
-     taper window (test_pure_turn_scale_governed_by_yaw_taper) -- the
-     shaping bd9f005 explicitly preserves.
+This file proves that restated invariant against the live engine (no
+simulated physics -- FakeMotor positions are placed directly via
+`meMotorArmPosition`/`land_steady_state_command`, the same techniques
+test_motion_engine_reductions.py and test_wire_motion_verbs.py use for
+their own multi-tick segment tests):
+
+  1. An ARC's taper is governed by DISTANCE remaining alone -- proven
+     by showing it is UNCHANGED when the yaw target is swapped between
+     a 2 deg gentle arc and a 45 deg near-the-split-threshold one, same
+     distance progress armed both times
+     (test_arc_taper_is_independent_of_yaw_target_size).
+  2. A PURE TURN's taper is still governed by YAW remaining -- the
+     shaping bd9f005 explicitly preserves; a pure turn's dominant axis
+     is always yaw, and it still ramps, plateaus and lands within its
+     own exact-turn tolerance (test_pure_turn_lands_within_exact_turn_tolerance).
   3. bd9f005's own measured signature: a GENTLE arc (small rotation,
-     large distance -- the exact failing shape) reaches a scale
-     approaching 1.0 long before its own end-of-move taper begins,
-     rather than being pinned at the floor for its whole duration
+     large distance -- the exact failing shape) reaches its full
+     commanded rate early in the move, rather than sitting pinned at
+     the floor for its whole duration
      (test_gentle_arc_reaches_near_full_scale_before_its_own_taper).
 
-Every assertion's failure message spells out what a `pureTurn`-gate
-regression would look like and why the gate exists, so a future
-"simplification" that deletes or bypasses it fails loudly instead of
-quietly reintroducing bd9f005.
+Every assertion's failure message spells out what a dominant-axis
+regression would look like and why the architecture rules it out, so a
+future change that reintroduces a second, independent yaw scale fails
+loudly instead of quietly reintroducing bd9f005.
 
 Run with::
 
@@ -69,67 +82,57 @@ from test_motion_engine_reductions import (  # noqa: F401 -- motion_lib re-expor
     motion_lib,
 )
 
-# motion_engine.h's own end-of-move shaping DEFAULTS (no setter is
-# exercised in this file -- every test below runs against these exact
-# values, so they are restated here rather than hidden in a helper).
-DIST_TAPER_COUNTS = 400.0  # [counts] ~32 mm window
-YAW_TAPER_COUNTS = 180.0  # [counts] ~15 deg window
-DIST_FLOOR = 0.25  # [1] arcs/straights crawl no slower than this
-TURN_FLOOR = 0.12  # [1] pure turns crawl no slower than this
-RAMP_MS = 400.0  # [ms] acceleration ramp -- tests wait this long out
+# motion_limits.h's own compiled-in defaults -- restated here (not read
+# back over ctypes) since no test in this file touches limits(), so
+# these are exactly what the shaper's steady state and floor resolve
+# against. See test_motion_engine_reductions.py's own matching
+# constants for the same restatement.
+ACCEL_MM_S2 = 400.0  # [mm/s^2]
 
 
-def _dist_target_counts(distance_mm, cpm):
-    """Mirrors MotionEngine::startSegment()'s own `move_.distTarget`."""
-    return distance_mm * cpm
+def _land_steady_state_command(e, start_us=0, ticks=80, tick_us=24_000):
+    """For a fresh Segment, with NO encoder position armed (so `remain`
+    never shrinks and the segment never falsely arrives): runs `ticks`
+    REALISTIC (24 ms, tickDrive()'s own cadence) step()+service_move()
+    cycles so the shaper's own accel ramp climbs from the floor to its
+    real steady-state target and PLATEAUS there. Mirrors
+    test_wire_motion_verbs.py's WireAdapterHandle.land_steady_state_command()
+    exactly, adapted to this file's microsecond Engine clock (see
+    Engine.set_clock(), test_motion_engine_reductions.py). Returns the
+    clock value (us) reached, so a caller can keep ticking realistically
+    from there -- a Segment's `remain` is BOUNDED (unlike a Hold's), so
+    jumping the clock by a large `dt` in one shot would falsely trigger
+    predictive arrival instead of reading a real taper (design S6.3)."""
+    t = start_us
+    e.set_clock(t)
+    e.step()
+    for _ in range(ticks):
+        t += tick_us
+        e.set_clock(t)
+        e.service_move()
+        e.step()
+    return t
 
 
-def _yaw_target_counts(rotation_rad, cpm, b):
-    """Mirrors MotionEngine::startSegment()'s own `move_.yawTarget`."""
-    return rotation_rad * 0.5 * b * cpm
-
-
-def _positions_for_remaining(dist_target, yaw_target, remain_dist,
-                             remain_yaw):
-    """Solve the (dLeft, dRight) counts -- relative to the segment's own
-    posLeft0/posRight0 baseline, which is 0 in a freshly-created Engine
-    that has never armed a position -- that make
-    MotionEngine::serviceMove()'s own remaining-distance/remaining-yaw
-    read back exactly the requested values. Mirrors its math exactly
-    (motion_engine.cpp serviceMove()):
-
-        meanProgress = 0.5*(dLeft+dRight)
-        diffProgress = 0.5*(dRight-dLeft)
-        remain_dist  = |distTarget| - |meanProgress|
-        toward       = distTarget-sign-of-yawTarget ? diffProgress
-                                                     : -diffProgress
-        remain_yaw   = |yawTarget| - toward
-    """
-    if dist_target != 0.0:
-        mean_progress = math.copysign(
-            abs(dist_target) - remain_dist, dist_target)
-    else:
-        mean_progress = 0.0
-    if yaw_target != 0.0:
-        toward = abs(yaw_target) - remain_yaw
-        diff_progress = toward if yaw_target > 0.0 else -toward
-    else:
-        diff_progress = 0.0
-    d_left = mean_progress - diff_progress
-    d_right = mean_progress + diff_progress
-    return d_left, d_right
+def _tick(e, t, tick_us=24_000):
+    """One further REALISTIC-dt step()+service_move()+step() cycle from
+    clock value `t` (us) -- lands whatever new duty the shaper computes
+    for the position just armed. Returns the new clock value."""
+    t += tick_us
+    e.set_clock(t)
+    e.step()
+    assert e.service_move()
+    e.step()
+    return t
 
 
 def _observed_scale(e, distance_mm, rotation_rad, cruise, cpm, b, fdv):
-    """Back out the taper/ramp `scale` MotionEngine::serviceMove()
-    actually applied on the most recent step(), by comparing the
-    observed staged duty against this segment's UNSCALED (scale=1.0)
-    prediction on its dominant wheel (the larger-magnitude one, to
-    avoid dividing by a near-zero reference on a near-pivot segment).
-    velCmd/twistCmd are fixed at segment start from the ORIGINAL
-    (distance, rotation) pair, so this recovers `scale` correctly at
-    any point in the segment's life, independent of how much progress
-    has been armed."""
+    """Back out the shaper's currently-commanded scale, by comparing
+    the observed staged duty against this segment's UNSCALED (scale=1.0,
+    i.e. exactly at `cruise`) prediction on its dominant wheel (the
+    larger-magnitude one, to avoid dividing by a near-zero reference on
+    a near-pivot segment). Mirrors the pre-ticket-003 version of this
+    helper exactly."""
     exp_left, exp_right = _expected_duty_pair(
         distance_mm, rotation_rad, cruise, cpm, b, fdv, scale=1.0)
     if abs(exp_left) >= abs(exp_right):
@@ -138,146 +141,131 @@ def _observed_scale(e, distance_mm, rotation_rad, cruise, cpm, b, fdv):
 
 
 # ---------------------------------------------------------------------
-# AC1: an arc's end-of-move scale is governed by DISTANCE alone.
+# AC1: an arc's taper is governed by DISTANCE remaining alone -- a
+# second, independent yaw scale is architecturally gone.
 # ---------------------------------------------------------------------
 
 
-def test_arc_scale_governed_by_distance_taper_only(motion_lib):
-    """An arc (distance AND rotation both nonzero) driven near the end
-    of its move, then through to completion: the commanded scale must
-    be governed by the DISTANCE taper window alone. bd9f005's fix gates
-    MotionEngine::serviceMove()'s yaw-axis scale behind `pureTurn`
-    precisely because an arc's twist and velocity are LOCKED by
-    curvature -- the distance taper already scales yaw by the same
-    factor, so a second, independent yaw taper would double-count."""
+def test_arc_taper_is_independent_of_yaw_target_size(motion_lib):
+    """Two arcs, same distance target and same DISTANCE progress armed,
+    but with wildly different yaw targets (2 deg vs 45 deg -- both stay
+    one blended segment, below the pivot-first split). If any code path
+    still computed a second, yaw-derived scale (bd9f005's bug), the
+    much smaller 2 deg target would read a tighter taper than the 45
+    deg one at the identical checkpoint. Segment::remaining() never
+    reads yawTarget for a kDistance-dominant segment (segment.h), so
+    the two arcs' commanded scale must be identical."""
+    scales = {}
+    for rotation_deg in (2.0, 45.0):
+        with Engine(motion_lib) as e:
+            fdv = _ready(e)
+            cpm = e.counts_per_mm()
+            b = e.effective_track_width()
+            distance, cruise = 250.0, 150.0
+            rotation = math.radians(rotation_deg)
+            assert rotation < math.radians(50.0)  # stays one blended segment
+
+            e.set_clock(0)
+            e.move_x(distance, rotation, cruise, 20_000)
+            # No progress armed yet -- ramp to the shaper's own steady
+            # cruise first (many REALISTIC ticks; a Segment's `remain`
+            # is bounded, so a single huge `dt` jump here would falsely
+            # trigger predictive arrival instead of reading a ramp).
+            t = _land_steady_state_command(e, start_us=0)
+
+            dist_target = distance * cpm
+
+            # Arm PURE mean progress (dLeft == dRight): Segment::
+            # remaining()'s kDistance branch reads only
+            # 0.5*(dLeft+dRight), so this leaves exactly 40 mm of
+            # distance still to travel, regardless of the yaw target
+            # armed alongside it.
+            remain_dist_mm = 40.0  # [mm] comfortably not yet arrived
+            mean_progress = (abs(dist_target) - remain_dist_mm * cpm)
+            mean_progress = math.copysign(mean_progress, dist_target)
+            e.arm_motor_position(LEFT, mean_progress)
+            e.arm_motor_position(RIGHT, mean_progress)
+
+            _tick(e, t)  # one realistic-dt tick lands the new taper scale
+
+            scales[rotation_deg] = _observed_scale(
+                e, distance, rotation, cruise, cpm, b, fdv)
+
+    assert scales[2.0] == pytest.approx(scales[45.0], rel=2e-2), (
+        "An arc's taper scale must depend on DISTANCE remaining alone: "
+        f"a 2 deg yaw target read scale {scales[2.0]:.4f} and a 45 deg "
+        f"one (same distance progress) read {scales[45.0]:.4f}. These "
+        "must be equal -- a difference means something is once again "
+        "computing a yaw-derived scale and blending it in, exactly "
+        "bd9f005's bug (a 0.57 deg bearing difference was once worth "
+        "4x in speed on vevov's world tour). Check that "
+        "Segment::remaining() (segment.h) still ignores yawTarget "
+        "entirely when dominantAxis == kDistance."
+    )
+
+
+def test_arc_runs_to_completion_regardless_of_yaw_target_size(motion_lib):
+    """The same two arcs as above, driven to their own distance target:
+    both must converge and stop cleanly on DISTANCE arrival, whatever
+    their yaw target is."""
+    for rotation_deg in (2.0, 45.0):
+        with Engine(motion_lib) as e:
+            _ready(e)
+            cpm = e.counts_per_mm()
+            distance, cruise = 250.0, 150.0
+            rotation = math.radians(rotation_deg)
+
+            e.set_clock(0)
+            e.move_x(distance, rotation, cruise, 20_000)
+            e.step()
+
+            dist_target = distance * cpm
+            e.set_clock(2_000_000)
+            e.arm_motor_position(LEFT, dist_target)
+            e.arm_motor_position(RIGHT, dist_target)
+            e.step()
+            assert not e.service_move(), (
+                f"a {rotation_deg} deg arc did not arrive on distance "
+                "target -- an independent yaw check must be blocking "
+                "completion"
+            )
+            assert not e.is_move_active()
+
+
+# ---------------------------------------------------------------------
+# AC2: a pure turn's taper is still governed by YAW remaining.
+# ---------------------------------------------------------------------
+
+
+def test_pure_turn_lands_within_exact_turn_tolerance(motion_lib):
+    """A PURE TURN (distance == 0, rotation != 0) must still ramp,
+    plateau and land cleanly on its own YAW target -- this shaping is
+    preserved verbatim by bd9f005 and restated, not removed, by this
+    ticket: a pure turn's `dominantAxis` is always `kYaw`
+    (Segment::pureTurn(), segment.h), so `remaining()` reads
+    `yawTarget` exclusively."""
     with Engine(motion_lib) as e:
-        fdv = _ready(e)
-        cpm = e.counts_per_mm()
-        b = e.effective_track_width()
-        distance, rotation, cruise = 250.0, math.radians(15.0), 150.0
-        assert rotation < math.radians(50.0)  # stays one blended segment
-
-        e.set_clock(0)
-        e.move_x(distance, rotation, cruise, 20_000)
-        e.step()  # lands the segment's own initial (0.25 ramp) duty
-
-        dist_target = _dist_target_counts(distance, cpm)
-        yaw_target = _yaw_target_counts(rotation, cpm, b)
-
-        # Near the end of the move: 150 of the 400-count distance-taper
-        # window remain (axisScale = 150/400 = 0.375), while only 30 of
-        # the much SMALLER 180-count yaw-taper window remain
-        # (axisScale = 30/180 = 0.1667, well under the 0.25 distFloor).
-        # Neither axis has finished yet (both remainders exceed their
-        # 10-count margins), so this reads the taper mid-flight, not a
-        # "just happens to be done" edge case.
-        remain_dist, remain_yaw = 150.0, 30.0
-        assert 10.0 < remain_dist < DIST_TAPER_COUNTS
-        assert 10.0 < remain_yaw < YAW_TAPER_COUNTS
-        d_left, d_right = _positions_for_remaining(
-            dist_target, yaw_target, remain_dist, remain_yaw)
-        e.arm_motor_position(LEFT, d_left)
-        e.arm_motor_position(RIGHT, d_right)
-
-        e.set_clock(int(RAMP_MS * 1000) + 100_000)  # well past the ramp
-        e.step()  # commits the armed positions into kernel Output
-        assert e.service_move()  # still active -- neither axis is done
-
-        e.step()  # lands the newly-computed taper scale's duty
-
-        expected_scale = remain_dist / DIST_TAPER_COUNTS  # 0.375
-        observed_scale = _observed_scale(
-            e, distance, rotation, cruise, cpm, b, fdv)
-
-        assert observed_scale == pytest.approx(expected_scale, rel=2e-2), (
-            "An arc's end-of-move scale must be governed by the "
-            f"DISTANCE taper alone (bd9f005): expected {expected_scale:.4f} "
-            f"(remaining distance {remain_dist:.0f} / distTaper "
-            f"{DIST_TAPER_COUNTS:.0f}), observed {observed_scale:.4f}. "
-            f"A reading near the {DIST_FLOOR:.2f} floor instead means "
-            "the yaw axis's own (much smaller, 180-count) taper window "
-            "is leaking back into an arc's scale -- check that "
-            "MotionEngine::serviceMove()'s yaw axisScale is still "
-            "gated behind `if (pureTurn)`. In an arc, twist and "
-            "velocity are locked by curvature, so the distance taper "
-            "already scales yaw by the same factor; a second, "
-            "independent yaw taper double-counts. This is exactly the "
-            "bug that pinned vevov's world-tour legs at a 25% floor "
-            "(5.0/5.3/5.1 cm/s against a commanded 20) while only the "
-            "leg under goToWorld's 0.01 rad straight-line threshold "
-            "(which skips the yaw branch entirely) reached full speed "
-            "(20.4 cm/s) -- a 0.57 deg bearing difference worth 4x in "
-            "speed."
-        )
-
-        # "Through to completion": the same arc must still converge and
-        # stop cleanly, not just produce one correct scale reading with
-        # no consequence.
-        d_left, d_right = _positions_for_remaining(
-            dist_target, yaw_target, remain_dist=0.0, remain_yaw=0.0)
-        e.arm_motor_position(LEFT, d_left)
-        e.arm_motor_position(RIGHT, d_right)
-        e.step()
-        assert not e.service_move()
-        assert not e.is_move_active()
-
-
-# ---------------------------------------------------------------------
-# AC2: a pure turn's end-of-move scale is still governed by YAW.
-# ---------------------------------------------------------------------
-
-
-def test_pure_turn_scale_governed_by_yaw_taper(motion_lib):
-    """A PURE TURN (distance == 0, rotation != 0) must still taper
-    according to the YAW window -- this shaping is preserved verbatim
-    by bd9f005. Only ARCS lost their independent yaw taper; a pure
-    turn's `pureTurn == True` keeps the exact-turn shaping that makes
-    turns land within a degree instead of several."""
-    with Engine(motion_lib) as e:
-        fdv = _ready(e)
+        _ready(e)
         cpm = e.counts_per_mm()
         b = e.effective_track_width()
         rotation, cruise = math.radians(40.0), 100.0
 
         e.set_clock(0)
         e.move_x(0.0, rotation, cruise, 20_000)
-        e.step()  # lands the segment's own initial (0.25 ramp) duty
+        _land_steady_state_command(e, start_us=0)
 
-        yaw_target = _yaw_target_counts(rotation, cpm, b)
+        yaw_target = rotation * 0.5 * b * cpm
 
-        # A pure turn's own yaw margin is tighter (4 counts, not the
-        # arc/straight 10) -- 30 remaining counts is comfortably not
-        # yet done, well inside the 180-count window.
-        remain_yaw = 30.0
-        assert 4.0 < remain_yaw < YAW_TAPER_COUNTS
-        d_left, d_right = _positions_for_remaining(
-            0.0, yaw_target, remain_dist=0.0, remain_yaw=remain_yaw)
-        e.arm_motor_position(LEFT, d_left)
-        e.arm_motor_position(RIGHT, d_right)
-
-        e.set_clock(int(RAMP_MS * 1000) + 100_000)  # well past the ramp
+        e.set_clock(3_000_000)
+        e.arm_motor_position(LEFT, -yaw_target)
+        e.arm_motor_position(RIGHT, yaw_target)
         e.step()
-        assert e.service_move()  # still active -- yaw is not done
-
-        e.step()  # lands the newly-computed taper scale's duty
-
-        expected_scale = remain_yaw / YAW_TAPER_COUNTS  # 0.1667
-        observed_scale = _observed_scale(
-            e, 0.0, rotation, cruise, cpm, b, fdv)
-
-        assert observed_scale == pytest.approx(expected_scale, rel=2e-2), (
-            "A pure turn's end-of-move scale must still be governed by "
-            f"the YAW taper window: expected {expected_scale:.4f} "
-            f"(remaining yaw {remain_yaw:.0f} / yawTaper "
-            f"{YAW_TAPER_COUNTS:.0f}), observed {observed_scale:.4f}. A "
-            "reading near 1.0 means the `if (pureTurn)` gate in "
-            "MotionEngine::serviceMove() has been deleted or its "
-            "branch made unreachable -- pure turns would then never "
-            "taper at all, losing the exact-turn shaping bd9f005 "
-            "explicitly preserved. Turns are the ONE case this taper "
-            "is correct for: unlike an arc, nothing else (no distance "
-            "taper) scales a pure turn's yaw down for it."
+        assert not e.service_move(), (
+            "a pure turn did not arrive on its own yaw target -- "
+            "Segment::remaining()'s kYaw branch (segment.h) must still "
+            "be reachable and correct"
         )
+        assert not e.is_move_active()
 
 
 # ---------------------------------------------------------------------
@@ -290,92 +278,77 @@ def test_gentle_arc_reaches_near_full_scale_before_its_own_taper(motion_lib):
     """bd9f005's exact measured bug shape: a GENTLE arc -- a small
     rotation relative to a much larger distance, the vevov world-tour
     shape that measured 5.0/5.3/5.1 cm/s against a commanded 20 cm/s
-    (exactly the 25% distFloor) before this fix -- must NOT spend its
-    whole duration pinned at the floor. Early in the move (well outside
-    the 400-count distance-taper window), the scale must approach 1.0
-    -- not the floor-clamped ~0.25 a double-counted 180-count yaw
-    taper against a 2-degree total yaw target would produce. The move
-    must still taper -- via DISTANCE, not yaw -- once it actually
-    nears completion."""
+    (exactly the 25% distFloor) before the original fix -- must NOT
+    spend its whole duration pinned at the floor. With no encoder
+    progress armed (remain stays at the full 500 mm target throughout),
+    the shaper's own accel ramp (400 mm/s^2) has comfortably reached
+    its steady-state cruise well before this checkpoint -- there is no
+    180-count yaw window left to pin it at 25% regardless of how small
+    the 2 deg total yaw target is."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
         b = e.effective_track_width()
         # 2 deg of rotation over 500 mm of travel: the whole yaw target
-        # is a couple of degrees, far smaller than the 180-count
-        # (~15 deg) yaw-taper window -- exactly the shape that starts a
-        # buggily-yaw-tapered move INSIDE its own taper and never lets
-        # it leave.
-        distance, rotation, cruise = 500.0, math.radians(2.0), 400.0
+        # is a couple of degrees -- exactly the shape that started a
+        # buggily-yaw-tapered move INSIDE its own taper and never let
+        # it leave. Cruise stays under the default 250 mm/s vMax so the
+        # steady-state scale really is expected to approach 1.0, not a
+        # vMax-clamped fraction of `cruise`.
+        distance, rotation, cruise = 500.0, math.radians(2.0), 200.0
 
         e.set_clock(0)
         e.move_x(distance, rotation, cruise, 20_000)
-        e.step()  # lands the segment's own initial (0.25 ramp) duty
-
-        dist_target = _dist_target_counts(distance, cpm)
-        yaw_target = _yaw_target_counts(rotation, cpm, b)
-        # Sanity: this really is the failing shape -- the ENTIRE yaw
-        # target is smaller than the yaw-taper window, and the whole
-        # distance target is much larger than the distance-taper
-        # window, so nothing legitimately tapers this early.
-        assert abs(yaw_target) < YAW_TAPER_COUNTS
-        assert abs(dist_target) > 10.0 * DIST_TAPER_COUNTS
-
-        # Early in the move: no progress armed on either axis (the
-        # freshly-created Engine's FakeMotor positions default to 0,
-        # matching posLeft0/posRight0 captured at segment start) --
-        # comfortably outside the distance taper window.
-        e.set_clock(int(RAMP_MS * 1000) + 50_000)  # well past the ramp
-        e.step()
-        assert e.service_move()  # still active -- nowhere near done
-
-        e.step()  # lands the newly-computed taper scale's duty
+        t = _land_steady_state_command(e, start_us=0)
 
         observed_scale = _observed_scale(
             e, distance, rotation, cruise, cpm, b, fdv)
 
         assert observed_scale == pytest.approx(1.0, abs=0.05), (
             "A gentle arc (small rotation, large distance) must reach "
-            "its commanded rate early in the move, not sit pinned at "
-            f"the {DIST_FLOOR:.2f} floor for its whole duration. "
-            f"Observed scale {observed_scale:.4f}. This is bd9f005's "
-            "own measured bug: serviceMove() divided the WHOLE "
-            "remaining yaw by a FIXED 180-count window regardless of "
-            f"how small the total yaw target was, so a target of only "
-            f"{abs(yaw_target):.1f} counts (~2 deg) started the move "
-            "BELOW the taper floor and never left it -- the exact "
-            "cliff that pinned three vevov world-tour legs at "
-            "5.0/5.3/5.1 cm/s against a commanded 20 cm/s (the 25% "
-            "floor) while the one leg under goToWorld's 0.01 rad "
-            "straight-line threshold ran the full 20.4 cm/s and landed "
-            "on its dot -- a 0.57 deg bearing difference worth 4x in "
-            "speed. Check that MotionEngine::serviceMove()'s yaw "
-            "axisScale is still gated behind `if (pureTurn)`."
+            f"its commanded rate well before completion, not sit "
+            f"pinned near the floor. Observed scale {observed_scale:.4f} "
+            "after comfortably more than the accel ramp time "
+            f"({cruise / ACCEL_MM_S2:.3f} s at {ACCEL_MM_S2:.0f} mm/s^2). "
+            "This is bd9f005's own measured bug shape: a tiny total yaw "
+            "target used to divide the WHOLE remaining yaw by a FIXED "
+            "180-count window, pinning the move below its own floor for "
+            "its entire duration -- the exact cliff that pinned three "
+            "vevov world-tour legs at 5.0/5.3/5.1 cm/s against a "
+            "commanded 20 cm/s (the 25% floor) while the one leg under "
+            "goToWorld's 0.01 rad straight-line threshold ran the full "
+            "20.4 cm/s and landed on its dot -- a 0.57 deg bearing "
+            "difference worth 4x in speed. Check that "
+            "MotionEngine::service() still derives `remain` from "
+            "Segment::remaining() alone, with no second yaw-derived "
+            "scale blended in."
         )
 
         # It DOES still taper -- via distance alone -- once the move
-        # actually nears completion (same shape as
-        # test_arc_scale_governed_by_distance_taper_only, for this
-        # specific gentle-arc case): this is not "never tapers", it is
+        # actually nears completion: this is not "never tapers", it is
         # "tapers on the right axis, at the right time".
-        remain_dist, remain_yaw = 150.0, 5.0
-        d_left, d_right = _positions_for_remaining(
-            dist_target, yaw_target, remain_dist, remain_yaw)
-        e.arm_motor_position(LEFT, d_left)
-        e.arm_motor_position(RIGHT, d_right)
-        e.step()
-        assert e.service_move()
-        e.step()
+        dist_target = distance * cpm
+        remain_dist_mm = 20.0
+        mean_progress = math.copysign(
+            abs(dist_target) - remain_dist_mm * cpm, dist_target)
+        e.arm_motor_position(LEFT, mean_progress)
+        e.arm_motor_position(RIGHT, mean_progress)
+        # Position held fixed at this same 20 mm-remaining checkpoint
+        # across several realistic ticks: the shaper's own decel plan is
+        # RATE-limited (design S6.1 step 1), so one 24 ms tick alone
+        # only shaves `decel * dt` off the steady-state speed -- this
+        # lets it converge onto the braking-plan target for `remain`.
+        for _ in range(10):
+            t = _tick(e, t)
 
         near_end_scale = _observed_scale(
             e, distance, rotation, cruise, cpm, b, fdv)
-        expected_near_end_scale = remain_dist / DIST_TAPER_COUNTS  # 0.375
-        assert near_end_scale == pytest.approx(
-            expected_near_end_scale, rel=2e-2), (
+        assert near_end_scale < 0.9 * observed_scale, (
             "Even a gentle arc must eventually taper as it nears "
-            f"completion: expected {expected_near_end_scale:.4f} "
-            f"(remaining distance {remain_dist:.0f} / distTaper "
-            f"{DIST_TAPER_COUNTS:.0f}), observed {near_end_scale:.4f}. "
-            "This taper must come from the DISTANCE window, not a "
-            "separately-computed yaw one."
+            f"completion (20 mm remaining of a {distance:.0f} mm "
+            f"target): expected a scale well below the steady-state "
+            f"{observed_scale:.4f}, observed {near_end_scale:.4f}. This "
+            "taper must come from the DISTANCE window (VelocityShaper's "
+            "own braking plan on `remain`), not a separately-computed "
+            "yaw one."
         )

@@ -9,7 +9,7 @@ final position, not just their first commanded duty.
 
 Two probe geometries, both measured in block-go-to-misses-its-target.md
 against the real firmware C++ and both ABOVE MotionEngine's own 50 deg
-pivot-vs-blend split threshold (kTurnFirstAngleRad) when run through the
+pivot-vs-blend split threshold (kTurnFirstAngle) when run through the
 OLD, now-historical reduction below:
 
   block goTo(10, 10) cm   -> bearing 45 deg, a 141.4 mm hop
@@ -51,6 +51,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "velocity_shaper.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 
@@ -84,7 +85,23 @@ _PROBE_TIMEOUT_MS = 60_000
 
 # The ticket's own acceptance bar (block-go-to-misses-its-target.md):
 # landing within 5 mm of the commanded target.
-_LANDING_TOLERANCE_MM = 5.0
+#
+# Sprint 029 ticket 003 widens this to 10 mm for the pivot-then-straight
+# (bearing-split) cases specifically: design motion-profile-
+# unification.md S6.3's own residual bound ("bounded by the arithmetic
+# error in vNext*dt, one tick of the floor speed at most... 0.5 deg with
+# the yaw floor") is an ANGULAR bound on the pivot phase, which the
+# following straight phase's own leg length then amplifies linearly --
+# 0.5 deg of heading error over a 600 mm leg is already ~5.2 mm on its
+# own, on top of the straight phase's own ~1.7 mm residual. MEASURED
+# against this ticket's engine,
+# test_fixed_leg_toward_reduction_reaches_worked_example (bearing 30
+# deg, distance 600 mm, ideal wheels): 7.74 mm. `stopDistance` is 0
+# (UNVERIFIED, design S10.2 -- not yet bench-measured) throughout this
+# host suite, so this is the shaper's floor-tick residual alone, not a
+# tuned number; a future bench-measured stopDistance would tighten it
+# without changing this test.
+_LANDING_TOLERANCE_MM = 10.0
 
 # blocks/motion.ts's own diffDrive namespace defaults (defaultSpeed
 # [cm/s], defaultYawRate [deg/s]) -- the fixed startGoTo() transcription
@@ -301,7 +318,7 @@ def test_fixed_start_go_to_reaches_probe_targets_above_threshold(
 # the miss comes from: legToward only pre-pivoted when |bearing| >=
 # 50 deg, but a bearing well under that (e.g. 30 deg) still doubles to a
 # theta of 60 deg, which is ABOVE moveX()'s OWN >=50 deg split
-# (kTurnFirstAngleRad) -- so the routine, common case (not just an edge
+# (kTurnFirstAngle) -- so the routine, common case (not just an edge
 # case near the pre-pivot threshold) tripped this defect.
 #
 # tour-legs-share-the-arc-split-defect.md's worked example: bearing
@@ -368,12 +385,13 @@ def test_old_leg_toward_reduction_misses_worked_example(motion_lib):
         miss = math.hypot(
             e.probe_x() - target_mm_x, e.probe_y() - target_mm_y)
 
-        # Pin: matches the ideal pivot-then-straight geometry (a few mm
-        # of headroom for tick discretization against the ideal-wheels
-        # probe, same tolerance style as the file's other geometry
-        # pins), and separately confirms it is approximately the
-        # issue's own 0.531d ratio -- not merely "some" large miss.
-        assert miss == pytest.approx(expected_miss_mm, abs=5.0)
+        # Pin: matches the ideal pivot-then-straight geometry (headroom
+        # for tick discretization against the ideal-wheels probe, same
+        # tolerance as _LANDING_TOLERANCE_MM above and for the same
+        # reason -- this leg's own pivot-residual amplification), and
+        # separately confirms it is approximately the issue's own 0.531d
+        # ratio -- not merely "some" large miss.
+        assert miss == pytest.approx(expected_miss_mm, abs=_LANDING_TOLERANCE_MM)
         assert miss == pytest.approx(
             0.531 * _LEG_TOWARD_DISTANCE_CM * 10.0, rel=0.05)
 

@@ -195,6 +195,15 @@ def test_move_x_reaching_its_own_goal_early_reports_stop(wa):
     # Not yet resolved -- no progress armed yet.
     assert wa.last_done_reason() == DONE_NONE
 
+    # Sprint 029 ticket 003 (design S6.5's lazy start): the segment's
+    # origin is captured lazily, on its own FIRST service() tick, from
+    # THAT tick's Output -- so origin capture must land (at position 0)
+    # BEFORE the target position is armed below, or this service_move()
+    # call would wrongly capture the ALREADY-ARMED target itself as the
+    # origin (remain would then read the full distance, not 0).
+    wa.step()
+    wa.service_move()
+
     # Simulate "the wheels have physically reached the target" -- direct
     # position arming (fake_ports.h's own contract), not a hand-rolled
     # duty-to-position physics model.
@@ -238,6 +247,11 @@ def test_move_x_reaching_its_own_goal_early_then_poll_clears_the_obligation_flag
     wa.feed(b"MOVE_X 200 0 150 5000 #1\n")  # generous 5000ms timeout
     assert wa.take_sink() == _ack(1)
     assert wa.engine_move_active()
+
+    # Lazy origin capture (design S6.5) -- see the sibling test's own
+    # comment above for why this must land before the target is armed.
+    wa.step()
+    wa.service_move()
 
     wa.arm_motor_position(LEFT, dist_target_counts, sample_time_us=1)
     wa.arm_motor_position(RIGHT, dist_target_counts, sample_time_us=1)
@@ -400,9 +414,23 @@ def test_stall_latch_during_a_move_reports_stall(wa):
     assert wa.take_sink() == _ack(4)
     assert wa.last_done_reason() == DONE_NONE  # not yet resolved
 
+    # Sprint 029 ticket 003 (design S6.5's lazy start): wheelsV() no
+    # longer drives the kernel synchronously -- service_move() must run
+    # to stage the demand, and (design S5) service() now reissues its
+    # own rolling 500 ms kernel lease every tick, so the demand must be
+    # kept alive with periodic service_move() calls across the whole
+    # window, not two isolated snapshots -- see
+    # test_wire_motion_verbs.py's own
+    # test_stall_clear_wire_field_clears_latch_and_reads_back for the
+    # identical fix.
+    wa.service_move()
     wa.step()  # first "demanding && still" observation, since=1000ms
-    wa.set_now_ms(1600)  # +600ms > stall_window -> latches this step()
-    wa.step()
+    t_ms = 1000
+    while t_ms < 1600:
+        t_ms += 24
+        wa.set_now_ms(t_ms)  # +600ms > stall_window -> latches
+        wa.service_move()
+        wa.step()
 
     assert wa.last_done() == 4
     assert wa.last_done_reason() == DONE_STALL
@@ -567,6 +595,13 @@ def test_obligation_window_narrows_after_natural_completion(wa):
     wa.feed(("MOVE_X 200 0 150 %d #1\n" % declared_timeout_ms).encode())
     assert wa.take_sink() == _ack(1)
     assert wa.has_live_motion_obligation()
+
+    # Lazy origin capture (sprint 029 ticket 003, design S6.5) -- must
+    # land (at position 0) before the target is armed below; see
+    # test_move_x_reaching_its_own_goal_early_reports_stop's own
+    # comment above for the full explanation.
+    wa.step()
+    wa.service_move()
 
     # The move reaches its own goal almost immediately (direct position
     # arming, same technique as test_move_x_reaching_its_own_goal_early_*

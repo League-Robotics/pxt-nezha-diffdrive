@@ -66,6 +66,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "velocity_shaper.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 
@@ -99,6 +100,8 @@ def _bind(lib):
     lib.meBegin.restype = ctypes.c_int
     lib.meStep.argtypes = [ctypes.c_void_p]
     lib.meStep.restype = None
+    lib.meClockSetNow.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    lib.meClockSetNow.restype = None
 
     lib.meMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.meMotorLastStagedDuty.restype = ctypes.c_float
@@ -107,6 +110,8 @@ def _bind(lib):
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
     ]
     lib.meWheelsV.restype = None
+    lib.meServiceMove.argtypes = [ctypes.c_void_p]
+    lib.meServiceMove.restype = ctypes.c_int
 
     lib.meEndMoveOldStopSequence.argtypes = [ctypes.c_void_p]
     lib.meEndMoveOldStopSequence.restype = None
@@ -156,11 +161,29 @@ class Engine:
     def step(self):
         self._lib.meStep(self._handle)
 
+    def set_clock(self, now_us):
+        self._lib.meClockSetNow(self._handle, now_us)
+
     def motor_last_staged_duty(self, side):
         return self._lib.meMotorLastStagedDuty(self._handle, side)
 
     def wheels_v(self, left, right, duration_ms):
         self._lib.meWheelsV(self._handle, left, right, duration_ms)
+
+    def service_move(self):
+        return bool(self._lib.meServiceMove(self._handle))
+
+    def land_steady_state_hold(self, start_us=0, advance_us=1_000_000):
+        """Sprint 029 ticket 003 (design S4.4/S6.1) -- see
+        test_motion_engine_reductions.py's own
+        Engine.land_steady_state_hold() for the full explanation this
+        file mirrors: a continuous wheelsV() hold is shaped now, so
+        seeing its full-rate duty needs a large `dt` on its first
+        service() tick, not a single step()."""
+        self.step()
+        self.set_clock(start_us + advance_us)
+        self.service_move()
+        self.step()
 
     def end_move_old_stop_sequence(self):
         self._lib.meEndMoveOldStopSequence(self._handle)
@@ -181,8 +204,9 @@ def _drive_to_nonzero_duty(engine):
     engine.set_full_duty_velocity(FULL_DUTY_VELOCITY)
     assert engine.begin() == STATUS_OK
 
+    engine.set_clock(0)
     engine.wheels_v(200.0, 200.0, _LONG_LEASE_MS)
-    engine.step()
+    engine.land_steady_state_hold()
 
     assert engine.motor_last_staged_duty(LEFT) != pytest.approx(0.0), (
         "Sanity check failed: the motor was already at zero before the "
@@ -214,15 +238,33 @@ def test_fixed_stop_sequence_zeros_continuous_drive_and_stays_zero(motion_lib):
 
 
 def test_old_stop_sequence_leaves_duty_nonzero_after_one_tick(motion_lib):
-    """Regression pin (fails against a reversion of this exact fix): the
-    OLD (pre-fix) sequence -- engine.endMove() (a no-op here, since no
-    move-engine move is active after a continuous-drive command) plus
-    deliverStopNow()'s port-level zero, WITHOUT kernel.neutral() --
-    zeros duty only momentarily. The kernel's commanded velocity mode
-    survives, so the very next step() re-commands the pre-stop duty."""
+    """Regression pin, ORIGINALLY written against the sprint 006-era bug:
+    the OLD sequence -- engine.endMove() (a no-op back then after a
+    continuous-drive command, since the pre-029 MotionEngine::endMove()
+    only ever checked move_.active, which wheelsV() never set) plus
+    deliverStopNow()'s port-level zero, WITHOUT an explicit
+    kernel.neutral() -- used to zero duty only momentarily: the kernel's
+    commanded velocity mode survived, so the very next step()
+    re-commanded the pre-stop duty.
+
+    MEASURED against this ticket's engine: that gap is now closed one
+    layer earlier. Sprint 029 ticket 003's own MotionEngine::endMove()
+    (motion_engine.cpp) checks `seg_.active || hold_.active` -- design
+    S4.4's own table entry ("endMove(): neutral + shaper_.reset() +
+    clear both seg_/hold_") -- so it now stages kernel_.neutral() for a
+    live continuous hold too, not only a position-mode Segment. The
+    meEndMoveOldStopSequence() shim this test drives
+    (motion_engine_shim.cpp) calls this SAME real engine.endMove(), so
+    it inherits the fix regardless of never calling kernel.neutral()
+    itself -- there is no longer an "old" vs. "fixed" behavioral
+    difference to observe through this particular pair of shims for the
+    continuous-drive case (shims.cpp's own production endMove() still
+    calls kernel.neutral() explicitly in addition, unchanged by this
+    ticket, so the real robot's behavior is unaffected either way). This
+    test now pins THAT (a genuine improvement), rather than a
+    difference that no longer exists."""
     with Engine(motion_lib) as e:
         _drive_to_nonzero_duty(e)
-        duty_before_stop = e.motor_last_staged_duty(LEFT)
 
         e.end_move_old_stop_sequence()
 
@@ -232,17 +274,14 @@ def test_old_stop_sequence_leaves_duty_nonzero_after_one_tick(motion_lib):
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
 
-        e.step()  # one tick later -- THE bug: duty comes right back
-        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
-            duty_before_stop, rel=1e-4), (
-            "The kernel's commanded velocity mode was never disarmed by "
-            "the old sequence, so this step() re-derives the exact same "
-            "pre-stop duty -- this is the bug this ticket fixes."
-        )
-        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
-            duty_before_stop, rel=1e-4)
+        e.step()  # one tick later -- MotionEngine::endMove() already
+                  # staged kernel_.neutral() for the hold, so this stays
+                  # zero (see this test's own docstring for why that is
+                  # no longer the historical bug).
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
 
-        for _ in range(10):  # ten ticks later -- still not zero
+        for _ in range(10):  # ten ticks later -- stays zero
             e.step()
-        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
-        assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)

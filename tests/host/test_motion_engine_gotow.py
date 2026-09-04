@@ -55,6 +55,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "velocity_shaper.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 
@@ -90,6 +91,8 @@ def _bind(lib):
     lib.meBegin.restype = ctypes.c_int
     lib.meStep.argtypes = [ctypes.c_void_p]
     lib.meStep.restype = None
+    lib.meClockSetNow.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
+    lib.meClockSetNow.restype = None
 
     lib.meMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.meMotorLastStagedDuty.restype = ctypes.c_float
@@ -182,6 +185,9 @@ class Engine:
     def step(self):
         self._lib.meStep(self._handle)
 
+    def set_clock(self, now_us):
+        self._lib.meClockSetNow(self._handle, now_us)
+
     def motor_last_staged_duty(self, side):
         return self._lib.meMotorLastStagedDuty(self._handle, side)
 
@@ -197,6 +203,14 @@ class Engine:
 
     def service_move(self):
         return bool(self._lib.meServiceMove(self._handle))
+
+    def land_first_command(self):
+        """Sprint 029 ticket 003 (design S6.5's lazy start) -- see
+        test_motion_engine_reductions.py's own Engine.land_first_command()
+        for the full explanation this file mirrors."""
+        self.step()
+        self.service_move()
+        self.step()
 
     # ---- goToW / PoseSource ----
     def set_pose(self, x, y, heading):
@@ -271,15 +285,26 @@ def _segment(distance_mm, rotation_rad, cpm, b):
     return left, right, dominant
 
 
-def _expected_duty_pair(distance_mm, rotation_rad, cruise, cpm, b, fdv,
-                        scale):
-    """Hand-computed (duty_left, duty_right) for one moveX segment's
-    FIRST tick at the given ramp `scale` -- same formula
-    test_motion_engine_reductions.py uses for goToR()."""
+_V_FLOOR_MM_S = 70.0
+_OMEGA_FLOOR_DEG_S = 20.0
+
+
+def _first_tick_duty_pair(distance_mm, rotation_rad, cpm, b, fdv):
+    """Sprint 029 ticket 003 (design S6.1): the engine's FIRST real
+    command for a fresh Segment -- see
+    test_motion_engine_reductions.py's own _first_tick_duty_pair() for
+    the full explanation this file mirrors (floors on v_floor, or on
+    omega_floor converted to the dominant wheel's own mm/s for a pure
+    turn)."""
     left, right, dominant = _segment(distance_mm, rotation_rad, cpm, b)
-    cruise_counts = cruise * cpm
-    raw_left = (left / dominant) * cruise_counts * scale
-    raw_right = (right / dominant) * cruise_counts * scale
+    pure_turn = (distance_mm == 0.0 and rotation_rad != 0.0)
+    if pure_turn:
+        floor_mm_s = _OMEGA_FLOOR_DEG_S * math.pi / 180.0 * b * 0.5
+    else:
+        floor_mm_s = _V_FLOOR_MM_S
+    floor_counts = floor_mm_s * cpm
+    raw_left = (left / dominant) * floor_counts
+    raw_right = (right / dominant) * floor_counts
     return raw_left / fdv, raw_right / fdv
 
 
@@ -292,7 +317,7 @@ def _assert_go_to_w_matches(e, cpm, b, fdv, pose, target, speed):
 
     e.set_pose(pose_x, pose_y, heading)
     e.go_to_w(target_x, target_y, speed, 0.0, 5000)
-    e.step()
+    e.land_first_command()
 
     dx = target_x - pose_x
     dy = target_y - pose_y
@@ -303,8 +328,8 @@ def _assert_go_to_w_matches(e, cpm, b, fdv, pose, target, speed):
     # different code path than the one it means to check.
     assert abs(theta) < math.radians(_TURN_FIRST_DEG)
 
-    expected_left, expected_right = _expected_duty_pair(
-        s, theta, speed, cpm, b, fdv, scale=0.25)
+    expected_left, expected_right = _first_tick_duty_pair(
+        s, theta, cpm, b, fdv)
     assert e.motor_last_staged_duty(LEFT) == pytest.approx(
         expected_left, rel=_DUTY_REL)
     assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
@@ -426,10 +451,10 @@ def test_go_to_w_target_directly_ahead_of_rotated_heading_is_straight(
 
         e.set_pose(*pose)
         e.go_to_w(*target, 90.0, 0.0, 5000)
-        e.step()
+        e.land_first_command()
 
-        expected_left, expected_right = _expected_duty_pair(
-            distance, 0.0, 90.0, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            distance, 0.0, cpm, b, fdv)
         assert expected_left == pytest.approx(expected_right, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)
@@ -558,7 +583,7 @@ def test_go_to_w_through_encoder_pose_source_reaches_target(motion_lib):
         e.set_encoder_pose(pose_x, pose_y, heading)
         e.go_to_w_via_encoder(target_x, target_y, speed, 0.0, 5000)
         assert e.is_move_active()
-        e.step()
+        e.land_first_command()
 
         dx = target_x - pose_x
         dy = target_y - pose_y
@@ -569,8 +594,8 @@ def test_go_to_w_through_encoder_pose_source_reaches_target(motion_lib):
         # other goToW tests use.
         assert abs(theta) < math.radians(_TURN_FIRST_DEG)
 
-        expected_left, expected_right = _expected_duty_pair(
-            s, theta, speed, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            s, theta, cpm, b, fdv)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
@@ -584,6 +609,12 @@ def test_go_to_w_through_encoder_pose_source_reaches_target(motion_lib):
         yaw_target_counts = theta * 0.5 * b * cpm
         e.arm_motor_position(LEFT, dist_target_counts - yaw_target_counts, 1)
         e.arm_motor_position(RIGHT, dist_target_counts + yaw_target_counts, 2)
+        # A realistic tick advance: predictive arrival's own slack
+        # (design S6.3: `remain <= vNext*dt + stopDistance`) is
+        # proportional to dt, and this fixture's clock otherwise never
+        # advances -- see test_motion_engine_reductions.py's matching
+        # comment on the same fragility.
+        e.set_clock(24_000)
         e.step()
         assert not e.service_move()
         assert not e.is_move_active()

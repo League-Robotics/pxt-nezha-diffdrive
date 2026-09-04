@@ -43,6 +43,7 @@ Run with::
 """
 
 import ctypes
+import math
 import pathlib
 
 import pytest
@@ -55,6 +56,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "velocity_shaper.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 
@@ -129,6 +131,15 @@ def _bind(lib):
     ]
     lib.meWheelsX.restype = None
 
+    lib.meServiceMove.argtypes = [ctypes.c_void_p]
+    lib.meServiceMove.restype = ctypes.c_int
+    lib.meIsMoveActive.argtypes = [ctypes.c_void_p]
+    lib.meIsMoveActive.restype = ctypes.c_int
+    lib.meMotorArmPosition.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_uint64,
+    ]
+    lib.meMotorArmPosition.restype = None
+
     return lib
 
 
@@ -151,6 +162,7 @@ class Engine:
     def __init__(self, lib):
         self._lib = lib
         self._handle = lib.meCreate()
+        self._next_sample_us = 1000
 
     def close(self):
         self._lib.meDestroy(self._handle)
@@ -216,6 +228,40 @@ class Engine:
     def wheels_x(self, left, right, cruise, timeout_ms):
         self._lib.meWheelsX(self._handle, left, right, cruise, timeout_ms)
 
+    def service_move(self):
+        return bool(self._lib.meServiceMove(self._handle))
+
+    def is_move_active(self):
+        return bool(self._lib.meIsMoveActive(self._handle))
+
+    def arm_motor_position(self, side, position_counts):
+        # A fresh, nonzero, ADVANCING sample time each call -- see
+        # meMotorArmPosition()'s own comment (motion_engine_shim.cpp).
+        self._next_sample_us += 1000
+        self._lib.meMotorArmPosition(
+            self._handle, side, position_counts, self._next_sample_us)
+
+    def land_first_command(self):
+        """Sprint 029 ticket 003 (design S6.5's lazy start) -- see
+        test_motion_engine_reductions.py's own Engine.land_first_command()
+        for the full explanation this file mirrors: a fresh Segment
+        (wheelsX()) no longer drives the kernel synchronously, so seeing
+        its first command needs step(); service(); step(), not a single
+        step()."""
+        self.step()
+        self.service_move()
+        self.step()
+
+    def land_steady_state_hold(self, start_us=0, advance_us=1_000_000):
+        """For a continuous wheelsV() hold -- see
+        test_motion_engine_reductions.py's own
+        Engine.land_steady_state_hold() for the full explanation. Caller
+        must have set_clock(start_us) BEFORE the wheels_v() call."""
+        self.step()
+        self.set_clock(start_us + advance_us)
+        self.service_move()
+        self.step()
+
 
 def _ready(engine):
     """Configure the kernel with only maxDuty/fullDutyVelocity set (every
@@ -230,6 +276,13 @@ def _ready(engine):
 
 def _expected_duty(mm_per_s, cpm, fdv=FULL_DUTY_VELOCITY):
     return mm_per_s * cpm / fdv
+
+
+# MotionLimits' own compiled-in defaults (motion_limits.h) -- see
+# test_motion_engine_reductions.py's own _first_tick_duty_pair() for the
+# full explanation these two constants exist for.
+_V_FLOOR_MM_S = 70.0
+_OMEGA_FLOOR_DEG_S = 20.0
 
 
 # ---- geometry (motion-api.md S2.1) --------------------------------------
@@ -306,13 +359,20 @@ def test_counts_per_mm(motion_lib):
 
 def test_wheels_v_straight_line_hand_computed(motion_lib):
     """motion-api.md S7's own example, wheels_v(150, 150, 800): both
-    wheels commanded the same speed is a straight line."""
+    wheels commanded the same speed is a straight line. Sprint 029
+    ticket 003: a continuous hold is now SHAPED too (design S4.4/S6.1,
+    "jerk is bounded ... on continuous drive, not only mid-profile") --
+    the old "full rate immediately" contract is gone;
+    land_steady_state_hold() gives the shaper's own accel ramp a large
+    `dt` so this test reads the steady-state kinematics instead of the
+    (now retired) instantaneous first tick."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
 
-        e.wheels_v(150.0, 150.0, 800)
-        e.step()
+        e.set_clock(0)
+        e.wheels_v(150.0, 150.0, 5000)
+        e.land_steady_state_hold()
 
         expected = _expected_duty(150.0, cpm, fdv)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
@@ -331,8 +391,9 @@ def test_wheels_v_sign_convention_left_turn(motion_lib):
         fdv = _ready(e)
         cpm = e.counts_per_mm()
 
-        e.wheels_v(100.0, 150.0, 500)  # right faster -> left/CCW turn
-        e.step()
+        e.set_clock(0)
+        e.wheels_v(100.0, 150.0, 5000)  # right faster -> left/CCW turn
+        e.land_steady_state_hold()
 
         duty_left = e.motor_last_staged_duty(LEFT)
         duty_right = e.motor_last_staged_duty(RIGHT)
@@ -350,8 +411,9 @@ def test_wheels_v_sign_convention_right_turn(motion_lib):
         fdv = _ready(e)
         cpm = e.counts_per_mm()
 
-        e.wheels_v(150.0, 100.0, 500)  # left faster -> right/CW turn
-        e.step()
+        e.set_clock(0)
+        e.wheels_v(150.0, 100.0, 5000)  # left faster -> right/CW turn
+        e.land_steady_state_hold()
 
         duty_left = e.motor_last_staged_duty(LEFT)
         duty_right = e.motor_last_staged_duty(RIGHT)
@@ -369,8 +431,9 @@ def test_wheels_v_pivot_in_place(motion_lib):
         fdv = _ready(e)
         cpm = e.counts_per_mm()
 
-        e.wheels_v(100.0, -100.0, 500)
-        e.step()
+        e.set_clock(0)
+        e.wheels_v(100.0, -100.0, 5000)
+        e.land_steady_state_hold()
 
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             _expected_duty(100.0, cpm, fdv), rel=_DUTY_REL)
@@ -379,22 +442,37 @@ def test_wheels_v_pivot_in_place(motion_lib):
 
 
 def test_wheels_v_duration_is_the_lease(motion_lib):
-    """duration IS the kernel's own lease, no reinterpretation
-    (motion-api.md S3.2): one tick before it elapses the command is
-    still live; one tick after, the kernel reverts to neutral."""
+    """duration IS the hold's own deadline (design S4.4's Hold.until),
+    tracked by the ENGINE and checked at the top of service()'s
+    continuous-hold branch -- distinct from the kernel's own rolling
+    500 ms lease, which service() now reissues on EVERY tick regardless
+    (design S5) and so no longer tracks a caller's real duration at all
+    (that old kernel-level signal, Output.leaseExpired, is what this
+    test used to read; it is not the mechanism a hold's real duration
+    bound uses any more). One tick before the duration elapses,
+    service() is still driving; one tick after, it stages neutral and
+    reports inactive -- the same OBSERVABLE contract as before, checked
+    through the engine's own return value and the landed duty instead of
+    the kernel's lease flag."""
     with Engine(motion_lib) as e:
         _ready(e)
         e.set_clock(0)
         e.wheels_v(100.0, 100.0, 500)  # [ms]
+        e.step()
+
+        e.set_clock(24_000)  # a realistic first tick
+        assert e.service_move()
+        e.step()
+        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
 
         e.set_clock(499_000)  # 499 ms: still live
+        assert e.service_move()
         e.step()
-        assert not e.lease_expired()
         assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
 
         e.set_clock(501_000)  # 501 ms: expired
+        assert not e.service_move()
         e.step()
-        assert e.lease_expired()
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
 
@@ -404,16 +482,18 @@ def test_wheels_v_duration_is_the_lease(motion_lib):
 
 def test_wheels_x_straight_line_hand_computed(motion_lib):
     """motion-api.md S2.1's own degenerate case: wheels_x(d, d) is a
-    straight line -- both wheels at ratio 1, so both run at exactly
-    `cruise`."""
+    straight line -- both wheels at ratio 1. Sprint 029 ticket 003:
+    wheelsX() is now closed-loop, Segment-based, and lazily started like
+    moveX() (design S12/S6.5) -- its first real command lands at the
+    floor (v_floor), not `cruise`."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
 
         e.wheels_x(200.0, 200.0, 150.0, 5000)
-        e.step()
+        e.land_first_command()
 
-        expected = _expected_duty(150.0, cpm, fdv)
+        expected = _expected_duty(_V_FLOOR_MM_S, cpm, fdv)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
@@ -422,37 +502,43 @@ def test_wheels_x_straight_line_hand_computed(motion_lib):
 
 def test_wheels_x_pivot_hand_computed(motion_lib):
     """motion-api.md S2.1's other degenerate case: wheels_x(+d, -d) is a
-    pivot in place -- opposite sign, equal magnitude, each wheel at the
-    full cruise ceiling in its own direction."""
+    pivot in place -- opposite sign, equal magnitude. Sprint 029 ticket
+    003: the first real command floors on omega_floor (converted to the
+    dominant wheel's own mm/s, design S6.2), not `cruise` -- see
+    test_wheels_x_straight_line_hand_computed's own comment."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
+        b = e.effective_track_width()
 
         e.wheels_x(150.0, -150.0, 100.0, 5000)
-        e.step()
+        e.land_first_command()
 
+        floor_mm_s = _OMEGA_FLOOR_DEG_S * math.pi / 180.0 * b * 0.5
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
-            _expected_duty(100.0, cpm, fdv), rel=_DUTY_REL)
+            _expected_duty(floor_mm_s, cpm, fdv), rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
-            _expected_duty(-100.0, cpm, fdv), rel=_DUTY_REL)
+            _expected_duty(-floor_mm_s, cpm, fdv), rel=_DUTY_REL)
 
 
 def test_wheels_x_ratio_locked_hand_computed(motion_lib):
     """A non-degenerate case: the DOMINANT wheel (larger magnitude, here
-    left at 200mm vs right's 100mm) is the one that reaches `cruise`; the
-    other follows the same ratio (motion-api.md S3.1: "both wheels finish
-    together")."""
+    left at 200mm vs right's 100mm) is the one that reaches the first
+    tick's floor speed; the other follows the same ratio (motion-api.md
+    S3.1: "both wheels finish together"). Not a pure turn (distTarget !=
+    0), so the floor is v_floor -- see
+    test_wheels_x_straight_line_hand_computed's own comment."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
 
-        e.wheels_x(200.0, 100.0, 150.0, 5000)  # left dominant -> right at half cruise
-        e.step()
+        e.wheels_x(200.0, 100.0, 150.0, 5000)  # left dominant -> right at half
+        e.land_first_command()
 
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
-            _expected_duty(150.0, cpm, fdv), rel=_DUTY_REL)
+            _expected_duty(_V_FLOOR_MM_S, cpm, fdv), rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
-            _expected_duty(75.0, cpm, fdv), rel=_DUTY_REL)
+            _expected_duty(0.5 * _V_FLOOR_MM_S, cpm, fdv), rel=_DUTY_REL)
 
 
 def test_wheels_x_sign_convention_both_directions(motion_lib):
@@ -463,13 +549,14 @@ def test_wheels_x_sign_convention_both_directions(motion_lib):
         cpm = e.counts_per_mm()
 
         e.wheels_x(100.0, 150.0, 150.0, 5000)  # right dominant -> left/CCW turn
-        e.step()
+        e.land_first_command()
         duty_left = e.motor_last_staged_duty(LEFT)
         duty_right = e.motor_last_staged_duty(RIGHT)
         assert duty_right == pytest.approx(
-            _expected_duty(150.0, cpm, fdv), rel=_DUTY_REL)
+            _expected_duty(_V_FLOOR_MM_S, cpm, fdv), rel=_DUTY_REL)
         assert duty_left == pytest.approx(
-            _expected_duty(100.0, cpm, fdv), rel=_DUTY_REL)
+            _expected_duty((100.0 / 150.0) * _V_FLOOR_MM_S, cpm, fdv),
+            rel=_DUTY_REL)
         assert duty_right > duty_left
 
     with Engine(motion_lib) as e:
@@ -477,57 +564,83 @@ def test_wheels_x_sign_convention_both_directions(motion_lib):
         cpm = e.counts_per_mm()
 
         e.wheels_x(150.0, 100.0, 150.0, 5000)  # left dominant -> right/CW turn
-        e.step()
+        e.land_first_command()
         duty_left = e.motor_last_staged_duty(LEFT)
         duty_right = e.motor_last_staged_duty(RIGHT)
         assert duty_left == pytest.approx(
-            _expected_duty(150.0, cpm, fdv), rel=_DUTY_REL)
+            _expected_duty(_V_FLOOR_MM_S, cpm, fdv), rel=_DUTY_REL)
         assert duty_right == pytest.approx(
-            _expected_duty(100.0, cpm, fdv), rel=_DUTY_REL)
+            _expected_duty((100.0 / 150.0) * _V_FLOOR_MM_S, cpm, fdv),
+            rel=_DUTY_REL)
         assert duty_left > duty_right
 
 
-def test_wheels_x_dead_reckoned_lease(motion_lib):
-    """The dominant wheel's own commanded distance divided by cruise is
-    the lease -- one tick before it elapses the command is still live,
-    one tick after it reverts to neutral (mirrors wheelsV's own
-    duration-is-the-lease test, but for a COMPUTED lease). 200mm at
-    100mm/s -> 2000ms."""
+# DELETED (sprint 029 ticket 003): test_wheels_x_dead_reckoned_lease and
+# test_wheels_x_timeout_caps_the_lease both pinned wheelsX()'s OLD
+# dead-reckoned duration (dominant/cruise, capped by timeout) -- design
+# S12's own recorded decision retires that mechanism outright: "wheelsX
+# becomes closed-loop on encoders like moveX() ... the dead-reckoned
+# lease was the only reason the two primitives differed in how they
+# end." There is no computed lease left to pin; `timeoutMs` is now the
+# Segment's own REAL deadline (identical mechanism to moveX()'s own
+# timeout), and real closed-loop arrival ends the move the same way a
+# moveX() segment does. Replaced by the two tests below.
+
+
+def test_wheels_x_timeout_is_the_real_backstop_on_a_blocked_robot(
+        motion_lib):
+    """Sprint 029 ticket 003 (design S12): wheelsX() is now closed-loop,
+    Segment-based -- `timeoutMs` is its own real deadline backstop, the
+    same mechanism moveX() uses (mirrors
+    test_motion_engine_reductions.py's own
+    test_move_x_timeout_is_a_real_backstop_on_a_blocked_robot). A
+    FakeMotor that never reports progress (the robot is physically
+    blocked) is stopped by `timeout`, not by any distance/cruise-derived
+    lease -- there is no such lease left to compute."""
     with Engine(motion_lib) as e:
         _ready(e)
         e.set_clock(0)
-        e.wheels_x(200.0, 200.0, 100.0, 5000)  # timeout well above the lease
-
-        e.set_clock(1_999_000)
-        e.step()
-        assert not e.lease_expired()
+        e.wheels_x(200.0, 200.0, 100.0, 2000)  # [mm] [mm] [mm/s] [ms]
+        e.land_first_command()
         assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
 
-        e.set_clock(2_001_000)
+        # service() reissues its rolling 500 ms kernel lease on EVERY
+        # tick now (design S5) -- a clock jump must call service_move()
+        # BEFORE step() to refresh it at the new time (see
+        # test_move_x_timeout_is_a_real_backstop_on_a_blocked_robot's
+        # own comment on this ordering).
+        e.set_clock(1_999_000)  # 1999 ms: still well inside the timeout
+        assert e.service_move()
         e.step()
-        assert e.lease_expired()
+        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
+
+        e.set_clock(2_001_000)  # 2001 ms: past the timeout
+        assert not e.service_move()
+        e.step()
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0)
 
 
-def test_wheels_x_timeout_caps_the_lease(motion_lib):
-    """timeout is a required BACKSTOP (motion-api.md S3.1), not the
-    primary stop condition -- but it must still win when the
-    dead-reckoned duration would exceed it. 1000mm at 100mm/s has a
-    natural duration of 10000ms; supplying a 500ms timeout must cap the
-    lease there instead."""
+def test_wheels_x_closed_loop_completion_ends_on_arrival(motion_lib):
+    """The other half of "wheelsX() is a Segment like moveX()" (design
+    S12): a REAL encoder arrival ends the move on its own, well before
+    `timeout` -- the old wheelsX() had no such check at all (it drove
+    dead-reckoned for its whole computed lease no matter what the
+    encoders reported)."""
     with Engine(motion_lib) as e:
-        _ready(e)
-        e.set_clock(0)
-        e.wheels_x(1000.0, 1000.0, 100.0, 500)
+        fdv = _ready(e)
+        cpm = e.counts_per_mm()
+        e.wheels_x(200.0, 200.0, 100.0, 20_000)  # generous timeout
+        e.land_first_command()
+        assert e.is_move_active()
 
-        e.set_clock(499_000)
+        dist_target_counts = 200.0 * cpm
+        e.arm_motor_position(LEFT, dist_target_counts)
+        e.arm_motor_position(RIGHT, dist_target_counts)
+        e.set_clock(24_000)
         e.step()
-        assert not e.lease_expired()
-
-        e.set_clock(501_000)
-        e.step()
-        assert e.lease_expired()
+        assert not e.service_move()
+        assert not e.is_move_active()
 
 
 def test_wheels_x_zero_magnitude_is_a_no_op(motion_lib):
@@ -565,8 +678,9 @@ def test_wheels_x_non_positive_cruise_is_a_no_op(motion_lib):
 def test_wheels_x_zero_magnitude_stops_a_live_wheels_v_hold(motion_lib):
     with Engine(motion_lib) as e:
         _ready(e)
+        e.set_clock(0)
         e.wheels_v(150.0, 150.0, 5000)
-        e.step()  # lands wheels_v()'s own nonzero duty
+        e.land_steady_state_hold()  # lands wheels_v()'s own nonzero duty
         assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
 
@@ -583,8 +697,9 @@ def test_wheels_x_zero_magnitude_stops_a_live_wheels_v_hold(motion_lib):
 def test_wheels_x_non_positive_cruise_stops_a_live_wheels_v_hold(motion_lib):
     with Engine(motion_lib) as e:
         _ready(e)
+        e.set_clock(0)
         e.wheels_v(150.0, -150.0, 5000)
-        e.step()
+        e.land_steady_state_hold()
         assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
 

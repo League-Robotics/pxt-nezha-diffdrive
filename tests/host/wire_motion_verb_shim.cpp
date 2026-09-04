@@ -321,27 +321,33 @@ void setKernelValue(int field, int value) {
     // real setKernelValue() case 17 exactly (see that file's own
     // comment). Only nonzero-vs-zero matters.
     case 17: if (v != 0.0f) k.clearStallLatch(); break;
-    // 18 (2026-08-29, OOP): pivot_overrun, mirroring shims.cpp's real
-    // setKernelValue() case 18 exactly -- a thin forward to the REAL
-    // MotionEngine::setPivotOverrunMm(), which owns its validation.
-    case 18: g_activeWaHandle->engine.setPivotOverrunMm(v); break;
-    // 19-27 (sprint 025 ticket 003): constant-a shaping plus the five
-    // pre-existing end-of-move shaping knobs, mirroring shims.cpp's
-    // real setKernelValue() cases 19-27 exactly -- thin forwards to the
-    // REAL MotionEngine setters, which own their own validation.
-    case 19: g_activeWaHandle->engine.setAAccelMmS2(v); break;
-    case 20: g_activeWaHandle->engine.setADecelMmS2(v); break;
-    case 21: g_activeWaHandle->engine.setVMaxMmS(v); break;
-    case 22: g_activeWaHandle->engine.setBrakeFrac(v); break;
-    case 23: g_activeWaHandle->engine.setDistTaper(v); break;
-    case 24: g_activeWaHandle->engine.setYawTaper(v); break;
-    case 25: g_activeWaHandle->engine.setDistFloor(v); break;
-    case 26: g_activeWaHandle->engine.setTurnFloor(v); break;
-    case 27: g_activeWaHandle->engine.setRampMs(v); break;
-    case 28: g_activeWaHandle->engine.setJerkMmS3(v); break;
-    case 29: g_activeWaHandle->engine.setPlateauMinS(v); break;
-    case 30: g_activeWaHandle->engine.setMaxYawRateDegS(v); break;
-    case 31: g_activeWaHandle->engine.setProfileExitMmS(v); break;
+    // 18 (this ticket): stop_distance, mirroring shims.cpp's
+    // real setKernelValue() case 18 exactly -- a thin forward to the
+    // REAL MotionLimits::setStopDistance(), which owns its validation.
+    // Replaces pivot_overrun (MotionEngine::setPivotOverrunMm(),
+    // deleted).
+    case 18: g_activeWaHandle->engine.limits().setStopDistance(v); break;
+    // 19-21, 28, 30 (this ticket): accel/decel/v_max/jerk/
+    // omega_max, mirroring shims.cpp's real setKernelValue() cases
+    // exactly -- thin forwards to the REAL MotionLimits setters, which
+    // own their own validation. 22-27, 29, 31 are REMOVED ordinals
+    // (brake_frac/dist_taper/yaw_taper/dist_floor/turn_floor/ramp_ms/
+    // plateau_min_s/profile_exit) -- harmless no-ops, mirroring
+    // shims.cpp's own case 22-27/29/31 no-ops. // ticket 004
+    case 19: g_activeWaHandle->engine.limits().setAccel(v); break;
+    case 20: g_activeWaHandle->engine.limits().setDecel(v); break;
+    case 21: g_activeWaHandle->engine.limits().setVMax(v); break;
+    case 22:
+    case 23:
+    case 24:
+    case 25:
+    case 26:
+    case 27:
+    case 29:
+    case 31:
+      break;
+    case 28: g_activeWaHandle->engine.limits().setJerk(v); break;
+    case 30: g_activeWaHandle->engine.limits().setOmegaMax(v); break;
     // 32 (rebase): a PARTIAL mirror of shims.cpp's real case 32, by
     // necessity -- the real handler also zeroes shims.cpp's own
     // Rig::x/y/heading odometry accumulator and re-seeds OTOS, neither
@@ -402,25 +408,18 @@ int getConfigValue(int field) {
     case 17:
       v = g_activeWaHandle->kernel.output().stallHalted ? 1.0f : 0.0f;
       break;
-    // 18: pivot_overrun's GET side, mirroring shims.cpp's real
-    // getConfigValue() case 18 -- MotionEngine::pivotOverrunMm().
-    case 18: v = g_activeWaHandle->engine.pivotOverrunMm(); break;
-    // 19-27 (sprint 025 ticket 003): GET side of the setKernelValue()
-    // forwards above, mirroring shims.cpp's real getConfigValue()
-    // cases 19-27 exactly.
-    case 19: v = g_activeWaHandle->engine.aAccelMmS2(); break;
-    case 20: v = g_activeWaHandle->engine.aDecelMmS2(); break;
-    case 21: v = g_activeWaHandle->engine.vMaxMmS(); break;
-    case 22: v = g_activeWaHandle->engine.brakeFrac(); break;
-    case 23: v = g_activeWaHandle->engine.distTaper(); break;
-    case 24: v = g_activeWaHandle->engine.yawTaper(); break;
-    case 25: v = g_activeWaHandle->engine.distFloor(); break;
-    case 26: v = g_activeWaHandle->engine.turnFloor(); break;
-    case 27: v = g_activeWaHandle->engine.rampMs(); break;
-    case 28: v = g_activeWaHandle->engine.jerkMmS3(); break;
-    case 29: v = g_activeWaHandle->engine.plateauMinS(); break;
-    case 30: v = g_activeWaHandle->engine.maxYawRateDegS(); break;
-    case 31: v = g_activeWaHandle->engine.profileExitMmS(); break;
+    // 18: stop_distance's GET side (this ticket), mirroring
+    // shims.cpp's real getConfigValue() case 18 -- MotionLimits::
+    // stopDistance.
+    case 18: v = g_activeWaHandle->engine.limits().stopDistance; break;
+    // 19-21, 28, 30: GET side of the setKernelValue() forwards above,
+    // mirroring shims.cpp's real getConfigValue() cases exactly. 22-27,
+    // 29, 31 (removed ordinals) fall through to `default: break` below.
+    case 19: v = g_activeWaHandle->engine.limits().accel; break;
+    case 20: v = g_activeWaHandle->engine.limits().decel; break;
+    case 21: v = g_activeWaHandle->engine.limits().vMax; break;
+    case 28: v = g_activeWaHandle->engine.limits().jerk; break;
+    case 30: v = g_activeWaHandle->engine.limits().omegaMax; break;
     // 33: estop_clear's GET side, mirroring shims.cpp's real
     // getConfigValue() case 33 exactly -- a convenience readback of
     // Output.estopped, same shape as case 17's stallHalted readback
@@ -485,7 +484,7 @@ float engineDefaultCruiseMmS() {
 // the exact bridge production code uses.
 float engineADecelMmS2() {
   if (g_activeWaHandle == nullptr) return 0.0f;
-  return g_activeWaHandle->engine.aDecelMmS2();
+  return g_activeWaHandle->engine.limits().decel;
 }
 
 float engineDefaultCruiseForDistanceMmS(float distanceMm) {
@@ -494,13 +493,14 @@ float engineDefaultCruiseForDistanceMmS(float distanceMm) {
 }
 
 // SUC-003: mirrors shims.cpp's real engineDominantAxisTravelMm() --
-// forwards onto the SAME real `engine`'s
-// MotionEngine::dominantAxisTravelMm(), so a pure-pivot MOVE_X test
-// through this double exercises the exact formula production uses.
+// forwards onto the SAME real `engine`'s MotionEngine::
+// dominantAxisTravel() (renamed from dominantAxisTravelMm(), sprint 029
+// ticket 003), so a pure-pivot MOVE_X test through this double
+// exercises the exact formula production uses.
 float engineDominantAxisTravelMm(float distanceMm, float rotationRad) {
   if (g_activeWaHandle == nullptr) return 0.0f;
-  return g_activeWaHandle->engine.dominantAxisTravelMm(distanceMm,
-                                                        rotationRad);
+  return g_activeWaHandle->engine.dominantAxisTravel(distanceMm,
+                                                      rotationRad);
 }
 
 // Mirrors shims.cpp's real engineMoveV()/engineGoToR()/engineGoToW()
@@ -875,20 +875,34 @@ void waSetDefaultCruise(void* handle, float v) {
 }
 
 // SUC-003 test setup: direct forwards onto the real MotionEngine's own
-// validated setters (setADecelMmS2()/setVMaxMmS()/setBrakeFrac(),
-// motion_engine.h) -- lets a wire-level test switch this handle's
-// engine into shaped mode (aDecelMmS2_ > 0) and confirm the wire
-// layer's own onMoveX()/onGoToR()/onGoToW() branch onto the
-// distance-aware resolver while onWheelsX() stays on the flat
-// defaultCruiseMmS above.
+// validated MotionLimits setters (motion_limits.h) -- lets a wire-level
+// test drive this handle's own distance-aware default-cruise resolver
+// (defaultCruiseForDistance(), design S8: v_default(D) = min(vMax,
+// sqrt(decel*D))).
+//
+// this ticket: waSetADecelMmS2()/waSetVMaxMmS() used to
+// forward onto MotionEngine::setADecelMmS2()/setVMaxMmS() (both
+// deleted) and select "shaped mode" at nonzero aDecelMmS2_ -- that
+// toggle is gone; MotionLimits::decel defaults to 400 (never 0), so
+// MOVE_X/GO_TO_R/GO_TO_W's cruise==0 sentinel ALWAYS resolves through
+// the distance-aware formula now (see engineADecelMmS2()'s own comment
+// below). Names kept (shim names are test scaffolding, not renamed) --
+// only their bodies move onto limits().
 void waSetADecelMmS2(void* handle, float mmS2) {
-  static_cast<WaHandle*>(handle)->engine.setADecelMmS2(mmS2);
+  static_cast<WaHandle*>(handle)->engine.limits().setDecel(mmS2);
 }
 void waSetVMaxMmS(void* handle, float mmS) {
-  static_cast<WaHandle*>(handle)->engine.setVMaxMmS(mmS);
+  static_cast<WaHandle*>(handle)->engine.limits().setVMax(mmS);
 }
+// brake_frac is RETIRED (design S8's wire-name table): the new
+// v_default(D) formula has no brake_frac term at all. Kept as a no-op
+// (not removed) so the many existing wa.set_brake_frac(...) call sites
+// in test_wire_motion_verbs.py stay valid, harmless setup lines that
+// prove brake_frac has no effect, rather than needing every call site
+// edited out.
 void waSetBrakeFrac(void* handle, float frac) {
-  static_cast<WaHandle*>(handle)->engine.setBrakeFrac(frac);
+  (void)handle;
+  (void)frac;
 }
 
 // ---- MotionEngine geometry readback (sprint 003 ticket 011): lets a
@@ -912,16 +926,19 @@ void waStep(void* handle) { static_cast<WaHandle*>(handle)->kernel.step(); }
 
 // Sprint 005 ticket 004: waStep() above only steps the KERNEL -- unlike
 // production's tickDrive() (shims.cpp), it never also calls
-// engine.serviceMove(), so no existing WaHandle test could drive a
+// engine.service(), so no existing WaHandle test could drive a
 // move-engine move (MOVE_X/GO_TO_R/GO_TO_W) to a REAL completion (goal
 // reached, deadline expired, or stalled) the way tickDrive()'s own
-// `kernel.step(); engine.serviceMove();` pair does. Exposed as its own
+// `kernel.step(); engine.service();` pair does. Exposed as its own
 // call (not folded into waStep()) so a test controls the two
 // independently, matching meServiceMove()'s own sibling export in
 // motion_engine_shim.cpp. Returns whether the move is STILL active
-// after this call (MotionEngine::serviceMove()'s own return value).
+// after this call (MotionEngine::service()'s own return value). Shim
+// name kept as waServiceMove (this ticket renamed the
+// underlying MotionEngine method to service(); this test-scaffolding
+// export is not renamed).
 int waServiceMove(void* handle) {
-  return static_cast<WaHandle*>(handle)->engine.serviceMove() ? 1 : 0;
+  return static_cast<WaHandle*>(handle)->engine.service() ? 1 : 0;
 }
 
 // Directly arms a FakeMotor's NEXT tick()'s committed position/sample

@@ -48,6 +48,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "velocity_shaper.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 
@@ -218,11 +219,23 @@ def test_refused_drive_does_not_arm_move_active(motion_lib):
     trigger (diffdrive.h). begin() itself refuses under that
     configuration too, but begun_ is still set (readiness is begin()'s
     to grant, not start()'s -- diffdrive.h's own Status comment), so the
-    SAME refusal reaches moveX() -> startSegment() -> kernel_.drive().
-    Before this ticket's fix, startSegment() armed move_.active
-    regardless; after the fix, a refused drive() must leave
-    isMoveActive() reading false immediately -- not armed and silently
-    spinning to a deadline."""
+    SAME refusal reaches moveX() -> service()'s own kernel_.drive() call.
+
+    REWRITTEN sprint 029 ticket 003 (design S6.5's lazy start): moveX()
+    no longer calls kernel_.drive() synchronously at all -- beginSegment()
+    only arms seg_ and issues no command, so a refused drive() can only
+    ever be discovered on the segment's own FIRST service() tick, when
+    service() finally issues it, never at moveX() call time. seg_.active
+    therefore reads true immediately after moveX() (nothing has been
+    attempted yet, so nothing has been refused yet) -- the assertion
+    this test used to make right there no longer holds, and is not a
+    regression: service() itself now checks kernel_.drive()'s own
+    Status on every tick (motion_engine.cpp) and ends the segment the
+    first time it comes back refused, which is what this test now
+    proves instead. Without that check a permanently-refused drive()
+    would re-issue every tick forever and spin the segment to its own
+    deadline exactly like a move that actually ran -- the original bug
+    this test was written to catch, still caught, one tick later."""
     with Engine(motion_lib) as e:
         e.set_max_duty(0.0)  # deliberately refused: no fullDutyVelocity
         # set either -- maxDuty alone is enough to trigger
@@ -230,12 +243,21 @@ def test_refused_drive_does_not_arm_move_active(motion_lib):
         assert e.begin() == STATUS_REFUSED_UNCONFIGURED
 
         e.move_x(200.0, 0.0, 100.0, 5000)
-
-        assert not e.is_move_active(), (
-            "A refused kernel_.drive() must not arm move_.active -- "
-            "before this fix, this move would report progress and spin "
-            "to its own deadline exactly like a move that actually ran."
+        assert e.is_move_active(), (
+            "Sanity: armed immediately (design S6.5's lazy start) -- "
+            "nothing has been attempted, let alone refused, yet."
         )
+
+        e.step()
+        still_active = e.service_move()
+        assert not still_active, (
+            "service()'s own first tick must detect the refused "
+            "kernel_.drive() and end the segment -- not keep re-issuing "
+            "a command that can never succeed and spinning to the "
+            "segment's own deadline exactly like a move that actually "
+            "ran."
+        )
+        assert not e.is_move_active()
 
     # Contrast, in a fresh engine: the SAME call, properly configured,
     # must still arm move_.active on a successful drive() -- proving the

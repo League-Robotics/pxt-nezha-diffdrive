@@ -156,9 +156,18 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
 
 **Public interface.**
 - Primitives: `wheelsV(left, right, duration)` — velocity hold whose
-  `duration` **is** the kernel lease; `wheelsX(left, right, cruise,
-  timeout)` — per-wheel distances, ratio-locked so both wheels finish
-  together, dead-reckoned lease capped by `timeout`.
+  `duration` **is** the kernel lease, shaped through `VelocityShaper`
+  every tick like everything else (design `motion-profile-
+  unification.md` §5's continuous-hold branch: `remain = -1`, `floor =
+  0` — a hold has no completion to brake toward, and no floor to fall
+  back on either, so it ramps from 0 at `accel` rather than stepping to
+  `v_floor` the way a bounded `Segment` does); `wheelsX(left, right,
+  cruise, timeout)` — per-wheel distances, ratio-locked so both wheels
+  finish together. **Motion profile unification (sprint 029)**:
+  `wheelsX` is now closed-loop on encoders, built as a `Segment` exactly
+  like `moveX`, instead of the old one-shot dead-reckoned `drive()` —
+  the two primitives no longer differ in kind, only in how their
+  targets are expressed (design §12's recorded decision).
 - Reductions: `moveX(distance, rotation, cruise, timeout)` (a
   |rotation| ≥ 50° with nonzero distance splits into pivot-then-
   straight, one caller-visible call, one shared deadline);
@@ -182,16 +191,35 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   rotates world delta into the body frame, delegates to `goToR`) is
   unaffected by this change other than inheriting `goToR`'s corrected
   geometry.
-- Move servicing: `serviceMove()` — one advance per control cycle
-  while active: rescales taper/ramp, re-issues `kernel_.drive()`
-  **every tick** with a rolling 500 ms lease (gating on scale change
-  would let the lease expire in steady phases), checks completion
-  margins (10 counts dist; 4 counts yaw pure-turn, 10 in an arc),
-  deadline, stall, and wrong-way (signed yaw progress <
-  −3×margin). `endMove()`, `isMoveActive()`, `progress()` (0..1000),
-  `wrongWayCount()`, and the per-tour shaping setters
-  (`setDistTaper`/`setYawTaper`/`setDistFloor`/`setTurnFloor`/
-  `setRampMs`).
+- Move servicing: `service()` (renamed from `serviceMove()`, motion
+  profile unification, sprint 029) — one ~40-line tick (design §5) that
+  dispatches whichever of `seg_`/`hold_` is active through the ONE
+  `VelocityShaper shaper_` instance, no mode forks: reads this tick's
+  already-published `Output`, computes `dt` from the `Clock`, advances
+  the shaper toward `min(cruise, axis cap, limits_.vMax)` against the
+  dominant axis's own remaining distance, re-issues `kernel_.drive()`
+  **every tick** with a rolling 500 ms lease, checks wrong-way/stall/
+  e-stop/deadline, and ends the move when the shaper's own predictive
+  `arriving` flag fires (§6.3: "the tick I am about to command will
+  carry me to the target" — computed ahead of time, not discovered
+  after the fact by a position margin). Every constant-acceleration/
+  deceleration profile, floor, and arrival window lives in
+  `VelocityShaper`/`MotionLimits` (`motion/velocity_shaper.h/.cpp`,
+  `motion/motion_limits.h`) — `MotionEngine` owns one settable
+  `MotionLimits&` via `limits()`, which replaces every per-tour shaping
+  setter (`setDistTaper`/`setYawTaper`/`setDistFloor`/`setTurnFloor`/
+  `setRampMs`/`setBrakeFrac`/`setProfileExitMmS`/`setPivotOverrunMm`,
+  all deleted) with `limits().setAccel()`/`setDecel()`/`setJerk()`/
+  `setVMax()`/`setOmegaMax()`/`setVFloor()`/`setOmegaFloor()`/
+  `setStopDistance()`/`setArriveDist()`/`setArriveYaw()`. There is no
+  legacy/shaped mode split any more — the shaper runs unconditionally,
+  and design §7/`captures/motion-profile-probe-20260901/measured.txt`'s
+  own "before" numbers (a v²-growing deceleration, servo-fighting
+  pivots, a 10%-over-cruise straight peak) describe code this rewrite
+  deletes, not a reachable path. `endMove()`, `isMoveActive()`,
+  `isDriving()` (`seg_.active || hold_.active` — `isMoveActive()` alone
+  answers "is a `Segment` running", which is not the same question for
+  a `wheelsV()` hold), `progress()` (0..1000), `wrongWayCount()`.
 - Geometry: `countsPerMm() = 10 / travelCalib`;
   `effectiveTrackWidth() = trackWidth / rotationalSlip`, a method,
   deliberately never cached. **Sprint 007**: `rotationalSlip` gains
@@ -223,16 +251,32 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   taking their cos/sin) must not assume a shared wrap convention across
   implementations.
 
-**Key state.** `MoveState` (segment targets in counts, ramp start,
-pending second phase, one `deadline` spanning both phases). Geometry
-defaults are the vevov bake: `travelCalib` 0.7878 mm/deg, `trackWidth`
-114.2 mm, `rotationalSlip` 0.952 — each with the measurement history
-in the field comments.
+**Key state.** `Segment seg_` (`motion/segment.h`, replaces `MoveState`
+— motion profile unification, sprint 029): targets in counts, `cruise`,
+`dominantAxis` (`kDistance`/`kYaw`, decided once at construction from
+`pureTurn()`), a **lazily-captured** origin, pending second phase, one
+`deadline` spanning both phases. `Hold hold_` (target v/twist, one
+`deadline`) for a continuous `wheelsV()`. One `VelocityShaper shaper_`
+and one `MotionLimits limits_`. **Lazy origin capture** (design §6.5):
+`beginSegment()` issues no `kernel_.drive()` of its own — a fresh
+`Segment` is built with `originPending = true`, and `posLeft0`/
+`posRight0` are captured on the segment's own FIRST `service()` call,
+from that tick's already-published `Output` (which has, by
+construction, already applied any `rebasePosition()` requested before
+it). This retires the old `MoveState`'s `positionEpochLeft0`/`Right0`
+pair entirely — there is no rebase race left to guard against, because
+the origin is never read before the rebase it needs to reflect has
+landed. Cost: the first real command lands one `service()` tick later
+than the old synchronous `startSegment()` did (24 ms), paid back by not
+needing the epoch guard or a synchronous `drive()` call inside a
+primitive. Geometry defaults are the vevov bake: `travelCalib` 0.7878
+mm/deg, `trackWidth` 114.2 mm, `rotationalSlip` 0.952 — each with the
+measurement history in the field comments.
 
 **Dependencies.** Holds references to a caller-owned kernel and
-`Clock` (the ramp and timeout need wall time independent of kernel
-stepping). Owns **no odometry** — pose stays a `shims.cpp`/Rig
-concern; callers update it around `serviceMove()`.
+`Clock` (the shaper's `dt` and the deadline backstop need wall time
+independent of kernel stepping). Owns **no odometry** — pose stays a
+`shims.cpp`/Rig concern; callers update it around `service()`.
 
 **Invariants.**
 - `wheels_*` and every reduction **clears the planner first** — at
@@ -241,9 +285,15 @@ concern; callers update it around `serviceMove()`.
   `rotationalSlip` (see the system doc's geometry doctrine).
 - The CCW sign convention is not re-derived from cable order anywhere
   in this file; host tests pin it.
-- Only a **pure turn** tapers on yaw — in an arc the distance taper
-  already scales twist by the same factor; an independent yaw taper
-  double-counts (measured: legs pinned at the 25% floor, 2026-08-22).
+- Only a **pure turn** tapers on yaw — restated, motion profile
+  unification (sprint 029): `Segment::remaining()` (`motion/segment.h`)
+  reads `distTarget` OR `yawTarget` depending on `dominantAxis`, never
+  both, so a second, independent yaw taper is not just avoided but
+  architecturally unrepresentable — an arc's own remaining-distance
+  computation never even looks at its yaw target's size (the old bug's
+  exact mechanism: legs pinned at a 25% floor by a fixed yaw-count
+  window regardless of how small the yaw target was, 2026-08-22, is not
+  a reachable code path any more).
 
 ## 4. Wire grammar — `comms/wire_handler.h/.cpp` (`Wire::WireHandler`)
 

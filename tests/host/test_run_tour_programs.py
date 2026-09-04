@@ -4,7 +4,7 @@ tour programs `RUN:square`, `RUN:infinity` and `RUN:spline` in
 violate.
 
 **The bug this exists to catch.** `MotionEngine::moveX()` SPLITS any
-move with a nonzero distance and |rotation| >= `kTurnFirstAngleRad`
+move with a nonzero distance and |rotation| >= `kTurnFirstAngle`
 into a pivot THEN a straight (`motion_engine.cpp:371`). An arc asked
 for in pieces at or above that threshold therefore comes out as a
 corner, and a circle built from such pieces comes out as a POLYGON --
@@ -50,16 +50,16 @@ _TS = _TEST_TS.read_text()
 
 
 def _split_threshold_deg():
-    """The real `kTurnFirstAngleRad`, read from the firmware header.
+    """The real `kTurnFirstAngle`, read from the firmware header.
 
     Read rather than hardcoded on purpose: the point of the test is
     that the TypeScript arc step tracks the C++ constant. A copy of
     0.8726646 here would keep passing if the constant moved.
     """
     m = re.search(
-        r"constexpr\s+float\s+kTurnFirstAngleRad\s*=\s*([0-9.]+)f?\s*;", _MOTION_H.read_text()
+        r"constexpr\s+float\s+kTurnFirstAngle\s*=\s*([0-9.]+)f?\s*;", _MOTION_H.read_text()
     )
-    assert m, "kTurnFirstAngleRad not found in motion_engine.h"
+    assert m, "kTurnFirstAngle not found in motion_engine.h"
     return math.degrees(float(m.group(1)))
 
 

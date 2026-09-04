@@ -65,6 +65,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "velocity_shaper.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 
@@ -274,33 +275,71 @@ def _ready(engine):
 
 def _drive_to_natural_completion(e, distance=200.0, cruise=150.0,
                                  timeout_ms=5000):
-    """Reproduces test_regression_post_move_neutral.py's own natural-
-    completion setup (same numbers, same technique) up through the
-    moment `service_move()` first reports the move done -- the exact
-    "neutral staged, not yet delivered, wheels still measured coasting"
-    moment shims.cpp::tickDrive() hands off to the settle helper under
-    test. See that file's test_move_x_natural_completion_delivers_
-    neutral_to_motor for the full derivation of these numbers. Returns
-    (dist_target, t_us) so a caller can continue arming realistic
-    positions/timestamps from where this setup left off."""
+    """REWRITTEN sprint 029 ticket 003 (design motion-profile-
+    unification.md S6.3/S6.5): drives a move_x() to its real completion
+    under the NEW predictive-arrival engine, up through the moment
+    `service_move()` first reports the move done -- the exact "neutral
+    staged, not yet delivered, wheels still measured coasting" moment
+    shims.cpp::tickDrive() hands off to the settle helper under test.
+    Returns (dist_target, t_us) so a caller can continue arming
+    realistic positions/timestamps from where this setup left off.
+
+    The OLD version of this helper (pre-ticket-003) landed on a
+    hand-picked completion velocity (500 counts/s) chosen to sit just
+    inside the OLD fixed-counts completion margin (10 counts) -- that
+    margin no longer exists. VelocityShaper::advance()'s own predictive
+    arrival (`remain <= vNext*dt + stopDistance`) fires as soon as
+    `remain` is small enough relative to whatever the shaper is
+    CURRENTLY commanding, which this fixture does not need to
+    reproduce: landing the THIRD tick's armed position EXACTLY on the
+    target (remain == 0) triggers `arriving` unconditionally, for any
+    nonzero commanded speed (0 <= vNext*dt always holds) -- so this is
+    a genuine completion via the real arrival test, not a hand-picked
+    number tuned to an old formula. The measured velocity that tick
+    (the position DELTA between the second and third scripted samples,
+    over one cycle) comes out comfortably above SETTLE_REST_COUNTS_PER_S
+    "for free", which is all the caller needs ("still coasting" at the
+    moment settle_to_rest() takes over) -- the actual coast-down PROFILE
+    settle_to_rest()'s own iteration behavior is tested against is a
+    separate, explicitly scripted arm_settle_profile() call the caller
+    makes afterward.
+    """
     cpm = e.counts_per_mm()
-    dist_target = distance * cpm
+    dist_target = distance * cpm  # [counts]
 
     e.move_x(distance, 0.0, cruise, timeout_ms)
-    e.step()  # lands the segment's own initial (0.25 ramp) duty
 
-    velocity_at_completion = 500.0  # [counts/s] ~40 mm/s, above rest
-    approach_delta = velocity_at_completion * _CYCLE_S  # 12.0 counts
+    # Tick 1: the baseline sample AT the origin -- service()'s lazy
+    # origin capture (design S6.5) reads THIS step's Output (posLeft0/
+    # posRight0 = 0), then stages the segment's very first command (the
+    # floor, design S6.1's "from rest, the first command is exactly the
+    # floor") for the FOLLOWING step to land. `remain` is the whole
+    # `dist_target`, nowhere near arriving.
     t_us = 24_000
-    e.arm_motor_position_at(LEFT, dist_target - approach_delta, t_us)
-    e.arm_motor_position_at(RIGHT, dist_target - approach_delta, t_us)
-    e.step()  # seeds the baseline sample
+    e.arm_motor_position_at(LEFT, 0.0, t_us)
+    e.arm_motor_position_at(RIGHT, 0.0, t_us)
+    e.step()
     assert e.service_move()  # still active
 
+    # Tick 2: lands tick 1's staged command (motor_last_staged_duty is
+    # now genuinely nonzero) -- still comfortably far from the target
+    # (~157 mm out), so still active.
+    t_us += 24_000
+    still_far = dist_target - 2000.0  # [counts]
+    e.arm_motor_position_at(LEFT, still_far, t_us)
+    e.arm_motor_position_at(RIGHT, still_far, t_us)
+    e.step()
+    assert e.service_move()  # still active
+
+    # Tick 3: lands squarely on the target -- remain == 0 triggers the
+    # shaper's predictive arrival unconditionally (see this function's
+    # own docstring). kernel_.neutral() is STAGED here, not yet
+    # delivered -- exactly the handoff moment settle_to_rest() exists
+    # for.
     t_us += 24_000
     e.arm_motor_position_at(LEFT, dist_target, t_us)
     e.arm_motor_position_at(RIGHT, dist_target, t_us)
-    e.step()  # commits the completing sample: velocity = 500 counts/s
+    e.step()
     assert not e.service_move()  # THIS is the moment "done" is first
                                    # reported -- neutral is now STAGED,
                                    # not yet delivered to the motors.

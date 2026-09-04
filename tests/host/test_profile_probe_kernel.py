@@ -53,6 +53,7 @@ def probe_check_binary(tmp_path_factory):
         str(_TEST_DIR / "profile_probe_kernel_check.cpp"),
         str(_SRC_DIR / "core" / "diffdrive.cpp"),
         str(_SRC_DIR / "motion" / "motion_engine.cpp"),
+        str(_SRC_DIR / "motion" / "velocity_shaper.cpp"),
         "-o", str(out_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)

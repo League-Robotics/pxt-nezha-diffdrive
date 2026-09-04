@@ -3,9 +3,8 @@
 // Answers "given where I am and where I want to be, how fast should
 // the dominant wheel be commanded this tick" -- braking plan, rate
 // limit, optional jerk rounding, floor, and the predictive arrival
-// decision, all in one place (design S6.1). Not yet wired into
-// MotionEngine -- that is sprint 029 ticket 003. This ticket (002)
-// builds the object in isolation (design S11).
+// decision, all in one place (design S6.1). Wired into MotionEngine::
+// service() as its own single scalar shaper.
 //
 // Host-portable by construction: <cstdint>/<cmath> only (std::sqrt for
 // the braking plan) -- no pxt.h, no CODAL type, no counts, no wheels,

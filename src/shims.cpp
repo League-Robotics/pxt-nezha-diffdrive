@@ -11,8 +11,8 @@
 //     kernel's velocity interface. The TypeScript layer polls
 //     updateMove() -- blocking and loop-style forms are both built on
 //     that poll. Both updateMove() and the tick engine below share one
-//     implementation, serviceMove().
-//   - TICK ENGINE: tickDrive() runs one kernel.step() + serviceMove()
+//     implementation, service().
+//   - TICK ENGINE: tickDrive() runs one kernel.step() + service()
 //     on the CALLER's own fiber, then self-paces to the next 24 ms
 //     deadline. The kernel's own background fiber pacer
 //     (start()/run()/fiberEntry()) is deliberately left unwired -- see
@@ -214,18 +214,18 @@ static Rig& ensure() {
     cfg.ki = 6.0f;                   // [1/s]
     cfg.iMax = 765.6f;               // [counts/s]
     cfg.pidMax = 1276.0f;            // [counts/s]
-    // 70 mm/s (2026-08-29), was 20 mm/s (255.2f), a bare-motor figure.
-    // With the floor under breakaway, MOVE_X's end taper let the
-    // position I-term brake the wheel to a near-stop 6-11 mm short and
-    // the 25%-of-cruise crawl feedforward (3-5% duty) could not restart
-    // it, so every leg ended with a stiction jump. MEASURED tovez
-    // 2026-08-29 wheels-up, captures/tovez-taper-20260829/variants.json
-    // (SET speed_floor 893: 0 stalls at 100/150/200 mm/s, legs within
-    // +-1.4 mm; baseline.json: 6-9 mm stalls) and gopiv 2026-08-29,
-    // captures/gopiv-floor70-20260829/ (this default in source: 0/6
-    // restart bumps vs 6/6 stock, legs end ~0.2 s sooner). UNVERIFIED
-    // loaded/on the floor and on vevov; 100 mm/s overshot 2-4 mm.
-    cfg.vMin = 893.2f;               // [counts/s] = 70 mm/s at 12.76 c/mm
+    // K5 (this ticket, design motion-profile-unification.md
+    // S4.5): the floor now lives in MotionLimits::vFloor (motion_limits.h,
+    // default 70 mm/s -- the same MEASURED tovez/gopiv 2026-08-29 value
+    // this field used to carry, see that field's own comment for the
+    // full history: captures/tovez-taper-20260829/variants.json,
+    // captures/gopiv-floor70-20260829/). A kernel floor under an
+    // already-shaped profile is exactly the double-decision this design
+    // removes (S3: "the ratio-preserving speed floor moves from the
+    // kernel to the profiler") -- applySpeedFloor() (diffdrive.cpp)
+    // stays in the vendored kernel for upstream firmware that still
+    // wants it, but is inert here with vMin pinned at 0.
+    cfg.vMin = 0.0f;                 // [counts/s]
     cfg.posErrMax = 127.6f;          // [counts]
     cfg.biasMax = 303.7f;            // [counts/s]
     cfg.tauAdapt = 30.0f;            // [s]
@@ -444,8 +444,23 @@ float engineDefaultCruiseMmS() {
 // MotionEngine::defaultCruiseForDistance() (motion_engine.h). Neither
 // is read by engineWheelsX()'s own wire path -- WHEELS_X/WHEELS_V keep
 // the flat sentinel unconditionally.
+//
+// this ticket: this used to read MotionEngine::aDecelMmS2(),
+// which selected "legacy mode" at its compiled-in 0.0 default (no
+// shaping configured yet). That field is deleted -- MotionLimits::decel
+// defaults to 400 and can never be set back to 0 (design S8: accel/
+// decel are "now always active, no legacy mode") -- so this now reads
+// limits().decel directly, which is always positive. The wire-layer
+// consequence: onMoveX()'s own `engineADecelMmS2() > 0.0f ? ... :
+// ...` selector (wire_adapter.cpp) now ALWAYS takes the distance-aware
+// branch; a MOVE_X `cruise == 0` no longer ever resolves through the
+// flat `default_cruise` field. This is a genuine, ticket-3-forced
+// behavior change (not a choice made here) -- see this ticket's own
+// report for the affected tests (test_wire_motion_verbs.py's SUC-003
+// section) and why the flat-default wire surface itself is out of this
+// ticket's scope (ticket 004 owns the descriptor table).
 float engineADecelMmS2() {
-  return ensure().engine.aDecelMmS2();
+  return ensure().engine.limits().decel;
 }
 
 float engineDefaultCruiseForDistanceMmS(float distanceMm) {
@@ -455,10 +470,11 @@ float engineDefaultCruiseForDistanceMmS(float distanceMm) {
 // SUC-003: MOVE_X's own D input for the resolver above -- a pure pivot
 // (distance == 0) still has a real wheel-travel distance, so onMoveX()
 // (wire_adapter.cpp) reaches this instead of taking |distance| alone.
-// Forwards onto MotionEngine::dominantAxisTravelMm() (motion_engine.h),
-// the same `dominant` quantity startSegment() itself reduces to.
+// Forwards onto MotionEngine::dominantAxisTravel() (motion_engine.h,
+// renamed from dominantAxisTravelMm() -- no-units-in-identifiers.md),
+// the same `dominant` quantity beginSegment() itself reduces to.
 float engineDominantAxisTravelMm(float distanceMm, float rotationRad) {
-  return ensure().engine.dominantAxisTravelMm(distanceMm, rotationRad);
+  return ensure().engine.dominantAxisTravel(distanceMm, rotationRad);
 }
 
 // Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/R-23):
@@ -547,18 +563,18 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // than one blended segment where both axes finish together. Budget
   // the SUM of both axes' durations for that case; max() only covers
   // the genuinely simultaneous (non-split) move. Read the split
-  // threshold from MotionEngine itself (turnFirstAngleRad(), the public
-  // accessor for its own private kTurnFirstAngleRad) rather than
+  // threshold from MotionEngine itself (turnFirstAngle(), the public
+  // accessor for its own private kTurnFirstAngle) rather than
   // retyping the 50 deg constant here, so this decision can never drift
   // from moveX()'s own.
   const bool willSplit =
       distanceMm != 0.0f &&
-      std::fabs(rotationRad) >= MotionEngine::turnFirstAngleRad();
+      std::fabs(rotationRad) >= MotionEngine::turnFirstAngle();
   const float budgetDuration =
       willSplit ? (distDuration + yawDuration) : duration;
 
   // Backstop: for a single segment, this covers the end-of-move taper
-  // (serviceMove) -- the last ~15 deg / ~40 mm run at reduced rate,
+  // (service()) -- the last ~15 deg / ~40 mm run at reduced rate,
   // adding up to ~1 s. When the split above fires, it is ALSO the only
   // thing paying for the SECOND phase's own ramp/taper overhead, since
   // one deadline spans both phases. This is moveX()'s own `timeout` --
@@ -578,7 +594,7 @@ bool updateMove() {
   // lazily updated (poseX()/Y()/heading() on demand) otherwise.
   const bool wasActive = r.engine.isMoveActive();
   if (wasActive) odomUpdate(r);
-  const bool moveActive = r.engine.serviceMove();
+  const bool moveActive = r.engine.service();
   // Cross-fiber stop delivery (sprint 006 ticket 002, BLK-01(b)): this
   // poller's own call path -- isMoving() (moveProgress() is read-only;
   // see verify-blocks.md's BLK-12 spot check, which confirmed
@@ -604,7 +620,7 @@ static bool commandLooksActive(const Rig& r);
 // ---- tick engine --------------------------------------------------------
 // tickDrive(): the caller-driven replacement for the kernel's own
 // now-unwired fiber (see ensure()'s comment). Runs exactly one
-// kernel.step() + serviceMove() on the CALLER's fiber, then self-paces
+// kernel.step() + service() on the CALLER's fiber, then self-paces
 // to the next absolute 24 ms deadline -- the same absolute-deadline
 // pacing DifferentialDrive::run() uses, lifted here since run() itself
 // is no longer wired to anything. The deadline anchors to the previous
@@ -618,8 +634,8 @@ static bool commandLooksActive(const Rig& r);
 // continuous-mode driving never progresses.
 //
 // Returns commandLooksActive(r) -- a move-engine move still in flight,
-// OR nonzero applied duty -- computed AFTER serviceMove() runs. NOT raw
-// post-serviceMove() moveActive: wheelsV()/wheelsX() clear the move
+// OR nonzero applied duty -- computed AFTER service() runs. NOT raw
+// post-service() moveActive: wheelsV()/wheelsX() clear the move
 // planner before tickDrive() is ever called, so a continuous-mode
 // `while (tickDrive())` loop reading raw moveActive exited on its very
 // first iteration (the starvation watchdog then stopped the robot
@@ -671,10 +687,10 @@ bool tickDrive() {
   // -- a different caller, serving the TypeScript layer's blocking-move
   // poll -- is untouched; see its own comment.
   odomUpdate(r);
-  const bool moveActive = r.engine.serviceMove();
+  const bool moveActive = r.engine.service();
 
   // Move-completion stop delivery (bench root-cause, 2026-08-20): when
-  // serviceMove() ends the move it posts kernel.neutral(), but the
+  // service() ends the move it posts kernel.neutral(), but the
   // neutral only reaches the MOTORS on the NEXT kernel.step() -- and a
   // `while (tickDrive())` caller exits the moment we return false, so
   // that step never ran. The wheels then coasted at the last commanded
@@ -809,7 +825,17 @@ static constexpr uint64_t kWatchdogTimeoutUs = 100000ull;  // [us] ~4 periods
 // continuous-drive (setWheels/driveTwist and their timed variants) and
 // move-engine abandonment.
 static bool commandLooksActive(const Rig& r) {
-  if (r.engine.isMoveActive()) return true;
+  // this ticket: isDriving() (seg_.active || hold_.active),
+  // not isMoveActive() (seg_.active alone). wheelsV()/wheelsX() no
+  // longer call kernel_.drive() synchronously -- service()'s lazy start
+  // (design S6.5) means a freshly-armed continuous hold shows zero
+  // applied duty for one extra tick (the command lands on the NEXT
+  // step(), after service() stages it), so isMoveActive()'s old
+  // Segment-only reading would let this fall through to the applied-
+  // duty check below and read false for that one tick -- exactly the
+  // starvation this function exists to prevent. isDriving() covers the
+  // hold immediately, synchronously, the moment wheelsV() arms it.
+  if (r.engine.isDriving()) return true;
   const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
   return out.appliedDutyLeft != 0.0f || out.appliedDutyRight != 0.0f;
 }
@@ -1084,29 +1110,46 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // magnitude is otherwise ignored. Deliberately does not touch
     // estopLatch_ -- see clearStall()'s own comment above.
     case 17: if (v != 0.0f) k.clearStallLatch(); break;
-    // 18 (2026-08-29, OOP): pivot_overrun -- a thin forward to
-    // MotionEngine::setPivotOverrunMm(), which owns its own ">= 0, else
-    // keep the prior value" validation (motion_engine.h), same shape as
-    // case 16's rotational_slip forward above.
-    case 18: r.engine.setPivotOverrunMm(v); break;
-    // 19-27: constant-a shaping plus the five pre-existing end-of-move
-    // shaping knobs, all thin forwards to MotionEngine setters that
-    // already own their own validation (motion_engine.h) -- same
-    // shape as case 16/18's forwards above, no inline check needed
-    // here.
-    case 19: r.engine.setAAccelMmS2(v); break;
-    case 20: r.engine.setADecelMmS2(v); break;
-    case 21: r.engine.setVMaxMmS(v); break;
-    case 22: r.engine.setBrakeFrac(v); break;
-    case 23: r.engine.setDistTaper(v); break;
-    case 24: r.engine.setYawTaper(v); break;
-    case 25: r.engine.setDistFloor(v); break;
-    case 26: r.engine.setTurnFloor(v); break;
-    case 27: r.engine.setRampMs(v); break;
-    case 28: r.engine.setJerkMmS3(v); break;
-    case 29: r.engine.setPlateauMinS(v); break;
-    case 30: r.engine.setMaxYawRateDegS(v); break;
-    case 31: r.engine.setProfileExitMmS(v); break;
+    // 18 (this ticket, design motion-profile-unification.md
+    // S4.7): stop_distance -- replaces pivot_overrun
+    // (MotionEngine::pivotOverrunMm_, deleted this ticket: the per-wheel
+    // coast is now a MotionLimits concept the shaper's own predictive-
+    // arrival math consumes every tick, S6.3, not a static subtraction
+    // from the segment's target at start time). Forwards to
+    // MotionLimits::setStopDistance(), which owns its own ">= 0, else
+    // keep the prior value" validation (motion_limits.h).
+    case 18: r.engine.limits().setStopDistance(v); break;
+    // 19-21, 28, 30 (design S4.7's wire-name table): accel/decel/v_max/
+    // jerk/omega_max -- thin forwards to MotionLimits setters, which own
+    // their own validation (motion_limits.h), same shape as case 16/18's
+    // forwards above. this ticket: these used to forward to
+    // MotionEngine's own aAccelMmS2_/aDecelMmS2_/vMaxMmS_/jerkMmS3_/
+    // maxYawRateDegS_ setters (all deleted) -- accel/decel/jerk/omegaMax
+    // are now always active (no more "0 selects legacy mode"; design
+    // S8: "now always active, no legacy mode").
+    case 19: r.engine.limits().setAccel(v); break;
+    case 20: r.engine.limits().setDecel(v); break;
+    case 21: r.engine.limits().setVMax(v); break;
+    // 22-27, 29, 31 (this ticket): brake_frac/dist_taper/
+    // yaw_taper/dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit
+    // -- every one of these named a field this ticket DELETES from
+    // MotionEngine (the old thirteen shaping fields; design S4.7's
+    // wire-name table marks all eight of these ordinals "removed").
+    // Ticket 004 owns making removed ordinals answer `err 1` on both
+    // SET and GET (the descriptor-table protocol, design S4.7) -- until
+    // then these are harmless no-ops rather than a dangling call into a
+    // deleted method. // ticket 004
+    case 22:
+    case 23:
+    case 24:
+    case 25:
+    case 26:
+    case 27:
+    case 29:
+    case 31:
+      break;
+    case 28: r.engine.limits().setJerk(v); break;
+    case 30: r.engine.limits().setOmegaMax(v); break;
     // 32: rebase -- zero the odometry frame, a write-triggered action
     // wearing a config-field's clothes (same shape as stall_clear's
     // case 17 above). Writes BOTH pose sources, mirroring seedPose()'s
@@ -1184,24 +1227,35 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // ordinal has no stored Config field at all; see clearStall()'s own
     // comment above and sprint 007's design/DESIGN.md §5 field table).
     case 17: v = r.kernel.output().stallHalted ? 1.0f : 0.0f; break;
-    // 18: pivot_overrun's GET side -- MotionEngine::pivotOverrunMm(),
-    // not a kernel Config field (same as case 16 above).
-    case 18: v = r.engine.pivotOverrunMm(); break;
-    // 19-27: GET side of the setKernelValue() forwards above, same
-    // "not a kernel Config field" shape as case 16/18.
-    case 19: v = r.engine.aAccelMmS2(); break;
-    case 20: v = r.engine.aDecelMmS2(); break;
-    case 21: v = r.engine.vMaxMmS(); break;
-    case 22: v = r.engine.brakeFrac(); break;
-    case 23: v = r.engine.distTaper(); break;
-    case 24: v = r.engine.yawTaper(); break;
-    case 25: v = r.engine.distFloor(); break;
-    case 26: v = r.engine.turnFloor(); break;
-    case 27: v = r.engine.rampMs(); break;
-    case 28: v = r.engine.jerkMmS3(); break;
-    case 29: v = r.engine.plateauMinS(); break;
-    case 30: v = r.engine.maxYawRateDegS(); break;
-    case 31: v = r.engine.profileExitMmS(); break;
+    // 18: stop_distance's GET side (this ticket) --
+    // MotionLimits::stopDistance, not a kernel Config field (same as
+    // case 16 above). See setKernelValue()'s own case 18 comment.
+    case 18: v = r.engine.limits().stopDistance; break;
+    // 19-21, 28, 30: GET side of the setKernelValue() forwards above,
+    // same "not a kernel Config field" shape as case 16/18.
+    case 19: v = r.engine.limits().accel; break;
+    case 20: v = r.engine.limits().decel; break;
+    case 21: v = r.engine.limits().vMax; break;
+    case 28: v = r.engine.limits().jerk; break;
+    case 30: v = r.engine.limits().omegaMax; break;
+    // 22-27, 29, 31: removed ordinals (brake_frac/dist_taper/yaw_taper/
+    // dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit) -- named
+    // explicitly (not left to `default:`) so
+    // test_wire_constants_drift.py's own ordinal-coverage sweep can
+    // still confirm every blocks/motion.ts ConfigField ordinal has a
+    // case here, even though each one currently answers 0. Ticket 004
+    // owns making these answer `err 1` instead (design S4.7).
+    // // ticket 004
+    case 22:
+    case 23:
+    case 24:
+    case 25:
+    case 26:
+    case 27:
+    case 29:
+    case 31:
+      v = 0.0f;
+      break;
     // 33: estop_clear's GET side -- a convenience readback of
     // Output.estopped, same "not a stored Config field" shape as the
     // stall latch's own clear field's GET (case 17 above). 32 (rebase)
@@ -1346,35 +1400,37 @@ float engineGoToWChordMm(float worldX, float worldY) {
   return std::hypot(worldX - pose.x(), worldY - pose.y());
 }
 
-// Set end-of-move shaping. Larger tapers and lower floors buy accuracy
-// with time; a closed-loop caller that re-fixes between moves should
-// spend far less of it. Zero or negative leaves a field unchanged.
-// NOTE: kept to TWO arguments each. A single five-argument shim made
-// the PXT compiler fail with "TS9200: Assertion failed" -- reported
-// against this project's single pre-sprint-012-split top-level file at
-// (1,1), nowhere near the real cause. The `//%` marker
-// must also sit IMMEDIATELY above the signature; a comment between
-// them makes the scanner miss the function entirely.
+// this ticket (design motion-profile-unification.md S4.7):
+// hidden no-op shims for one release. These used to set end-of-move
+// shaping fields (distTaper_/yawTaper_/distFloor_/turnFloor_/rampMs_)
+// that this ticket DELETES from MotionEngine entirely -- the taper
+// window, the floor fraction and the ramp time are all superseded by
+// MotionLimits + VelocityShaper (design S4.1/S4.2), reachable only
+// through limits() now, which these three block-facing shims have no
+// parameter shape to express (percent-of-cruise floors and counts-
+// windows don't correspond to anything VelocityShaper reads). A
+// MakeCode project saved before this ticket that calls
+// `setTaperWindows`/`setTaperFloors`/`setRampMs` still compiles and
+// runs -- it just does nothing now, per design S4.7's own migration
+// note ("MakeCode projects that used them compile, do nothing, and the
+// release note says so"). Ticket 004 owns the block palette's own
+// hiding of these entries; this ticket only empties their bodies so
+// the call sites that remain do not dangle into deleted methods.
 //%
 void setTaperWindows(int distCounts, int yawCounts) {
-  Rig& r = ensure();
-  if (distCounts > 0) r.engine.setDistTaper(static_cast<float>(distCounts));
-  if (yawCounts > 0) r.engine.setYawTaper(static_cast<float>(yawCounts));
+  (void)distCounts;
+  (void)yawCounts;
 }
 
 //%
 void setTaperFloors(int distPct, int turnPct) {
-  Rig& r = ensure();
-  if (distPct > 0)
-    r.engine.setDistFloor(static_cast<float>(distPct) * 0.01f);
-  if (turnPct > 0)
-    r.engine.setTurnFloor(static_cast<float>(turnPct) * 0.01f);
+  (void)distPct;
+  (void)turnPct;
 }
 
 //%
 void setRampMs(int ms) {
-  Rig& r = ensure();
-  if (ms > 0) r.engine.setRampMs(static_cast<float>(ms));
+  (void)ms;
 }
 
 // Measured wheel speed [mm/s] straight from the kernel's per-tick

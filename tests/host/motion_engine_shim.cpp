@@ -125,6 +125,20 @@ void meKernelEstop(void* handle) {
   static_cast<Handle*>(handle)->kernel.estop();
 }
 
+// test_segment_lazy_origin.py's own entry point: reaches the REAL
+// kernel.rebasePosition() directly (diffdrive.h/.cpp), mirroring
+// kernel_shim.cpp's kdRebasePosition -- a deferred request the kernel
+// applies on its own NEXT step() (diffdrive.cpp), not synchronously
+// here. Used to prove Segment's own lazy origin capture (segment.h's
+// header comment, design S6.5) is never stale: a rebase requested
+// between start() and the first service() lands on the SAME step()
+// that service()'s own origin capture reads from, so it can never be
+// applied "too late" the way the old MoveState's positionEpochLeft0/
+// Right0 pair had to guard against.
+void meRebasePosition(void* handle) {
+  static_cast<Handle*>(handle)->kernel.rebasePosition();
+}
+
 // Regression guard (post-move neutral delivery, commit 3e919e5):
 // exposes the kernel's own MEASURED velocity (diffdrive.h Output.
 // velocityLeft/Right -- computed from encoder position deltas across
@@ -187,77 +201,81 @@ void meSetTravelCalib(void* handle, float mmPerDeg) {
 void meSetRotationalSlip(void* handle, float slip) {
   static_cast<Handle*>(handle)->engine.setRotationalSlip(slip);
 }
-float mePivotOverrunMm(void* handle) {
-  return static_cast<Handle*>(handle)->engine.pivotOverrunMm();
-}
-void meSetPivotOverrunMm(void* handle, float mm) {
-  static_cast<Handle*>(handle)->engine.setPivotOverrunMm(mm);
-}
+// ---- MotionEngine: limits() -- this ticket's one settable
+// shaping surface (design motion-profile-unification.md S4.4),
+// replacing the thirteen deleted MotionEngine fields/setters
+// (aAccelMmS2_/aDecelMmS2_/vMaxMmS_/brakeFrac_/jerkMmS3_/plateauMinS_/
+// maxYawRateDegS_/profileExitMmS_/distTaper_/yawTaper_/distFloor_/
+// turnFloor_/rampMs_/pivotOverrunMm_ and their getters/setters) that
+// used to be exported individually above. One generic getter/setter
+// pair per MotionLimits field (motion_limits.h) instead -- see that
+// header for each field's own comment. --------------------------------
 
-// ---- MotionEngine: constant-a acceleration/deceleration shaping
-// (sprint 025 ticket 001) plus getters for the five pre-existing
-// end-of-move shaping fields (distTaper/yawTaper/distFloor/turnFloor/
-// rampMs, setters already exported below) -- see motion_engine.h's own
-// field comments for defaults/validation/units. ------------------------
-
-float meAAccelMmS2(void* handle) {
-  return static_cast<Handle*>(handle)->engine.aAccelMmS2();
+float meLimitsAccel(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().accel;
 }
-void meSetAAccelMmS2(void* handle, float mmS2) {
-  static_cast<Handle*>(handle)->engine.setAAccelMmS2(mmS2);
+void meLimitsSetAccel(void* handle, float mmS2) {
+  static_cast<Handle*>(handle)->engine.limits().setAccel(mmS2);
 }
-float meADecelMmS2(void* handle) {
-  return static_cast<Handle*>(handle)->engine.aDecelMmS2();
+float meLimitsDecel(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().decel;
 }
-void meSetADecelMmS2(void* handle, float mmS2) {
-  static_cast<Handle*>(handle)->engine.setADecelMmS2(mmS2);
+void meLimitsSetDecel(void* handle, float mmS2) {
+  static_cast<Handle*>(handle)->engine.limits().setDecel(mmS2);
 }
-
-void meSetJerkMmS3(void* handle, float mmS3) {
-  auto* h = static_cast<Handle*>(handle);
-  h->engine.setJerkMmS3(mmS3);
+float meLimitsJerk(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().jerk;
 }
-
-void meSetPlateauMinS(void* handle, float sec) {
-  auto* h = static_cast<Handle*>(handle);
-  h->engine.setPlateauMinS(sec);
+void meLimitsSetJerk(void* handle, float mmS3) {
+  static_cast<Handle*>(handle)->engine.limits().setJerk(mmS3);
 }
-
-void meSetProfileExitMmS(void* handle, float mmS) {
-  Handle* h = static_cast<Handle*>(handle);
-  h->engine.setProfileExitMmS(mmS);
+float meLimitsVMax(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().vMax;
 }
-
-void meSetMaxYawRateDegS(void* handle, float degS) {
-  auto* h = static_cast<Handle*>(handle);
-  h->engine.setMaxYawRateDegS(degS);
+void meLimitsSetVMax(void* handle, float mmS) {
+  static_cast<Handle*>(handle)->engine.limits().setVMax(mmS);
 }
-
-float mePlateauCruiseMmS(void* handle, float distanceMm) {
-  auto* h = static_cast<Handle*>(handle);
-  return h->engine.plateauCruiseMmS(distanceMm);
+float meLimitsOmegaMax(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().omegaMax;
 }
-
-float meYawRateCapMmS(void* handle) {
-  auto* h = static_cast<Handle*>(handle);
-  return h->engine.yawRateCapMmS();
+void meLimitsSetOmegaMax(void* handle, float degS) {
+  static_cast<Handle*>(handle)->engine.limits().setOmegaMax(degS);
 }
-float meVMaxMmS(void* handle) {
-  return static_cast<Handle*>(handle)->engine.vMaxMmS();
+float meLimitsVFloor(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().vFloor;
 }
-void meSetVMaxMmS(void* handle, float mmS) {
-  static_cast<Handle*>(handle)->engine.setVMaxMmS(mmS);
+void meLimitsSetVFloor(void* handle, float mmS) {
+  static_cast<Handle*>(handle)->engine.limits().setVFloor(mmS);
 }
-float meBrakeFrac(void* handle) {
-  return static_cast<Handle*>(handle)->engine.brakeFrac();
+float meLimitsOmegaFloor(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().omegaFloor;
 }
-void meSetBrakeFrac(void* handle, float frac) {
-  static_cast<Handle*>(handle)->engine.setBrakeFrac(frac);
+void meLimitsSetOmegaFloor(void* handle, float degS) {
+  static_cast<Handle*>(handle)->engine.limits().setOmegaFloor(degS);
+}
+float meLimitsStopDistance(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().stopDistance;
+}
+void meLimitsSetStopDistance(void* handle, float mm) {
+  static_cast<Handle*>(handle)->engine.limits().setStopDistance(mm);
+}
+float meLimitsArriveDist(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().arriveDist;
+}
+void meLimitsSetArriveDist(void* handle, float mm) {
+  static_cast<Handle*>(handle)->engine.limits().setArriveDist(mm);
+}
+float meLimitsArriveYaw(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().arriveYaw;
+}
+void meLimitsSetArriveYaw(void* handle, float deg) {
+  static_cast<Handle*>(handle)->engine.limits().setArriveYaw(deg);
 }
 
 // SUC-003: the distance-chosen default-cruise resolver itself --
 // MotionEngine::defaultCruiseForDistance(), reading whatever
-// aAccelMmS2_/vMaxMmS_/brakeFrac_ the four setters above last wrote.
+// limits().decel/vMax the setters above last wrote (design S8:
+// v_default(D) = min(vMax, sqrt(decel*D))).
 float meDefaultCruiseForDistance(void* handle, float distanceMm) {
   return static_cast<Handle*>(handle)->engine.defaultCruiseForDistance(
       distanceMm);
@@ -265,10 +283,20 @@ float meDefaultCruiseForDistance(void* handle, float distanceMm) {
 
 // SUC-003: the dominant-axis wheel-travel input helper -- a pure pivot
 // (distanceMm == 0) still resolves a nonzero D from rotationRad alone.
+// Shim name kept as meDominantAxisTravelMm (test scaffolding, not
+// renamed) even though the underlying MotionEngine method is now
+// dominantAxisTravel() (no-units-in-identifiers.md).
 float meDominantAxisTravelMm(void* handle, float distanceMm,
                              float rotationRad) {
-  return static_cast<Handle*>(handle)->engine.dominantAxisTravelMm(
+  return static_cast<Handle*>(handle)->engine.dominantAxisTravel(
       distanceMm, rotationRad);
+}
+
+// True iff EITHER a Segment or a continuous Hold is currently driving
+// (MotionEngine::isDriving(), this ticket addition -- see
+// that method's own comment, motion_engine.h).
+int meIsDriving(void* handle) {
+  return static_cast<Handle*>(handle)->engine.isDriving() ? 1 : 0;
 }
 
 // ---- MotionEngine: the two primitives (motion-api.md S3.1/S3.2) -------
@@ -364,8 +392,12 @@ float meSelectPoseSourceX(void* handle, int primaryConnected) {
                                      h->encoderPose)
       .x();
 }
+// Shim name kept as meServiceMove (test scaffolding is not renamed)
+// even though the underlying MotionEngine method is now service()
+// (this ticket) -- every test file that already binds
+// meServiceMove keeps working unchanged.
 int meServiceMove(void* handle) {
-  return static_cast<Handle*>(handle)->engine.serviceMove() ? 1 : 0;
+  return static_cast<Handle*>(handle)->engine.service() ? 1 : 0;
 }
 int meIsMoveActive(void* handle) {
   return static_cast<Handle*>(handle)->engine.isMoveActive() ? 1 : 0;
@@ -415,36 +447,10 @@ int meProgress(void* handle) {
 uint32_t meWrongWayCount(void* handle) {
   return static_cast<Handle*>(handle)->engine.wrongWayCount();
 }
-void meSetDistTaper(void* handle, float counts) {
-  static_cast<Handle*>(handle)->engine.setDistTaper(counts);
-}
-float meDistTaper(void* handle) {
-  return static_cast<Handle*>(handle)->engine.distTaper();
-}
-void meSetYawTaper(void* handle, float counts) {
-  static_cast<Handle*>(handle)->engine.setYawTaper(counts);
-}
-float meYawTaper(void* handle) {
-  return static_cast<Handle*>(handle)->engine.yawTaper();
-}
-void meSetDistFloor(void* handle, float fraction) {
-  static_cast<Handle*>(handle)->engine.setDistFloor(fraction);
-}
-float meDistFloor(void* handle) {
-  return static_cast<Handle*>(handle)->engine.distFloor();
-}
-void meSetTurnFloor(void* handle, float fraction) {
-  static_cast<Handle*>(handle)->engine.setTurnFloor(fraction);
-}
-float meTurnFloor(void* handle) {
-  return static_cast<Handle*>(handle)->engine.turnFloor();
-}
-void meSetRampMs(void* handle, float ms) {
-  static_cast<Handle*>(handle)->engine.setRampMs(ms);
-}
-float meRampMs(void* handle) {
-  return static_cast<Handle*>(handle)->engine.rampMs();
-}
+// distTaper_/yawTaper_/distFloor_/turnFloor_/rampMs_ and their shims
+// (meSetDistTaper/meDistTaper/...) are DELETED (this ticket) --
+// superseded by limits() (meLimits* above). No test in this tree needs
+// them any more.
 
 // Arms the NEXT tick()'s reported encoder position directly (bypassing
 // any simulated physics -- see fake_ports.h's own FakeMotor comment):
@@ -569,7 +575,7 @@ uint32_t meProbeRunToCompletion(void* handle, float fullDutyVelocity,
     h->probeY_ += dC * std::sin(mid);
     h->probeHeading_ += dHeading;
 
-    h->engine.serviceMove();
+    h->engine.service();
   }
   return ticks;
 }

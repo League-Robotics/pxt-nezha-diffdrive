@@ -115,7 +115,7 @@ struct Rig {
     kernel.step();
     right.collectSucceeds = true;
     odom();
-    engine.serviceMove();
+    engine.service();
     const float cpm = engine.countsPerMm();
     speedLog.push_back(std::max(std::fabs(vL), std::fabs(vR)) / cpm);
     dutyLog.push_back(kernel.output().appliedDutyRight);

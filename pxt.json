@@ -13,6 +13,7 @@
         "src/core/diffdrive.cpp",
         "src/motion/motion_engine.h",
         "src/motion/motion_engine.cpp",
+        "src/motion/segment.h",
         "src/motion/motion_limits.h",
         "src/motion/velocity_shaper.h",
         "src/motion/velocity_shaper.cpp",

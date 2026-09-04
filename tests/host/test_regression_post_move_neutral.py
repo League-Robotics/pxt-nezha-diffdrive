@@ -159,34 +159,54 @@ def test_move_x_natural_completion_delivers_neutral_to_motor(motion_lib):
                 (e.motor_last_staged_duty(LEFT), e.motor_last_staged_duty(RIGHT))
             )
 
+        # REWRITTEN sprint 029 ticket 003 (design S6.1/S6.3/S6.5): the
+        # OLD setup placed the "not yet done" sample exactly 12 counts
+        # short of the target, inside the OLD fixed 10-count completion
+        # margin's complement. That number no longer works: predictive
+        # arrival's own threshold (design S6.3, `remain <= vNext*dt +
+        # stopDistance`) is close to v_floor*dt (~21 counts at this
+        # fixture's default geometry/cadence), so a 12-count remainder
+        # would ALREADY read as arriving, not "still active" -- there is
+        # no fixed margin left to place a sample just outside of. This
+        # version instead: (1) lands the segment's own real first (floor)
+        # command via land_first_command() (design S6.5 -- the old
+        # single step() no longer suffices, see this file's own header
+        # comment); (2) arms a "still comfortably far" sample (not yet
+        # arrived); (3) arms the EXACT target as the completing sample --
+        # remain == 0 there always triggers the shaper's predictive
+        # arrival, regardless of dt (motion_engine.cpp's own remain
+        # clamp). The completing sample's OWN measured velocity is
+        # whatever the (still-far -> exact-target) position delta
+        # implies -- no longer a specific hand-picked "500 counts/s"
+        # value, just confirmed comfortably above the settle threshold
+        # below, which is all this test's own Part 2 needs.
         e.move_x(distance, 0.0, cruise, timeout_ms)
-        e.step()  # lands the segment's own initial (0.25 ramp) duty
+        e.land_first_command()
         record()
 
-        # A chosen "still coasting at 500 counts/s" velocity at the
-        # completing sample: the last 12 counts (~1 mm) of the move
-        # arrive in one 24 ms tick, 500 counts/s = 12 counts / 0.024 s.
-        velocity_at_completion = 500.0  # [counts/s] ~40 mm/s
-        assert velocity_at_completion > SETTLE_REST_COUNTS_PER_S  # sanity
-
-        approach_delta = velocity_at_completion * _CYCLE_S  # 12.0 counts
-        t_us = 24_000
-        e.arm_motor_position_at(LEFT, dist_target - approach_delta, t_us)
-        e.arm_motor_position_at(RIGHT, dist_target - approach_delta, t_us)
-        e.step()  # seeds the baseline sample -- no velocity yet (first
-        record()  # -ever sample), remain = 12 counts > the 10-count
-                  # margin, so the move is not done yet.
+        still_far = dist_target - 100.0  # [counts] comfortably above the
+                                          # ~21-count arrival threshold
+        t_us = 48_000
+        e.arm_motor_position_at(LEFT, still_far, t_us)
+        e.arm_motor_position_at(RIGHT, still_far, t_us)
+        e.step()
+        record()
         assert e.service_move()  # still active
 
         t_us += 24_000
         e.arm_motor_position_at(LEFT, dist_target, t_us)
         e.arm_motor_position_at(RIGHT, dist_target, t_us)
-        e.step()  # commits the completing sample: velocity = 12/0.024
-        record()  # = 500 counts/s exactly; meanProgress == distTarget.
+        e.step()  # commits the completing sample: remain == 0
+        record()
 
         assert not e.service_move()  # THIS is the moment "done" is
                                       # first reported.
         assert not e.is_move_active()
+
+        velocity_at_completion = 100.0 / _CYCLE_S  # [counts/s] the
+                                                     # measured delta
+                                                     # implies, ~328 mm/s
+        assert velocity_at_completion > SETTLE_REST_COUNTS_PER_S  # sanity
 
         # The instant completion is reported, the motor's last staged
         # duty is still the CRUISE value from the tick that just
@@ -306,7 +326,7 @@ def test_end_move_delivers_neutral_to_motor(motion_lib):
     with Engine(motion_lib) as e:
         _ready(e)
         e.move_x(500.0, 0.0, 100.0, 5000)
-        e.step()  # lands a nonzero cruise duty
+        e.land_first_command()  # lands a nonzero (floor) duty
         assert e.is_move_active()
         duty_before_stop = (
             e.motor_last_staged_duty(LEFT), e.motor_last_staged_duty(RIGHT))
@@ -343,35 +363,40 @@ def test_move_x_timeout_abort_delivers_neutral_to_motor(motion_lib):
         _ready(e)
         e.set_clock(0)
         e.move_x(1000.0, 0.0, 50.0, 2000)  # [mm] [rad] [mm/s] [ms]
+        e.land_first_command()
 
+        # Sprint 029 ticket 003 (design S5): service() reissues its
+        # rolling 500 ms kernel lease on EVERY tick now -- a big clock
+        # jump must call service_move() BEFORE step() to refresh that
+        # lease at the new time (see
+        # test_motion_engine_reductions.py's own
+        # test_move_x_timeout_is_a_real_backstop_on_a_blocked_robot for
+        # the full explanation of this ordering).
         e.set_clock(1_999_000)  # still inside the timeout
-        e.step()
         assert e.service_move()
         assert e.is_move_active()
+        e.step()
         duty_before_timeout = (
             e.motor_last_staged_duty(LEFT), e.motor_last_staged_duty(RIGHT))
         assert duty_before_timeout != (pytest.approx(0.0), pytest.approx(0.0))
 
         e.set_clock(2_001_000)  # past the timeout
-        e.step()  # lands whatever scale the PRIOR service_move() call
-                   # reissued (the ramp has long since reached full
-                   # scale by 1999 ms, so this is not duty_before_timeout
-                   # itself -- only that it is still nonzero matters
-                   # here).
-        duty_at_expiry = (
-            e.motor_last_staged_duty(LEFT), e.motor_last_staged_duty(RIGHT))
-        assert duty_at_expiry != (pytest.approx(0.0), pytest.approx(0.0))
-
         assert not e.service_move()  # detects `expired`, STAGES
                                        # kernel_.neutral() -- not yet
-                                       # delivered.
+                                       # delivered: no step() has run
+                                       # since the last one that landed
+                                       # duty_before_timeout, so the
+                                       # motor's own last-applied duty
+                                       # is still exactly that value.
         assert not e.is_move_active()
-        # Same staged-not-delivered gap as the natural-completion path:
-        # the timeout abort's kernel_.neutral() (just staged above) has
-        # not reached the motor yet -- the duty is unchanged from the
-        # instant before this call.
-        assert (e.motor_last_staged_duty(LEFT), e.motor_last_staged_duty(RIGHT)) == (
-            duty_at_expiry)
+        duty_at_expiry = (
+            e.motor_last_staged_duty(LEFT), e.motor_last_staged_duty(RIGHT))
+        assert duty_at_expiry == duty_before_timeout, (
+            "Same staged-not-delivered gap as the natural-completion "
+            "path: the timeout abort's kernel_.neutral() (just staged "
+            "above) has not reached the motor yet -- the duty must be "
+            "unchanged from before this service_move() call."
+        )
 
         e.step()  # the required extra step
         assert (e.motor_last_staged_duty(LEFT), e.motor_last_staged_duty(RIGHT)) == (

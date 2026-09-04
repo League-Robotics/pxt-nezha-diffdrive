@@ -11,13 +11,27 @@ motion-api.md S2 ("Everything is constant-ratio wheel segments"), S3.3
 (go_to_r's arc solve).
 
 Verification strategy: same as test_motion_engine_primitives.py --
-read back FakeMotor's own LAST STAGED DUTY after exactly one
-step(), with the kernel configured so duty is pure feedforward (only
-maxDuty/fullDutyVelocity set). moveX()'s FIRST tick is additionally
-scaled by the acceleration ramp's floor (0.25, motion_engine.cpp's own
-`cmdScale = 0.25f` at segment start) -- every hand-computed expectation
-below bakes that scale in explicitly rather than hiding it in a helper
-default, so the ramp's existence stays visible at each call site.
+read back FakeMotor's own LAST STAGED DUTY, with the kernel configured
+so duty is pure feedforward (only maxDuty/fullDutyVelocity set).
+
+REWRITTEN sprint 029 ticket 003 (design docs/design/motion-profile-
+unification.md S6.1/S6.5): a fresh Segment/Hold no longer drives the
+kernel synchronously -- `beginSegment()`/`wheelsV()` only arm the
+engine's own state; the FIRST real `kernel_.drive()` call happens on
+the FIRST `service()` tick (which captures the segment's lazy origin
+from that tick's already-published Output), and that command is not
+LANDED on the motor (visible via `motor_last_staged_duty`) until the
+FOLLOWING `kernel_.step()`. So where this file used to read the first
+command after a single `e.step()` (drive() was issued synchronously,
+before that step, by the old startSegment()), it now needs
+`e.land_first_command()` (below) -- `step(); service_move(); step();`
+-- and the value that command lands at is no longer a ramp fraction of
+`cruise` (the old `cmdScale = 0.25f` literal) but exactly the FLOOR
+(design S6.1: "from rest, the first command is the floor, a step,
+deliberately") -- `_first_tick_duty_pair()` (below) computes it: the
+plain `vFloor` (70 mm/s) for a straight leg or a blended arc, or the
+omega-floor converted to the dominant wheel's own mm/s for a pure
+turn (design S6.2).
 
 Multi-tick behavior (the pivot-then-straight phase transition, the
 `timeout` backstop, wrong-way abort) is driven by arming FakeMotor's
@@ -44,6 +58,7 @@ _SRC_DIR = _TEST_DIR.parent.parent / "src"
 _SHIM_SOURCES = [
     _SRC_DIR / "core" / "diffdrive.cpp",
     _SRC_DIR / "motion" / "motion_engine.cpp",
+    _SRC_DIR / "motion" / "velocity_shaper.cpp",
     _TEST_DIR / "motion_engine_shim.cpp",
 ]
 
@@ -59,7 +74,7 @@ _DUTY_REL = 1e-4
 
 # motion-api.md S3.3's measured threshold, `navigator.cpp:237-240`'s
 # `turn_first_angle` -- the same 50 deg the engine's own
-# kTurnFirstAngleRad constant encodes (0.8726646 rad). Tests below use
+# kTurnFirstAngle constant encodes (0.8726646 rad). Tests below use
 # 49.5/50.5 deg -- comfortably on either side of the boundary -- rather
 # than the exact 50.0 deg value, so a double-vs-float32 rounding
 # difference between this file's math and the engine's own float
@@ -113,11 +128,6 @@ def _bind(lib):
     lib.meSetRotationalSlip.restype = None
     lib.meRotationalSlip.argtypes = [ctypes.c_void_p]
     lib.meRotationalSlip.restype = ctypes.c_float
-    lib.meSetPivotOverrunMm.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetPivotOverrunMm.restype = None
-    lib.mePivotOverrunMm.argtypes = [ctypes.c_void_p]
-    lib.mePivotOverrunMm.restype = ctypes.c_float
-
     lib.meWheelsV.argtypes = [
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
     ]
@@ -268,12 +278,6 @@ class Engine:
     def rotational_slip(self):
         return self._lib.meRotationalSlip(self._handle)
 
-    def set_pivot_overrun_mm(self, mm):
-        self._lib.meSetPivotOverrunMm(self._handle, mm)
-
-    def pivot_overrun_mm(self):
-        return self._lib.mePivotOverrunMm(self._handle)
-
     # ---- move engine ----
     def move_x(self, distance, rotation, cruise, timeout_ms):
         self._lib.meMoveX(self._handle, distance, rotation, cruise,
@@ -287,6 +291,40 @@ class Engine:
 
     def service_move(self):
         return bool(self._lib.meServiceMove(self._handle))
+
+    def land_first_command(self):
+        """Sprint 029 ticket 003 (design S6.5's lazy start): the THREE
+        calls needed, after a fresh moveX()/wheelsX()/wheelsV()/goToR(),
+        to see that command's effect on motor_last_staged_duty --
+        replacing the single step() this file used to need (the old
+        engine issued kernel_.drive() synchronously, inside the
+        primitive itself). step() gives service() a fresh Output to
+        capture the segment's lazy origin from; service() captures it
+        and stages the FIRST command (the floor); the second step()
+        lands that staged command on the motor."""
+        self.step()
+        self.service_move()
+        self.step()
+
+    def land_steady_state_hold(self, start_us=0, advance_us=1_000_000):
+        """For a continuous wheelsV()/moveV() hold: the CALLER must have
+        set_clock(start_us) BEFORE issuing the wheelsV()/moveV() call
+        (so Hold's own lastTickMs_ anchors there). Lands the shaper's
+        STEADY-STATE command rather than its transient first tick, by
+        giving its own first service() call a large `dt` (comfortably
+        past accel/decel=400 mm/s^2's own ramp time for any speed this
+        test tree commands) -- see this file's own module docstring for
+        why a hold needs this now and _first_tick_duty_pair()'s own
+        comment for the (different) case of a fresh Segment, which
+        floors on its very first tick instead (a hold's shaper floor is
+        0, design S5: "remain = -1 ... floor = 0" -- there is no floor
+        to fall back on for a `dt` this small)."""
+        self.step()                          # fresh Output; dt would be
+                                              # ~0 if serviced now
+        self.set_clock(start_us + advance_us)
+        self.service_move()                  # large dt -> shaper reaches
+                                              # steady state, stages it
+        self.step()                          # lands it
 
     def is_move_active(self):
         return bool(self._lib.meIsMoveActive(self._handle))
@@ -335,24 +373,57 @@ def _expected_duty_pair(distance_mm, rotation_rad, cruise, cpm, b, fdv,
     return raw_left / fdv, raw_right / fdv
 
 
+# MotionLimits' own compiled-in defaults (motion_limits.h) -- restated
+# here (not read back over ctypes) because every test in this file
+# constructs a fresh Engine and never touches limits(), so these are
+# exactly what land_first_command()'s own first command computes
+# against.
+_V_FLOOR_MM_S = 70.0
+_OMEGA_FLOOR_DEG_S = 20.0
+
+
+def _first_tick_duty_pair(distance_mm, rotation_rad, cpm, b, fdv):
+    """Sprint 029 ticket 003 (design S6.1): the engine's FIRST real
+    command for a fresh Segment, landed by land_first_command() above --
+    "from rest, the first command is exactly the floor, a step,
+    deliberately" (design S6.1's own bullet). The ratio ((left, right)
+    normalized by the dominant wheel) is unchanged from
+    _expected_duty_pair()'s own math; only WHAT the ratio is scaled by
+    changes -- the floor speed, not a fraction of cruise. A pure turn
+    (distance_mm == 0, rotation_rad != 0) floors on omega_floor,
+    converted to the dominant wheel's own mm/s (design S6.2:
+    `omegaFloor * pi/180 * b/2`); anything else (a straight leg or a
+    blended arc) floors on the plain v_floor."""
+    left, right, dominant = _segment(distance_mm, rotation_rad, cpm, b)
+    pure_turn = (distance_mm == 0.0 and rotation_rad != 0.0)
+    if pure_turn:
+        floor_mm_s = _OMEGA_FLOOR_DEG_S * math.pi / 180.0 * b * 0.5
+    else:
+        floor_mm_s = _V_FLOOR_MM_S
+    floor_counts = floor_mm_s * cpm
+    raw_left = (left / dominant) * floor_counts
+    raw_right = (right / dominant) * floor_counts
+    return raw_left / fdv, raw_right / fdv
+
+
 # ---- moveX degenerate cases (motion-api.md S2.1: move_x(d,0) straight, --
 # ---- move_x(0,theta) pivot are the two most common motions) --------------
 
 
 def test_move_x_straight_hand_computed(motion_lib):
     """move_x(d, 0) is a straight line -- both wheels at the same ratio
-    (1:1), so both run at exactly `cruise`, scaled by the initial 0.25
-    ramp floor on this, the move's first tick."""
+    (1:1), so both land at exactly the floor (v_floor, design S6.1) on
+    the segment's first real command."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
         b = e.effective_track_width()
 
         e.move_x(200.0, 0.0, 150.0, 5000)
-        e.step()
+        e.land_first_command()
 
-        expected_left, expected_right = _expected_duty_pair(
-            200.0, 0.0, 150.0, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            200.0, 0.0, cpm, b, fdv)
         assert expected_left == pytest.approx(expected_right, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)
@@ -371,10 +442,10 @@ def test_move_x_pivot_hand_computed(motion_lib):
         theta = 90.0 * math.pi / 180.0  # [rad] CCW+, well past the threshold
 
         e.move_x(0.0, theta, 100.0, 5000)
-        e.step()
+        e.land_first_command()
 
-        expected_left, expected_right = _expected_duty_pair(
-            0.0, theta, 100.0, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            0.0, theta, cpm, b, fdv)
         # Pure pivot: equal magnitude, opposite sign (CCW+ -> right wheel
         # forward, left wheel backward -- same convention
         # test_motion_engine_primitives.py's own sign tests establish).
@@ -409,11 +480,11 @@ def test_set_rotational_slip_changes_move_x_blended_kinematics(motion_lib):
 
         b1 = e.effective_track_width()
         e.move_x(200.0, rotation, 150.0, 5000)
-        e.step()
+        e.land_first_command()
         left1 = e.motor_last_staged_duty(LEFT)
         right1 = e.motor_last_staged_duty(RIGHT)
-        expected_left1, expected_right1 = _expected_duty_pair(
-            200.0, rotation, 150.0, cpm, b1, fdv, scale=0.25)
+        expected_left1, expected_right1 = _first_tick_duty_pair(
+            200.0, rotation, cpm, b1, fdv)
         assert left1 == pytest.approx(expected_left1, rel=_DUTY_REL)
         assert right1 == pytest.approx(expected_right1, rel=_DUTY_REL)
 
@@ -426,11 +497,11 @@ def test_set_rotational_slip_changes_move_x_blended_kinematics(motion_lib):
         assert b2 == pytest.approx(2.0 * b1, rel=_DUTY_REL)
 
         e.move_x(200.0, rotation, 150.0, 5000)
-        e.step()
+        e.land_first_command()
         left2 = e.motor_last_staged_duty(LEFT)
         right2 = e.motor_last_staged_duty(RIGHT)
-        expected_left2, expected_right2 = _expected_duty_pair(
-            200.0, rotation, 150.0, cpm, b2, fdv, scale=0.25)
+        expected_left2, expected_right2 = _first_tick_duty_pair(
+            200.0, rotation, cpm, b2, fdv)
         assert left2 == pytest.approx(expected_left2, rel=_DUTY_REL)
         assert right2 == pytest.approx(expected_right2, rel=_DUTY_REL)
 
@@ -448,88 +519,23 @@ def test_set_rotational_slip_changes_move_x_blended_kinematics(motion_lib):
         assert right2 == pytest.approx(right1, rel=_DUTY_REL)
 
 
-def test_pivot_overrun_is_subtracted_from_the_rotation_target(motion_lib):
-    """2026-08-29 (OOP): MotionEngine::pivotOverrunMm_ takes a constant
-    per-wheel distance OFF every rotation target (startSegment()'s
-    yawTarget), never a scale -- the measurement it answers for
-    (reports/vevov-tour-C-firmware-and-telemetry-20260829.md S4) is a
-    +2 deg landing past the command on 3 deg and 90 deg pivots alike.
-    Same BLENDED shape as the rotational_slip test above, for the same
-    reason: a pure pivot's ratio-locked first-tick duty cannot see
-    yawTarget's magnitude, a blended move's non-dominant wheel can. With
-    overrun c [mm], yawTarget == (rotation*b/2 - c)*cpm, i.e. the
-    kinematics of a rotation smaller by 2c/b radians."""
-    with Engine(motion_lib) as e:
-        fdv = _ready(e)
-        cpm = e.counts_per_mm()
-        b = e.effective_track_width()
-        rotation = (_TURN_FIRST_DEG - 0.5) * math.pi / 180.0  # blended
-        assert e.pivot_overrun_mm() == pytest.approx(0.0)   # fleet default
-
-        e.move_x(200.0, rotation, 150.0, 5000)
-        e.step()
-        left1 = e.motor_last_staged_duty(LEFT)
-        right1 = e.motor_last_staged_duty(RIGHT)
-        expected_left1, expected_right1 = _expected_duty_pair(
-            200.0, rotation, 150.0, cpm, b, fdv, scale=0.25)
-        assert left1 == pytest.approx(expected_left1, rel=_DUTY_REL)
-        assert right1 == pytest.approx(expected_right1, rel=_DUTY_REL)
-
-        e.end_move()
-        overrun = 2.2  # [mm] vevov's measured value
-        e.set_pivot_overrun_mm(overrun)
-        assert e.pivot_overrun_mm() == pytest.approx(overrun, rel=1e-6)
-        e.move_x(200.0, rotation, 150.0, 5000)
-        e.step()
-        left2 = e.motor_last_staged_duty(LEFT)
-        right2 = e.motor_last_staged_duty(RIGHT)
-        rotation_eff = rotation - 2.0 * overrun / b
-        expected_left2, expected_right2 = _expected_duty_pair(
-            200.0, rotation_eff, 150.0, cpm, b, fdv, scale=0.25)
-        assert left2 == pytest.approx(expected_left2, rel=_DUTY_REL)
-        assert right2 == pytest.approx(expected_right2, rel=_DUTY_REL)
-        # The non-dominant (left) wheel must move; the dominant one is
-        # ratio-locked to cruise*scale by construction (see the slip
-        # test above for why that pin is expected).
-        assert left2 != pytest.approx(left1, rel=_DUTY_REL)
-        assert right2 == pytest.approx(right1, rel=_DUTY_REL)
-
-        # Sign symmetry: a CW rotation loses the same magnitude.
-        e.end_move()
-        e.move_x(200.0, -rotation, 150.0, 5000)
-        e.step()
-        expected_left3, expected_right3 = _expected_duty_pair(
-            200.0, -rotation_eff, 150.0, cpm, b, fdv, scale=0.25)
-        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
-            expected_left3, rel=_DUTY_REL)
-        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
-            expected_right3, rel=_DUTY_REL)
-
-        # Validation: a negative value is ignored, the prior one kept.
-        e.set_pivot_overrun_mm(-1.0)
-        assert e.pivot_overrun_mm() == pytest.approx(overrun, rel=1e-6)
-
-
-def test_pivot_smaller_than_the_overrun_does_not_move(motion_lib):
-    """A pure pivot whose wheel arc is inside the overrun clamps its
-    rotation target to zero and, with distance also zero, takes
-    startSegment()'s degenerate branch: nothing is commanded and the
-    kernel is left neutral -- a command that would land in the WRONG
-    direction is refused, not executed."""
-    with Engine(motion_lib) as e:
-        _ready(e)
-        b = e.effective_track_width()
-        e.set_pivot_overrun_mm(2.2)
-        tiny = 0.5 * (2.0 * 2.2 / b)   # half the overrun, in radians
-        e.move_x(0.0, tiny, 100.0, 5000)
-        e.step()
-        assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0, abs=1e-9)
-        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(0.0, abs=1e-9)
-        # ... while a pivot clearly larger than the overrun still runs.
-        e.move_x(0.0, 10.0 * (2.0 * 2.2 / b), 100.0, 5000)
-        e.step()
-        assert e.motor_last_staged_duty(RIGHT) > 0.0
-        assert e.motor_last_staged_duty(LEFT) < 0.0
+# DELETED (sprint 029 ticket 003): test_pivot_overrun_is_subtracted_from_
+# the_rotation_target and test_pivot_smaller_than_the_overrun_does_not_
+# move both pinned MotionEngine::pivotOverrunMm_/setPivotOverrunMm(),
+# which this ticket deletes outright (design motion-profile-
+# unification.md S4.1/S12) -- pivot_overrun's physical quantity (a
+# per-wheel end-of-move coast) is replaced by MotionLimits::
+# stopDistance, but the MECHANISM is entirely different: pivot_overrun
+# was a static subtraction from the segment's own yawTarget at
+# construction time (startSegment(), pre-ticket-003); stopDistance is a
+# per-tick input to VelocityShaper::advance()'s predictive-arrival test
+# (design S6.1 step 5, S6.3) -- it changes WHEN the shaper decides "this
+# tick lands on the target," not the target itself. There is no
+# MotionEngine-level "target was shrunk by N mm" observation left to
+# assert on the way these two tests did; the equivalent proof now lives
+# at the probe level (tests/host/test_profile_probe.py's stop-distance-
+# adjacent pivot-accuracy cases) and in stopDistance's own bench
+# measurement procedure (design S10.2), not as a MotionEngine unit test.
 
 
 # ---- pivot-vs-blend threshold (motion-api.md S3.3) ------------------------
@@ -546,10 +552,10 @@ def test_move_x_blends_below_turn_first_threshold(motion_lib):
         rotation = (_TURN_FIRST_DEG - 0.5) * math.pi / 180.0  # 49.5 deg
 
         e.move_x(200.0, rotation, 150.0, 5000)
-        e.step()
+        e.land_first_command()
 
-        expected_left, expected_right = _expected_duty_pair(
-            200.0, rotation, 150.0, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            200.0, rotation, cpm, b, fdv)
         # Not a pure pivot: the distance contribution keeps the two
         # wheels' commanded speeds from being equal-and-opposite.
         assert expected_left != pytest.approx(-expected_right, rel=1e-2)
@@ -574,12 +580,12 @@ def test_move_x_pivots_first_at_and_above_turn_first_threshold(motion_lib):
         distance = 200.0
 
         e.move_x(distance, rotation, 150.0, 5000)
-        e.step()
+        e.land_first_command()
 
-        pivot_left, pivot_right = _expected_duty_pair(
-            0.0, rotation, 150.0, cpm, b, fdv, scale=0.25)
-        blend_left, blend_right = _expected_duty_pair(
-            distance, rotation, 150.0, cpm, b, fdv, scale=0.25)
+        pivot_left, pivot_right = _first_tick_duty_pair(
+            0.0, rotation, cpm, b, fdv)
+        blend_left, blend_right = _first_tick_duty_pair(
+            distance, rotation, cpm, b, fdv)
         # Sanity: for this (distance, rotation, cruise) the pivot and
         # blend predictions actually differ -- otherwise this test could
         # pass by accident.
@@ -597,15 +603,23 @@ def test_move_x_pivot_then_straight_phase_transition(motion_lib):
     (phase 2, rotation == 0) for the remaining distance -- a single
     caller-visible moveX() call, still active across the transition.
 
-    The handoff itself now lands a REAL neutral tick first (see
-    motion_engine.cpp's own comment on the twist-hold hazard this
-    guards against): the service_move() call that detects the pivot
-    done stages kernel_.neutral() and returns still-active WITHOUT
-    starting phase 2 yet; phase 2's own drive() is only staged on the
-    FOLLOWING service_move() call, once a step() has actually delivered
-    that neutral. So this test now expects one extra (zero-duty)
-    step()/service_move() pair at the boundary before phase 2's first
-    real duty lands."""
+    The handoff itself lands a REAL neutral tick first (see
+    motion_engine.cpp's service() own comment on the twist-hold hazard
+    this guards against): the service() call that detects the pivot
+    done stages kernel_.neutral() and, in that SAME call, re-assigns
+    seg_ to a fresh phase-2 Segment (design S6.4: "no
+    awaitingHandoffNeutral, no wasted tick") -- but phase 2's own first
+    command is not staged until ITS OWN first service() tick (design
+    S6.5's lazy origin capture applies to phase 2 exactly as it does to
+    any fresh segment), which needs the step() that lands the neutral
+    to have run first. So the OBSERVABLE tick count at the boundary is
+    unchanged from before this ticket (one zero-duty "neutral" tick,
+    then phase 2's own first real duty) -- only the mechanism
+    (awaitingHandoffNeutral flag vs. lazy origin capture) differs. The
+    one thing THIS ticket does change is how phase 1's OWN first tick is
+    reached -- land_first_command(), not a single step() -- and what
+    every first-tick duty pair evaluates to (the floor, not a ramp
+    fraction of cruise)."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
@@ -615,7 +629,7 @@ def test_move_x_pivot_then_straight_phase_transition(motion_lib):
         cruise = 100.0
 
         e.move_x(distance, rotation, cruise, 10_000)
-        e.step()  # lands phase 1's own initial (floor-scaled) duty
+        e.land_first_command()  # lands phase 1's own initial (floor) duty
 
         # Arm the encoders to report EXACT arrival at the pivot's target
         # (posLeft0/posRight0 are both 0 -- no move has run yet in this
@@ -641,10 +655,10 @@ def test_move_x_pivot_then_straight_phase_transition(motion_lib):
         assert still_active  # phase 2 now staged, not a full stop
         assert e.is_move_active()
 
-        e.step()  # lands phase 2's own initial (floor-scaled) duty
+        e.step()  # lands phase 2's own initial (floor) duty
 
-        expected_left, expected_right = _expected_duty_pair(
-            distance, 0.0, cruise, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            distance, 0.0, cpm, b, fdv)
         assert expected_left == pytest.approx(expected_right, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)
@@ -707,8 +721,16 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
         cruise = 100.0
 
         e.move_x(distance, rotation, cruise, 10_000)
-        e.step()  # arms twistRef_: dt == 0 on this first-ever step, so
-        # reference == 0 and the origin is the (0, 0) starting position.
+        # Sprint 029 ticket 003: phase 1's first real (floor) command
+        # only lands after land_first_command()'s three calls (design
+        # S6.5's lazy start) -- but the property this test actually
+        # relies on (twistRef_.reference stays pinned at 0 throughout)
+        # does not depend on WHICH tick first arms velocity mode: dt is
+        # 0 on EVERY step() in this test (the FakeClock is never
+        # advanced -- this file's own module docstring), so the
+        # reference cannot grow (`+= scaledTwist * dt`) no matter when
+        # it first arms.
+        e.land_first_command()
 
         # Teleport straight to the pivot's target, exactly as
         # test_move_x_pivot_then_straight_phase_transition does -- see
@@ -743,8 +765,8 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
         # straight segment produces with no twist-hold contribution at
         # all -- identical to every other test in this file, which never
         # turns the gain on in the first place.
-        expected_left, expected_right = _expected_duty_pair(
-            distance, 0.0, cruise, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            distance, 0.0, cpm, b, fdv)
         assert expected_left == pytest.approx(expected_right, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)
@@ -757,8 +779,14 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
 
 def test_move_v_hand_computed(motion_lib):
     """move_v(vx, omega) == wheels_v(vx - omega*b/2, vx + omega*b/2)
-    (motion-api.md S2) -- no shaping, full rate immediately (a velocity
-    hold has no "end" to taper toward)."""
+    (motion-api.md S2). Sprint 029 ticket 003: a continuous wheelsV()
+    hold is now SHAPED too (design S4.4/S6.1) -- the old "no shaping,
+    full rate immediately" contract is gone (one of the design's own
+    stated goals: "jerk is bounded ... on continuous drive, not only
+    mid-profile"). This test gives the shaper a large `dt` on its own
+    first tick (`land_steady_state_hold()` below) so it reads the
+    STEADY-STATE kinematics -- the same ratio/sign proof the old test
+    made at the (now retired) instantaneous first tick."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
@@ -766,8 +794,9 @@ def test_move_v_hand_computed(motion_lib):
         vx = 150.0       # [mm/s]
         omega = 1.0      # [rad/s] CCW+
 
-        e.move_v(vx, omega, 800)
-        e.step()
+        e.set_clock(0)
+        e.move_v(vx, omega, 5_000)
+        e.land_steady_state_hold()
 
         twist_mm_s = omega * 0.5 * b
         expected_left = (vx - twist_mm_s) * cpm / fdv
@@ -784,8 +813,9 @@ def test_move_v_pure_forward_is_equal_wheels(motion_lib):
         fdv = _ready(e)
         cpm = e.counts_per_mm()
 
-        e.move_v(120.0, 0.0, 500)
-        e.step()
+        e.set_clock(0)
+        e.move_v(120.0, 0.0, 5_000)
+        e.land_steady_state_hold()
 
         expected = 120.0 * cpm / fdv
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
@@ -822,11 +852,11 @@ def test_go_to_r_near_zero_y_is_straight(motion_lib):
         x, y, speed = 300.0, 0.05, 120.0
 
         e.go_to_r(x, y, speed, 0.0, 5000)
-        e.step()
+        e.land_first_command()
 
         theta = 2.0 * math.atan2(y, x)
-        expected_left, expected_right = _expected_duty_pair(
-            x, theta, speed, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            x, theta, cpm, b, fdv)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
@@ -845,7 +875,7 @@ def test_go_to_r_arc_hand_computed(motion_lib, y_sign):
         x, y, speed = 200.0, 50.0 * y_sign, 100.0
 
         e.go_to_r(x, y, speed, 0.0, 5000)
-        e.step()
+        e.land_first_command()
 
         theta = 2.0 * math.atan2(y, x)
         radius = (x * x + y * y) / (2.0 * y)
@@ -859,8 +889,8 @@ def test_go_to_r_arc_hand_computed(motion_lib, y_sign):
         # that above-threshold coverage.
         assert abs(theta) < math.radians(_TURN_FIRST_DEG)
 
-        expected_left, expected_right = _expected_duty_pair(
-            s, theta, speed, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            s, theta, cpm, b, fdv)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
@@ -927,10 +957,10 @@ def test_go_to_r_pivot_split_reaches_target_above_threshold(motion_lib):
         assert abs(theta_raw) >= math.radians(_TURN_FIRST_DEG)  # sanity
 
         e.go_to_r(x, y, speed, 0.0, 10_000)
-        e.step()  # phase 1's own initial (floor-scaled) duty
+        e.land_first_command()  # phase 1's own initial (floor) duty
 
-        pivot_left, pivot_right = _expected_duty_pair(
-            0.0, bearing, speed, cpm, b, fdv, scale=0.25)
+        pivot_left, pivot_right = _first_tick_duty_pair(
+            0.0, bearing, cpm, b, fdv)
         # NOTE: a pure pivot's first-tick duty ratio is +-1 regardless of
         # the pivot's MAGNITUDE (only its sign) -- dominant == |yawTarget|
         # by construction, so this tick's duty alone cannot distinguish
@@ -967,9 +997,9 @@ def test_go_to_r_pivot_split_reaches_target_above_threshold(motion_lib):
         assert e.service_move()  # still active: phase 2 now staged
         assert e.is_move_active()
 
-        e.step()  # phase 2's own initial (floor-scaled) duty
-        chord_left, chord_right = _expected_duty_pair(
-            chord, 0.0, speed, cpm, b, fdv, scale=0.25)
+        e.step()  # phase 2's own initial (floor) duty
+        chord_left, chord_right = _first_tick_duty_pair(
+            chord, 0.0, cpm, b, fdv)
         assert chord_left == pytest.approx(chord_right, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             chord_left, rel=_DUTY_REL)
@@ -1017,18 +1047,26 @@ def test_go_to_r_behind_robot_splits_into_bounded_pivot(motion_lib):
         assert abs(bearing) > math.radians(90.0)
 
         e.go_to_r(x, y, speed, 0.0, 10_000)
-        e.step()
+        e.land_first_command()
 
-        pivot_left, pivot_right = _expected_duty_pair(
-            0.0, bearing, speed, cpm, b, fdv, scale=0.25)
+        pivot_left, pivot_right = _first_tick_duty_pair(
+            0.0, bearing, cpm, b, fdv)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             pivot_left, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
             pivot_right, rel=_DUTY_REL)
 
+        # Sprint 029 ticket 003: predictive arrival (design S6.3) tests
+        # `remain <= vNext*dt + stopDistance` -- at dt == 0 (this
+        # fixture's clock never otherwise advances) that slack collapses
+        # to ~0, and an exact-target arm can miss "arrived" by a hair of
+        # float32 rounding. A realistic one-tick (24 ms) advance restores
+        # the same comfortable slack a real tickDrive() cadence always
+        # has.
         yaw_target_counts = bearing * 0.5 * b * cpm
         e.arm_motor_position(LEFT, -yaw_target_counts)
         e.arm_motor_position(RIGHT, yaw_target_counts)
+        e.set_clock(24_000)
         e.step()
         assert e.service_move()
         assert e.is_move_active()
@@ -1045,8 +1083,8 @@ def test_go_to_r_behind_robot_splits_into_bounded_pivot(motion_lib):
         assert e.is_move_active()
 
         e.step()
-        chord_left, chord_right = _expected_duty_pair(
-            chord, 0.0, speed, cpm, b, fdv, scale=0.25)
+        chord_left, chord_right = _first_tick_duty_pair(
+            chord, 0.0, cpm, b, fdv)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             chord_left, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
@@ -1090,10 +1128,10 @@ def test_go_to_r_behind_robot_near_axis_avoids_long_way_around_runaway(
         assert abs(theta) <= math.pi  # the "<= ~180 deg" bound, either way
 
         e.go_to_r(x, y, speed, 0.0, 10_000)
-        e.step()
+        e.land_first_command()
 
-        expected_left, expected_right = _expected_duty_pair(
-            s, theta, speed, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            s, theta, cpm, b, fdv)
         # Sanity: this must NOT be a pure pivot (the old, buggy
         # composition's own first-tick signature, since |theta_raw| >= 50
         # deg would also have fired moveX()'s generic split on the RAW
@@ -1112,6 +1150,10 @@ def test_go_to_r_behind_robot_near_axis_avoids_long_way_around_runaway(
         yaw_target_counts = theta * 0.5 * b * cpm
         e.arm_motor_position(LEFT, dist_target_counts - yaw_target_counts)
         e.arm_motor_position(RIGHT, dist_target_counts + yaw_target_counts)
+        # A realistic tick advance (see the sibling behind-robot test's
+        # own comment on why dt == 0 leaves predictive arrival with no
+        # float-rounding slack).
+        e.set_clock(24_000)
         e.step()
         assert not e.service_move()
         assert not e.is_move_active()
@@ -1148,10 +1190,10 @@ def test_go_to_r_theta_normalized_independent_of_split_decision(motion_lib):
         assert abs(theta) < math.radians(_TURN_FIRST_DEG)  # NOT split
 
         e.go_to_r(x, y, speed, 0.0, 5000)
-        e.step()
+        e.land_first_command()
 
-        expected_left, expected_right = _expected_duty_pair(
-            s, theta, speed, cpm, b, fdv, scale=0.25)
+        expected_left, expected_right = _first_tick_duty_pair(
+            s, theta, cpm, b, fdv)
         # Sanity: the raw (un-normalized) value would have been a PURE
         # PIVOT first-tick signature (moveX()'s own generic split firing
         # on |theta_raw| >= 50 deg: distance == 0, rotation == theta_raw)
@@ -1162,8 +1204,8 @@ def test_go_to_r_theta_normalized_independent_of_split_decision(motion_lib):
         # LEFT wheel's ratio happens to be -1 either way: a pure pivot to
         # a positive angle and "mostly straight, backward" both drive the
         # left wheel in reverse).
-        raw_pivot_right = _expected_duty_pair(
-            0.0, theta_raw, speed, cpm, b, fdv, scale=0.25)[1]
+        raw_pivot_right = _first_tick_duty_pair(
+            0.0, theta_raw, cpm, b, fdv)[1]
         assert e.motor_last_staged_duty(RIGHT) != pytest.approx(
             raw_pivot_right, rel=1e-2)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
@@ -1203,7 +1245,7 @@ def test_go_to_r_arrive_gate_does_not_swallow_targets_beyond_tolerance(
     with Engine(motion_lib) as e:
         _ready(e)
         e.go_to_r(10.1, 0.0, 100.0, 10.0, 5000)
-        e.step()
+        e.land_first_command()
         assert e.is_move_active()
         assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
@@ -1225,11 +1267,21 @@ def test_move_x_timeout_is_a_real_backstop_on_a_blocked_robot(motion_lib):
         _ready(e)
         e.set_clock(0)
         e.move_x(1000.0, 0.0, 50.0, 2000)  # [mm] [rad] [mm/s] [ms]
+        e.land_first_command()  # lands the segment's first (floor) command
+        assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
 
+        # Sprint 029 ticket 003 (design S5): service() now reissues its
+        # rolling 500 ms kernel lease on EVERY tick (no more special
+        # first-tick lease sized to the whole remaining deadline) -- so
+        # a big clock jump must call service_move() BEFORE step() to
+        # refresh that lease at the new time, not after (a step() at a
+        # clock reading past the STALE lease's own validUntil would see
+        # it as expired and land a zero duty before service() ever gets
+        # a chance to reissue it).
         e.set_clock(1_999_000)  # 1999 ms: still well inside the timeout
-        e.step()
-        assert e.service_move()
+        assert e.service_move()  # reissues the 500 ms lease at 1999 ms
         assert e.is_move_active()
+        e.step()  # lands the reissued command
         assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
 
         e.set_clock(2_001_000)  # 2001 ms: past the timeout
@@ -1259,6 +1311,8 @@ def test_move_x_wrong_way_abort_increments_count(motion_lib):
 
         e.move_x(0.0, rotation, 100.0, 5000)
         e.step()
+        e.service_move()  # lazy origin capture (design S6.5): (0, 0),
+                          # no movement armed yet -- not wrongWay
         # Physically rotated CW (the wrong way): left forward, right
         # backward -- opposite of what a CCW+ commanded pivot means.
         e.arm_motor_position(LEFT, 1000.0)
@@ -1278,6 +1332,7 @@ def test_move_x_progress_reports_zero_then_fraction(motion_lib):
 
         e.move_x(distance, 0.0, 100.0, 5000)
         e.step()
+        e.service_move()  # lazy origin capture at (0, 0) -- design S6.5
         assert e.progress() == 0
 
         half_counts = 0.5 * distance * cpm
@@ -1320,8 +1375,9 @@ def test_end_move_stops_and_clears_active_state(motion_lib):
 def test_move_x_zero_magnitude_stops_a_live_wheels_v_hold(motion_lib):
     with Engine(motion_lib) as e:
         _ready(e)
+        e.set_clock(0)
         e.wheels_v(150.0, 150.0, 5000)
-        e.step()  # lands wheels_v()'s own nonzero duty
+        e.land_steady_state_hold()  # lands wheels_v()'s own nonzero duty
         assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
 
@@ -1340,8 +1396,9 @@ def test_move_x_zero_magnitude_stops_a_live_wheels_v_hold(motion_lib):
 def test_move_x_non_positive_cruise_stops_a_live_wheels_v_hold(motion_lib):
     with Engine(motion_lib) as e:
         _ready(e)
+        e.set_clock(0)
         e.wheels_v(150.0, -150.0, 5000)
-        e.step()
+        e.land_steady_state_hold()
         assert e.motor_last_staged_duty(LEFT) != pytest.approx(0.0)
         assert e.motor_last_staged_duty(RIGHT) != pytest.approx(0.0)
 

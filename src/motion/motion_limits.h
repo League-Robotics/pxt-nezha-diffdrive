@@ -1,11 +1,8 @@
 // motion_limits.h -- diffDrive::MotionLimits: the ONE value object that
 // holds every shaping number VelocityShaper::advance() reads (design
-// docs/design/motion-profile-unification.md S4.1). Not yet wired into
-// MotionEngine -- that is sprint 029 ticket 003 (motion-profile-
-// unification-one-shaper-one-floor-predictive-arrival/tickets/003).
-// This ticket (002) builds the object in isolation, independent of
-// ticket 001 and the rest of the engine (design S11: "Tickets 1 and 2
-// are independent of each other and of the rest").
+// docs/design/motion-profile-unification.md S4.1). Now wired into
+// MotionEngine via limits() (motion_engine.h) -- the class's own
+// settable shaping surface.
 //
 // Host-portable by construction: <cstdint> only, no <cmath> (the two
 // unit-conversion helpers below need only a fixed multiplication by a
@@ -17,21 +14,21 @@
 //
 // Field names follow design S4.7's wire-name mapping exactly (`accel`,
 // `decel`, `jerk`, `vMax`, `omegaMax`, `vFloor`, `omegaFloor`,
-// `stopDistance`, `arriveDist`, `arriveYaw`) so ticket 004's wire
-// surface does not need to rename anything this ticket ships. Naming
-// follows .claude/rules/no-units-in-identifiers.md and the kernel's own
-// style: an identifier names the quantity, the unit is a trailing
-// `// [unit]` comment on its declaration -- never in the name itself
-// (design S4's own naming note, first paragraph).
+// `stopDistance`, `arriveDist`, `arriveYaw`) so the wire descriptor
+// table (a later ticket's own job) does not need to rename anything
+// here. Naming follows .claude/rules/no-units-in-identifiers.md and the
+// kernel's own style: an identifier names the quantity, the unit is a
+// trailing `// [unit]` comment on its declaration -- never in the name
+// itself (design S4's own naming note, first paragraph).
 //
 // Fields are PUBLIC, per design S4.1's struct listing -- VelocityShaper::
 // advance() (velocity_shaper.h) reads them directly (`lim.accel`,
 // `lim.decel`, ...), the same way the design's own pseudocode does. The
 // "positive, else keep" setters below (matching MotionEngine::
-// setRotationalSlip()'s validation style, motion_engine.h) exist for a
-// LATER caller -- the wire `SET`/block `set config` surface ticket 004
-// builds -- that wants a validated write path; direct field access
-// stays available for tests and for VelocityShaper itself.
+// setRotationalSlip()'s validation style, motion_engine.h) are what
+// limits()'s own callers (the wire `SET`/block `set config` surface)
+// use for a validated write path; direct field access stays available
+// for tests and for VelocityShaper itself.
 #pragma once
 
 #include <cstdint>
@@ -53,8 +50,8 @@ struct MotionLimits {
   // profile never commands less while not yet arrived (design S6.1
   // step 4 -- "the ONLY floor in the system"). ----
   float vFloor = 70.0f;      // [mm/s] MEASURED tovez/gopiv 2026-08-29
-                              //   (the old kernel vMin; see
-                              //   .claude/rules/playfield-testing.md's
+                              //   (the old kernel vMin; see the
+                              //   playfield-testing rules doc's
                               //   "v_floor is already measured" note)
   float omegaFloor = 20.0f;  // [deg/s] UNVERIFIED; sized so one tick is
                               //   ~0.5 deg (design S6.2, pending the
