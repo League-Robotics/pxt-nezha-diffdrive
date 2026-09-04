@@ -35,3 +35,29 @@ brick with its battery switch off looks identical from the UART).
 UNVERIFIED which; needs a look at J1 and the module's LEDs. Until then
 gopiv is reached over the farm USB on the bench and the radio relay on
 the playfield (link ON in this build).
+
+## WiFi on the playfield, 2026-09-04: not usable this session
+
+- **tigez and vevov were built WITHOUT WiFi credentials.** `build-tigez.log`
+  and `build-vevov.log` both say `no .../config/wifi_secrets.json -- WiFi
+  link stays DISABLED in this build` (the secrets file lives in the
+  wifi-transport worktree, not the main checkout the fleet build ran
+  from; gopiv's hex was the one built with it: `WiFi link ENABLED,
+  ssid='Busboom Mesh'`). Their modules are fitted but the firmware never
+  drives them (`DBG:wifi state=0 ... restarts=0 sent=0` over the relay
+  from tigez, 11:2x). Fix: copy `config/wifi_secrets.json` into the main
+  checkout and reflash -- impossible today (no Pi Zeros on the field).
+- **gopiv's WiFi TCP link died under motor load** during the first sweep
+  (`gopiv-baked.log`: BrokenPipe mid-sweep, then
+  `wifilink: gopiv not found by mDNS ... or by broadcast HELLO`), and
+  `dns-sd -B _robotlink._tcp` found no announcement afterwards. The
+  module answered on the bench with the wheels idle. UNVERIFIED whether
+  it is a brown-out of the module on the brick's RJ11 rail when the
+  motors draw, or the module rebooting; needs the USB console during a
+  pivot to settle it.
+- All three sweeps therefore ran over the torture relay pool
+  (`turn_calibration.py --radio`). Relay lesson: a killed host session
+  leaves the robot's `TLM FULL` stream running; at ~15 frames/s over the
+  radio the robot then stops hearing commands (HELLO/TLM OFF/STOP
+  unanswered across ~30 tries on tigez) and only a power cycle clears it.
+  Some pool relays (guvov) need `!GO` before passing lines through.

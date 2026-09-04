@@ -61,7 +61,7 @@ import time
 FIELD_X, FIELD_Y = 67.15, 44.65   # [cm] half-extents, AprilTag-1 centred
 SAFE_MARGIN = 25.0                # [cm] default; the field rule's own margin is 12
 CAM = 'arducam-ov9782-usb-camera'
-TAGS = {'tigez': 57, 'tovez': 52, 'vevov': 53}
+TAGS = {'tigez': 57, 'tovez': 52, 'vevov': 53, 'gopiv': 54}
 LIGHTS = 'http://192.168.1.122/rpc/Switch.Set?id=0&on=true'   # the Shelly; they turn themselves off
 
 
@@ -243,6 +243,7 @@ class Camera:
         self.cam = cam
         self.off = heading_offset_deg
         self.samples = []          # (t, x, y, heading_deg, speed)
+        self._last_ts = None       # daemon timestamp of the last accepted record
         self.lock = threading.Lock()
         self._track = threading.Event()
         self._th = None
@@ -257,6 +258,15 @@ class Camera:
         r = self.raw()
         if r is None:
             return None
+        # The daemon keeps reporting the LAST pose of a tag it has just
+        # lost; a record whose timestamp has not advanced is that stale
+        # pose, not a new observation. Measured 2026-09-04 on gopiv: a
+        # 97 deg pivot scored 0 deg because both rest fixes were the same
+        # stale record.
+        ts = getattr(r, 'timestamp', None)
+        if ts is not None and ts == self._last_ts:
+            return None
+        self._last_ts = ts
         h = (math.degrees(r.yaw_rad) + self.off + 180) % 360 - 180
         sp = r.speed or 0.0
         s = (time.time(), r.world.x, r.world.y, h, sp)
@@ -267,7 +277,7 @@ class Camera:
     def fix(self, n=8, gap=0.05):
         xs = ys = sy = cy = 0.0
         got = 0
-        for _ in range(n * 2):
+        for _ in range(n * 6):
             s = self.sample()
             if s is not None:
                 xs += s[1]; ys += s[2]
@@ -325,6 +335,18 @@ def wrap(d):
     return (d + 180) % 360 - 180
 
 
+SPEED_SANE = 600  # [mm/s] a wheel never exceeds ~400; radio-corrupted frames carried 5567 (tigez 2026-09-04)
+
+
+def speed(f, key):
+    """A wheel speed from a telemetry frame, 0 for a corrupted value."""
+    try:
+        v = int(f.get(key, 0))
+    except (TypeError, ValueError):
+        return 0
+    return v if abs(v) <= SPEED_SANE else 0
+
+
 # ----------------------------------------------------------- the sweep
 def check_safe(pose, margin=SAFE_MARGIN):
     x, y = pose[0], pose[1]
@@ -367,8 +389,16 @@ def one_turn(link, cam, deg, cruise, timeout_ms, cols, out_frames, turn_idx, set
     # Snap the rest-to-rest difference onto the unwrapped total: rest fixes
     # are precise, the tracker decides which lap.
     rest_diff = wrap(b[2] - a[2])
-    laps = round((unwrapped - rest_diff) / 360.0)
+    # Snap to the COMMANDED lap, not the tracker's: a pivot never misses
+    # by 180 deg, but the tracker does drop samples (stale camera
+    # records, lights) and then under-counts a 180 into the wrong lap --
+    # gopiv 2026-09-04 scored -180 as +169 (err +349) that way. The
+    # tracker still reports, and complains when it clearly disagrees.
+    laps = round((deg - rest_diff) / 360.0)
     camera_deg = rest_diff + 360.0 * laps
+    if n >= 8 and abs(unwrapped - camera_deg) > 90:
+        print(f'WARNING: tracker unwrapped {unwrapped:+.1f} vs rest-to-rest {camera_deg:+.1f} '
+              f'({n} samples) -- trusting the rest fixes')
     # telemetry frames for this turn
     frames = []
     for t, s in link.since(t_start - 0.05, 't '):
@@ -382,9 +412,9 @@ def one_turn(link, cam, deg, cruise, timeout_ms, cols, out_frames, turn_idx, set
             enc_h = (int(frames[-1]['h']) - int(frames[0]['h'])) / 100.0
         except (KeyError, ValueError):
             enc_h = None
-    vl = [abs(int(f.get('vl', 0))) for f in frames]
-    vr = [abs(int(f.get('vr', 0))) for f in frames]
-    moving = [f for f in frames if abs(int(f.get('vl', 0))) > 5 or abs(int(f.get('vr', 0))) > 5]
+    vl = [abs(speed(f, 'vl')) for f in frames]
+    vr = [abs(speed(f, 'vr')) for f in frames]
+    moving = [f for f in frames if abs(speed(f, 'vl')) > 5 or abs(speed(f, 'vr')) > 5]
     dur = (moving[-1]['t'] - moving[0]['t']) if len(moving) > 1 else 0.0
     for f in frames:
         out_frames.append({'turn': turn_idx, 'commanded': deg, 't_rel': round(f['t'] - t_start, 3),
@@ -407,17 +437,21 @@ def one_turn(link, cam, deg, cruise, timeout_ms, cols, out_frames, turn_idx, set
 def run_sweep(link, cam, a, out):
     out.mkdir(parents=True, exist_ok=True)
     # telemetry on, FULL columns
-    tid, ack = link.seqd('TLM FULL', wait=2.0)
-    t0 = time.time() - 3.0
     cols = None
-    for _ in range(20):
-        for _, s in link.since(t0, 'thdr '):
-            cols = s.split()[1:]
+    for _attempt in range(2):
+        t0 = time.time() - 0.5
+        tid, ack = link.seqd('TLM FULL', wait=2.0)
+        for _ in range(60):          # a lossy carrier drops headers; they repeat every ~1 s
+            for _, s in link.since(t0, 'thdr '):
+                cols = s.split()[1:]
+            if cols:
+                break
+            time.sleep(0.1)
         if cols:
             break
-        time.sleep(0.1)
     if not cols:
-        raise SystemExit('no thdr after TLM FULL -- telemetry not streaming')
+        print('WARNING: no thdr after TLM FULL -- continuing on camera alone (no wheel speeds)')
+        cols = []
     print(f'telemetry columns: {cols}')
 
     # interleaved, sign-alternating schedule
@@ -491,7 +525,31 @@ def _fit(cmds, meas):
     return g, my - g * mx
 
 
+DISTURBED_DRIFT_CM = 8.0      # a pivot moves the centre < 1 cm, an unregistered tag lever ~5; a hand 9-27 (2026-09-04)
+DISTURBED_DISAGREE_DEG = 15.0  # camera vs encoders never differ this much on a real pivot
+                               # (the worst honest case, tigez's mid-ramp glitch, was ~8)
+DISTURBED_ENCODER_DEG = 30.0   # the encoders say the robot executed a different angle
+
+
+def disturbed(r):
+    """True for a pivot whose score cannot be the drivetrain's: the body
+    translated (someone moved the robot -- gopiv 2026-09-04 pivots 17-19,
+    9-27 cm), or camera and encoders disagree by tens of degrees (a
+    stale rest fix, or a garbled command the robot executed as a
+    different angle: gopiv #23 turned -90 for a commanded -180 on both
+    instruments). Kept in turns.csv, excluded from the statistics."""
+    enc = r.get('encoder_error_deg')
+    if enc not in (None, '', 'None'):
+        if abs(float(enc)) > DISTURBED_ENCODER_DEG:
+            return True
+        if abs(float(r['error_deg']) - float(enc)) > DISTURBED_DISAGREE_DEG:
+            return True
+    return float(r['drift_cm']) > DISTURBED_DRIFT_CM
+
+
 def analyze(rows, a):
+    all_rows = rows
+    rows = [r for r in rows if not disturbed(r)]
     if not rows:
         return {}
     cmds = [r['commanded'] for r in rows]
@@ -518,6 +576,8 @@ def analyze(rows, a):
                               'overrun_new = overrun + offset_rad*b_eff/2'}
     return {
         'robot': a.robot, 'cruise_mm_s': a.cruise, 'n_turns': len(rows),
+        'n_disturbed_excluded': len(all_rows) - len(rows),
+        'disturbed_turns': [r.get('turn') for r in all_rows if disturbed(r)],
         'slip_during_run': a.slip_now, 'pivot_overrun_during_run_mm': a.overrun_now,
         'trackwidth_assumed_mm': a.trackwidth_mm, 'b_eff_mm': round(b_eff, 2),
         'fit_gain': None if g is None else round(g, 4),
@@ -548,6 +608,11 @@ def dance(link, cam, cruise, turns_only=False, margin=SAFE_MARGIN):
     def turn(deg):
         a = cam.fix(); cam.start_tracking(); t0 = time.time()
         tid, ack = link.seqd(f'MOVE_X 0 {int(round(math.radians(deg)*1000))} {cruise} 9000', wait=3.0)
+        if not ack or not ack.startswith('ack'):
+            # A lossy carrier can lose all three sends; that is not a
+            # convention finding. One more try before calling it.
+            print(f'  (MOVE_X {deg:+d} not acknowledged: {ack}; retrying once)')
+            tid, ack = link.seqd(f'MOVE_X 0 {int(round(math.radians(deg)*1000))} {cruise} 9000', wait=3.0)
         end = time.time() + 12
         while time.time() < end:
             if link.status().get('done') == str(tid):
@@ -557,7 +622,9 @@ def dance(link, cam, cruise, turns_only=False, margin=SAFE_MARGIN):
         b = cam.fix()
         unw, n = cam.unwrapped_turn(t0, t1)
         got = wrap(b[2] - a[2]) + 360 * round((unw - wrap(b[2] - a[2])) / 360)
-        ok = abs(wrap(got - deg)) <= 12 and abs(got) > 5
+        # CONVENTION gate, not accuracy (field-dance-first): the sign and rough
+        # size must be right; an uncalibrated robot 10 deg long still passes.
+        ok = abs(wrap(got - deg)) <= 30 and abs(got) > 5
         print(f'turn {deg:+4d}: camera {got:+7.1f} (unwrapped {unw:+7.1f}, {n} samples) '
               f'{"PASS" if ok else "**FAIL**"}')
         if not ok:
@@ -600,6 +667,45 @@ def dance(link, cam, cruise, turns_only=False, margin=SAFE_MARGIN):
 
 
 # ------------------------------------------------------------- rendering
+def rescore(out):
+    """Re-derive camera_deg/error_deg from the rest-to-rest fixes snapped
+    to the commanded lap (see one_turn), rewriting turns.csv and
+    summary.json in place. Idempotent; repairs runs scored before the
+    lap snap was fixed (2026-09-04)."""
+    out = pathlib.Path(out)
+    rows = list(csv.DictReader(open(out / 'turns.csv')))
+    if not rows:
+        return
+    changed = False
+    for r in rows:
+        cmd, cam = float(r['commanded']), float(r['camera_deg'])
+        fixed = cmd + wrap(cam - cmd)
+        if abs(fixed - cam) > 1e-6:
+            r['camera_deg'] = f'{fixed:.2f}'; r['error_deg'] = f'{fixed - cmd:.2f}'; changed = True
+    if not changed:
+        return
+    fields = list(rows[0].keys())
+    with open(out / 'turns.csv', 'w', newline='') as f:
+        w = csv.DictWriter(f, fieldnames=fields); w.writeheader(); w.writerows(rows)
+    sp = out / 'summary.json'
+    if sp.exists():
+        old = json.loads(sp.read_text())
+        a = argparse.Namespace(robot=old.get('robot'), cruise=old.get('cruise_mm_s'),
+                               slip_now=old.get('slip_during_run') or 0.952,
+                               overrun_now=old.get('pivot_overrun_during_run_mm') or 0.0,
+                               trackwidth_mm=old.get('trackwidth_assumed_mm') or 114.2)
+        typed = []
+        for r in rows:
+            t = dict(r)
+            for k in ('commanded', 'camera_deg', 'error_deg', 'drift_cm'):
+                t[k] = float(t[k])
+            typed.append(t)
+        new = analyze(typed, a)
+        new['rescored'] = 'lap snapped to commanded (2026-09-04)'
+        sp.write_text(json.dumps(new, indent=2))
+    print(f'rescore: {out} rewritten (lap snap)')
+
+
 def render(out):
     """Charts + REPORT.md from the CSVs. Runs under any interpreter with
     matplotlib (the project venv has none; use a scratch venv)."""
@@ -607,6 +713,7 @@ def render(out):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     out = pathlib.Path(out)
+    rescore(out)
     turns = list(csv.DictReader(open(out / 'turns.csv')))
     frames = list(csv.DictReader(open(out / 'frames.csv')))
     summary = json.loads((out / 'summary.json').read_text()) if (out / 'summary.json').exists() else {}
@@ -629,8 +736,8 @@ def render(out):
     for i, (tn, fs) in enumerate(sorted(by_turn.items())):
         ax = axes.flat[i]; ax.axis('on')
         t = [float(f['t_rel']) for f in fs]
-        ax.plot(t, [int(f['vl']) for f in fs], label='vl', lw=1.2)
-        ax.plot(t, [int(f['vr']) for f in fs], label='vr', lw=1.2)
+        ax.plot(t, [speed(f, 'vl') for f in fs], label='vl', lw=1.2)
+        ax.plot(t, [speed(f, 'vr') for f in fs], label='vr', lw=1.2)
         row = next((r for r in turns if r['turn'] == tn), None)
         title = f"#{tn} cmd {row['commanded']:+.0f} -> cam {row['camera_deg']:+.1f}" if row else f'#{tn}'
         ax.set_title(title, fontsize=9)
@@ -684,7 +791,8 @@ def render(out):
     lines += ['| # | cmd | camera | err | encoder err | drift cm | peak vl | peak vr | dur s | reason |', '|---|---|---|---|---|---|---|---|---|---|']
     for r in turns:
         enc = '' if r['encoder_error_deg'] is None else f"{r['encoder_error_deg']:+.1f}"
-        lines.append(f"| {r['turn']} | {r['commanded']:+.0f} | {r['camera_deg']:+.1f} | {r['error_deg']:+.1f} | "
+        mark = ' (disturbed, excluded)' if disturbed(r) else ''
+        lines.append(f"| {r['turn']}{mark} | {r['commanded']:+.0f} | {r['camera_deg']:+.1f} | {r['error_deg']:+.1f} | "
                      f"{enc} | {r['drift_cm']:.1f} | "
                      f"{r.get('peak_vl')} | {r.get('peak_vr')} | {r['duration_s']:.1f} | {r.get('reason')} |")
     (out / 'REPORT.md').write_text('\n'.join(lines) + '\n')
@@ -701,9 +809,12 @@ def compare(dirs, out):
     angles, data = None, []
     for d in dirs:
         d = pathlib.Path(d)
+        rescore(d)
         rows = list(csv.DictReader(open(d / 'turns.csv')))
+        n_all = len(rows)
+        rows = [r for r in rows if not disturbed(r)]
         summ = json.loads((d / 'summary.json').read_text()) if (d / 'summary.json').exists() else {}
-        label = f"{summ.get('robot', d.name)} ({d.name})"
+        label = f"{summ.get('robot', d.name)} ({d.name}, {len(rows)}/{n_all} pivots)"
         angs = sorted(set(int(abs(float(r['commanded']))) for r in rows))
         angles = angles or angs
         stats = {}
@@ -729,7 +840,7 @@ def compare(dirs, out):
         frames = list(csv.DictReader(open(d / 'frames.csv')))
         tn = next((int(f['turn']) for f in frames if float(f['commanded']) == angles[0]), None)
         fs = [f for f in frames if int(f['turn']) == tn]
-        ax.plot([float(f['t_rel']) for f in fs], [int(f['vr']) for f in fs], label=f'{label} vr')
+        ax.plot([float(f['t_rel']) for f in fs], [speed(f, 'vr') for f in fs], label=f'{label} vr')
     ax.set_title(f'+{angles[0]} deg pivot: right wheel speed'); ax.set_xlabel('s'); ax.set_ylabel('mm/s'); ax.legend(fontsize=7); ax.grid(alpha=0.3)
     fig.tight_layout(); fig.savefig(out / 'compare-wheel-speed.png', dpi=120); plt.close(fig)
     lines = ['# Pivot comparison', '', '| robot / run | ' + ' | '.join(f'{a} deg mean (sd, n) / encoder' for a in angles) + ' |',
@@ -816,8 +927,11 @@ def main():
 
     try:
         if a.dance or a.dance_only:
-            if not dance(link, cam, a.cruise, a.dance_turns_only, a.margin) or a.dance_only:
-                return 1 if not a.dance_only else 0
+            passed = dance(link, cam, a.cruise, a.dance_turns_only, a.margin)
+            if not passed:
+                return 1
+            if a.dance_only:
+                return 0
         run_sweep(link, cam, a, out)
     finally:
         link.seqd('STOP', wait=1.0)

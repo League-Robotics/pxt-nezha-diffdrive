@@ -1,0 +1,92 @@
+link: radio relay ch 37 grp 43 (torture:8760)
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '3', 'cyc': '295', 'tlm': 'off', 'next': '1', 'done': '4', 'reason': 'stop'}
+rotational_slip=0.987 pivot_overrun=2.2 (live), trackwidth assumed 114.2 mm
+camera: tag 53 at (-37.0, -18.5) cm heading 28.8 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+24 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180, 90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90     95.2     5.2    94.76    4.76    4.0    178    178   0.7  stop
+  2    -90    -95.7    -5.7   -93.64   -3.64    4.2    179    187   0.8  stop
+  3    107    114.9     7.9   110.26    3.26    4.7    187    178   0.9  stop
+  4   -107   -113.4    -6.4  -111.38   -4.38    4.7    178    187   0.8  stop
+  5    180    202.1    22.1   181.25    1.25    3.2    178    187   1.4  stop
+  6   -180     -0.0   180.0     2.69  182.69    0.0      0      0   0.0  stop
+  7    -90  -- no camera fix before the turn
+  8     90     94.7     4.7    93.83    3.83    3.9    172    178   0.7  stop
+  9   -107   -112.4    -5.4  -111.63   -4.63    4.7    178    187   0.8  stop
+ 10    107    112.2     5.2   111.01    4.01    4.3    178    188   0.9  stop
+ 11   -180   -186.4    -6.4  -182.21   -2.21    5.7    178    178   1.3  stop
+ 12    180   -176.6  -356.6   182.11    2.11    5.7    178    193   1.4  stop
+ 13     90     96.4     6.4    93.99    3.99    4.2    163    187   0.7  stop
+ 14    -90    -97.3    -7.3   -94.73   -4.73    4.4    169    187   0.8  stop
+ 15    107    111.5     4.5   109.96    2.96    4.8    172    180   0.8  stop
+ 16   -107   -112.3    -5.3  -110.51   -3.51    4.8    169    178   0.8  stop
+ 17    180    183.8     3.8   181.46    1.46    5.7    178    178   1.4  stop
+ 18   -180   -185.7    -5.7  -182.58   -2.58    5.2    172    181   1.4  stop
+ 19    -90    -95.1    -5.1   -93.64   -3.64    4.0    187    195   0.7  stop
+ 20     90     95.8     5.8    94.41    4.41    3.7    178    187   0.8  stop
+ 21   -107   -112.6    -5.6  -110.63   -3.63    4.4    178    204   0.9  stop
+ 22    107    111.7     4.7   109.89    2.89    4.3    178    181   0.8  stop
+ 23   -180   -186.7    -6.7  -181.52   -1.52    5.6    181    181   1.4  stop
+ 24    180   -174.9  -354.9   181.43    1.43    5.5    187    178   1.4  stop
+{
+  "robot": "vevov",
+  "cruise_mm_s": 0,
+  "n_turns": 23,
+  "slip_during_run": 0.987,
+  "pivot_overrun_during_run_mm": 2.2,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 115.7,
+  "fit_gain": -0.3357,
+  "fit_offset_deg": 136.8,
+  "mean_err_left_deg": -53.45,
+  "mean_err_right_deg": 10.95,
+  "per_command": {
+    "+90": {
+      "n": 4,
+      "mean_err": 5.5,
+      "min": 4.74,
+      "max": 6.36
+    },
+    "-90": {
+      "n": 3,
+      "mean_err": -6.01,
+      "min": -7.27,
+      "max": -5.09
+    },
+    "+107": {
+      "n": 4,
+      "mean_err": 5.55,
+      "min": 4.47,
+      "max": 7.88
+    },
+    "-107": {
+      "n": 4,
+      "mean_err": -5.66,
+      "min": -6.43,
+      "max": -5.29
+    },
+    "+180": {
+      "n": 4,
+      "mean_err": -171.4,
+      "min": -356.62,
+      "max": 22.11
+    },
+    "-180": {
+      "n": 4,
+      "mean_err": 40.29,
+      "min": -6.72,
+      "max": 179.97
+    }
+  },
+  "mean_abs_err_deg": 44.39,
+  "mean_drift_cm": 4.43,
+  "suggested": {
+    "rotational_slip": -0.3314,
+    "pivot_overrun_mm": 140.33,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; overrun_new = overrun + offset_rad*b_eff/2"
+  }
+}
+wrote reports/turn-compare-20260904/vevov-baked2; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/turn-compare-20260904/vevov-baked2
+CHAIN-EXIT 0

@@ -1,0 +1,14 @@
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '0', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.962 pivot_overrun=5.5 (live), trackwidth assumed 114.2 mm
+camera: tag 57 at (-45.6, 28.8) cm heading -87.7 deg
+home (-45.6, 28.8) h=-88.5
+turn  +90: camera   +90.7 (unwrapped   +92.0, 12 samples) PASS
+turn +180: camera    +4.9 (unwrapped    +3.5, 12 samples) **FAIL**
+turn  +90: camera   +92.6 (unwrapped   +92.9, 23 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 1.3 cm; net heading -171.9 deg
+DANCE FAILED: turn +180
+DANCE-OK
