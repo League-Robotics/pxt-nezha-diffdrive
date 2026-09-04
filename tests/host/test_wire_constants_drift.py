@@ -46,14 +46,14 @@ cases, closing the loop this file's own docstring predicted --
 5. **kCdegToRad / kRadToCdeg** (`shims.cpp`): a MERGE, not a
    cross-file drift test -- see that section below for why it is a
    single-file regression guard instead.
-6. **`defaultCruiseMmS_`'s seed comment** (`shims.cpp`) vs
+6. **`defaultCruise_`'s seed comment** (`shims.cpp`) vs
    `defaultSpeed` (`blocks/motion.ts`): NOT merged (the two are
    independently settable by design -- one a wire sentinel default,
    the other a block-layer move speed) -- the fix was correcting a
    comment that asserted an unmaintained "match" as fact. Guarded by
    pinning what the corrected comment must (and must not) say.
 7. **The 24 ms tick cadence**: `shims.cpp`'s `cfg.cyclePeriod = 24`
-   vs `blocks/sim.ts`'s `kSimTickPeriodMs = 24` -- two independently
+   vs `blocks/sim.ts`'s `kSimTickPeriod = 24` -- two independently
    editable copies of the same fiber/tick period, one per language,
    with no shared boundary to merge them across.
 8. **`trackWidth` / `rotationalSlip`**: `motion_engine.h`'s
@@ -689,7 +689,7 @@ def test_shims_cpp_conversion_sites_use_named_constants():
 
     forward_sites = {
         "driveTwist": r"void driveTwist\(int speed, int yawRate\)",
-        "driveTwistTimed": r"void driveTwistTimed\(int speed, int yawRate,\n\s*uint32_t durationMs\)",
+        "driveTwistTimed": r"void driveTwistTimed\(int speed, int yawRate,\n\s*uint32_t duration\)",
         "startMove": r"void startMove\(int distance, int yaw, int speed, int yawRate\)",
         "otosSetOffset": r"void otosSetOffset\(int x, int y, int yaw\)",
         "seedPose": r"void seedPose\(int x, int y, int heading\)",
@@ -714,7 +714,7 @@ def test_shims_cpp_conversion_sites_use_named_constants():
 
 
 # ---------------------------------------------------------------------------
-# 6. defaultCruiseMmS_'s seed comment (shims.cpp) vs defaultSpeed
+# 6. defaultCruise_'s seed comment (shims.cpp) vs defaultSpeed
 #    (blocks/motion.ts) -- sprint 019 ticket 006, code review Q-05. The
 #    two are legitimately independent by design (a wire sentinel
 #    default vs. a block-layer move speed, both separately settable),
@@ -722,7 +722,7 @@ def test_shims_cpp_conversion_sites_use_named_constants():
 #    to assert an unmaintained "match" as an enforced fact, plus a
 #    stale `main.ts` citation (main.ts was retired; see D-07 in the
 #    same review). This guards the CORRECTED comment's honesty, not a
-#    numeric equality (asserting defaultSpeed == defaultCruiseMmS_
+#    numeric equality (asserting defaultSpeed == defaultCruise_
 #    would itself be exactly the false-coupling claim this ticket
 #    removed -- the two are independently settable and free to
 #    diverge).
@@ -731,18 +731,18 @@ def test_shims_cpp_conversion_sites_use_named_constants():
 
 def _shims_cpp_default_cruise_seed_comment():
     """The block of `//` comment lines directly above
-    `defaultCruiseMmS_`'s declaration, so the tests below can check
+    `defaultCruise_`'s declaration, so the tests below can check
     what this comment says without a false pass/fail from unrelated
     text elsewhere in the file -- same technique
     _radio_transport_max_payload_bytes_doc_comment() uses above."""
     text = _read("shims.cpp")
     match = re.search(
-        r"((?:^[ \t]*//[^\n]*\n|^[ \t]*//\n)+)[ \t]*float defaultCruiseMmS_",
+        r"((?:^[ \t]*//[^\n]*\n|^[ \t]*//\n)+)[ \t]*float defaultCruise_",
         text,
         re.MULTILINE,
     )
     assert match, (
-        "No comment block was found directly above defaultCruiseMmS_'s "
+        "No comment block was found directly above defaultCruise_'s "
         "declaration in shims.cpp"
     )
     return match.group(1)
@@ -755,14 +755,14 @@ def test_default_cruise_seed_comment_does_not_cite_retired_main_ts():
     D-07 (code review 2026-08-26) found 16 live instances of."""
     comment = _shims_cpp_default_cruise_seed_comment()
     assert "main.ts" not in comment, (
-        "shims.cpp's defaultCruiseMmS_ seed comment still cites "
+        "shims.cpp's defaultCruise_ seed comment still cites "
         "main.ts, retired in sprint 012 -- defaultSpeed now lives in "
         "blocks/motion.ts."
     )
 
 
 def test_default_cruise_seed_comment_does_not_assert_an_enforced_match():
-    """The comment must not claim defaultCruiseMmS_ and defaultSpeed
+    """The comment must not claim defaultCruise_ and defaultSpeed
     are kept in agreement -- nothing enforces that, and they are
     independently settable (default_cruise over the wire,
     setDefaultSpeed() from a block). The comment must instead say so
@@ -770,14 +770,14 @@ def test_default_cruise_seed_comment_does_not_assert_an_enforced_match():
     maintained invariant."""
     comment = _shims_cpp_default_cruise_seed_comment().lower()
     assert "not an enforced invariant" in comment, (
-        "shims.cpp's defaultCruiseMmS_ seed comment no longer states "
+        "shims.cpp's defaultCruise_ seed comment no longer states "
         "that its numeric match with blocks/motion.ts's defaultSpeed "
         "is NOT an enforced invariant -- restore that caveat (or a "
         "clearer replacement) so a future reader does not mistake the "
         "150.0f seed for a maintained coupling."
     )
     assert "independently settable" in comment, (
-        "shims.cpp's defaultCruiseMmS_ seed comment no longer explains "
+        "shims.cpp's defaultCruise_ seed comment no longer explains "
         "that this field and blocks/motion.ts's defaultSpeed are each "
         "independently settable (default_cruise over the wire, "
         "setDefaultSpeed() from a block) -- that's the reason the two "
@@ -787,11 +787,11 @@ def test_default_cruise_seed_comment_does_not_assert_an_enforced_match():
 
 # ---------------------------------------------------------------------------
 # 7. The 24 ms tick cadence: shims.cpp's cfg.cyclePeriod vs
-#    blocks/sim.ts's kSimTickPeriodMs -- sprint 019 ticket 006. Two
+#    blocks/sim.ts's kSimTickPeriod -- sprint 019 ticket 006. Two
 #    independently-editable copies (one per language) of the same
 #    fiber/tick period, kept in sync so a simulator-run program's
 #    timing is observable the same way hardware's is (sim.ts's own
-#    comment, right above kSimTickPeriodMs). No shared boundary exists
+#    comment, right above kSimTickPeriod). No shared boundary exists
 #    to merge them across (TypeScript vs C++), so this is a drift test,
 #    not a merge.
 # ---------------------------------------------------------------------------
@@ -806,13 +806,13 @@ def _shims_cpp_cycle_period():
 
 def _sim_ts_tick_period_ms():
     text = _read("blocks/sim.ts")
-    match = re.search(r"kSimTickPeriodMs\s*=\s*(\d+)", text)
-    assert match, "sim.ts's kSimTickPeriodMs declaration was not found"
+    match = re.search(r"kSimTickPeriod\s*=\s*(\d+)", text)
+    assert match, "sim.ts's kSimTickPeriod declaration was not found"
     return int(match.group(1))
 
 
 def test_sim_tick_period_matches_hardware_cycle_period():
-    """blocks/sim.ts's kSimTickPeriodMs must equal shims.cpp's
+    """blocks/sim.ts's kSimTickPeriod must equal shims.cpp's
     cfg.cyclePeriod exactly -- a mismatch would make simulator-observed
     timing (e.g. how many ticks a fixed-duration move takes) diverge
     from hardware's, defeating the parity sim.ts's own comment states
@@ -821,7 +821,7 @@ def test_sim_tick_period_matches_hardware_cycle_period():
     simulator = _sim_ts_tick_period_ms()
     assert hardware == simulator, (
         f"shims.cpp's cfg.cyclePeriod ({hardware} ms) and blocks/sim.ts's "
-        f"kSimTickPeriodMs ({simulator} ms) have diverged -- simulator "
+        f"kSimTickPeriod ({simulator} ms) have diverged -- simulator "
         f"tick timing no longer matches hardware's fiber cadence."
     )
 

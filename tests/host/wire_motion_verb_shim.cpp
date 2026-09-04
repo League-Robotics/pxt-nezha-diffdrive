@@ -112,7 +112,7 @@ struct WaHandle {
   // The same MotionEngine WHEELS_X/MOVE_X's real dispatch needs,
   // constructed over `kernel`/`clock` above exactly like shims.cpp's own
   // Rig::engine (see engineWheelsX()/engineMoveX()/
-  // engineDefaultCruiseMmS() below, the test-double mirrors of the
+  // engineDefaultCruise() below, the test-double mirrors of the
   // production forward-declared functions wire_adapter.cpp calls for
   // these two verbs). Declared AFTER kernel/clock: member init order
   // follows declaration order, not the initializer list below -- same
@@ -167,7 +167,7 @@ struct WaHandle {
 
   // Sprint 007 ticket 003 (closing R-11/BLK-03/API-03): mirrors
   // shims.cpp's real Rig::defaultCruiseMmS_ field-for-field, same
-  // 150.0f seed -- see engineDefaultCruiseMmS()'s test-double
+  // 150.0f seed -- see engineDefaultCruise()'s test-double
   // definition below, and waSetDefaultCruise()'s own comment for why
   // this is a direct field, not filtered through setKernelValue()'s
   // ">0" validation (mirrors waSetFullDutyVelocity()'s own unfiltered
@@ -458,7 +458,7 @@ int getConfigValue(int field) {
 }
 
 // Mirrors shims.cpp's real engineWheelsX()/engineMoveX()/
-// engineDefaultCruiseMmS() exactly -- these are what WHEELS_X's/MOVE_X's
+// engineDefaultCruise() exactly -- these are what WHEELS_X's/MOVE_X's
 // real dispatch (WireAdapter::onWheelsX()/
 // onMoveX(), wire_adapter.cpp) forward-declares and calls; `engine`
 // here is the SAME real MotionEngine class production code uses, wired
@@ -479,7 +479,7 @@ void engineMoveX(float distance, float rotationRad, float cruise,
 
 // Sprint 007 ticket 003 (closing R-11/BLK-03/API-03,
 // cruise-zero-sentinel-full-duty-lunge.md): mirrors shims.cpp's real,
-// POST-FIX engineDefaultCruiseMmS() exactly -- returns the handle's own
+// POST-FIX engineDefaultCruise() exactly -- returns the handle's own
 // defaultCruiseMmS_-equivalent field, NOT a fullDutyVelocity/countsPerMm
 // derivation. This double previously mirrored the OLD (pre-fix)
 // derivation; left unchanged, it would have kept
@@ -488,33 +488,33 @@ void engineMoveX(float distance, float rotationRad, float cruise,
 // while the real fix shipped elsewhere -- a fully green suite proving
 // nothing about the actual behavior change. See waSetDefaultCruise()
 // below for the test-setup setter.
-float engineDefaultCruiseMmS() {
+float engineDefaultCruise() {
   if (g_activeWaHandle == nullptr) return 0.0f;
   return g_activeWaHandle->defaultCruiseMmS;
 }
 
-// SUC-003: mirrors shims.cpp's real engineADecelMmS2()/
-// engineDefaultCruiseForDistanceMmS() exactly -- both are thin
+// SUC-003: mirrors shims.cpp's real engineADecel()/
+// engineDefaultCruiseForDistance() exactly -- both are thin
 // forwards onto the SAME real `engine` member every other engineXxx()
 // function in this file already drives, so a test exercising the real
 // WireAdapter's distance-aware default-cruise resolution is exercising
 // the exact bridge production code uses.
-float engineADecelMmS2() {
+float engineADecel() {
   if (g_activeWaHandle == nullptr) return 0.0f;
   return g_activeWaHandle->engine.limits().decel;
 }
 
-float engineDefaultCruiseForDistanceMmS(float distanceMm) {
+float engineDefaultCruiseForDistance(float distanceMm) {
   if (g_activeWaHandle == nullptr) return 0.0f;
   return g_activeWaHandle->engine.defaultCruiseForDistance(distanceMm);
 }
 
-// SUC-003: mirrors shims.cpp's real engineDominantAxisTravelMm() --
+// SUC-003: mirrors shims.cpp's real engineDominantAxisTravel() --
 // forwards onto the SAME real `engine`'s MotionEngine::
 // dominantAxisTravel() (renamed from dominantAxisTravelMm(), sprint 029
 // ticket 003), so a pure-pivot MOVE_X test through this double
 // exercises the exact formula production uses.
-float engineDominantAxisTravelMm(float distanceMm, float rotationRad) {
+float engineDominantAxisTravel(float distanceMm, float rotationRad) {
   if (g_activeWaHandle == nullptr) return 0.0f;
   return g_activeWaHandle->engine.dominantAxisTravel(distanceMm,
                                                       rotationRad);
@@ -548,11 +548,11 @@ bool engineGoToW(float x, float y, float speed, float arrive,
   return true;
 }
 
-// SUC-003: mirrors shims.cpp's real engineGoToWChordMm() -- the TRUE
+// SUC-003: mirrors shims.cpp's real engineGoToWChord() -- the TRUE
 // chord from this handle's own FakePoseSource (`pose`, the SAME source
 // engineGoToW() above dispatches through) to (worldX, worldY), not
 // hypot(worldX, worldY) of the target alone.
-float engineGoToWChordMm(float worldX, float worldY) {
+float engineGoToWChord(float worldX, float worldY) {
   if (g_activeWaHandle == nullptr) return 0.0f;
   const float dx = worldX - g_activeWaHandle->pose.x();
   const float dy = worldY - g_activeWaHandle->pose.y();
@@ -902,7 +902,7 @@ void waSetDefaultCruise(void* handle, float v) {
 // deleted) and select "shaped mode" at nonzero aDecelMmS2_ -- that
 // toggle is gone; MotionLimits::decel defaults to 400 (never 0), so
 // MOVE_X/GO_TO_R/GO_TO_W's cruise==0 sentinel ALWAYS resolves through
-// the distance-aware formula now (see engineADecelMmS2()'s own comment
+// the distance-aware formula now (see engineADecel()'s own comment
 // below). Names kept (shim names are test scaffolding, not renamed) --
 // only their bodies move onto limits().
 void waSetADecelMmS2(void* handle, float mmS2) {

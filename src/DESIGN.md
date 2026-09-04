@@ -428,11 +428,11 @@ six motion verbs have real effect: WHEELS_V → `setWheelsTimed()`
 a runaway"); WHEELS_X/MOVE_X/MOVE_V/GO_TO_R/GO_TO_W → the
 `engineXxx()` forwards onto the `MotionEngine` singleton. `cruise`/
 `speed` handling is uniform: negative → `kRange`; zero → the
-configured default via `engineDefaultCruiseMmS()`, refused `kRange` if
-that too is unconfigured. **Sprint 007**: `engineDefaultCruiseMmS()`
+configured default via `engineDefaultCruise()`, refused `kRange` if
+that too is unconfigured. **Sprint 007**: `engineDefaultCruise()`
 no longer derives from `fullDutyVelocity` (the kernel's ~875 mm/s
 100%-duty rail) — it now reads a new, independently configured
-`defaultCruiseMmS_` field (`shims.cpp` Rig state, seeded 150 mm/s to
+`defaultCruise_` field (`shims.cpp` Rig state, seeded 150 mm/s to
 match the block layer's own `defaultSpeed`), closing R-11/BLK-03/API-03:
 the wire's "0 = configured default" convenience sentinel and the
 kernel's unrelated "0 = uncalibrated, refuse" sentinel on
@@ -534,7 +534,7 @@ false — honest). **Sprint 008**: the `duration`/`timeout` value every
 handler reads here is now guaranteed already in-range (nonzero, ≤
 2^31−1) by `wire_handler.cpp`'s shared decode-time clamp (§4) — no
 handler here changed its own logic; the values arriving at
-`motionObligationDeadlineMs_ = nowMs_() + timeout` simply can no longer
+`motionObligationDeadline_ = now_() + timeout` simply can no longer
 be `0` or large enough to matter for wraparound. **Sprint 016 ticket
 003**: this flag used to clear in exactly two places, `onEstop()` and
 `onStop()` — a goal-directed move (MOVE_X/GO_TO_R/GO_TO_W) that reached
@@ -596,7 +596,7 @@ alone is enough to notice a completion.
 **Dependencies.** `wire_handler.h`; `shims.cpp` free functions by
 forward declaration only (`stopAll`, `estopAll`, `setWheelsTimed`,
 `setKernelValue`, `getConfigValue`, `diagValue`, `engineWheelsX`,
-`engineMoveX`, `engineDefaultCruiseMmS`, `engineMoveV`, `engineGoToR`,
+`engineMoveX`, `engineDefaultCruise`, `engineMoveV`, `engineGoToR`,
 `engineGoToW`, and — sprint 004 ticket 004 — `poseX`, `poseY`,
 `poseHeading`, `otosGet`, `wheelSpeed`). Holds no kernel/engine/Rig
 reference of its own.
@@ -746,7 +746,7 @@ traffic).
 
 **Sprint 028: frozen-read hold, not a fabricated zero velocity.**
 `collect()`'s existing I2C-failure branch already withholds a fresh
-`sampleTimeUs_` stamp when `readEncoderRaw()` returns `false`, which
+`sampleTime_` stamp when `readEncoderRaw()` returns `false`, which
 already makes the kernel's `refreshSample()` (§2) correctly hold the
 previous `sample.velocity` for that tick — that path was never the
 defect. The defect is the adjacent, previously-unflagged case: a
@@ -756,7 +756,7 @@ active drive (`appliedDuty()` nonzero) — one documented cause is the
 "encoder wedge" two paragraphs below (an instant H-bridge flip latching
 the 0x46 readback), though the fix does not depend on diagnosing the
 cause. Before this sprint, that case fell into `collect()`'s success
-branch unconditionally, advancing `sampleTimeUs_` and letting
+branch unconditionally, advancing `sampleTime_` and letting
 `refreshSample()` compute `(pos - lastPos) / dt = 0` — a real
 zero, honestly derived from stale-but-successfully-acked data, that the
 velocity PID then chased as a genuine ~300 mm/s error (MEASURED gopiv
@@ -768,7 +768,7 @@ reusing the wedge detector's existing "driven" signal
 (`appliedDuty()`) at a single-tick threshold rather than the
 multi-tick `kWedgeThreshold` the latched/suspect flags use: when raw
 counts are unchanged AND the wheel is driven, withhold the fresh
-`sampleTimeUs_` stamp exactly as the failure branch already does. This
+`sampleTime_` stamp exactly as the failure branch already does. This
 requires no change to `core/diffdrive.{h,cpp}` (the vendored kernel
 stays byte-identical, no cross-repo fidelity-suite resync needed) —
 `refreshSample()`'s existing `sampleTime != sample.sampleTime` gate
@@ -780,7 +780,7 @@ where before it did not — the failure stays visible, per the issue's
 own explicit requirement, rather than being smoothed into
 indistinguishable "the wheel stopped" data. A wheel legitimately at
 rest is unaffected: rest is "undriven and unchanged," never "driven and
-unchanged," so a real stop still advances `sampleTimeUs_` every tick
+unchanged," so a real stop still advances `sampleTime_` every tick
 and correctly reads velocity 0, and does not newly tick `i2cf` on an
 idle bus (`i2c-fault-count-climbs-on-idle-bus` is a separate,
 already-tracked issue this fix does not touch either direction).
@@ -989,7 +989,7 @@ graph TD
     Rig -->|encoder settle sleeps, via CodalSleeper| VfpGuard
     Rig -->|SET rebase / SET estop_clear| WireAdapter[wire_adapter.cpp SET handler]
     WireAdapter -->|rebasePosition / estopClear| Kernel[core/diffdrive.cpp, byte-identical]
-    NezhaPort[platform/nezha_port.cpp collect] -->|held sampleTimeUs_ on frozen-but-acked read| Kernel
+    NezhaPort[platform/nezha_port.cpp collect] -->|held sampleTime_ on frozen-but-acked read| Kernel
 ```
 
 **RUN bridge.** `RUN:<name>[:<arg>…]` parks the payload in an 8-slot
@@ -1200,15 +1200,15 @@ Pieces the kernel deliberately does not contain:
   fix above reuses this same port-level primitive rather than adding a
   new mechanism.
 - **Wire bridges**: `setWheelsTimed`/`driveTwistTimed` (duration =
-  lease), the six `engineXxx()` forwards, `engineDefaultCruiseMmS()`,
+  lease), the six `engineXxx()` forwards, `engineDefaultCruise()`,
   `diagValue()` (the DIAG/STATUS ordinal table),
   `getConfigValue`/`setKernelValue` (the ×1000 table, 34 ordinals as of
   sprint 029 ticket 004's descriptor-table rewrite — see §5), `probe()`,
   `setLimits()` (sprint 029 ticket 004: the one shim replacing the now-
   retired `setTaperWindows`/`setTaperFloors`/`setRampMs` no-op shims —
   see §5), `wheelSpeed()`.
-  **Sprint 007**: `engineDefaultCruiseMmS()` no longer derives from
-  `fullDutyVelocity`; it returns a new `defaultCruiseMmS_` Rig field
+  **Sprint 007**: `engineDefaultCruise()` no longer derives from
+  `fullDutyVelocity`; it returns a new `defaultCruise_` Rig field
   (seeded 150 mm/s), settable/gettable through `setKernelValue`/
   `getConfigValue` ordinal 15 (§5). `diagValue(2)` (`stallHalted`,
   already existed) gains a name in `probe()`'s doc comment instead of
@@ -1257,7 +1257,7 @@ a single `main.ts` into six cohesion-sized modules. Current structure:
   `worldTrackingReady`, `seedPose`, `readWorld`, `worldX`/`Y`/
   `Heading`, `calibrateWorldSensor`, `setWorldSensorOffset`) and
   `goToWorld` with its own tuning state (`arriveTolCm`,
-  `turnFirstDeg`) and private `tickedMove()` runner (World group).
+  `turnFirst`) and private `tickedMove()` runner (World group).
 - **`run.ts`** — the RUN command dispatcher: the no-initialiser state
   block (`runParts`/`runNames`/`runHandlers`/`runAnyHandlers`/
   `runWired`), `ensureRunState()`, `wireRunDispatch()`, `onRun`/
