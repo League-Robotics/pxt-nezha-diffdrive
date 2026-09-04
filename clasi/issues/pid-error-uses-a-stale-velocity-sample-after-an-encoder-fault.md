@@ -42,3 +42,17 @@ Re-run the gopiv tight tour (the analyzer in
 kernel that gates the PID error on `freshLeft`/`freshRight`, and show
 the post-fault peak stays inside the no-fault ceiling. UNVERIFIED
 until then.
+
+## CORRECTION (code review 2026-09-02, MK-03) -- the mechanism is the position reference, not the velocity error
+
+With the fleet bake's `kp = 0`, `errLeft/errRight` reach the duty only
+through `adaptBias()` (tau 30 s); gating them on freshness would change
+nothing. MEASURED on the real kernel with ideal wheels
+(`docs/code-review/2026-09-02/raw/profile_probe.out`, E5): freezing one
+encoder for a single tick at 300 mm/s steps that wheel's duty 35.3 ->
+41.3 % because `positionError()` advances `ref.reference` by `speed*dt`
+(92 counts) while `sample.position` holds; 6 * 92 = 551 counts/s = 5.1 %
+duty. That reproduces the 4-12 point jumps above. The fix is to skip the
+reference advance for a wheel whose sample did not advance -- patch K2 in
+`code-review/kernel-reference-handling-twist-floor-stale-tick-antiwindup.md`,
+which supersedes the "what would settle it" plan above.
