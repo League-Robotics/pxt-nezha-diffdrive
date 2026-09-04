@@ -604,3 +604,36 @@ the very first moves after a boot, when the two wheels' start-up skew
 is largest); the two straight-line stops are not explained by any
 counter in the frames and did not recur in 15 later moves. Filed as
 `clasi/issues/segment-moves-end-early-just-after-boot.md`.
+
+### 9.2 Straights and the square again, whole field, corrected firmware (13:20-13:40)
+
+`g3-run-north.log` (six `MOVE_X +-600 0 200 8000`, baked `lag 0.10`,
+slip 1.01): lengths 595, 595, 598, 597, 597, 594 mm (mean −4.1 mm; a
++0.7 % `travel_calib` would centre them). Lateral drift is now
+symmetric and small (−28, +8, −2, −3, −12, +23 mm; mean −2) — the
+"forward legs drift right 5 cm" of §7.5 was the mirrored reverse leg.
+Each leg still changes heading, and the sign follows direction:
+forward −6.0 / −1.0 / −5.6 deg, reverse +4.3 / +1.7 / +5.0 deg. That is
+a left/right drivetrain asymmetry the twist hold at gain 2 does not
+remove (the known `rotation-error-is-injected-by-the-legs-not-the-pivots`
+issue), not a profile effect. Peak wheel speed 236-256 and measured
+acceleration to 993 mm/s^2: same tracking overshoot as §7.5-7.7.
+
+`g6-run-500.log` (`g6_run_500.py`: three host-driven laps, 500 mm
+sides, left turns, from (−30, −27)):
+
+| lap | closure [mm] | heading residual [deg] | pivots by camera [deg] |
+|---|---|---|---|
+| 0 | 47 | −12.4 | 83.9, 89.5, 86.4, 88.6 |
+| 1 | 39 | −8.2 | 85.8, 90.4, 86.6, 90.0 |
+| 2 | 45 | −7.5 | 83.5, 89.4, 86.1, 92.9 |
+
+44 mm mean against the 10.8 mm baseline (gopiv, 600 mm sides, bench
+odometry): **FAIL** at this scale (§7.8's 11 mm was a 200 mm square).
+The residual is heading: the pivots run 1-6 deg short at the baked
+`lag 0.10` (the 0.13 that centred cruise-100 pivots in `g1-run.log` was
+traded down to help cruise-70 pivots and the straights), and the legs
+add their −5 deg forward / +5 deg reverse. Two follow-ups fall out:
+bake `lag_s 0.13` (pivots dominate tour closure; the straights lose
+~6 mm at 200 mm/s, which `travel_calib` absorbs) and a per-direction
+wheel asymmetry term or a stronger twist hold for the legs.

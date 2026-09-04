@@ -1,0 +1,569 @@
+{
+ "args": [
+  "zilch.local:37703",
+  "0.10",
+  "0",
+  "1.01",
+  "500"
+ ],
+ "side_mm": 500,
+ "laps": [
+  {
+   "lap": 0,
+   "p0": [
+    -31.616896302873357,
+    -27.908388940214653,
+    2.8040744528370003
+   ],
+   "p1": [
+    -35.63628976778813,
+    -25.51839560811581,
+    -9.584306379770112
+   ],
+   "corners": [
+    [
+     -31.616896302873357,
+     -27.908388940214653,
+     2.8040744528370003
+    ],
+    [
+     18.56506039753921,
+     -28.228713680754325,
+     86.68626267351038
+    ],
+    [
+     19.645432718945134,
+     22.127129566115592,
+     176.1870902563888
+    ],
+    [
+     -30.43440454987271,
+     24.981562373149075,
+     -97.44481203486943
+    ],
+    [
+     -35.59802046999785,
+     -25.449080654849105,
+     -8.846226702013885
+    ]
+   ],
+   "closure_mm": 46.76279712899614,
+   "heading_residual_deg": -12.388380832607112,
+   "ok": true
+  },
+  {
+   "lap": 1,
+   "p0": [
+    -29.758900561353997,
+    -26.717389053406578,
+    -0.29207374496796296
+   ],
+   "p1": [
+    -31.64366913760807,
+    -23.297635640512254,
+    -8.527059692232935
+   ],
+   "corners": [
+    [
+     -29.758900561353997,
+     -26.717389053406578,
+     -0.29207374496796296
+    ],
+    [
+     20.465671169719087,
+     -27.14973347837486,
+     85.45023200403259
+    ],
+    [
+     24.014581660548153,
+     22.47397888468857,
+     175.93142055222572
+    ],
+    [
+     -25.989341614318338,
+     26.458420085967848,
+     -97.52578027339639
+    ],
+    [
+     -31.630396511360328,
+     -23.19726349529843,
+     -7.497208505794357
+    ]
+   ],
+   "closure_mm": 39.04749158529545,
+   "heading_residual_deg": -8.23498594726496,
+   "ok": true
+  },
+  {
+   "lap": 2,
+   "p0": [
+    -29.61872296096977,
+    -26.56006197797788,
+    0.6869365204480166
+   ],
+   "p1": [
+    -31.399822963429084,
+    -22.417083249678818,
+    -6.850712470794299
+   ],
+   "corners": [
+    [
+     -29.61872296096977,
+     -26.56006197797788,
+     0.6869365204480166
+    ],
+    [
+     20.766245839176804,
+     -27.012872503634377,
+     84.16566629428971
+    ],
+    [
+     23.495344714460433,
+     23.001601492463102,
+     173.58250267814634
+    ],
+    [
+     -26.66117858013788,
+     27.208749292483255,
+     -100.3458768683826
+    ],
+    [
+     -31.392554652007647,
+     -22.411849454696643,
+     -7.280168475149645
+    ]
+   ],
+   "closure_mm": 45.09610843731318,
+   "heading_residual_deg": -7.537648991242321,
+   "ok": true
+  }
+ ],
+ "log": [
+  [
+   "HELLO",
+   [
+    "device NEZHA2 robot tovez 2314287040"
+   ]
+  ],
+  [
+   "RUN:clearestop",
+   [
+    "ESTOP:cleared"
+   ]
+  ],
+  [
+   "STATUS",
+   [
+    "status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=118 cyc=7041 tlm=off next=1 done=21 reason=stop"
+   ]
+  ],
+  [
+   "SET accel 400 #1",
+   [
+    "ack 1 21 stop"
+   ]
+  ],
+  [
+   "SET decel 400 #2",
+   [
+    "ack 2 21 stop"
+   ]
+  ],
+  [
+   "SET twist_hold_gain 2 #3",
+   [
+    "ack 3 21 stop"
+   ]
+  ],
+  [
+   "SET lag 0.10 #4",
+   [
+    "ack 4 21 stop"
+   ]
+  ],
+  [
+   "SET stop_distance 0 #5",
+   [
+    "ack 5 21 stop"
+   ]
+  ],
+  [
+   "SET rotational_slip 1.01 #6",
+   [
+    "ack 6 21 stop"
+   ]
+  ],
+  [
+   "GET lag #7",
+   [
+    "ack 7 21 stop",
+    "get lag 0.100000"
+   ]
+  ],
+  [
+   "GET rotational_slip #8",
+   [
+    "ack 8 21 stop",
+    "get rotational_slip 1.010000"
+   ]
+  ],
+  [
+   "MOVE_X 0 -1258 100 6000 #9",
+   {
+    "done_s": 3.13,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 -62 100 6000 #10",
+   {
+    "done_s": 1.4,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 542 0 120 8000 #11",
+   {
+    "done_s": 5.59,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1339 100 6000 #12",
+   {
+    "done_s": 1.32,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 55 100 6000 #13",
+   {
+    "done_s": 0.8,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #14",
+   {
+    "done_s": 8.54,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #15",
+   {
+    "done_s": 2.77,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #16",
+   {
+    "done_s": 6.62,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #17",
+   {
+    "done_s": 3.5,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #18",
+   {
+    "done_s": 7.59,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #19",
+   {
+    "done_s": 4.5,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #20",
+   {
+    "done_s": 8.56,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #21",
+   {
+    "done_s": 2.17,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 -98 100 6000 #22",
+   {
+    "done_s": 0.85,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 -84 100 6000 #23",
+   {
+    "done_s": 1.22,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 -50 100 6000 #24",
+   {
+    "done_s": 1.42,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 58 0 120 8000 #25",
+   {
+    "done_s": 1.34,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 261 100 6000 #26",
+   {
+    "done_s": 2.09,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 118 100 6000 #27",
+   {
+    "done_s": 1.23,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #28",
+   {
+    "done_s": 4.26,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #29",
+   {
+    "done_s": 2.05,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #30",
+   {
+    "done_s": 3.89,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #31",
+   {
+    "done_s": 1.8,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #32",
+   {
+    "done_s": 4.85,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #33",
+   {
+    "done_s": 1.74,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #34",
+   {
+    "done_s": 4.27,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #35",
+   {
+    "done_s": 2.1,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 -1014 100 6000 #36",
+   {
+    "done_s": 1.12,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 -82 100 6000 #37",
+   {
+    "done_s": 0.95,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 40 0 120 8000 #38",
+   {
+    "done_s": 0.65,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1119 100 6000 #39",
+   {
+    "done_s": 1.75,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 94 100 6000 #40",
+   {
+    "done_s": 0.49,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #41",
+   {
+    "done_s": 4.06,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #42",
+   {
+    "done_s": 1.83,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #43",
+   {
+    "done_s": 3.96,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #44",
+   {
+    "done_s": 2.53,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #45",
+   {
+    "done_s": 3.94,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #46",
+   {
+    "done_s": 2.27,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 500 0 150 8000 #47",
+   {
+    "done_s": 4.13,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1571 100 5000 #48",
+   {
+    "done_s": 1.5,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 -1147 100 6000 #49",
+   {
+    "done_s": 1.44,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 -66 100 6000 #50",
+   {
+    "done_s": 1.03,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 48 0 120 8000 #51",
+   {
+    "done_s": 1.18,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "MOVE_X 0 1266 100 6000 #52",
+   {
+    "done_s": 1.87,
+    "reason": "stop",
+    "estop": false
+   }
+  ],
+  [
+   "STATUS",
+   [
+    "status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=294 cyc=11459 tlm=off next=53 done=52 reason=stop"
+   ]
+  ]
+ ]
+}

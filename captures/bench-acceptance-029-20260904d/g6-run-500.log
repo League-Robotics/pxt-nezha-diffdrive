@@ -1,0 +1,17 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=118 cyc=7041 tlm=off next=1 done=21 reason=stop']
+SET accel 400 #1 -> ['ack 1 21 stop']
+SET decel 400 #2 -> ['ack 2 21 stop']
+SET twist_hold_gain 2 #3 -> ['ack 3 21 stop']
+SET lag 0.10 #4 -> ['ack 4 21 stop']
+SET stop_distance 0 #5 -> ['ack 5 21 stop']
+SET rotational_slip 1.01 #6 -> ['ack 6 21 stop']
+GET lag #7 -> ['ack 7 21 stop', 'get lag 0.100000']
+GET rotational_slip #8 -> ['ack 8 21 stop', 'get rotational_slip 1.010000']
+square start pose (-31.62968210651077, -27.928536504226756, 2.1072337891581805)
+lap 0: closure 47 mm, heading residual -12.4 deg, ok=True; corners [(-31.6, -27.9, 2.8), (18.6, -28.2, 86.7), (19.6, 22.1, 176.2), (-30.4, 25.0, -97.4), (-35.6, -25.4, -8.8)]
+lap 1: closure 39 mm, heading residual -8.2 deg, ok=True; corners [(-29.8, -26.7, -0.3), (20.5, -27.1, 85.5), (24.0, 22.5, 175.9), (-26.0, 26.5, -97.5), (-31.6, -23.2, -7.5)]
+lap 2: closure 45 mm, heading residual -7.5 deg, ok=True; corners [(-29.6, -26.6, 0.7), (20.8, -27.0, 84.2), (23.5, 23.0, 173.6), (-26.7, 27.2, -100.3), (-31.4, -22.4, -7.3)]
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=294 cyc=11459 tlm=off next=53 done=52 reason=stop']
+G6: closure [47, 39, 45] mm, mean 44 mm; heading residual [-12.4, -8.2, -7.5] deg

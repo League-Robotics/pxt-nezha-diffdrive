@@ -1,0 +1,38 @@
+HELLO -> ['device NEZHA2 robot tovez 2314287040']
+RUN:clearestop -> ['ESTOP:cleared']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=100 cyc=5716 tlm=off next=1 done=8 reason=timeout']
+SET accel 400 #1 -> ['ack 1 8 timeout']
+SET decel 400 #2 -> ['ack 2 8 timeout']
+SET twist_hold_gain 2 #3 -> ['ack 3 8 timeout']
+SET lag 0.10 #4 -> ['ack 4 8 timeout']
+SET stop_distance 0 #5 -> ['ack 5 8 timeout']
+SET rotational_slip 1.01 #6 -> ['ack 6 8 timeout']
+GET lag #7 -> ['ack 7 8 timeout', 'get lag 0.100000']
+GET stop_distance #8 -> ['ack 8 8 timeout', 'get stop_distance 0.000000']
+GET rotational_slip #9 -> ['ack 9 8 timeout', 'get rotational_slip 1.010000']
+GET v_floor #10 -> ['ack 10 8 timeout', 'get v_floor 70.000000']
+GET v_max #11 -> ['ack 11 8 timeout', 'get v_max 250.000015']
+start pose (2.1975973763917116, 8.685569695588887, -166.44577418990323)
+face 166.51918160949174: at -167.6, delta -25.9
+face 166.51918160949174: at 167.6, delta -1.1
+reposition 48.7 cm on 167 -> (-44.90676157135317, 20.407545478784776) ok=True
+face 0.0: at 169.9, delta -169.9
+face 0.0: at -0.7, delta +0.7
+legs start pose (-43.00428226595727, 17.992165265729312, -0.7391196913018161)
+TLM FULL #15 -> ['ack 15 14 stop']
+leg 0 from (-43.0,18.0,-0.6) +600 mm -> projected (17.0,17.4) ok=True
+  cam 595 mm (err -5) odo 595 lateral -28 mm dh -5.97 done 3.71s stop peak 237 first 37.0 accel[-639,993] tail_monotone=True tail=[190.0, 190.0, 192.0, 184.5, 144.5, 98.5, 82.0, 73.5, 54.5, 51.0]
+leg 1 from (16.3,14.6,-7.9) -600 mm -> projected (-43.1,22.8) ok=True
+  cam 595 mm (err -5) odo 595 lateral +8 mm dh +4.34 done 3.7s stop peak 256 first 31.5 accel[-813,535] tail_monotone=False tail=[186.0, 187.0, 201.5, 180.5, 151.5, 113.0, 82.0, 64.0, 73.5, 56.0]
+leg 2 from (-42.7,21.9,-4.2) +600 mm -> projected (17.2,17.5) ok=True
+  cam 598 mm (err -2) odo 596 lateral -2 mm dh -0.98 done 5.14s stop peak 240 first 41.0 accel[-660,889] tail_monotone=True tail=[200.0, 200.5, 187.5, 169.0, 121.5, 95.5, 97.0, 74.0, 53.0, 41.0]
+leg 3 from (16.9,17.3,-5.6) -600 mm -> projected (-42.8,23.1) ok=True
+  cam 597 mm (err -3) odo 595 lateral -3 mm dh +1.65 done 4.12s stop peak 236 first 39.0 accel[-986,743] tail_monotone=True tail=[200.0, 199.0, 185.0, 169.0, 159.0, 105.5, 87.0, 73.5, 61.0, 56.0]
+leg 4 from (-42.4,23.4,-4.4) +600 mm -> projected (17.4,18.7) ok=True
+  cam 597 mm (err -3) odo 595 lateral -12 mm dh -5.63 done 5.17s stop peak 237 first 51.0 accel[-431,757] tail_monotone=False tail=[180.5, 192.0, 169.0, 138.0, 113.0, 95.0, 82.0, 54.5, 51.0, 36.0]
+leg 5 from (17.0,17.5,-10.3) -600 mm -> projected (-42.0,28.3) ok=True
+  cam 594 mm (err -6) odo 593 lateral +23 mm dh +5.00 done 3.82s stop peak 236 first 31.5 accel[-819,597] tail_monotone=False tail=[201.5, 190.0, 203.5, 164.0, 148.0, 105.0, 97.0, 64.0, 61.0, 46.5]
+TLM OFF #22 -> ['ack 22 21 stop']
+STATUS -> ['status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=118 cyc=7041 tlm=off next=23 done=21 reason=stop']
+G3: leg length err mean -4.1 mm sd 1.4 max|err| 6; peak v max 256; tail monotone 3/6; lateral mean -2 mm; dh mean -0.27
+G4: first moving v [37.0, 31.5, 41.0, 39.0, 51.0, 31.5]; max accel [993, 535, 889, 743, 757, 597]; min accel [-639, -813, -660, -986, -431, -819]
