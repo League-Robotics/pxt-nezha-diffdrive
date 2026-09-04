@@ -128,11 +128,11 @@ struct Rig {
   // tick engine (sprint 002): caller-driven stepping replaces the
   // kernel's own now-unwired fiber pacer -- see ensure(), tickDrive(),
   // and the starvation watchdog section below.
-  uint64_t lastTickUs = 0;       // [us] clock.nowMicros() at the start
+  uint64_t lastTick = 0;       // [us] clock.nowMicros() at the start
                                   // of the most recent tickDrive() call
                                   // -- the watchdog's only freshness
                                   // signal. 0 = no tick has run yet.
-  uint64_t tickDeadlineUs = 0;   // [us] tickDrive()'s own absolute-
+  uint64_t tickDeadline = 0;   // [us] tickDrive()'s own absolute-
                                   // deadline pacing anchor. 0 = no tick
                                   // has run yet -- re-anchor to now.
   bool stepBusy = false;         // concurrency guard around
@@ -162,7 +162,7 @@ struct Rig {
   // are two unrelated meanings of zero that used to be collapsed onto
   // one field: the wire layer's sentinel (this) vs. the kernel's own
   // "0 = uncalibrated, refuse VELOCITY" gate
-  // (DifferentialDrive::checkCommandable()). See engineDefaultCruiseMmS()
+  // (DifferentialDrive::checkCommandable()). See engineDefaultCruise()
   // below, the wire-layer section, for the consumer. Seeded to 150.0f
   // -- NOT derived from any kernel constant, and NOT the duty ceiling --
   // chosen AT IMPLEMENTATION TIME to numerically match the block
@@ -179,7 +179,7 @@ struct Rig {
   // future change that wants a real coupling would need the TS layer
   // to read this field back over the wire before choosing its own
   // default, not a comment asserting they match.
-  float defaultCruiseMmS_ = 150.0f;  // [mm/s]
+  float defaultCruise_ = 150.0f;  // [mm/s]
 
   // Sprint 015 ticket 006 (build checkpoint): one-shot handoff from
   // engineSetGoToDeadline() to engineGoToRArmed() (both below), the
@@ -197,7 +197,7 @@ struct Rig {
   // (sim.ts's _setGoToDeadline()/_goToR() pair, called back-to-back by
   // motion.ts's startGoTo()) so there is nowhere for a stale value to
   // leak in from.
-  uint32_t pendingGoToDeadlineMs_ = 0;  // [ms]
+  uint32_t pendingGoToDeadline_ = 0;  // [ms]
 };
 
 static Rig* rig = nullptr;
@@ -350,10 +350,10 @@ void setWheels(int left, int right) {  // [mm/s] [mm/s]
 //%
 void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   Rig& r = ensure();
-  const float yawRad = static_cast<float>(yawRate) * kCdegToRad;
-  const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
-  const float speedMmS = static_cast<float>(speed);
-  r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS,
+  const float yaw = static_cast<float>(yawRate) * kCdegToRad;  // [rad]
+  const float twist = yaw * 0.5f * r.engine.effectiveTrackWidth();  // [mm/s]
+  const float vx = static_cast<float>(speed);  // [mm/s]
+  r.engine.wheelsV(vx - twist, vx + twist,
                    DiffDrive::DifferentialDrive::kLeaseMax);
 }
 
@@ -366,21 +366,21 @@ void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
 // `//%`-annotated: not block-facing (protocol.cpp is their only caller,
 // via same-package forward declarations).
 void setWheelsTimed(int left, int right,
-                    uint32_t durationMs) {  // [mm/s] [mm/s] [ms]
+                    uint32_t duration) {  // [mm/s] [mm/s] [ms]
   Rig& r = ensure();
   // WHEELS supersedes any in-flight move-engine move -- wheelsV() itself
   // clears it (motion-api.md S6, motion_engine.h).
   r.engine.wheelsV(static_cast<float>(left), static_cast<float>(right),
-                   durationMs);
+                   duration);
 }
 
 void driveTwistTimed(int speed, int yawRate,
-                     uint32_t durationMs) {  // [mm/s] [cdeg/s] [ms]
+                     uint32_t duration) {  // [mm/s] [cdeg/s] [ms]
   Rig& r = ensure();
-  const float yawRad = static_cast<float>(yawRate) * kCdegToRad;
-  const float twistMmS = yawRad * 0.5f * r.engine.effectiveTrackWidth();
-  const float speedMmS = static_cast<float>(speed);
-  r.engine.wheelsV(speedMmS - twistMmS, speedMmS + twistMmS, durationMs);
+  const float yaw = static_cast<float>(yawRate) * kCdegToRad;  // [rad]
+  const float twist = yaw * 0.5f * r.engine.effectiveTrackWidth();  // [mm/s]
+  const float vx = static_cast<float>(speed);  // [mm/s]
+  r.engine.wheelsV(vx - twist, vx + twist, duration);
 }
 
 // ---- wire motion-engine primitives (WireAdapter's WHEELS_X/MOVE_X
@@ -389,23 +389,23 @@ void driveTwistTimed(int speed, int yawRate,
 // driveTwistTimed() above -- WireAdapter has no reference of its own to
 // this Rig's `engine`, so it forwards through these thin, wire-shaped
 // calls instead. Wire-shaped units throughout (mm, mm/s, ms);
-// `rotationRad` arrives at engineMoveX() ALREADY converted from the
+// `rotation` arrives at engineMoveX() ALREADY converted from the
 // wire's milliradian integer (wire_adapter.cpp's mradToRad()). `cruise`
 // <= 0 here is MotionEngine's own existing no-op -- the wire's "0 means
-// the configured default" substitution (engineDefaultCruiseMmS() below)
+// the configured default" substitution (engineDefaultCruise() below)
 // is resolved BEFORE calling these; neither of these two ever sees the
 // sentinel itself. Deliberately NOT `//%`-annotated: the block API's
 // own startMove() already has a call shape of its own.
 void engineWheelsX(float left, float right, float cruise,
-                   uint32_t timeoutMs) {  // [mm] [mm] [mm/s] [ms]
+                   uint32_t timeout) {  // [mm] [mm] [mm/s] [ms]
   Rig& r = ensure();
-  r.engine.wheelsX(left, right, cruise, timeoutMs);
+  r.engine.wheelsX(left, right, cruise, timeout);
 }
 
-void engineMoveX(float distance, float rotationRad, float cruise,
-                 uint32_t timeoutMs) {  // [mm] [rad] [mm/s] [ms]
+void engineMoveX(float distance, float rotation, float cruise,
+                 uint32_t timeout) {  // [mm] [rad] [mm/s] [ms]
   Rig& r = ensure();
-  r.engine.moveX(distance, rotationRad, cruise, timeoutMs);
+  r.engine.moveX(distance, rotation, cruise, timeout);
 }
 
 // The wire's "cruise == 0 means the configured default" substitution
@@ -420,26 +420,26 @@ void engineMoveX(float distance, float rotationRad, float cruise,
 // "uncalibrated, refuse VELOCITY commands entirely"
 // (DifferentialDrive::checkCommandable()) -- an unrelated meaning of
 // zero that happened to share a variable with this substitution. Now
-// returns the Rig's own, independently configured defaultCruiseMmS_
+// returns the Rig's own, independently configured defaultCruise_
 // (seeded 150 mm/s above, settable/gettable via the `default_cruise`
 // wire field, ordinal 15 -- setKernelValue()/getConfigValue() below).
 // fullDutyVelocity remains the duty CEILING elsewhere in this file and
-// the kernel; it is no longer read here. Returns 0 if defaultCruiseMmS_
+// the kernel; it is no longer read here. Returns 0 if defaultCruise_
 // itself is non-positive (an operator can still force "no default
 // available" via `SET default_cruise 0`) -- wire_adapter.cpp's four
 // verb handlers already treat that as a range refusal, not a
 // silently-accepted zero-speed command; that refusal logic is
 // unchanged by this ticket.
-float engineDefaultCruiseMmS() {
-  return ensure().defaultCruiseMmS_;
+float engineDefaultCruise() {  // [mm/s]
+  return ensure().defaultCruise_;
 }
 
 // SUC-003: same same-package forward-declaration convention as
-// engineDefaultCruiseMmS() immediately above -- WireAdapter has no
-// reference of its own to this Rig's `engine`. engineADecelMmS2() lets
+// engineDefaultCruise() immediately above -- WireAdapter has no
+// reference of its own to this Rig's `engine`. engineADecel() lets
 // the wire layer decide, per call, whether a `cruise == 0` sentinel
 // should resolve from the flat legacy default above or from the
-// call's own leg distance below; engineDefaultCruiseForDistanceMmS()
+// call's own leg distance below; engineDefaultCruiseForDistance()
 // is that distance-aware resolve itself, forwarding straight onto
 // MotionEngine::defaultCruiseForDistance() (motion_engine.h). Neither
 // is read by engineWheelsX()'s own wire path -- WHEELS_X/WHEELS_V keep
@@ -451,7 +451,7 @@ float engineDefaultCruiseMmS() {
 // defaults to 400 and can never be set back to 0 (design S8: accel/
 // decel are "now always active, no legacy mode") -- so this now reads
 // limits().decel directly, which is always positive. The wire-layer
-// consequence: onMoveX()'s own `engineADecelMmS2() > 0.0f ? ... :
+// consequence: onMoveX()'s own `engineADecel() > 0.0f ? ... :
 // ...` selector (wire_adapter.cpp) now ALWAYS takes the distance-aware
 // branch; a MOVE_X `cruise == 0` no longer ever resolves through the
 // flat `default_cruise` field. This is a genuine, ticket-3-forced
@@ -459,12 +459,12 @@ float engineDefaultCruiseMmS() {
 // report for the affected tests (test_wire_motion_verbs.py's SUC-003
 // section) and why the flat-default wire surface itself is out of this
 // ticket's scope (ticket 004 owns the descriptor table).
-float engineADecelMmS2() {
+float engineADecel() {  // [mm/s^2]
   return ensure().engine.limits().decel;
 }
 
-float engineDefaultCruiseForDistanceMmS(float distanceMm) {
-  return ensure().engine.defaultCruiseForDistance(distanceMm);
+float engineDefaultCruiseForDistance(float distance) {  // [mm] -> [mm/s]
+  return ensure().engine.defaultCruiseForDistance(distance);
 }
 
 // SUC-003: MOVE_X's own D input for the resolver above -- a pure pivot
@@ -473,8 +473,8 @@ float engineDefaultCruiseForDistanceMmS(float distanceMm) {
 // Forwards onto MotionEngine::dominantAxisTravel() (motion_engine.h,
 // renamed from dominantAxisTravelMm() -- no-units-in-identifiers.md),
 // the same `dominant` quantity beginSegment() itself reduces to.
-float engineDominantAxisTravelMm(float distanceMm, float rotationRad) {
-  return ensure().engine.dominantAxisTravel(distanceMm, rotationRad);
+float engineDominantAxisTravel(float distance, float rotation) {  // [mm] [rad] -> [mm]
+  return ensure().engine.dominantAxisTravel(distance, rotation);
 }
 
 // Sprint 005 ticket 004 (closing wire-motion-completion-signal.md/R-23):
@@ -503,8 +503,8 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // [mm] [cdeg] [mm/s] [cdeg/s]
   Rig& r = ensure();
   odomUpdate(r);
-  const float distanceMm = static_cast<float>(distance);
-  const float rotationRad = static_cast<float>(yaw) * kCdegToRad;
+  const float distanceF = static_cast<float>(distance);  // [mm]
+  const float rotation = static_cast<float>(yaw) * kCdegToRad;  // [rad]
 
   // This shim predates MotionEngine::moveX()'s single-`cruise` wire-
   // shaped signature (motion-api.md S2: move_x(distance,rot) ==
@@ -526,35 +526,35 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // the degenerate straight/pivot cases.
   const float cpm = r.engine.countsPerMm();
   const float b = r.engine.effectiveTrackWidth();
-  const float distTargetCounts = distanceMm * cpm;              // [counts]
-  const float yawTargetCounts = rotationRad * 0.5f * b * cpm;   // [counts]
-  const float speedCounts =
+  const float distTarget = distanceF * cpm;              // [counts]
+  const float yawTarget = rotation * 0.5f * b * cpm;   // [counts]
+  const float distSpeed =
       static_cast<float>(speed > 0 ? speed : 1) * cpm;    // [counts/s]
   const float yawRadPerS =
       static_cast<float>(yawRate > 0 ? yawRate : 1) * kCdegToRad;
-  const float twistCounts = yawRadPerS * 0.5f * b * cpm;  // [counts/s]
+  const float twistSpeed = yawRadPerS * 0.5f * b * cpm;  // [counts/s]
 
   // One duration covers both axes -> simultaneous arc completion. This
-  // max()-based `duration` is also what derives `cruiseMmS` below
+  // max()-based `duration` is also what derives `cruise` below
   // (unaffected by the split-aware budget fix further down) -- it is
   // the legacy dual-rate reconciliation the header comment above
   // describes, correct regardless of whether moveX() ends up splitting.
   float distDuration = 0.0f;  // [s]
-  if (distTargetCounts != 0.0f)
-    distDuration = std::fabs(distTargetCounts) / speedCounts;
+  if (distTarget != 0.0f)
+    distDuration = std::fabs(distTarget) / distSpeed;
   float yawDuration = 0.0f;  // [s]
-  if (yawTargetCounts != 0.0f)
-    yawDuration = std::fabs(yawTargetCounts) / twistCounts;
+  if (yawTarget != 0.0f)
+    yawDuration = std::fabs(yawTarget) / twistSpeed;
   const float duration = distDuration > yawDuration ? distDuration
                                                       : yawDuration;
   if (duration <= 0.0f) return;  // nothing to do
 
-  const float leftCounts = distTargetCounts - yawTargetCounts;
-  const float rightCounts = distTargetCounts + yawTargetCounts;
-  const float absLeft = std::fabs(leftCounts);
-  const float absRight = std::fabs(rightCounts);
-  const float dominantCounts = absLeft > absRight ? absLeft : absRight;
-  const float cruiseMmS = (dominantCounts / duration) / cpm;  // [mm/s]
+  const float left = distTarget - yawTarget;
+  const float right = distTarget + yawTarget;
+  const float absLeft = std::fabs(left);
+  const float absRight = std::fabs(right);
+  const float dominant = absLeft > absRight ? absLeft : absRight;
+  const float cruise = (dominant / duration) / cpm;  // [mm/s]
 
   // moveX() (motion_engine.cpp) splits a nonzero distance combined with
   // a large enough rotation into pivot-then-straight -- two SEQUENTIAL
@@ -568,8 +568,8 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // retyping the 50 deg constant here, so this decision can never drift
   // from moveX()'s own.
   const bool willSplit =
-      distanceMm != 0.0f &&
-      std::fabs(rotationRad) >= MotionEngine::turnFirstAngle();
+      distanceF != 0.0f &&
+      std::fabs(rotation) >= MotionEngine::turnFirstAngle();
   const float budgetDuration =
       willSplit ? (distDuration + yawDuration) : duration;
 
@@ -580,10 +580,10 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // one deadline spans both phases. This is moveX()'s own `timeout` --
   // a REAL backstop the wire's own MOVE_X carries as a required field,
   // not an internally re-derived one.
-  const uint32_t timeoutMs =
+  const uint32_t timeout =
       static_cast<uint32_t>(budgetDuration * 1000.0f) + 1500u;
 
-  r.engine.moveX(distanceMm, rotationRad, cruiseMmS, timeoutMs);
+  r.engine.moveX(distanceF, rotation, cruise, timeout);
 }
 
 //%
@@ -651,8 +651,8 @@ static bool commandLooksActive(const Rig& r);
 //%
 bool tickDrive() {
   Rig& r = ensure();
-  const uint64_t cycleStartUs = r.clock.nowMicros();
-  r.lastTickUs = cycleStartUs;  // the watchdog's only freshness signal
+  const uint64_t cycleStart = r.clock.nowMicros();  // [us]
+  r.lastTick = cycleStart;  // the watchdog's only freshness signal
 
   // Concurrency guard: check-and-set with no intervening yield is
   // atomic on CODAL's cooperative fibers, so this is safe against a
@@ -734,19 +734,19 @@ bool tickDrive() {
   // (diffdrive.cpp:290-306): read the cadence from the kernel's own
   // config (still 24 ms per sprint.md's Design Rationale) rather than
   // duplicating the constant here.
-  const uint64_t periodUs =
+  const uint64_t period =  // [us]
       static_cast<uint64_t>(r.kernel.config().cyclePeriod) * 1000ull;
   const bool consecutive =
-      r.tickDeadlineUs != 0 && cycleStartUs < r.tickDeadlineUs + periodUs;
-  const uint64_t deadlineUs =
-      consecutive ? r.tickDeadlineUs + periodUs : cycleStartUs + periodUs;
-  r.tickDeadlineUs = deadlineUs;
+      r.tickDeadline != 0 && cycleStart < r.tickDeadline + period;
+  const uint64_t deadline =  // [us]
+      consecutive ? r.tickDeadline + period : cycleStart + period;
+  r.tickDeadline = deadline;
 
-  const uint64_t nowUs = r.clock.nowMicros();
-  if (nowUs < deadlineUs) {
-    const uint32_t shortfallMs =
-        static_cast<uint32_t>((deadlineUs - nowUs + 999) / 1000);
-    r.sleeper.sleepMillis(shortfallMs);
+  const uint64_t now = r.clock.nowMicros();  // [us]
+  if (now < deadline) {
+    const uint32_t shortfall =  // [ms]
+        static_cast<uint32_t>((deadline - now + 999) / 1000);
+    r.sleeper.sleepMillis(shortfall);
   } else {
     ++r.tickOverrunCount;
     r.sleeper.yield();
@@ -811,8 +811,8 @@ int cycleStat(int which) {
 // choice given commandLooksActive() below can only see stale state
 // (nothing refreshes Output without a step()) until ticking resumes.
 
-static constexpr uint32_t kWatchdogPeriodMs = 50;          // [ms]
-static constexpr uint64_t kWatchdogTimeoutUs = 100000ull;  // [us] ~4 periods
+static constexpr uint32_t kWatchdogPeriod = 50;          // [ms]
+static constexpr uint64_t kWatchdogTimeout = 100000ull;  // [us] ~4 periods
 
 // The kernel exposes no direct "is the commanded mode non-neutral"
 // accessor (Command::mode is private, read only inside step()).
@@ -843,10 +843,10 @@ static bool commandLooksActive(const Rig& r) {
 static void watchdogEntry(void* context) {
   Rig& r = *static_cast<Rig*>(context);
   while (true) {
-    r.sleeper.sleepMillis(kWatchdogPeriodMs);
-    const uint64_t nowUs = r.clock.nowMicros();
-    const uint64_t sinceLastTickUs = nowUs - r.lastTickUs;
-    if (sinceLastTickUs <= kWatchdogTimeoutUs) continue;
+    r.sleeper.sleepMillis(kWatchdogPeriod);
+    const uint64_t now = r.clock.nowMicros();  // [us]
+    const uint64_t sinceLastTick = now - r.lastTick;  // [us]
+    if (sinceLastTick <= kWatchdogTimeout) continue;
     if (!commandLooksActive(r)) continue;
     r.kernel.neutral();      // commands neutral for whenever step() next runs
     r.engine.endMove();      // clears the move-engine's own in-flight state
@@ -1153,20 +1153,20 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     case 14: k.setCrawlPulse(v); break;
     // 15 (sprint 007 ticket 003, closing R-11/BLK-03/API-03):
     // default_cruise -- the wire layer's OWN configured-default cruise
-    // field (Rig::defaultCruiseMmS_, NOT kernel.config()), see
-    // engineDefaultCruiseMmS()'s own comment above. Same ">0" silent-
+    // field (Rig::defaultCruise_, NOT kernel.config()), see
+    // engineDefaultCruise()'s own comment above. Same ">0" silent-
     // ignore validation style as setGeometry() -- a `SET default_cruise
     // 0` line over the wire is accepted (kOk) but does not clear the
     // field to 0; that is only reachable via the test double's own
     // direct setter (there is no wire-level way to force "no default
     // available" at ordinal 15, deliberately -- unlike stall_clear's
     // ordinal 17 below, this is a real stored value, not an action).
-    case 15: if (v > 0.0f) r.defaultCruiseMmS_ = v; break;
+    case 15: if (v > 0.0f) r.defaultCruise_ = v; break;
     // 16 (ticket 005, closing R-14/API-06): rotational_slip -- a thin
     // forward to the now-tested MotionEngine::setRotationalSlip(),
     // which already applies the ">0, else keep the prior value"
     // validation itself (motion_engine.h); no duplicate check needed
-    // here, unlike case 15's own inline check above (defaultCruiseMmS_
+    // here, unlike case 15's own inline check above (defaultCruise_
     // has no dedicated setter to own that validation).
     case 16: r.engine.setRotationalSlip(v); break;
     // 17 (ticket 001): stall_clear -- a write-triggered ACTION wearing a
@@ -1259,8 +1259,8 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // 15 (sprint 007 ticket 003): default_cruise's GET side --
     // deliberately NOT read from `c` (this ordinal has no stored
     // kernel Config field at all; it lives on Rig, see
-    // defaultCruiseMmS_'s own field comment above).
-    case 15: v = r.defaultCruiseMmS_; break;
+    // defaultCruise_'s own field comment above).
+    case 15: v = r.defaultCruise_; break;
     // 16 (ticket 005): rotational_slip's GET side -- a thin forward to
     // MotionEngine::rotationalSlip(), deliberately NOT read from `c`
     // (this ordinal has no kernel Config field at all; it lives on
@@ -1308,16 +1308,17 @@ static OtosPort& otosRef() {
 // ---- wire motion-engine primitives, part 2 (WireAdapter's MOVE_V/
 // GO_TO_R/GO_TO_W handlers) -----------------------------------------------
 // Same forward-declaration convention as engineWheelsX()/engineMoveX()/
-// engineDefaultCruiseMmS() above. `omegaRad` arrives at engineMoveV()
+// engineDefaultCruise() above. `omega` arrives at engineMoveV()
 // ALREADY converted from the wire's milliradian integer
 // (wire_adapter.cpp's mradToRad()); `speed`'s <0/==0 "configured
 // default" substitution is resolved by onGoToR()/onGoToW() BEFORE
-// either of these is ever called, via engineDefaultCruiseMmS() above.
+// either of these is ever called, via engineDefaultCruise() above.
 // Placed after otosRef(), not with engineWheelsX()/engineMoveX() above,
 // because engineGoToW() below needs it.
-void engineMoveV(float vx, float omegaRad, uint32_t durationMs) {
+void engineMoveV(float vx, float omega,
+                 uint32_t duration) {  // [mm/s] [rad/s] [ms]
   Rig& r = ensure();
-  r.engine.moveV(vx, omegaRad, durationMs);
+  r.engine.moveV(vx, omega, duration);
 }
 
 // Deliberately NOT `//%`-annotated any more (sprint 015 ticket 006) --
@@ -1330,9 +1331,10 @@ void engineMoveV(float vx, float omegaRad, uint32_t durationMs) {
 // those functions' comments for why the split exists. Wire-shaped
 // units (mm, mm/s, ms); cm-to-mm conversion stays the TS caller's job,
 // exactly as startMove() already does for _startMove().
-void engineGoToR(float x, float y, float speed, float arrive, uint32_t timeoutMs) {
+void engineGoToR(float x, float y, float speed, float arrive,
+                 uint32_t timeout) {  // [ms]
   Rig& r = ensure();
-  r.engine.goToR(x, y, speed, arrive, timeoutMs);
+  r.engine.goToR(x, y, speed, arrive, timeout);
 }
 
 // `//%`-annotated -- pre-arms the NEXT engineGoToRArmed() call's
@@ -1345,27 +1347,27 @@ void engineGoToR(float x, float y, float speed, float arrive, uint32_t timeoutMs
 // abort. setTaperWindows()'s own comment already recorded an earlier
 // incident with the identical symptom; this build is what confirmed
 // it. Every `//%` shim in this file now stays at <=4 params. See
-// Rig::pendingGoToDeadlineMs_ (above, in the struct) for the handoff
+// Rig::pendingGoToDeadline_ (above, in the struct) for the handoff
 // contract -- one caller only (sim.ts's _setGoToDeadline(), called by
 // motion.ts's startGoTo() immediately before _goToR()), so there is no
 // path for a stale deadline to reach an unrelated move.
 //%
-void engineSetGoToDeadline(uint32_t timeoutMs) {
-  ensure().pendingGoToDeadlineMs_ = timeoutMs;
+void engineSetGoToDeadline(uint32_t timeout) {  // [ms]
+  ensure().pendingGoToDeadline_ = timeout;
 }
 
 // `//%`-annotated -- the block layer's own entry point onto the SAME
 // goToR() the wire's GO_TO_R verb reaches via engineGoToR() above,
 // just split to FOUR parameters (engineSetGoToDeadline() immediately
-// above supplies the fifth, `timeoutMs`, via
-// Rig::pendingGoToDeadlineMs_) -- see that function's comment for why.
+// above supplies the fifth, `timeout`, via
+// Rig::pendingGoToDeadline_) -- see that function's comment for why.
 // Deliberately delegates to engineGoToR() above rather than calling
 // r.engine.goToR() directly a second time, so the actual move-engine
 // call site stays in exactly one place.
 //%
 void engineGoToRArmed(float x, float y, float speed, float arrive) {
   Rig& r = ensure();
-  engineGoToR(x, y, speed, arrive, r.pendingGoToDeadlineMs_);
+  engineGoToR(x, y, speed, arrive, r.pendingGoToDeadline_);
 }
 
 // GO_TO_W's own PoseSource selection: the ONE place this project
@@ -1392,16 +1394,16 @@ void engineGoToRArmed(float x, float y, float speed, float arrive) {
 // delegating to goToR() -- nothing re-reads or re-selects a pose source
 // while a move is in flight.
 bool engineGoToW(float x, float y, float speed, float arrive,
-                uint32_t timeoutMs) {
+                uint32_t timeout) {  // [ms]
   OtosPort& otos = otosRef();
   Rig& r = ensure();
   PoseSource& pose = selectPoseSource(otos.connected(), otos, r.encoderPose);
-  r.engine.goToW(pose, x, y, speed, arrive, timeoutMs);
+  r.engine.goToW(pose, x, y, speed, arrive, timeout);
   return true;
 }
 
 // SUC-003: GO_TO_W's own D input for
-// engineDefaultCruiseForDistanceMmS() above -- the TRUE body-frame
+// engineDefaultCruiseForDistance() above -- the TRUE body-frame
 // chord from the robot's CURRENT pose to this call's WORLD-frame
 // (worldX, worldY) target, not the target's distance from the world
 // origin (hypot(worldX, worldY) alone, which is wrong whenever the
@@ -1415,7 +1417,7 @@ bool engineGoToW(float x, float y, float speed, float arrive,
 // engineGoToW() reads them again for the real dispatch, mutates
 // nothing and cannot observe a different value than that dispatch
 // will.
-float engineGoToWChordMm(float worldX, float worldY) {
+float engineGoToWChord(float worldX, float worldY) {
   OtosPort& otos = otosRef();
   Rig& r = ensure();
   PoseSource& pose = selectPoseSource(otos.connected(), otos, r.encoderPose);
@@ -1444,15 +1446,15 @@ float engineGoToWChordMm(float worldX, float worldY) {
 // no-ops for a release) is undecided as of this ticket -- defaulting to
 // the no-op posture per that question's own stated default.
 //%
-void setTaperWindows(int distCounts, int yawCounts) {
-  (void)distCounts;
-  (void)yawCounts;
+void setTaperWindows(int dist, int yaw) {
+  (void)dist;
+  (void)yaw;
 }
 
 //%
-void setTaperFloors(int distPct, int turnPct) {
-  (void)distPct;
-  (void)turnPct;
+void setTaperFloors(int dist, int turn) {
+  (void)dist;
+  (void)turn;
 }
 
 //%
