@@ -972,6 +972,19 @@ def test_wire_adapter_kfields_ordinals_match_config_field_enum():
     )
 
 
+def _shims_cpp_limits_field_ordinals(text):
+    """Sprint 029 ticket 004 (design motion-profile-unification.md
+    S4.7): the ten shaping ordinals are no longer individual `case N:`
+    lines in setKernelValue()/getConfigValue() -- they are rows in
+    `kLimitsFields[]`, a small descriptor table both functions consult
+    BEFORE their own switch runs (see that table's own header comment,
+    shims.cpp). An ordinal covered by a `kLimitsFields` row is covered
+    for BOTH GET and SET (one table, one gate, both functions)."""
+    match = re.search(r"kLimitsFields\[\]\s*=\s*\{(.*?)\n\};", text, re.DOTALL)
+    assert match, "shims.cpp's kLimitsFields[] table was not found"
+    return {int(n) for n in re.findall(r"\{(\d+),\s*&MotionLimits::", match.group(1))}
+
+
 def test_shims_cpp_set_and_get_config_value_cover_every_config_field_ordinal():
     """shims.cpp's setKernelValue() and getConfigValue() switches must
     each have a `case N:` for every ordinal blocks/motion.ts's
@@ -979,10 +992,13 @@ def test_shims_cpp_set_and_get_config_value_cover_every_config_field_ordinal():
     setConfigValue()/that field's GET silently falls through to a
     default/no-op for that field, exactly the "ordinal wire_adapter.cpp
     names with no matching shims.cpp case" failure mode case 4 (above)
-    guards diagValue() against."""
+    guards diagValue() against. Sprint 029 ticket 004: an ordinal
+    covered by `kLimitsFields[]` instead of a literal `case N:` counts
+    too -- see `_shims_cpp_limits_field_ordinals()`'s own comment."""
     text = _read("shims.cpp")
     ts_ordinals = _motion_ts_config_field_ordinals()
     expected = set(ts_ordinals.values())
+    limits_covered = _shims_cpp_limits_field_ordinals(text)
 
     def case_numbers(function_signature_pattern):
         match = re.search(
@@ -991,8 +1007,8 @@ def test_shims_cpp_set_and_get_config_value_cover_every_config_field_ordinal():
         assert match, f"Function body not found: {function_signature_pattern}"
         return {int(n) for n in re.findall(r"case (\d+):", match.group(1))}
 
-    set_cases = case_numbers(r"void setKernelValue\(int field, int value\)")
-    get_cases = case_numbers(r"int getConfigValue\(int field\)")
+    set_cases = case_numbers(r"void setKernelValue\(int field, int value\)") | limits_covered
+    get_cases = case_numbers(r"int getConfigValue\(int field\)") | limits_covered
 
     missing_set = expected - set_cases
     missing_get = expected - get_cases

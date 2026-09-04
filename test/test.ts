@@ -303,10 +303,18 @@ function logFix(tag: string) {
 // Open-loop profile: every error is permanent, so keep the
 // accuracy-tuned shaping. 40 cm/s -- 25 was a leftover from low-speed
 // accuracy work, and the motors only reach 12-18% duty there.
+//
+// Sprint 029 ticket 004 (design motion-profile-unification.md S4.7):
+// the old setTaperWindows/setTaperFloors/setRampMs triple collapses
+// into one setLimits(accel, decel, vMax, omegaMax) call -- design
+// S4.7's own exact literals for this profile. Floors and stop_distance
+// are per-robot (the deploy bake, or `set config`), never per profile,
+// so they stay OUT of this function, same as before this ticket.
+// setDefaultSpeed/setDefaultYawRate are a SEPARATE mechanism (the
+// move()/goTo() blocks' own default cruise speed/yaw rate, unrelated to
+// MotionLimits shaping) and are unaffected by this ticket.
 function openLoopProfile() {
-    diffDrive.setTaperWindows(400, 180)
-    diffDrive.setTaperFloors(25, 12)
-    diffDrive.setRampMs(400)
+    diffDrive.setLimits(300, 300, 200, 90)
     diffDrive.setDefaultSpeed(20)
     diffDrive.setDefaultYawRate(90)
 }
@@ -314,11 +322,10 @@ function openLoopProfile() {
 // Closed-loop profile: RUN:goto's fast shaping, for moves that get
 // re-measured and re-planned every leg (a sensor fix corrects whatever
 // this profile's speed costs in accuracy), unlike the open-loop tours
-// where every error is permanent.
+// where every error is permanent. Same setLimits() collapse as
+// openLoopProfile() above, design S4.7's own literals for this profile.
 function closedLoopProfile() {
-    diffDrive.setTaperWindows(120, 80)
-    diffDrive.setTaperFloors(45, 35)
-    diffDrive.setRampMs(180)
+    diffDrive.setLimits(600, 500, 400, 120)
     diffDrive.setDefaultSpeed(40)
     diffDrive.setDefaultYawRate(120)
 }

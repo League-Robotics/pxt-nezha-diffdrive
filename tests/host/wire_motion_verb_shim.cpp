@@ -276,13 +276,58 @@ void estopAll() {
   g_activeWaHandle->kernel.emergencyStopMotors();
 }
 
+// this ticket (sprint 029 ticket 004, design motion-profile-
+// unification.md S4.7): mirrors shims.cpp's real kLimitsFields/
+// findLimitsField() exactly -- the ten shaping ordinals this ticket
+// routes through MotionLimits (v_floor=8, stop_distance=18, accel=19,
+// decel=20, v_max=21, jerk=28, omega_max=30, omega_floor=34,
+// arrive_dist=35, arrive_yaw=36) are handled here, BEFORE
+// setKernelValue()/getConfigValue() below ever reach their own kernel-
+// field switch -- same gate shims.cpp's real functions apply.
+static bool waSetLimitsFieldIfKnown(int field, float v) {
+  if (g_activeWaHandle == nullptr) return true;
+  MotionLimits& lim = g_activeWaHandle->engine.limits();
+  switch (field) {
+    case 8: lim.setVFloor(v); return true;
+    case 18: lim.setStopDistance(v); return true;
+    case 19: lim.setAccel(v); return true;
+    case 20: lim.setDecel(v); return true;
+    case 21: lim.setVMax(v); return true;
+    case 28: lim.setJerk(v); return true;
+    case 30: lim.setOmegaMax(v); return true;
+    case 34: lim.setOmegaFloor(v); return true;
+    case 35: lim.setArriveDist(v); return true;
+    case 36: lim.setArriveYaw(v); return true;
+    default: return false;
+  }
+}
+
+static bool waGetLimitsFieldIfKnown(int field, float& out) {
+  if (g_activeWaHandle == nullptr) { out = 0.0f; return true; }
+  const MotionLimits& lim = g_activeWaHandle->engine.limits();
+  switch (field) {
+    case 8: out = lim.vFloor; return true;
+    case 18: out = lim.stopDistance; return true;
+    case 19: out = lim.accel; return true;
+    case 20: out = lim.decel; return true;
+    case 21: out = lim.vMax; return true;
+    case 28: out = lim.jerk; return true;
+    case 30: out = lim.omegaMax; return true;
+    case 34: out = lim.omegaFloor; return true;
+    case 35: out = lim.arriveDist; return true;
+    case 36: out = lim.arriveYaw; return true;
+    default: return false;
+  }
+}
+
 // Mirrors shims.cpp's real setKernelValue() switch exactly (same field
 // ordinals, same x1000 scaling convention) -- see wire_adapter.cpp's own
 // kFields table for the wire-name mapping this ticket adds on top.
 void setKernelValue(int field, int value) {
   if (g_activeWaHandle == nullptr) return;
-  DiffDrive::DifferentialDrive& k = g_activeWaHandle->kernel;
   const float v = static_cast<float>(value) * 0.001f;
+  if (waSetLimitsFieldIfKnown(field, v)) return;
+  DiffDrive::DifferentialDrive& k = g_activeWaHandle->kernel;
   switch (field) {
     case 0: k.setMaxDuty(v); break;
     case 1: k.setFullDutyVelocity(v); break;
@@ -292,7 +337,6 @@ void setKernelValue(int field, int value) {
     case 5: k.setKaff(v); break;
     case 6: k.setPidMax(v); break;
     case 7: k.setTwistHoldGain(v); break;
-    case 8: k.setSpeedFloor(v); break;
     case 9: k.setPositionErrorMax(v); break;
     case 10:
       k.setStall(v, k.config().stallDemand, k.config().stallWindow);
@@ -321,33 +365,12 @@ void setKernelValue(int field, int value) {
     // real setKernelValue() case 17 exactly (see that file's own
     // comment). Only nonzero-vs-zero matters.
     case 17: if (v != 0.0f) k.clearStallLatch(); break;
-    // 18 (this ticket): stop_distance, mirroring shims.cpp's
-    // real setKernelValue() case 18 exactly -- a thin forward to the
-    // REAL MotionLimits::setStopDistance(), which owns its validation.
-    // Replaces pivot_overrun (MotionEngine::setPivotOverrunMm(),
-    // deleted).
-    case 18: g_activeWaHandle->engine.limits().setStopDistance(v); break;
-    // 19-21, 28, 30 (this ticket): accel/decel/v_max/jerk/
-    // omega_max, mirroring shims.cpp's real setKernelValue() cases
-    // exactly -- thin forwards to the REAL MotionLimits setters, which
-    // own their own validation. 22-27, 29, 31 are REMOVED ordinals
-    // (brake_frac/dist_taper/yaw_taper/dist_floor/turn_floor/ramp_ms/
-    // plateau_min_s/profile_exit) -- harmless no-ops, mirroring
-    // shims.cpp's own case 22-27/29/31 no-ops. // ticket 004
-    case 19: g_activeWaHandle->engine.limits().setAccel(v); break;
-    case 20: g_activeWaHandle->engine.limits().setDecel(v); break;
-    case 21: g_activeWaHandle->engine.limits().setVMax(v); break;
-    case 22:
-    case 23:
-    case 24:
-    case 25:
-    case 26:
-    case 27:
-    case 29:
-    case 31:
-      break;
-    case 28: g_activeWaHandle->engine.limits().setJerk(v); break;
-    case 30: g_activeWaHandle->engine.limits().setOmegaMax(v); break;
+    // 18-21, 28, 30, 34-36 (this ticket): all ten routed through
+    // waSetLimitsFieldIfKnown() above, before this switch is ever
+    // reached -- mirrors shims.cpp's own kLimitsFields gate. 22-27, 29,
+    // 31 are REMOVED ordinals (brake_frac/dist_taper/yaw_taper/
+    // dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit) -- no
+    // case for them here at all, same as shims.cpp's real switch.
     // 32 (rebase): a PARTIAL mirror of shims.cpp's real case 32, by
     // necessity -- the real handler also zeroes shims.cpp's own
     // Rig::x/y/heading odometry accumulator and re-seeds OTOS, neither
@@ -373,6 +396,10 @@ void setKernelValue(int field, int value) {
 // fields this ticket's field-name table actually reaches.
 int getConfigValue(int field) {
   if (g_activeWaHandle == nullptr) return 0;
+  float lv = 0.0f;
+  if (waGetLimitsFieldIfKnown(field, lv)) {
+    return static_cast<int>(std::lround(lv * 1000.0));
+  }
   const DiffDrive::DifferentialDrive::Config c =
       g_activeWaHandle->kernel.config();
   float v = 0.0f;
@@ -385,7 +412,6 @@ int getConfigValue(int field) {
     case 5: v = c.kaff; break;
     case 6: v = c.pidMax; break;
     case 7: v = c.twistHoldGain; break;
-    case 8: v = c.vMin; break;
     case 9: v = c.posErrMax; break;
     case 10: v = c.stallSpeed; break;
     case 11: v = c.stallDemand; break;
@@ -408,18 +434,9 @@ int getConfigValue(int field) {
     case 17:
       v = g_activeWaHandle->kernel.output().stallHalted ? 1.0f : 0.0f;
       break;
-    // 18: stop_distance's GET side (this ticket), mirroring
-    // shims.cpp's real getConfigValue() case 18 -- MotionLimits::
-    // stopDistance.
-    case 18: v = g_activeWaHandle->engine.limits().stopDistance; break;
-    // 19-21, 28, 30: GET side of the setKernelValue() forwards above,
-    // mirroring shims.cpp's real getConfigValue() cases exactly. 22-27,
-    // 29, 31 (removed ordinals) fall through to `default: break` below.
-    case 19: v = g_activeWaHandle->engine.limits().accel; break;
-    case 20: v = g_activeWaHandle->engine.limits().decel; break;
-    case 21: v = g_activeWaHandle->engine.limits().vMax; break;
-    case 28: v = g_activeWaHandle->engine.limits().jerk; break;
-    case 30: v = g_activeWaHandle->engine.limits().omegaMax; break;
+    // 8, 18-21, 28, 30, 34-36: handled by waGetLimitsFieldIfKnown()
+    // above, before this switch is ever reached. 22-27, 29, 31 (removed
+    // ordinals) fall through to `default: break` below.
     // 33: estop_clear's GET side, mirroring shims.cpp's real
     // getConfigValue() case 33 exactly -- a convenience readback of
     // Output.estopped, same shape as case 17's stallHalted readback
@@ -917,6 +934,18 @@ float waCountsPerMm(void* handle) {
 }
 float waEffectiveTrackWidth(void* handle) {
   return static_cast<WaHandle*>(handle)->engine.effectiveTrackWidth();
+}
+
+// this ticket (sprint 029 ticket 004, K5): direct readback of the
+// REAL kernel's own Config::vMin -- proves `SET v_floor <x>` (ordinal
+// 8) no longer reaches the kernel at all (it now writes ONLY
+// MotionLimits::vFloor; the kernel's vMin stays pinned at its
+// compiled-in 0 forever, ensure()'s own Config seed in shims.cpp).
+// getConfigValue(8) itself cannot be used for this: it now reads
+// MotionLimits::vFloor, the very value under test, not the kernel
+// field this accessor checks instead.
+float waKernelVMin(void* handle) {
+  return static_cast<WaHandle*>(handle)->kernel.config().vMin;
 }
 
 int waBegin(void* handle) {

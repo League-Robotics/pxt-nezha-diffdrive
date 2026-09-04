@@ -912,16 +912,90 @@ def _inject_radio_link(deploy_dir, enabled):
 #
 # So a constant is injected ONLY when the robot's config carries an
 # explicit `geometry.firmware_bake` object naming it. No block, or a
-# block missing a key -> that constant keeps its motion_engine.h
-# default and the build is byte-identical to before. The block is a
-# statement that the number was measured FOR THIS ROBOT and is meant to
-# be baked; its absence is not an error.
+# block missing a key -> that constant keeps its motion_engine.h/
+# motion_limits.h default and the build is byte-identical to before.
+# The block is a statement that the number was measured FOR THIS ROBOT
+# and is meant to be baked; its absence is not an error.
+#
+# Sprint 029 ticket 004 (design motion-profile-unification.md S4.7/S8/
+# S12 open question 2): `pivot_overrun_mm` -> `stop_distance_mm`.
+# MotionEngine::pivotOverrunMm_ (motion_engine.h) is DELETED -- ticket
+# 003 moved the per-wheel end-of-move coast onto MotionLimits::
+# stopDistance (motion_limits.h, a DIFFERENT file), so this key's own
+# regex target moves with it. `_GEOMETRY_BAKE_FILES` below is what makes
+# `_inject_geometry()` read/patch the right file per key now that the
+# bake spans two headers, not one.
 _GEOMETRY_BAKE_RES = {
     'travel_calib': re.compile(r'(float travelCalib_ = )[-+0-9.eE]+(f;)'),
     'trackwidth': re.compile(r'(float trackWidth_ = )[-+0-9.eE]+(f;)'),
     'rotational_slip': re.compile(r'(float rotationalSlip_ = )[-+0-9.eE]+(f;)'),
-    'pivot_overrun_mm': re.compile(r'(float pivotOverrunMm_ = )[-+0-9.eE]+(f;)'),
+    'stop_distance_mm': re.compile(r'(float stopDistance = )[-+0-9.eE]+(f;)'),
 }
+
+# Which `src/motion/*.h` file each `_GEOMETRY_BAKE_RES` key's regex
+# targets. travel_calib/trackwidth/rotational_slip stay in
+# motion_engine.h (MotionEngine's own trackWidth_/travelCalib_/
+# rotationalSlip_ fields, untouched by this ticket); stop_distance_mm
+# targets motion_limits.h (MotionLimits::stopDistance) instead, per
+# _GEOMETRY_BAKE_RES's own comment above.
+_GEOMETRY_BAKE_FILES = {
+    'travel_calib': 'motion_engine.h',
+    'trackwidth': 'motion_engine.h',
+    'rotational_slip': 'motion_engine.h',
+    'stop_distance_mm': 'motion_limits.h',
+}
+
+# OLD bake key -> NEW bake key, for a robot config that has not yet been
+# migrated to the renamed key cross-repo. See
+# _resolve_geometry_bake_aliases()'s own doc comment below for why this
+# exists at all: `radio-robot-lib/config/robots/*.json` is a sibling
+# repo this script cannot edit (design S12 open question 2), so a robot
+# config may keep saying `pivot_overrun_mm` for a while after this
+# ticket lands here.
+_GEOMETRY_BAKE_KEY_ALIASES = {
+    'pivot_overrun_mm': 'stop_distance_mm',
+}
+
+
+def _resolve_geometry_bake_aliases(robot, bake):
+    """Rewrite the OLD `pivot_overrun_mm` firmware_bake key onto its NEW
+    `stop_distance_mm` name, LOUDLY, so a robot config that has not been
+    migrated to radio-robot-lib's own new key yet still bakes the right
+    constant instead of silently baking nothing (a `bake` dict keyed by
+    a name `_GEOMETRY_BAKE_RES` no longer declares is otherwise just
+    ignored -- see `_inject_geometry()` below, which only ever looks up
+    keys IT knows about).
+
+    This is a MIGRATION FALLBACK, not a permanent feature: it prints a
+    warning naming the exact cross-repo file that should be updated,
+    every time it fires, on purpose -- the same posture
+    `_read_robot_radio_channel()`'s own loud-failure convention takes
+    for a different config gap. A config carrying BOTH keys keeps the
+    new one and warns that the old one is now dead weight, rather than
+    silently preferring one over the other with no explanation."""
+    if not any(k in bake for k in _GEOMETRY_BAKE_KEY_ALIASES):
+        return bake
+    resolved = dict(bake)
+    for old_key, new_key in _GEOMETRY_BAKE_KEY_ALIASES.items():
+        if old_key not in bake:
+            continue
+        if new_key in bake:
+            print(f"make_deploy: WARNING -- '{robot}' geometry.firmware_bake "
+                  f"has both '{old_key}' (retired) and '{new_key}'; baking "
+                  f"'{new_key}' and ignoring '{old_key}'. Remove "
+                  f"'{old_key}' from radio-robot-lib/config/robots/"
+                  f"{robot}.json.")
+            del resolved[old_key]
+            continue
+        print(f"make_deploy: WARNING -- '{robot}' geometry.firmware_bake "
+              f"uses the RETIRED key '{old_key}'; baking it as '{new_key}' "
+              f"(design motion-profile-unification.md S4.7/S8). This is a "
+              f"migration fallback, not a permanent feature -- update "
+              f"radio-robot-lib/config/robots/{robot}.json to use "
+              f"'{new_key}' instead (cross-repo; this script cannot make "
+              f"that edit for you).")
+        resolved[new_key] = resolved.pop(old_key)
+    return resolved
 
 
 def _read_robot_firmware_bake(robot):
@@ -949,49 +1023,65 @@ def _read_robot_firmware_bake(robot):
 
 
 def _inject_geometry(deploy_dir, robot):
-    """Substitute `deploy_dir`'s copy of `src/motion/motion_engine.h`'s
-    geometry constants with `robot`'s measured bake, when it declares
-    one. Same scratch-copy-only substitution as
-    `_inject_radio_channel()`; the tracked source is never touched.
+    """Substitute `deploy_dir`'s copies of `src/motion/motion_engine.h`
+    AND `src/motion/motion_limits.h` (this ticket: the bake now spans
+    two headers -- `_GEOMETRY_BAKE_FILES` says which key targets which
+    file) with `robot`'s measured bake, when it declares one. Same
+    scratch-copy-only substitution as `_inject_radio_channel()`; the
+    tracked source is never touched.
 
     Returns the list of `(name, value)` actually injected, so the build
     log can state it -- a geometry change that happened silently would
-    be indistinguishable from one that did not happen at all."""
+    be indistinguishable from one that did not happen at all. A bake
+    using the retired `pivot_overrun_mm` key reports back under its
+    resolved `stop_distance_mm` name (see
+    `_resolve_geometry_bake_aliases()`), since that is the constant
+    actually baked."""
     bake = _read_robot_firmware_bake(robot)
     if not bake:
         return []
-    path = os.path.join(deploy_dir, 'src', 'motion', 'motion_engine.h')
-    if not os.path.exists(path):
-        sys.exit(f"make_deploy: geometry bake requested for '{robot}' "
-                  f"but {path} is missing")
-    with open(path) as f:
-        text = f.read()
+    bake = _resolve_geometry_bake_aliases(robot, bake)
+    # Group the requested keys by their target file so each file is
+    # read/patched/written exactly once, even though _GEOMETRY_BAKE_RES
+    # now spans two files.
+    keys_by_file = {}
+    for key in _GEOMETRY_BAKE_RES:
+        if key in bake:
+            keys_by_file.setdefault(_GEOMETRY_BAKE_FILES[key], []).append(key)
     applied = []
-    for key, pattern in _GEOMETRY_BAKE_RES.items():
-        if key not in bake:
-            continue
-        value = bake[key]
-        if not isinstance(value, (int, float)) or value <= 0:
-            sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
-                      f"'{robot}' is {value!r}; expected a positive number")
-        # MUST keep a decimal point: `%g` renders 128.0 as `128`, and
-        # `128f` is not a valid C++ literal (an integer literal cannot
-        # take an `f` suffix) -- it fails the build, and did in
-        # testing before this line was written this way.
-        literal = repr(float(value))
-        if 'e' in literal or 'E' in literal:
-            sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
-                      f"'{robot}' is {value!r}; exponent form is not "
-                      f"emitted -- give a plain decimal")
-        text, n = pattern.subn(rf'\g<1>{literal}\g<2>', text)
-        if n != 1:
-            sys.exit(f"make_deploy: expected exactly 1 site for {key} in "
-                      f"{path}, found {n} -- if motion_engine.h's "
-                      f"declaration changed, update _GEOMETRY_BAKE_RES")
-        applied.append((key, float(value)))
-    if applied:
+    for rel_name, keys in keys_by_file.items():
+        path = os.path.join(deploy_dir, 'src', 'motion', rel_name)
+        if not os.path.exists(path):
+            sys.exit(f"make_deploy: geometry bake requested for '{robot}' "
+                      f"but {path} is missing")
+        with open(path) as f:
+            text = f.read()
+        file_applied = []
+        for key in keys:
+            pattern = _GEOMETRY_BAKE_RES[key]
+            value = bake[key]
+            if not isinstance(value, (int, float)) or value <= 0:
+                sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
+                          f"'{robot}' is {value!r}; expected a positive "
+                          f"number")
+            # MUST keep a decimal point: `%g` renders 128.0 as `128`, and
+            # `128f` is not a valid C++ literal (an integer literal
+            # cannot take an `f` suffix) -- it fails the build, and did
+            # in testing before this line was written this way.
+            literal = repr(float(value))
+            if 'e' in literal or 'E' in literal:
+                sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
+                          f"'{robot}' is {value!r}; exponent form is not "
+                          f"emitted -- give a plain decimal")
+            text, n = pattern.subn(rf'\g<1>{literal}\g<2>', text)
+            if n != 1:
+                sys.exit(f"make_deploy: expected exactly 1 site for {key} "
+                          f"in {path}, found {n} -- if {rel_name}'s "
+                          f"declaration changed, update _GEOMETRY_BAKE_RES")
+            file_applied.append((key, float(value)))
         with open(path, 'w') as f:
             f.write(text)
+        applied.extend(file_applied)
     return applied
 
 

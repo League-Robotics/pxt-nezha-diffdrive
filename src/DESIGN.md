@@ -447,13 +447,39 @@ without a live OTOS (§7/§9), so this handler always dispatches to
 `MotionEngine::goToW()`. `mradToRad()`
 here is the **single** place wire milliradians become radians.
 GET/SET map snake_case wire names 1:1 onto the `ConfigField` ordinals
-(`kFields` table) — 15 through sprint 006, **18 as of sprint 007**,
-**19 as of 2026-08-29** (`pivot_overrun`, ordinal 18, backed by
-`MotionEngine::setPivotOverrunMm()`/`pivotOverrunMm()`: the per-wheel
-end-of-move overrun, mm, subtracted from every rotation target in
-`startSegment()` — a measured CONSTANT +2° per MOVE_X pivot on vevov,
-3° and 90° alike, so a distance not a scale; default 0, baked per
-robot via `firmware_bake.pivot_overrun_mm`):
+(`kFields` table) — 15 through sprint 006, 18 as of sprint 007, 19 as
+of 2026-08-29, and **34, as of sprint 029 ticket 004** (design
+`motion-profile-unification.md` §4.7): the ten shaping-related fields
+(`v_floor`, `stop_distance`, `accel`, `decel`, `v_max`, `jerk`,
+`omega_max`, `omega_floor`, `arrive_dist`, `arrive_yaw`) are no longer
+individually switched in `shims.cpp` — one small descriptor table
+(`kLimitsFields`, `{ordinal, setter, field}` rows over
+`MotionLimits`' own "positive, else keep" setters and public members,
+`motion_limits.h`) is consulted by `setKernelValue()`/`getConfigValue()`
+BEFORE either function's own per-field switch runs, replacing what used
+to be up to thirteen independently-maintained `MotionEngine` shaping
+setters with one small, additive table (review CO-05, scoped to this
+design). `v_floor` keeps ordinal 8 (previously `speed_floor`, the
+kernel's own `vMin`) but now writes `MotionLimits::vFloor` instead —
+the kernel's `vMin` stays pinned at 0 forever (K5, `ensure()`'s own
+`Config` seed comment). `stop_distance` keeps ordinal 18 (previously
+`pivot_overrun`, `MotionEngine::pivotOverrunMm_`, now deleted) and now
+writes `MotionLimits::stopDistance`, consumed by the shaper's own
+predictive-arrival math every tick (§6.3 of that design) rather than
+subtracted from the segment's target at start time. `omega_max` keeps
+ordinal 30 (previously `max_yaw_rate`). `omega_floor` (34),
+`arrive_dist` (35) and `arrive_yaw` (36) are new ordinals with no prior
+name. Eight OLD ordinals (22, 23, 24, 25, 26, 27, 29, 31 —
+`brake_frac`, `dist_taper`, `yaw_taper`, `dist_floor`, `turn_floor`,
+`ramp_ms`, `plateau_min_s`, `profile_exit`) are **removed** outright:
+no row exists for them in `kFields` any more, so both GET and SET
+answer `err 1` (`Wire::Result::kUnknown`, the same reply any
+unrecognized wire name gets) for one release — a stale bench script
+fails loudly instead of silently setting nothing. The
+`setTaperWindows`/`setTaperFloors`/`setRampMs` block-facing shims that
+used to set the now-deleted fields are retired to harmless no-ops for
+the same one-release window (a saved MakeCode/TS program that still
+calls them compiles and runs; it just does nothing).
 `default_cruise` (ordinal 15, backed by the new `shims.cpp` Rig field
 above, not `kernel.config()`), `rotational_slip` (ordinal 16, backed
 by `MotionEngine::setRotationalSlip()`/`rotationalSlip()`, §3), and
@@ -1176,8 +1202,11 @@ Pieces the kernel deliberately does not contain:
 - **Wire bridges**: `setWheelsTimed`/`driveTwistTimed` (duration =
   lease), the six `engineXxx()` forwards, `engineDefaultCruiseMmS()`,
   `diagValue()` (the DIAG/STATUS ordinal table),
-  `getConfigValue`/`setKernelValue` (the ×1000 table, 15→18 ordinals as
-  of sprint 007 — see §5), `probe()`, taper/ramp setters, `wheelSpeed()`.
+  `getConfigValue`/`setKernelValue` (the ×1000 table, 34 ordinals as of
+  sprint 029 ticket 004's descriptor-table rewrite — see §5), `probe()`,
+  `setLimits()` (sprint 029 ticket 004: the one shim replacing the now-
+  retired `setTaperWindows`/`setTaperFloors`/`setRampMs` no-op shims —
+  see §5), `wheelSpeed()`.
   **Sprint 007**: `engineDefaultCruiseMmS()` no longer derives from
   `fullDutyVelocity`; it returns a new `defaultCruiseMmS_` Rig field
   (seeded 150 mm/s), settable/gettable through `setKernelValue`/
@@ -1258,7 +1287,9 @@ a single `main.ts` into six cohesion-sized modules. Current structure:
   `_resetPose`, `_seedPose`), and the no-op stand-ins for shim-only
   surface with no browser model at all (`_clearStallLatch`,
   `_isStalled`, `_setGeometry`, `_setKernelValue`, `_startProtocol`,
-  `probe`, `setTaperWindows`/`Floors`/`RampMs`, `otosBegin`/`Read`/
+  `probe`, `setTaperWindows`/`Floors`/`RampMs` (retired no-ops, sprint
+  029 ticket 004), `setLimits` (their replacement, same ticket),
+  `otosBegin`/`Read`/
   `Get`/`Zero`/`Calibrate`/`SetOffset`, `emitLine`, `runCommandText`).
   The issue that proposed this split named a `sim.ts` row and a
   separate `shims.ts` row; verified against the real file, that

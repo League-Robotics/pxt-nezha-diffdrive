@@ -109,9 +109,28 @@ def main():
     print('status:', st)
     if st and 'ready=0' in st:
         raise SystemExit('robot reports ready=0 -- not driving anything')
-    for f, v in (('accel', 400), ('decel', 400), ('profile_exit', 60),
-                 ('pivot_overrun', 3.7), ('twist_hold_gain', 8),
-                 ('speed_floor', 512), ('yaw_taper', 800)):
+    # Sprint 029 ticket 004 (design motion-profile-unification.md
+    # S4.7/S8): accel/decel keep their name and units (mm/s^2) -- same
+    # semantics, now a thin forward to MotionLimits instead of the old
+    # MotionEngine fields. The old "pivot overrun" wire field is now
+    # `stop_distance` below, same [mm] per-wheel coast concept and the
+    # same measured 3.7 value (design S8: "per-wheel mm, both axes;
+    # measured not fitted"). The old "profile exit" and "yaw taper"
+    # wire fields are REMOVED ordinals with no MotionLimits equivalent
+    # (S8: the braking plan ends at the floor by construction; the
+    # taper window is now derived as v^2/(2*decel), not separately
+    # configured) -- dropped, not mapped, so this script no longer sets
+    # them at all. The old "speed floor" wire field is ALSO dropped
+    # rather than mapped onto its new `v_floor` name: that OLD field was
+    # the kernel's own vMin in [counts/s]; `v_floor` is
+    # MotionLimits::vFloor in [mm/s] (S4.7/K5) -- a different physical
+    # quantity under the same wire ordinal, and this script has no
+    # measured mm/s value to substitute for the old 512 counts/s one
+    # (measurement-citations.md: do not invent one). `v_floor` keeps its
+    # compiled default instead (70 mm/s, MEASURED tovez/gopiv
+    # 2026-08-29, motion_limits.h).
+    for f, v in (('accel', 400), ('decel', 400),
+                 ('stop_distance', 3.7), ('twist_hold_gain', 8)):
         L.seqd(f'SET {f} {v}')
 
     home = pose()
@@ -181,7 +200,7 @@ def main():
     print(f'ACCURACY (not a gate): net heading drift over the three pivots '
           f'{dh:+.1f} deg, i.e. {dh/3:+.1f} deg per 90 deg pivot.')
     if abs(dh) > 6.0:
-        print('  ^ worth retuning pivot_overrun before precision work.')
+        print('  ^ worth retuning stop_distance before precision work.')
     print()
     if fails:
         print('DANCE FAILED: ' + ', '.join(fails))

@@ -131,7 +131,13 @@ constexpr FieldEntry kFields[] = {
     {"accel_kaff", 5},         // ConfigField.Kaff
     {"pid_max", 6},            // ConfigField.PidMax
     {"twist_hold_gain", 7},    // ConfigField.TwistHoldGain
-    {"speed_floor", 8},        // ConfigField.SpeedFloor
+    {"v_floor", 8},            // ConfigField.VFloor (design S4.7:
+                               // renamed from speed_floor -- the ordinal
+                               // is UNCHANGED, but the setter now writes
+                               // MotionLimits::vFloor, not the kernel's
+                               // own vMin, which stays pinned at 0 (K5).
+                               // See shims.cpp's setKernelValue()/
+                               // getConfigValue() case 8.
     {"pos_err_max", 9},        // ConfigField.PosErrMax
     {"stall_speed", 10},       // ConfigField.StallSpeed
     {"stall_demand", 11},      // ConfigField.StallDemand
@@ -155,53 +161,55 @@ constexpr FieldEntry kFields[] = {
                                // shims.cpp's setKernelValue()/
                                // getConfigValue() case 17 and
                                // clearStall()'s own comment.
-    {"pivot_overrun", 18},     // ConfigField.PivotOverrun (2026-08-29,
-                               // OOP: per-wheel end-of-move overrun,
-                               // mm, subtracted from every rotation
-                               // target -- MotionEngine::
-                               // setPivotOverrunMm()/pivotOverrunMm(),
-                               // see motion_engine.h's own comment for
-                               // the measurement).
+    {"stop_distance", 18},     // ConfigField.StopDistance (design
+                               // S4.7: renamed from pivot_overrun -- the
+                               // ordinal is unchanged. Per-wheel
+                               // end-of-move coast, mm, now
+                               // MotionLimits::stopDistance
+                               // (motion_limits.h), consumed by the
+                               // shaper's own predictive-arrival math
+                               // every tick (S6.3) rather than
+                               // subtracted from the segment's target
+                               // at start time. See shims.cpp's
+                               // setKernelValue()/getConfigValue()
+                               // case 18.
     {"accel", 19},             // ConfigField.Accel -- [mm/s^2] thin
-                               // forward to MotionEngine::
-                               // setAAccelMmS2()/aAccelMmS2(); 0
-                               // selects legacy mode (see that field's
-                               // own comment, motion_engine.h).
+                               // forward to MotionLimits::setAccel()/
+                               // accel (this ticket: was MotionEngine::
+                               // setAAccelMmS2()/aAccelMmS2(), now
+                               // deleted -- always active, no legacy
+                               // mode, design S8).
     {"decel", 20},             // ConfigField.Decel -- [mm/s^2] thin
-                               // forward to MotionEngine::
-                               // setADecelMmS2()/aDecelMmS2(); 0
-                               // selects legacy mode.
+                               // forward to MotionLimits::setDecel()/
+                               // decel (this ticket: was MotionEngine::
+                               // setADecelMmS2()/aDecelMmS2()).
     {"v_max", 21},             // ConfigField.VMax -- [mm/s] thin
-                               // forward to MotionEngine::
-                               // setVMaxMmS()/vMaxMmS(), the ceiling
+                               // forward to MotionLimits::setVMax()/
+                               // vMax, the ceiling
                                // defaultCruiseForDistance() never
                                // exceeds.
-    {"brake_frac", 22},        // ConfigField.BrakeFrac -- [1] thin
-                               // forward to MotionEngine::
-                               // setBrakeFrac()/brakeFrac(), the share
-                               // of a leg's own length
-                               // defaultCruiseForDistance() allots to
-                               // braking.
-    {"dist_taper", 23},        // ConfigField.DistTaper -- [counts] thin
-                               // forward to MotionEngine::
-                               // setDistTaper()/distTaper(), previously
-                               // reachable only from TypeScript.
-    {"yaw_taper", 24},         // ConfigField.YawTaper -- [counts] thin
-                               // forward to MotionEngine::
-                               // setYawTaper()/yawTaper().
-    {"dist_floor", 25},        // ConfigField.DistFloor -- [1] thin
-                               // forward to MotionEngine::
-                               // setDistFloor()/distFloor().
-    {"turn_floor", 26},        // ConfigField.TurnFloor -- [1] thin
-                               // forward to MotionEngine::
-                               // setTurnFloor()/turnFloor().
-    {"ramp_ms", 27},           // ConfigField.RampMs -- [ms] thin
-    {"jerk", 28},          // ConfigField.Jerk
-    {"plateau_min_s", 29}, // ConfigField.PlateauMinS
-    {"max_yaw_rate", 30},  // ConfigField.MaxYawRate
-    {"profile_exit", 31},  // ConfigField.ProfileExit
-                               // forward to MotionEngine::
-                               // setRampMs()/rampMs().
+    // 22, 23, 24, 25, 26, 27, 29, 31 (brake_frac, dist_taper, yaw_taper,
+    // dist_floor, turn_floor, ramp_ms, plateau_min_s, profile_exit) are
+    // REMOVED this ticket (design S4.7/S8): every one of these named a
+    // MotionEngine field the design deletes outright -- the taper
+    // window is now derived (v^2/(2*decel), per axis), the floor
+    // fraction is now absolute (v_floor/omega_floor), the ramp time is
+    // derived (cruise/accel), and the braking plan ends at the floor by
+    // construction (no plateau derate, no profile-exit distance). No
+    // row exists for these ordinals any more -- findField() (below)
+    // answers nullptr for any of their old names, which SET/GET both
+    // turn into `err 1` (ERR_UNKNOWN), same as any other unrecognized
+    // wire name, for one release (a stale bench script fails loudly
+    // instead of silently setting nothing).
+    {"jerk", 28},              // ConfigField.Jerk -- unchanged name/
+                               // ordinal, now backed by MotionLimits::
+                               // setJerk()/jerk instead of MotionEngine's
+                               // own (deleted) jerkMmS3_.
+    {"omega_max", 30},         // ConfigField.OmegaMax (this ticket:
+                               // renamed from max_yaw_rate -- the
+                               // ordinal is unchanged). [deg/s] thin
+                               // forward to MotionLimits::setOmegaMax()/
+                               // omegaMax.
     {"rebase", kOrdinalRebase},        // zero the odometry frame -- a
                                // write-triggered action wearing a
                                // config-field's clothes, the same shape
@@ -229,6 +237,26 @@ constexpr FieldEntry kFields[] = {
                                // exactly like the stall latch's own
                                // clear field's GET. Also wire-only, same
                                // reason as rebase above.
+    {"omega_floor", 34},       // ConfigField.OmegaFloor (this ticket,
+                               // design S4.7, NEW ordinal): [deg/s]
+                               // thin forward to MotionLimits::
+                               // setOmegaFloor()/omegaFloor -- the pure-
+                               // turn counterpart to v_floor (ordinal 8),
+                               // replacing dist_floor/turn_floor's old
+                               // fraction-of-cruise scheme with an
+                               // absolute floor per axis (design S8).
+    {"arrive_dist", 35},       // ConfigField.ArriveDist (this ticket,
+                               // design S4.7, NEW ordinal): [mm] thin
+                               // forward to MotionLimits::
+                               // setArriveDist()/arriveDist -- the
+                               // distance-axis arrival window, replacing
+                               // the hard-coded 10-count margin.
+    {"arrive_yaw", 36},        // ConfigField.ArriveYaw (this ticket,
+                               // design S4.7, NEW ordinal): [deg] thin
+                               // forward to MotionLimits::
+                               // setArriveYaw()/arriveYaw -- the pure-
+                               // turn arrival window, replacing the
+                               // hard-coded 4-count margin.
 };
 constexpr size_t kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 

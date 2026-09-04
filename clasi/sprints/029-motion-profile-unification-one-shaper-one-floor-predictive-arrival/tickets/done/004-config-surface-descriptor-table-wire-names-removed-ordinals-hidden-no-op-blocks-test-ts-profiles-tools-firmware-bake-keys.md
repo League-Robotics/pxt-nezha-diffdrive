@@ -2,7 +2,7 @@
 id: '004'
 title: 'Config surface: descriptor table, wire names, removed ordinals, hidden no-op
   blocks, test.ts profiles, tools/firmware_bake keys'
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 - SUC-004
@@ -57,21 +57,21 @@ this repo's reach to edit directly.
 
 ## Acceptance Criteria
 
-- [ ] `tests/host/test_config_descriptor_table.py` (design §9.5): every
+- [x] `tests/host/test_config_descriptor_table.py` (design §9.5): every
       wire name in the table round-trips through SET/GET; the removed
       names answer `err 1` on both GET and SET.
-- [ ] `test.ts`'s two profile functions each reduce to a single
+- [x] `test.ts`'s two profile functions each reduce to a single
       `setLimits()` call (design §4.7's exact literals).
-- [ ] `tools/field_dance.py` and every other `tools/` SET call site use
+- [x] `tools/field_dance.py` and every other `tools/` SET call site use
       the new field names; a grep for the nine removed names returns
       nothing under `tools/`.
-- [ ] `make_deploy.py`'s bake-key handling uses `stop_distance_mm`
+- [x] `make_deploy.py`'s bake-key handling uses `stop_distance_mm`
       (retains a documented fallback/migration note if
       `radio-robot-lib`'s own config files haven't yet been updated
       cross-repo).
-- [ ] Blocks: `setTaperWindows`/`setTaperFloors`/`setRampMs` compile as
+- [x] Blocks: `setTaperWindows`/`setTaperFloors`/`setRampMs` compile as
       hidden no-ops; a MakeCode project using them still builds.
-- [ ] `pivot_overrun` no longer appears in `kFields` or any `blocks/`
+- [x] `pivot_overrun` no longer appears in `kFields` or any `blocks/`
       surface (the fleet-config side is ticket 007's/cross-repo
       responsibility to complete, per sprint.md's Success Criteria).
 

@@ -212,7 +212,7 @@ integer values used by the shim's `setKernelValue` switch, §9):
 | 5 | `Kaff` | "accel feedforward" | `kaff` |
 | 6 | `PidMax` | "PID output limit" | `pidMax` |
 | 7 | `TwistHoldGain` | "twist hold gain" | `twistHoldGain` |
-| 8 | `SpeedFloor` | "speed floor" | `vMin` |
+| 8 | `VFloor` | "speed floor mm/s" | *(none — see below)* |
 | 9 | `PosErrMax` | "position error limit" | `posErrMax` |
 | 10 | `StallSpeed` | "stall speed" | `stallSpeed` |
 | 11 | `StallDemand` | "stall demand" | `stallDemand` |
@@ -222,16 +222,34 @@ integer values used by the shim's `setKernelValue` switch, §9):
 | 15 | `DefaultCruise` | "default cruise speed" | *(none — see below)* |
 | 16 | `RotationalSlip` | "rotational slip" | *(none — see below)* |
 | 17 | `StallClear` | "clear stall latch" | *(none — see below)* |
-| 18 | `PivotOverrun` | "pivot overrun mm" | *(none — see below)* |
+| 18 | `StopDistance` | "stop distance mm" | *(none — see below)* |
 | 19 | `Accel` | "acceleration mm/s2" | *(none — see below)* |
 | 20 | `Decel` | "deceleration mm/s2" | *(none — see below)* |
 | 21 | `VMax` | "max speed mm/s" | *(none — see below)* |
-| 22 | `BrakeFrac` | "brake fraction" | *(none — see below)* |
-| 23 | `DistTaper` | "distance taper counts" | *(none — see below)* |
-| 24 | `YawTaper` | "yaw taper counts" | *(none — see below)* |
-| 25 | `DistFloor` | "distance floor" | *(none — see below)* |
-| 26 | `TurnFloor` | "turn floor" | *(none — see below)* |
-| 27 | `RampMs` | "ramp ms" | *(none — see below)* |
+| 28 | `Jerk` | "jerk" | *(none — see below)* |
+| 30 | `OmegaMax` | "max turn rate deg/s" | *(none — see below)* |
+| 34 | `OmegaFloor` | "turn rate floor deg/s" | *(none — see below)* |
+| 35 | `ArriveDist` | "arrive distance mm" | *(none — see below)* |
+| 36 | `ArriveYaw` | "arrive yaw deg" | *(none — see below)* |
+
+Ordinals 22, 23, 24, 25, 26, 27, 29, 31 (`BrakeFrac`, `DistTaper`,
+`YawTaper`, `DistFloor`, `TurnFloor`, `RampMs`, `PlateauMinS`,
+`ProfileExit`) are **removed** (sprint 029 ticket 004, design
+`motion-profile-unification.md` §4.7/§8) — no `ConfigField` enum
+member exists for them, and their wire names answer `err 1` on both
+GET and SET for one release, the same reply an unrecognized name
+always gets.
+
+Ordinal 8's "Kernel `Config` field" column is also non-standard, as of
+sprint 029 ticket 004 (design `motion-profile-unification.md` §4.7,
+K5): `VFloor` used to be a real `DifferentialDrive::Config` field
+(`vMin`, the kernel's own speed floor) but now writes
+`MotionLimits::vFloor` (`motion_limits.h`) instead — the ordinal is
+unchanged, but the kernel's own `vMin` stays pinned at 0 forever
+(`shims.cpp`'s `ensure()`, its own `Config` seed comment). The speed
+floor moved from being a *servo* concept to a *profile* concept: the
+shaper (§4.2 of that design) is what commands the floored speed now,
+not the kernel's own `applySpeedFloor()`.
 
 Ordinal 15's "Kernel `Config` field" column is also non-standard:
 `DefaultCruise` is not a `DifferentialDrive::Config` field at all — it
@@ -278,48 +296,55 @@ reading it back never returns whatever was last "set." This mirrors
 the dedicated `clear stall latch`/`is stalled` blocks (§4.2) exactly;
 both routes reach the same kernel call.
 
-Ordinal 18's "Kernel `Config` field" column is likewise non-standard:
-`PivotOverrun` is not a `DifferentialDrive::Config` field — it is
-`MotionEngine`'s own `pivotOverrunMm_` (`motion_engine.h`), the
-per-wheel end-of-move overrun (mm) subtracted from every rotation
-target before it is commanded. See that field's own comment for the
-measurement behind its default (0, no compensation). `setConfigValue`
-applies the same "`>= 0`, else silently keep the prior value"
-validation `setPivotOverrunMm()` already uses.
+Ordinal 18's "Kernel `Config` field" column is likewise non-standard,
+as of sprint 029 ticket 004 (design `motion-profile-unification.md`
+§4.7): `StopDistance` (renamed from `PivotOverrun`, ordinal unchanged)
+is not a `DifferentialDrive::Config` field — it is `MotionLimits`' own
+`stopDistance` (`motion_limits.h`), the per-wheel coast (mm) after the
+last nonzero command, consumed by the shaper's own predictive-arrival
+math every tick (§6.3 of that design) rather than subtracted from the
+segment's target at start time the way the old `pivotOverrunMm_` was.
+`setConfigValue` applies the same "`>= 0`, else silently keep the
+prior value" validation `MotionLimits::setStopDistance()` already
+uses.
 
-Ordinals 19-27's "Kernel `Config` field" column is non-standard for
-the same reason as 15/16/17/18 above: none of these nine is a
-`DifferentialDrive::Config` field. All nine live on `MotionEngine`, as
-the constant-acceleration/deceleration shaping surface that also
-resolves the wire-level `MOVE_X`/`GO_TO_R`/`GO_TO_W` verbs' own
-`cruise == 0` "use the default" sentinel by leg distance — a wire-layer
-behavior this document's block-API reference does not otherwise cover,
-since the TS blocks above (§4.3-4.5) always resolve `defaultSpeed`
-themselves before reaching the shim. `WHEELS_X`/`WHEELS_V` keep
-ordinal 15's flat `Rig::defaultCruiseMmS_` sentinel unchanged. Each
-ordinal is a thin forward to the named `MotionEngine` accessor:
+Ordinals 19-21, 28, 30, 34-36's "Kernel `Config` field" column is
+non-standard for the same reason as 8/15/16/17/18 above: none of these
+eight is a `DifferentialDrive::Config` field. All eight live on
+`MotionLimits` (`motion_limits.h`) — the one value object every
+shaping/floor/arrival number in the system now reads from (design
+`motion-profile-unification.md` §4.1) — reached via one small
+descriptor table in `shims.cpp` (`kLimitsFields`) that
+`setKernelValue()`/`getConfigValue()` both consult before falling into
+either function's own kernel-field switch, rather than as
+individually-forwarded `MotionEngine` setters the way this table used
+to describe. `Accel`/`Decel`/`VMax` (19-21) also resolve the
+wire-level `MOVE_X`/`GO_TO_R`/`GO_TO_W` verbs' own `cruise == 0` "use
+the default" sentinel by leg distance — a wire-layer behavior this
+document's block-API reference does not otherwise cover, since the TS
+blocks above (§4.3-4.5) always resolve `defaultSpeed` themselves
+before reaching the shim. `WHEELS_X`/`WHEELS_V` keep ordinal 15's flat
+`Rig::defaultCruiseMmS_` sentinel unchanged. Each ordinal is a thin
+forward to the named `MotionLimits` setter/member:
 
-| Ordinal | Enum member | Engine accessor | Unit |
+| Ordinal | Enum member | `MotionLimits` setter/member | Unit |
 |---|---|---|---|
-| 19 | `Accel` | `setAAccelMmS2()`/`aAccelMmS2()` | mm/s² |
-| 20 | `Decel` | `setADecelMmS2()`/`aDecelMmS2()` | mm/s² |
-| 21 | `VMax` | `setVMaxMmS()`/`vMaxMmS()` | mm/s |
-| 22 | `BrakeFrac` | `setBrakeFrac()`/`brakeFrac()` | fraction |
-| 23 | `DistTaper` | `setDistTaper()`/`distTaper()` | counts |
-| 24 | `YawTaper` | `setYawTaper()`/`yawTaper()` | counts |
-| 25 | `DistFloor` | `setDistFloor()`/`distFloor()` | fraction |
-| 26 | `TurnFloor` | `setTurnFloor()`/`turnFloor()` | fraction |
-| 27 | `RampMs` | `setRampMs()`/`rampMs()` | ms |
+| 19 | `Accel` | `setAccel()`/`accel` | mm/s² |
+| 20 | `Decel` | `setDecel()`/`decel` | mm/s² |
+| 21 | `VMax` | `setVMax()`/`vMax` | mm/s |
+| 28 | `Jerk` | `setJerk()`/`jerk` | mm/s³ |
+| 30 | `OmegaMax` | `setOmegaMax()`/`omegaMax` | deg/s |
+| 34 | `OmegaFloor` | `setOmegaFloor()`/`omegaFloor` | deg/s |
+| 35 | `ArriveDist` | `setArriveDist()`/`arriveDist` | mm |
+| 36 | `ArriveYaw` | `setArriveYaw()`/`arriveYaw` | deg |
 
-`Accel`/`Decel`/`VMax` (19-21) validate the same way `PivotOverrun`
-above does (`> 0`, else silently keep the prior value); `0` on either
-`Accel` or `Decel` is the legacy-mode sentinel (see `motion_engine.h`'s
-own field comments) rather than an invalid write. `BrakeFrac` (22)
-validates `0 < value <= 1`. `DistTaper`/`YawTaper`/`DistFloor`/
-`TurnFloor`/`RampMs` (23-27) are the five shaping knobs that predate
-this wire exposure and were previously reachable only from
-TypeScript — their setters accept any value unconditionally, with no
-range check, exactly as they always have.
+`Accel`/`Decel`/`VMax`/`ArriveDist` (19-21, 35) validate `> 0`, else
+silently keep the prior value — these are always-active ceilings/
+windows with no "off" state (design §8: "now always active, no legacy
+mode" for `Accel`/`Decel`). `Jerk`/`OmegaMax`/`OmegaFloor`/`ArriveYaw`
+(28, 30, 34, 36) validate `>= 0`, since `0` is each field's own
+documented "off"/"none" value (`Jerk` 0 = no jerk rounding, `OmegaMax`
+0 = no pure-turn rate ceiling).
 
 **Not exposed anywhere in the block API or the `ConfigField` enum** (a
 source-derived observation, not in the README): the kernel's per-wheel

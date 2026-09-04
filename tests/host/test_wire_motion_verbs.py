@@ -1877,9 +1877,14 @@ def test_set_value_large_but_sane_is_still_accepted(wa):
 # ordinary SET/GET round trip) -- several are deliberately the SAME
 # values get-full-duty-velocity-returns-garbage.md's own root-cause
 # section reads off shims.cpp's ensure() (max_duty, pid_ki, pid_i_max,
-# pid_max, speed_floor, pos_err_max, stall_speed, stall_demand,
-# stall_window, twist_hold_gain), so this sweep exercises the SAME real
-# magnitudes production actually seeds, not arbitrary numbers. Two
+# pid_max, pos_err_max, stall_speed, stall_demand, stall_window,
+# twist_hold_gain), so this sweep exercises the SAME real magnitudes
+# production actually seeds, not arbitrary numbers. `v_floor`'s own
+# value (893.2) is NOT one of these any more (sprint 029 ticket 004):
+# ordinal 8 no longer reaches the kernel's own vMin/ensure() seed at
+# all -- it is a plain positive MotionLimits::vFloor round trip now,
+# kept at its historical value only for continuity across the rename.
+# Two
 # fields are NOT plain stored values and are called out individually:
 #   - lambda_enabled: setKernelValue() case 13 (wire_motion_verb_shim.cpp,
 #     mirroring shims.cpp) coerces ANY nonzero SET to a stored 1.0
@@ -1916,7 +1921,13 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "accel_kaff": 3.25,
     "pid_max": 1276.0,
     "twist_hold_gain": 2.0,
-    "speed_floor": 893.2,
+    # Sprint 029 ticket 004 (design motion-profile-unification.md S4.7):
+    # renamed from speed_floor -- same ordinal (8), now MotionLimits::
+    # vFloor (mm/s) instead of the kernel's own vMin (counts/s); see K5
+    # (this ordinal's own round-trip value is unaffected by the unit
+    # reinterpretation -- it is still just a positive number this test
+    # round-trips, not a physically-checked speed).
+    "v_floor": 893.2,
     "pos_err_max": 127.6,
     "stall_speed": 191.4,
     "stall_demand": 510.4,
@@ -1926,27 +1937,28 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "default_cruise": 150.0,
     "rotational_slip": 0.952,
     "stall_clear": 0.0,
-    "pivot_overrun": 2.2,   # vevov's measured value (motion_engine.h)
-    # sprint 025 ticket 003: constant-a shaping plus the five
-    # pre-existing end-of-move shaping knobs (ordinals 19-27). Values
-    # chosen inside each field's own documented/validated range
-    # (motion_engine.h) -- none is the field's shipped default, so a
-    # round trip that silently no-ops (validation rejecting the SET)
-    # would show up as a mismatch against the field's real default
-    # instead of passing by coincidence.
+    # renamed from pivot_overrun (ordinal 18 unchanged) -- vevov's
+    # measured value (motion_limits.h's own MotionLimits::stopDistance
+    # comment).
+    "stop_distance": 2.2,
+    # Sprint 029 ticket 004 (design S4.7): accel/decel/v_max keep their
+    # names, now backed by MotionLimits instead of the deleted
+    # MotionEngine shaping fields. Values chosen inside each field's own
+    # documented/validated range (motion_limits.h) -- none is the
+    # field's shipped default, so a round trip that silently no-ops
+    # (validation rejecting the SET) would show up as a mismatch against
+    # the field's real default instead of passing by coincidence.
     "accel": 500.0,
     "decel": 700.0,
     "v_max": 300.0,
-    "brake_frac": 0.4,
-    "dist_taper": 350.0,
-    "yaw_taper": 160.0,
-    "dist_floor": 0.3,
-    "turn_floor": 0.15,
-    "ramp_ms": 300.0,
     "jerk": 4000.0,
-    "plateau_min_s": 0.15,
-    "max_yaw_rate": 90.0,
-    "profile_exit": 45.0,
+    # renamed from max_yaw_rate (ordinal 30 unchanged).
+    "omega_max": 90.0,
+    # NEW ordinals this ticket adds (34-36, design S4.7) -- same
+    # non-default-value rationale as accel/decel/v_max above.
+    "omega_floor": 25.0,
+    "arrive_dist": 2.5,
+    "arrive_yaw": 0.6,
     "estop_clear": 0.0,
 }
 
@@ -1969,23 +1981,19 @@ def _bare_get_field_names(wa, seq_id):
     return names, seq_id + 1
 
 
-# Sprint 029 ticket 003: these eight kFields names still exist in
-# wire_adapter.cpp's own table (this ticket does not touch that file --
-# the descriptor table itself is ticket 004's job) but their BACKING
-# MotionEngine fields are deleted (design motion-profile-unification.md
-# S4.7's wire-name table marks all eight ordinals "removed" --
-# shims.cpp's setKernelValue()/getConfigValue() cases 22-27/29/31 are
-# now harmless no-ops, "// ticket 004"). SET still acks normally
-# (nothing rejects the write) but GET no longer reads back what was
-# set -- there is no field left to read. Ticket 004 owns making these
-# answer `err 1` on both SET and GET instead (design S4.7); until then
-# they are excluded from this round-trip sweep rather than asserted to
-# silently no-op (which would pin the current gap as intended
-# behavior, not flag it as the one-release migration window it is).
-_RETIRED_NO_ROUND_TRIP_KFIELDS = frozenset({
-    "brake_frac", "dist_taper", "yaw_taper", "dist_floor", "turn_floor",
-    "ramp_ms", "plateau_min_s", "profile_exit",
-})
+# Sprint 029 ticket 003 left eight kFields names (brake_frac,
+# dist_taper, yaw_taper, dist_floor, turn_floor, ramp_ms,
+# plateau_min_s, profile_exit) in wire_adapter.cpp's own table with
+# their BACKING MotionEngine fields already deleted -- SET acked but
+# GET no longer read back what was set, a one-release migration gap
+# that ticket ticket 003 explicitly left for ticket 004 to close.
+# Ticket 004 (this sprint) closes it: wire_adapter.cpp's kFields no
+# longer names any of those eight at all, so `_bare_get_field_names()`
+# never reports them here in the first place, and every name this
+# sweep DOES see now genuinely round-trips -- no more excluded-name
+# special case needed. See test_config_descriptor_table.py for the
+# dedicated `err 1` coverage of those eight retired names (both GET and
+# SET), which this sweep does not (and should not) exercise on its own.
 
 
 def test_get_set_sweeps_every_kfields_entry_without_overflow(wa):
@@ -2029,12 +2037,6 @@ def test_get_set_sweeps_every_kfields_entry_without_overflow(wa):
         prefix = _ack(seq_id) + f"get {name} ".encode()
         assert reply.startswith(prefix), (name, reply)
         got = float(reply[len(prefix):])
-        if name in _RETIRED_NO_ROUND_TRIP_KFIELDS:
-            # See _RETIRED_NO_ROUND_TRIP_KFIELDS' own comment -- the SET
-            # above was accepted but has nothing left to write; skip the
-            # round-trip assertion for this name only.
-            seq_id += 1
-            continue
         assert got == pytest.approx(value, rel=1e-3, abs=1e-3), (
             f"{name}: SET {value}, GET read back {got} -- "
             f"formatConfigValue() scaling regression "
@@ -2911,28 +2913,35 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
     001 added `stall_clear` (ordinal 17) at the end; ticket 003 added
     `default_cruise` (ordinal 15) just before it; ticket 005 (this one,
     closing R-14/API-06) fills in `rotational_slip` (ordinal 16) between
-    the two. The function name's stale "sixteen" now undercounts by two
-    and is left as-is rather than renamed mid-sprint (same call made for
-    ticket 003's own `default_cruise` addition)."""
+    the two. The function name's stale "sixteen" now undercounts by
+    quite a bit more and is left as-is rather than renamed mid-sprint
+    (same call made for ticket 003's own `default_cruise` addition).
+
+    Sprint 029 ticket 004 (design motion-profile-unification.md S4.7):
+    `speed_floor` -> `v_floor`, `pivot_overrun` -> `stop_distance`,
+    `max_yaw_rate` -> `omega_max` (all three same ordinal, renamed);
+    `brake_frac`/`dist_taper`/`yaw_taper`/`dist_floor`/`turn_floor`/
+    `ramp_ms`/`plateau_min_s`/`profile_exit` are REMOVED (no row in
+    kFields at all any more); `omega_floor`/`arrive_dist`/`arrive_yaw`
+    are NEW, appended after `estop_clear` (ordinals 34-36, declared
+    after `rebase`/`estop_clear` in kFields -- see that table's own
+    declaration order)."""
     wa.feed(b"GET #1\n")
     lines = wa.take_sink().split(b"\n")
     names = [line.split(b" ")[1] for line in lines if line.startswith(b"get ")]
     assert names == [
         b"max_duty", b"full_duty_velocity", b"pid_kp", b"pid_ki",
         b"pid_i_max", b"accel_kaff", b"pid_max", b"twist_hold_gain",
-        b"speed_floor", b"pos_err_max", b"stall_speed", b"stall_demand",
+        b"v_floor", b"pos_err_max", b"stall_speed", b"stall_demand",
         b"stall_window", b"lambda_enabled", b"crawl_pulse",
         b"default_cruise", b"rotational_slip", b"stall_clear",
-        b"pivot_overrun",   # 2026-08-29 (OOP): ordinal 18, appended
-        # sprint 025 ticket 003: ordinals 19-27, appended in
-        # ConfigField declaration order.
-        b"accel", b"decel", b"v_max", b"brake_frac",
-        b"dist_taper", b"yaw_taper", b"dist_floor", b"turn_floor",
-        b"ramp_ms",
+        b"stop_distance",   # ordinal 18, renamed from pivot_overrun
+        # this ticket: ordinals 19-21, 28, 30 -- accel/decel/v_max/
+        # jerk/omega_max, in kFields declaration order. 22-27, 29, 31
+        # (the removed ordinals) have no row and so never appear here.
+        b"accel", b"decel", b"v_max",
         b"jerk",
-        b"plateau_min_s",
-        b"max_yaw_rate",
-        b"profile_exit",
+        b"omega_max",   # renamed from max_yaw_rate, ordinal 30 unchanged
         # sprint 028 ticket 002: ordinal 32 (rebase) is deliberately
         # ABSENT here -- its GET is refused (WireAdapter::onGet(),
         # wire_adapter.cpp), so it never appears in a bare dump; see
@@ -2941,6 +2950,9 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # flag, same shape stall_clear's own GET already uses), so it is
         # appended here in ordinal order like every field above it.
         b"estop_clear",
+        # this ticket: ordinals 34-36 (omega_floor/arrive_dist/
+        # arrive_yaw), NEW, declared after estop_clear in kFields.
+        b"omega_floor", b"arrive_dist", b"arrive_yaw",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

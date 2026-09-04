@@ -130,29 +130,31 @@ _BASELINE_GROUP_ORDER = {
     ],
     "Remote": ["onRun", "onRunCommand"],
     "Debug": ["sendString", "sendValue"],
+    # Sprint 029 ticket 004 (design motion-profile-unification.md S4.7):
+    # ConfigField.SpeedFloor -> VFloor, PivotOverrun -> StopDistance,
+    # MaxYawRate -> OmegaMax (same ordinals, renamed); BrakeFrac/
+    # DistTaper/YawTaper/DistFloor/TurnFloor/RampMs/PlateauMinS/
+    # ProfileExit are REMOVED outright (no enum member); OmegaFloor/
+    # ArriveDist/ArriveYaw are NEW, appended at the end (ordinals 34-36).
     "ENUM": [
         "ConfigField.MaxDuty", "ConfigField.FullDutyVelocity",
         "ConfigField.Kp", "ConfigField.Ki", "ConfigField.IMax",
         "ConfigField.Kaff", "ConfigField.PidMax",
-        "ConfigField.TwistHoldGain", "ConfigField.SpeedFloor",
+        "ConfigField.TwistHoldGain", "ConfigField.VFloor",
         "ConfigField.PosErrMax", "ConfigField.StallSpeed",
         "ConfigField.StallDemand", "ConfigField.StallWindow",
         "ConfigField.LambdaEnabled", "ConfigField.CrawlPulse",
         "ConfigField.DefaultCruise", "ConfigField.RotationalSlip",
         "ConfigField.StallClear",
-        "ConfigField.PivotOverrun",  # 2026-08-29 (OOP): ordinal 18
-        "ConfigField.Accel",         # sprint 025 ticket 003: ordinal 19
+        "ConfigField.StopDistance",  # ordinal 18
+        "ConfigField.Accel",         # ordinal 19
         "ConfigField.Decel",         # ordinal 20
         "ConfigField.VMax",          # ordinal 21
-        "ConfigField.BrakeFrac",     # ordinal 22
-        "ConfigField.DistTaper",     # ordinal 23
-        "ConfigField.YawTaper",      # ordinal 24
-        "ConfigField.DistFloor",     # ordinal 25
-        "ConfigField.TurnFloor",     # ordinal 26
-        "ConfigField.RampMs",
-    "ConfigField.Jerk",
-    "ConfigField.PlateauMinS",
-    "ConfigField.MaxYawRate",        # ordinal 27
+        "ConfigField.Jerk",          # ordinal 28
+        "ConfigField.OmegaMax",      # ordinal 30
+        "ConfigField.OmegaFloor",    # ordinal 34
+        "ConfigField.ArriveDist",    # ordinal 35
+        "ConfigField.ArriveYaw",     # ordinal 36
     ],
 }
 

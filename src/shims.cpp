@@ -1061,10 +1061,77 @@ void setGeometry(int trackWidth, int calib) {  // [0.1 mm] [1e-4 mm/deg]
 // of crossing to protocol.cpp.
 static OtosPort& otosRef();
 
+// ---- shaping-field descriptor table (this ticket, design S4.7's own
+// review-CO-05-scoped rationale: "one descriptor table replaces the
+// three parallel switches for the shaping fields") -----------------------
+// {ordinal, setter, field} rows that setKernelValue()/getConfigValue()
+// (below) both consult BEFORE falling into their own per-field switch --
+// every one of design S4.7's ten wire-name-table rows that maps onto a
+// MotionLimits member (v_floor/stop_distance/accel/decel/v_max/jerk/
+// omega_max/omega_floor/arrive_dist/arrive_yaw) lives here instead of as
+// a standalone `case N:` line. `setter` is one of MotionLimits' own
+// "positive, else keep" validated setters (motion_limits.h) -- called
+// through a pointer-to-member-function, exactly the way `field` (a
+// pointer-to-data-member) is read through -- so this table adds no
+// validation logic of its own; it only ROUTES. A later ticket (design
+// review CO-05's fuller ask, the complete config surface) extends this
+// same table additively -- new rows, no new switch statement -- rather
+// than growing a fourth parallel mapping.
+namespace {
+struct LimitsFieldEntry {
+  int ordinal;
+  void (MotionLimits::*setter)(float);
+  float MotionLimits::*field;
+};
+
+// this ticket, design S4.7's wire-name table: {ordinal, setter, field}
+// for the ten shaping ordinals -- kOrdinal/kSetter/kField values below
+// come straight from motion_limits.h's own "positive, else keep"
+// setters and public members (both declared there, see that header's
+// own comment for the naming rationale). Order matches the design
+// table's own row order, not declaration/ordinal order, so a reader
+// comparing the two side by side does not have to re-sort either one.
+constexpr LimitsFieldEntry kLimitsFields[] = {
+    {19, &MotionLimits::setAccel, &MotionLimits::accel},
+    {20, &MotionLimits::setDecel, &MotionLimits::decel},
+    {21, &MotionLimits::setVMax, &MotionLimits::vMax},
+    {28, &MotionLimits::setJerk, &MotionLimits::jerk},
+    {30, &MotionLimits::setOmegaMax, &MotionLimits::omegaMax},
+    // 8 (this ticket, K5): v_floor -- the ordinal is unchanged from the
+    // old kernel speed_floor, but the setter now writes HERE, not
+    // k.setSpeedFloor(); the kernel's own vMin stays pinned at 0
+    // (ensure()'s own Config seed comment above).
+    {8, &MotionLimits::setVFloor, &MotionLimits::vFloor},
+    {34, &MotionLimits::setOmegaFloor, &MotionLimits::omegaFloor},
+    // 18 (this ticket): stop_distance -- the ordinal is unchanged from
+    // the old pivot_overrun; see wire_adapter.cpp's kFields row for the
+    // rename's own provenance.
+    {18, &MotionLimits::setStopDistance, &MotionLimits::stopDistance},
+    {35, &MotionLimits::setArriveDist, &MotionLimits::arriveDist},
+    {36, &MotionLimits::setArriveYaw, &MotionLimits::arriveYaw},
+};
+constexpr size_t kLimitsFieldCount =
+    sizeof(kLimitsFields) / sizeof(kLimitsFields[0]);
+
+const LimitsFieldEntry* findLimitsField(int ordinal) {
+  for (const auto& entry : kLimitsFields) {
+    if (entry.ordinal == ordinal) return &entry;
+  }
+  return nullptr;
+}
+}  // namespace
+
 //%
 void setKernelValue(int field, int value) {  // [x1000 scaled]
   Rig& r = ensure();
   const float v = static_cast<float>(value) * 0.001f;
+  // this ticket: every shaping ordinal (design S4.7's wire-name table)
+  // is handled by kLimitsFields above, BEFORE the kernel-field switch
+  // below is even reached -- see that table's own header comment.
+  if (const LimitsFieldEntry* entry = findLimitsField(field)) {
+    (r.engine.limits().*(entry->setter))(v);
+    return;
+  }
   DiffDrive::DifferentialDrive& k = r.kernel;
   switch (field) {
     case 0: k.setMaxDuty(v); break;
@@ -1075,7 +1142,6 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     case 5: k.setKaff(v); break;
     case 6: k.setPidMax(v); break;
     case 7: k.setTwistHoldGain(v); break;
-    case 8: k.setSpeedFloor(v); break;
     case 9: k.setPositionErrorMax(v); break;
     case 10: k.setStall(v, k.config().stallDemand,
                         k.config().stallWindow); break;
@@ -1110,46 +1176,18 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // magnitude is otherwise ignored. Deliberately does not touch
     // estopLatch_ -- see clearStall()'s own comment above.
     case 17: if (v != 0.0f) k.clearStallLatch(); break;
-    // 18 (this ticket, design motion-profile-unification.md
-    // S4.7): stop_distance -- replaces pivot_overrun
-    // (MotionEngine::pivotOverrunMm_, deleted this ticket: the per-wheel
-    // coast is now a MotionLimits concept the shaper's own predictive-
-    // arrival math consumes every tick, S6.3, not a static subtraction
-    // from the segment's target at start time). Forwards to
-    // MotionLimits::setStopDistance(), which owns its own ">= 0, else
-    // keep the prior value" validation (motion_limits.h).
-    case 18: r.engine.limits().setStopDistance(v); break;
-    // 19-21, 28, 30 (design S4.7's wire-name table): accel/decel/v_max/
-    // jerk/omega_max -- thin forwards to MotionLimits setters, which own
-    // their own validation (motion_limits.h), same shape as case 16/18's
-    // forwards above. this ticket: these used to forward to
-    // MotionEngine's own aAccelMmS2_/aDecelMmS2_/vMaxMmS_/jerkMmS3_/
-    // maxYawRateDegS_ setters (all deleted) -- accel/decel/jerk/omegaMax
-    // are now always active (no more "0 selects legacy mode"; design
-    // S8: "now always active, no legacy mode").
-    case 19: r.engine.limits().setAccel(v); break;
-    case 20: r.engine.limits().setDecel(v); break;
-    case 21: r.engine.limits().setVMax(v); break;
-    // 22-27, 29, 31 (this ticket): brake_frac/dist_taper/
-    // yaw_taper/dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit
-    // -- every one of these named a field this ticket DELETES from
-    // MotionEngine (the old thirteen shaping fields; design S4.7's
-    // wire-name table marks all eight of these ordinals "removed").
-    // Ticket 004 owns making removed ordinals answer `err 1` on both
-    // SET and GET (the descriptor-table protocol, design S4.7) -- until
-    // then these are harmless no-ops rather than a dangling call into a
-    // deleted method. // ticket 004
-    case 22:
-    case 23:
-    case 24:
-    case 25:
-    case 26:
-    case 27:
-    case 29:
-    case 31:
-      break;
-    case 28: r.engine.limits().setJerk(v); break;
-    case 30: r.engine.limits().setOmegaMax(v); break;
+    // 18-21, 28, 30, 34-36 (design S4.7's wire-name table): stop_distance/
+    // accel/decel/v_max/jerk/omega_max/omega_floor/arrive_dist/
+    // arrive_yaw, and 8 (v_floor) -- all ten now handled by
+    // kLimitsFields/findLimitsField() above, before this switch is ever
+    // reached. 22, 23, 24, 25, 26, 27, 29, 31 (brake_frac/dist_taper/
+    // yaw_taper/dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit)
+    // are REMOVED ordinals (design S4.7/S8) with no case here at all --
+    // wire_adapter.cpp's kFields no longer names them, so no caller can
+    // reach this switch with one of these numbers over the wire; a
+    // direct C++ caller passing one falls through to `default: break`
+    // below, the same as any other unrecognized field number always
+    // has.
     // 32: rebase -- zero the odometry frame, a write-triggered action
     // wearing a config-field's clothes (same shape as stall_clear's
     // case 17 above). Writes BOTH pose sources, mirroring seedPose()'s
@@ -1194,6 +1232,13 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
 // declaration. An out-of-range field returns 0.
 int getConfigValue(int field) {  // -> [x1000 scaled]
   Rig& r = ensure();
+  // this ticket: every shaping ordinal (design S4.7's wire-name table)
+  // is handled by kLimitsFields above, BEFORE the kernel Config switch
+  // below is even reached -- mirrors setKernelValue()'s own gate.
+  if (const LimitsFieldEntry* entry = findLimitsField(field)) {
+    const float lv = r.engine.limits().*(entry->field);
+    return static_cast<int>(std::lround(lv * 1000.0));
+  }
   const DiffDrive::DifferentialDrive::Config c = r.kernel.config();
   float v = 0.0f;
   switch (field) {
@@ -1205,7 +1250,6 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     case 5: v = c.kaff; break;
     case 6: v = c.pidMax; break;
     case 7: v = c.twistHoldGain; break;
-    case 8: v = c.vMin; break;
     case 9: v = c.posErrMax; break;
     case 10: v = c.stallSpeed; break;
     case 11: v = c.stallDemand; break;
@@ -1227,35 +1271,13 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // ordinal has no stored Config field at all; see clearStall()'s own
     // comment above and sprint 007's design/DESIGN.md §5 field table).
     case 17: v = r.kernel.output().stallHalted ? 1.0f : 0.0f; break;
-    // 18: stop_distance's GET side (this ticket) --
-    // MotionLimits::stopDistance, not a kernel Config field (same as
-    // case 16 above). See setKernelValue()'s own case 18 comment.
-    case 18: v = r.engine.limits().stopDistance; break;
-    // 19-21, 28, 30: GET side of the setKernelValue() forwards above,
-    // same "not a kernel Config field" shape as case 16/18.
-    case 19: v = r.engine.limits().accel; break;
-    case 20: v = r.engine.limits().decel; break;
-    case 21: v = r.engine.limits().vMax; break;
-    case 28: v = r.engine.limits().jerk; break;
-    case 30: v = r.engine.limits().omegaMax; break;
-    // 22-27, 29, 31: removed ordinals (brake_frac/dist_taper/yaw_taper/
-    // dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit) -- named
-    // explicitly (not left to `default:`) so
-    // test_wire_constants_drift.py's own ordinal-coverage sweep can
-    // still confirm every blocks/motion.ts ConfigField ordinal has a
-    // case here, even though each one currently answers 0. Ticket 004
-    // owns making these answer `err 1` instead (design S4.7).
-    // // ticket 004
-    case 22:
-    case 23:
-    case 24:
-    case 25:
-    case 26:
-    case 27:
-    case 29:
-    case 31:
-      v = 0.0f;
-      break;
+    // 8, 18-21, 28, 30, 34-36: all handled by kLimitsFields/
+    // findLimitsField() above, before this switch is ever reached. 22,
+    // 23, 24, 25, 26, 27, 29, 31 (removed ordinals) have no case here at
+    // all any more -- wire_adapter.cpp's kFields no longer names them,
+    // so this switch's own `default: return 0` is the only path a stray
+    // direct C++ call with one of these numbers can take, same as any
+    // other unrecognized field.
     // 33: estop_clear's GET side -- a convenience readback of
     // Output.estopped, same "not a stored Config field" shape as the
     // stall latch's own clear field's GET (case 17 above). 32 (rebase)
@@ -1400,22 +1422,27 @@ float engineGoToWChordMm(float worldX, float worldY) {
   return std::hypot(worldX - pose.x(), worldY - pose.y());
 }
 
-// this ticket (design motion-profile-unification.md S4.7):
-// hidden no-op shims for one release. These used to set end-of-move
+// RETIRED (sprint 029 ticket 003/004, design motion-profile-
+// unification.md S4.7/S8/S12): harmless no-op shims kept for one
+// release so a MakeCode project saved before this sprint that still
+// calls `setTaperWindows`/`setTaperFloors`/`setRampMs` compiles and
+// runs -- it just does nothing now. These used to set end-of-move
 // shaping fields (distTaper_/yawTaper_/distFloor_/turnFloor_/rampMs_)
-// that this ticket DELETES from MotionEngine entirely -- the taper
+// that ticket 003 DELETED from MotionEngine entirely -- the taper
 // window, the floor fraction and the ramp time are all superseded by
-// MotionLimits + VelocityShaper (design S4.1/S4.2), reachable only
-// through limits() now, which these three block-facing shims have no
-// parameter shape to express (percent-of-cruise floors and counts-
-// windows don't correspond to anything VelocityShaper reads). A
-// MakeCode project saved before this ticket that calls
-// `setTaperWindows`/`setTaperFloors`/`setRampMs` still compiles and
-// runs -- it just does nothing now, per design S4.7's own migration
-// note ("MakeCode projects that used them compile, do nothing, and the
-// release note says so"). Ticket 004 owns the block palette's own
-// hiding of these entries; this ticket only empties their bodies so
-// the call sites that remain do not dangle into deleted methods.
+// MotionLimits + VelocityShaper (design S4.1/S4.2): shaping is now
+// `set config`'s own accel/decel/jerk/v_max/omega_max/v_floor/
+// omega_floor fields (ConfigField, blocks/motion.ts), reachable only
+// through limits(), which these three no-shim parameter shapes have no
+// way to express (percent-of-cruise floors and counts-windows don't
+// correspond to anything VelocityShaper reads). Neither of these three
+// was ever a draggable BLOCK (no `//% block=` was ever declared for
+// them -- only sim.ts/test.ts ever called them directly as plain
+// TypeScript), so there is no toolbox entry to hide; "hidden" here
+// means "does nothing", not "no longer visible in the palette". Design
+// S12 open question 3 (may these be removed outright, or must they stay
+// no-ops for a release) is undecided as of this ticket -- defaulting to
+// the no-op posture per that question's own stated default.
 //%
 void setTaperWindows(int distCounts, int yawCounts) {
   (void)distCounts;
@@ -1431,6 +1458,32 @@ void setTaperFloors(int distPct, int turnPct) {
 //%
 void setRampMs(int ms) {
   (void)ms;
+}
+
+// this ticket (design motion-profile-unification.md S4.7): the ONE
+// shim `test.ts`'s two profile functions (openLoopProfile()/
+// closedLoopProfile()) now call, replacing the three retired shims
+// immediately above. Four `int` parameters, not five -- sprint 015
+// ticket 006's own PXT packager finding (engineSetGoToDeadline()'s
+// comment above) is why every `//%` shim in this file stays at <=4
+// params; a MotionLimits-shaped call with five plain fields (accel,
+// decel, vMax, omegaMax, plus a floor or arrival window) would cross
+// that line, so this shim covers only the two profile-selected rate
+// ceilings (design S4.7's own `setLimits({accel, decel, vMax,
+// omegaMax})` pseudocode) -- floors and stop_distance stay per-robot,
+// set once from the deploy bake (or `set config`), never per profile.
+// No wire-scale (x1000) convention here, unlike setKernelValue() --
+// plain student units straight through, matching startMove()'s own
+// int-parameter shims.
+//%
+void setLimits(int accel, int decel, int vMax,
+               int omegaMax) {  // [mm/s^2] [mm/s^2] [mm/s] [deg/s]
+  Rig& r = ensure();
+  MotionLimits& lim = r.engine.limits();
+  lim.setAccel(static_cast<float>(accel));
+  lim.setDecel(static_cast<float>(decel));
+  lim.setVMax(static_cast<float>(vMax));
+  lim.setOmegaMax(static_cast<float>(omegaMax));
 }
 
 // Measured wheel speed [mm/s] straight from the kernel's per-tick

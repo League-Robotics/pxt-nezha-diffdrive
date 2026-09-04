@@ -412,14 +412,16 @@ namespace diffDrive {
     export function probe(what: number): number { return 0 }
 
     /**
-     * End-of-move shaping. Bigger tapers and lower floors trade time
-     * for accuracy; a closed-loop caller that takes a fresh fix before
-     * every move should spend far less time on it. 0 leaves unchanged.
-     * Simulator: no taper/floor/ramp shaping model exists in the
-     * browser, so these are no-ops -- real (if trivial) bodies below,
-     * not bare `{}`, so pxt doesn't treat them as native-only shims
-     * (no pxsim implementation exists for any of the three, so an
-     * empty body would crash the simulator at the call site).
+     * RETIRED (design S4.7/S8): no-ops kept for one
+     * release so a program saved before this sprint still compiles and
+     * runs. Shaping is now `set config`'s own accel/decel/jerk/v_max/
+     * omega_max/v_floor/omega_floor fields (ConfigField), or the
+     * `setLimits` shim `test.ts`'s profile functions use. Simulator: no
+     * taper/floor/ramp shaping model exists in the browser, so these
+     * were already no-ops there -- real (if trivial) bodies below, not
+     * bare `{}`, so pxt doesn't treat them as native-only shims (no
+     * pxsim implementation exists for any of the three, so an empty
+     * body would crash the simulator at the call site).
      */
     //% shim=diffDrive::setTaperWindows
     export function setTaperWindows(distCounts: number, yawCounts: number): void {
@@ -434,6 +436,26 @@ namespace diffDrive {
     //% shim=diffDrive::setRampMs
     export function setRampMs(ms: number): void {
         return
+    }
+
+    // this ticket: the replacement for the three retired shims above --
+    // see shims.cpp's own setLimits() comment for the full rationale
+    // (four plain-unit int params, no wire x1000 scaling). Simulator has
+    // no shaping model to update; recorded the same way _setKernelValue()
+    // above records its own last-seen args, so a test can still observe
+    // the call landed.
+    let simLastLimitsAccel = 0
+    let simLastLimitsDecel = 0
+    let simLastLimitsVMax = 0
+    let simLastLimitsOmegaMax = 0
+
+    //% shim=diffDrive::setLimits
+    export function setLimits(accel: number, decel: number, vMax: number,
+        omegaMax: number): void {
+        simLastLimitsAccel = accel
+        simLastLimitsDecel = decel
+        simLastLimitsVMax = vMax
+        simLastLimitsOmegaMax = omegaMax
     }
 
     //% shim=diffDrive::otosBegin

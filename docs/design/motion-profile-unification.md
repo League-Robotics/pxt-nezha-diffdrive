@@ -586,7 +586,7 @@ probe against the new engine before any hardware run.
 | 45° / 300 mm arc, cruise 100 | (285, 120) vs exact (270, 112) | (270, 112) ± 2 mm |
 | 600 mm straight, cruise 200 | peak 220.7 mm/s (+10 %), start accel 2932, decel ∝ v² | start step to 70 then 400 mm/s²; decel 400; peak ≈ 200 + I-term catch-up (K3 bounds it to ≤ posErrMax·ki = 60 mm/s worst case, typically far less) |
 | 600 mm straight, cruise 400, 80 ms lag | legacy +5.6 mm overshoot, 6058 mm/s² decel | −0.5…+0.5 mm (shaped mode already does this, MEASURED −0.6) |
-| `set wheel speeds 200 200` from rest | 0, 200, 229, 229, 225 mm/s | 70, 80, 89, 99, … (400 mm/s² from the floor), no overshoot spike |
+| `set wheel speeds 200 200` from rest | 0, 200, 229, 229, 225 mm/s | 0, 9.6, 19.2, 28.8, … (400 mm/s² from rest; a continuous hold has no floor, §5 and §13), no overshoot spike. MEASURED by `tests/host/test_profile_probe.py` (sprint 029 ticket 003) |
 | frozen encoder tick at 300 mm/s | +6 duty points, wheel +17 % for a tick | 0 (K2) |
 | `SET dist_floor 45` at cruise 200 | no effect | field removed; `v_floor` is the floor and it applies |
 | `pivot_overrun 2.2` | subtracts 2.2 mm from every yaw target | field removed; `stop_distance` measured once, applied to both axes |
