@@ -1,0 +1,4 @@
+SET lag 0.04 -> ack 1 12 stop
+STOP: robot at (13.3, 36.3) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
+SET lag 0.131 -> ack 2 12 stop
+STOP: robot at (13.6, 36.2) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
