@@ -10,6 +10,19 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
 
 ## Link layer — what everything talks through
 
+- **`wifilink.py`** (2026-09-02) — the robot over its own WiFi
+  transport: `TcpLink` (the robot's TCP server on `:7654`, a plain line
+  stream, the default carrier) and the UDP `WifiLink` bound on the
+  fixed host port `:7655` with a 15 s keepalive (the robot learns its
+  host from the first datagram and forgets it after 60 s), plus
+  discovery by mDNS (`<name>.local`, which the robot announces itself)
+  with a broadcast `HELLO` fallback. `robotlink.open_link(wifi=...)`
+  wraps `TcpLink` in the pyserial shape `Link` expects, so every tour
+  tool takes `--wifi <name>`. `wire_acceptance.py --wifi-tcp`, `--wifi`
+  and `--tcp <farm-node>:<port>` build on it; its every-verb section
+  exercises the whole v6 table so a transport is judged against the
+  whole protocol. `publish_wiki.py` renders a repo Markdown doc onto
+  the Robot Garage DokuWiki (re-run after editing a published doc).
 - **`robotlink.py`** — one `Link` object that talks to the robot over
   USB serial or the zavaz radio relay (`--radio`). **Sprint 029**: the
   channel/group are no longer a hardcoded constant
@@ -22,6 +35,18 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   deliver the same ASCII lines. The split matters: the USB cable only
   reaches the bench stand where the wheels are off the ground, so
   anything needing real motion runs untethered over radio.
+- **`rogo/`** — `rogo`, `nc` for a robot over the Planet X WiFi module's
+  TCP server on :7654. Its own pipx-installable project (`pipx install
+  tools/rogo`, or from git with `#subdirectory=tools/rogo`); `just rogo`
+  runs it from the checkout. Finds the
+  robot's own DNS-SD announcement (`<name> robot link` on
+  `_robotlink._tcp`, via `dns-sd -L`), takes the IP *and port* from
+  it, falls back to `<name>.local:7654`, then pipes stdin/stdout to the
+  socket: `just rogo tovez`, `just rogo tovez PING STATUS`,
+  `just rogo --browse`, `just rogo --discover tovez`. Standard library
+  only, no `#<id>` help — it is a raw pipe, the wire rules apply.
+  Pinned by `tests/tools/test_rogo.py` against captured `dns-sd` output;
+  MEASURED tovez 2026-09-03, `captures/rogo-tovez-20260903/notes.md`.
 - **`camlink.py`** — persistent gRPC stream to the aprilcam overhead-
   camera daemon. **Sprint 029**: `field_calibration.json` is now the one
   calibration of record for tag mounts — `camlink.py` loads it and no
@@ -35,7 +60,13 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   (`one-calibration-of-record-camlink-robotlink.md`). The stored mount
   residual is the sub-degree physical correction only; the fixed +90°
   yaw convention (`tag-yaw-is-the-front-edge-not-the-hat.md`) is never
-  re-derived or stored as a probe-fitted value. Units remain centimetres.
+  re-derived or stored as a probe-fitted value; a residual near ±180°
+  means the ROBOT is driving backwards (its motor mapping not baked),
+  never a reversed plate — check the tag arrow on the camera first
+  (tovez 2026-09-04, `reports/bench-acceptance-029-20260904d.md` §9).
+  Units remain centimetres. `make_deploy.py` now also bakes
+  `firmware_bake.motors` (`_inject_motors()`), the per-robot port and
+  forward-sign mapping, beside the geometry keys.
 
 ## Build / deploy
 
