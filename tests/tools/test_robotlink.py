@@ -170,17 +170,22 @@ def test_open_link_radio_sends_hello_after_relay_setup_before_seq_verb(
     port = FakePort([BANNER])
     _patch_common(monkeypatch, port)
 
-    link = robotlink.open_link('/dev/fake-zavaz', radio=True)
+    link = robotlink.open_link('/dev/fake-zavaz', radio=True, robot='vevov')
     link.send('GET')
 
     # The relay's own control-plane setup (!ECHO OFF/!MODE RAW250/!CG/
     # !P/!GO) are relay commands, not robot wire commands, and must run
     # BEFORE HELLO -- which itself must precede the first sequenced
-    # (#-suffixed) verb.
+    # (#-suffixed) verb. Sprint 029 (TL-01): the channel/group are no
+    # longer the stale ZAVAZ_CHANNEL=4/ZAVAZ_GROUP=10 constants -- they
+    # come from radio_address('vevov'), which derives to (37, 43) (the
+    # same pair vevov has used since its 2026-08-30 move).
+    channel, group = robotlink.radio_address('vevov')
+    assert (channel, group) == (37, 43)
     assert port.writes == [
         b'!ECHO OFF\n',
         b'!MODE RAW250\n',
-        f'!CG {robotlink.ZAVAZ_CHANNEL} {robotlink.ZAVAZ_GROUP}\n'.encode(),
+        f'!CG {channel} {group}\n'.encode(),
         b'!P 7\n',
         b'!GO\n',
         b'HELLO\n',
@@ -195,7 +200,7 @@ def test_open_link_hello_is_unsequenced(monkeypatch, radio):
     port = FakePort([BANNER])
     _patch_common(monkeypatch, port)
 
-    robotlink.open_link('/dev/fake', radio=radio)
+    robotlink.open_link('/dev/fake', radio=radio, robot='vevov')
 
     assert b'HELLO\n' in port.writes
     assert not any(b'HELLO #' in w for w in port.writes)
@@ -208,7 +213,7 @@ def test_open_link_seq_is_zero_after_hello_with_banner(monkeypatch, radio):
     port = FakePort([BANNER])
     _patch_common(monkeypatch, port)
 
-    link = robotlink.open_link('/dev/fake', radio=radio)
+    link = robotlink.open_link('/dev/fake', radio=radio, robot='vevov')
 
     assert link._seq == 0
 
@@ -224,7 +229,7 @@ def test_open_link_seq_is_zero_after_hello_with_no_banner(monkeypatch,
     port = FakePort([])
     _patch_common(monkeypatch, port)
 
-    link = robotlink.open_link('/dev/fake', radio=radio)
+    link = robotlink.open_link('/dev/fake', radio=radio, robot='vevov')
 
     assert link._seq == 0
 
@@ -250,7 +255,7 @@ def test_open_link_never_calls_sync_seq_and_does_not_block_on_it(
     _patch_common(monkeypatch, port)
 
     start = time.time()
-    link = robotlink.open_link('/dev/fake', radio=radio)
+    link = robotlink.open_link('/dev/fake', radio=radio, robot='vevov')
     elapsed = time.time() - start
 
     assert calls == [], (
@@ -314,3 +319,71 @@ def test_help_is_not_sequenced_and_does_not_consume_an_id():
     assert link._seq == 4                    # nothing consumed
     link.send('GET')
     assert port.writes[-1] == b'GET #5\n'
+
+
+# ---- radio_address() (sprint 029 ticket 006, TL-01) -----------------------
+#
+# `ZAVAZ_CHANNEL = 4, ZAVAZ_GROUP = 10` was stale since vevov's
+# 2026-08-30 move to 37/43 -- a hardcoded pair silently goes stale on
+# every board reassignment, with nothing in the code to say so.
+# radio_address(robot) replaces it: field_calibration.json's explicit
+# override for `robot` when present, else the same base-5 name
+# derivation make_deploy.py uses to hand the fleet its addresses in the
+# first place. These pin the exact table from
+# .claude/rules/playfield-testing.md (MEASURED 2026-08-30): vevov
+# 37/43, tovez 55/108, tigez 55/114.
+
+def test_radio_address_vevov_derives_to_37_43():
+    assert robotlink.radio_address('vevov') == (37, 43)
+
+
+def test_radio_address_tovez_derives_to_55_108():
+    assert robotlink.radio_address('tovez') == (55, 108)
+
+
+def test_radio_address_tigez_derives_to_55_114():
+    # tigez has no entry at all in field_calibration.json's `robots`
+    # map (only vevov and tovez do) -- pure name-derivation must still
+    # work for a robot the calibration file has never heard of.
+    assert robotlink.radio_address('tigez') == (55, 114)
+
+
+def test_radio_address_explicit_override_wins_over_derivation():
+    # A synthetic calibration whose override deliberately DISAGREES
+    # with what derive_radio_from_name('vevov') would compute (37, 43)
+    # -- proving this is actually precedence, not coincidence.
+    cal = {'robots': {'vevov': {'radio_channel': 99, 'radio_group': 5}}}
+    assert robotlink.radio_address('vevov', calibration=cal) == (99, 5)
+
+
+def test_radio_address_falls_back_to_derivation_when_robot_has_no_entry():
+    cal = {'robots': {}}
+    assert robotlink.radio_address('vevov', calibration=cal) == (37, 43)
+
+
+def test_radio_address_half_migrated_override_raises():
+    # A channel with no matching group (or vice versa) is a config
+    # error, not a default -- mirrors make_deploy._read_robot_radio_
+    # group()'s own refusal of a name-derived channel with no group.
+    cal = {'robots': {'vevov': {'radio_channel': 99}}}
+    with pytest.raises(ValueError, match='vevov'):
+        robotlink.radio_address('vevov', calibration=cal)
+
+
+def test_radio_address_unresolvable_robot_raises_naming_it():
+    # Not a valid 5-letter micro:bit name, and no override -- there is
+    # no constant left to silently fall back to (that silent fallback
+    # was TL-01's own defect).
+    cal = {'robots': {}}
+    with pytest.raises(ValueError, match='not-a-valid-name'):
+        robotlink.radio_address('not-a-valid-name', calibration=cal)
+
+
+def test_zavaz_channel_and_group_constants_are_gone():
+    assert not hasattr(robotlink, 'ZAVAZ_CHANNEL')
+    assert not hasattr(robotlink, 'ZAVAZ_GROUP')
+
+
+def test_open_link_radio_true_without_robot_raises():
+    with pytest.raises(ValueError, match='robot'):
+        robotlink.open_link('/dev/fake', radio=True)

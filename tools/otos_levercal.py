@@ -73,6 +73,9 @@ def main():
                          'REQUIRED for real calibration -- on the bench '
                          'stand the wheels are off the ground, so the robot '
                          'never physically turns and every fix is identical.')
+    ap.add_argument('--robot', default='vevov',
+                    help="board name -- resolves the zavaz relay's "
+                         "channel/group for --radio; ignored otherwise")
     ap.add_argument('--verify', action='store_true',
                     help='run RUN:cal:1 instead: the same sweep with the '
                          'MEASURED arm applied. A correct arm collapses '
@@ -82,7 +85,7 @@ def main():
     ap.add_argument('--timeout', type=float, default=120.0)
     a = ap.parse_args()
 
-    link = open_link(a.port, radio=a.radio, wifi=a.wifi)
+    link = open_link(a.port, radio=a.radio, wifi=a.wifi, robot=a.robot)
     # OCAL:begin is the delivery receipt -- resend only if it never
     # arrives, never blindly (a duplicate RUN:cal runs the whole
     # calibration again).

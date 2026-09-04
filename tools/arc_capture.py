@@ -142,6 +142,9 @@ def main():
                          'holds the wheels off the ground -- fine for this '
                          'heading-only measurement, meaningless for any '
                          'OTOS/translation column (RUN:arc reads neither).')
+    ap.add_argument('--robot', default='vevov',
+                    help="board name -- resolves the zavaz relay's "
+                         "channel/group for --radio; ignored otherwise")
     ap.add_argument('--deg', type=float, default=180.0,
                     help='RUN:arc:<deg> argument. |deg| >= 50 is required '
                          'to exercise the split-move (pivot-then-straight) '
@@ -154,7 +157,7 @@ def main():
     ap.add_argument('--out-prefix', default='.tmp/arc')
     a = ap.parse_args()
 
-    link = open_link(a.port, radio=a.radio, wifi=a.wifi)
+    link = open_link(a.port, radio=a.radio, wifi=a.wifi, robot=a.robot)
 
     # --- firmware-identity check (no motion) --------------------------
     # `ack `/`nack ` lines are filtered out of this check even though

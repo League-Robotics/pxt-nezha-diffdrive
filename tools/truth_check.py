@@ -129,6 +129,10 @@ def main():
     ap.add_argument('--wifi', metavar='NAME|IP', default=None,
         help="drive the robot over its WiFi TCP server instead of the "
              "radio relay (the default carrier since 2026-09-02)")
+    ap.add_argument('--robot', default='vevov',
+        help="board name -- resolves the zavaz relay's channel/group "
+             "(field_calibration.json's override, else derived from the "
+             "name) when driving over --radio; ignored for --wifi")
     ap.add_argument('--cam', default='arducam-ov9782-usb-camera')
     ap.add_argument('--tag', type=int, default=53)
     ap.add_argument('--pivots', type=float, nargs='+',
@@ -139,7 +143,7 @@ def main():
         raise SystemExit(f'camera cannot see tag {a.tag} -- is the robot '
                          'inside the field of view?')
 
-    link = open_link(radio=not a.wifi, wifi=a.wifi)
+    link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
     # --- fail loud: a dead instrument must not cost a run (SUC-001) ---
     try:
         stream = tlm.require_stream(link, timeout=3.0)

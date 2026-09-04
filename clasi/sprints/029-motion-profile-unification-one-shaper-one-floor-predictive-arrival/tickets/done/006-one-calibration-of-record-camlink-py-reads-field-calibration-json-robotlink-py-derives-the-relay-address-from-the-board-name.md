@@ -2,8 +2,9 @@
 id: '006'
 title: 'One calibration of record: camlink.py reads field_calibration.json, robotlink.py
   derives the relay address from the board name'
-status: open
-use-cases: [SUC-003]
+status: done
+use-cases:
+- SUC-003
 depends-on: []
 github-issue: ''
 issue: code-review/one-calibration-of-record-camlink-robotlink.md
@@ -47,17 +48,17 @@ re-derived or persisted as a measured value.
 
 ## Acceptance Criteria
 
-- [ ] Starting any `camlink.py`-using tool (with no `--register` flag)
+- [x] Starting any `camlink.py`-using tool (with no `--register` flag)
       leaves the aprilcam daemon's registry unchanged — verified by
       reading the registry before and after.
-- [ ] `--register` is the only path that calls `register_tag()`, and it
+- [x] `--register` is the only path that calls `register_tag()`, and it
       registers only what was loaded from `field_calibration.json`.
-- [ ] `MOUNTS` is deleted from `camlink.py`.
-- [ ] `open_link(radio=True)` on vevov gets a pong on the first try
+- [x] `MOUNTS` is deleted from `camlink.py`.
+- [x] `open_link(radio=True)` on vevov gets a pong on the first try
       (channel/group correctly derived or read, not the stale 4/10).
-- [ ] `test_robotlink.py:183`'s pinned stale constant is fixed to match
+- [x] `test_robotlink.py:183`'s pinned stale constant is fixed to match
       the derivation/read-from-file behavior.
-- [ ] `field_calibration.json`'s stored yaw value is the sub-degree
+- [x] `field_calibration.json`'s stored yaw value is the sub-degree
       mount residual only, never a probe-fitted absolute like 91.116°.
 
 ## Implementation Plan

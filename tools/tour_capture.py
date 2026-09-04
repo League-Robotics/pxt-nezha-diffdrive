@@ -44,6 +44,9 @@ def main():
                          'playfield). The bench stand holds the wheels off '
                          'the ground, so any OTOS column is meaningless '
                          'there.')
+    ap.add_argument('--robot', default='vevov',
+                    help="board name -- resolves the zavaz relay's "
+                         "channel/group for --radio; ignored otherwise")
     ap.add_argument('--tour', default='world',
                     choices=['world', 'robot', 'wheels'],
                     help="named tour for RUN:tour:<name>. On the BENCH "
@@ -55,7 +58,7 @@ def main():
     ap.add_argument('--out-prefix', default='.tmp/tour')
     a = ap.parse_args()
 
-    link = open_link(a.port, radio=a.radio, wifi=a.wifi)
+    link = open_link(a.port, radio=a.radio, wifi=a.wifi, robot=a.robot)
     p = link.p
 
     # --- fail loud: a dead instrument must not cost a run (SUC-001) ---

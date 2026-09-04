@@ -162,6 +162,10 @@ def main():
     ap.add_argument('--wifi', metavar='NAME|IP', default=None,
         help="drive the robot over its WiFi TCP server instead of the "
              "radio relay (the default carrier since 2026-09-02)")
+    ap.add_argument('--robot', default='vevov',
+        help="board name -- resolves the zavaz relay's channel/group "
+             "(field_calibration.json's override, else derived from the "
+             "name) when driving over --radio; ignored for --wifi")
     ap.add_argument('--tours', nargs='+', default=['robot', 'world'])
     ap.add_argument('--runs', type=int, default=2)
     ap.add_argument('--outdir', default='.tmp/practice')
@@ -171,7 +175,7 @@ def main():
     cam = Cam()
     if cam.err or cam.latest is None:
         raise SystemExit(f'camera not usable: {cam.err or "no tag"}')
-    link = open_link(radio=not a.wifi, wifi=a.wifi)
+    link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
     rep = Repositioner(link, cam)
 
     results = []

@@ -94,6 +94,27 @@ def wrap(d):
     return d
 
 
+def robot_heading_from_tag_yaw(tag_yaw_deg, residual_deg=0.0):
+    """Robot heading [deg] from a RAW (unregistered/uncorrected) tag
+    yaw reading, per
+    `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`:
+    `robot_heading = tag_yaw + 90 (fixed AprilCam convention) +
+    residual_deg (the sub-degree physical mount skew)`.
+
+    This is the ONE place the +90 deg convention is added back for a
+    raw reading -- `field_calibration.json` stores only the residual
+    (`mount_yaw_residual_deg`), never a probe-fitted absolute like the
+    pre-sprint-029 `heading_offset_deg: 91.116`. (For a tag already
+    REGISTERED with the aprilcam daemon -- see `camlink.mount_yaw_rad()`
+    -- the daemon does this correction itself, and its reported
+    `yaw_rad` is already the robot's heading; do not add 90 again on
+    top of a registered/corrected reading.)
+
+    Result is wrapped into (-180, 180].
+    """
+    return wrap(tag_yaw_deg + 90.0 + residual_deg)
+
+
 def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
     """Closest approach to each dot in `order`, scanning `rows` (each a
     `(t, x_cm, y_cm, yaw_deg)` tuple, timestamps non-decreasing)

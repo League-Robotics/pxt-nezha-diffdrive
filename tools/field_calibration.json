@@ -1,18 +1,55 @@
 {
-  "_provenance": "MEASURED vevov 2026-09-02 on main-playfield. Re-measure after any tag remount, camera move, or robot change.",
-  "robot": "vevov",
-  "tag_family": "apriltag",
-  "tag_number": 53,
-  "radio_channel": 37,
-  "radio_group": 43,
-  "camera": "arducam-ov9782-usb-camera",
-  "lever_cm": [
-    0.42172451948736417,
-    -6.380598743114215
-  ],
-  "_lever_note": "Tag 53 relative to the centre of rotation, in the TAG frame. Solved from an in-place pivot triple, least squares over tag = centre + R(yaw)*lever: residual 0.28 mm rms, and the three implied centres agreed to 0.7 mm, which is the proof the robot pivoted in place. The raw tag swings 68 mm across a pivot, so an uncorrected trace carries that at every corner.",
-  "heading_offset_deg": 91.11616234175443,
-  "_heading_note": "robot heading = tag yaw + this. Fitted from a translation probe, not assumed: the two candidate conventions differ by 180 deg and picking wrong is how a robot ends up in a rail.",
-  "parallax_k": 1.1167434292898253,
-  "_parallax_note": "The tag rides 11.8 cm above the field, so the camera reports every DISPLACEMENT scaled by this about its own nadir. Divide any camera distance by it for truth. MEASURED as 1.1167 +- 0.0022 over three 60 cm legs driven in opposing directions; implies a camera height near 113 cm. Closure measured at equal heading still needs it, since closure is a displacement."
+  "_note": "One calibration of record (sprint 029 ticket 006, TL-02/TL-11). camlink.py loads this file and registers a mount with the aprilcam daemon ONLY on an explicit --register call; robotlink.py's radio_address() reads/derives from it. mount_yaw_residual_deg is the sub-degree PHYSICAL mount skew ONLY -- the fixed +90 deg AprilCam front-edge-to-hat convention (.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md) is never stored here; it is added back in code, once, by camlink.mount_yaw_rad() (for daemon registration) and field.robot_heading_from_tag_yaw() (for a raw, unregistered tag reading).",
+  "default_robot": "vevov",
+  "field": {
+    "_note": "Fixed field furniture, not a robot -- not subject to the TL-02 remount-overwrite hazard. Height-only mount (drives camera parallax correction only; no forward direction, so no yaw convention applies). Register once per daemon session with `camlink.py --register field`. Tag 10 sits over the NW dot (-50, 30), tag 11 over the SW dot (-50, -30) -- permanent ground truth in every frame.",
+    "tags": {
+      "10": {
+        "tag_family": "apriltag",
+        "mount_z_cm": 20.2,
+        "truth_x_cm": -50.0,
+        "truth_y_cm": 30.0
+      },
+      "11": {
+        "tag_family": "apriltag",
+        "mount_z_cm": 13.6,
+        "truth_x_cm": -50.0,
+        "truth_y_cm": -30.0
+      }
+    }
+  },
+  "robots": {
+    "vevov": {
+      "_provenance": "MEASURED vevov 2026-09-02 on main-playfield. Re-measure after any tag remount, camera move, or robot change.",
+      "tag_family": "apriltag",
+      "tag_number": 53,
+      "camera": "arducam-ov9782-usb-camera",
+      "mount_x_cm": -3.61,
+      "mount_y_cm": -0.05,
+      "mount_z_cm": 11.8,
+      "mount_yaw_residual_deg": 1.116162341754432,
+      "_mount_yaw_note": "robot heading = tag yaw + 90 (fixed convention) + this residual. Fitted from a translation probe, not assumed: the two candidate conventions differ by 180 deg and picking wrong is how a robot ends up in a rail. Was stored pre-sprint-029 as the absolute heading_offset_deg (91.11616234175443 = 90 + this); TL-11 split the fixed convention back out.",
+      "radio_channel": 37,
+      "radio_group": 43,
+      "_radio_note": "MEASURED 2026-08-30 (.claude/rules/playfield-testing.md fleet table); also the base-5 name-derived pair (make_deploy.derive_radio_from_name('vevov')) -- kept explicit here since this is the file robotlink.radio_address() reads first.",
+      "lever_cm": [
+        0.42172451948736417,
+        -6.380598743114215
+      ],
+      "_lever_note": "Tag 53 relative to the centre of rotation, in the TAG frame. Solved from an in-place pivot triple, least squares over tag = centre + R(yaw)*lever: residual 0.28 mm rms, and the three implied centres agreed to 0.7 mm, which is the proof the robot pivoted in place. The raw tag swings 68 mm across a pivot, so an uncorrected trace carries that at every corner.",
+      "parallax_k": 1.1167434292898253,
+      "_parallax_note": "The tag rides 11.8 cm above the field, so the camera reports every DISPLACEMENT scaled by this about its own nadir. Divide any camera distance by it for truth. MEASURED as 1.1167 +- 0.0022 over three 60 cm legs driven in opposing directions; implies a camera height near 113 cm. Closure measured at equal heading still needs it, since closure is a displacement."
+    },
+    "tovez": {
+      "_provenance": "UNVERIFIED. Carried over from tools/camlink.py's old hardcoded MOUNTS[52] table (deleted by sprint 029 ticket 006), which predates tovez's 2026-08 remount and was never re-measured against ground truth on this playfield -- no capture file backs these numbers. Sprint 029 ticket 007 runs its bench acceptance gates on tovez and can re-measure this properly; until then, do not treat mount_x_cm/mount_y_cm/mount_z_cm/mount_yaw_residual_deg below as trustworthy.",
+      "tag_family": "apriltag",
+      "tag_number": 52,
+      "camera": "arducam-ov9782-usb-camera",
+      "mount_x_cm": -4.10,
+      "mount_y_cm": 0.05,
+      "mount_z_cm": 11.3,
+      "mount_yaw_residual_deg": 0.0,
+      "_radio_note": "No explicit override -- radio_address('tovez') falls through to make_deploy.derive_radio_from_name('tovez') = (55, 108), matching the MEASURED fleet table in .claude/rules/playfield-testing.md (2026-08-30)."
+    }
+  }
 }

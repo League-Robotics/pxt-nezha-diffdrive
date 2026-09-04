@@ -96,6 +96,10 @@ def main():
     ap.add_argument('--wifi', metavar='NAME|IP', default=None,
         help="drive the robot over its WiFi TCP server instead of the "
              "radio relay (the default carrier since 2026-09-02)")
+    ap.add_argument('--robot', default='vevov',
+        help="board name -- resolves the zavaz relay's channel/group "
+             "(field_calibration.json's override, else derived from the "
+             "name) when driving over --radio; ignored for --wifi")
     ap.add_argument('--angles', type=int, nargs='+',
                     default=[45, 90, 180, 360])
     ap.add_argument('--rates', type=int, nargs='+',
@@ -108,7 +112,7 @@ def main():
     cam = Cam()
     if cam.err or not cam.samples:
         raise SystemExit(f'camera not usable: {cam.err or "no tag seen"}')
-    link = open_link(radio=not a.wifi, wifi=a.wifi)
+    link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
 
     print(f"{'cmd':>5} {'rate':>5} {'camera':>8} {'error':>7} {'act rate':>9}"
           f" {'ticks':>6} {'duty':>6}  note")

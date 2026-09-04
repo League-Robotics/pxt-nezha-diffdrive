@@ -37,13 +37,36 @@ sys.path.insert(0, str(_HERE))
 
 from aprilcam.mcp import connection as _conn          # noqa: E402
 from fieldlink import FieldLink                        # noqa: E402
+from field import robot_heading_from_tag_yaw            # noqa: E402
+from make_deploy import derive_radio_from_name          # noqa: E402
 
+# Sprint 029 ticket 006: field_calibration.json now carries several
+# robots under a `robots:` map (TL-02/TL-11) -- this script drives
+# whichever one `default_robot` names, unchanged behavior for the one
+# robot it has ever driven so far (vevov).
 _CAL = json.loads((_HERE / 'field_calibration.json').read_text())
-CAM, TAG = _CAL['camera'], _CAL['tag_number']
-CH, GRP = _CAL['radio_channel'], _CAL['radio_group']
-LEVER = _CAL['lever_cm']
-HEAD_OFF = _CAL['heading_offset_deg']
-K = _CAL['parallax_k']                 # camera parallax dilation
+ROBOT = _CAL['default_robot']
+_ENTRY = _CAL['robots'][ROBOT]
+CAM, TAG = _ENTRY['camera'], _ENTRY['tag_number']
+if 'radio_channel' in _ENTRY and 'radio_group' in _ENTRY:
+    CH, GRP = _ENTRY['radio_channel'], _ENTRY['radio_group']
+else:
+    # No explicit override for this robot -- derive it the same way
+    # make_deploy.py (and robotlink.radio_address()) do, from the
+    # board's own base-5 name.
+    _derived = derive_radio_from_name(ROBOT)
+    if _derived is None:
+        raise SystemExit(
+            f'field_dance: no radio_channel/radio_group for {ROBOT!r} in '
+            f'field_calibration.json, and {ROBOT!r} is not a valid '
+            f'micro:bit name to derive one from')
+    CH, GRP = _derived
+LEVER = _ENTRY['lever_cm']
+# TL-11: field_calibration.json stores only the sub-degree PHYSICAL
+# residual -- the fixed +90 deg convention is added back by
+# field.robot_heading_from_tag_yaw(), never re-derived or stored here.
+RESIDUAL_DEG = _ENTRY['mount_yaw_residual_deg']
+K = _ENTRY['parallax_k']                 # camera parallax dilation
 
 TOL_DEG, TOL_CM = 8.0, 3.0
 
@@ -80,7 +103,8 @@ def pose(n=3):
         time.sleep(0.03)
     if not got:
         return None
-    h = math.degrees(math.atan2(sy, cy)) + HEAD_OFF
+    h = robot_heading_from_tag_yaw(math.degrees(math.atan2(sy, cy)),
+                                    RESIDUAL_DEG)
     return xs/got, ys/got, (h + 180) % 360 - 180
 
 

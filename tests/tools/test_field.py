@@ -66,6 +66,37 @@ def test_wrap_result_always_in_range():
         assert -180.0 < w <= 180.0
 
 
+# --- robot_heading_from_tag_yaw() (sprint 029 ticket 006, TL-11) ---------
+#
+# robot heading = tag yaw + 90 (fixed AprilCam convention, NEVER stored
+# in field_calibration.json) + residual_deg (the sub-degree physical
+# mount skew, the ONLY part field_calibration.json stores). This is the
+# one place a RAW/unregistered tag reading gets the +90 added back --
+# see .claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md.
+
+def test_robot_heading_from_tag_yaw_adds_exactly_90_with_zero_residual():
+    assert field.robot_heading_from_tag_yaw(0.0, 0.0) == pytest.approx(90.0)
+    assert field.robot_heading_from_tag_yaw(10.0, 0.0) == pytest.approx(100.0)
+
+
+def test_robot_heading_from_tag_yaw_adds_the_residual_on_top_of_90():
+    # vevov's real residual (field_calibration.json's mount_yaw_residual_deg,
+    # equal to the pre-sprint-029 91.11616234175443 minus the fixed 90).
+    got = field.robot_heading_from_tag_yaw(0.0, 1.116162341754432)
+    assert got == pytest.approx(91.116162341754432)
+
+
+def test_robot_heading_from_tag_yaw_default_residual_is_zero():
+    assert (field.robot_heading_from_tag_yaw(5.0)
+            == field.robot_heading_from_tag_yaw(5.0, 0.0))
+
+
+def test_robot_heading_from_tag_yaw_wraps_into_range():
+    got = field.robot_heading_from_tag_yaw(170.0, 5.0)   # 170+90+5 = 265
+    assert -180.0 < got <= 180.0
+    assert got == pytest.approx(265.0 - 360.0)
+
+
 # --- score_corners(): the disagreement this ticket fixes -----------------
 
 def _row(t, x, y, yaw=0.0):

@@ -46,6 +46,10 @@ def main():
     ap.add_argument('--wifi', metavar='NAME|IP', default=None,
         help="drive the robot over its WiFi TCP server instead of the "
              "radio relay (the default carrier since 2026-09-02)")
+    ap.add_argument('--robot', default='vevov',
+        help="board name -- resolves the zavaz relay's channel/group "
+             "(field_calibration.json's override, else derived from the "
+             "name) when driving over --radio; ignored for --wifi")
     ap.add_argument('--laps', type=int, default=1)
     ap.add_argument('--out', default='.tmp/square')
     a = ap.parse_args()
@@ -54,7 +58,7 @@ def main():
     cam = Cam(respawn=True)
     if cam.latest is None:
         raise SystemExit('camera cannot see the robot')
-    link = open_link(radio=not a.wifi, wifi=a.wifi)
+    link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
 
     # --- camera use 1 of 2: seed once ---
     p = cam.fix(n=10)

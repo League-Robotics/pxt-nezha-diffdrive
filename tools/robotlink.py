@@ -8,18 +8,81 @@ has to run untethered over the zavaz relay.
 Both carriers deliver the same ASCII lines, so every tool here takes
 `--radio` and otherwise behaves identically.
 
-  link = open_link(port, radio=True)   # zavaz relay, channel 4
+  link = open_link(port, radio=True, robot='vevov')   # zavaz relay
   link.send('RUN:probe')
   for line in link.lines(timeout=60): ...
+
+**Sprint 029 (TL-01): the relay address is no longer a hardcoded
+constant.** The old `ZAVAZ_CHANNEL = 4, ZAVAZ_GROUP = 10` was stale
+since vevov's 2026-08-30 move to 37/43
+(`.claude/rules/playfield-testing.md`) -- a hardcoded pair silently
+goes stale on every board reassignment, with nothing in the code to say
+so. `radio_address(robot)` replaces it: `field_calibration.json`'s
+explicit `radio_channel`/`radio_group` override for `robot` when
+present, else the same base-5 `!N` name derivation the relay itself
+uses (`make_deploy.derive_radio_from_name`,
+`radio-address-derived-from-board-name`). `open_link(radio=True)` now
+requires a `robot=` argument to resolve this -- there is no longer a
+constant default to silently fall back to.
 """
+import json
+import pathlib
 import time
 
 import serial
 
-# zavaz is vevov's relay (channel 4). getez lives on channel 3 and
-# belongs to another robot -- never retune it here.
-ZAVAZ_CHANNEL = 4
-ZAVAZ_GROUP = 10
+from make_deploy import derive_radio_from_name
+
+_HERE = pathlib.Path(__file__).resolve().parent
+CALIBRATION_PATH = _HERE / 'field_calibration.json'
+
+
+def load_calibration(path=CALIBRATION_PATH):
+    """`field_calibration.json`'s parsed content -- the one
+    calibration of record (TL-02/TL-01)."""
+    return json.loads(pathlib.Path(path).read_text())
+
+
+def radio_address(robot, calibration=None):
+    """`(channel, group)` for `robot`: `field_calibration.json`'s
+    explicit `radio_channel`/`radio_group` override for `robot` when
+    BOTH are present, else the base-5 name derivation
+    `make_deploy.derive_radio_from_name()` uses to assign fleet radio
+    addresses in the first place.
+
+    `calibration`, when given, is an already-loaded calibration dict
+    (dependency injection for tests); omitted, this loads
+    `field_calibration.json` fresh.
+
+    Raises `ValueError` -- naming the robot and what was tried -- when
+    neither an override nor a valid name-derivation is available. A
+    silent wrong answer here is exactly the TL-01 defect this function
+    replaces: the old stale `ZAVAZ_CHANNEL=4`/`ZAVAZ_GROUP=10`
+    constants pointed at nothing after vevov's 2026-08-30 move, with no
+    error anywhere to say so.
+    """
+    cal = calibration if calibration is not None else load_calibration()
+    entry = cal.get('robots', {}).get(robot, {})
+    channel, group = entry.get('radio_channel'), entry.get('radio_group')
+    if channel is not None and group is not None:
+        return channel, group
+    if channel is not None or group is not None:
+        # A HALF-migrated entry is a config error, not a default --
+        # same reasoning as make_deploy._read_robot_radio_group()'s own
+        # refusal of a channel with no matching group.
+        raise ValueError(
+            f"field_calibration.json's {robot!r} entry sets only one "
+            f"of radio_channel/radio_group ({channel!r}/{group!r}) -- "
+            f"set both, or neither (to derive from the name)")
+    derived = derive_radio_from_name(robot)
+    if derived is None:
+        raise ValueError(
+            f"no radio address for robot {robot!r}: no explicit "
+            f"radio_channel/radio_group in {CALIBRATION_PATH}, and "
+            f"{robot!r} is not a valid 5-letter micro:bit name to "
+            f"derive one from")
+    return derived
+
 
 # DAPLink ports are hub-position-based: they change on every replug, so
 # a hard-coded /dev/cu.usbmodem path goes stale silently and the tool
@@ -351,13 +414,20 @@ class WifiSerial:
         self.s.close()
 
 
-def open_link(port=None, radio=False, wifi=None):
+def open_link(port=None, radio=False, wifi=None, robot=None):
     """Open a link. radio=True does the full zavaz data-plane handshake;
     wifi='<name>' (or an IP) connects to the robot's own WiFi TCP server
     instead -- the untethered carrier since 2026-09-02, with no relay and
     no channel to tune. The v6 radio link is OFF by default in the test
     program (tools/make_deploy.py --radio-link turns it on), so a tool
     that still asks for radio=True against a default build gets silence.
+
+    `robot` (a board name, e.g. `'vevov'`) is REQUIRED when `radio=True`
+    -- it is how the zavaz relay's channel/group get resolved
+    (`radio_address()`, above). There is no default: the old
+    `ZAVAZ_CHANNEL`/`ZAVAZ_GROUP` constants this replaces (TL-01) were
+    stale for months with nothing to say so, and a silent wrong default
+    here would reproduce exactly that.
 
     The relay drops back to its control plane whenever its serial port
     closes, so the handshake is redone on every open -- never cached.
@@ -368,6 +438,14 @@ def open_link(port=None, radio=False, wifi=None):
         link.hello()
         return link
     if radio:
+        if robot is None:
+            raise ValueError(
+                "open_link(radio=True) needs robot=<name> to resolve the "
+                "zavaz relay's channel/group -- the old ZAVAZ_CHANNEL/"
+                "ZAVAZ_GROUP constants are gone (TL-01: they were stale "
+                "since vevov's 2026-08-30 move to 37/43). Pass "
+                "robot='vevov' (or whichever board you're driving).")
+        channel, group = radio_address(robot)
         path = port or probe_port('zavaz')
         if path is None:
             raise SystemExit(
@@ -378,7 +456,7 @@ def open_link(port=None, radio=False, wifi=None):
         time.sleep(1.8)          # DTR reset -> clean control plane
         p.reset_input_buffer()
         for cmd in (b'!ECHO OFF', b'!MODE RAW250',
-                    f'!CG {ZAVAZ_CHANNEL} {ZAVAZ_GROUP}'.encode(), b'!P 7'):
+                    f'!CG {channel} {group}'.encode(), b'!P 7'):
             p.write(cmd + b'\n')
             time.sleep(0.3)
             p.reset_input_buffer()
