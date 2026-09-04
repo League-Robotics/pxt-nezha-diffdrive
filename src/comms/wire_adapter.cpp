@@ -9,12 +9,12 @@ namespace diffDrive {
 // ---- shims.cpp entry points: plain same-namespace forward
 // declarations (that file has no header of its own), kept
 // signature-compatible with shims.cpp's real definitions -- same
-// convention protocol.cpp uses to reach the same file. `rotationRad`
-// (engineMoveX()) and `omegaRad` (engineMoveV()) arrive ALREADY
+// convention protocol.cpp uses to reach the same file. `rotation`
+// (engineMoveX()) and `omega` (engineMoveV()) arrive ALREADY
 // converted from the wire's milliradian integers -- see mradToRad()
 // below. `cruise`/`speed`'s wire "0 means configured default" sentinel
 // is resolved by the onXxx() handlers below, via
-// engineDefaultCruiseMmS(), BEFORE any of these functions is ever
+// engineDefaultCruise(), BEFORE any of these functions is ever
 // called -- none of them ever sees the sentinel itself. engineGoToW()
 // selects its own PoseSource (OtosPort when connected(), else the
 // encoder-odometry fallback -- motion-api.md S3.6) and always
@@ -22,38 +22,38 @@ namespace diffDrive {
 // unconditionally true, kept for contract stability.
 void stopAll();
 void estopAll();
-void setWheelsTimed(int left, int right, uint32_t durationMs);
+void setWheelsTimed(int left, int right, uint32_t duration);  // [mm/s] [mm/s] [ms]
 void setKernelValue(int field, int value);
 int getConfigValue(int field);
 int diagValue(int what);
 
 void engineWheelsX(float left, float right, float cruise,
-                   uint32_t timeoutMs);
-void engineMoveX(float distance, float rotationRad, float cruise,
-                 uint32_t timeoutMs);
-float engineDefaultCruiseMmS();
-// SUC-003: engineADecelMmS2() (MotionEngine::aDecelMmS2()'s own wire-
+                   uint32_t timeout);  // [mm] [mm] [mm/s] [ms]
+void engineMoveX(float distance, float rotation, float cruise,
+                 uint32_t timeout);  // [mm] [rad] [mm/s] [ms]
+float engineDefaultCruise();  // [mm/s]
+// SUC-003: engineADecel() (MotionEngine::aDecelMmS2()'s own wire-
 // shaped forward) lets the onXxx() handlers below decide, per call,
 // whether their own `cruise == 0` sentinel resolves from the flat
-// engineDefaultCruiseMmS() above or from engineDefaultCruiseForDistanceMmS()'s
-// distance-aware resolve -- see resolveDefaultCruiseMmS() below.
-float engineADecelMmS2();
-float engineDefaultCruiseForDistanceMmS(float distanceMm);
+// engineDefaultCruise() above or from engineDefaultCruiseForDistance()'s
+// distance-aware resolve -- see resolveDefaultCruise() below.
+float engineADecel();  // [mm/s^2]
+float engineDefaultCruiseForDistance(float distance);  // [mm] -> [mm/s]
 // SUC-003: onMoveX()'s own D input -- a pure pivot (distance == 0)
-// still has a real wheel-travel distance; see resolveDefaultCruiseMmS()
+// still has a real wheel-travel distance; see resolveDefaultCruise()
 // below and this function's own comment (shims.cpp).
-float engineDominantAxisTravelMm(float distanceMm, float rotationRad);
+float engineDominantAxisTravel(float distance, float rotation);  // [mm] [rad] -> [mm]
 
-void engineMoveV(float vx, float omegaRad, uint32_t durationMs);
+void engineMoveV(float vx, float omega, uint32_t duration);  // [mm/s] [rad/s] [ms]
 void engineGoToR(float x, float y, float speed, float arrive,
-                 uint32_t timeoutMs);
+                 uint32_t timeout);  // [ms]
 bool engineGoToW(float x, float y, float speed, float arrive,
-                 uint32_t timeoutMs);
+                 uint32_t timeout);  // [ms]
 // SUC-003: onGoToW()'s own D input -- the TRUE body-frame chord from
 // the robot's CURRENT pose to this call's world-frame target, not
 // hypot(x, y) of the target alone (see this function's own comment,
 // shims.cpp, for why that would be wrong).
-float engineGoToWChordMm(float worldX, float worldY);
+float engineGoToWChord(float worldX, float worldY);  // -> [mm]
 
 // ---- shims.cpp entry points (sprint 004 ticket 004) ---------------------
 // buildSnapshot()'s own five reads, reaching live pose/OTOS/wheel-speed
@@ -146,8 +146,8 @@ constexpr FieldEntry kFields[] = {
     {"crawl_pulse", 14},       // ConfigField.CrawlPulse
     {"default_cruise", 15},    // ConfigField.DefaultCruise (sprint 007
                                // ticket 003, closing R-11/BLK-03/API-03
-                               // -- see shims.cpp's engineDefaultCruiseMmS()/
-                               // Rig::defaultCruiseMmS_ for the field this
+                               // -- see shims.cpp's engineDefaultCruise()/
+                               // Rig::defaultCruise_ for the field this
                                // ordinal actually reaches).
     {"rotational_slip", 16},   // ConfigField.RotationalSlip (sprint 007
                                // ticket 005, closing R-14/API-06 -- see
@@ -371,25 +371,25 @@ float mradToRad(float milliradians) { return milliradians * 0.001f; }
 
 // SUC-003: the one place onMoveX()/onGoToR()/onGoToW() below resolve
 // their own `cruise`/`speed == 0` "use the default" sentinel. Shaped
-// mode (aDecelMmS2_ > 0, engineADecelMmS2()) resolves from THIS call's
-// own leg distance via engineDefaultCruiseForDistanceMmS() -- which
+// mode (aDecelMmS2_ > 0, engineADecel()) resolves from THIS call's
+// own leg distance via engineDefaultCruiseForDistance() -- which
 // reads the SAME aDecelMmS2_/vMaxMmS_/brakeFrac_ the taper itself uses,
 // so the two can never drift apart; legacy mode (aDecelMmS2_ == 0)
-// keeps today's flat engineDefaultCruiseMmS(), unconditionally
+// keeps today's flat engineDefaultCruise(), unconditionally
 // unchanged. onWheelsX()/onWheelsV() below do NOT call this helper --
 // they keep the flat sentinel regardless of aDecelMmS2_ (wheelsX()'s
 // two per-wheel distances have no single "leg length" this formula is
 // defined over).
-float resolveDefaultCruiseMmS(float distanceMm) {
-  return engineADecelMmS2() > 0.0f
-             ? engineDefaultCruiseForDistanceMmS(distanceMm)
-             : engineDefaultCruiseMmS();
+float resolveDefaultCruise(float distance) {  // [mm] -> [mm/s]
+  return engineADecel() > 0.0f
+             ? engineDefaultCruiseForDistance(distance)
+             : engineDefaultCruise();
 }
 
 }  // namespace
 
-WireAdapter::WireAdapter(const Wire::Identity& identity, NowMsFn nowMs)
-    : identity_(identity), nowMs_(nowMs) {}
+WireAdapter::WireAdapter(const Wire::Identity& identity, NowMsFn now)
+    : identity_(identity), now_(now) {}
 
 void WireAdapter::identity(Wire::Identity& out) const { out = identity_; }
 
@@ -400,12 +400,12 @@ void WireAdapter::setIdentity(const Wire::Identity& identity) {
 void WireAdapter::setJobOwnsMotion(bool owns) { jobOwnsMotion_ = owns; }
 
 uint32_t WireAdapter::now() const {
-  // See this file's own header comment: nowMs_ is supplied at
+  // See this file's own header comment: now_ is supplied at
   // composition time by a CODAL-facing caller (protocol.cpp); every
   // host test leaves it nullptr, so this stays the same honest 0
   // default it always was -- PING's own liveness contract only needs a
   // reply to exist, not a wall-clock-accurate value.
-  return nowMs_ != nullptr ? nowMs_() : 0;
+  return now_ != nullptr ? now_() : 0;
 }
 
 // Sprint 004 ticket 004 closes the numeric half of the gap the comment
@@ -487,13 +487,13 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
   // instead of having been superseded (kAborted) if this ran AFTER the
   // dispatch below. A no-op if nothing was pending (e.g. this is the
   // session's first motion verb, or no clock is wired).
-  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
+  if (now_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   setWheelsTimed(static_cast<int>(left), static_cast<int>(right), duration);
   // Record the resulting deadline so protocol.cpp's fiber loop keeps
   // ticking the kernel until it elapses; a no-op with no clock wired.
-  if (nowMs_ != nullptr) {
+  if (now_ != nullptr) {
     motionObligationActive_ = true;
-    motionObligationDeadlineMs_ = nowMs_() + duration;
+    motionObligationDeadline_ = now_() + duration;
     armPendingMotion(id, /*goalDirected=*/false);
   }
   return Wire::Result::kOk;
@@ -510,23 +510,23 @@ Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
   if (cruise < 0.0f) return Wire::Result::kRange;
   // motion-api.md S1.1: "An X-form's commanded value is a displacement
   // ... so cruise is its own argument. Pass 0 for the configured
-  // default." engineDefaultCruiseMmS() itself resolves to 0 if this
+  // default." engineDefaultCruise() itself resolves to 0 if this
   // robot has never had one configured either -- refused below, not
   // silently accepted as a zero-speed command.
   const float resolvedCruise =
-      cruise == 0.0f ? engineDefaultCruiseMmS() : cruise;
+      cruise == 0.0f ? engineDefaultCruise() : cruise;
   if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
   // sprint 005 ticket 004: see onWheelsV()'s identical comment above --
   // engineWheelsX() below routes onto MotionEngine::wheelsX(), which
   // ALSO calls cancelMove() first, same "wheels_* clears the planner"
   // rationale.
-  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
+  if (now_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   engineWheelsX(left, right, resolvedCruise, timeout);
   // timeout is a backstop, not the real duration -- conservative
   // deadline; ticking a little past completion is harmless.
-  if (nowMs_ != nullptr) {
+  if (now_ != nullptr) {
     motionObligationActive_ = true;
-    motionObligationDeadlineMs_ = nowMs_() + timeout;
+    motionObligationDeadline_ = now_() + timeout;
     armPendingMotion(id, /*goalDirected=*/false);
   }
   return Wire::Result::kOk;
@@ -538,22 +538,23 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
   // See onWheelsV()'s identical check above.
   if (jobOwnsMotion_) return Wire::Result::kBusy;
   // Same cruise <0 handling as onWheelsX() above; the ==0 substitution
-  // itself now goes through resolveDefaultCruiseMmS() (SUC-003) instead
-  // of the flat engineDefaultCruiseMmS() directly. D is
-  // engineDominantAxisTravelMm(distance, rotationRad), NOT |distance|
+  // itself now goes through resolveDefaultCruise() (SUC-003) instead
+  // of the flat engineDefaultCruise() directly. D is
+  // engineDominantAxisTravel(distance, yaw), NOT |distance|
   // alone -- a pure pivot (distance == 0) still moves its wheels
-  // |rotationRad|*b/2 mm each, and resolving from |distance| alone
+  // |yaw|*b/2 mm each, and resolving from |distance| alone
   // would always see D == 0 there and refuse every default-speed pivot
   // once shaped mode is on (every pivot in a tour is exactly this
-  // call). `rotationRad` is computed once, here, and reused below for
+  // call). `yaw` (the wire's `rotation` field converted to radians) is
+  // computed once, here, and reused below for
   // the dispatch -- the wire's ONE milliradian->radian conversion seam
   // (motion-api.md S9.1, mradToRad()'s own comment above).
   if (cruise < 0.0f) return Wire::Result::kRange;
-  const float rotationRad = mradToRad(rotation);
+  const float yaw = mradToRad(rotation);  // [rad]
   const float resolvedCruise =
       cruise == 0.0f
-          ? resolveDefaultCruiseMmS(
-                engineDominantAxisTravelMm(distance, rotationRad))
+          ? resolveDefaultCruise(
+                engineDominantAxisTravel(distance, yaw))
           : cruise;
   if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
   // sprint 005 ticket 004: resolve any still-pending PREVIOUS motion
@@ -563,13 +564,13 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
   // ordering is not strictly required for correctness the way it is
   // there, but is kept identical for one uniform rule (resolve-before-
   // dispatch, always) rather than a rule with silent exceptions.
-  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
-  engineMoveX(distance, rotationRad, resolvedCruise, timeout);
-  if (nowMs_ != nullptr) {
+  if (now_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
+  engineMoveX(distance, yaw, resolvedCruise, timeout);
+  if (now_ != nullptr) {
     // GOAL-DIRECTED: this class's own resolvePendingReason() also reads
     // engineMoveActive() for this one -- see wire_adapter.h.
     motionObligationActive_ = true;
-    motionObligationDeadlineMs_ = nowMs_() + timeout;
+    motionObligationDeadline_ = now_() + timeout;
     armPendingMotion(id, /*goalDirected=*/true);
   }
   return Wire::Result::kOk;
@@ -586,15 +587,15 @@ Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
   // engineMoveV() below routes onto MotionEngine::moveV(), which itself
   // calls wheelsV() (motion_engine.cpp), so the SAME cancelMove()
   // side-effect ordering hazard applies here.
-  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
+  if (now_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   // The wire's OTHER milliradian->radian conversion seam (motion-api.md
   // S9.1) -- `omega` is angle-shaped exactly like MOVE_X's `rotation`;
   // see mradToRad()'s own comment above.
   engineMoveV(v_x, mradToRad(omega), duration);
   // duration IS the lease already, same as onWheelsV().
-  if (nowMs_ != nullptr) {
+  if (now_ != nullptr) {
     motionObligationActive_ = true;
-    motionObligationDeadlineMs_ = nowMs_() + duration;
+    motionObligationDeadline_ = now_() + duration;
     armPendingMotion(id, /*goalDirected=*/false);
   }
   return Wire::Result::kOk;
@@ -607,7 +608,7 @@ Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
   // `speed`'s <0 handling mirrors onWheelsX()/onMoveX() above -- see
   // this method's own doc comment (wire_adapter.h) for why (`speed`
   // plays `cruise`'s role for the underlying moveX() call). The ==0
-  // substitution goes through resolveDefaultCruiseMmS() (SUC-003),
+  // substitution goes through resolveDefaultCruise() (SUC-003),
   // using this call's own chord length (`x`, `y` are body-frame,
   // motion_engine.h's own goToR() doc comment) as D -- exactly the
   // distance goToR() itself will drive, whether it takes the plain-arc
@@ -617,15 +618,15 @@ Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
   // optimistic about how far this move can actually brake.
   if (speed < 0.0f) return Wire::Result::kRange;
   const float resolvedSpeed =
-      speed == 0.0f ? resolveDefaultCruiseMmS(std::hypot(x, y)) : speed;
+      speed == 0.0f ? resolveDefaultCruise(std::hypot(x, y)) : speed;
   if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
   // sprint 005 ticket 004: see onMoveX()'s identical comment above --
   // GOAL-DIRECTED, same as MOVE_X.
-  if (nowMs_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
+  if (now_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
   engineGoToR(x, y, resolvedSpeed, arrive, timeout);
-  if (nowMs_ != nullptr) {
+  if (now_ != nullptr) {
     motionObligationActive_ = true;
-    motionObligationDeadlineMs_ = nowMs_() + timeout;
+    motionObligationDeadline_ = now_() + timeout;
     armPendingMotion(id, /*goalDirected=*/true);
   }
   return Wire::Result::kOk;
@@ -636,11 +637,11 @@ Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
   // See onWheelsV()'s identical check above.
   if (jobOwnsMotion_) return Wire::Result::kBusy;
   // Same speed <0 handling as onGoToR() above, and the same
-  // resolveDefaultCruiseMmS() substitution on ==0 (SUC-003) -- but
+  // resolveDefaultCruise() substitution on ==0 (SUC-003) -- but
   // UNLIKE onGoToR()'s (x, y) (already body-frame, i.e. already the
   // chord to travel), this call's (x, y) are WORLD-frame absolute
   // target coordinates (goToW()'s own doc comment, motion_engine.h), so
-  // D comes from engineGoToWChordMm(x, y) -- the TRUE body-frame chord
+  // D comes from engineGoToWChord(x, y) -- the TRUE body-frame chord
   // from the robot's CURRENT pose, using the exact same PoseSource
   // selection the dispatch below will use -- rather than hypot(x, y)
   // of the target alone, which is the target's distance from the world
@@ -648,7 +649,7 @@ Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
   // robot is not sitting at the origin.
   if (speed < 0.0f) return Wire::Result::kRange;
   const float resolvedSpeed =
-      speed == 0.0f ? resolveDefaultCruiseMmS(engineGoToWChordMm(x, y))
+      speed == 0.0f ? resolveDefaultCruise(engineGoToWChord(x, y))
                     : speed;
   if (resolvedSpeed <= 0.0f) return Wire::Result::kRange;
   // Sprint 006 ticket 007: engineGoToW() now falls back to encoder
@@ -660,7 +661,7 @@ Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
     return Wire::Result::kUnimplemented;
   }
   // only armed on the path that actually dispatched a move.
-  if (nowMs_ != nullptr) {
+  if (now_ != nullptr) {
     // sprint 005 ticket 004: GOAL-DIRECTED, same as MOVE_X/GO_TO_R --
     // but UNLIKE those two (and unlike the three lease-style verbs),
     // this supersede resolution stays AFTER the dispatch call above,
@@ -676,7 +677,7 @@ Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
     // engineMoveActive() reads correctly here regardless of ordering.
     forceResolvePending(Wire::DoneReason::kAborted);
     motionObligationActive_ = true;
-    motionObligationDeadlineMs_ = nowMs_() + timeout;
+    motionObligationDeadline_ = now_() + timeout;
     armPendingMotion(id, /*goalDirected=*/true);
   }
   return Wire::Result::kOk;
@@ -761,11 +762,11 @@ Wire::Result WireAdapter::onStop(bool /*immediate*/, uint32_t /*id*/) {
 }
 
 bool WireAdapter::hasLiveMotionObligation() const {
-  if (!motionObligationActive_ || nowMs_ == nullptr) return false;
-  const uint32_t nowMs = nowMs_();
+  if (!motionObligationActive_ || now_ == nullptr) return false;
+  const uint32_t sample = now_();  // [ms]
   // Wraparound-safe elapsed check (signed-difference idiom), same one
   // sprint 002's original obligation tracking used in protocol.cpp.
-  return static_cast<int32_t>(nowMs - motionObligationDeadlineMs_) < 0;
+  return static_cast<int32_t>(sample - motionObligationDeadline_) < 0;
 }
 
 // ---- sprint 005 ticket 004: motion-completion resolution (S8.8) --------
