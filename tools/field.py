@@ -115,6 +115,47 @@ def robot_heading_from_tag_yaw(tag_yaw_deg, residual_deg=0.0):
     return wrap(tag_yaw_deg + 90.0 + residual_deg)
 
 
+def pose_from_registered_samples(samples, lever_cm):
+    """(x_cm, y_cm, heading_deg) of a robot's centre of rotation,
+    averaged over `samples` -- each a `(yaw_rad, world_x_cm,
+    world_y_cm)` tuple read from a tag already REGISTERED with the
+    aprilcam daemon (`camlink.mount_yaw_rad()`). A registered tag's
+    `yaw_rad` already IS the robot's heading -- the daemon applied the
+    fixed +90 deg convention plus the mount's residual at registration
+    time. **This function must NOT run `yaw_rad` through
+    `robot_heading_from_tag_yaw()` or otherwise add 90 again** -- that
+    function is for a RAW/unregistered reading only. See
+    `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`
+    ("registered vs raw: who adds the 90") and this function's own
+    origin: sprint 029 ticket 007 found `tools/field_dance.py`'s
+    `pose()` doing exactly this double-add -- every pivot passed
+    (heading DELTAS cancel a constant offset) while every drive's
+    bearing was off by +90 deg (MEASURED tovez 2026-09-04,
+    `captures/bench-acceptance-029-20260904d/heading-probe.log`).
+
+    Position is the mean of each sample's lever-corrected centre of
+    rotation (`lever_cm`, the tag's own `(x_cm, y_cm)` offset from that
+    centre in the robot's body frame); heading is the circular mean
+    (mean of sin/cos, not a naive average of angles) of the `yaw_rad`
+    values, wrapped into (-180, 180]. `None` if `samples` is empty --
+    the caller (a live camera read that saw nothing) must not
+    substitute a stale or fabricated pose.
+    """
+    if not samples:
+        return None
+    lx, ly = lever_cm
+    xs = ys = 0.0
+    sy = cy = 0.0
+    for t, wx, wy in samples:
+        xs += wx - (math.cos(t) * lx - math.sin(t) * ly)
+        ys += wy - (math.sin(t) * lx + math.cos(t) * ly)
+        sy += math.sin(t)
+        cy += math.cos(t)
+    n = len(samples)
+    h = math.degrees(math.atan2(sy, cy))
+    return xs / n, ys / n, wrap(h)
+
+
 def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
     """Closest approach to each dot in `order`, scanning `rows` (each a
     `(t, x_cm, y_cm, yaw_deg)` tuple, timestamps non-decreasing)

@@ -37,7 +37,7 @@ sys.path.insert(0, str(_HERE))
 
 from aprilcam.mcp import connection as _conn          # noqa: E402
 from fieldlink import FieldLink, TcpFieldLink            # noqa: E402
-from field import robot_heading_from_tag_yaw            # noqa: E402
+from field import pose_from_registered_samples           # noqa: E402
 from make_deploy import derive_radio_from_name          # noqa: E402
 
 # Sprint 029 ticket 006: field_calibration.json now carries several
@@ -62,10 +62,19 @@ else:
             f'micro:bit name to derive one from')
     CH, GRP = _derived
 LEVER = _ENTRY['lever_cm']
-# TL-11: field_calibration.json stores only the sub-degree PHYSICAL
-# residual -- the fixed +90 deg convention is added back by
-# field.robot_heading_from_tag_yaw(), never re-derived or stored here.
-RESIDUAL_DEG = _ENTRY['mount_yaw_residual_deg']
+# Sprint 029 ticket 007: this script drives a robot whose tag was
+# already registered with the aprilcam daemon (an explicit
+# `camlink.py --register <robot>` pre-flight step, per this ticket's
+# session notes -- NOT done by this script itself). A registered tag's
+# `yaw_rad` is already the robot's heading (`camlink.mount_yaw_rad()`
+# baked the fixed +90 deg convention plus `mount_yaw_residual_deg` in
+# at registration time), so `pose()` below must read it directly and
+# must NOT run it through `field.robot_heading_from_tag_yaw()` --
+# see `field.pose_from_registered_samples()`'s docstring and
+# `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md` ("registered
+# vs raw: who adds the 90"). Doing that add a second time was exactly
+# the 2026-09-04d bug: pivots passed (deltas cancel a constant offset)
+# while every drive's bearing was off by +90 deg.
 K = _ENTRY['parallax_k']                 # camera parallax dilation
 
 TOL_DEG, TOL_CM = 8.0, 3.0
@@ -90,22 +99,20 @@ def raw():
 
 
 def pose(n=3):
-    """(x_cm, y_cm, heading_deg) of the centre of rotation."""
-    xs = ys = 0.0; sy = cy = 0.0; got = 0
+    """(x_cm, y_cm, heading_deg) of the centre of rotation.
+
+    Pure sample-averaging is `field.pose_from_registered_samples()` --
+    see its docstring for why this must not add the +90 deg convention
+    to `r.yaw_rad` (the tag is REGISTERED; the daemon already did it).
+    """
+    samples = []
     for _ in range(n):
         r = raw()
         if r is None:
             time.sleep(0.05); continue
-        t = r.yaw_rad
-        xs += r.world.x - (math.cos(t)*LEVER[0] - math.sin(t)*LEVER[1])
-        ys += r.world.y - (math.sin(t)*LEVER[0] + math.cos(t)*LEVER[1])
-        sy += math.sin(t); cy += math.cos(t); got += 1
+        samples.append((r.yaw_rad, r.world.x, r.world.y))
         time.sleep(0.03)
-    if not got:
-        return None
-    h = robot_heading_from_tag_yaw(math.degrees(math.atan2(sy, cy)),
-                                    RESIDUAL_DEG)
-    return xs/got, ys/got, (h + 180) % 360 - 180
+    return pose_from_registered_samples(samples, LEVER)
 
 
 def settle(timeout=9.0):

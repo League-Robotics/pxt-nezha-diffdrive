@@ -213,11 +213,22 @@ def test_load_calibration_reads_the_real_file():
 
 
 def test_real_calibration_file_has_no_mounts_table_leftovers():
-    # The real file backing this repo's default_robot must itself carry
-    # only a sub-degree residual, matching the TL-11 acceptance
-    # criterion (never a probe-fitted absolute like 91.116).
+    # The real file backing this repo's default_robot must carry a
+    # PHYSICAL residual, matching the TL-11 acceptance criterion (never
+    # a probe-fitted absolute like the pre-sprint-029 91.116). A
+    # physical residual is either near 0 deg (a normally-mounted plate)
+    # or near +-180 deg (a plate mounted backward -- a real, distinct
+    # physical state: sprint 029 ticket 007 MEASURED tovez's plate
+    # mounted 180 deg from the fleet convention, captures/
+    # bench-acceptance-029-20260904d/heading-probe.log). Only a value
+    # near +-90 deg is the TL-11 regression signature this test guards
+    # against: someone re-storing the whole probe-fitted ABSOLUTE
+    # convention value here by mistake, instead of the sub-degree
+    # residual the design calls for.
     cal = camlink.load_calibration()
     residual = cal['robots'][cal['default_robot']]['mount_yaw_residual_deg']
-    assert abs(residual) < 10.0, (
+    near_zero = abs(residual) < 10.0
+    near_180 = abs(abs(residual) - 180.0) < 10.0
+    assert near_zero or near_180, (
         f'mount_yaw_residual_deg={residual} looks like an absolute '
-        f'heading offset (~90deg), not a sub-degree residual')
+        f'heading offset (~90deg), not a physical residual')

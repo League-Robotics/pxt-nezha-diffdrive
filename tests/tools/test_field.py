@@ -97,6 +97,70 @@ def test_robot_heading_from_tag_yaw_wraps_into_range():
     assert got == pytest.approx(265.0 - 360.0)
 
 
+# --- pose_from_registered_samples() (sprint 029 ticket 007) ---------------
+#
+# The 2026-09-04d bug, pinned here: `tools/field_dance.py`'s `pose()`
+# used to run a REGISTERED tag's `yaw_rad` (already the robot's heading
+# -- the daemon applies the +90 deg convention at registration time)
+# through `robot_heading_from_tag_yaw()`, adding the convention a
+# second time. Pivots still passed (heading DELTAS cancel a constant
+# offset), but every drive's bearing was off by +90 deg (MEASURED
+# tovez 2026-09-04, captures/bench-acceptance-029-20260904d/
+# heading-probe.log). A fake daemon sample standing in for a
+# REGISTERED tag reading must come back UNCHANGED, plus lever geometry
+# -- never with 90 added.
+
+def test_pose_from_registered_samples_returns_yaw_unchanged_no_lever():
+    # One sample, yaw_rad = 0 (i.e. the daemon already reports the
+    # robot facing along the world +x axis for this REGISTERED tag).
+    # A double-add bug would return 90.0 here, not 0.0.
+    x, y, h = field.pose_from_registered_samples(
+        [(0.0, 10.0, 20.0)], lever_cm=[0.0, 0.0])
+    assert h == pytest.approx(0.0)
+    assert x == pytest.approx(10.0)
+    assert y == pytest.approx(20.0)
+
+
+def test_pose_from_registered_samples_matches_a_nonzero_registered_yaw():
+    # yaw_rad = pi/2 (90 deg) -- a registered tag reporting the robot
+    # already facing +y. Must come back as 90.0, not 180.0.
+    x, y, h = field.pose_from_registered_samples(
+        [(math.pi / 2, 0.0, 0.0)], lever_cm=[0.0, 0.0])
+    assert h == pytest.approx(90.0)
+
+
+def test_pose_from_registered_samples_applies_lever_correction():
+    # yaw_rad = 0 (facing +x), tag mounted 2 cm ahead of the centre of
+    # rotation along the robot's own forward axis -- the centre should
+    # sit 2 cm BEHIND the tag's world position, along +x.
+    x, y, h = field.pose_from_registered_samples(
+        [(0.0, 10.0, 0.0)], lever_cm=[2.0, 0.0])
+    assert x == pytest.approx(8.0)
+    assert y == pytest.approx(0.0)
+    assert h == pytest.approx(0.0)
+
+
+def test_pose_from_registered_samples_averages_multiple_samples():
+    samples = [(0.0, 10.0, 0.0), (0.0, 12.0, 2.0)]
+    x, y, h = field.pose_from_registered_samples(samples, lever_cm=[0.0, 0.0])
+    assert x == pytest.approx(11.0)
+    assert y == pytest.approx(1.0)
+    assert h == pytest.approx(0.0)
+
+
+def test_pose_from_registered_samples_circular_mean_across_the_wrap():
+    # Two samples straddling +-180 deg (+179 and -179) must average to
+    # 180, not 0 -- a naive arithmetic mean would get this wrong.
+    samples = [(math.radians(179.0), 0.0, 0.0),
+               (math.radians(-179.0), 0.0, 0.0)]
+    _, _, h = field.pose_from_registered_samples(samples, lever_cm=[0.0, 0.0])
+    assert h == pytest.approx(180.0)
+
+
+def test_pose_from_registered_samples_empty_returns_none():
+    assert field.pose_from_registered_samples([], lever_cm=[0.0, 0.0]) is None
+
+
 # --- score_corners(): the disagreement this ticket fixes -----------------
 
 def _row(t, x, y, yaw=0.0):
