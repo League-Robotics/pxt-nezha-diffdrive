@@ -1,0 +1,4 @@
+hello: device NEZHA2 robot tovez 2314287040
+status: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=25 cyc=2123 tlm=off next=1 done=2 reason=timeout
+GET ack line: ack 1 2 timeout
+GET field lines (0):

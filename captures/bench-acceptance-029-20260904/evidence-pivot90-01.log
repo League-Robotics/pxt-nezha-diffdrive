@@ -1,0 +1,15 @@
+hello: device NEZHA2 robot tovez 2314287040
+clearestop: ESTOP:cleared
+status: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=22 cyc=1911 tlm=off next=1 done=10 reason=timeout
+camera BEFORE: world=(5.25,8.51) yaw_rad=2.6273 (150.53 deg)
+TLM POSE: ack 1 10 timeout
+pre-move lines: ['t 47 682157 31 -29 -18 64152 361 -6 -308 0 0 22', 't 48 682213 31 -29 -18 64152 361 -6 -308 0 0 22', 't 51 682381 31 -29 -18 64152 361 -6 -307 0 0 22']
+MOVE_X: ack 2 10 timeout
+captured 76 lines during move
+t frame count: 74
+first t: t 82 684653 31 -40 -6 74469 361 -4 10886 0 0 25
+last t: t 47 690501 31 -40 -6 74469 361 -4 10906 0 0 25
+TLM OFF: ack 3 2 timeout
+STATUS after: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=25 cyc=2123 tlm=off next=4 done=2 reason=timeout
+camera AFTER: world=(3.64,7.78) yaw_rad=4.5485 (260.61 deg)
+camera raw yaw delta: 110.08 deg

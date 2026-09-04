@@ -1,0 +1,16 @@
+--- camera stability at rest, 8 samples over ~4s, NO motion commanded ---
+0 x=5.583 y=6.794 yaw=24.838 corners=[(2.91, 9.24), (5.03, 4.66), (0.54, 2.54), (-1.58, 7.09)]
+1 x=5.576 y=6.809 yaw=25.058 corners=[(2.9, 9.23), (5.03, 4.67), (0.55, 2.54), (-1.58, 7.09)]
+2 x=5.566 y=6.817 yaw=25.184 corners=[(2.89, 9.22), (5.03, 4.68), (0.53, 2.54), (-1.59, 7.09)]
+3 x=5.576 y=6.803 yaw=25.014 corners=[(2.9, 9.23), (5.03, 4.66), (0.55, 2.54), (-1.59, 7.09)]
+4 x=5.575 y=6.796 yaw=24.955 corners=[(2.9, 9.23), (5.03, 4.66), (0.53, 2.54), (-1.58, 7.09)]
+5 x=5.582 y=6.795 yaw=24.865 corners=[(2.91, 9.24), (5.03, 4.66), (0.55, 2.54), (-1.59, 7.09)]
+6 x=5.575 y=6.806 yaw=25.093 corners=[(2.89, 9.22), (5.03, 4.66), (0.56, 2.54), (-1.58, 7.09)]
+7 x=5.579 y=6.797 yaw=24.933 corners=[(2.9, 9.22), (5.02, 4.66), (0.55, 2.54), (-1.58, 7.09)]
+
+--- link status, no motion ---
+hello: device NEZHA2 robot tovez 2314287040
+status: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=29 cyc=2336 tlm=off next=1 done=2 reason=timeout
+hello: device NEZHA2 robot tovez 2314287040
+ESTOP: None
+status after estop: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=29 cyc=2336 tlm=off next=1 done=2 reason=timeout

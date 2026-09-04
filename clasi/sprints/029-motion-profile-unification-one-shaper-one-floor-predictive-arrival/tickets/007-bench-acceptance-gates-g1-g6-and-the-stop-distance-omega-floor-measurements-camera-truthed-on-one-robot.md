@@ -77,21 +77,47 @@ ticket's close-out if it cannot be completed from this repo alone.
 ## Acceptance Criteria
 
 - [ ] `field_dance.py` passes before any other commanded motion this
-      ticket runs.
+      ticket runs. UNMET 2026-09-04: the dance FAILED on tovez (large,
+      inconsistent pivot/drive errors, not a clean convention offset --
+      `captures/bench-acceptance-029-20260904/notes.md` §3) and
+      evidence-gathering afterward pointed at a suspected kernel wedge,
+      not a convention/mount problem. Blocked pending hardware recovery.
 - [ ] G1-G6 all pass, each cited with its capture artifact
-      (`.claude/rules/measurement-citations.md`).
+      (`.claude/rules/measurement-citations.md`). NOT RUN 2026-09-04 --
+      blocked behind the failed dance above; driving a robot that
+      cannot reliably stop where commanded is unsafe.
 - [ ] `stop_distance` and `omega_floor` measured, recorded in
       `firmware_bake.stop_distance_mm` and `MotionLimits::omegaFloor`'s
-      default, and cited with their capture artifacts.
+      default, and cited with their capture artifacts. NOT MEASURED
+      2026-09-04 -- same blocker.
 - [ ] `src/DESIGN.md` §3 updated (real file) with the measured
-      constants' field-comment history.
-- [ ] `docs/design/specification.md`'s constants table updated.
-- [ ] `pivot_overrun` retired from every robot config this repo
+      constants' field-comment history. NOT DONE -- no measured
+      constants exist yet to record.
+- [ ] `docs/design/specification.md`'s constants table updated. NOT
+      DONE -- same reason.
+- [x] `pivot_overrun` retired from every robot config this repo
       controls; the `radio-robot-lib` cross-repo side is explicitly
-      flagged if not completed here.
+      flagged if not completed here. This repo controls no robot config
+      file carrying `pivot_overrun` (grep of `*.json`/`*.py`/`*.md`,
+      2026-09-04: every hit is a test fixture, doc, or the closed
+      sprint-025/028 history for the OLD field name being retired --
+      `tools/field_calibration.json` never had it). The cross-repo
+      change is flagged as a follow-up: in
+      `radio-robot-lib/config/robots/tovez.json` (and the rest of the
+      fleet), rename the `firmware_bake` key `pivot_overrun_mm` to
+      `stop_distance_mm` once ticket 007's `stop_distance` measurement
+      exists to populate it with (design §8's knob-compatibility table).
 - [ ] Design §7's predicted "after" numbers (already confirmed on ideal
       wheels by ticket 003's probe) are now confirmed or contradicted on
-      real hardware — record which.
+      real hardware — record which. UNRESOLVED 2026-09-04: real
+      hardware data was gathered (two isolated 90° pivots, +110° and
+      +123° actual vs +90° commanded) that looks like a severe
+      contradiction of the ±0.5° prediction, but it is confounded by
+      the same suspected kernel wedge (telemetry showed zero wheel
+      velocity/duty for the entire window while the camera showed real
+      rotation) -- cannot honestly attribute this to the new engine
+      versus the wedge without a clean re-run after hardware recovery.
+      See `captures/bench-acceptance-029-20260904/notes.md` §4.
 
 ## Implementation Plan
 
@@ -164,3 +190,88 @@ field centre, before the next session can continue from step 3
 (`field_dance.py` / mount registration) through G1-G6 and the §10.2
 measurements. All of the ticket's acceptance criteria beyond
 build/flash remain unmet for that reason -- see checklist below.
+
+## Session Notes (2026-09-04, tovez, BLOCKED -- suspected kernel wedge during `field_dance.py`)
+
+Full account: `captures/bench-acceptance-029-20260904/notes.md` (all
+capture logs cited below live in that directory).
+
+**Lights/camera/placement: PASS, no motion commanded.** Shelly
+`output: true`. AprilTag 1 reads world (-0.04, -0.01) -- (0, 0) within
+noise. AprilTag 52 (tovez) at world (8.50, 12.71) cm, well inside the
+~30 cm placement tolerance -- the stakeholder's report that the field
+was cleared and tovez placed is confirmed by camera, not assumed.
+
+**Mount registration and kernel kick.** `camlink.py --register tovez`
+registered the still-UNVERIFIED mount. `field_calibration.json`'s
+`default_robot` switched `vevov` -> `tovez` (required for
+`field_dance.py`); tovez's entry was missing `lever_cm`/`parallax_k`
+(required unconditionally by that script) -- added clearly-labeled
+PLACEHOLDER values, reasoned in the JSON's own `_lever_parallax_note`
+to be harmless to the dance's PASS/FAIL either way. First
+`field_dance.py` attempt refused (`STATUS ready=0`, the known
+cold-kernel state); cleared with `RUN:clearestop` + a 2 mm `MOVE_X`
+kick (`ack 1 1 stop`, `ready` flipped to 1, `connL`/`connR` to 1).
+
+**`field_dance.py`: FAIL.** All three pivots over-rotated by 47.6-57.6
+deg on 90/180 deg commands; all three drives were off by 25.9-34.9 cm
+with wildly inconsistent bearings (+125, -39, +135 deg off). This is
+**not** a clean convention flip (`.claude/rules/
+tag-yaw-is-the-front-edge-not-the-hat.md` -- a wrong-sign/wrong-90
+convention clusters errors near 0/90/180/270; these do not) -- read as
+"the robot is not stopping where commanded."
+
+**Evidence gathering (systematic-debugging Phase 1).** Two further
+isolated single-pivot probes (`MOVE_X 0 1571 100 5000`, +90 deg
+commanded), each bracketed by fresh camera fixes: +110.08 deg then
++123.32 deg actual rotation -- both real (camera stable to <0.02 cm /
+<0.3 deg at rest immediately after, corner geometry consistent). The
+second probe streamed `TLM FULL`: **all 76 telemetry frames across the
+6.4 s window show `h` frozen, `vl`/`vr`/`dutl`/`dutr` all zero** --
+firmware reports zero motion the entire time the camera shows a large
+real rotation. `cyc` (kernel cycle counter) climbed to 2336 during that
+capture and never advanced again in any later `STATUS` read this
+session. `RUN:clearestop` then a bare `ESTOP` (both firmware-documented
+unsequenced exemptions) got **no reply** on subsequent attempts, while
+`HELLO`/`STATUS` kept answering normally throughout.
+
+**Working hypothesis** (not confirmed): tovez's motion-control fiber
+wedged during or shortly after the first evidence probe -- likely
+I2C/OTOS, given this fleet's documented wedge history -- leaving the
+wire/radio handling layer alive (still answers `HELLO`/`STATUS`) while
+the fiber owning motion state, telemetry, and apparently
+`ESTOP`/`RUN:clearestop` stopped ticking. This would explain every
+observed motion this session reporting `reason=timeout` and never
+`reason=stop` (bar the initial 2 mm kick): an unbraked pivot spinning
+until its outer deadline force-stops it. `STATUS`'s own `wedge=0` flag
+does not confirm this cleanly, so it is recorded as a hypothesis, not a
+MEASURED fact -- see `.claude/rules/measurement-citations.md`.
+
+**Safety action:** `ESTOP` was sent once the anomaly was recognized (no
+reply received, consistent with the wedge hypothesis). No further
+commanded motion was sent. tovez's last confirmed camera position,
+(5.58, 6.80) cm, is well inside the field and safety margin -- no
+geofence risk.
+
+**Stopped here.** Design §7's "confirmed or contradicted on real
+hardware" question could not be honestly answered either way --
+real hardware data was gathered showing severe deviation from the
+±0.5° pivot prediction, but it is confounded by the suspected wedge and
+cannot be attributed to the new engine specifically without a clean
+re-run. Nothing past the failed dance (mount fit, G1-G6, the two §10.2
+measurements, the doc updates that depend on their numbers) was run.
+
+**Needs a human**: physically recover tovez (power cycle first choice;
+reflash if that does not clear it -- MEMORY.md's I2C-wedge lore), then
+re-run `field_dance.py` from a clean boot before anything else in this
+ticket resumes. If it now passes cleanly, the wedge hypothesis is
+supported and the next session picks up at the mount-fit step. If it
+fails again the same way, this is very likely a genuine firmware
+defect in the new engine (K1-K4 kernel patches or the predictive-arrival
+logic) that needs `radio-robot-elite` engineering attention before any
+bench acceptance number here can be trusted -- do not patch it from
+this ticket.
+
+`field_calibration.json`'s `default_robot` is left as `tovez` (was
+`vevov`) for continuity with this blocked session -- a future session
+on a different robot must switch it back.

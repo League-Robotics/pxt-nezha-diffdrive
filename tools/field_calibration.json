@@ -1,6 +1,6 @@
 {
   "_note": "One calibration of record (sprint 029 ticket 006, TL-02/TL-11). camlink.py loads this file and registers a mount with the aprilcam daemon ONLY on an explicit --register call; robotlink.py's radio_address() reads/derives from it. mount_yaw_residual_deg is the sub-degree PHYSICAL mount skew ONLY -- the fixed +90 deg AprilCam front-edge-to-hat convention (.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md) is never stored here; it is added back in code, once, by camlink.mount_yaw_rad() (for daemon registration) and field.robot_heading_from_tag_yaw() (for a raw, unregistered tag reading).",
-  "default_robot": "vevov",
+  "default_robot": "tovez",
   "field": {
     "_note": "Fixed field furniture, not a robot -- not subject to the TL-02 remount-overwrite hazard. Height-only mount (drives camera parallax correction only; no forward direction, so no yaw convention applies). Register once per daemon session with `camlink.py --register field`. Tag 10 sits over the NW dot (-50, 30), tag 11 over the SW dot (-50, -30) -- permanent ground truth in every frame.",
     "tags": {
@@ -41,7 +41,7 @@
       "_parallax_note": "The tag rides 11.8 cm above the field, so the camera reports every DISPLACEMENT scaled by this about its own nadir. Divide any camera distance by it for truth. MEASURED as 1.1167 +- 0.0022 over three 60 cm legs driven in opposing directions; implies a camera height near 113 cm. Closure measured at equal heading still needs it, since closure is a displacement."
     },
     "tovez": {
-      "_provenance": "UNVERIFIED. Carried over from tools/camlink.py's old hardcoded MOUNTS[52] table (deleted by sprint 029 ticket 006), which predates tovez's 2026-08 remount and was never re-measured against ground truth on this playfield -- no capture file backs these numbers. Sprint 029 ticket 007 runs its bench acceptance gates on tovez and can re-measure this properly; until then, do not treat mount_x_cm/mount_y_cm/mount_z_cm/mount_yaw_residual_deg below as trustworthy.",
+      "_provenance": "UNVERIFIED. Carried over from tools/camlink.py's old hardcoded MOUNTS[52] table (deleted by sprint 029 ticket 006), which predates tovez's 2026-08 remount and was never re-measured against ground truth on this playfield -- no capture file backs these numbers. Sprint 029 ticket 007's 2026-09-04 bench session tried to re-measure this and hit a suspected kernel wedge on tovez before any pivot-triple fit could be trusted (captures/bench-acceptance-029-20260904/notes.md) -- still do not treat mount_x_cm/mount_y_cm/mount_z_cm/mount_yaw_residual_deg below as trustworthy.",
       "tag_family": "apriltag",
       "tag_number": 52,
       "camera": "arducam-ov9782-usb-camera",
@@ -49,7 +49,10 @@
       "mount_y_cm": 0.05,
       "mount_z_cm": 11.3,
       "mount_yaw_residual_deg": 0.0,
-      "_radio_note": "No explicit override -- radio_address('tovez') falls through to make_deploy.derive_radio_from_name('tovez') = (55, 108), matching the MEASURED fleet table in .claude/rules/playfield-testing.md (2026-08-30)."
+      "_radio_note": "No explicit override -- radio_address('tovez') falls through to make_deploy.derive_radio_from_name('tovez') = (55, 108), matching the MEASURED fleet table in .claude/rules/playfield-testing.md (2026-08-30).",
+      "lever_cm": [0.0, 0.0],
+      "parallax_k": 1.1167434292898253,
+      "_lever_parallax_note": "STILL A PLACEHOLDER. Added 2026-09-04 for sprint 029 ticket 007's bench session so field_dance.py could run at all (it requires both keys unconditionally). lever_cm=[0,0] is harmless for field_dance.py's PASS/FAIL: turn() only reads the heading delta (lever-independent) and drive() differences two poses taken at the same heading, so a constant-but-wrong lever cancels in the delta. parallax_k borrowed from vevov (tag height 11.8 cm vs tovez's 11.3 cm -- close enough for the dance's 3 cm tolerance). The dance FAILED that same session (large, inconsistent pivot/drive errors, not a clean convention offset) and evidence-gathering pointed at a suspected kernel wedge on tovez, not at these placeholders -- see captures/bench-acceptance-029-20260904/notes.md. No pivot-triple/translation-probe fit was attempted; do not trust these two values for a real distance/angle measurement until they are replaced with a MEASURED fit after tovez is recovered."
     }
   }
 }
