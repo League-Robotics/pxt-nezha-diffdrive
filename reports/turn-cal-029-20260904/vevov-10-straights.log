@@ -1,0 +1,8 @@
+SET lag 0.04 -> ack 1 12 stop
+lag 0.04: MOVE_X +250 -> camera +246.4 mm (err -3.6 mm), heading change -1.3 deg, reason stop
+STOP: robot at (12.7, 33.9) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
+SET lag 0.131 -> ack 3 2 stop
+STOP: robot at (12.7, 33.9) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
+SET lag 0.04 -> ack 4 2 stop
+STOP: robot at (12.7, 33.9) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
+lag 0.04: mean err -3.6 mm over 1 legs

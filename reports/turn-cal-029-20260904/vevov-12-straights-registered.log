@@ -1,0 +1,27 @@
+facing west: (13.9, 32.1) heading -179.6
+SET lag 0.04 -> ack 2 1 stop
+lag 0.04: MOVE_X +500 -> camera +499.6 mm (err -0.4 mm), heading change -0.7 deg, now (-36.1, 31.5) reason stop
+lag 0.04: MOVE_X -500 -> camera +502.2 mm (err +1002.2 mm), heading change -5.7 deg, now (14.1, 33.1) reason stop
+SET lag 0.131 -> ack 5 4 stop
+STOP (projected end): robot at (-35.7, 36.9) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
+SET lag 0.04 -> ack 6 4 stop
+STOP (projected end): robot at (-35.7, 37.2) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
+SET lag 0.131 -> ack 7 4 stop
+STOP (projected end): robot at (-35.7, 37.0) cm is within 12 cm of a rail (limits +-67.15, +-44.65); move it toward the middle
+lag 0.04: mean err +500.9 mm over 2 legs (min -0.4, max +1002.2)
+facing south: (13.8, 30.5) h -87.6
+lag 0.04: MOVE_X +200 -> camera +199.3 mm (err -0.7 mm), heading change -0.3 deg, now (14.9, 10.6) reason stop
+SET lag 0.131 -> ack 5 4 stop; facing west from (14.6, 10.3) h -178.9
+lag 0.131: MOVE_X +500 -> camera +492.1 mm (err -7.9 mm), heading change -4.3 deg, now (-34.7, 12.4) reason stop
+lag 0.131: MOVE_X -500 -> camera -495.5 mm (err +4.5 mm), heading change -4.7 deg, now (14.9, 10.8) reason stop
+SET lag 0.04 -> ack 10 9 stop; facing west from (14.9, 10.7) h -179.1
+lag 0.04: MOVE_X +500 -> camera +499.6 mm (err -0.4 mm), heading change +0.8 deg, now (-35.1, 10.1) reason stop
+lag 0.04: MOVE_X -500 -> camera -502.3 mm (err -2.3 mm), heading change -4.4 deg, now (15.2, 11.5) reason stop
+SET lag 0.131 -> ack 14 13 stop; facing west from (15.2, 11.3) h -179.6
+lag 0.131: MOVE_X +500 -> camera +495.7 mm (err -4.3 mm), heading change -0.3 deg, now (-34.4, 12.3) reason stop
+lag 0.131: MOVE_X -500 -> camera -497.8 mm (err +2.2 mm), heading change -0.8 deg, now (15.4, 11.8) reason stop
+SET lag 0.04 -> ack 18 17 stop; facing west from (15.4, 11.8) h 178.1
+lag 0.04: MOVE_X +500 -> camera +499.8 mm (err -0.2 mm), heading change -3.6 deg, now (-34.5, 14.0) reason stop
+lag 0.04: MOVE_X -500 -> camera -501.6 mm (err -1.6 mm), heading change -1.0 deg, now (15.7, 12.6) reason stop
+lag 0.131: mean err -1.4 mm over 4 legs (min -7.9, max +4.5)
+lag 0.04: mean err -1.1 mm over 4 legs (min -2.3, max -0.2)
