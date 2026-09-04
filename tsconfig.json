@@ -66,7 +66,8 @@
     "src/blocks/world.ts",
     "src/blocks/motion.ts",
     "test/test.ts",
-    "test/testrig.ts"
+    "test/testrig.ts",
+    "test/linefollow.ts"
   ],
   "exclude": [
     "node_modules"

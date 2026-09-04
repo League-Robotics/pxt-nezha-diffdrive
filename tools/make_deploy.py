@@ -995,7 +995,7 @@ def _inject_geometry(deploy_dir, robot):
     return applied
 
 
-def _inject_boot_banner(deploy_dir, robot):
+def _inject_boot_banner(deploy_dir, robot, program='test.ts'):
     """Substitute `deploy_dir`'s own copy of `test/test.ts`'s
     `BOOT_VERSION`/`BOOT_ROBOT` placeholder constants with this build's
     actual version (`_read_repo_version()` + `format_boot_version()`,
@@ -1004,7 +1004,7 @@ def _inject_boot_banner(deploy_dir, robot):
     the repo's own checked-in `test/test.ts` keeps its placeholder
     values, since `test.ts` cannot read `pyproject.toml` itself."""
     version = format_boot_version(_read_repo_version())
-    path = os.path.join(deploy_dir, 'test', 'test.ts')
+    path = os.path.join(deploy_dir, 'test', program)
     text = open(path).read()
     text, n1 = _BOOT_VERSION_RE.subn(rf'\g<1>"{version}"', text)
     text, n2 = _BOOT_ROBOT_RE.subn(rf'\g<1>"{robot}"', text)
@@ -1171,8 +1171,8 @@ def build_testrig():
           hex_path=HEX_TESTRIG, label='testrig ')
 
 
-def flash(name):
-    r = subprocess.run(['mbdeploy', 'deploy', name, '--hex', HEX],
+def flash(name, hex_path=HEX):
+    r = subprocess.run(['mbdeploy', 'deploy', name, '--hex', hex_path],
                        cwd=ELITE)
     if r.returncode != 0:
         print('\nmbdeploy failed. The proven fallback is DAPLink mass '
@@ -1206,7 +1206,32 @@ def main():
                           "link is the untethered carrier")
     ap.add_argument('--no-radio-link', dest='radio_link', action='store_false',
                      help="force the v6 radio link OFF regardless of config")
+    ap.add_argument('--program', default='test.ts',
+                     help="which test/ program to promote into the hex "
+                          "(a `testFiles` basename, default test.ts). "
+                          "Any other program builds in its own scratch "
+                          "copy .tmp/deploy-<stem>, so it never shares "
+                          "a build cache with the test.ts deploy")
     a = ap.parse_args()
+    if a.program != 'test.ts':
+        stem = os.path.splitext(a.program)[0]
+        deploy_dir = os.path.join(REPO, '.tmp', f'deploy-{stem}')
+        hex_path = os.path.join(deploy_dir, 'built', 'binary.hex')
+        for f in _sync_scratch(deploy_dir, a.program):
+            print(f'  {f}')
+        _inject_radio_channel(deploy_dir, a.robot)
+        _inject_profile(deploy_dir, a.robot)
+        _inject_wifi_secrets(deploy_dir)   # protocol.cpp is shared by every program
+        # (no _inject_radio_link here: BOOT_RADIO_LINK lives in test.ts only)
+        for _name, _value in _inject_geometry(deploy_dir, a.robot):
+            print(f'make_deploy: geometry bake {_name} = {_value:g}')
+        _inject_version(deploy_dir)
+        _inject_boot_banner(deploy_dir, a.robot, a.program)
+        build(run_fn=lambda: _run_pxt_build(deploy_dir, hex_path),
+              hex_path=hex_path, label=f'{stem} ')
+        if a.flash:
+            flash(a.robot, hex_path)
+        return
     if a.testrig:
         if a.flash:
             ap.error('--testrig produces no flashable hex; '
