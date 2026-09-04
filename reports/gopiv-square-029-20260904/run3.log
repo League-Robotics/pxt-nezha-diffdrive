@@ -1,0 +1,20 @@
+tour square: 17 steps
+  device NEZHA2 robot gopiv 2175407711
+  set twist_hold_gain = 8.0
+  set speed_floor = 512.0
+  set yaw_taper = 800.0
+  set pivot_overrun = 2.0
+  [  5/17] leg1a        dist   300.0 rot      0.0 ok
+  [  7/17] leg1b        dist   300.0 rot      0.0 ok
+  [  8/17] pivot        dist     0.0 rot   1570.8 ok
+  [  9/17] leg2         dist   600.0 rot      0.0 ok
+  [ 10/17] pivot        dist     0.0 rot   1570.8 ok
+  [ 11/17] leg3a        dist   300.0 rot      0.0 ok
+  [ 13/17] leg3b        dist   300.0 rot      0.0 ok
+  [ 14/17] pivot        dist     0.0 rot   1570.8 ok
+  [ 15/17] leg4         dist   600.0 rot      0.0 ok
+  [ 16/17] pivot        dist     0.0 rot   1570.8 ok
+
+closure 23.5 mm
+chart reports/gopiv-square-029-20260904/run3/square.png
+data  reports/gopiv-square-029-20260904/run3/square.json
