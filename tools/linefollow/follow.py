@@ -24,7 +24,9 @@ from run_tour import Link, Path2D           # noqa: E402
 from aprilcam.mcp import connection as _conn  # noqa: E402
 
 CAL = json.loads((REPO / 'tools/field_calibration.json').read_text())
-LEVER, HOFF, K, CAM, TAG = CAL['lever_cm'], CAL['heading_offset_deg'], CAL['parallax_k'], CAL['camera'], CAL['tag_number']
+_ROBOT = 'vevov'; _E = CAL['robots'][_ROBOT]  # these tools are vevov-on-the-KIPR-mat tools; sprint 029 robots: schema
+HOFF = 90.0 + _E['mount_yaw_residual_deg']  # robot heading = raw tag yaw + 90 (fixed AprilCam convention) + residual
+LEVER, K, CAM, TAG = _E['lever_cm'], _E['parallax_k'], _E['camera'], _E['tag_number']
 NADIR = (3.057, -2.799)      # daemon camera_position for arducam-ov9782, cm
 FIELD_X, FIELD_Y = 60.0, 40.0  # odometry geofence, cm (hard stop)
 

@@ -9,7 +9,9 @@ sys.path.insert(0, str(REPO / 'tools'))
 from fieldlink import FieldLink
 from aprilcam.mcp import connection as _conn
 CAL = json.loads((REPO / 'tools/field_calibration.json').read_text())
-LEVER = CAL['lever_cm']; HOFF = CAL['heading_offset_deg']; K = CAL['parallax_k']; CAM = CAL['camera']; TAG = CAL['tag_number']
+_ROBOT = 'vevov'; _E = CAL['robots'][_ROBOT]  # these tools are vevov-on-the-KIPR-mat tools; sprint 029 robots: schema
+HOFF = 90.0 + _E['mount_yaw_residual_deg']  # robot heading = raw tag yaw + 90 (fixed AprilCam convention) + residual
+LEVER = _E['lever_cm']; K = _E['parallax_k']; CAM = _E['camera']; TAG = _E['tag_number']
 XL, YL = 67.15-12.0, 44.65-12.0
 NADIR = (3.057, -2.799)   # camera nadir (cm); apparent = N + K*(true-N) for the 12 cm tag
 tx, ty, th = float(sys.argv[1]), float(sys.argv[2]), float(sys.argv[3])
@@ -41,7 +43,7 @@ else: t1, sgn = wrap(brg+180-h0), -1
 t2 = wrap(th - (h0+t1))
 print('plan: pivot %+.1f, drive %+.1f cm, pivot %+.1f  (straight leg %s -> %s, both inside margin: %s)' % (t1, sgn*dist, t2, (round(x0,1),round(y0,1)), (tx,ty), abs(x0)<=XL and abs(y0)<=YL))
 if '--dry' in sys.argv: raise SystemExit(0)
-L = FieldLink(CAL['radio_channel'], CAL['radio_group']); print('hello:', L.hello())
+L = FieldLink(_E['radio_channel'], _E['radio_group']); print('hello:', L.hello())
 def go(cmd, wait):
     a = L.seqd(cmd); time.sleep(wait); return a
 def pivot_to(target_h, label):

@@ -9,7 +9,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from aprilcam.mcp import connection as _conn
 REPO = pathlib.Path(__file__).resolve().parents[2]
 CAL = json.loads((REPO / 'tools/field_calibration.json').read_text())
-LEVER, HOFF, K, CAM, TAG = CAL['lever_cm'], CAL['heading_offset_deg'], CAL['parallax_k'], CAL['camera'], CAL['tag_number']
+_ROBOT = 'vevov'; _E = CAL['robots'][_ROBOT]  # these tools are vevov-on-the-KIPR-mat tools; sprint 029 robots: schema
+HOFF = 90.0 + _E['mount_yaw_residual_deg']  # robot heading = raw tag yaw + 90 (fixed AprilCam convention) + residual
+LEVER, K, CAM, TAG = _E['lever_cm'], _E['parallax_k'], _E['camera'], _E['tag_number']
 NADIR = (3.057, -2.799); XLIM, YLIM = 67.15 - 12.0, 44.65 - 12.0
 RADIO = '--radio' in sys.argv
 argv = [a for a in sys.argv[1:] if a != '--radio']
@@ -20,9 +22,9 @@ if RADIO:
     # calibration file. Lossy (~15-25 % of lines), so the guard repeats itself.
     s = socket.create_connection(('torture', 8760), timeout=15); s.settimeout(0.2)
     time.sleep(1.0); s.recv(65536) if False else None
-    for c in ('!CG %d %d' % (CAL['radio_channel'], CAL['radio_group']), '!GO'):
+    for c in ('!CG %d %d' % (_E['radio_channel'], _E['radio_group']), '!GO'):
         s.sendall((c + '\n').encode()); time.sleep(0.5)
-    print('radio relay torture:8760 -> channel %d group %d' % (CAL['radio_channel'], CAL['radio_group']))
+    print('radio relay torture:8760 -> channel %d group %d' % (_E['radio_channel'], _E['radio_group']))
 else:
     p = subprocess.Popen(['dns-sd', '-L', robot, '_mbserial._tcp', 'local.'], stdout=subprocess.PIPE, text=True)
     time.sleep(3); p.kill(); m = re.search(r'can be reached at (\S+?):(\d+)', p.stdout.read())

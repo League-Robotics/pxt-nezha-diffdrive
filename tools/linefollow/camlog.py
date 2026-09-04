@@ -6,7 +6,9 @@ import sys, time, math, json, pathlib
 from aprilcam.mcp import connection as _conn
 REPO = pathlib.Path(__file__).resolve().parents[2]
 CAL = json.loads((REPO / 'tools/field_calibration.json').read_text())
-LEVER = CAL['lever_cm']; HOFF = CAL['heading_offset_deg']; CAM = CAL['camera']; TAG = CAL['tag_number']; K = CAL['parallax_k']; NADIR = (3.057, -2.799)
+_ROBOT = 'vevov'; _E = CAL['robots'][_ROBOT]  # these tools are vevov-on-the-KIPR-mat tools; sprint 029 robots: schema
+HOFF = 90.0 + _E['mount_yaw_residual_deg']  # robot heading = raw tag yaw + 90 (fixed AprilCam convention) + residual
+LEVER = _E['lever_cm']; CAM = _E['camera']; TAG = _E['tag_number']; K = _E['parallax_k']; NADIR = (3.057, -2.799)
 def daemon():
     for n in dir(_conn):
         o = getattr(_conn, n)
