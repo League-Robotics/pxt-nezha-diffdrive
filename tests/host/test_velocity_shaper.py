@@ -42,7 +42,7 @@ _SHIM_SOURCES = [
 # own comment ("assembles the struct here, in DECLARATION order").
 _LIMIT_FIELDS = (
     "accel", "decel", "jerk", "vMax", "omegaMax", "vFloor", "omegaFloor",
-    "stopDistance", "arriveDist", "arriveYaw",
+    "lag", "stopDistance", "arriveDist", "arriveYaw",
 )
 
 
@@ -62,8 +62,12 @@ def lib(tmp_path_factory):
     loaded.vsFree.restype = None
     loaded.vsReset.argtypes = [ctypes.c_void_p]
     loaded.vsReset.restype = None
+    # target, remain, floor, cap, dt (5) + 11 MotionLimits fields (see
+    # _LIMIT_FIELDS above) + measured (1, ticket 009's own new trailing
+    # parameter, NOT a MotionLimits field -- see velocity_shaper_shim.cpp's
+    # own comment) = 17 floats, then the `arriving` out-param.
     loaded.vsAdvance.argtypes = (
-        [ctypes.c_void_p] + [ctypes.c_float] * 15 + [ctypes.POINTER(ctypes.c_int)]
+        [ctypes.c_void_p] + [ctypes.c_float] * 17 + [ctypes.POINTER(ctypes.c_int)]
     )
     loaded.vsAdvance.restype = ctypes.c_float
     loaded.vsVelocity.argtypes = [ctypes.c_void_p]
@@ -77,7 +81,7 @@ def lib(tmp_path_factory):
     loaded.mlFree.restype = None
     for name in (
         "mlSetAccel", "mlSetDecel", "mlSetJerk", "mlSetVMax", "mlSetOmegaMax",
-        "mlSetVFloor", "mlSetOmegaFloor", "mlSetStopDistance",
+        "mlSetVFloor", "mlSetOmegaFloor", "mlSetLag", "mlSetStopDistance",
         "mlSetArriveDist", "mlSetArriveYaw",
     ):
         fn = getattr(loaded, name)
@@ -85,7 +89,8 @@ def lib(tmp_path_factory):
         fn.restype = None
     for name in (
         "mlAccel", "mlDecel", "mlJerk", "mlVMax", "mlOmegaMax", "mlVFloor",
-        "mlOmegaFloor", "mlStopDistance", "mlArriveDist", "mlArriveYaw",
+        "mlOmegaFloor", "mlLag", "mlStopDistance", "mlArriveDist",
+        "mlArriveYaw",
     ):
         fn = getattr(loaded, name)
         fn.argtypes = [ctypes.c_void_p]
@@ -105,7 +110,7 @@ class Limits:
     `Limits(**overrides)`."""
 
     def __init__(self, accel=400.0, decel=400.0, jerk=0.0, vMax=250.0,
-                 omegaMax=0.0, vFloor=70.0, omegaFloor=20.0,
+                 omegaMax=0.0, vFloor=70.0, omegaFloor=20.0, lag=0.0,
                  stopDistance=0.0, arriveDist=1.0, arriveYaw=0.3):
         self.accel = accel
         self.decel = decel
@@ -114,6 +119,7 @@ class Limits:
         self.omegaMax = omegaMax
         self.vFloor = vFloor
         self.omegaFloor = omegaFloor
+        self.lag = lag
         self.stopDistance = stopDistance
         self.arriveDist = arriveDist
         self.arriveYaw = arriveYaw
@@ -143,11 +149,11 @@ class Shaper:
     def reset(self):
         self._lib.vsReset(self._handle)
 
-    def advance(self, target, remain, floor, cap, dt, lim):
+    def advance(self, target, remain, floor, cap, dt, lim, measured=-1.0):
         arriving = ctypes.c_int(0)
         vcmd = self._lib.vsAdvance(
             self._handle, target, remain, floor, cap, dt,
-            *lim.as_args(), ctypes.byref(arriving)
+            *lim.as_args(), measured, ctypes.byref(arriving)
         )
         return vcmd, bool(arriving.value)
 
@@ -292,6 +298,113 @@ def test_arrival_fires_exactly_when_predicted_by_the_stop_condition(lib):
         assert saw_arrival, "shaper never arrived over 2000 simulated ticks"
 
 
+# ---- lag-aware braking and arrival (ticket 009) --------------------
+
+
+def test_measured_minus_one_with_lag_zero_reproduces_the_old_arrival_formula(lib):
+    """Ticket 009's own regression guarantee, isolated from every other
+    scenario in this file: a fresh shaper ramped one tick to the floor
+    (matching test_first_command_from_rest_is_the_floor's own "step to
+    the floor" property), then a second tick with `measured` left at its
+    default (-1, "unknown") AND `lim.lag == 0` (MotionLimits' own
+    default). The new `vNext*dt + vAct*lag + stopDistance` arrival
+    formula's added `vAct*lag` term is exactly zero here regardless of
+    what `vAct` resolves to, so this must be bit-identical to the
+    pre-ticket-009 `vNext*dt + stopDistance` formula."""
+    lim = Limits(accel=400.0, decel=400.0, vFloor=70.0, lag=0.0,
+                 stopDistance=0.0)
+    dt = 0.02
+    with Shaper(lib) as vs:
+        vs.advance(target=200.0, remain=100.0, floor=70.0, cap=1e9, dt=dt,
+                   lim=lim)
+        vcmd, arriving = vs.advance(target=200.0, remain=10.0, floor=70.0,
+                                    cap=1e9, dt=dt, lim=lim)
+        old_formula_expected = 10.0 <= vcmd * dt + lim.stopDistance
+        assert arriving == old_formula_expected
+
+
+def test_measured_speed_higher_than_v_prev_brakes_earlier(lib):
+    """design S6.1: "planning against a higher vAct than vPrev brakes
+    earlier." Two shapers ramped IDENTICALLY (both `measured=-1`, so
+    both track the same internal v_prev) toward a far target with
+    `vFloor=0` (so the floor never masks the braking plan's own output),
+    then ONE further tick where they diverge only in `measured`: with
+    `lag > 0` and `remain` chosen so the braking-plan's own reduced
+    ceiling lands inside the rate limiter's [v_prev-decel*dt,
+    v_prev+accel*dt] window (not itself clamped away), the run with the
+    higher `measured` speed must command a STRICTLY lower `vCmd` this
+    tick than the unmeasured run -- braking earlier, exactly as design
+    S6.1 states."""
+    lim = Limits(accel=400.0, decel=400.0, jerk=0.0, vFloor=0.0, lag=0.05,
+                 stopDistance=0.0)
+    dt = 0.02
+    with Shaper(lib) as unmeasured, Shaper(lib) as measured_hi:
+        for _ in range(10):
+            unmeasured.advance(target=200.0, remain=1e6, floor=0.0,
+                               cap=1e9, dt=dt, lim=lim)
+            measured_hi.advance(target=200.0, remain=1e6, floor=0.0,
+                                cap=1e9, dt=dt, lim=lim)
+        v_prev = unmeasured.velocity
+        assert v_prev == pytest.approx(measured_hi.velocity)
+
+        vcmd_unmeasured, _ = unmeasured.advance(
+            target=200.0, remain=15.0, floor=0.0, cap=1e9, dt=dt, lim=lim,
+            measured=-1.0,
+        )
+        vcmd_measured, _ = measured_hi.advance(
+            target=200.0, remain=15.0, floor=0.0, cap=1e9, dt=dt, lim=lim,
+            measured=2.0 * v_prev,
+        )
+        assert vcmd_measured < vcmd_unmeasured - 1.0, (
+            f"measured={2.0 * v_prev:.1f} (vs v_prev={v_prev:.1f}) did not "
+            f"brake earlier: vcmd_measured={vcmd_measured:.2f} vs "
+            f"vcmd_unmeasured={vcmd_unmeasured:.2f}"
+        )
+
+
+def test_measured_speed_higher_than_v_prev_arrives_sooner(lib):
+    """design S6.1: "...declares arrival sooner." Two shapers ramped
+    IDENTICALLY for one tick (both hit the floor -- design S6.1's own
+    "from rest the first command is the floor" property, so both land
+    on EXACTLY vFloor with no accumulated drift to control for), then a
+    second tick where a small `remain` and `lag > 0` make the floor+
+    decel-clamp interplay force the SAME returned `vCmd` in both runs
+    (isolating the arrival predicate's own `vAct*lag` term from any
+    difference in vCmd itself) -- the run with the higher `measured`
+    speed must declare `arriving` while the unmeasured run does not."""
+    lim = Limits(accel=400.0, decel=400.0, jerk=0.0, vFloor=70.0, lag=0.1,
+                 stopDistance=0.0)
+    dt = 0.02
+    with Shaper(lib) as unmeasured, Shaper(lib) as measured_hi:
+        unmeasured.advance(target=200.0, remain=100.0, floor=70.0, cap=1e9,
+                           dt=dt, lim=lim)
+        measured_hi.advance(target=200.0, remain=100.0, floor=70.0, cap=1e9,
+                            dt=dt, lim=lim)
+        assert unmeasured.velocity == pytest.approx(70.0)
+        assert measured_hi.velocity == pytest.approx(70.0)
+
+        vcmd_unmeasured, arriving_unmeasured = unmeasured.advance(
+            target=200.0, remain=10.0, floor=70.0, cap=1e9, dt=dt, lim=lim,
+            measured=-1.0,
+        )
+        vcmd_measured, arriving_measured = measured_hi.advance(
+            target=200.0, remain=10.0, floor=70.0, cap=1e9, dt=dt, lim=lim,
+            measured=140.0,
+        )
+        # The floor+decel-clamp interplay forces the SAME vCmd in both
+        # runs this tick -- confirms the two setups are otherwise
+        # identical before comparing `arriving`.
+        assert vcmd_measured == pytest.approx(vcmd_unmeasured)
+        assert not arriving_unmeasured, (
+            "unmeasured run declared arriving early -- test setup no "
+            "longer isolates the vAct*lag term (recheck the constants)"
+        )
+        assert arriving_measured, (
+            "measured=140 (vs v_prev=70) did not declare arriving sooner "
+            "than the unmeasured run, despite an identical vCmd this tick"
+        )
+
+
 def test_continuous_hold_has_no_floor_and_never_arrives(lib):
     """`remain < 0` means "no displacement bound" (continuous drive --
     wheelsV/driveTwist, design S6.1's remain<0 branch): the floor must
@@ -380,7 +493,8 @@ class MLimits:
 @pytest.mark.parametrize("field,default", [
     ("Accel", 400.0), ("Decel", 400.0), ("Jerk", 0.0), ("VMax", 250.0),
     ("OmegaMax", 0.0), ("VFloor", 70.0), ("OmegaFloor", 20.0),
-    ("StopDistance", 0.0), ("ArriveDist", 1.0), ("ArriveYaw", 0.3),
+    ("Lag", 0.0), ("StopDistance", 0.0), ("ArriveDist", 1.0),
+    ("ArriveYaw", 0.3),
 ])
 def test_defaults_match_design_s4_1(lib, field, default):
     """Every field's default matches design S4.1's own struct listing
@@ -392,15 +506,16 @@ def test_defaults_match_design_s4_1(lib, field, default):
 @pytest.mark.parametrize("field,requires_strictly_positive", [
     ("Accel", True), ("Decel", True), ("Jerk", False), ("VMax", True),
     ("OmegaMax", False), ("VFloor", False), ("OmegaFloor", False),
-    ("StopDistance", False), ("ArriveDist", True), ("ArriveYaw", True),
+    ("Lag", False), ("StopDistance", False), ("ArriveDist", True),
+    ("ArriveYaw", True),
 ])
 def test_setters_are_positive_else_keep(lib, field, requires_strictly_positive):
     """Every setter accepts a valid new value and silently keeps the
     prior one on an invalid input -- MotionEngine::setRotationalSlip()'s
     own validation style (motion_engine.h). `jerk`/`omegaMax`/`vFloor`/
-    `omegaFloor`/`stopDistance` additionally accept exactly 0.0 (each is
-    its own documented "off"/"none" default, design S4.1); the rest
-    require a strictly positive value."""
+    `omegaFloor`/`lag`/`stopDistance` additionally accept exactly 0.0
+    (each is its own documented "off"/"none"/"unmeasured" default,
+    design S4.1); the rest require a strictly positive value."""
     with MLimits(lib) as ml:
         getter = getattr(lib, f"ml{field}")
         setter = getattr(lib, f"mlSet{field}")

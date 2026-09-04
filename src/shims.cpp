@@ -1109,6 +1109,11 @@ constexpr LimitsFieldEntry kLimitsFields[] = {
     {18, &MotionLimits::setStopDistance, &MotionLimits::stopDistance},
     {35, &MotionLimits::setArriveDist, &MotionLimits::arriveDist},
     {36, &MotionLimits::setArriveYaw, &MotionLimits::arriveYaw},
+    // 37 (design S4.1/S10.2, NEW ordinal): lag --
+    // the drivetrain's own first-order response lag, [s]. See
+    // motion_limits.h's own field comment and wire_adapter.cpp's kFields
+    // row for the provenance.
+    {37, &MotionLimits::setLag, &MotionLimits::lag},
 };
 constexpr size_t kLimitsFieldCount =
     sizeof(kLimitsFields) / sizeof(kLimitsFields[0]);
@@ -1176,11 +1181,12 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // magnitude is otherwise ignored. Deliberately does not touch
     // estopLatch_ -- see clearStall()'s own comment above.
     case 17: if (v != 0.0f) k.clearStallLatch(); break;
-    // 18-21, 28, 30, 34-36 (design S4.7's wire-name table): stop_distance/
-    // accel/decel/v_max/jerk/omega_max/omega_floor/arrive_dist/
-    // arrive_yaw, and 8 (v_floor) -- all ten now handled by
-    // kLimitsFields/findLimitsField() above, before this switch is ever
-    // reached. 22, 23, 24, 25, 26, 27, 29, 31 (brake_frac/dist_taper/
+    // 18-21, 28, 30, 34-37 (design S4.7's wire-name table, extended for
+    // lag): stop_distance/accel/decel/v_max/jerk/
+    // omega_max/omega_floor/arrive_dist/arrive_yaw/lag, and 8 (v_floor)
+    // -- all eleven now handled by kLimitsFields/findLimitsField()
+    // above, before this switch is ever reached. 22, 23, 24, 25, 26, 27,
+    // 29, 31 (brake_frac/dist_taper/
     // yaw_taper/dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit)
     // are REMOVED ordinals (design S4.7/S8) with no case here at all --
     // wire_adapter.cpp's kFields no longer names them, so no caller can
@@ -1271,8 +1277,9 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // ordinal has no stored Config field at all; see clearStall()'s own
     // comment above and sprint 007's design/DESIGN.md §5 field table).
     case 17: v = r.kernel.output().stallHalted ? 1.0f : 0.0f; break;
-    // 8, 18-21, 28, 30, 34-36: all handled by kLimitsFields/
-    // findLimitsField() above, before this switch is ever reached. 22,
+    // 8, 18-21, 28, 30, 34-37 (lag extends the range): all
+    // handled by kLimitsFields/findLimitsField() above, before this
+    // switch is ever reached. 22,
     // 23, 24, 25, 26, 27, 29, 31 (removed ordinals) have no case here at
     // all any more -- wire_adapter.cpp's kFields no longer names them,
     // so this switch's own `default: return 0` is the only path a stray

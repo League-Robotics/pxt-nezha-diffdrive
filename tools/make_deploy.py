@@ -925,23 +925,34 @@ def _inject_radio_link(deploy_dir, enabled):
 # regex target moves with it. `_GEOMETRY_BAKE_FILES` below is what makes
 # `_inject_geometry()` read/patch the right file per key now that the
 # bake spans two headers, not one.
+#
+# Sprint 029 ticket 009 (design S4.1/S10.2): `lag_s` -- the drivetrain's
+# own first-order response lag, targeting MotionLimits::lag
+# (motion_limits.h, same file as stop_distance_mm). Design S10.2 orders
+# this FIRST of the three S10.2 bench measurements, landing before
+# stop_distance_mm (which must be measured with lag already set), but
+# this dict's own key order does not encode measurement order --
+# _inject_geometry() applies whatever keys a robot's own
+# firmware_bake block names, in no particular order.
 _GEOMETRY_BAKE_RES = {
     'travel_calib': re.compile(r'(float travelCalib_ = )[-+0-9.eE]+(f;)'),
     'trackwidth': re.compile(r'(float trackWidth_ = )[-+0-9.eE]+(f;)'),
     'rotational_slip': re.compile(r'(float rotationalSlip_ = )[-+0-9.eE]+(f;)'),
+    'lag_s': re.compile(r'(float lag = )[-+0-9.eE]+(f;)'),
     'stop_distance_mm': re.compile(r'(float stopDistance = )[-+0-9.eE]+(f;)'),
 }
 
 # Which `src/motion/*.h` file each `_GEOMETRY_BAKE_RES` key's regex
 # targets. travel_calib/trackwidth/rotational_slip stay in
 # motion_engine.h (MotionEngine's own trackWidth_/travelCalib_/
-# rotationalSlip_ fields, untouched by this ticket); stop_distance_mm
-# targets motion_limits.h (MotionLimits::stopDistance) instead, per
-# _GEOMETRY_BAKE_RES's own comment above.
+# rotationalSlip_ fields, untouched by this ticket); lag_s/
+# stop_distance_mm target motion_limits.h (MotionLimits::lag/
+# stopDistance) instead, per _GEOMETRY_BAKE_RES's own comment above.
 _GEOMETRY_BAKE_FILES = {
     'travel_calib': 'motion_engine.h',
     'trackwidth': 'motion_engine.h',
     'rotational_slip': 'motion_engine.h',
+    'lag_s': 'motion_limits.h',
     'stop_distance_mm': 'motion_limits.h',
 }
 

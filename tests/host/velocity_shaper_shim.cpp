@@ -25,12 +25,16 @@ void vsReset(void* h) { static_cast<VelocityShaper*>(h)->reset(); }
 // advance() takes a MotionLimits by const reference -- ctypes cannot
 // build that struct on the C++ side, so this shim takes every
 // MotionLimits field as its own float argument and assembles the
-// struct here, in DECLARATION order (motion_limits.h).
+// struct here, in DECLARATION order (motion_limits.h). `measured`
+// (ticket 009) is NOT a MotionLimits field -- it is advance()'s own
+// new trailing parameter -- so it is passed as its own argument, after
+// every limits field, mirroring the header's own trailing-parameter
+// position.
 float vsAdvance(void* h, float target, float remain, float floor, float cap,
                 float dt, float accel, float decel, float jerk, float vMax,
-                float omegaMax, float vFloor, float omegaFloor,
+                float omegaMax, float vFloor, float omegaFloor, float lag,
                 float stopDistance, float arriveDist, float arriveYaw,
-                int* arriving) {
+                float measured, int* arriving) {
   MotionLimits lim;
   lim.accel = accel;
   lim.decel = decel;
@@ -39,13 +43,14 @@ float vsAdvance(void* h, float target, float remain, float floor, float cap,
   lim.omegaMax = omegaMax;
   lim.vFloor = vFloor;
   lim.omegaFloor = omegaFloor;
+  lim.lag = lag;
   lim.stopDistance = stopDistance;
   lim.arriveDist = arriveDist;
   lim.arriveYaw = arriveYaw;
 
   const VelocityShaper::Step step =
       static_cast<VelocityShaper*>(h)->advance(target, remain, floor, cap,
-                                                dt, lim);
+                                                dt, lim, measured);
   *arriving = step.arriving ? 1 : 0;
   return step.vCmd;
 }
@@ -77,6 +82,7 @@ void mlSetVFloor(void* h, float v) {
 void mlSetOmegaFloor(void* h, float v) {
   static_cast<MotionLimits*>(h)->setOmegaFloor(v);
 }
+void mlSetLag(void* h, float v) { static_cast<MotionLimits*>(h)->setLag(v); }
 void mlSetStopDistance(void* h, float v) {
   static_cast<MotionLimits*>(h)->setStopDistance(v);
 }
@@ -96,6 +102,7 @@ float mlVFloor(void* h) { return static_cast<MotionLimits*>(h)->vFloor; }
 float mlOmegaFloor(void* h) {
   return static_cast<MotionLimits*>(h)->omegaFloor;
 }
+float mlLag(void* h) { return static_cast<MotionLimits*>(h)->lag; }
 float mlStopDistance(void* h) {
   return static_cast<MotionLimits*>(h)->stopDistance;
 }

@@ -257,6 +257,17 @@ constexpr FieldEntry kFields[] = {
                                // setArriveYaw()/arriveYaw -- the pure-
                                // turn arrival window, replacing the
                                // hard-coded 4-count margin.
+    {"lag", 37},               // ConfigField.Lag
+                               // (design S4.1/S6.1/S10.2, NEW ordinal):
+                               // [s] thin forward to MotionLimits::
+                               // setLag()/lag -- the drivetrain's own
+                               // first-order response lag, consumed by
+                               // the shaper's own predictive braking
+                               // plan and arrival test every tick
+                               // (S6.1 steps 1/5) alongside the kernel's
+                               // measured dominant-axis speed. See
+                               // shims.cpp's setKernelValue()/
+                               // getConfigValue() case (kLimitsFields).
 };
 constexpr size_t kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 

@@ -210,7 +210,7 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   setter (`setDistTaper`/`setYawTaper`/`setDistFloor`/`setTurnFloor`/
   `setRampMs`/`setBrakeFrac`/`setProfileExitMmS`/`setPivotOverrunMm`,
   all deleted) with `limits().setAccel()`/`setDecel()`/`setJerk()`/
-  `setVMax()`/`setOmegaMax()`/`setVFloor()`/`setOmegaFloor()`/
+  `setVMax()`/`setOmegaMax()`/`setVFloor()`/`setOmegaFloor()`/`setLag()`/
   `setStopDistance()`/`setArriveDist()`/`setArriveYaw()`. There is no
   legacy/shaped mode split any more — the shaper runs unconditionally,
   and design §7/`captures/motion-profile-probe-20260901/measured.txt`'s
@@ -271,7 +271,16 @@ than the old synchronous `startSegment()` did (24 ms), paid back by not
 needing the epoch guard or a synchronous `drive()` call inside a
 primitive. Geometry defaults are the vevov bake: `travelCalib` 0.7878
 mm/deg, `trackWidth` 114.2 mm, `rotationalSlip` 0.952 — each with the
-measurement history in the field comments.
+measurement history in the field comments. `MotionLimits::lag` [s]
+(design §4.1/§6.1) defaults to 0.0 — "unmeasured" — until a robot's own
+`WHEELS_V` step-response bench sweep (design §10.2, the *first* of that
+section's three measurements) fits it; `VelocityShaper::advance()`
+credits `vAct*lag` on top of the pre-existing `vPrev*dt`/`vNext*dt`
+terms in its braking plan and arrival test (an additive amendment, not
+a literal replacement of design §6.1's own pseudocode — see
+`velocity_shaper.cpp`'s own step 1/step 5 comments for the measured
+reason), so a robot with `lag` left at 0 sees no behavior change at
+all.
 
 **Dependencies.** Holds references to a caller-owned kernel and
 `Clock` (the shaper's `dt` and the deadline backstop need wall time

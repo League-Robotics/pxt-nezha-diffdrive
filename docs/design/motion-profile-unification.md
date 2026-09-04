@@ -438,9 +438,13 @@ vAct = measured >= 0 ? measured : v_prev
 // 1. braking plan: the highest speed from which decel can still stop
 //    inside what remains, less the coast the hardware adds after the
 //    last command lands (stopDistance), less what the wheel travels
-//    before it can respond at all: one tick of pipeline plus the lag.
+//    before it can respond at all: one tick of pipeline (unchanged,
+//    v_prev*dt) PLUS the lag, credited separately as an ADDITIVE
+//    vAct*lag term -- see this section's own "amended, not literal"
+//    note below for why this is v_prev*dt + vAct*lag, not the single
+//    term vAct*(dt+lag) an earlier draft of this section specified.
 if remain >= 0:
-    usable  = max(remain - stopDistance - vAct*(dt + lag), 0)
+    usable  = max(remain - stopDistance - v_prev*dt - vAct*lag, 0)
     vBrake  = sqrt(2 * decel * usable)
     vGoal   = min(target, vBrake, cap)
 else:
@@ -464,11 +468,36 @@ if remain >= 0 and vNext < floor: vNext = floor
 
 // 5. arrival (6.3): the wheel, at its MEASURED speed, will cover what
 //    remains during the pipeline tick plus the lag plus the fixed coast
-arriving = remain >= 0 and remain <= vAct*(dt + lag) + stopDistance
+//    -- same additive shape as step 1: v_next*dt (unchanged) PLUS
+//    vAct*lag (new), not the single term vAct*(dt+lag).
+arriving = remain >= 0 and remain <= vNext*dt + vAct*lag + stopDistance
 
 v_prev = vNext; a_prev = (vNext - v_prev_before) / dt
 return {vNext, arriving}
 ```
+
+**Amended, not literal (found while implementing the lag fix).** The
+two `vAct*(dt+lag)` terms this section originally specified are NOT
+what the implementation does; both step 1 and step 5 instead use
+`(the pre-existing dt-term, unchanged) + vAct*lag`, not the whole
+`(dt+lag)` window driven through `vAct`. MEASURED (host testing): the
+single-term form changes behavior even when NO lag is configured,
+because a real kernel-measured `vAct` is only approximately equal to
+`v_prev`/`v_next` (float noise in the encoder-derived velocity,
+~1e-4 mm/s) — negligible on its own, but this is a discrete
+arrival-boundary decision made every tick, and that noise compounding
+across dozens of ticks was enough to shift WHICH tick a 90° pivot
+arrives on (a cruise-200 ideal pivot moved from 90.15° to 89.26°, a
+0.89° regression, purely from `vAct` replacing `v_prev`/`v_next` while
+`lag` stayed 0 — breaking §9.1's own ideal-wheel arrival test, which
+locks the pre-lag formula bit-exactly). The additive form's new term is
+multiplied by `lag`, which is EXACTLY `0.0` — not merely close —
+whenever `lag` is unconfigured, so both formulas are bit-identical to
+their pre-lag originals at `lag = 0`, with no float-noise sensitivity.
+See `velocity_shaper.cpp`'s own step 1/step 5 comments for the full
+reasoning, and §6.3 below for how well the additive form closes the gap
+once `lag` IS configured (not uniformly under a 1.0° stretch goal — see
+that section's own updated table).
 
 Properties worth naming:
 
@@ -562,11 +591,45 @@ sensitive to it in proportion to speed. Two changes close it: the
 braking plan and the arrival test use the kernel's *measured*
 dominant-axis speed (`Output.velocityLeft/Right`, already sampled every
 tick) instead of the shaper's own last command, and a per-robot `lag`
-[s] enters both as `vAct·(dt + lag)`. `stopDistance` keeps only the
-speed-independent remainder. The pivot then lands within the arrival
-window on the lagged model (to be shown by the same probe before the
-next hardware run) and the constant `+2°` the fleet used to calibrate
-away becomes `v_floor·lag`, which the model predicts rather than fits.
+[s] enters both as an ADDITIVE `+ vAct·lag` term on top of the existing
+`v_prev·dt`/`v_next·dt` terms — not the single term `vAct·(dt + lag)`
+this paragraph originally specified; §6.1's own "amended, not literal"
+note has the measured reason the implementation deviates. `stopDistance`
+keeps only the speed-independent remainder.
+
+**Re-measured with the fix landed** (sprint 029 ticket 009, same
+lagged-wheel host model, `lag` set to each row's own time constant —
+`tests/host/test_profile_probe.py::test_design_s6_3_table_remeasured_with_the_fix`
+is the citation, rerun with `-s` to reproduce):
+
+| lag model (breakaway 70 mm/s) | cruise 40 | cruise 100 | cruise 200 |
+|---|---|---|---|
+| 80 ms, unfixed (`lag` = 0) | +5.6° | +3.4° | +9.4° |
+| 80 ms, fixed (`lag` = 0.08) | **+0.8°** | +1.9° | +2.2° |
+| 150 ms, unfixed (`lag` = 0) | +8.8° | +4.5° | +26.1° |
+| 150 ms, fixed (`lag` = 0.15) | +0.2° | +0.9° | −1.6° |
+
+The fix closes 85–98% of every cell's gap, but NOT uniformly under the
+1.0° stretch goal this section originally set: three of six cells land
+inside it, the other three land inside 2.5°. The residual is not an
+arrival-formula problem — it was measured to be the SAME regardless of
+which term (`v_prev`/`v_next` vs `vAct`, additive vs single-term) the
+braking plan and arrival test were driven by. Its actual cause: at this
+geometry, `omegaFloorAsWheelSpeed()` (~21 mm/s) sits below half the
+model's own breakaway (35 mm/s), so the segment's very first commanded
+tick — §6.1's own "from rest, the first command is the floor, a step"
+— does not itself break the simulated wheel away; it takes ~5–6 further
+accel-ramped ticks before the commanded speed first crosses the full
+70 mm/s breakaway. That fixed startup delay belongs to the stiction
+model and this floor/breakaway relationship, not to anything
+`VelocityShaper::advance()` decides, so no arrival-side formula reaches
+it. `stopDistance` — bench-measured *with* `lag` already set, "the
+speed-independent remainder once the lag term is accounted for
+separately" (§10.2) — is the mechanism this design already names for
+exactly this kind of residual; it stays 0 (unmeasured) in this host
+model, since §10.2's bench sweep is a later ticket's job. The constant
+`+2°` the fleet used to calibrate away becomes `v_floor·lag`, which the
+model predicts rather than fits, modulo this same residual.
 
 The old margins (`arriveDist`, `arriveYaw`) survive only as the
 window inside which a segment is *considered done without a further

@@ -277,13 +277,14 @@ void estopAll() {
 }
 
 // this ticket (sprint 029 ticket 004, design motion-profile-
-// unification.md S4.7): mirrors shims.cpp's real kLimitsFields/
-// findLimitsField() exactly -- the ten shaping ordinals this ticket
-// routes through MotionLimits (v_floor=8, stop_distance=18, accel=19,
-// decel=20, v_max=21, jerk=28, omega_max=30, omega_floor=34,
-// arrive_dist=35, arrive_yaw=36) are handled here, BEFORE
-// setKernelValue()/getConfigValue() below ever reach their own kernel-
-// field switch -- same gate shims.cpp's real functions apply.
+// unification.md S4.7, extended by ticket 009's own lag=37): mirrors
+// shims.cpp's real kLimitsFields/findLimitsField() exactly -- the
+// eleven shaping ordinals this ticket routes through MotionLimits
+// (v_floor=8, stop_distance=18, accel=19, decel=20, v_max=21, jerk=28,
+// omega_max=30, omega_floor=34, arrive_dist=35, arrive_yaw=36, lag=37)
+// are handled here, BEFORE setKernelValue()/getConfigValue() below ever
+// reach their own kernel-field switch -- same gate shims.cpp's real
+// functions apply.
 static bool waSetLimitsFieldIfKnown(int field, float v) {
   if (g_activeWaHandle == nullptr) return true;
   MotionLimits& lim = g_activeWaHandle->engine.limits();
@@ -298,6 +299,7 @@ static bool waSetLimitsFieldIfKnown(int field, float v) {
     case 34: lim.setOmegaFloor(v); return true;
     case 35: lim.setArriveDist(v); return true;
     case 36: lim.setArriveYaw(v); return true;
+    case 37: lim.setLag(v); return true;
     default: return false;
   }
 }
@@ -316,6 +318,7 @@ static bool waGetLimitsFieldIfKnown(int field, float& out) {
     case 34: out = lim.omegaFloor; return true;
     case 35: out = lim.arriveDist; return true;
     case 36: out = lim.arriveYaw; return true;
+    case 37: out = lim.lag; return true;
     default: return false;
   }
 }
@@ -365,9 +368,10 @@ void setKernelValue(int field, int value) {
     // real setKernelValue() case 17 exactly (see that file's own
     // comment). Only nonzero-vs-zero matters.
     case 17: if (v != 0.0f) k.clearStallLatch(); break;
-    // 18-21, 28, 30, 34-36 (this ticket): all ten routed through
-    // waSetLimitsFieldIfKnown() above, before this switch is ever
-    // reached -- mirrors shims.cpp's own kLimitsFields gate. 22-27, 29,
+    // 18-21, 28, 30, 34-37 (this ticket, extended by ticket 009's lag):
+    // all eleven routed through waSetLimitsFieldIfKnown() above, before
+    // this switch is ever reached -- mirrors shims.cpp's own
+    // kLimitsFields gate. 22-27, 29,
     // 31 are REMOVED ordinals (brake_frac/dist_taper/yaw_taper/
     // dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit) -- no
     // case for them here at all, same as shims.cpp's real switch.
@@ -434,7 +438,7 @@ int getConfigValue(int field) {
     case 17:
       v = g_activeWaHandle->kernel.output().stallHalted ? 1.0f : 0.0f;
       break;
-    // 8, 18-21, 28, 30, 34-36: handled by waGetLimitsFieldIfKnown()
+    // 8, 18-21, 28, 30, 34-37: handled by waGetLimitsFieldIfKnown()
     // above, before this switch is ever reached. 22-27, 29, 31 (removed
     // ordinals) fall through to `default: break` below.
     // 33: estop_clear's GET side, mirroring shims.cpp's real

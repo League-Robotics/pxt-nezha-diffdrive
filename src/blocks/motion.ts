@@ -77,7 +77,9 @@ enum ConfigField {
     //% block="arrive distance mm"
     ArriveDist = 35,
     //% block="arrive yaw deg"
-    ArriveYaw = 36
+    ArriveYaw = 36,
+    //% block="response lag (s)"
+    Lag = 37
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"

@@ -2,8 +2,9 @@
 `tools/make_deploy.py`'s OPT-IN per-robot geometry bake
 (`_inject_geometry()`), which substitutes `motion_engine.h`'s
 `travelCalib_` / `trackWidth_` / `rotationalSlip_` and (sprint 029
-ticket 004) `motion_limits.h`'s `stopDistance` in the per-robot scratch
-copy from the robot's own `geometry.firmware_bake` block.
+ticket 004, extended by ticket 009) `motion_limits.h`'s `lag` /
+`stopDistance` in the per-robot scratch copy from the robot's own
+`geometry.firmware_bake` block.
 
 The opt-in posture is the whole point and the reason these tests are
 worth having. Surveyed 2026-08-28, the fleet's configs do NOT describe
@@ -24,6 +25,12 @@ patches TWO files, not one, and `_deploy()` below writes both. The old
 `stop_distance_mm` (`_resolve_geometry_bake_aliases()`), since
 radio-robot-lib's own robot config files are a cross-repo change this
 ticket cannot make directly.
+
+Sprint 029 ticket 009 (design S4.1/S10.2): `lag_s` -- the drivetrain's
+own first-order response lag -- joins `stop_distance_mm` as a second
+`motion_limits.h`-targeting key, same "opt-in, byte-identical build
+when absent" posture, following exactly the same pattern ticket 004
+established for `stop_distance_mm`.
 
 Every test monkeypatches `make_deploy.RADIO_ROBOT_LIB` to a `tmp_path`
 tree, same convention as `test_make_deploy_profile.py` -- nothing here
@@ -55,6 +62,7 @@ _ENGINE_HEADER = """\
 """
 
 _LIMITS_HEADER = """\
+  float lag = 0.0f;          // [s] drivetrain response lag
   float stopDistance = 0.0f; // [mm] per-wheel coast after the last
 """
 
@@ -89,6 +97,7 @@ def test_bakes_every_declared_constant(tmp_path, monkeypatch):
                             "travel_calib": 0.7122,
                             "trackwidth": 128.0,
                             "rotational_slip": 0.995,
+                            "lag_s": 0.08,
                             "stop_distance_mm": 2.2,
                         }})))
     applied = make_deploy._inject_geometry(str(deploy), "vevov")
@@ -100,11 +109,13 @@ def test_bakes_every_declared_constant(tmp_path, monkeypatch):
     assert "float trackWidth_ = 128.0f;" in engine_text
     assert "128f;" not in engine_text
     assert "float rotationalSlip_ = 0.995f;" in engine_text
-    # stop_distance_mm (vevov's measured 2.2 mm) targets motion_limits.h,
-    # not motion_engine.h -- this ticket's own file split.
+    # lag_s (vevov's measured 80 ms) and stop_distance_mm (2.2 mm) both
+    # target motion_limits.h, not motion_engine.h -- this ticket's own
+    # file split (ticket 004), extended by ticket 009's own lag_s key.
+    assert "float lag = 0.08f;" in limits_text
     assert "float stopDistance = 2.2f;" in limits_text
     assert dict(applied) == {"travel_calib": 0.7122, "trackwidth": 128.0,
-                             "rotational_slip": 0.995,
+                             "rotational_slip": 0.995, "lag_s": 0.08,
                              "stop_distance_mm": 2.2}
 
 
@@ -154,6 +165,23 @@ def test_stop_distance_mm_bakes_only_motion_limits(tmp_path, monkeypatch):
     assert dict(applied) == {"stop_distance_mm": 3.7}
     assert _read_engine(deploy) == _ENGINE_HEADER                # untouched
     assert "float stopDistance = 3.7f;" in _read_limits(deploy)
+
+
+def test_lag_s_bakes_only_motion_limits(tmp_path, monkeypatch):
+    """A bake naming ONLY lag_s must not touch motion_engine.h at all --
+    same file-split proof as test_stop_distance_mm_bakes_only_motion_limits
+    above, for this ticket's own new key."""
+    deploy = _deploy(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov",
+                                    {"firmware_bake": {"lag_s": 0.15}})))
+    applied = make_deploy._inject_geometry(str(deploy), "vevov")
+    assert dict(applied) == {"lag_s": 0.15}
+    assert _read_engine(deploy) == _ENGINE_HEADER                # untouched
+    assert "float lag = 0.15f;" in _read_limits(deploy)
+    # stopDistance's own line stays at the fixture's default -- a bake
+    # naming only lag_s must not touch it either.
+    assert "float stopDistance = 0.0f;" in _read_limits(deploy)
 
 
 def test_pivot_overrun_mm_alias_bakes_stop_distance_with_warning(
@@ -227,5 +255,16 @@ def test_fails_loudly_when_the_limits_declaration_moves(tmp_path, monkeypatch):
     monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
                         str(_config(tmp_path, "vevov",
                                     {"firmware_bake": {"stop_distance_mm": 2.2}})))
+    with pytest.raises(SystemExit):
+        make_deploy._inject_geometry(str(deploy), "vevov")
+
+
+def test_fails_loudly_when_the_lag_declaration_moves(tmp_path, monkeypatch):
+    """Same recurrence guard, for motion_limits.h's own `lag` declaration
+    (sprint 029 ticket 009's own new key)."""
+    deploy = _deploy(tmp_path, limits_text="  float lagS_ = 0.0f;\n")
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov",
+                                    {"firmware_bake": {"lag_s": 0.08}})))
     with pytest.raises(SystemExit):
         make_deploy._inject_geometry(str(deploy), "vevov")

@@ -136,6 +136,8 @@ _BASELINE_GROUP_ORDER = {
     # DistTaper/YawTaper/DistFloor/TurnFloor/RampMs/PlateauMinS/
     # ProfileExit are REMOVED outright (no enum member); OmegaFloor/
     # ArriveDist/ArriveYaw are NEW, appended at the end (ordinals 34-36).
+    # Sprint 029 ticket 009 (design S4.1/S6.1/S10.2): Lag is NEW,
+    # appended after ArriveYaw (ordinal 37).
     "ENUM": [
         "ConfigField.MaxDuty", "ConfigField.FullDutyVelocity",
         "ConfigField.Kp", "ConfigField.Ki", "ConfigField.IMax",
@@ -155,6 +157,7 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.OmegaFloor",    # ordinal 34
         "ConfigField.ArriveDist",    # ordinal 35
         "ConfigField.ArriveYaw",     # ordinal 36
+        "ConfigField.Lag",           # ordinal 37
     ],
 }
 

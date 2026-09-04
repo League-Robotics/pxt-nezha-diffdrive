@@ -172,6 +172,33 @@ float meMotorLastStagedDuty(void* handle, int side) {
   return motorFor(static_cast<Handle*>(handle), side).lastStagedDuty;
 }
 
+// Sprint 029 ticket 009: configures the REAL kernel with EXACTLY the
+// PID/adaptation/stall Config docs/code-review/2026-09-02/raw/
+// stiction_probe.cpp's own Rig constructor uses (kp=0, ki=6, iMax=765.6,
+// pidMax=1276, twistHoldGain=2.0, posErrMax=127.6, biasMax/tauAdapt/
+// aSteady=303.7/30/382.8, stallSpeed/stallDemand/stallWindow=
+// 191.4/510.4/500) -- test_profile_probe.py's own LaggedRig needs a
+// REAL closed-loop PID here, not the "pure feedforward" Config every
+// other host test in this file relies on (this file's own header
+// comment): the breakaway-stiction model in the lagged-wheel host test
+// only produces the duty windup design S6.3's own table numbers depend
+// on when a real integrator is fighting a wheel that has not yet broken
+// away. Fluent setters (DifferentialDrive::setXxx() all return
+// DifferentialDrive&, core/diffdrive.h) chain the same way
+// stiction_probe.cpp's own kernel.setConfig(cfg) call reads as one
+// block.
+void meApplyStictionProbeKernelConfig(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->kernel.setKp(0.0f)
+      .setKi(6.0f)
+      .setIMax(765.6f)
+      .setPidMax(1276.0f)
+      .setTwistHoldGain(2.0f)
+      .setPositionErrorMax(127.6f)
+      .setAdaptation(303.7f, 30.0f, 382.8f)
+      .setStall(191.4f, 510.4f, 500.0f);
+}
+
 // ---- MotionEngine: geometry (motion-api.md S2.1) -----------------------
 
 float meCountsPerMm(void* handle) {
@@ -252,6 +279,14 @@ float meLimitsOmegaFloor(void* handle) {
 }
 void meLimitsSetOmegaFloor(void* handle, float degS) {
   static_cast<Handle*>(handle)->engine.limits().setOmegaFloor(degS);
+}
+// Ticket 009 (design S4.1/S10.2): the drivetrain's own first-order
+// response lag, [s], 0 until measured.
+float meLimitsLag(void* handle) {
+  return static_cast<Handle*>(handle)->engine.limits().lag;
+}
+void meLimitsSetLag(void* handle, float s) {
+  static_cast<Handle*>(handle)->engine.limits().setLag(s);
 }
 float meLimitsStopDistance(void* handle) {
   return static_cast<Handle*>(handle)->engine.limits().stopDistance;

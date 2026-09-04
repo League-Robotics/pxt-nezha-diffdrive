@@ -13,10 +13,17 @@
 // heading_wrap.h/encoder_pose_source.h each have one).
 //
 // Field names follow design S4.7's wire-name mapping exactly (`accel`,
-// `decel`, `jerk`, `vMax`, `omegaMax`, `vFloor`, `omegaFloor`,
+// `decel`, `jerk`, `vMax`, `omegaMax`, `vFloor`, `omegaFloor`, `lag`,
 // `stopDistance`, `arriveDist`, `arriveYaw`) so the wire descriptor
 // table (a later ticket's own job) does not need to rename anything
-// here. Naming follows .claude/rules/no-units-in-identifiers.md and the
+// here. `lag` (design S4.1/S6.1/S10.2) is the
+// drivetrain's own first-order response lag -- the wheel follows a
+// command change about `lag` seconds late, so it keeps covering ground
+// at its old, higher, ACTUAL speed for that long after the shaper
+// thinks it has already started slowing down. 0 until bench-measured
+// (design S10.2's own first of the three S10.2 measurements, landing
+// before `stopDistance`, which must be measured with `lag` already
+// set). Naming follows .claude/rules/no-units-in-identifiers.md and the
 // kernel's own style: an identifier names the quantity, the unit is a
 // trailing `// [unit]` comment on its declaration -- never in the name
 // itself (design S4's own naming note, first paragraph).
@@ -58,10 +65,17 @@ struct MotionLimits {
                               //   S10.2 bench sweep)
 
   // ---- arrival (design S6.3: "predict, don't discover"). ----
+  float lag = 0.0f;          // [s] drivetrain response lag: the wheel
+                              //   follows a command change about this
+                              //   much later (design S6.1 step 0's
+                              //   `vAct`, S10.2). 0 until measured --
+                              //   the FIRST of the three S10.2 bench
+                              //   measurements, before stopDistance.
   float stopDistance = 0.0f; // [mm] per-wheel coast after the last
                               //   nonzero command lands; replaces
                               //   pivot_overrun. 0 until measured
-                              //   (design S10.2)
+                              //   (design S10.2, measured WITH lag
+                              //   already set)
   float arriveDist = 1.0f;   // [mm] distance-axis arrival window
   float arriveYaw = 0.3f;    // [deg] pure-turn arrival window
 
@@ -90,6 +104,9 @@ struct MotionLimits {
   }
   void setOmegaFloor(float v) {
     if (v >= 0.0f) omegaFloor = v;
+  }
+  void setLag(float v) {
+    if (v >= 0.0f) lag = v;
   }
   void setStopDistance(float v) {
     if (v >= 0.0f) stopDistance = v;

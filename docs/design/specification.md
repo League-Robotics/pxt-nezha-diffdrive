@@ -308,9 +308,9 @@ segment's target at start time the way the old `pivotOverrunMm_` was.
 prior value" validation `MotionLimits::setStopDistance()` already
 uses.
 
-Ordinals 19-21, 28, 30, 34-36's "Kernel `Config` field" column is
+Ordinals 19-21, 28, 30, 34-37's "Kernel `Config` field" column is
 non-standard for the same reason as 8/15/16/17/18 above: none of these
-eight is a `DifferentialDrive::Config` field. All eight live on
+nine is a `DifferentialDrive::Config` field. All nine live on
 `MotionLimits` (`motion_limits.h`) — the one value object every
 shaping/floor/arrival number in the system now reads from (design
 `motion-profile-unification.md` §4.1) — reached via one small
@@ -337,14 +337,18 @@ forward to the named `MotionLimits` setter/member:
 | 34 | `OmegaFloor` | `setOmegaFloor()`/`omegaFloor` | deg/s |
 | 35 | `ArriveDist` | `setArriveDist()`/`arriveDist` | mm |
 | 36 | `ArriveYaw` | `setArriveYaw()`/`arriveYaw` | deg |
+| 37 | `Lag` | `setLag()`/`lag` | s |
 
 `Accel`/`Decel`/`VMax`/`ArriveDist` (19-21, 35) validate `> 0`, else
 silently keep the prior value — these are always-active ceilings/
 windows with no "off" state (design §8: "now always active, no legacy
-mode" for `Accel`/`Decel`). `Jerk`/`OmegaMax`/`OmegaFloor`/`ArriveYaw`
-(28, 30, 34, 36) validate `>= 0`, since `0` is each field's own
-documented "off"/"none" value (`Jerk` 0 = no jerk rounding, `OmegaMax`
-0 = no pure-turn rate ceiling).
+mode" for `Accel`/`Decel`). `Jerk`/`OmegaMax`/`OmegaFloor`/`ArriveYaw`/
+`Lag` (28, 30, 34, 36, 37) validate `>= 0`, since `0` is each field's
+own documented "off"/"none"/"unmeasured" value (`Jerk` 0 = no jerk
+rounding, `OmegaMax` 0 = no pure-turn rate ceiling, `Lag` 0 = no
+drivetrain response lag measured yet — the shaper's braking plan and
+arrival test fall back to their pre-`Lag` formula exactly, byte for
+byte, whenever it is 0).
 
 **Not exposed anywhere in the block API or the `ConfigField` enum** (a
 source-derived observation, not in the README): the kernel's per-wheel

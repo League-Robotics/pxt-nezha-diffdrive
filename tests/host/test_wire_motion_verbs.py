@@ -1959,6 +1959,10 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "omega_floor": 25.0,
     "arrive_dist": 2.5,
     "arrive_yaw": 0.6,
+    # Sprint 029 ticket 009 (design S4.1/S6.1/S10.2): NEW ordinal (37) --
+    # the drivetrain's own first-order response lag, [s]. Same
+    # non-default-value rationale as accel/decel/v_max above.
+    "lag": 0.08,
     "estop_clear": 0.0,
 }
 
@@ -2953,6 +2957,9 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # this ticket: ordinals 34-36 (omega_floor/arrive_dist/
         # arrive_yaw), NEW, declared after estop_clear in kFields.
         b"omega_floor", b"arrive_dist", b"arrive_yaw",
+        # sprint 029 ticket 009 (design S4.1/S6.1/S10.2): ordinal 37
+        # (lag), NEW, declared after arrive_yaw in kFields.
+        b"lag",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

@@ -345,8 +345,21 @@ bool MotionEngine::service() {
     float target = seg_.cruise;
     if (al.cap < target) target = al.cap;
     if (limits_.vMax < target) target = limits_.vMax;
+
+    // design S6.1 step 0: the kernel's own last-measured
+    // dominant-axis speed, on THIS segment's own dominant axis -- a
+    // pure turn's dominant axis is the half-differential (mirrors
+    // axisLimits()'s own pureTurn() branch and Segment::remaining()'s
+    // own kYaw branch, both already scaled in "one wheel's own linear
+    // speed" units); anything else (straight or blended arc) is the
+    // mean of the two wheels. Sign-normalized toward the target via
+    // fabs() -- a wheel briefly moving the WRONG way is already caught
+    // by wrongWay() below, not by this measurement.
+    const float vAct = seg_.dominantAxis == Segment::Axis::kYaw  // [mm/s]
+        ? std::fabs(0.5f * (out.velocityRight - out.velocityLeft) / cpm)
+        : std::fabs(0.5f * (out.velocityLeft + out.velocityRight) / cpm);
     const VelocityShaper::Step step =
-        shaper_.advance(target, remain, al.floor, al.cap, dt, limits_);
+        shaper_.advance(target, remain, al.floor, al.cap, dt, limits_, vAct);
 
     const bool wrongWay = seg_.wrongWay(out);
     const bool expired = static_cast<int32_t>(nowVal - seg_.deadline) >= 0;
@@ -413,8 +426,12 @@ bool MotionEngine::service() {
     hold_.active = false;
     return false;
   }
+  // No single dominant axis to measure against a slewing
+  // continuous-hold target -- the sentinel case (design S5/S6.1's own
+  // "remain < 0 means no displacement bound" branch never uses vAct
+  // for anything but the arrival test, which is unreachable here).
   const VelocityShaper::Step step = shaper_.advance(
-      hold_.dominant, -1.0f, 0.0f, limits_.vMax, dt, limits_);
+      hold_.dominant, -1.0f, 0.0f, limits_.vMax, dt, limits_, -1.0f);
   const float scale = hold_.dominant > 0.0f ? (step.vCmd / hold_.dominant)
                                             : 0.0f;
   const float velocity = hold_.v * scale;

@@ -1,5 +1,5 @@
-"""tests/host/test_config_descriptor_table.py -- sprint 029 ticket 004
-(design docs/design/motion-profile-unification.md S4.7/S9.5's own test
+"""tests/host/test_config_descriptor_table.py -- sprint 029 ticket 004,
+extended by ticket 009's own `lag` row (design docs/design/motion-profile-unification.md S4.7/S9.5's own test
 list, item 5): the ONE descriptor table replacing the three parallel
 switches for the shaping fields (review CO-05, scoped to this design).
 
@@ -197,6 +197,7 @@ _DESIGN_TABLE_FIELDS = {
     "stop_distance": 3.7,    # ordinal 18, [mm], default 0
     "arrive_dist": 2.5,      # ordinal 35, [mm], default 1.0
     "arrive_yaw": 0.6,       # ordinal 36, [deg], default 0.3
+    "lag": 0.08,             # ordinal 37, [s], default 0 (ticket 009)
 }
 
 # The eight ordinals design S4.7 marks "removed" outright (no

@@ -126,6 +126,21 @@ def _bind(lib):
     lib.meLimitsVFloor.restype = ctypes.c_float
     lib.meLimitsSetVMax.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meLimitsSetVMax.restype = None
+    # Ticket 009 (design S4.1/S10.2): the drivetrain's own first-order
+    # response lag, [s] -- set on MotionLimits so the shaper's braking
+    # plan/arrival test (velocity_shaper.cpp) can credit the LaggedRig's
+    # own simulated coast.
+    lib.meLimitsSetLag.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meLimitsSetLag.restype = None
+    # LaggedRig's own PID/adaptation/stall Config, matching
+    # stiction_probe.cpp's Rig exactly -- see motion_engine_shim.cpp's
+    # own comment.
+    lib.meApplyStictionProbeKernelConfig.argtypes = [ctypes.c_void_p]
+    lib.meApplyStictionProbeKernelConfig.restype = None
+    lib.meSetTrackWidth.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetTrackWidth.restype = None
+    lib.meSetRotationalSlip.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetRotationalSlip.restype = None
 
     return lib
 
@@ -149,11 +164,27 @@ class Rig:
     raw/profile_probe.cpp's own Rig exactly, reimplemented here against
     the ctypes shim instead of a standalone C++ binary."""
 
-    def __init__(self, lib):
+    def __init__(self, lib, full_duty_velocity=None, track_width=None,
+                 rotational_slip=None):
         self._lib = lib
         self._handle = lib.meCreate()
+        # Ticket 009's own LaggedRig subclass (below) needs a DIFFERENT
+        # fullDutyVelocity/geometry than every other Rig-based test in
+        # this file -- to match docs/code-review/2026-09-02/raw/
+        # stiction_probe.cpp's own Rig exactly (10795 counts/s, tovez
+        # geometry 128mm/0.9617) -- so these are optional overrides,
+        # defaulting to exactly what every existing caller already gets
+        # (None -> FULL_DUTY_VELOCITY / the engine's own compiled
+        # defaults), no behavior change for `Rig(motion_lib)` callers.
+        self._full_duty_velocity = (
+            full_duty_velocity if full_duty_velocity is not None
+            else FULL_DUTY_VELOCITY)
+        if track_width is not None:
+            self._lib.meSetTrackWidth(self._handle, track_width)
+        if rotational_slip is not None:
+            self._lib.meSetRotationalSlip(self._handle, rotational_slip)
         self._lib.meSetMaxDuty(self._handle, 100.0)
-        self._lib.meSetFullDutyVelocity(self._handle, FULL_DUTY_VELOCITY)
+        self._lib.meSetFullDutyVelocity(self._handle, self._full_duty_velocity)
         assert self._lib.meBegin(self._handle) == 0  # STATUS_OK
         self._cpm = self._lib.meCountsPerMm(self._handle)
         self._b = self._lib.meEffectiveTrackWidth(self._handle)
@@ -191,6 +222,9 @@ class Rig:
     def set_v_max(self, v):
         self._lib.meLimitsSetVMax(self._handle, v)
 
+    def set_lag(self, v):
+        self._lib.meLimitsSetLag(self._handle, v)
+
     def move_x(self, distance, rotation, cruise, timeout_ms):
         self._lib.meMoveX(self._handle, distance, rotation, cruise,
                           timeout_ms)
@@ -218,7 +252,7 @@ class Rig:
 
     def tick(self):
         for side in (LEFT, RIGHT):
-            self._pos[side] += self._duty[side] * FULL_DUTY_VELOCITY * (
+            self._pos[side] += self._duty[side] * self._full_duty_velocity * (
                 TICK_MS / 1000.0)
         self._t_us += int(TICK_MS * 1000.0)
         self._lib.meMotorArmPosition(self._handle, LEFT, self._pos[LEFT],
@@ -232,8 +266,8 @@ class Rig:
         self._duty[RIGHT] = self._lib.meMotorLastStagedDuty(
             self._handle, RIGHT)
         self._odom()
-        vl = self._duty[LEFT] * FULL_DUTY_VELOCITY / self._cpm
-        vr = self._duty[RIGHT] * FULL_DUTY_VELOCITY / self._cpm
+        vl = self._duty[LEFT] * self._full_duty_velocity / self._cpm
+        vr = self._duty[RIGHT] * self._full_duty_velocity / self._cpm
         self.speed_log.append(max(abs(vl), abs(vr)))
         self.duty_log_left.append(self._duty[LEFT])
         self.duty_log_right.append(self._duty[RIGHT])
@@ -245,6 +279,227 @@ class Rig:
             self.tick()
             n += 1
         return n
+
+
+# docs/code-review/2026-09-02/raw/stiction_probe.cpp's own Rig
+# constructor defaults -- LaggedRig below matches them exactly (NOT the
+# other Rig-based tests' own 5000 counts/s / 114.2mm/0.952 defaults),
+# since design S6.3's table was measured against THIS geometry/duty
+# rail, and the breakaway-stiction model only produces the duty windup
+# that table's numbers depend on when driven by the SAME PID Config
+# (kp=0, ki=6, ...) stiction_probe.cpp's Rig sets -- the "pure
+# feedforward" Config every other host test in this file relies on
+# (motion_engine_shim.cpp's own header comment) has no integrator to
+# wind up against an un-broken-away wheel at all.
+_STICTION_FULL_DUTY_VELOCITY = 10795.0  # [counts/s]
+_STICTION_TRACK_WIDTH = 128.0           # [mm]
+_STICTION_ROTATIONAL_SLIP = 0.9617      # [1]
+
+
+class LaggedRig(Rig):
+    """Non-ideal-wheel host simulation, ticket 009's own lagged-wheel
+    model ported from docs/code-review/2026-09-02/raw/stiction_probe.cpp
+    (`Rig::wheel()`/`Rig::tick()` there): first-order response lag
+    (`tau`, [s]) plus breakaway stiction (`breakaway`, [mm/s] -- a
+    wheel needs a commanded speed at or above this to START moving from
+    rest, and drops back to rest once its commanded speed falls below
+    HALF that) layered on top of the ideal `Rig`'s own duty-to-position
+    integration, PLUS the real closed-loop PID/adaptation/stall Config
+    (`meApplyStictionProbeKernelConfig`, motion_engine_shim.cpp) and the
+    tovez geometry/duty-rail defaults above -- all matching
+    stiction_probe.cpp's own Rig exactly. This is the SAME model design
+    S6.3's own table was measured against (the "before" numbers this
+    ticket's fix closes the gap on) -- MEASURED against the sprint-029
+    engine as first landed, docs/code-review/2026-09-02/raw/
+    stiction_probe.out.
+
+    Overrides ONLY `tick()` -- `_odom()`, `run()`, and every other Rig
+    method/property are inherited unchanged; they operate on `self._pos`
+    regardless of how it got there."""
+
+    def __init__(self, lib, tau, breakaway,
+                 full_duty_velocity=_STICTION_FULL_DUTY_VELOCITY,
+                 track_width=_STICTION_TRACK_WIDTH,
+                 rotational_slip=_STICTION_ROTATIONAL_SLIP):
+        super().__init__(lib, full_duty_velocity=full_duty_velocity,
+                         track_width=track_width,
+                         rotational_slip=rotational_slip)
+        self._lib.meApplyStictionProbeKernelConfig(self._handle)
+        self._tau = tau            # [s]
+        self._breakaway = breakaway  # [mm/s]
+        self._v = {LEFT: 0.0, RIGHT: 0.0}       # [counts/s] simulated
+        self._moving = {LEFT: False, RIGHT: False}
+
+    def run(self, max_ticks=4000):
+        """Overrides Rig.run(): stiction_probe.cpp's own `Rig::run()`
+        keeps ticking 12 times PAST the move going inactive
+        (`for(int i=0;i<12;++i) tick();`) -- the engine has already
+        commanded neutral by then, but the LAGGED wheel keeps physically
+        coasting for several more ticks before it decays to rest, and
+        THAT coast is where a lag-driven overshoot actually shows up in
+        the final heading. Without these extra ticks the simulation
+        stops the instant the engine (which only ever sees its own,
+        possibly-stale, commanded speed when `lag` is unset) THINKS the
+        move is done, silently discarding the very overshoot design
+        S6.3's table is measured from."""
+        n = super().run(max_ticks=max_ticks)
+        for _ in range(12):
+            self.tick()
+        return n
+
+    def _wheel(self, side, cmd_counts, dt):
+        cmd_mm = cmd_counts / self._cpm
+        if not self._moving[side] and abs(cmd_mm) >= self._breakaway:
+            self._moving[side] = True
+        if self._moving[side] and abs(cmd_mm) < 0.5 * self._breakaway:
+            self._moving[side] = False
+        target = cmd_counts if self._moving[side] else 0.0
+        if self._tau <= 0.0:
+            self._v[side] = target
+        else:
+            a = dt / (self._tau + dt)
+            self._v[side] += a * (target - self._v[side])
+        return self._v[side]
+
+    def tick(self):
+        dt = TICK_MS / 1000.0
+        for side in (LEFT, RIGHT):
+            cmd_counts = self._duty[side] * self._full_duty_velocity
+            v = self._wheel(side, cmd_counts, dt)
+            self._pos[side] += v * dt
+        self._t_us += int(TICK_MS * 1000.0)
+        self._lib.meMotorArmPosition(self._handle, LEFT, self._pos[LEFT],
+                                     self._t_us)
+        self._lib.meMotorArmPosition(self._handle, RIGHT, self._pos[RIGHT],
+                                     self._t_us)
+        self._lib.meClockSetNow(self._handle, self._t_us)
+        self._lib.meStep(self._handle)
+        active = bool(self._lib.meServiceMove(self._handle))
+        self._duty[LEFT] = self._lib.meMotorLastStagedDuty(self._handle, LEFT)
+        self._duty[RIGHT] = self._lib.meMotorLastStagedDuty(
+            self._handle, RIGHT)
+        self._odom()
+        vl = self._v[LEFT] / self._cpm
+        vr = self._v[RIGHT] / self._cpm
+        self.speed_log.append(max(abs(vl), abs(vr)))
+        self.duty_log_left.append(self._duty[LEFT])
+        self.duty_log_right.append(self._duty[RIGHT])
+        return active
+
+
+# ---- lag-aware braking closes the gap on the lagged-wheel model -----
+# (ticket 009: design S6.3's own table, re-measured with the fix landed)
+#
+# DEVIATION FROM THE TICKET'S ORIGINAL 1.0 deg STRETCH GOAL, recorded
+# here and in this ticket's own report/design S6.3 (per this ticket's
+# own "if a design S6.1 detail turns out wrong in practice" allowance):
+# MEASURED (this file's own test_design_s6_3_table_remeasured_with_the_fix
+# below) that no vAct/lag-based correction to VelocityShaper::advance()
+# closes the gap to under 1.0 deg at EVERY (tau, cruise) cell -- three of
+# six land within 1.0 deg, the other three land within 2.5 deg (vs the
+# UNFIXED model's own +3.4..+26.1 deg). Systematically varying the
+# formula (which term carries vAct vs vNext/vPrev, additive vs
+# full-replacement) moved the residual around but never eliminated it,
+# and the residual at cruise 100/200 with tau=0.08 was IDENTICAL across
+# every formula variant tried -- strong evidence it is not an arrival-
+# formula problem at all. The actual cause, traced by inspection: this
+# geometry's pure-turn floor (omegaFloorAsWheelSpeed(), ~21 mm/s) sits
+# BELOW half this model's own breakaway (35 mm/s), so the segment's
+# first commanded tick (design S6.1's own "from rest, the first command
+# is the floor -- a step") does not itself break the simulated wheel
+# away; MEASURED (LaggedRig trace) it takes ~5-6 further accel-ramped
+# ticks before the commanded speed first crosses the full 70 mm/s
+# breakaway and the wheel actually starts moving. That fixed startup
+# delay is a property of the STICTION MODEL and this floor/breakaway
+# relationship -- untouched by `lag` or by anything VelocityShaper
+# decides -- so no arrival-side formula can absorb it. Design S10.2's
+# own `stopDistance` (bench-measured WITH `lag` already set, "the
+# speed-independent remainder once the lag term is accounted for
+# separately") is the mechanism the design already names for exactly
+# this kind of residual; it is 0 (unset) in this host-model test, since
+# S10.2's bench sweep is a later ticket's job, not this one's.
+_LAG_MODEL_CRUISES = (40.0, 100.0, 200.0)
+_LAG_MODEL_TAUS = (0.08, 0.15)
+_LAG_MODEL_BREAKAWAY = 70.0
+
+# MEASURED bound (see the deviation note above and this module's own
+# test_design_s6_3_table_remeasured_with_the_fix): the worst of the six
+# (tau, cruise) cells lands 2.24 deg off with the fix landed, down from
+# 9.41 deg unfixed -- a real, large improvement, just not uniformly
+# under the ticket's original 1.0 deg stretch goal.
+_LAG_MODEL_ARRIVAL_BOUND_DEG = 2.5
+
+
+@pytest.mark.parametrize("cruise", _LAG_MODEL_CRUISES)
+@pytest.mark.parametrize("tau", _LAG_MODEL_TAUS)
+def test_lag_aware_pivot_lands_within_the_measured_arrival_window(
+        motion_lib, tau, cruise):
+    """With `MotionLimits.lag` set to the LaggedRig's own `tau` (the
+    bench measurement design S10.2 describes), a 90 deg pivot on the
+    SAME lagged-wheel model design S6.3's table was measured against
+    lands within `_LAG_MODEL_ARRIVAL_BOUND_DEG` -- see this module's own
+    deviation note (above `_LAG_MODEL_CRUISES`) for why that bound is
+    2.5 deg, not design S9.2's original 1.0 deg stretch goal, and
+    test_design_s6_3_table_remeasured_with_the_fix below for the printed
+    before/after numbers it is derived from."""
+    with LaggedRig(motion_lib, tau=tau, breakaway=_LAG_MODEL_BREAKAWAY) as r:
+        r.set_lag(tau)
+        r.move_x(0.0, _KPI / 2.0, cruise, 30000)
+        n = r.run()
+        assert n > 0
+        heading_deg = r.h * 180.0 / _KPI
+        assert heading_deg == pytest.approx(
+                90.0, abs=_LAG_MODEL_ARRIVAL_BOUND_DEG), (
+            f"tau={tau} cruise={cruise}: lag-aware pivot landed at "
+            f"{heading_deg:.3f} deg, more than "
+            f"{_LAG_MODEL_ARRIVAL_BOUND_DEG} deg from the commanded 90"
+        )
+
+
+def test_design_s6_3_table_remeasured_with_the_fix(motion_lib):
+    """MEASURED against THIS ticket's own compiled engine (lag-aware
+    braking/arrival landed, velocity_shaper.cpp) on the SAME lagged-wheel
+    host model design S6.3's own table was measured against
+    (docs/code-review/2026-09-02/raw/stiction_probe.cpp/.out) -- "before"
+    reproduces that table's own numbers with `MotionLimits.lag` left at
+    its 0.0 default (the engine as first landed, sprint 029 ticket 003);
+    "after" sets `lag` to the model's own `tau` (ticket 009's fix).
+    Rerun with `-s` to reproduce the printed table; this test IS the
+    citation (.claude/rules/measurement-citations.md) for the numbers
+    recorded in this ticket's own report -- see this module's own
+    deviation note (above `_LAG_MODEL_CRUISES`) for why the assertion
+    below uses `_LAG_MODEL_ARRIVAL_BOUND_DEG` rather than design S9.2's
+    original 1.0 deg stretch goal."""
+    rows = []
+    for tau in _LAG_MODEL_TAUS:
+        for cruise in _LAG_MODEL_CRUISES:
+            with LaggedRig(motion_lib, tau=tau,
+                           breakaway=_LAG_MODEL_BREAKAWAY) as before:
+                before.move_x(0.0, _KPI / 2.0, cruise, 30000)
+                n = before.run()
+                assert n > 0
+                before_err = before.h * 180.0 / _KPI - 90.0
+            with LaggedRig(motion_lib, tau=tau,
+                           breakaway=_LAG_MODEL_BREAKAWAY) as after:
+                after.set_lag(tau)
+                after.move_x(0.0, _KPI / 2.0, cruise, 30000)
+                n = after.run()
+                assert n > 0
+                after_err = after.h * 180.0 / _KPI - 90.0
+            rows.append((tau, cruise, before_err, after_err))
+            assert abs(after_err) <= _LAG_MODEL_ARRIVAL_BOUND_DEG, (
+                f"tau={tau} cruise={cruise}: after-fix error "
+                f"{after_err:+.2f} deg exceeds "
+                f"{_LAG_MODEL_ARRIVAL_BOUND_DEG} deg"
+            )
+
+    print("\ndesign S6.3 table, re-measured against THIS ticket's fix "
+          "(lag 80/150 ms, breakaway 70 mm/s, cruise 40/100/200):")
+    print(f"{'tau (s)':>8}{'cruise':>8}{'before (lag=0)':>18}"
+          f"{'after (lag=tau)':>18}")
+    for tau, cruise, before_err, after_err in rows:
+        print(f"{tau:>8.2f}{cruise:>8.0f}{before_err:>+17.1f}°"
+              f"{after_err:>+17.1f}°")
 
 
 # ---- pivot 90 deg lands within 0.5 deg, at cruise 60/100/200 --------
