@@ -3,6 +3,7 @@ status: in-progress
 sprint: 029
 tickets:
 - 029-007
+- 029-009
 ---
 
 # Pivot end: predictive termination and a yaw-unit floor; retire pivot_overrun as a calibration constant

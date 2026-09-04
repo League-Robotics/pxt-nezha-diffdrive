@@ -11,6 +11,7 @@ use-cases:
 depends-on:
 - '004'
 - '006'
+- 009
 github-issue: ''
 issue:
 - code-review/pivot-end-predictive-termination-and-yaw-floor.md

@@ -666,10 +666,21 @@ Before tickets can be created, all of the following must be true:
 | 004 | Config surface: descriptor table, wire names, removed ordinals, hidden no-op blocks, test.ts profiles, tools/firmware_bake keys | 003 |
 | 005 | Strip units from identifier names in shims.cpp, comms/, blocks/, platform/ | 004 |
 | 006 | One calibration of record: camlink.py reads field_calibration.json, robotlink.py derives the relay address from the board name | — |
-| 007 | Bench acceptance: gates G1-G6 and the stop_distance/omega_floor measurements, camera-truthed, on one robot | 004, 006 |
-| 008 | Build checkpoint: confirm a flashable hex from the sprint's final combined state | 005, 006, 007 |
+| 009 | Lag-aware braking and arrival: plan against measured wheel speed, add the lag limit, prove it on the lagged host model | 004 |
+| 007 | Bench acceptance: gates G1-G6 and the stop_distance/omega_floor measurements, camera-truthed, on one robot | 004, 006, 009 |
+| 008 | Build checkpoint: confirm a flashable hex from the sprint's final combined state | 005, 006, 007, 009 |
 
 Tickets execute serially in the order listed. 001 and 002 are
 independent of each other and of the rest (design §11); 006 is
 independent of 001-005 (touches only `tools/`, per sprint.md's
 Solution section) but must land before 007.
+
+**Ticket 009 was added during execution**, after ticket 007's first
+hardware run on tovez (2026-09-04) found 90° pivots ending +13…+56°
+long — a real gap between the ideal-wheel probe's ±0.5° prediction and
+a lagged drivetrain, closed by the design amendment to §4.1/§6.1/§6.3/
+§10.2 (`docs/design/motion-profile-unification.md`) that ticket 009
+implements. It is sequenced after 004 (needs the config surface live)
+and before 007 (bench acceptance must measure the lag-aware engine,
+not the pre-fix one) — see `captures/bench-acceptance-029-20260904/notes.md`
+and ticket 007's own appended session notes for the hardware finding.
