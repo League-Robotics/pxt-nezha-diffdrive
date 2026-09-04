@@ -1,7 +1,7 @@
 ---
 id: 029
 title: 'Motion profile unification: one shaper, one floor, predictive arrival'
-status: executing
+status: done
 branch: sprint/029-motion-profile-unification-one-shaper-one-floor-predictive-arrival
 use-cases:
 - SUC-001
