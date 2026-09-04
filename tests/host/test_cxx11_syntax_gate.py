@@ -104,6 +104,17 @@ _CXX11_PORTABLE_SOURCES = [
     # but no natural .cpp of its own, so this dedicated translation
     # unit exists solely to give this gate something to compile.
     _TEST_DIR / "emit_queue_syntax_check.cpp",
+    # Sprint 029 ticket 002 (motion profile unification): motion_limits.h
+    # has no pxt.h dependency (a host-portable value object -- see its
+    # own header comment) but no natural .cpp of its own, so this
+    # dedicated translation unit exists solely to give this gate
+    # something to compile.
+    _TEST_DIR / "motion_limits_syntax_check.cpp",
+    # velocity_shaper.cpp has no pxt.h dependency (host-portable --
+    # see its own header comment) and, unlike motion_limits.h/the
+    # syntax-check-only headers above, has a natural .cpp of its own,
+    # so it is compiled directly, the same way motion_engine.cpp is.
+    _SRC_DIR / "motion" / "velocity_shaper.cpp",
 ]
 
 

@@ -2,8 +2,11 @@
 id: '002'
 title: 'MotionLimits and VelocityShaper: new host-portable objects, not yet wired
   in'
-status: open
-use-cases: [SUC-002, SUC-003, SUC-004]
+status: done
+use-cases:
+- SUC-002
+- SUC-003
+- SUC-004
 depends-on: []
 github-issue: ''
 issue: code-review/one-velocity-shaper-profile-object-out-of-servicemove.md
@@ -39,21 +42,21 @@ class shape). Host-portable: no counts, no wheels, no kernel knowledge.
 
 ## Acceptance Criteria
 
-- [ ] `tests/host/test_velocity_shaper.py` (design §9.1), green: from
+- [x] `tests/host/test_velocity_shaper.py` (design §9.1), green: from
       rest the first command is the floor; accel never exceeds
       `accel` above the floor; decel never exceeds `decel`; with
       `jerk` set, acceleration never steps by more than `jerk·dt`;
       `arriving` fires exactly when `remain <= v·dt + stop`.
-- [ ] `MotionLimits` compiles host-portable (`<cstdint>` + libc only,
+- [x] `MotionLimits` compiles host-portable (`<cstdint>` + libc only,
       verified by the existing host-portability link check).
-- [ ] Every field name matches design §4.7's wire-name mapping (this
+- [x] Every field name matches design §4.7's wire-name mapping (this
       ticket does not wire the wire surface — ticket 004 — but the
       struct's field names must already match what ticket 004 will
       expose, to avoid a rename later).
-- [ ] No `MmS`/`Ms`/`Mm`/`Rad`/`Counts` suffix on any new identifier in
+- [x] No `MmS`/`Ms`/`Mm`/`Rad`/`Counts` suffix on any new identifier in
       these two files (`.claude/rules/no-units-in-identifiers.md`);
       every field carries a trailing `// [unit]` comment.
-- [ ] Neither file is referenced by `MotionEngine` yet (confirmed by
+- [x] Neither file is referenced by `MotionEngine` yet (confirmed by
       `motion_engine.cpp` having zero new includes from this ticket).
 
 ## Implementation Plan
