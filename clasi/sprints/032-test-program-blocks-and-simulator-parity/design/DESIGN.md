@@ -205,7 +205,19 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   `goToW(pose, …)` (reads a caller-supplied `PoseSource` **once**,
   rotates world delta into the body frame, delegates to `goToR`) is
   unaffected by this change other than inheriting `goToR`'s corrected
-  geometry.
+  geometry. **Sprint 032 ticket 007**: `goToR`'s own bearing-then-chord
+  decomposition (the `atan2`/short-arc-wrap/`hypot`/split-decision
+  block above) is now a separate pure static method,
+  `decomposeGoToR(x, y)` (returns `bearingRaw`/`theta`/`chord`/
+  `arcLength`/`willSplit`), used by `goToR()` itself and by a second
+  caller — a shim-layer caller (below) that must make the identical
+  split decision before `goToR()` runs, without risking drift between
+  the two. A second new method, `reconcileDualRateCruise(distance,
+  rotation, speed, yawRate)`, is `startMove()`'s existing dual-rate
+  duration-budget algebra (see the shim layer below) relocated here
+  unchanged, so a second caller can share it instead of re-deriving it;
+  `MotionEngine::goToR()`'s own signature, and `queuePivotThenStraight()`,
+  are unchanged by either addition.
 - Move servicing: `service()` (renamed from `serviceMove()`, motion
   profile unification, sprint 029) — one ~40-line tick (design §5) that
   dispatches whichever of `seg_`/`hold_` is active through the ONE
@@ -1605,6 +1617,29 @@ Pieces the kernel deliberately does not contain:
   promise than the OTOS gives, which the ticket's own documentation
   update states plainly rather than leaving the two verbs looking
   identical.
+- **Move engine entry points, dual-rate reconciliation**: `startMove()`
+  (backs `move`/`startMove`) and `engineGoToRArmed()` (backs `goTo`/
+  `startGoTo`, via `engineSetGoToDeadline()`/`engineSetGoToYawRate()`
+  pre-arming its 5th/6th logical parameters — every `//%` shim stays
+  at ≤4 params, a real PXT-packager constraint measured sprint 015) are
+  the block API's own entry points onto `MotionEngine`, each exposing
+  TWO independent rate ceilings (a distance/chord speed, a yaw rate)
+  that the engine's own `moveX()`/`goToR()` take as a SINGLE `cruise`.
+  Both now reconcile via the shared `MotionEngine::reconcileDualRateCruise()`
+  (§3): whichever axis takes longer at its own ceiling governs a shared
+  duration, split-aware (the SUM of both phases' durations budgets the
+  deadline when a pivot-then-straight split will fire; the plain MAX
+  governs the non-split `cruise` itself either way). **Sprint 032
+  ticket 007** is the second of these two callers — before it,
+  `engineGoToRArmed()` passed `speed` straight through as `goToR()`'s
+  one cruise, so `goTo`'s pivot phase ran at whatever angular rate the
+  linear cruise implied through the chassis geometry, ignoring
+  `defaultYawRate` entirely (~143°/s at the 15 cm/s default, regardless
+  of the configured yaw rate). It now calls
+  `MotionEngine::decomposeGoToR(x, y)` (§3) first, to make the identical
+  split decision `goToR()` itself will, then reconciles the pivot phase
+  (`bearingRaw`, when splitting) or the single blended segment
+  (`theta`, when not) against the pre-armed yaw rate the same way.
 
 **The TypeScript side** owns the student units and the block API
 (groups Drive, Move, Pose, World, Setup), the browser-simulator

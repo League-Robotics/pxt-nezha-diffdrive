@@ -183,16 +183,16 @@ namespace diffDrive {
         simIntegrate()
         if (simEstopped) return
         simMoveHasPendingStraight = false
-        const yawRad = Math.abs(yaw / 100) * Math.PI / 180
+        const yawMagnitude = Math.abs(yaw / 100) * Math.PI / 180  // [rad]
         // Mirrors the real motion engine's own split condition exactly
         // (nonzero distance AND |rotation| at/above the shared
         // threshold): below the threshold, or a pure pivot/pure
         // straight, behavior is UNCHANGED -- one blended segment, the
         // `else` branch below.
-        if (distance != 0 && yawRad >= kSimTurnFirstAngle) {
+        if (distance != 0 && yawMagnitude >= kSimTurnFirstAngle) {
             const yawDur = Math.abs(yaw) / yawRate
             if (yawDur <= 0) return
-            simMoveRemainYaw = yawRad
+            simMoveRemainYaw = yawMagnitude
             simMoveRemainDist = 0
             simVel = 0
             simYawRate = ((yaw / 100) * Math.PI / 180) / yawDur
@@ -203,7 +203,7 @@ namespace diffDrive {
             return
         }
         simMoveRemainDist = Math.abs(distance)
-        simMoveRemainYaw = yawRad
+        simMoveRemainYaw = yawMagnitude
         let duration = 0
         if (distance != 0) duration = Math.abs(distance) / speed
         if (yaw != 0) {
@@ -247,6 +247,22 @@ namespace diffDrive {
         return
     }
 
+    // [cdeg/s] -- pre-arms the NEXT _goToR() call's yaw-rate ceiling,
+    // the sim-side twin of shims.cpp's Rig::pendingGoToYawRate_/
+    // engineSetGoToYawRate(). Same one-shot-handoff, <=4-param-per-shim
+    // reason _setGoToDeadline() immediately above exists: this is
+    // startGoTo()'s (blocks/motion.ts) "defaultYawRate, converted to
+    // this shim's own centidegree-per-second convention" ceiling,
+    // reconciled against `speed` inside _goToR() below the same way
+    // _startMove() above reconciles its own two rate ceilings -- unlike
+    // `timeout`, this one is NOT a no-op here.
+    let simPendingGoToYawRate = 0  // [cdeg/s]
+
+    //% shim=diffDrive::engineSetGoToYawRate
+    export function _setGoToYawRate(yawRate: number): void {  // [cdeg/s]
+        simPendingGoToYawRate = yawRate
+    }
+
     // [mm] [mm] [mm/s] [mm] -- simulator stand-in for
     // MotionEngine::goToR()'s arc reduction (motion_engine.cpp): bearing
     // = atan2(y, x), turn angle theta = 2*bearing wrapped to the short
@@ -269,6 +285,18 @@ namespace diffDrive {
     // body fail the JS->Blocks decompiler with TS9256. The native shim
     // ABI is governed by the C++ signature, not this declaration, so
     // `number` here is hardware-safe.
+    //
+    // `speed` and the pre-armed `simPendingGoToYawRate` are two
+    // INDEPENDENT rate ceilings (mirroring _startMove()'s own `speed`/
+    // `yawRate` pair) reconciled into a single `duration` here --
+    // whichever axis takes LONGER at its own ceiling governs, same
+    // "whichever axis takes longer governs" reconciliation
+    // _startMove()'s non-split (blended) branch above already applies,
+    // not the pivot-then-straight budget its split branch uses: this
+    // reduction never splits (see this function's own comment above),
+    // so there is only ever one blended segment to budget for. Fixes
+    // the pivot arc previously always running at whatever angular rate
+    // `speed` alone implied, ignoring "set default turn rate" entirely.
     //% shim=diffDrive::engineGoToRArmed
     export function _goToR(x: number, y: number, speed: number,
         arrive: number): void {
@@ -288,7 +316,14 @@ namespace diffDrive {
             s = radius * theta
         }
         const spd = speed > 0 ? speed : 1
-        const duration = Math.abs(s) / spd
+        const turnRate = (simPendingGoToYawRate > 0 ? simPendingGoToYawRate : 1)
+            / 100 * Math.PI / 180  // [rad/s]
+        let duration = 0
+        if (s != 0) duration = Math.abs(s) / spd
+        if (theta != 0) {
+            const turnDuration = Math.abs(theta) / turnRate
+            if (turnDuration > duration) duration = turnDuration
+        }
         if (duration <= 0) return
         simMoveRemainDist = Math.abs(s)
         simMoveRemainYaw = Math.abs(theta)

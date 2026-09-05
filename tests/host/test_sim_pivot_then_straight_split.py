@@ -13,7 +13,7 @@ ended around 30 cm forward / 30 cm left in the simulator and 0 forward
 / 47 cm left on the robot.
 
 **The fix.** `_startMove()` now mirrors the real split condition
-exactly (`distance != 0 && yawRad >= kSimTurnFirstAngle`), using the
+exactly (`distance != 0 && yawMagnitude >= kSimTurnFirstAngle`), using the
 existing `simMoveRemainDist`/`simMoveRemainYaw` fields for phase
 bookkeeping plus three small fields (`simMoveHasPendingStraight`/
 `simMovePendingDistance`/`simMovePendingSpeed`) recording the queued
@@ -42,9 +42,9 @@ branch.
    extracted comparison a `yaw` constructed FROM the harness's own
    extracted `kSimTurnFirstAngle` constant (not a second hardcoded 50),
    round-tripped through the exact same degree<->radian conversion
-   `_startMove()` itself applies -- one value that resolves to `yawRad
+   `_startMove()` itself applies -- one value that resolves to `yawMagnitude
    >= kSimTurnFirstAngle` (must split) and one a hair below it that
-   resolves to `yawRad < kSimTurnFirstAngle` (must not) -- so this
+   resolves to `yawMagnitude < kSimTurnFirstAngle` (must not) -- so this
    exercises the actual `>=` operator in the actual code, not a
    restatement of it.
 
@@ -277,7 +277,7 @@ check(simMovePendingSpeed === 100, "the queued straight phase must remember the 
 // ---- The 50 deg boundary itself, from the REAL constant, not a
 // second hardcoded 50 -- one value that round-trips (through the
 // SAME deg<->rad conversion _startMove() itself applies) to
-// yawRad >= kSimTurnFirstAngle, and one a hair under it.
+// yawMagnitude >= kSimTurnFirstAngle, and one a hair under it.
 function centidegForRad(rad: number): number {
     return rad * (180 / Math.PI) * 100;
 }
@@ -388,10 +388,10 @@ def test_pivot_then_straight_split_matches_worked_example(_harness_result):
 def test_start_move_condition_mirrors_move_x_exactly():
     src = _sim_ts_source()
     assert re.search(
-        r"distance != 0 && yawRad >= kSimTurnFirstAngle", src
+        r"distance != 0 && yawMagnitude >= kSimTurnFirstAngle", src
     ), (
         "_startMove()'s split condition must read `distance != 0 && "
-        "yawRad >= kSimTurnFirstAngle`, mirroring MotionEngine::moveX()'s "
+        "yawMagnitude >= kSimTurnFirstAngle`, mirroring MotionEngine::moveX()'s "
         "own `distance != 0.0f && std::fabs(rotation) >= kTurnFirstAngle` "
         "exactly (including the >= inclusivity)"
     )
@@ -405,7 +405,7 @@ def test_start_move_reuses_move_remain_fields_for_phase_bookkeeping():
     start_idx = src.index("export function _startMove(")
     brace_idx = src.index("{", start_idx)
     body = src[brace_idx:_find_balanced_close(src, brace_idx)]
-    assert "simMoveRemainYaw = yawRad" in body
+    assert "simMoveRemainYaw = yawMagnitude" in body
     assert "simMoveRemainDist = 0" in body
 
 

@@ -369,6 +369,58 @@ void meGoToR(void* handle, float x, float y, float speed, float arrive,
   static_cast<Handle*>(handle)->engine.goToR(x, y, speed, arrive, timeoutMs);
 }
 
+// ---- MotionEngine::reconcileDualRateCruise()/decomposeGoToR() --------
+// Exposed for the block API's "go-to honors the default turn rate" fix
+// (shims.cpp's engineGoToRArmed()) -- one scalar getter per struct
+// field, matching this file's existing style (no out-params/structs
+// anywhere else in this file) rather than introducing a new ctypes
+// marshaling shape for these two callers alone. Each call recomputes
+// the whole struct internally; cheap, pure functions, only ever called
+// from test code.
+
+float meReconcileCruise(void* handle, float distance, float rotation,
+                        float speed, float yawRate) {
+  return static_cast<Handle*>(handle)
+      ->engine.reconcileDualRateCruise(distance, rotation, speed, yawRate)
+      .cruise;
+}
+
+float meReconcileDistDuration(void* handle, float distance, float rotation,
+                              float speed, float yawRate) {
+  return static_cast<Handle*>(handle)
+      ->engine.reconcileDualRateCruise(distance, rotation, speed, yawRate)
+      .distDuration;
+}
+
+float meReconcileYawDuration(void* handle, float distance, float rotation,
+                             float speed, float yawRate) {
+  return static_cast<Handle*>(handle)
+      ->engine.reconcileDualRateCruise(distance, rotation, speed, yawRate)
+      .yawDuration;
+}
+
+// decomposeGoToR() is static (a pure function of x, y) -- no handle
+// needed.
+float meDecomposeGoToRBearingRaw(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).bearingRaw;
+}
+
+float meDecomposeGoToRTheta(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).theta;
+}
+
+float meDecomposeGoToRChord(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).chord;
+}
+
+float meDecomposeGoToRArcLength(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).arcLength;
+}
+
+int meDecomposeGoToRWillSplit(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).willSplit ? 1 : 0;
+}
+
 // ---- MotionEngine: goToW (motion-api.md S3.6, sprint 003 ticket 010) --
 
 // Arms the FakePoseSource a following meGoToW() call reads. [mm] [mm]

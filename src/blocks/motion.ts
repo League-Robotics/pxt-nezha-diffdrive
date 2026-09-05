@@ -328,9 +328,17 @@ namespace diffDrive {
         // timeout: goToR() drives a <=180 deg pivot (its own short-arc
         // wrap) THEN the straight-line chord -- two SEQUENTIAL phases,
         // not one blended segment like startMove()'s reconciliation, so
-        // their worst-case durations are summed, not maxed, using the
-        // same defaultYawRate/defaultSpeed startMove() itself would use
-        // for those two axes; +1500 ms mirrors startMove()'s own
+        // their worst-case durations are summed, not maxed. `pivotS`
+        // deliberately stays the WORST-CASE 180 deg bound here (goToR()
+        // never pivots more than that, by construction of its own
+        // short-arc wrap) rather than the actual bearing this call will
+        // pivot -- this is a conservative backstop, not the pivot's own
+        // real duration (see engineGoToRArmed()'s own comment, shims.cpp,
+        // for that -- it reconciles the ACTUAL bearing against
+        // defaultYawRate to pick the move's cruise). A worst-case
+        // timeout can only be >= the reconciliation's own estimate, so
+        // the two never disagree in a way that matters: this one just
+        // never times out early. +1500 ms mirrors startMove()'s own
         // end-of-move taper backstop (shims.cpp).
         const chordCm = Math.sqrt(x * x + y * y)
         const pivotS = 180 / defaultYawRate
@@ -338,8 +346,14 @@ namespace diffDrive {
         const timeout = Math.round((pivotS + straightS) * 1000) + 1500  // [ms]
         // Must precede _goToR() immediately -- see
         // Rig::pendingGoToDeadline_'s comment (shims.cpp) for the
-        // one-shot handoff contract this pair relies on.
+        // one-shot handoff contract this pair relies on. _setGoToYawRate()
+        // is the analogous pre-arm for the pivot phase's own rate
+        // ceiling (engineGoToRArmed() reconciles it against goalSpeed
+        // the same way _startMove() reconciles its own two rate
+        // ceilings) -- centidegree-per-second, matching startMove()'s
+        // own Math.round(defaultYawRate * 100) convention.
         _setGoToDeadline(timeout)
+        _setGoToYawRate(Math.round(defaultYawRate * 100))  // [cdeg/s]
         _goToR(goalX, goalY, goalSpeed, goalArrive)
     }
 
