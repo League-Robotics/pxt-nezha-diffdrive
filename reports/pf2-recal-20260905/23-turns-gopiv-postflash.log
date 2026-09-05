@@ -1,0 +1,30 @@
+link: gopiv serial daemon 192.168.4.50:45433
+rotational_slip=0.952 stop_distance=0.0 lag=0.04 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 54 at (6.6, -3.5) cm heading -27.8 deg
+  1     90     90.3     0.3     None    None    1.4   None   None   0.0  stop
+  2    -90    -92.1    -2.1     None    None    0.8   None   None   0.0  stop
+  3    107    106.4    -0.6     None    None    1.6   None   None   0.0  stop
+  4   -107   -106.7     0.3     None    None    1.3   None   None   0.0  stop
+  5    180    183.3     3.4     None    None    2.2   None   None   0.0  stop
+  6   -180   -181.5    -1.5     None    None    1.8   None   None   0.0  stop
+  7    -90     -0.0    90.0     None    None    0.0   None   None   0.0  stop
+  8     90     90.5     0.5     None    None    1.2   None   None   0.0  stop
+  9   -107   -109.8    -2.8     None    None    1.4   None   None   0.0  stop
+ 10    107    109.0     2.0     None    None    1.4   None   None   0.0  stop
+ 11   -180   -154.2    25.8     None    None    1.0   None   None   0.0  stop
+ 12    180    183.7     3.7     None    None    2.1   None   None   0.0  stop
+  "n_turns": 12,
+  "n_disturbed_excluded": 0,
+  "fit_gain": 1.1147,
+  "fit_offset_deg": -22.79,
+  "mean_err_left_deg": 1.53,
+  "mean_err_right_deg": 18.28,
+      "mean_err": 0.37,
+      "mean_err": 43.95,
+      "mean_err": 0.7,
+      "mean_err": -1.25,
+      "mean_err": 3.52,
+      "mean_err": 12.14,
+  "mean_abs_err_deg": 11.07,
+  "mean_drift_cm": 1.35,
+    "rotational_slip": 1.0612,

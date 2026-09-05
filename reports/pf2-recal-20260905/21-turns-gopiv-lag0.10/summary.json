@@ -1,0 +1,51 @@
+{
+  "robot": "gopiv",
+  "cruise_mm_s": 0,
+  "n_turns": 8,
+  "n_disturbed_excluded": 0,
+  "disturbed_turns": [],
+  "slip_during_run": 0.952,
+  "pivot_overrun_during_run_mm": 0.0,
+  "overrun_field": "stop_distance",
+  "lag_during_run_s": 0.1,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 119.96,
+  "fit_gain": 0.8589,
+  "fit_offset_deg": 11.85,
+  "mean_err_left_deg": -12.17,
+  "mean_err_right_deg": 2.24,
+  "per_command": {
+    "+90": {
+      "n": 2,
+      "mean_err": -1.16,
+      "min": -3.79,
+      "max": 1.47
+    },
+    "-90": {
+      "n": 2,
+      "mean_err": 0.55,
+      "min": -2.72,
+      "max": 3.82
+    },
+    "+180": {
+      "n": 2,
+      "mean_err": -23.19,
+      "min": -46.02,
+      "max": -0.35
+    },
+    "-180": {
+      "n": 2,
+      "mean_err": 3.93,
+      "min": -1.66,
+      "max": 9.52
+    }
+  },
+  "mean_abs_err_deg": 8.67,
+  "mean_drift_cm": 1.27,
+  "suggested": {
+    "rotational_slip": 0.8176,
+    "stop_distance_mm": 12.4,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
+  }
+}

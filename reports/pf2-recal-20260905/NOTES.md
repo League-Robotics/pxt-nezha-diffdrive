@@ -275,3 +275,62 @@ which did fire.
 
 Not fixed here: `tests/` is CLASI-gated and the out-of-process window for
 this session closed when the earlier fix was committed.
+
+## gopiv turns + bake, 2026-09-05
+
+Carrier: gopiv's serial daemon on `null`, resolved by `calibrate.py` itself.
+
+**The lag sweep behaved exactly as the design model says** -- lag moves the
+pivot OFFSET, the gain belongs to travel and trackwidth:
+
+| lag | fit gain | offset | mean abs (completed pivots) |
+|---|---|---|---|
+| 0 | 0.9408 | +12.96 deg | 5.98 |
+| **0.04** | **1.0009** | **+2.08 deg** | **2.20** |
+| 0.10 | 0.8589 | +11.85 deg | 3.33 (one pivot died at -46, fit not comparable) |
+
+The gain at 0.04 is already unity, so `rotational_slip` stays at the
+firmware default 0.952 (b_eff = 114.2/0.952 = 120.0 mm). Baked `lag_s 0.04`
++ `rotational_slip 0.952` in radio-robot-lib -- gopiv's FIRST firmware_bake,
+it had none -- built, flashed over `null`, and verified on a fresh boot
+(`cyc=0`, `GET lag 0.040000`).
+
+**Post-flash confirm, no live SET** (`23-turns-gopiv-postflash`): 10 of 12
+pivots at **mean abs 1.70 deg**, drift 1.35 cm.
+
+### The blocker: ~10 % of gopiv's pivots terminate early
+
+| run | completed | mean abs | early |
+|---|---|---|---|
+| lag 0 | 8/8 | 5.98 | 0 |
+| lag 0.04 | 8/8 | 2.20 | 0 |
+| lag 0.10 | 7/8 | 3.33 | 1 |
+| confirm @0.04 | 10/12 | 1.53 | 2 |
+| post-flash @0.04 | 10/12 | 1.70 | 2 |
+| **total** | **43/48** | | **5 (10.4 %)** |
+
+Failures span every commanded angle and BOTH directions: -180, -107, -90,
++90, +180. The starkest is a commanded -90 that returned **exactly -0.0
+deg** -- the robot never moved -- and it still reported `reason=stop`, so
+the firmware believes the move completed. All of this was with `--no-tlm`,
+so it is NOT the documented "TLM FULL provokes early terminations" cause.
+
+`n_disturbed_excluded` is 0 throughout: the sweep's exclusion rules cannot
+catch these, because camera-vs-encoder needs telemetry and the centre does
+not move far when a pivot simply fails to happen.
+
+**So gopiv's ANGLES are calibrated (1.5-1.7 deg when a pivot completes,
+comparable to tigez 0.98 and vevov 1.18) but gopiv is NOT reliable.** One
+move in ten silently does not happen.
+
+### Second, separate fault: the centre of rotation wanders
+
+Drift 1.2-1.5 cm per pivot against tigez 0.35 / vevov 0.39; the mount solve
+came out rms 15.9 mm with the implied centre walking 6.9 cm over eight
+pivots; and one large same-direction turn translated gopiv 45 cm. The
+alternating +-90/180 sweeps above cancel most of that, which is exactly why
+the angle table looks clean -- it hides the problem rather than clearing it.
+
+Both `mount` and `rotational_slip` assume a fixed centre of rotation, so
+gopiv's mount numbers stay provisional. Suggested next step is mechanical,
+not a calibration knob: check whether one wheel is slipping or under-driven.

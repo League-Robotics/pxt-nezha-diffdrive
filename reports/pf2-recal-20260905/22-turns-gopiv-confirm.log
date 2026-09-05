@@ -1,0 +1,32 @@
+link: gopiv serial daemon 192.168.4.50:45433
+SET lag 0.04 -> ack 1 12 stop
+rotational_slip=0.952 stop_distance=0.0 lag=0.04 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 54 at (7.5, -1.7) cm heading -23.9 deg
+  1     90     92.4     2.4     None    None    1.1   None   None   0.0  stop
+  2    -90    -92.0    -1.9     None    None    0.7   None   None   0.0  stop
+  3    107    107.6     0.6     None    None    1.2   None   None   0.0  stop
+  4   -107   -106.4     0.6     None    None    1.1   None   None   0.0  stop
+  5    180    181.7     1.7     None    None    2.0   None   None   0.0  stop
+  6   -180   -180.2    -0.2     None    None    2.0   None   None   0.0  stop
+  7    -90    -87.0     3.0     None    None    0.4   None   None   0.0  stop
+  8     90      1.2   -88.8     None    None    0.1   None   None   0.0  stop
+  9   -107    -29.2    77.8     None    None    0.1   None   None   0.0  stop
+ 10    107    107.0    -0.0     None    None    1.2   None   None   0.0  stop
+ 11   -180   -182.0    -2.0     None    None    2.3   None   None   0.0  stop
+ 12    180    182.8     2.8     None    None    1.9   None   None   0.0  stop
+  "n_turns": 12,
+  "n_disturbed_excluded": 0,
+  "fit_gain": 1.27,
+  "fit_offset_deg": -47.15,
+  "mean_err_left_deg": -13.57,
+  "mean_err_right_deg": 12.88,
+      "mean_err": -43.22,
+      "mean_err": 0.53,
+      "mean_err": 0.27,
+      "mean_err": 39.21,
+      "mean_err": 2.25,
+      "mean_err": -1.1,
+  "mean_abs_err_deg": 15.16,
+  "mean_drift_cm": 1.17,
+    "rotational_slip": 1.209,
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
