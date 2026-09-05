@@ -1,0 +1,14 @@
+relay: guvov (DEVICE:RADIOBRIDGE:relay:guvov:3240129406)
+link: radio relay ch 37 grp 43 (torture:8760)
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '1', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=1.0 stop_distance=0.0 lag=0.04 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 53 at (-16.1, 17.6) cm heading 0.8 deg
+home (-16.1, 17.6) h=0.6
+turn  +90: camera   +98.6 (unwrapped   +99.4, 13 samples) PASS
+turn +180: camera  +200.5 (unwrapped  +200.1, 20 samples) PASS
+turn  +90: camera  +100.3 (unwrapped  +101.0, 24 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 0.2 cm; net heading +40.3 deg
+DANCE PASSED -- left is left, forward is forward, and it comes home.

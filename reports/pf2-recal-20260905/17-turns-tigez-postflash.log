@@ -1,0 +1,31 @@
+relay: guvov (DEVICE:RADIOBRIDGE:relay:guvov:3240129406)
+rotational_slip=0.962 stop_distance=0.0 lag=0.05 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 57 at (-33.8, -17.8) cm heading -33.3 deg
+  1     90     91.7     1.7     None    None    0.5   None   None   0.0  stop
+  2    -90    -90.4    -0.4     None    None    0.3   None   None   0.0  stop
+  3    107    105.8    -1.2     None    None    0.5   None   None   0.0  stop
+  4   -107   -106.7     0.3     None    None    0.3   None   None   0.0  stop
+  5    180    181.7     1.7     None    None    0.7   None   None   0.0  stop
+  6   -180   -179.9     0.1     None    None    0.4   None   None   0.0  stop
+  7    -90    -91.8    -1.8     None    None    0.3   None   None   0.0  stop
+  8     90     88.8    -1.2     None    None    0.1   None   None   0.0  stop
+  9   -107   -107.0    -0.0     None    None    0.3   None   None   0.0  stop
+ 10    107    106.9    -0.1     None    None    0.3   None   None   0.0  stop
+ 11   -180   -181.3    -1.3     None    None    0.2   None   None   0.0  stop
+ 12    180    181.9     1.9     None    None    0.4   None   None   0.0  stop
+  "n_turns": 12,
+  "slip_during_run": 0.962,
+  "fit_gain": 1.0107,
+  "fit_offset_deg": -0.85,
+  "mean_err_left_deg": 0.48,
+  "mean_err_right_deg": -0.52,
+      "mean_err": 0.28,
+      "mean_err": -1.09,
+      "mean_err": -0.64,
+      "mean_err": 0.17,
+      "mean_err": 1.79,
+      "mean_err": -0.62,
+  "mean_abs_err_deg": 0.98,
+  "mean_drift_cm": 0.35,
+    "rotational_slip": 0.9723,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",

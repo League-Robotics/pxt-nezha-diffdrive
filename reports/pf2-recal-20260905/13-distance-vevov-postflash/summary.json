@@ -1,0 +1,25 @@
+{
+  "robot": "vevov",
+  "link": "radio relay ch 37 grp 43 (torture:8760)",
+  "camera": "hd-usb-camera",
+  "cruise": 0,
+  "n_legs": 12,
+  "lengths": [
+    200,
+    300,
+    400
+  ],
+  "fit_gain": 1.0175,
+  "fit_offset_mm": -4.01,
+  "mean_err_forward_mm": 1.12,
+  "mean_err_reverse_mm": -1.37,
+  "mean_abs_err_mm": 1.53,
+  "mean_abs_cross_mm": 7.33,
+  "mean_heading_change_deg": 0.69,
+  "suggested": {
+    "travel_calib_ratio": 1.0175,
+    "model": "travel_calib_new = travel_calib_now * gain; the offset is not a scale -- leave it to lag/stop_distance",
+    "travel_calib": 0.80712,
+    "implied_wheel_diameter_mm": 92.5
+  }
+}

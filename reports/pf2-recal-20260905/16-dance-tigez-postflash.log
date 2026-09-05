@@ -1,0 +1,14 @@
+relay: guvov (DEVICE:RADIOBRIDGE:relay:guvov:3240129406)
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '0', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.962 stop_distance=0.0 lag=0.05 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 57 at (-34.6, -18.0) cm heading -35.9 deg
+home (-34.6, -18.0) h=-35.9
+turn  +90: camera   +90.8 (unwrapped   +90.6, 16 samples) PASS
+turn +180: camera  +181.7 (unwrapped  +182.5, 26 samples) PASS
+turn  +90: camera   +90.3 (unwrapped   +89.8, 16 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 0.8 cm; net heading +2.6 deg
+DANCE PASSED -- left is left, forward is forward, and it comes home.

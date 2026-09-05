@@ -155,13 +155,45 @@ Two build traps avoided, both of which ship a quietly degraded hex:
   defaults OFF. Since WiFi is what dies under motor load, that would have
   left both boards with no reliable carrier. Built with `--radio-link`.
 
+## Post-flash confirm runs (DESIGN.md step 5)
+
+Both robots back on the secondary field, carrier = radio relay.
+
+**tigez: DONE, and the lag fault is closed.** On a FRESH BOOT (`cyc=0`,
+`lag=0.05` now from the bake) the dance passed +90.8 / +181.7 / +90.3, net
++2.6 deg, home 0.8 cm -- where a fresh boot before the reflash gave +35.2
+deg for a commanded +90. The confirm sweep, no live SET
+(`17-turns-tigez-postflash`): 12 pivots at +-90/107/180, **mean abs 0.98
+deg**, fit gain 1.0107, offset -0.85, left/right +0.48/-0.52, drift 0.35 cm.
+tigez's bake is now flown and verified.
+
+**vevov: travel confirmed, and the residual turned out to be trackwidth.**
+`13-distance-vevov-postflash`: fit gain **1.0175**, mean abs error **1.53
+mm** over 12 legs -- down from 41.87 mm, so travel_calib 0.79324 is right.
+But `14-turns-vevov-postflash` (no live SET) still fitted pivot gain
+**1.1013** with offset 0.02 deg. With travel now unity that residual is
+PURE TRACKWIDTH: b_eff = 128.0/1.1013 = **116.2 mm**, i.e. the 128.0 mm
+caliper figure is not this chassis's effective track -- the 2026-08-28
+"essentially no scrub" note did not survive the wheel change.
+
+`SET rotational_slip 1.1013` confirmed it (`15-turns-vevov-slip11013`): 12
+pivots, **mean abs 1.18 deg** (from 13.7), left/right balanced
+-0.28/+0.48, drift 0.39 cm. Baked in radio-robot-lib; `trackwidth` stays at
+the 128.0 caliper measurement and the slip carries the difference, per the
+rule that a geometric measurement is never "corrected".
+
+The fit offset of 0.02 deg at lag 0.04 is worth noting on its own: it is
+the cleanest confirmation yet that lag centres the pivot OFFSET while the
+gain belongs to travel and trackwidth.
+
 ## Still to do
 
-1. **Confirm both robots on the field** -- `calibrate.py turns --no-tlm`
-   with NO live SET, per DESIGN.md step 5. vevov's travel_calib 0.79324 and
-   rotational_slip 1.0 are still DERIVED (measured at the old travel_calib
-   and divided through); this is the run that makes them measured.
-   Also re-run `distance` on vevov: the gain should now be 1.00, not 1.13.
+1. **Reflash vevov** with `rotational_slip 1.1013` -- it is live-SET only
+   right now and is lost on the next reboot. vevov is on the playfield;
+   flash next time it is on the farm, then re-run turns with no live SET.
+   (Optional further trim: travel_calib 0.79324 -> 0.80712 from the 1.0175
+   distance gain. Left alone deliberately -- 1.53 mm mean abs error is at
+   the noise floor and the trim forces a coupled slip re-derivation.)
 2. Re-probe tigez's -3.77 deg yaw residual (single probe, crabbing robot).
 3. Diagnose tigez's cross-track drift.
 4. **gopiv is now on the secondary field (tag 54)** and has NO entry in
