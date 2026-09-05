@@ -325,6 +325,26 @@ class MotionEngine {
   // comment.
   bool isDriving() const { return seg_.active || hold_.active; }
 
+  // True iff the MOST RECENT Segment to go inactive ended because ITS
+  // OWN deadline (seg_.deadline, service()'s own `expired` check) was
+  // reached, rather than by reaching its own goal (step.arriving), an
+  // abort (wrongWay/stallHalted/estopped/a refused drive), or an
+  // external cancelMove()/endMove(). Set ONCE, synchronously, at the
+  // exact service() tick the engine itself ends the segment -- a caller
+  // that reads this an arbitrary time later still gets the answer as of
+  // THAT tick, unlike re-deriving "did it time out" from a wire-side
+  // deadline compared against a clock read fresh at whenever the
+  // caller happens to ask (correct only if that ask lands before the
+  // deadline elapses; wrong for an early-arriving move whose next poll
+  // happens to be late). Persists across the seg_ reset that ends a
+  // segment (it lives on MotionEngine, not on Segment) until the NEXT
+  // segment overwrites it in beginSegment() -- see that method's own
+  // reset -- so it is well-defined at any later read as long as no
+  // newer segment has started since.
+  bool lastSegmentEndedByDeadline() const {
+    return lastSegmentEndedByDeadline_;
+  }
+
   // Force-end the current command now (no-op if neither a Segment nor a
   // Hold is active): neutrals the kernel if something was active, resets
   // the shaper, then clears both seg_/hold_ (design S4.4's table).
@@ -573,6 +593,12 @@ class MotionEngine {
   // Moves aborted because the robot was rotating AWAY from the
   // commanded direction (service()). Cumulative since construction.
   uint32_t wrongWayCount_ = 0;
+
+  // Backing field for lastSegmentEndedByDeadline() above -- see that
+  // accessor's own doc comment. Set at every site in service()/endMove()
+  // that ends a Segment, and reset in beginSegment() when a new one
+  // starts.
+  bool lastSegmentEndedByDeadline_ = false;
 };
 
 }  // namespace diffDrive

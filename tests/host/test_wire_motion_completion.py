@@ -274,6 +274,66 @@ def test_move_x_reaching_its_own_goal_early_reports_stop(wa):
     assert wa.last_done_reason() == DONE_STOP
 
 
+def test_move_x_early_arrival_survives_a_late_status_poll_as_stop_not_timeout(wa):
+    """Sprint 031 ticket 003 (closing wire-done-reason-is-resolved-lazily.md):
+    resolvePendingReason() used to decide kStop vs kTimeout for a
+    goal-directed move by comparing the WIRE's own lease deadline
+    against `now_()` read fresh AT WHATEVER MOMENT something finally
+    asked -- correct only if that ask lands before the lease elapses.
+    This is the literal hazard MEASURED tovez 2026-09-04 (firmware
+    1.20260903.1, pre-fix):
+    `captures/tovez-preflight-20260904/notes.md` -- a 2 cm `MOVE_X`
+    that completed well inside its 3000 ms budget came back
+    `done=1 reason=timeout` on the very next `STATUS`.
+
+    Reproduced here with NO intervening call to
+    has_live_motion_obligation()/last_done()/last_done_reason() between
+    the early arrival and a STATUS query issued well after the OLD
+    lease deadline would have elapsed -- the worst case the acceptance
+    criteria calls out explicitly, and the one
+    engineMoveEndedByDeadline() (motion_engine.h) fixes: the engine
+    itself latches why a Segment ended, on the tick it happens, so a
+    late poll reads that already-decided answer instead of
+    re-deriving (and getting wrong) a stale one.
+    """
+    _ready(wa)
+    wa.set_now_ms(1000)
+    cpm = wa.counts_per_mm()
+
+    distance_mm = 200.0
+    dist_target_counts = distance_mm * cpm
+    wa.feed(b"MOVE_X 200 0 100 3000 #1\n")  # deadline 4000
+    assert wa.take_sink() == _ack(1)
+    assert wa.engine_move_active()
+
+    # Lazy origin capture -- see the sibling early-arrival test's own
+    # comment above for why this must land before the target is armed.
+    wa.step()
+    wa.service_move()
+
+    wa.arm_motor_position(LEFT, dist_target_counts, sample_time_us=1)
+    wa.arm_motor_position(RIGHT, dist_target_counts, sample_time_us=1)
+    wa.step()
+    still_active = wa.service_move()
+    assert not still_active
+    assert not wa.engine_move_active()  # arrived at ~1050ms, 2950ms early
+
+    # NOTHING polls this adapter between the early arrival above and the
+    # late STATUS below -- no has_live_motion_obligation(), no
+    # last_done(), no last_done_reason(). Advance straight past the OLD
+    # lease deadline (4000) before the first-ever resolving call.
+    wa.set_now_ms(4500)
+
+    wa.feed(b"STATUS #2\n")
+    reply = wa.take_sink()
+    assert b"done=1 reason=stop" in reply
+    assert b"reason=timeout" not in reply
+
+    # And the direct accessors agree with the wire surface.
+    assert wa.last_done() == 1
+    assert wa.last_done_reason() == DONE_STOP
+
+
 def test_move_x_reaching_its_own_goal_early_self_resolves_via_has_live_motion_obligation(wa):
     """Closes clear-motion-obligation-on-the-fiber-loop-and-tlm-now's
     CM-02: the GOAL-DIRECTED counterpart of
@@ -700,3 +760,4 @@ def test_obligation_window_narrows_after_natural_completion(wa):
     tick_period_ms = 24  # shims.cpp's documented kernel.step() cadence
     avoided_ticks = (declared_timeout_ms - completion_ms) // tick_period_ms
     assert avoided_ticks == 414
+

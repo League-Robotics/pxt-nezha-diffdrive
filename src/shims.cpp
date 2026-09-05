@@ -567,6 +567,19 @@ bool engineMoveActive() {
   return rig != nullptr && rig->engine.isMoveActive();
 }
 
+// The SECOND genuinely new read WireAdapter's motion-completion
+// resolution needs, alongside engineMoveActive() above -- true iff the
+// most recent Segment to go inactive ended via its OWN deadline rather
+// than by reaching its own goal, an abort, or an external stop. See
+// MotionEngine::lastSegmentEndedByDeadline()'s own doc comment
+// (motion_engine.h) for why this matters: it is latched once, on the
+// engine's own tick, instead of being re-derived from a wire-side clock
+// comparison whenever a host later happens to ask. `rig == nullptr`
+// answers false, the same honest default engineMoveActive() gives.
+bool engineMoveEndedByDeadline() {
+  return rig != nullptr && rig->engine.lastSegmentEndedByDeadline();
+}
+
 // ---- move engine ----------------------------------------------------
 
 //%

@@ -577,6 +577,18 @@ bool engineMoveActive() {
   return g_activeWaHandle->engine.isMoveActive();
 }
 
+// Mirrors shims.cpp's real engineMoveEndedByDeadline() exactly -- the
+// SECOND genuinely new read resolvePendingReason() (wire_adapter.cpp)
+// needs, alongside engineMoveActive() above. Reads this handle's OWN
+// real MotionEngine::lastSegmentEndedByDeadline(), the SAME engine
+// service_move() (below) drives, so a test exercising the real
+// WireAdapter's completion channel exercises the exact bridge
+// production code uses, not a separate notion of "why."
+bool engineMoveEndedByDeadline() {
+  if (g_activeWaHandle == nullptr) return false;
+  return g_activeWaHandle->engine.lastSegmentEndedByDeadline();
+}
+
 // Mirrors the subset of shims.cpp's real diagValue() switch
 // wire_adapter.cpp's status() actually reads (see that file's kDiag*
 // constants) -- read straight off the SAME kernel setWheelsTimed()/
