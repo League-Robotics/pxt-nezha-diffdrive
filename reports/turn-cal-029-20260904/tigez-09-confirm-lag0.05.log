@@ -1,0 +1,94 @@
+relay: guvov (DEVICE:RADIOBRIDGE:relay:guvov:3240129406)
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '3', 'cyc': '372', 'tlm': 'off', 'next': '1', 'done': '6', 'reason': 'stop'}
+SET lag 0.05 -> ack 1 6 stop
+rotational_slip=0.962 stop_distance=0.0 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 57 at (-12.5, -12.0) cm heading 14.2 deg
+telemetry OFF (--no-tlm): camera-only scoring, no wheel speeds or encoder heading
+telemetry columns: []
+12 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90     89.2    -0.8     None    None    0.5   None   None   0.0  stop
+  2    -90    -87.7     2.4     None    None    0.2   None   None   0.0  stop
+  3    107    104.7    -2.3     None    None    0.4   None   None   0.0  stop
+  4   -107    -99.7     7.3     None    None    0.2   None   None   0.0  stop
+  5    180    182.0     2.0     None    None    0.4   None   None   0.0  stop
+  6   -180   -181.6    -1.6     None    None    0.3   None   None   0.0  stop
+  7    -90    -92.1    -2.1     None    None    0.2   None   None   0.0  stop
+  8     90     90.5     0.5     None    None    0.2   None   None   0.0  stop
+  9   -107   -108.4    -1.4     None    None    0.2   None   None   0.0  None
+ 10    107  -- MOVE_X not accepted: None
+ 11   -180  -- MOVE_X not accepted: None
+  link silent twice -- reconnecting through the relay pool
+relay: gozop (DEVICE:RADIOBRIDGE:relay:gozop:4267970133)
+  link: radio relay ch 55 grp 114 (torture:8760); robot: None
+  SET lag 0.05 -> ack 1 17 stop
+ 12    180    181.9     1.9     None    None    0.0   None   None   0.0  stop
+{
+  "robot": "tigez",
+  "cruise_mm_s": 0,
+  "n_turns": 10,
+  "n_disturbed_excluded": 0,
+  "disturbed_turns": [],
+  "slip_during_run": 0.962,
+  "pivot_overrun_during_run_mm": 0.0,
+  "overrun_field": "stop_distance",
+  "lag_during_run_s": null,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 118.71,
+  "fit_gain": 1.031,
+  "fit_offset_deg": -4.12,
+  "mean_err_left_deg": 0.25,
+  "mean_err_right_deg": 0.91,
+  "per_command": {
+    "+90": {
+      "n": 2,
+      "mean_err": -0.16,
+      "min": -0.8,
+      "max": 0.49
+    },
+    "-90": {
+      "n": 2,
+      "mean_err": 0.11,
+      "min": -2.12,
+      "max": 2.35
+    },
+    "+107": {
+      "n": 1,
+      "mean_err": -2.34,
+      "min": -2.34,
+      "max": -2.34
+    },
+    "-107": {
+      "n": 2,
+      "mean_err": 2.96,
+      "min": -1.39,
+      "max": 7.31
+    },
+    "+180": {
+      "n": 2,
+      "mean_err": 1.96,
+      "min": 1.87,
+      "max": 2.04
+    },
+    "-180": {
+      "n": 1,
+      "mean_err": -1.6,
+      "min": -1.6,
+      "max": -1.6
+    }
+  },
+  "mean_abs_err_deg": 2.23,
+  "mean_drift_cm": 0.25,
+  "suggested": {
+    "rotational_slip": 0.9918,
+    "stop_distance_mm": 0.0,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
+  }
+}
+link: send failed ([Errno 9] Bad file descriptor); the carrier is gone
+link: send failed ([Errno 9] Bad file descriptor); the carrier is gone
+link: send failed ([Errno 9] Bad file descriptor); the carrier is gone
+wrote reports/turn-cal-029-20260904/tigez-09-confirm-lag0.05; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/turn-cal-029-20260904/tigez-09-confirm-lag0.05
