@@ -621,3 +621,72 @@ a grid extension around candidate 3 (kp 0.10-0.20 with a small kaff) is
 the obvious next search, ideally after re-running ticket 006's model
 with tovez's MEASURED per-wheel residual instead of the hypothesized
 one.
+
+## Ticket 012 -- the forward/reverse bias IS real, and a constant halves it but does not clear the bar
+
+MEASURED tovez 2026-09-05, cruise 100 mm/s, two independent alternating
++-600 mm runs on the same firmware, `captures/session-b-20260905/
+g3-cruise100/` (6 legs) and `g3-cruise100-x12/` (12 legs).
+
+| run | forward legs | reverse legs |
+|---|---|---|
+| 1 (6 legs) | -2.23, +4.69, -3.76 | +3.57, +2.57, +1.80 |
+| 2 (12 legs) | -0.83, -4.05, -2.45, -4.28, -3.07, -0.41 | +4.80, +1.11, +3.13, +3.11, +3.56, +2.36 |
+
+| | forward | reverse |
+|---|---|---|
+| run 2 alone (n=6 each) | **-2.52** sd 1.62 | **+3.01** sd 1.23 |
+| pooled (n=9 each) | -1.82 sd 2.79 | +2.89 sd 1.08 |
+
+**Run 2 got 12 of 12 signs right** -- every forward leg negative, every
+reverse leg positive. That is the per-direction asymmetry ticket 012
+was written to find, and it settles the question this session's earlier
+runs could not: a SINGLE-direction run cannot see it (three 250 mm legs
+in one direction settled to -0.06 deg), and n=3 per direction was too
+few (run 1's forward legs read -2.23 / +4.69 / -3.76 and looked like
+noise).
+
+Note run 1's +4.69 is the one sign disagreement across both runs and is
+what inflates the pooled forward sd to 2.79 against run 2's own 1.62.
+It was the first alternating leg pair after a reposition. Not excluded
+here -- pooled numbers include it -- but worth knowing when ticket 015
+picks a value.
+
+### What a per-direction constant buys, and what it does not
+
+Separation between the two means is **+4.71 deg**, so the natural
+correction is half of it, **+-2.36 deg per leg**.
+
+| | mean abs dh | sd |
+|---|---|---|
+| as measured, 18 legs | **2.88 deg** | -- |
+| after a +-2.36 deg per-direction correction | **1.40 deg** | 2.05 |
+
+So the constant is justified and roughly HALVES the error -- but the
+residual is still **above this sprint's own 1.0 deg bar**, and the
+residual scatter (sd 2.05) is larger than the remaining mean. No
+per-wheel `travel_calib` or twist-hold constant can remove scatter that
+changes sign leg to leg.
+
+**Ticket 012's honest closing position: the bias is real and worth
+baking, and baking it alone will NOT meet the 1 deg Success Criterion.**
+Ticket 015 should bake the per-direction term with this citation, and
+ticket 016 should expect ~1.4 deg, not <=1.0. Closing the last 0.4 deg
+needs a different mechanism than a calibration constant -- the same
+start-transient the leg-length sweep isolated is the obvious suspect,
+since it is what the twist hold is still working off during the first
+~10 cm of every leg.
+
+### G3/G4 gate verdicts, 12-leg run (cruise 100)
+
+| gate | measured | bar | verdict |
+|---|---|---|---|
+| G3 length | mean **-5.7 mm** | +-3.0 mm | **FAIL** |
+| G3 peak | **154 mm/s** | <= 105 | **FAIL** |
+| G4 first tick | 46.0 mm/s | <= 70 | PASS |
+| G4 max accel | **954 mm/s^2** | <= 600 | **FAIL** |
+| G4 max decel | **1092 mm/s^2** | <= 800 | **FAIL** |
+
+Consistent with the 6-leg run (-5.3 mm, 144 mm/s, 894, 800) and with
+ticket 011's finding that the kernel's gains overshoot: nothing here
+meets its bar except the first-tick floor.
