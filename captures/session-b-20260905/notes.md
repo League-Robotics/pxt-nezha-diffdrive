@@ -975,3 +975,74 @@ ssid='Busboom Mesh'` where every previous build in a worktree silently
 disabled it. tovez's config carries a static `wifi_ip 192.168.4.11`.
 Association not yet observed at the time of writing -- see the next
 section for whether it came up.
+
+## The bake CONFIRMED on the field -- and the camera recalibrated first
+
+Stakeholder recalibrated the camera at 11:15 local
+(`calibrated_at 1788632127`, `stale=False`). I had waved the stale flag
+through earlier on the strength of AprilTag 1 alone, which was thin:
+the centre marker constrains the origin but says little about scale or
+the corners, and the 600 mm legs run out near the edges.
+
+Verification on the NEW solve:
+
+```
+AprilTag 1 (field centre): (0.083, -0.061) cm
+aruco 1 (-66.83,  44.53)   aruco 3 ( 66.87,  44.55)
+aruco 7 (-66.91, -44.51)   aruco 5 ( 66.91, -44.56)
+```
+
+symmetric and within ~0.3 cm of the documented +-67.15/+-44.65.
+
+**Today's earlier data is NOT invalidated.** Comparing the same four
+border tags on the OLD solve (read 11:02, before recalibration) against
+the new one, the corners moved by only **0.05 to 0.31 cm**. The camera
+had not meaningfully moved; the recalibration was a refresh. A <=3 mm
+world-frame change is far below the effects measured today (degrees of
+heading, cm of travel), so the leg-length sweep, the twist sweep and the
+G3 baselines remain comparable across it.
+
+### Ticket 015's evidence gap: CLOSED
+
+MEASURED tovez 2026-09-05, baked firmware (twist_hold_gain 4.0 from
+`shims.cpp`, `GET twist_hold_gain -> 4.000000`), fresh calibration,
+driven over **WiFi** (`tovez.local:7654`, zilch on charge),
+`captures/session-b-20260905/baked-twist4-x12/`:
+
+| configuration | mean abs dh | legs |
+|---|---|---|
+| gain 2, old default | 2.88 deg | 18 |
+| gain 4, live `SET` | 2.10 deg | 12 |
+| **gain 4, BAKED** | **1.62 deg** | 12 |
+
+fwd -4.16 / -1.86 / -1.26 / +1.35 / -0.82 / +0.08;
+rev +3.66 / +2.47 / +0.51 / -0.24 / +1.72 / +1.36.
+
+The baked default reproduces the live-set behaviour. The 2.10 vs 1.62
+difference is inside the run-to-run spread seen all day and is NOT
+claimed as an improvement from baking.
+
+### The sprint's own 1 deg bar: NOT MET
+
+4 of 12 legs within 1.0 deg, worst 4.16 deg. The Success Criterion is
+"<= 1 deg in either direction, six of six". Not met, on the final
+firmware. Recorded as a fail, not rounded up.
+
+### G3/G4 on the final firmware -- a real trade, both directions
+
+| gate | pre-bake (gain 2) | baked (gain 4) | bar | verdict |
+|---|---|---|---|---|
+| G3 length | -5.3 .. -5.7 mm | **-6.4 mm** | +-3.0 | FAIL |
+| G3 peak | 148 .. 154 mm/s | **118 mm/s** | <= 105 | FAIL (much closer) |
+| G4 first tick | 34 .. 51 mm/s PASS | **110 mm/s** | <= 70 | **FAIL -- REGRESSED** |
+| G4 max accel | 861 .. 954 | **637** | <= 600 | FAIL (much closer) |
+| G4 max decel | 1061 .. 1092 | **477** | <= 800 | **PASS -- was failing** |
+
+Peak, acceleration and deceleration all improved markedly and decel now
+passes outright. But **first-tick regressed from passing to failing**
+(51 -> 110 mm/s). The plausible mechanism, NOT verified: a higher
+twist-hold gain applies a larger differential correction on the very
+first tick, which is precisely what G4's first-tick bar measures. That
+is a trade the bake makes, and it belongs in ticket 016's scorecard --
+if the first-tick bar matters more than the accel/decel bars, gain 4 is
+not obviously the right pick.
