@@ -1,0 +1,42 @@
+relay: getez (DEVICE:RADIOBRIDGE:relay:getez:1784514240)
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '60', 'cyc': '1935', 'tlm': 'off', 'next': '1', 'done': '15', 'reason': 'stop'}
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0; robot at (8.3, 12.3) heading 2.2
+facing west: (8.9, 12.4) h -178.1
+  1  +200 -> camera  +199.7 mm  err   -0.3  cross -12.8  dh  +0.6 deg  stop
+  2  -200 -> camera  -199.6 mm  err   +0.4  cross  +6.0  dh  +0.7 deg  stop
+  3  +200 -> camera  +199.4 mm  err   -0.6  cross -18.3  dh  +0.2 deg  stop
+  4  -200 -> camera  -200.6 mm  err   -0.6  cross  +4.3  dh  +0.6 deg  stop
+  5  +300 -> camera  +300.6 mm  err   +0.6  cross -22.9  dh  +0.7 deg  stop
+  6  -300 -> camera  -299.7 mm  err   +0.3  cross +10.2  dh  -0.6 deg  stop
+  7  +300 -> camera  +299.0 mm  err   -1.0  cross -30.1  dh  -1.2 deg  stop
+  8  -300 -> camera  -299.2 mm  err   +0.8  cross +10.4  dh  +0.4 deg  stop
+  9  +400 -> camera  +398.6 mm  err   -1.4  cross -35.2  dh  -0.7 deg  stop
+STOP (projected end): robot at (8.9, 20.3) cm is within 15 cm of a rail (limits +-55.0, +-35.0); move it toward the middle
+{
+  "robot": "tigez",
+  "link": "radio relay ch 55 grp 114 (torture:8760)",
+  "camera": "hd-usb-camera",
+  "cruise": 0,
+  "n_legs": 9,
+  "lengths": [
+    200,
+    300,
+    400
+  ],
+  "fit_gain": 0.99525,
+  "fit_offset_mm": 0.87,
+  "mean_err_forward_mm": -0.54,
+  "mean_err_reverse_mm": 0.23,
+  "mean_abs_err_mm": 0.67,
+  "mean_abs_cross_mm": 16.69,
+  "mean_heading_change_deg": 0.07,
+  "suggested": {
+    "travel_calib_ratio": 0.99525,
+    "model": "travel_calib_new = travel_calib_now * gain; the offset is not a scale -- leave it to lag/stop_distance",
+    "travel_calib": 0.7825,
+    "implied_wheel_diameter_mm": 89.7
+  }
+}
+wrote reports/pf2-recal-20260905/09-distance-tigez/legs.csv, summary.json

@@ -1,0 +1,38 @@
+########## lag=0
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+  7   -180  -- MOVE_X not accepted: None
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+  8    180  -- MOVE_X not accepted: None
+{}
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+link: send failed ([Errno 32] Broken pipe); the carrier is gone
+wrote reports/pf2-recal-20260905/06-turns-vevov-lag0; render with: <plot venv>/bin/python /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/calibration/turn_calibration.py --render reports/pf2-recal-20260905/06-turns-vevov-lag0
+########## lag=0.04
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/calibration/turn_calibration.py", line 1021, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/calibration/turn_calibration.py", line 957, in main
+    link, where = open_link(a)
+                  ~~~~~~~~~^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/calibration/turn_calibration.py", line 234, in open_link
+    return Link(host, 7654), f'WiFi TCP {host}:7654'
+           ~~~~^^^^^^^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/calibration/turn_calibration.py", line 88, in __init__
+    self.sock = socket.create_connection((host, port), timeout=10)
+                ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/eric/.local/share/uv/python/cpython-3.13.7-macos-aarch64-none/lib/python3.13/socket.py", line 864, in create_connection
+    raise exceptions[0]
+  File "/Users/eric/.local/share/uv/python/cpython-3.13.7-macos-aarch64-none/lib/python3.13/socket.py", line 849, in create_connection
+    sock.connect(sa)
+    ~~~~~~~~~~~~^^^^
+TimeoutError: timed out

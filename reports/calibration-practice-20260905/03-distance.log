@@ -1,0 +1,1 @@
+reports/calibration-practice-20260905/run.sh:14: no such file or directory: uv run python tests/calibration/calibrate.py

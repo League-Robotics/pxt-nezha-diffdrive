@@ -39,10 +39,16 @@ CAMLINK = pathlib.Path(__file__).resolve().parents[2] / 'tools' / 'camlink.py'
 
 
 def register(tag, family, mx, my, mz, yaw_rad):
+    # register_tag takes (TagId, MountParameters) -- the same call shape
+    # tools/camlink.py uses. It once took loose mount_* keywords; that
+    # signature is gone (TypeError on the installed build, 2026-09-05).
     from aprilcam.mcp.connection import ConnectionManager
-    from aprilcam.types import TagFamily
+    from aprilcam import types as dc
     D = ConnectionManager().resolve()
-    return D.register_tag(TagFamily(family), tag, mount_x=mx, mount_y=my, mount_z=mz, mount_yaw_rad=yaw_rad)
+    return D.register_tag(
+        dc.TagId(family=dc.TagFamily(family), number=tag),
+        dc.MountParameters(size_cm=None, mount_x=mx, mount_y=my, mount_z=mz, mount_yaw_rad=yaw_rad),
+    )
 
 
 def solve_mount(poses):
@@ -101,6 +107,7 @@ def main(argv=None):
     ap.add_argument('--mount-z', type=float, required=True, help='tag height above the field [cm]')
     ap.add_argument('--pivots', type=int, default=8, help='alternating +-90 pivots for the solve')
     ap.add_argument('--probe', type=int, default=300, help='forward probe [mm] for the yaw residual (0 = skip)')
+    ap.add_argument('--face', type=float, default=None, help='pivot to this heading [deg] before the probe (e.g. 0 = east, away from other robots)')
     ap.add_argument('--margin', type=float, default=tc.SAFE_MARGIN)
     ap.add_argument('--write', action='store_true', help='update tools/field_calibration.json and register from it')
     ap.add_argument('--out', default='reports/mount')
@@ -163,6 +170,12 @@ def main(argv=None):
     # 4. yaw residual from a forward probe
     residual = 0.0
     if a.probe:
+        if a.face is not None:
+            for _ in range(3):
+                q = cam.fix(); turn = tc.wrap(a.face - q[2])
+                if abs(turn) < 2:
+                    break
+                pivot(link, cam, turn)
         p0 = cam.fix()
         end = (p0[0] + a.probe / 10.0 * math.cos(math.radians(p0[2])), p0[1] + a.probe / 10.0 * math.sin(math.radians(p0[2])), p0[2])
         bad = tc.check_safe(end, a.margin)
@@ -189,7 +202,12 @@ def main(argv=None):
     if a.write:
         cal = json.loads(CAL_FILE.read_text())
         e = cal['robots'].setdefault(a.robot, {'tag_family': a.family, 'tag_number': tag, 'camera': tc.CAM, 'lever_cm': [0.0, 0.0], 'parallax_k': 1.0})
-        e.update({'mount_x_cm': round(mx, 3), 'mount_y_cm': round(my, 3), 'mount_z_cm': a.mount_z,
+        # `camera` must be updated too, not just seeded on first write: a robot
+        # that already had an entry kept the OLD camera name while every number
+        # beside it came from a different one (tigez 2026-09-05 -- solved on
+        # hd-usb-camera, entry still claimed arducam-ov9782-usb-camera).
+        e.update({'camera': tc.CAM,
+                  'mount_x_cm': round(mx, 3), 'mount_y_cm': round(my, 3), 'mount_z_cm': a.mount_z,
                   'mount_yaw_residual_deg': round(residual, 2), 'lever_cm': [0.0, 0.0], 'parallax_k': 1.0})
         e['_mount_provenance'] = (f'{a.robot.upper()}-MEASURED {time.strftime("%Y-%m-%d")} by tests/calibration/mount.py on {tc.CAM}: '
                                   f'{len(poses)} rest poses over {a.pivots} +-90 pivots, residual rms {rms:.1f} mm; verification drift '

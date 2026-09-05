@@ -1,0 +1,56 @@
+wifilink: vevov.local -> 192.168.1.249 (mDNS)
+I0905 09:05:57.817751 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818040 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818043 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818044 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818046 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818048 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818049 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818050 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818051 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818053 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818054 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818055 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818056 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818057 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818058 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818059 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818060 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818061 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818062 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818063 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818064 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818065 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818066 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818067 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818068 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818069 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818070 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818071 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818072 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818073 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818074 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818075 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+I0905 09:05:57.818076 18986372 ev_poll_posix.cc:593] FD from fork parent still in poll list: fd(9, generation: 1)
+registered 'vevov' from /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tools/field_calibration.json
+provisional mount registered (0, 0, 11.2, -90 deg): None
+link: WiFi TCP 192.168.1.249:7654
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '15', 'cyc': '890', 'tlm': 'off', 'next': '1', 'done': '10', 'reason': 'stop'}
+tag at (-21.26, -14.77) heading -3.7
+  pivot 1 +90: tag (-24.37, -11.55) heading 107.4
+  pivot 2 -90: tag (-20.94, -14.26) heading 7.2
+  pivot 3 +90: tag (-24.81, -11.69) heading 119.0
+  pivot 4 -90: tag (-20.33, -13.84) heading 11.6
+  pivot 5 +90: tag (-24.39, -11.39) heading 121.7
+  pivot 6 -90: tag (-19.95, -13.54) heading 14.1
+  pivot 7 +90: tag (-24.10, -11.41) heading 126.1
+  pivot 8 -90: tag (-19.13, -13.37) heading 17.3
+
+solved mount (robot frame): x +2.90 cm forward, y -0.32 cm left; centre (-23.26, -14.15); residual rms 4.8 mm
+implied centre per pose: (-24.1,-14.3) (-23.8,-14.4) (-23.9,-14.3) (-23.7,-14.4) (-23.2,-14.1) (-23.1,-14.0) (-22.8,-13.9) (-22.6,-13.9) (-22.0,-13.9)
+verification: centre drift per pivot 0.20 0.71 0.25 0.70 cm (mean 0.46)
+probe 300 mm: travelled 335.8 mm at bearing 175.8, heading was -5.7 -> yaw residual -178.56 deg
+WARNING: residual beyond 20 deg -- the plate is mounted wrong or the robot drives backwards; NOT writing it
+wrote reports/pf2-recal-20260905/02-mount-vevov/mount.json
+wrote /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tools/field_calibration.json

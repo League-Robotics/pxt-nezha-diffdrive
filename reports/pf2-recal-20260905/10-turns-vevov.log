@@ -1,0 +1,68 @@
+########## vevov lag=0
+relay: getez (DEVICE:RADIOBRIDGE:relay:getez:1784514240)
+link: radio relay ch 37 grp 43 (torture:8760)
+robot: device NEZHA2 robot vevov 1198504156
+rotational_slip=0.987 stop_distance=0.0 lag=0.0 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 53 at (20.6, -8.4) cm heading 179.4 deg
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+  1     90    103.8    13.8     None    None    1.5   None   None   0.0  stop
+  2    -90   -116.1   -26.1     None    None    0.6   None   None   0.0  stop
+  3    180    209.2    29.2     None    None    2.4   None   None   0.0  stop
+  4   -180   -220.3   -40.3     None    None    1.5   None   None   0.0  stop
+  5    -90   -113.0   -23.0     None    None    0.6   None   None   0.0  stop
+  6     90    111.1    21.1     None    None    0.5   None   None   0.0  stop
+  7   -180   -220.8   -40.8     None    None    1.7   None   None   0.0  stop
+  8    180    211.9    31.9     None    None    1.8   None   None   0.0  stop
+  "n_turns": 8,
+  "slip_during_run": 0.987,
+  "overrun_field": "stop_distance",
+  "fit_gain": 1.1617,
+  "fit_offset_deg": 6.43,
+  "mean_err_left_deg": 23.98,
+  "mean_err_right_deg": -32.55,
+      "mean_err": 17.41,
+      "mean_err": -24.56,
+      "mean_err": 30.54,
+      "mean_err": -40.55,
+  "mean_abs_err_deg": 28.26,
+  "mean_drift_cm": 1.31,
+    "rotational_slip": 1.1466,
+    "stop_distance_mm": 6.49,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
+########## vevov lag=0.04
+relay: guvov (DEVICE:RADIOBRIDGE:relay:guvov:3240129406)
+link: radio relay ch 37 grp 43 (torture:8760)
+robot: device NEZHA2 robot vevov 1198504156
+rotational_slip=0.987 stop_distance=0.0 lag=0.04 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 53 at (21.3, -6.7) cm heading 143.6 deg
+  1     90  -- MOVE_X not accepted: None
+  2    -90  -- MOVE_X not accepted: None
+relay: getez (DEVICE:RADIOBRIDGE:relay:getez:1784514240)
+  link: radio relay ch 37 grp 43 (torture:8760); robot: device NEZHA2 robot vevov 1198504156
+  3    180    209.9    29.9     None    None    2.1   None   None   0.0  stop
+  4   -180   -209.1   -29.1     None    None    1.6   None   None   0.0  stop
+  5    -90   -104.8   -14.8     None    None    0.6   None   None   0.0  stop
+  6     90    104.8    14.8     None    None    0.8   None   None   0.0  stop
+  7   -180   -212.4   -32.4     None    None    1.7   None   None   0.0  stop
+  8    180    207.6    27.6     None    None    1.8   None   None   0.0  stop
+  "n_turns": 6,
+  "slip_during_run": 0.987,
+  "overrun_field": "stop_distance",
+  "fit_gain": 1.1659,
+  "fit_offset_deg": -0.1,
+  "mean_err_left_deg": 24.11,
+  "mean_err_right_deg": -25.45,
+      "mean_err": 28.74,
+      "mean_err": -30.77,
+      "mean_err": -14.81,
+      "mean_err": 14.85,
+  "mean_abs_err_deg": 24.78,
+  "mean_drift_cm": 1.44,
+    "rotational_slip": 1.1507,
+    "stop_distance_mm": 0.0,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
+link: send failed ([Errno 9] Bad file descriptor); the carrier is gone
+link: send failed ([Errno 9] Bad file descriptor); the carrier is gone
+link: send failed ([Errno 9] Bad file descriptor); the carrier is gone

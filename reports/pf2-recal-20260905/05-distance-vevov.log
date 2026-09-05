@@ -1,0 +1,43 @@
+wifilink: vevov.local -> 192.168.1.249 (mDNS)
+link: WiFi TCP 192.168.1.249:7654
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '125', 'cyc': '2649', 'tlm': 'off', 'next': '1', 'done': '16', 'reason': 'stop'}
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0; robot at (20.8, -13.4) heading 7.9
+facing west: (20.7, -14.5) h -174.7
+  1  +200 -> camera  +228.7 mm  err  +28.7  cross  -2.6  dh  -0.4 deg  stop
+  2  -200 -> camera  -228.2 mm  err  -28.2  cross  -4.9  dh  +0.8 deg  stop
+  3  +200 -> camera  +229.5 mm  err  +29.5  cross  -2.0  dh  +0.1 deg  stop
+  4  -200 -> camera  -228.2 mm  err  -28.2  cross  -0.7  dh  +0.7 deg  stop
+  5  +300 -> camera  +341.0 mm  err  +41.0  cross  -9.1  dh  -0.8 deg  stop
+  6  -300 -> camera  -342.3 mm  err  -42.3  cross  -3.7  dh  +0.2 deg  stop
+  7  +300 -> camera  +341.6 mm  err  +41.6  cross  -5.0  dh  +0.6 deg  stop
+  8  -300 -> camera  -342.6 mm  err  -42.6  cross  +0.4  dh  +0.3 deg  stop
+  9  +400 -> camera  +454.6 mm  err  +54.6  cross -11.6  dh  -1.2 deg  stop
+ 10  -400 -> camera  -454.8 mm  err  -54.8  cross  -7.8  dh  +0.6 deg  stop
+ 11  +400 -> camera  +456.4 mm  err  +56.4  cross -10.8  dh  -0.9 deg  stop
+ 12  -400 -> camera  -454.5 mm  err  -54.5  cross -17.6  dh  +0.8 deg  stop
+{
+  "robot": "vevov",
+  "link": "WiFi TCP 192.168.1.249:7654",
+  "camera": "hd-usb-camera",
+  "cruise": 0,
+  "n_legs": 12,
+  "lengths": [
+    200,
+    300,
+    400
+  ],
+  "fit_gain": 1.13213,
+  "fit_offset_mm": 2.23,
+  "mean_err_forward_mm": 41.97,
+  "mean_err_reverse_mm": -41.77,
+  "mean_abs_err_mm": 41.87,
+  "mean_abs_cross_mm": 6.35,
+  "mean_heading_change_deg": 0.07,
+  "suggested": {
+    "travel_calib_ratio": 0.88329,
+    "model": "travel_calib_new = travel_calib_now / gain; the offset is not a scale -- leave it to lag/stop_distance",
+    "travel_calib": 0.61889
+  }
+}
+wrote reports/pf2-recal-20260905/05-distance-vevov/legs.csv, summary.json

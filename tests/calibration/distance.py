@@ -6,7 +6,18 @@ The gain is the travel scale error the encoders cannot see (wheel radius,
 `lag` / `stop_distance` territory, NOT a scale). Both are reported; only
 the gain becomes a `travel_calib` suggestion:
 
-    travel_calib_new = travel_calib_now / gain
+    travel_calib_new = travel_calib_now * gain
+
+`travel_calib` is mm of travel per DEGREE of wheel rotation (tigez: 0.78623
+against a 90.1 mm wheel; pi * 90.1 / 360 = 0.7864). The firmware turns a
+commanded distance D into `D / travel_calib` degrees, so the distance it
+actually covers is `D * (true_mm_per_deg / travel_calib)` -- i.e. the fitted
+gain IS `true_mm_per_deg / travel_calib`, and the corrected constant is the
+product, not the quotient. MEASURED vevov 2026-09-05,
+reports/pf2-recal-20260905/05-distance-vevov/: gain 1.13213 on a bake of
+0.70066 gives 0.79320 (a 90.9 mm wheel, matching the wheels actually
+fitted); the quotient would have given 0.61889 -- a 70.9 mm wheel -- and
+made every leg overshoot by a further 28%.
 
 `travel_calib` is a bake-only constant (no wire field), so the suggestion
 goes into radio-robot-lib `geometry.firmware_bake.travel_calib` and needs
@@ -174,10 +185,15 @@ def main(argv=None):
             'mean_heading_change_deg': round(sum(r['heading_change_deg'] for r in rows) / n, 2),
         })
         if gain:
-            summary['suggested'] = {'travel_calib_ratio': round(1.0 / gain, 5),
-                                    'model': 'travel_calib_new = travel_calib_now / gain; the offset is not a scale -- leave it to lag/stop_distance'}
+            # travel_calib is mm per wheel-DEGREE, so the fitted gain is
+            # true_mm_per_deg / travel_calib_now and the correction is the
+            # PRODUCT. Dividing (as this did until 2026-09-05) doubles the
+            # error instead of cancelling it -- see the module docstring.
+            summary['suggested'] = {'travel_calib_ratio': round(gain, 5),
+                                    'model': 'travel_calib_new = travel_calib_now * gain; the offset is not a scale -- leave it to lag/stop_distance'}
             if a.travel_calib_now:
-                summary['suggested']['travel_calib'] = round(a.travel_calib_now / gain, 5)
+                summary['suggested']['travel_calib'] = round(a.travel_calib_now * gain, 5)
+                summary['suggested']['implied_wheel_diameter_mm'] = round(a.travel_calib_now * gain * 360.0 / math.pi, 1)
     (out / 'summary.json').write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
     print(f'wrote {out}/legs.csv, summary.json')

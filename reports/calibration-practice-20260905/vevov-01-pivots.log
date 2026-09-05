@@ -1,0 +1,11 @@
+relay: zetog (DEVICE:RADIOBRIDGE:relay:zetog:3446622357)
+link: radio relay ch 37 grp 43 (torture:8760)
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '0', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.987 stop_distance=0.0 lag=0.04 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 53 at (-29.9, -18.2) cm heading 1.2 deg
+telemetry OFF (--no-tlm): camera-only scoring, no wheel speeds or encoder heading
+telemetry columns: []
+8 pivots: [90, -90, 180, -180, -90, 90, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason

@@ -1,0 +1,14 @@
+wifilink: vevov.local -> 192.168.1.249 (mDNS)
+link: WiFi TCP 192.168.1.249:7654
+robot: device NEZHA2 robot vevov 1198504156
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '9', 'cyc': '303', 'tlm': 'off', 'next': '1', 'done': '9', 'reason': 'stop'}
+rotational_slip=0.987 stop_distance=0.0 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 53 at (-29.9, -16.0) cm heading 40.7 deg
+home (-29.9, -16.0) h=40.5
+  (MOVE_X +90 not acknowledged: None; retrying once)
+turn  +90: camera  +224.1 (unwrapped  +225.9, 119 samples) **FAIL**
+turn +180: camera  +230.7 (unwrapped  +230.6, 39 samples) **FAIL**
+turn  +90: camera  +113.8 (unwrapped  +114.0, 52 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 10.1 cm; net heading -150.9 deg
+DANCE FAILED: turn +90, turn +180, return home
