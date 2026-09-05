@@ -1224,6 +1224,123 @@ def run_coldboot(link, cam, a, out):
     return not short
 
 
+# --- busguard: Item 1 restated so the counter can actually answer it ------
+#
+# Sprint 030's bus-ownership guard claims a wire-issued OTOS read landing
+# mid-drive no longer destroys the encoder sample it lands inside of.
+# Ticket 009 Item 1 tried to check that by watching `i2cf` "not climb"
+# across a run. That bar cannot pass on post-028 firmware: `i2cf`
+# increments whenever a DRIVEN wheel's raw counts are unchanged
+# (src/DESIGN.md "Sprint 028: frozen-read hold"), i.e. on every
+# breakaway, whether or not anything touched the bus. MEASURED across
+# Session A's four logs, 100 % of i2cf increments landed within 1 s of a
+# command, in a window covering only 19-29 % of wall time.
+#
+# So the question is restated as a CONTROLLED COMPARISON on one build:
+# identical legs, half of them with a `RUN:fix` (which calls
+# worldReady()/logFix() -> readWorld(), a real OTOS I2C transaction from
+# the protocol fiber) fired mid-drive, half without. The guard's claim
+# is that the two groups are indistinguishable. Pre-guard, the OTOS
+# transaction could land inside the Nezha encoder's select->read settle
+# window and destroy that sample -- which shows up as extra i2cf on the
+# interfered legs AND as travel/heading error, since a destroyed sample
+# is a lost tick of control.
+#
+# Reporting both is the point: i2cf alone cannot separate "the guard
+# works" from "breakaway dominates", but a DIFFERENCE between the two
+# groups can only come from the interference.
+
+
+def run_busguard(link, cam, a, out):
+    """Alternating legs, every other one interfered with by a mid-drive
+    `RUN:fix`. Reports i2cf-per-move and camera travel/heading for the
+    interfered vs clean groups."""
+    out.mkdir(parents=True, exist_ok=True)
+    rows, sign = [], 1
+    for i in range(a.legs):
+        interfere = (i % 2 == 1)
+        lights_on()
+        pose = cam.fix(n=4)
+        if pose is None:
+            print('STOP: no camera fix'); break
+        d = sign * a.busguard_mm
+        h = math.radians(pose[2])
+        end = (pose[0] + (d / 10.0) * math.cos(h),
+               pose[1] + (d / 10.0) * math.sin(h))
+        offenders = fieldlib.check_path([(pose[0], pose[1]), end])
+        if offenders:
+            print(f'STOP: projected leg leaves the margin near {offenders[0]}')
+            break
+        before = _status_now(link)
+        tid, _ack = link.seqd(f'MOVE_X {d} 0 {a.cruise_seg} {a.timeout_ms}',
+                              wait=2.0)
+        fix_line = None
+        if interfere:
+            time.sleep(a.busguard_delay)      # land it INSIDE the drive
+            t0 = time.time()
+            link.send('RUN:fix')
+            # RUN:fix -> logFix("now") emits `OCAL:now:<x>:<y>:<h>`, and
+            # `OERR:read-failed:now` first if the OTOS read itself failed
+            # (test/test.ts:310-320). Both are the reply; a failed read
+            # is the more interesting one and must not be silently
+            # counted as "no reply".
+            fix_line = link.wait_for(r'^(OCAL|OERR):', t0, 2.0)
+        time.sleep(max(0.0, a.seg_settle - (a.busguard_delay if interfere else 0)))
+        cam.settle(timeout=5.0)
+        after = _status_now(link)
+        p2 = cam.fix(n=4)
+        moved = (math.hypot(p2[0] - pose[0], p2[1] - pose[1])
+                 if p2 else float('nan'))
+        row = dict(leg=i, interfered=interfere, commanded_mm=d,
+                   cam_mm=moved * 10.0,
+                   len_err_mm=moved * 10.0 - abs(d),
+                   dheading_deg=wrap(p2[2] - pose[2]) if p2 else None,
+                   i2cf_delta=intfield(after, 'i2cf') - intfield(before, 'i2cf'),
+                   cyc_delta=intfield(after, 'cyc') - intfield(before, 'cyc'),
+                   run_fix_reply=fix_line, reason=after.get('reason'))
+        rows.append(row)
+        print(f"leg {i:2d} {'FIX ' if interfere else 'clean'} cmd {d:+5d} "
+              f"cam {row['cam_mm']:6.1f} mm (err {row['len_err_mm']:+.1f}) "
+              f"dh {row['dheading_deg']:+6.2f} i2cf +{row['i2cf_delta']}"
+              f"/{row['cyc_delta']} cyc"
+              + (f"  RUN:fix -> {fix_line}" if interfere else ''))
+        _write_csv(out / 'busguard-legs.csv', rows)
+        sign = -sign
+        time.sleep(a.pause)
+
+    if len(rows) < 2:
+        print('busguard: too few legs -- INCONCLUSIVE')
+        return False
+
+    def stats(group):
+        n = len(group)
+        if not n:
+            return None
+        return dict(n=n,
+                    i2cf_per_move=sum(r['i2cf_delta'] for r in group) / n,
+                    mean_len_err=sum(r['len_err_mm'] for r in group) / n,
+                    mean_abs_dh=sum(abs(r['dheading_deg']) for r in group
+                                     if r['dheading_deg'] is not None) / n)
+    clean = stats([r for r in rows if not r['interfered']])
+    fixed = stats([r for r in rows if r['interfered']])
+    print(f"\nclean legs:      {clean}")
+    print(f"interfered legs: {fixed}")
+    verdict = None
+    if clean and fixed:
+        d_i2cf = fixed['i2cf_per_move'] - clean['i2cf_per_move']
+        d_len = fixed['mean_len_err'] - clean['mean_len_err']
+        print(f"difference (interfered - clean): i2cf/move {d_i2cf:+.2f}, "
+              f"length err {d_len:+.1f} mm")
+        print('NOTE: this is a small-n comparison. State it as a difference '
+              'with its n, never as a pass on one leg either way.')
+        verdict = dict(delta_i2cf_per_move=d_i2cf, delta_len_err_mm=d_len)
+    (out / 'summary.json').write_text(json.dumps(
+        dict(mode='busguard', legs=rows, clean=clean, interfered=fixed,
+             difference=verdict), indent=2, default=str))
+    print(f'-> {out}/')
+    return True
+
+
 def _write_csv(path, rows):
     if not rows:
         return
@@ -1763,11 +1880,12 @@ def main():
     ap.add_argument('--out', default=None)
     ap.add_argument('--render', metavar='DIR', help='only render charts + REPORT.md from an existing --out')
     ap.add_argument('--compare', nargs='+', metavar='DIR', help='overlay several runs/robots into --out')
-    ap.add_argument('--mode', choices=['sweep', 'g1', 'g2', 'g3', 'g5', 'g6', 'coldboot'], default='sweep',
+    ap.add_argument('--mode', choices=['sweep', 'g1', 'g2', 'g3', 'g5', 'g6', 'coldboot', 'busguard'], default='sweep',
                     help="sweep (default) = the multi-angle pivot sweep above; g1/g2/g3/g5/g6 = "
                          "sprint 029's acceptance gates, folded in as named modes (sprint 031 ticket "
                          "007). g4 reports alongside g3 (same telemetry, same script upstream). "
                          "coldboot = the cold-boot segment protocol (tickets 009/010). "
+                         "busguard = ticket 009 Item 1's mid-drive OTOS-read comparison. "
                          "G1 and G2 use this sprint's RESTATED bars; G3/G4/G5/G6 are unchanged. "
                          "See each run_gN() docstring for what it folds in.")
     ap.add_argument('--n-fix', type=int, default=G1_MIN_FIX_SAMPLES,
@@ -1789,6 +1907,10 @@ def main():
                     help='coldboot: segment cruise speed [mm/s]')
     ap.add_argument('--seg-settle', type=float, default=1.8,
                     help='coldboot: seconds to wait after each MOVE_X before the camera fix')
+    ap.add_argument('--busguard-mm', type=int, default=120,
+                    help='busguard: leg length [mm]')
+    ap.add_argument('--busguard-delay', type=float, default=0.6,
+                    help='busguard: seconds after the MOVE_X ack to fire RUN:fix')
     ap.add_argument('--boot-label', default='boot1',
                     help='coldboot: sub-directory under --out for THIS power cycle')
     a = ap.parse_args()
@@ -1845,7 +1967,8 @@ def main():
             run_sweep(link, cam, a, out)
         else:
             gate_fn = {'g1': run_g1, 'g2': run_g2, 'g3': run_g3, 'g5': run_g5,
-                       'g6': run_g6, 'coldboot': run_coldboot}[a.mode]
+                       'g6': run_g6, 'coldboot': run_coldboot,
+                       'busguard': run_busguard}[a.mode]
             gate_ok = gate_fn(link, cam, a, out)
     finally:
         link.seqd('STOP', wait=1.0)
