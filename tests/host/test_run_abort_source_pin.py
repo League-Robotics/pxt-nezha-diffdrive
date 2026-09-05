@@ -397,3 +397,182 @@ def test_dispatch_job_refuses_while_something_already_owns_motion():
         "without that gate a queued job could start while a wire motion "
         "or another job is already running."
     )
+
+
+# ---------------------------------------------------------------------------
+# test.ts: no blocking basic.pause()/showNumber()/showString() call may
+# remain in the call tree of any onRun() handler -- a companion ticket to
+# the beginJob()/endJob() refactor above, and it deliberately builds on
+# the same source-pinning helpers (_function_body/_onrun_body) since it
+# edits the same handler bodies that refactor produced.
+#
+# **The problem.** Since sprint 028, every onRun() handler runs directly
+# on the protocol fiber (nested, reentrant dispatch -- see the module
+# docstring above and src/comms/protocol.h). basic.showNumber()/
+# showString()/pause() all put THAT fiber to sleep for their own
+# duration, and the protocol fiber is also what services PING/ESTOP/
+# RUN:abort -- so a display or pause inside a handler's call tree stalls
+# the wire for as long as it runs. The one exception carved out
+# deliberately: a display AFTER a job's own endJob() call has already
+# emitted its terminal wire line is fine, because nothing is waiting on
+# that job being "not yet reported done" any more.
+#
+# Non-job onRun() verbs (no beginJob()/endJob() of their own) that can
+# still carry a blocking call in their own body or a helper they call.
+_NON_JOB_ONRUN_VERBS = (
+    "clearestop", "abort", "tour", "fix", "arm", "probe", "gap", "seed",
+    "seedxy", "turnrate",
+)
+
+# Helper functions reachable from some onRun() handler's call tree
+# (directly or via one of _JOB_FUNCTIONS/_JOB_ONRUN_VERBS) that carry no
+# beginJob()/endJob() of their own, so ANY basic.pause()/showNumber()/
+# showString() call inside them is disallowed outright -- there is no
+# "after this job's endJob()" exception available to a shared helper
+# that runs both inside and outside a job (worldReady(), for instance,
+# runs before beginJob() everywhere it is called).
+_NON_JOB_HELPER_FUNCTIONS = (
+    "worldReady", "legToward", "circleRun", "arcSegment", "applyArm",
+    "logFix", "tickToCompletion", "tickWait", "tickedMove", "tickedGoTo",
+    "tickArcSampled", "emitTrajectory",
+)
+
+
+def _strip_line_comments(text: str) -> str:
+    """Strip `// ...` line comments before a substring search.
+
+    This ticket's own replacement comments legitimately name the old
+    basic.pause()/showNumber()/showString() calls in prose (e.g.
+    "tickWait(400), not basic.pause(400)") to explain what changed and
+    why -- a plain substring search over the raw body text would trip
+    on that prose exactly like it would on live code. Line-based, not
+    real TS parsing: adequate here because none of test.ts's string
+    literals inside these bodies (DBG:/OCAL: tags, single letters)
+    contain a literal `//` of their own for this to misfire on.
+    """
+    return "\n".join(line.split("//", 1)[0] for line in text.splitlines())
+
+
+def _all_run_tree_bodies():
+    """Every function/handler body this sweep covers: the job functions
+    and job onRun() verbs (both already enumerated above for the
+    beginJob()/endJob() pins), the non-job onRun() verbs, and the shared
+    helpers with no job lifecycle of their own."""
+    bodies = {}
+    for fn in _JOB_FUNCTIONS:
+        bodies[fn + "()"] = _function_body(fn)
+    for verb in _JOB_ONRUN_VERBS:
+        bodies["RUN:" + verb] = _onrun_body(verb)
+    for verb in _NON_JOB_ONRUN_VERBS:
+        bodies["RUN:" + verb] = _onrun_body(verb)
+    for fn in _NON_JOB_HELPER_FUNCTIONS:
+        bodies[fn + "()"] = _function_body(fn)
+    return {name: _strip_line_comments(body) for name, body in bodies.items()}
+
+
+def test_no_blocking_pause_or_shownumber_anywhere_in_a_run_handler_tree():
+    """basic.pause() and basic.showNumber() have no legitimate call site
+    left anywhere in an onRun() handler's call tree -- unlike
+    basic.showString(), neither is ever used as pure end-of-job
+    feedback after endJob() in this file, so this check applies to
+    every covered body with no "after endJob()" carve-out needed."""
+    for name, body in _all_run_tree_bodies().items():
+        assert "basic.pause(" not in body, (
+            "%s still calls basic.pause(), which blocks the protocol "
+            "fiber's own wire-servicing loop for the pause's full "
+            "duration -- replace it with tickWait(), which ticks "
+            "diffDrive.driveTick() (and so keeps servicing the wire) "
+            "for the same wall-clock duration instead" % name
+        )
+        assert "basic.showNumber(" not in body, (
+            "%s still calls basic.showNumber(), which blocks the "
+            "protocol fiber for the duration of the flash/scroll -- "
+            "drop it (a non-blocking diffDrive.emitLine(\"DBG:...\") "
+            "progress line, or an already-emitted OCAL:/telemetry line, "
+            "is this file's replacement) or move it after endJob()" %
+            name
+        )
+
+
+def test_non_job_call_sites_never_call_show_string():
+    """A non-job onRun() verb or shared helper has no endJob() of its
+    own to have already reported anything done -- so basic.showString()
+    is disallowed outright here, with no position-dependent exception."""
+    for verb in _NON_JOB_ONRUN_VERBS:
+        body = _strip_line_comments(_onrun_body(verb))
+        assert "basic.showString(" not in body, (
+            "RUN:%s calls basic.showString() with no beginJob()/"
+            "endJob() job wrapping it -- nothing has been reported done "
+            "over the wire yet, so this call would block the protocol "
+            "fiber with no terminal line justifying it" % verb
+        )
+    for fn in _NON_JOB_HELPER_FUNCTIONS:
+        body = _strip_line_comments(_function_body(fn))
+        assert "basic.showString(" not in body, (
+            "%s() calls basic.showString() -- this helper can run "
+            "BEFORE its caller's own endJob() (worldReady(), for "
+            "instance, always does), so the call would block the "
+            "protocol fiber mid-job" % fn
+        )
+
+
+def test_job_call_sites_only_call_show_string_after_their_own_end_job():
+    """A job function/verb MAY call basic.showString() as one-shot
+    end-of-handler feedback, but only textually after its own endJob()
+    call -- the point where the terminal wire line has already gone
+    out, so a subsequent blocking display no longer stalls anything the
+    wire is waiting on. See this file's module docstring for why
+    RUN:abort/clearestop landing promptly is what all of this protects
+    in the first place."""
+    for fn in _JOB_FUNCTIONS:
+        body = _strip_line_comments(_function_body(fn))
+        show_idx = body.find("basic.showString(")
+        if show_idx == -1:
+            continue
+        end_job_idx = body.find("endJob(")
+        assert end_job_idx != -1 and end_job_idx < show_idx, (
+            "%s() calls basic.showString() before its own endJob() "
+            "call -- move the display after endJob(), or drop it" % fn
+        )
+    for verb in _JOB_ONRUN_VERBS:
+        body = _strip_line_comments(_onrun_body(verb))
+        show_idx = body.find("basic.showString(")
+        if show_idx == -1:
+            continue
+        end_job_idx = body.find("endJob(")
+        assert end_job_idx != -1 and end_job_idx < show_idx, (
+            "RUN:%s handler calls basic.showString() before its own "
+            "endJob() call -- move the display after endJob(), or drop "
+            "it" % verb
+        )
+
+
+def test_tick_wait_exists_and_ticks_drive_instead_of_sleeping():
+    """tickWait() is this ticket's non-blocking basic.pause()
+    replacement: it must actually tick diffDrive.driveTick() in its
+    wait loop (that is what lets the wire's own service hook run during
+    the wait -- see shims.cpp's tickDrive(), which calls it
+    unconditionally on every call, active move or not) rather than
+    calling basic.pause() itself, which would just reintroduce the
+    exact block this function exists to remove."""
+    body = _strip_line_comments(_function_body("tickWait"))
+    assert "diffDrive.driveTick()" in body, (
+        "tickWait() must tick diffDrive.driveTick() in its wait loop"
+    )
+    assert "basic.pause(" not in body, (
+        "tickWait() calls basic.pause() itself -- that reintroduces "
+        "the exact fiber-blocking behavior it exists to replace"
+    )
+
+
+def test_lever_cal_and_seed_use_tick_wait_not_pause():
+    """The two call sites that used to call basic.pause() directly
+    (leverCal()'s settle wait, RUN:seed's post-seed settle wait) must
+    now go through tickWait() instead."""
+    lever_body = _strip_line_comments(_function_body("leverCal"))
+    assert "basic.pause(" not in lever_body
+    assert "tickWait(" in lever_body
+
+    seed_body = _strip_line_comments(_onrun_body("seed"))
+    assert "basic.pause(" not in seed_body
+    assert "tickWait(" in seed_body

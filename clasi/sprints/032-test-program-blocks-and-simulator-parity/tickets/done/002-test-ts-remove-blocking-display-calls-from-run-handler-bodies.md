@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: 'test.ts: remove blocking display calls from RUN handler bodies'
-status: open
+status: done
 use-cases:
 - SUC-002
 depends-on:
@@ -36,18 +36,18 @@ hand-rolled one.
 
 ## Acceptance Criteria
 
-- [ ] No `basic.pause(...)`, `basic.showString(...)`, or
+- [x] No `basic.pause(...)`, `basic.showString(...)`, or
       `basic.showNumber(...)` call remains anywhere in the call tree of
       any `onRun()` handler in `test.ts` (i.e. not just the handler's
       own body — also any helper function it calls, like `legToward()`,
       `leverCal()`, `circleRun()`).
-- [ ] Per-iteration progress display (`basic.showNumber(i + 1)` inside
+- [x] Per-iteration progress display (`basic.showNumber(i + 1)` inside
       tour loops) is either removed (relying on the already-non-blocking
       `DBG:`/telemetry lines for progress) or replaced with a
       non-blocking display primitive — decide which per Open Question 2
       in `sprint.md`'s Architecture section; record the choice and why
       in the commit message.
-- [ ] Any END-of-handler display feedback (e.g. `basic.showString("A")`,
+- [x] Any END-of-handler display feedback (e.g. `basic.showString("A")`,
       `basic.showIcon(IconNames.Yes)`) that is NOT inside the timed
       per-tick loop is fine to keep AS IS if it happens strictly after
       `endJob()` has already emitted the terminal wire line — the
@@ -55,11 +55,11 @@ hand-rolled one.
       one-shot display after the job is already reported done. Confirm
       this distinction explicitly for each call site touched (don't
       blanket-delete every display call in the file).
-- [ ] Button handlers (`input.onButtonPressed`) are unaffected by this
+- [x] Button handlers (`input.onButtonPressed`) are unaffected by this
       ticket — they are not `onRun()` handlers and do not block wire
       responsiveness the same way (no bench operator is waiting on
       PING while a physical button is held).
-- [ ] `basic.showIcon(IconNames.Yes)` at the end of the tour functions:
+- [x] `basic.showIcon(IconNames.Yes)` at the end of the tour functions:
       confirm (source-read `pxt-microbit`'s own `basic.ts` or the
       MakeCode docs, not assumption) whether `showIcon` blocks the
       same way `showNumber`/`showString` do; if it does, it needs the
@@ -68,7 +68,7 @@ hand-rolled one.
       State which was found, with the source checked, in the commit
       message (measurement-citations.md discipline: source-read is not
       "measured," say which it is).
-- [ ] A source-pin test in `tests/host/` enforces "no blocking display
+- [x] A source-pin test in `tests/host/` enforces "no blocking display
       call inside an `onRun()` handler's call tree" going forward
       (regex/AST scan of `test.ts`, following
       `test_run_abort_source_pin.py`'s own "source-text pinning, not

@@ -137,6 +137,32 @@ function tickToCompletion() {
     }
 }
 
+// Tick-serviced replacement for basic.pause(duration): a bare
+// basic.pause() blocks whatever fiber calls it, and every onRun()
+// handler now runs ON the protocol fiber itself (nested, reentrant
+// dispatch -- see src/comms/protocol.h's own doc comments), so a pause
+// inside a handler's call tree stops that SAME fiber's wire-servicing
+// loop from running for the pause's full duration, leaving PING/
+// ESTOP/RUN:abort unanswered until it returns.
+// diffDrive.driveTick() self-paces to one kernel cycle
+// (Config::cyclePeriod, 24 ms) and runs the wire's own service hook
+// exactly once per call regardless of whether a move is currently
+// active (shims.cpp's tickDrive() steps the kernel and calls
+// serviceHook() unconditionally, every call) -- so ticking it in a
+// loop against elapsed wall-clock time waits the same real duration
+// while continuing to service the wire, instead of blocking it.
+// Deliberately runs the full requested duration unconditionally,
+// matching basic.pause()'s own behavior -- it does not check
+// `aborted` itself; a caller inside a job that wants to bail out on
+// abort mid-wait does that in its own loop, the same way
+// tickToCompletion() does for a live move.
+function tickWait(duration: number) {  // [ms]
+    const deadline = control.millis() + duration
+    while (control.millis() < deadline) {
+        diffDrive.driveTick()
+    }
+}
+
 function tickedMove(d: number, y: number) {
     diffDrive.startMove(d, y)
     tickToCompletion()
@@ -315,8 +341,14 @@ function worldReady(): boolean {
         applyArm()          // begin() re-inits the chip; re-apply
         return true
     }
+    // No basic.showString("NO") here -- this runs inside every RUN
+    // handler's own call tree, BEFORE that handler's beginJob() (if
+    // any), so nothing has been reported done yet and a blocking
+    // display would stall the wire with no terminal line to justify
+    // it. OERR:no-otos above already carries the failure to a bench
+    // tool watching the wire log; an operator with no host connected
+    // loses the on-robot "NO" glyph for this specific failure.
     diffDrive.emitLine("OERR:no-otos")
-    basic.showString("NO")
     return false
 }
 
@@ -465,8 +497,13 @@ function tourRobot() {
     diffDrive.seedPose(0, 0, 0)
     diffDrive.emitLine("DBG:tour=robot:profile=open")
     logFix("c0")
+    // No per-leg basic.showNumber(i + 1) here -- it blocked the
+    // protocol fiber (this handler's own call tree) for the duration
+    // of the flash/scroll. logFix()'s own OCAL:c<N> line below already
+    // reports per-corner progress over the wire, non-blocking, so a
+    // bench tool watching the log loses nothing; an operator with no
+    // host connected loses the LED leg-counter.
     for (let i = 0; i < 4; i++) {
-        basic.showNumber(i + 1)
         legToward(RTX[i], RTY[i])
         // Checked BEFORE logFix() below: an abort mid-leg must not emit a
         // plausible-looking OCAL: fix for a corner the robot never
@@ -487,8 +524,10 @@ function tourWheels() {
     diffDrive.seedPose(START_X, START_Y, START_H)
     diffDrive.emitLine("DBG:tour=wheels:profile=open")
     logFix("c0")
+    // See tourRobot()'s identical comment: no per-leg
+    // basic.showNumber() -- logFix()'s OCAL:c<N> line below is the
+    // non-blocking progress signal now.
     for (let i = 0; i < 4; i++) {
-        basic.showNumber(i + 1)
         tickedMove(LEG_CM[i], 0)     // straight leg
         if (aborted) break           // don't also issue the turn below
         tickedMove(0, 90)            // then LEFT
@@ -542,8 +581,11 @@ function tourWorld() {
     // would throw away the pose the host just seeded and send the robot
     // off from a phantom origin.
     if (!diffDrive.worldTrackingReady()) {
+        // No basic.showString("NO") -- see worldReady()'s identical
+        // comment: this runs before beginJob(), so no job has been
+        // reported done, and OERR:not-seeded already carries the
+        // failure over the wire.
         diffDrive.emitLine("OERR:not-seeded")
-        basic.showString("NO")
         return
     }
     // 200 mm/s (stakeholder); 60 cm/s was near the drivetrain ceiling.
@@ -556,8 +598,10 @@ function tourWorld() {
     // anywhere on the field and simply drive to the first dot.
     diffDrive.emitLine("DBG:tour=world:profile=open")
     logFix("c0")
+    // See tourRobot()'s identical comment: no per-leg
+    // basic.showNumber() -- logFix()'s OCAL:c<N> line below is the
+    // non-blocking progress signal now.
     for (let i = 0; i < 4; i++) {
-        basic.showNumber(i + 1)
         // SCOPE BOUNDARY: goToWorld() runs its OWN internal
         // `while (_tickDrive())` loop inside src/blocks/world.ts, with
         // no `aborted` flag of its own to check -- but RUN:abort's
@@ -602,16 +646,20 @@ function leverCal(verify: boolean) {
     diffDrive.seedPose(0, 0, 0)
     diffDrive.emitLine("OCAL:begin")
     logFix("p0")
+    // No per-pivot basic.showNumber(i) -- logFix()'s OCAL:p<N>/s1 lines
+    // already report progress non-blocking; basic.pause(400) is now
+    // tickWait(400), a tick-serviced wait that keeps servicing the wire
+    // for the same settle duration instead of blocking it (this
+    // handler runs before its own endJob() call below, so a blocking
+    // display or pause here would stall the wire mid-job).
     for (let i = 1; i <= 8 && !aborted; i++) {
-        basic.showNumber(i)
         tickedMove(0, 45)
-        basic.pause(400)          // let the wheels settle before the fix
+        tickWait(400)              // let the wheels settle before the fix
         logFix("p" + i)
     }
     if (!aborted) {
-        basic.showString("S")
         tickedMove(30, 0)         // 30 cm straight, for the mounting yaw
-        basic.pause(400)
+        tickWait(400)
         logFix("s1")
     }
     diffDrive.emitLine("OCAL:end")
@@ -716,7 +764,11 @@ diffDrive.onRun("gap", function (arg: number) {
 diffDrive.onRun("seed", function (arg: number) {
     worldReady()
     diffDrive.seedPose(START_X, START_Y, START_H)
-    basic.pause(300)
+    // tickWait(), not basic.pause(): this handler has no beginJob()/
+    // endJob() of its own, but it still runs on the protocol fiber
+    // (every onRun() handler does), so a blocking pause here would
+    // still stall PING/ESTOP/abort for its own 300 ms.
+    tickWait(300)
     const ok = diffDrive.readWorld()
     diffDrive.emitLine("SEED:read:" + (ok ? 1 : 0)
         + ":" + Math.round(diffDrive.worldX() * 100)
@@ -947,8 +999,13 @@ function squareTour(sideCm: number) {
     if (touring) return
     beginJob("SQUARE")
     diffDrive.emitLine("DBG:tour=square:side=" + sideCm)
+    // DBG:leg=<N>, not basic.showNumber(i + 1): the per-corner LED
+    // countdown blocked the protocol fiber for the duration of the
+    // flash. This is the non-blocking substitute -- a bench tool
+    // watching the wire log sees the same progress, machine-parseable;
+    // an operator with no host connected loses the on-robot LED digit.
     for (let i = 0; i < 4; i++) {
-        basic.showNumber(i + 1)
+        diffDrive.emitLine("DBG:leg=" + (i + 1))
         tickedMove(sideCm, 0)
         if (aborted) break
         tickedMove(0, 90)
@@ -966,8 +1023,10 @@ function infinityTour(rCm: number, laps: number) {
     if (touring) return
     beginJob("INFINITY")
     diffDrive.emitLine("DBG:tour=infinity:r=" + rCm + ":laps=" + laps)
+    // See squareTour()'s identical comment: DBG:lap=<N> replaces the
+    // blocking per-lap basic.showNumber().
     for (let lap = 0; lap < laps; lap++) {
-        basic.showNumber(lap + 1)
+        diffDrive.emitLine("DBG:lap=" + (lap + 1))
         circleRun(rCm, true)         // lobe A, CCW
         if (aborted) break
         circleRun(rCm, false)        // lobe B, CW
@@ -991,8 +1050,10 @@ function snakeTour(rCm: number, bends: number) {
     if (touring) return
     beginJob("SNAKE")
     diffDrive.emitLine("DBG:tour=snake:r=" + rCm + ":bends=" + bends)
+    // See squareTour()'s identical comment: DBG:bend=<N> replaces the
+    // blocking per-bend basic.showNumber().
     for (let b = 0; b < bends; b++) {
-        basic.showNumber(b + 1)
+        diffDrive.emitLine("DBG:bend=" + (b + 1))
         const ccw = (b % 2) == 0
         for (let i = 0; i < 4; i++) {      // half circle = 4 x 45 deg
             if (aborted) break
@@ -1036,9 +1097,11 @@ function diamondTour(sideCm: number) {
     beginJob("DIAMOND")
     diffDrive.emitLine("DBG:tour=diamond:side=" + sideCm)
     tickedMove(0, 45)                    // enter the diamond
+    // See squareTour()'s identical comment: DBG:leg=<N> replaces the
+    // blocking per-corner basic.showNumber().
     for (let i = 0; i < 4; i++) {
         if (aborted) break
-        basic.showNumber(i + 1)
+        diffDrive.emitLine("DBG:leg=" + (i + 1))
         tickedMove(sideCm, 0)
         if (aborted) break
         tickedMove(0, 90)
