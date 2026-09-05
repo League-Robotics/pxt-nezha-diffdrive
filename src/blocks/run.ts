@@ -211,6 +211,52 @@ namespace diffDrive {
         return isNaN(value) ? 0 : value
     }
 
+    /**
+     * Typo-safe sibling of runArg(): a three-way contract that keeps
+     * "no such argument" distinct from "argument present but garbage",
+     * which runArg() collapses into the same 0. Unlike runArg(), this
+     * is opt-in -- every existing runArg() call site (pivot, face, arc,
+     * straight, seedxy, turnrate, etc.) is UNCHANGED by this function's
+     * existence.
+     *
+     *   - ABSENT   (runArgText(i) == "")        -> fallback
+     *   - PRESENT, valid, > minExclusive         -> the parsed value
+     *   - PRESENT but unparseable, OR <= minExclusive -> NaN
+     *
+     * NaN is the sentinel because it never collides with a real
+     * argument value a caller might legitimately pass (RUN:circle:0 is
+     * a valid, if degenerate, radius under the bare two-argument form
+     * -- parseFloat("0") is 0, not NaN, so it is returned as-is).
+     * NaN is NEVER the same as fallback and NEVER 0: a caller must
+     * check `isNaN()` itself rather than treating the return value as
+     * always-usable the way runArg()'s is.
+     *
+     * minExclusive is the opt-in "this argument is geometrically a
+     * radius (or similar quantity)" guard the Solution text asks for
+     * ("rejects NaN and non-positive radii"): passing 0 makes any
+     * parsed value <= 0 count as invalid too, folded into the same NaN
+     * sentinel rather than a second return channel. Left at its
+     * default (NaN, meaning "no bound") the function is pure typo
+     * detection with no range check at all. A parameterized bound
+     * lives on this one function rather than a wrapper per call site
+     * because every current caller wants the exact same "not a real
+     * radius" rule -- a wrapper would just be `runArgOr(i, fb, 0)`
+     * spelled out three times.
+     * @param i argument index, 0 being the first after the name, eg: 0
+     * @param fallback value to use when the argument is absent, eg: 30
+     * @param minExclusive reject a parsed value at or below this, eg: 0
+     */
+    //% blockHidden=true
+    export function runArgOr(i: number, fallback: number,
+        minExclusive: number = NaN): number {
+        const text = runArgText(i)
+        if (text.length == 0) return fallback
+        const value = parseFloat(text)
+        if (isNaN(value)) return NaN
+        if (!isNaN(minExclusive) && value <= minExclusive) return NaN
+        return value
+    }
+
     /** The i-th argument of the run command, as text ("" if absent). */
     //% blockHidden=true
     export function runArgText(i: number): string {

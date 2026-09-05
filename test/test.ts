@@ -1070,8 +1070,19 @@ diffDrive.onRun("square", function (arg: number) {
     squareTour(diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 60)
 })
 
+// BT-22: runArgOr(0, 30, 0) rejects both an unparseable radius
+// ("RUN:infinity:abc") and a non-positive one ("RUN:infinity:0" or
+// ":-5") as NaN, folding the two failure shapes into one check --
+// see run.ts's own doc comment for why. Refused outright with an
+// ARGERR: line rather than silently substituting 0 or the fallback:
+// this is a student-facing verb, and a typo that quietly ran eight
+// pivots-in-place used to look like a normal, if odd, completion.
 diffDrive.onRun("infinity", function (arg: number) {
-    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 30
+    const r = diffDrive.runArgOr(0, 30, 0)
+    if (isNaN(r)) {
+        diffDrive.emitLine("ARGERR:infinity:radius:" + diffDrive.runArgText(0))
+        return
+    }
     const laps = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) : 1
     infinityTour(r, laps)
 })
@@ -1081,8 +1092,14 @@ diffDrive.onRun("infinity", function (arg: number) {
 // 25 cm either side. The advance runs PERPENDICULAR to the start
 // heading -- the first half circle turns the robot 180 deg, so progress
 // is sideways -- so stage it facing the short axis.
+// See RUN:infinity's identical comment just above -- same runArgOr()
+// rejection, same ARGERR: refusal instead of a silent radius-0 snake.
 diffDrive.onRun("snake", function (arg: number) {
-    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 12.5
+    const r = diffDrive.runArgOr(0, 12.5, 0)
+    if (isNaN(r)) {
+        diffDrive.emitLine("ARGERR:snake:radius:" + diffDrive.runArgText(0))
+        return
+    }
     const bends = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) : 4
     snakeTour(r, bends)
 })
@@ -1129,8 +1146,17 @@ function circleTour(rCm: number, ccw: boolean) {
     basic.showIcon(IconNames.Yes)
 }
 
+// See RUN:infinity's identical comment above: runArgOr(0, 30, 0)
+// rejects an unparseable OR non-positive radius as NaN, refused with
+// an ARGERR: line instead of the old runArgCount()>0?runArg(0):30
+// pattern, which mapped "abc" to 0 and silently drove eight
+// pivots-in-place (BT-22).
 diffDrive.onRun("circle", function (arg: number) {
-    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 30
+    const r = diffDrive.runArgOr(0, 30, 0)
+    if (isNaN(r)) {
+        diffDrive.emitLine("ARGERR:circle:radius:" + diffDrive.runArgText(0))
+        return
+    }
     const ccw = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) != 0 : true
     circleTour(r, ccw)
 })
