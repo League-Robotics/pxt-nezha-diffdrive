@@ -1656,17 +1656,44 @@ a single `main.ts` into six cohesion-sized modules. Current structure:
   `isMoving`, `moveProgress`, `stopMove`, `whileMoving`,
   `whileGoingTo` — Move group), and the namespace's one load-time
   side-effecting statement, the top-level `_startProtocol()` call.
+  **Sprint 032 ticket 008**: also owns the shared arrival-tolerance
+  state (`arriveTol`, an unexported `let` alongside `defaultSpeed`/
+  `defaultYawRate`) and its Setup-group setter, `setArrivalTolerance`
+  — moved here from `world.ts` (the lower layer both go-to blocks
+  depend on) — plus a `blockHidden` accessor, `arrivalTolerance()`,
+  for `world.ts`'s `goToWorld()` to read the same value across files
+  (an unexported `let` merges within one file only; TypeScript's
+  cross-file namespace merging shares EXPORTED members, so the cross-
+  file read goes through a one-line function, not the bare
+  variable). `startGoTo()` now threads `arriveTol` into `_goToR`'s
+  `arrive` parameter instead of a hardcoded `1` (mm), so one
+  `setArrivalTolerance()` call governs both go-to blocks. `stopMove()`
+  is now `//% blockHidden=true` — `stop.ts`'s `stop()` is the one
+  visible stop control; `stopMove()` stays exported and callable
+  (every internal caller, and any saved project already using the
+  "stop move" block, keeps working) since its native body
+  (`shims.cpp`'s `endMove()`) and `stop()`'s (`stopAll()`) are now
+  byte-identical.
 - **`pose.ts`** — `poseX`, `poseY`, `heading`, `resetPose` (Pose
   group). Reads local (encoder-odometry) pose only; never touches the
   world/OTOS sensor.
 - **`stop.ts`** — `stop`, `emergencyStop`, `clearEmergencyStop`,
   `isStalled`, `clearStallLatch` (Drive group). Owns the two
-  independent fault latches (e-stop, stall) and nothing else.
+  independent fault latches (e-stop, stall) and nothing else. The one
+  VISIBLE stop control since sprint 032 ticket 008 (above) hid
+  `motion.ts`'s `stopMove()` alias.
 - **`world.ts`** — OTOS world-pose tracking (`startWorldTracking`,
   `worldTrackingReady`, `seedPose`, `readWorld`, `worldX`/`Y`/
   `Heading`, `calibrateWorldSensor`, `setWorldSensorOffset`) and
-  `goToWorld` with its own tuning state (`arriveTolCm`,
-  `turnFirst`) and private `tickedMove()` runner (World group).
+  `goToWorld`, which pivots first beyond `turnFirst` — a `const` since
+  sprint 032 ticket 008 (nothing ever wrote it) — and ticks both of
+  its own legs by calling `motion.ts`'s exported `move()`/`goTo()`
+  directly (World group). Before that ticket this file carried private
+  `tickedMove()`/`tickedGoTo()` runners, byte-for-byte the same
+  `start*(...); while (_tickDrive());` shape as `motion.ts`'s exported
+  versions — pure duplication, deleted with no behavior change. Its
+  own arrival pre-check reads `motion.ts`'s shared `arrivalTolerance()`
+  (this section's `motion.ts` bullet) instead of an independent copy.
 - **`run.ts`** — the RUN command dispatcher: the no-initialiser state
   block (`runParts`/`runNames`/`runHandlers`/`runAnyHandlers`/
   `runWired`), `ensureRunState()`, `wireRunDispatch()`, `onRun`/
@@ -1714,6 +1741,14 @@ Notable design points, all measured the hard way and unchanged by the
 sprint 012 split (module attribution updated to the file each now
 lives in):
 
+- **Sprint 032 ticket 008**: `cycleStat()` (`shims.cpp`) and its
+  simulator stand-in `_cycleStat()` (`sim.ts`) are deleted outright —
+  grepped repo-wide, neither had a caller anywhere in `src/`, `test/`,
+  `tests/`, or `tools/`. `r.tickOverrunCount`/`simTickOverrunCount`/
+  `simCycleCount`, the counters `cycleStat()` used to read, are left
+  in place: they are still written every tick by
+  `tickDrive()`/`_tickDrive()`'s own pacing logic, independent of
+  `cycleStat()` ever existing.
 - Continuous-mode commands (`setWheelSpeeds`/`driveTwist`, `motion.ts`)
   only move the robot while a `while (diffDrive.driveTick())` loop
   ticks; blocking moves tick internally. **Sprint 007**: this is now

@@ -57,6 +57,17 @@ drive/start/while triple -- 42 visible blocks. Layout now lives in
 weight from final display position. Edit the CSV and re-apply; do not
 hand-tune weights.
 
+**Sprint 032 ticket 008 update: `stopMove` is now hidden.** `stop`
+(stop.ts) and `stopMove` (motion.ts) call byte-identical native bodies,
+so `stopMove` is now `//% blockHidden=true` alongside its existing
+`block="stop move"` caption -- a saved project using that block still
+compiles, but it no longer offers as a toolbox drag target. The scan
+now drops any entry carrying `blockHidden=true` even when it has a
+caption (previously every hidden function, `enableRadioLink`/`runArg`,
+simply had no caption to find in the first place, so this case never
+came up) -- `stopMove` is removed from the Stop baseline below, 43
+visible blocks.
+
 This test stays an INDEPENDENT guard: the baseline below is written
 out longhand, not generated from that CSV, so a bad apply run fails
 here instead of agreeing with itself. The rendered order it pins was
@@ -114,8 +125,7 @@ _BASELINE_GROUP_ORDER = {
     "GoTo": ["goTo", "goToWorld", "startGoTo", "whileGoingTo"],
     "Moving?": ["isMoving", "moveProgress", "isStalled", "driveTick"],
     "Stop": [
-        "stopMove", "emergencyStop", "stop", "clearEmergencyStop",
-        "clearStallLatch",
+        "emergencyStop", "stop", "clearEmergencyStop", "clearStallLatch",
     ],
     "Pose": ["heading", "poseX", "poseY", "resetPose"],
     "World": [
@@ -168,6 +178,7 @@ _ATTR_LINE_RE = re.compile(r"^\s*//%")
 _BLOCK_RE = re.compile(r'block="([^"]*)"')
 _GROUP_RE = re.compile(r'group="([^"]*)"')
 _WEIGHT_RE = re.compile(r"\bweight=(\d+)")
+_HIDDEN_RE = re.compile(r"\bblockHidden=true\b")
 
 
 def _ts_file_order():
@@ -222,7 +233,14 @@ def _extract_entries():
                     j -= 1
                 attrs_text = "".join(attr_lines)
                 m_cap = _BLOCK_RE.search(attrs_text)
-                if m_cap:
+                # A block= caption plus blockHidden=true (stopMove, since
+                # sprint 032 ticket 008) never reaches the toolbox flyout
+                # -- same real-PXT effect as carrying no caption at all
+                # (enableRadioLink, runArg, above), just spelled
+                # differently in source. Skip it here too, so the
+                # baseline below still reflects what a student actually
+                # sees.
+                if m_cap and not _HIDDEN_RE.search(attrs_text):
                     m_grp = _GROUP_RE.search(attrs_text)
                     group = m_grp.group(1) if m_grp else "None"
                     m_w = _WEIGHT_RE.search(attrs_text)

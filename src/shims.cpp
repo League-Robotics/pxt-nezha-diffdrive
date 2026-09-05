@@ -905,29 +905,6 @@ bool tickDrive() {
   return active;
 }
 
-// cycleStat(): read-only tick/cycle diagnostics for desk verification
-// (and future wire-protocol reporting). 0 = measured cycle period [us],
-// 1 = measured busy time [us] (both straight off the kernel's own
-// Output, unaffected by who calls step()); 2 = the Rig-level
-// tick-overrun counter above (NOT the kernel's own cycleOverrunCount_,
-// which only its unused run() increments); 3 = cycleCount (existing
-// kernel Output field, likewise unaffected by who calls step()).
-// Deliberately NOT exposing more than these four fields -- diagValue()
-// above already covers the rest of Output for the wire protocol's DIAG
-// verb.
-//%
-int cycleStat(int which) {
-  Rig& r = ensure();
-  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
-  switch (which) {
-    case 0: return static_cast<int>(out.cyclePeriodMeasured);
-    case 1: return static_cast<int>(out.cycleBusy);
-    case 2: return static_cast<int>(r.tickOverrunCount);
-    case 3: return static_cast<int>(out.cycleCount);
-    default: return 0;
-  }
-}
-
 // ---- starvation watchdog ------------------------------------------------
 // The ONLY background fiber left running (every other control cycle
 // now runs on whichever caller's fiber invokes tickDrive() above).

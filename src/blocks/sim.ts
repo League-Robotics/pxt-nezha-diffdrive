@@ -380,22 +380,6 @@ namespace diffDrive {
         return stillCommanded
     }
 
-    // Minimal simulator stand-in for cycleStat() -- there is no real
-    // fiber/cycle timing to observe in the browser simulator, so this
-    // reports the nominal cadence plus the sim's own tick/overrun
-    // counters (kept for parity with hardware's field layout) rather
-    // than measured timing.
-    //% shim=diffDrive::cycleStat
-    function _cycleStat(which: number): int32 {
-        switch (which) {
-            case 0: return kSimTickPeriod * 1000  // nominal period [us]
-            case 1: return 0                        // busy [us]: not modeled
-            case 2: return simTickOverrunCount
-            case 3: return simCycleCount
-            default: return 0
-        }
-    }
-
     //% shim=diffDrive::progress
     export function _progress(): int32 {
         simIntegrate()

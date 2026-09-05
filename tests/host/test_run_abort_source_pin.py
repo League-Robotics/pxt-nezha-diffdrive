@@ -46,6 +46,7 @@ import re
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _TEST_TS = _REPO_ROOT / "test" / "test.ts"
 _WORLD_TS = _REPO_ROOT / "src" / "blocks" / "world.ts"
+_MOTION_TS = _REPO_ROOT / "src" / "blocks" / "motion.ts"
 _PROTOCOL_CPP = _REPO_ROOT / "src" / "comms" / "protocol.cpp"
 _SHIMS_CPP = _REPO_ROOT / "src" / "shims.cpp"
 
@@ -68,6 +69,10 @@ def _test_ts_source() -> str:
 
 def _world_ts_source() -> str:
     return _WORLD_TS.read_text(encoding="utf-8")
+
+
+def _motion_ts_source() -> str:
+    return _MOTION_TS.read_text(encoding="utf-8")
 
 
 def _protocol_cpp_source() -> str:
@@ -286,15 +291,40 @@ def test_end_move_stops_unconditionally_with_no_ownership_gate():
     )
 
 
-def test_world_ts_tick_loops_have_no_local_abort_flag():
-    """world.ts's tickedMove()/tickedGoTo() (goToWorld()'s own tick
-    runner) must rely ENTIRELY on `_tickDrive()` going false -- i.e. on
-    stopMove() reaching in from outside -- to end early. They have no
-    way to see test.ts's `aborted` at all; if they ever gained their
-    own abort check it would mean someone tried to plumb the flag
-    across files instead of trusting the universal stopMove() path."""
+def test_world_ts_no_longer_defines_its_own_tick_runner():
+    """Block API cleanup (sprint 032 ticket 008): world.ts used to carry
+    private tickedMove()/tickedGoTo() functions, byte-for-byte the same
+    `start*(...); while (_tickDrive());` shape as motion.ts's exported
+    move()/goTo() -- pure duplication. goToWorld() now calls move()/
+    goTo() directly instead. Source-pins the DELETION (not just that
+    motion.ts's versions exist, which the next test covers) -- a
+    regression here would mean the duplicate crept back in."""
     src = _world_ts_source()
     for fn in ("tickedMove", "tickedGoTo"):
+        assert not re.search(r"\bfunction\s+%s\s*\(" % re.escape(fn), src), (
+            "world.ts must not define its own %s() -- goToWorld() calls "
+            "motion.ts's exported move()/goTo() directly instead" % fn
+        )
+    assert re.search(r"\bmove\s*\(\s*0\s*,", src), (
+        "goToWorld()'s pivot-first branch must call motion.ts's "
+        "exported move(), not a private tick-loop copy"
+    )
+    assert re.search(r"\bgoTo\s*\(", src), (
+        "goToWorld()'s residual leg must call motion.ts's exported "
+        "goTo(), not a private tick-loop copy"
+    )
+
+
+def test_motion_ts_tick_runners_have_no_local_abort_flag():
+    """motion.ts's move()/goTo() -- which world.ts's goToWorld() now
+    calls directly, in place of its own deleted tickedMove()/
+    tickedGoTo() -- must rely ENTIRELY on `_tickDrive()` going false --
+    i.e. on stopMove() reaching in from outside -- to end early. They
+    have no way to see test.ts's `aborted` at all; if they ever gained
+    their own abort check it would mean someone tried to plumb the flag
+    across files instead of trusting the universal stopMove() path."""
+    src = _motion_ts_source()
+    for fn in ("move", "goTo"):
         body = _function_body(fn, src=src)
         assert "_tickDrive" in body, "%s() must tick via _tickDrive()" % fn
         assert "aborted" not in body, (

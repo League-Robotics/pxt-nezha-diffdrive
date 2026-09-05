@@ -1,11 +1,14 @@
 ---
-id: "008"
-title: "Block API cleanup: one tick runner (world.ts calls motion.ts), shared arrival tolerance, const turnFirst, one stop block, delete cycleStat"
-status: open
-use-cases: [SUC-007]
-depends-on: ["007"]
-github-issue: ""
-issue: "goto-turn-rate-arrival-tolerance-tick-runner-cyclestat.md"
+id: 008
+title: 'Block API cleanup: one tick runner (world.ts calls motion.ts), shared arrival
+  tolerance, const turnFirst, one stop block, delete cycleStat'
+status: done
+use-cases:
+- SUC-007
+depends-on:
+- '007'
+github-issue: ''
+issue: goto-turn-rate-arrival-tolerance-tick-runner-cyclestat.md
 completes_issue: true
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
@@ -57,45 +60,79 @@ ticket is sequenced last so it lands on the settled post-007 shape of
 
 ## Acceptance Criteria
 
-- [ ] `world.ts`'s private `tickedMove()`/`tickedGoTo()` are deleted;
+- [x] `world.ts`'s private `tickedMove()`/`tickedGoTo()` are deleted;
       every call site that used them now calls `motion.ts`'s exported
       `move(distance, yaw)`/`goTo(x, y)` directly (import/namespace
       access as needed — both are in the same `diffDrive` namespace
       already, per the existing code, so no new import machinery should
       be needed).
-  - [ ] Confirm this is a pure behavior-preserving substitution: both
+  - [x] Confirm this is a pure behavior-preserving substitution: both
         old private functions and `motion.ts`'s exported versions do
         the identical `start*(...); while (_tickDrive());` — if
         `motion.ts`'s versions have picked up any additional behavior
         from tickets 005-007 that `world.ts`'s callers should NOT
         inherit (unlikely, but check), note it explicitly rather than
-        silently accepting a behavior change here.
-- [ ] Arrival tolerance: `arriveTolCm` (and `setArrivalTolerance()`)
+        silently accepting a behavior change here. Confirmed
+        behavior-preserving, with one drifted premise resolved: the
+        two bodies were NOT byte-identical — `world.ts`'s deleted
+        `tickedMove()` carried an extra `if (distance == 0 && yaw ==
+        0) return` guard `motion.ts`'s `move()` never had. Verified
+        dead in practice: `tickedMove()` had exactly one call site
+        (`goToWorld()`'s pivot branch, `move(0, bearing)`), gated on
+        `Math.abs(bearing) >= turnFirst` (12 deg) — `bearing` can
+        never be 0 there, so the guard never fired. Substituting
+        `move()` is behavior-preserving for every real call.
+- [x] Arrival tolerance: `arriveTolCm` (and `setArrivalTolerance()`)
       move to (or are otherwise shared with) `motion.ts` — the lower
       layer, per `sprint.md`'s Design Rationale on dependency
       direction — and `startGoTo()` reads the shared value instead of
       hardcoding `goalArrive = 1`. `world.ts`'s `goToWorld()` continues
       to use the SAME shared value for its own JS-level pre-check, so
       one `setArrivalTolerance()` call visibly affects both blocks.
-  - [ ] If `world.ts` must keep its own `setArrivalTolerance()` block
+      Renamed to `arriveTol` (no-units-in-identifiers.md — `Cm` was a
+      unit suffix, the file was already being touched). Fully moved,
+      not duplicated: `world.ts` has no second declaration.
+  - [x] If `world.ts` must keep its own `setArrivalTolerance()` block
         for toolbox/backward-compatibility reasons, make it write
         through to the shared value rather than maintaining a second,
         independent copy — state which approach was taken and why.
-- [ ] `world.ts`'s `turnFirst` becomes `const turnFirst = 12.0`.
-- [ ] `stop.ts`'s `stop()` remains the VISIBLE toolbox block (it
+        Not needed — the block itself moved to `motion.ts` wholesale
+        (same exported name, same `//%` caption, so no toolbox-facing
+        change); `world.ts` reads the shared state through a new
+        one-line accessor, `arrivalTolerance()`, since TypeScript's
+        cross-file namespace merging shares EXPORTED members by bare
+        identifier but not plain `let`s (confirmed empirically via
+        `tsc`: a bare reference to the unexported `arriveTol` from
+        `world.ts` fails `TS2304`).
+- [x] `world.ts`'s `turnFirst` becomes `const turnFirst = 12.0`.
+- [x] `stop.ts`'s `stop()` remains the VISIBLE toolbox block (it
       already ranks above `stopMove` in the Stop group's weight
       ordering per that file's own sprint-021 comment).
       `motion.ts`'s `stopMove()` is marked `//% blockHidden=true` but
       remains an exported, callable function (every internal caller in
       `test.ts`/`world.ts`/elsewhere keeps working unchanged) — per
       `sprint.md`'s Design Rationale, this is an alias, not a deletion.
-- [ ] `cycleStat`(`src/shims.cpp`)/`_cycleStat` (`src/blocks/sim.ts`)
+      Drifted premise: `stopMove` actually carried the HIGHER weight
+      (290 vs `stop`'s 270 — descending weight renders first, so
+      `stopMove` rendered ABOVE `stop`, not below it as this line and
+      `sprint.md` both assert). Moot once `blockHidden=true` is set —
+      a hidden block never reaches the toolbox regardless of weight —
+      but `tests/host/test_block_toolbox_order.py`'s own baseline
+      confirms the premise was stale before this ticket, not just
+      imprecise prose.
+- [x] `cycleStat`(`src/shims.cpp`)/`_cycleStat` (`src/blocks/sim.ts`)
       are deleted entirely, along with any now-dead
       `//% shim=diffDrive::cycleStat` annotation and the `sim.ts`
       comment referencing it. Re-grep repo-wide for `cycleStat` after
       the edit and confirm zero remaining references anywhere
       (including `docs/`, if any doc happens to mention it — check).
-- [ ] A host test confirms `world.ts` no longer defines its own
+      Zero references remain in `src/`, `test/`, `tests/`, `tools/`
+      (confirmed by grep and pinned by a new host test,
+      `test_cyclestat_deleted.py`). `docs/code-review/**` and
+      `clasi/sprints/done/**` still mention it as historical audit/
+      planning record — left untouched deliberately, same as any
+      other closed finding's paper trail.
+- [x] A host test confirms `world.ts` no longer defines its own
       `tickedMove`/`tickedGoTo` (source-pin, confirming the DELETION,
       not just that `motion.ts`'s versions exist) and that both
       `goTo`/`goToWorld`'s native calls receive the SAME arrival
