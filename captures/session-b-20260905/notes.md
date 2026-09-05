@@ -690,3 +690,53 @@ since it is what the twist hold is still working off during the first
 Consistent with the 6-leg run (-5.3 mm, 144 mm/s, 894, 800) and with
 ticket 011's finding that the kernel's gains overshoot: nothing here
 meets its bar except the first-tick floor.
+
+## Ticket 009 Item 2(b) -- UNVERIFIED. The control failed.
+
+Attempted: arm a wire `MOVE_X 600 0 100 9000`, fire `RUN:straight:8`
+1.2 s into the drive (its handler calls `diffDrive.move()` ->
+`startMove()`, gated on `protocolTryTakeBlockOwnership()`,
+`src/shims.cpp:422`), and check whether the wire leg still delivers its
+own distance.
+
+MEASURED tovez 2026-09-05:
+
+| step | result |
+|---|---|
+| **CONTROL**: `RUN:straight:8` with the robot IDLE | **moved 0.02 cm** |
+| wire `MOVE_X 600` with `RUN:straight:8` fired mid-drive | leg measured 59.55 cm of 60.0 (err -0.45 cm) |
+
+**The control failed, so the test concludes nothing.** "The block-side
+move did not supersede the wire leg" is worthless as evidence when the
+same block-side move does not move the robot even with nothing else
+running. Item 2(b) stays **UNVERIFIED**, exactly as ticket 009's
+exception left it.
+
+(My harness printed a "VERDICT: ... consistent with kBusy refusal" line
+anyway, because it only warned about the failed control instead of
+aborting on it. That line should be disregarded; a harness whose
+control fails must refuse to render a verdict at all.)
+
+### The incidental finding: `RUN:straight` does not drive on this build
+
+Not a malformed verb -- `RUN:straight[:cm]` is the form `test.ts:621`
+registers -- and not a refusing robot: a wire `MOVE_X` delivered
+59.55 cm seconds later on the same connection, and STATUS stayed
+healthy throughout (`ready=1 connL=1 connR=1`, `cyc` advancing, no
+wedge, no reset). So `RUN:straight` specifically produced no motion and
+no reply line.
+
+A plausible reading from source, NOT verified: a `RUN:` handler runs on
+the protocol fiber, which already holds motion ownership for the
+dispatched job, so `protocolTryTakeBlockOwnership()` fails and
+`startMove()` returns early without driving. If that is right it is a
+genuine defect -- `RUN:straight` and every other motion RUN verb would
+be dead on this firmware -- and it is adjacent to the known
+"RUN-fiber motion resets the board" behaviour on older builds. Worth
+its own issue and a source read before Session C leans on any RUN verb.
+
+**What would settle Item 2(b):** a block-side move path that
+demonstrably drives when idle. Either fix/identify the working RUN
+motion verb, or drive the block side from the physical buttons (which
+is Item 2(a)'s stakeholder-present scenario anyway) and watch the wire
+leg's distance.
