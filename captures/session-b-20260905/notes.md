@@ -806,3 +806,33 @@ the robot idle moved it **0.02 cm**, while a wire `MOVE_X 600` on the
 same connection seconds later delivered **59.55 cm**, STATUS healthy
 throughout (`ready=1 connL=1 connR=1`, `cyc` advancing, no wedge, no
 reset).
+
+### The buttons still work -- which unblocks both ticket 014 and Item 2(b)
+
+`input.onButtonPressed(Button.A/B/AB)` (`test.ts:573-581`) call
+`straightRun(100)` / `tourWorld()` / `tourWheels()` **directly**, not
+through `handleRun()`/`dispatchJob()`. So `motionOwner_` is still
+`kNone` when a button fires on an otherwise idle robot,
+`tryTakeBlockOwnership()` succeeds, the move takes `kBlock`
+legitimately, and it drives. The buttons are the block-side path this
+ownership model was designed around; the RUN path is the one that
+collides with itself.
+
+Source reading, not measured this session -- no one was at the field to
+press a button. But it changes the disposition of two blocked items:
+
+- **Ticket 014 is not permanently blocked.** Its tour can be staged
+  from **button B** (`tourWorld`) or **AB** (`tourWheels`) instead of
+  `RUN:tour`, with the radio `RUN` still issued mid-tour from the host.
+  It needs a person at the robot to start the tour, nothing more.
+- **Item 2(b) has a control that will actually pass.** Pressing
+  button A during a live wire `MOVE_X` is exactly "a block-side
+  `startMove()` arriving during a live wire motion obligation", and
+  unlike `RUN:straight` it demonstrably drives when idle -- so a null
+  result finally means something. The expected behaviour is that the
+  button's move is refused (`motionOwner_` is `kWire`) and the wire leg
+  delivers its full distance.
+- And that is the SAME stakeholder-present session Item 2(a) already
+  needs ("a button-handler tour during a live RUN job must not corrupt
+  the shared `lineBuf_`"). All three can be done in one visit to the
+  field.
