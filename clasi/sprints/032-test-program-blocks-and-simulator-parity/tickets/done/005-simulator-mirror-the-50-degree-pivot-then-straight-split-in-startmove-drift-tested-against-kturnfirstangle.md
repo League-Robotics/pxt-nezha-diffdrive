@@ -1,11 +1,14 @@
 ---
-id: "005"
-title: "Simulator: mirror the 50-degree pivot-then-straight split in _startMove, drift-tested against kTurnFirstAngle"
-status: open
-use-cases: [SUC-004]
-depends-on: ["004"]
-github-issue: ""
-issue: "simulator-split-parity-and-geometry-drift.md"
+id: '005'
+title: 'Simulator: mirror the 50-degree pivot-then-straight split in _startMove, drift-tested
+  against kTurnFirstAngle'
+status: done
+use-cases:
+- SUC-004
+depends-on:
+- '004'
+github-issue: ''
+issue: simulator-split-parity-and-geometry-drift.md
 completes_issue: true
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
@@ -38,7 +41,7 @@ moving target in `run.ts`).
 
 ## Acceptance Criteria
 
-- [ ] `_startMove()` (or `simIntegrate()`, whichever is the cleaner
+- [x] `_startMove()` (or `simIntegrate()`, whichever is the cleaner
       seam) splits into two SEQUENTIAL phases — pivot then straight —
       whenever `distance != 0 && |yaw| >= ` the shared threshold,
       exactly mirroring `MotionEngine::moveX()`'s own condition
@@ -49,7 +52,7 @@ moving target in `run.ts`).
       during the pivot phase and populate it only once the pivot
       completes, or add a minimal phase flag if the existing fields
       can't cleanly express "not started yet."
-- [ ] The threshold value itself is NOT re-typed as a second literal in
+- [x] The threshold value itself is NOT re-typed as a second literal in
       `sim.ts`. It is drift-tested against
       `MotionEngine::kTurnFirstAngle`/`turnFirstAngle()`'s real value —
       add or extend a host test that reads both the TS constant and the
@@ -58,17 +61,17 @@ moving target in `run.ts`).
       `tests/host/test_motion_engine_primitives.py` and neighbors for
       the house pattern before inventing a new one) and asserts they
       match to a tight tolerance.
-- [ ] Below the threshold, behavior is UNCHANGED (still one blended
+- [x] Below the threshold, behavior is UNCHANGED (still one blended
       step, matching `MotionEngine::moveX()`'s own `else` branch) —
       this ticket only adds the split branch, it doesn't change the
       existing under-threshold math.
-- [ ] `move()`'s own JSDoc (`src/blocks/motion.ts`) no longer claims
+- [x] `move()`'s own JSDoc (`src/blocks/motion.ts`) no longer claims
       "Drive a distance while turning a yaw angle... Both at once makes
       an arc" unconditionally — state the actual behavior (blended
       below the threshold, pivot-then-straight at/above it), matching
       whatever wording `startGoTo()`'s own doc comment already uses to
       describe the analogous native-side split, for consistency.
-- [ ] A worked numeric example (`move(47, 90)` or equivalent) is added
+- [x] A worked numeric example (`move(47, 90)` or equivalent) is added
       as a host test asserting the simulator's END POSITION now matches
       the pivot-then-straight geometry (0 forward / 47 left, or the
       correct sign/frame per this repo's CCW-positive convention —

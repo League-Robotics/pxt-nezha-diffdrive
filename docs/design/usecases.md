@@ -157,14 +157,20 @@ deadline, stall halt).
 **Main flow**:
 1. User places `move %distance cm turning %yaw degrees` with both
    parameters nonzero.
-2. The move engine computes one duration covering both axes so they
-   complete simultaneously — the result is a single constant-curvature
-   arc, not a straight leg followed by a turn.
-3. Robot follows the arc and stops when both axes reach target (or an
-   early-termination condition fires).
+2. Below a ~50 deg yaw threshold (`kTurnFirstAngleRad`), the move
+   engine computes one duration covering both axes so they complete
+   simultaneously — the result is a single constant-curvature arc, not
+   a straight leg followed by a turn. At or above that threshold, this
+   is NOT one blended segment: the robot pivots to the new heading
+   FIRST, then drives the distance straight — two sequential phases
+   (see SUC-004, which covers this split's simulator/hardware parity).
+3. Robot follows the arc (or the pivot-then-straight pair) and stops
+   when both axes reach target (or an early-termination condition
+   fires).
 
-**Postconditions**: Pose has advanced along the arc; heading has
-changed by approximately `yaw` degrees.
+**Postconditions**: Pose has advanced along the arc (or the
+pivot-then-straight pair); heading has changed by approximately `yaw`
+degrees.
 
 **Error flows**: Same as UC-003/UC-004.
 

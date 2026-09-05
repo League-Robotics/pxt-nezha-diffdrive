@@ -13,6 +13,17 @@ namespace diffDrive {
     let simMoveRemainYaw = 0  // [rad]
     let simMoveActive = false
 
+    // Pivot-then-straight split bookkeeping, mirroring the real motion
+    // engine's own queued-second-phase fields (a pivot segment that,
+    // once finished, hands off to a queued straight segment). Needed
+    // because simMoveRemainDist/simMoveRemainYaw alone can't express
+    // "there is a second phase still to come" once the pivot phase has
+    // legitimately driven simMoveRemainDist to 0 for its own duration
+    // -- see _startMove()/simIntegrate() below.
+    let simMoveHasPendingStraight = false
+    let simMovePendingDistance = 0  // [mm] signed
+    let simMovePendingSpeed = 0  // [mm/s]
+
     // E-stop latch (sprint 007 ticket 004, closes R-13/BLK-07): mirrors
     // hardware's estopLatch_ (diffdrive.h/.cpp). Set by _estopAll(),
     // cleared only by _estopClear(); gates _setWheels()/_driveTwist()/
@@ -68,9 +79,32 @@ namespace diffDrive {
             simMoveRemainDist -= Math.abs(dDist)
             simMoveRemainYaw -= Math.abs(dYaw)
             if (simMoveRemainDist <= 0 && simMoveRemainYaw <= 0) {
-                simMoveActive = false
-                simVel = 0
-                simYawRate = 0
+                if (simMoveHasPendingStraight) {
+                    // The pivot phase just finished -- start the
+                    // queued straight phase now, the same sequential
+                    // hand-off the real motion engine performs once
+                    // its own pivot segment ends.
+                    simMoveHasPendingStraight = false
+                    const straightDistance = simMovePendingDistance
+                    const straightSpeed = simMovePendingSpeed
+                    simYawRate = 0
+                    const straightDuration =
+                        straightDistance != 0 && straightSpeed > 0
+                            ? Math.abs(straightDistance) / straightSpeed : 0
+                    if (straightDuration > 0) {
+                        simMoveRemainDist = Math.abs(straightDistance)
+                        simMoveRemainYaw = 0
+                        simVel = straightDistance / straightDuration
+                        simMoveActive = true
+                    } else {
+                        simMoveActive = false
+                        simVel = 0
+                    }
+                } else {
+                    simMoveActive = false
+                    simVel = 0
+                    simYawRate = 0
+                }
             }
         }
         const mid = simHeading + stepYawRate * stepDt / 2
@@ -126,13 +160,41 @@ namespace diffDrive {
         simMoveActive = false
     }
 
+    // [rad] a nonzero distance combined with a rotation at/above this
+    // is NOT one blended segment on the real motion engine -- pivot to
+    // the new heading FIRST, then drive the distance straight, as two
+    // SEQUENTIAL phases (see _startMove() below). Read, not re-typed:
+    // drift-tested against the real firmware constant this mirrors so
+    // the two copies can't diverge silently.
+    const kSimTurnFirstAngle = 0.8726646  // [rad]
+
     //% shim=diffDrive::startMove
     export function _startMove(distance: number, yaw: number, speed: number,
         yawRate: number): void {
         simIntegrate()
         if (simEstopped) return
+        simMoveHasPendingStraight = false
+        const yawRad = Math.abs(yaw / 100) * Math.PI / 180
+        // Mirrors the real motion engine's own split condition exactly
+        // (nonzero distance AND |rotation| at/above the shared
+        // threshold): below the threshold, or a pure pivot/pure
+        // straight, behavior is UNCHANGED -- one blended segment, the
+        // `else` branch below.
+        if (distance != 0 && yawRad >= kSimTurnFirstAngle) {
+            const yawDur = Math.abs(yaw) / yawRate
+            if (yawDur <= 0) return
+            simMoveRemainYaw = yawRad
+            simMoveRemainDist = 0
+            simVel = 0
+            simYawRate = ((yaw / 100) * Math.PI / 180) / yawDur
+            simMoveHasPendingStraight = true
+            simMovePendingDistance = distance
+            simMovePendingSpeed = speed
+            simMoveActive = true
+            return
+        }
         simMoveRemainDist = Math.abs(distance)
-        simMoveRemainYaw = Math.abs(yaw / 100) * Math.PI / 180
+        simMoveRemainYaw = yawRad
         let duration = 0
         if (distance != 0) duration = Math.abs(distance) / speed
         if (yaw != 0) {
@@ -181,11 +243,14 @@ namespace diffDrive {
     // = atan2(y, x), turn angle theta = 2*bearing wrapped to the short
     // arc (|theta| <= pi, same wrap goToR() applies, KERN-03) so a
     // target behind the robot turns the short way, not almost a full
-    // circle. Unlike hardware, this simulator has no wheel-duty
-    // constraint forcing goToR()'s own >=50 deg pivot-then-straight
-    // split (KERN-02) -- blending the whole arc as one segment, the same
-    // way _startMove() already blends distance+yaw, reaches (x, y)
-    // exactly, so no split is needed here. FOUR params, not five: the
+    // circle. Unlike _startMove() below (which now mirrors the real
+    // motion engine's own >=50 deg pivot-then-straight split), this
+    // reduction is always a single blended arc regardless of angle --
+    // an arc-length/arc-angle pair reissued as pivot-then-straight
+    // would land at a DIFFERENT point than the arc it was computed
+    // for (arc length != chord length except in the limit), so goToR's
+    // own reduction deliberately never splits; it reaches (x, y)
+    // exactly by construction instead. FOUR params, not five: the
     // fifth (`timeout`, a hardware-only deadline backstop -- nothing
     // can strand a move in this simulator) moved to _setGoToDeadline()
     // immediately above, matching shims.cpp's native-side split.

@@ -251,8 +251,11 @@ namespace diffDrive {
     // ================= position-mode moves: blocking =================
 
     /**
-     * Drive a distance while turning a yaw angle, then stop. Both at
-     * once makes an arc. Waits until the move is done.
+     * Drive a distance while turning a yaw angle, then stop. Below
+     * about 50 degrees of yaw, both axes blend into one arc; at or
+     * above that, this pivots to the new heading FIRST, then drives
+     * the distance straight -- two SEQUENTIAL phases, not one blended
+     * arc. Waits until the move is done.
      * @param distance distance to travel, eg: 20
      * @param yaw angle to turn CCW+, eg: 0
      */

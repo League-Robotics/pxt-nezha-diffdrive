@@ -129,7 +129,7 @@ program flow continues.
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|
-| `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. Setting both at once produces an arc. Internally: `startMove(distance, yaw)` then `while (_tickDrive())` — the blocking form ticks the control loop itself at the 24 ms cadence until the move ends. |
+| `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. Below ~50 deg of yaw, setting both at once produces one blended arc; at or above that (`kTurnFirstAngleRad`), it pivots to the new heading FIRST, then drives the distance straight — two sequential phases, not one arc (see the `goTo` split below for why this is NOT the same reduction that reaches a target point exactly). The browser simulator mirrors this same split, drift-tested against the firmware constant it shares. Internally: `startMove(distance, yaw)` then `while (_tickDrive())` — the blocking form ticks the control loop itself at the 24 ms cadence until the move ends. |
 | `go to x %x cm y %y cm` | `goTo(x, y)` | `x`: forward distance cm; `y`: leftward distance cm (robot frame) | Reaches a point in the robot's current coordinate frame exactly, then stops. Blocks the same way as `move`. |
 
 `goTo`'s reduction (in `startGoTo`, shared by the blocking and async
