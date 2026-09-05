@@ -387,3 +387,86 @@ So the corrected chain is:
 Every travel and yaw number in this file stands unchanged -- they came
 from wheel encoders and the overhead camera, neither of which involves
 the OTOS.
+
+## Session B, step 1 -- post-fix run on the ticket-008 build
+
+Flashed tovez with ticket 008's consolidated build (sprint 030 + this
+sprint's 003/005 fixes). Flash needed a CTRL-AP mass erase to recover a
+locked device first, then programmed 418816 bytes cleanly.
+
+Flash confirmed by identity, not assumption:
+`HELLO` -> `device NEZHA2 robot tovez 2314287040`;
+`ID` -> `id diffdrive tovez 1.20260904.5 tovez` (was `1.20260903.1`).
+
+`otos=1` at boot this time and for all 178 samples -- the world sensor
+was powered before the micro:bit booted, unlike Session A's boots 2-3.
+
+Same harness, same ten 4 cm segments, `boot4-postfix/`.
+
+### Four-run comparison
+
+| run | firmware | travel | % cmd | yaw | deg/cm | short segs | otos |
+|---|---|---|---|---|---|---|---|
+| 1 | pre-fix | 30.86 | 77.1 | +20.02 | +0.649 | -- | 1 |
+| 2 | pre-fix | 29.86 | 74.6 | +17.23 | +0.577 | -- | 0 |
+| 3 | pre-fix | 28.01 | 70.0 | +25.75 | +0.919 | 1, 7 | 0 |
+| 4 | **post-fix** | 31.36 | **78.4** | +36.33 | **+1.158** | -- | 1 |
+
+### Good: no early-ending segments
+
+All ten segments landed between 2.76 and 3.37 cm. Boot 3's two short
+segments (0.93, 1.84 cm) did not recur. **This is one run and boots 1
+and 2 were also clean, so it is NOT evidence the ticket-005 fix works** --
+the defect is intermittent and a single clean run cannot distinguish a
+fix from a quiet day. Ticket 010's three cold boots are the actual test.
+
+### CONCERN 1 -- yaw drift roughly DOUBLED
+
++1.158 deg/cm, against +0.577 to +0.919 on the pre-fix builds. Highest
+of the four runs, about twice boot 2.
+
+### CONCERN 2 -- `i2cf` climbed far more, not less
+
+Item 1's acceptance criterion is that `i2cf` must not climb across a
+mid-drive OTOS scenario. It climbed **0 -> 35** across the pre-pivot plus
+ten segments (22 of that during the pre-pivot alone, then 22 -> 35 over
+the segments).
+
+The only like-for-like comparison is boot 1, the other run with
+`otos=1`: **0 -> 6** over ten segments on the PRE-fix build. Boots 2 and 3
+had `otos=0`, i.e. no OTOS bus traffic at all, so their low counts are
+meaningless here.
+
+So with the OTOS actually active, the post-sprint-030 build -- the one
+whose entire purpose is a bus-ownership guard preventing exactly this
+class of collision -- shows **more** I2C faults than the build without
+it. **Item 1 FAILS as its criterion is written.**
+
+### Why I stopped rather than continuing to tuning
+
+Tickets 011/012 tune kernel gains and per-wheel asymmetry against
+measured behaviour. Tuning on a build showing doubled yaw drift and a 5x
+`i2cf` increase would produce constants fitted to a possibly-faulty
+build, which would then be baked as defaults in ticket 015. Those
+numbers would have to be thrown away.
+
+### What is NOT yet established -- do not read these as proven
+
+Confounds not controlled for, any of which could explain part or all of
+both concerns:
+
+- **Battery state.** The robot has run many cycles this session and was
+  last recharged hours ago. Battery drain is documented in this project
+  as degrading rotation before translation -- which is the exact shape
+  of concern 1.
+- **`otos=1` vs `otos=0`.** Runs 2 and 3 did no OTOS I2C whatsoever. The
+  post-fix run did. Some `i2cf` increase versus those two is expected
+  and means nothing; the boot-1 comparison is the one that matters.
+- **Different start poses and headings** on every run.
+- **One run.** No repeat.
+
+The honest statement is that two metrics moved the wrong way on a single
+post-fix run with uncontrolled confounds. That is a reason to
+investigate before tuning, NOT a demonstration that sprint 030 regressed
+the bus. UNVERIFIED either way until repeated on a charged battery with
+`otos=1` on both builds.
