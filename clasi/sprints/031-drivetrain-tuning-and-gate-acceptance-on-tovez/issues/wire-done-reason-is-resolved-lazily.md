@@ -1,6 +1,9 @@
 ---
-status: pending
+status: in-progress
 sprint: '031'
+tickets:
+- 031-003
+- 031-008
 ---
 
 # Wire `done= reason=` is resolved lazily, so an early arrival reads `timeout`

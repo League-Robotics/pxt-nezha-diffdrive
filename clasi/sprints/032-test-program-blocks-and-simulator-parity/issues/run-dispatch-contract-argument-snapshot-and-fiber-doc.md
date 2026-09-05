@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint: '031'
+status: in-progress
+sprint: '032'
+tickets:
+- 032-004
 ---
 
 # RUN dispatch contract: snapshot arguments per dispatch; document that handlers run on the wire's fiber

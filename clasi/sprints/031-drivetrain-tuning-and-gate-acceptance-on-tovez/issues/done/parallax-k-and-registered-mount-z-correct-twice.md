@@ -1,6 +1,8 @@
 ---
-status: pending
+status: done
 sprint: '031'
+tickets:
+- 031-002
 ---
 
 # `parallax_k` and a registered `mount_z_cm` correct the same parallax twice

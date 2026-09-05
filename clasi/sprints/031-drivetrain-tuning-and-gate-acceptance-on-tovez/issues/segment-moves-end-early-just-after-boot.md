@@ -1,6 +1,11 @@
 ---
-status: pending
+status: in-progress
 sprint: '031'
+tickets:
+- 031-001
+- 031-005
+- 031-008
+- 031-010
 ---
 
 # Segment moves end early in the first minutes after a boot

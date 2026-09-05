@@ -1,6 +1,11 @@
 ---
-status: pending
+status: in-progress
 sprint: '031'
+tickets:
+- 031-001
+- 031-009
+- 031-013
+- 031-014
 ---
 
 # Sprint 030's four deferred hardware acceptance items need one scripted bench session

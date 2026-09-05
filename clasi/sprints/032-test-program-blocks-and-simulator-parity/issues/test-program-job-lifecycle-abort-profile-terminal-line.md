@@ -1,6 +1,10 @@
 ---
-status: pending
-sprint: '031'
+status: in-progress
+sprint: '032'
+tickets:
+- 032-001
+- 032-002
+- 032-003
 ---
 
 # test.ts: one job lifecycle (reset aborted, apply a profile, emit TOUR:end), abort calls stopMove, non-blocking display, typo-safe args

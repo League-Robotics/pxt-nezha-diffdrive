@@ -1,6 +1,13 @@
 ---
-status: pending
+status: in-progress
 sprint: '031'
+tickets:
+- 031-006
+- 031-007
+- 031-011
+- 031-012
+- 031-015
+- 031-016
 ---
 
 # tovez drivetrain tuning: leg yaw asymmetry, kernel tracking overshoot, and acceptance bars restated at the instrument's resolution
