@@ -67,12 +67,17 @@ static void watchdogEntry(void* context);
 // wire request, a dispatched job, AND a block program's own call, all
 // three. Same same-package forward-declaration convention as
 // protocolEmitLine()/protocolCurrentRunText() elsewhere in this file.
-// protocolTryTakeBlockOwnership() takes ownership and returns true iff
-// nothing else currently holds the drivetrain, else leaves it alone and
-// returns false -- refused, not silently superseded.
+// protocolTryTakeMotionOwnership() returns true either because this
+// call is the CURRENTLY-DISPATCHING RUN job's own move (recognized by
+// fiber identity -- see core/motion_owner.h's tryTakeMotionOwnership()
+// and comms/protocol.cpp's Protocol::tryTakeMotionOwnership()) or
+// because nothing else currently holds the drivetrain, in which case
+// it takes kBlock; otherwise it leaves motionOwner_ alone and returns
+// false -- refused, not silently superseded.
 // protocolReleaseBlockOwnership() is a no-op unless this fiber's own
-// call actually holds it.
-bool protocolTryTakeBlockOwnership();
+// call actually holds kBlock (a dispatched job's own move never does
+// -- dispatchJob() owns clearing kJob itself).
+bool protocolTryTakeMotionOwnership();
 void protocolReleaseBlockOwnership();
 
 // ---- composition ----------------------------------------------------
@@ -434,11 +439,12 @@ void setWheels(int left, int right) {  // [mm/s] [mm/s]
 //%
 void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
   // Refused (a silent no-op), not superseding, while a wire motion or a
-  // dispatched job already holds the drivetrain -- see
-  // protocolTryTakeBlockOwnership()'s own comment above. Also the entry
+  // GENUINE block/job COLLISION already holds the drivetrain -- a
+  // dispatched RUN job's own call proceeds instead, see
+  // protocolTryTakeMotionOwnership()'s own comment above. Also the entry
   // point startDrive() (blocks/motion.ts) reaches, since it calls this
   // same block-facing driveTwist() before starting its own tick loop.
-  if (!protocolTryTakeBlockOwnership()) return;
+  if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
   const float yaw = static_cast<float>(yawRate) * kCdegToRad;  // [rad]
   const float twist = yaw * 0.5f * r.engine.effectiveTrackWidth();  // [mm/s]
@@ -605,9 +611,12 @@ bool engineMoveEndedByDeadline() {
 void startMove(int distance, int yaw, int speed, int yawRate) {
   // [mm] [cdeg] [mm/s] [cdeg/s]
   // Refused (a silent no-op), not superseding, while a wire motion or a
-  // dispatched job already holds the drivetrain -- see
-  // protocolTryTakeBlockOwnership()'s own comment above.
-  if (!protocolTryTakeBlockOwnership()) return;
+  // GENUINE block/job COLLISION already holds the drivetrain -- a
+  // dispatched RUN job's own call (e.g. test.ts's straightRun() ->
+  // tickedMove() -> this function, running synchronously inside
+  // dispatchJob()) proceeds instead: see
+  // protocolTryTakeMotionOwnership()'s own comment above.
+  if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
   odomUpdate(r);
   const float distanceF = static_cast<float>(distance);  // [mm]
@@ -1600,12 +1609,14 @@ void engineSetGoToDeadline(uint32_t timeout) {  // [ms]
 //%
 void engineGoToRArmed(float x, float y, float speed, float arrive) {
   // Refused (a silent no-op), not superseding, while a wire motion or a
-  // dispatched job already holds the drivetrain -- see
-  // protocolTryTakeBlockOwnership()'s own comment above (shims.cpp's
+  // GENUINE block/job COLLISION already holds the drivetrain -- a
+  // dispatched RUN job's own call (e.g. test.ts's tickedGoTo(), which
+  // "goto"/"face" run through) proceeds instead: see
+  // protocolTryTakeMotionOwnership()'s own comment above (shims.cpp's
   // own top section). This is startGoTo()'s (blocks/motion.ts) own
   // entry point onto the move engine, the goTo() counterpart of
   // startMove() above.
-  if (!protocolTryTakeBlockOwnership()) return;
+  if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
   engineGoToR(x, y, speed, arrive, r.pendingGoToDeadline_);
 }

@@ -25,4 +25,16 @@ int motionOwnerReleaseBlockOwnership(int owner) {
   return static_cast<int>(o);
 }
 
+// int, int in, int out -- `owner` is the same declaration-order ordinal
+// as above; `isDispatchingFiber` is a plain 0/1 (ctypes has no bool).
+// Sprint 031 ticket 017's own composite decision: see
+// diffDrive::tryTakeMotionOwnership()'s own doc comment
+// (core/motion_owner.h) for what this arbitrates.
+int motionOwnerTryTakeMotionOwnership(int owner, int isDispatchingFiber) {
+  diffDrive::MotionOwner o = static_cast<diffDrive::MotionOwner>(owner);
+  const bool took =
+      diffDrive::tryTakeMotionOwnership(&o, isDispatchingFiber != 0);
+  return took ? static_cast<int>(o) : -1;
+}
+
 }  // extern "C"

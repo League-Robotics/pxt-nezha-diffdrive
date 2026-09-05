@@ -1,25 +1,13 @@
 ---
-id: "017"
-title: "Fix motion RUN verbs refused by their own dispatch (kJob vs kBlock ownership collision)"
-status: open
+id: '017'
+title: Fix motion RUN verbs refused by their own dispatch (kJob vs kBlock ownership
+  collision)
+status: done
 use-cases: []
 depends-on: []
-github-issue: ""
-issue: ""
-# completes_issue: Controls whether linked issues are archived when this ticket
-# is moved to done. Default: true (archive when all referencing tickets are done).
-# Set to false (scalar) to suppress archival for ALL linked issues on this ticket.
-# Set to a mapping {filename.md: false} to suppress archival per issue filename.
-# Use false for tickets that partially address a multi-sprint umbrella issue.
+github-issue: ''
+issue: ''
 completes_issue: true
-# exception: Written by a lower agent when it cannot proceed (see architecture §exception-protocol).
-# exception:
-#   thrown_by: "programmer"          # "programmer" | "sprint-planner"
-#   thrown_at: "2026-05-07T14:23:00Z"
-#   attempted: |
-#     Description of what was attempted before giving up.
-#   conflict: "architecture-update.md §3 — reason the agent is blocked"
-#   surface: "internal"              # "user-visible" | "internal"
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -89,23 +77,67 @@ automatic.
 
 ## Acceptance Criteria
 
-- [ ] A dispatched RUN handler's move actually commands motion. The job
+- [x] A dispatched RUN handler's move actually commands motion. The job
       path gets its own ownership route (for example a
       `tryTakeJobMotion()` alongside `tryTakeBlockOwnership()`, or an
       ownership predicate that accepts `kJob` when the caller is the
       dispatching fiber).
-- [ ] The existing and CORRECT refusals are preserved: a genuine block-side
+- [x] The existing and CORRECT refusals are preserved: a genuine block-side
       move (button, student script) arriving while `kWire` or `kJob` holds
       the drivetrain is still refused, never superseding.
-- [ ] A host test fails if a dispatched RUN handler's move is refused.
+- [x] A host test fails if a dispatched RUN handler's move is refused.
       Nothing asserts this today, which is why the regression was
       invisible; tests/tools/test_run_verbs.py already pins the verb
       strings and tests/host/ carries the motion-engine harness.
 - [ ] A refused motion call is distinguishable on the wire from a
       successful one — today both emit the same receipts. Either emit a
       distinct line or make the receipt carry the outcome.
-- [ ] Hardware confirmation is NOT required by this ticket; ticket 014
+      **DEFERRED** — see closing note below.
+- [x] Hardware confirmation is NOT required by this ticket; ticket 014
       exercises `RUN:tour` and will confirm it incidentally.
+
+## Closing Note
+
+**Fix.** `core/motion_owner.h` gained `tryTakeMotionOwnership(MotionOwner*,
+bool isDispatchingFiber)`, alongside the unchanged `tryTakeBlockOwnership()`:
+if the caller is running on Protocol's own fiber AND the owner is already
+kJob, the call proceeds unchanged (this is the job's own move, already
+legitimately holding kJob) — otherwise it falls through to the original,
+unmodified kBlock take/refuse rule. `Protocol::tryTakeMotionOwnership()`
+(comms/protocol.cpp, renamed from `tryTakeBlockOwnership()`) computes
+`isDispatchingFiber` via `currentFiberFn_() == protocolFiberId_`, the SAME
+comparison `serviceHookEntry()` already uses for the tick service hook.
+shims.cpp's three take sites (startMove/driveTwist/engineGoToRArmed) now
+call `protocolTryTakeMotionOwnership()`. `releaseBlockOwnership()` and its
+five call sites are unchanged — the job-fiber bypass never sets kBlock, so
+there is nothing new to release; `dispatchJob()` still owns clearing kJob
+itself.
+
+**Regression window, restated.** Neither of the two commits that produced
+this defect was wrong in isolation: one made a dispatched job claim kJob
+around its own call into the TS handler; the other added a kBlock gate to
+the block-motion entry points those TS handlers also happen to call. The
+gate's own host test (kBlock take/release arbitration) was correct and
+still passes unmodified — the gap was that nothing tested the WIRING
+between "a job claims kJob" and "the gate refuses under kJob," i.e. that a
+job's own call would hit its own gate. This ticket's hardware acceptance
+item for exactly that collision was deferred one sprint and, once finally
+run, found the defect within the same session.
+
+**Deferred: distinguishable refusal receipt.** Acceptance criterion 4 asks
+for a refused motion call to look different on the wire from a successful
+one. With this fix landed, the only remaining refusal path is a genuine
+block/job collision (a button or script call arriving while something else
+already holds the drivetrain) — the common case (a dispatched job's own
+move) no longer gets silently refused at all. Making that remaining
+refusal visible on the wire requires plumbing a "was this refused"
+signal from the shims layer back through every one of the ~10 TS handlers
+in scope (straight/tour/square/infinity/snake/diamond/circle/pivot/arc/
+goto/face), each of which currently emits its own hand-written receipt
+line unconditionally after its tick loop returns — a wire-grammar-level
+change, not a small one. Deferring it rather than forcing it into this
+ticket, per this ticket's own instructions; a follow-up ticket should
+scope it explicitly.
 
 ## Dependencies
 

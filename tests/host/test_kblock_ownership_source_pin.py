@@ -1,7 +1,28 @@
-"""tests/host/test_kblock_ownership_source_pin.py -- pins kBlock
+"""tests/host/test_kblock_ownership_source_pin.py -- pins kBlock/kJob
 motion-owner coverage across `src/shims.cpp` (sprint 030 ticket 002,
 clasi/sprints/030-bus-discipline-and-fiber-safety/issues/
-service-hook-must-check-fiber-identity.md).
+service-hook-must-check-fiber-identity.md; renamed onto
+`protocolTryTakeMotionOwnership()` by sprint 031 ticket 017,
+clasi/sprints/031-drivetrain-tuning-and-gate-acceptance-on-tovez/
+tickets/017-fix-motion-run-verbs-refused-by-their-own-dispatch-kjob-vs-
+kblock-ownership-collision.md).
+
+**Ticket 017's own change, restated here.** The three take sites below
+used to call `protocolTryTakeBlockOwnership()` -- the plain kBlock take,
+which refuses unconditionally whenever `motionOwner_` is anything but
+kNone, INCLUDING kJob. That refused a DISPATCHED RUN JOB'S OWN move:
+`dispatchJob()` (comms/protocol.cpp) sets `motionOwner_ = kJob` and then
+calls the TS handler SYNCHRONOUSLY, on ITS OWN fiber, so the handler's
+own `startMove()`/`driveTwist()`/`engineGoToRArmed()` call was
+indistinguishable, from inside this function, from a genuine
+block-program caller arriving mid-job -- both saw `kJob` and were
+refused, silently (the handler's own tick loop still completed and
+still emitted its normal receipts). MEASURED tovez 2026-09-05,
+captures/session-b-20260905/notes.md: `RUN:straight:8` moved 0.02 cm.
+`protocolTryTakeMotionOwnership()` (comms/protocol.cpp,
+core/motion_owner.h) is the fix -- see that function's own doc comment
+for the fiber-identity check that lets a job's own call through while
+preserving the UNCHANGED refusal for every genuine block caller.
 
 **What this is NOT.** Source-text pinning, following
 `test_bus_guard_source_pin.py`'s own precedent (itself following
@@ -132,20 +153,23 @@ _RELEASE_SITES = {
 
 
 @pytest.mark.parametrize("name", sorted(_TAKE_SITES.keys()))
-def test_block_motion_entry_point_takes_kblock_ownership(name):
+def test_block_motion_entry_point_takes_motion_ownership(name):
     """Each of these three entry points must call
-    protocolTryTakeBlockOwnership() -- and, per the ticket's own
+    protocolTryTakeMotionOwnership() -- and, per the ticket's own
     arbitration decision, must check its result (a refusal must not
-    fall through and command the engine anyway)."""
+    fall through and command the engine anyway). Renamed from
+    protocolTryTakeBlockOwnership() by sprint 031 ticket 017: the new
+    name is the SAME call site, extended to also let a dispatched RUN
+    job's own call through (see this file's own module docstring)."""
     body = _function_body(_SHIMS_STRIPPED, _TAKE_SITES[name], name)
-    assert re.search(r"protocolTryTakeBlockOwnership\s*\(\s*\)", body), (
-        f"{name}(): body has no protocolTryTakeBlockOwnership() call:\n{body}"
+    assert re.search(r"protocolTryTakeMotionOwnership\s*\(\s*\)", body), (
+        f"{name}(): body has no protocolTryTakeMotionOwnership() call:\n{body}"
     )
     assert re.search(
-        r"if\s*\(\s*!\s*protocolTryTakeBlockOwnership\s*\(\s*\)\s*\)\s*return",
+        r"if\s*\(\s*!\s*protocolTryTakeMotionOwnership\s*\(\s*\)\s*\)\s*return",
         body,
     ), (
-        f"{name}(): protocolTryTakeBlockOwnership()'s result is not "
+        f"{name}(): protocolTryTakeMotionOwnership()'s result is not "
         f"checked with an early return -- a refusal must not fall "
         f"through to the engine call:\n{body}"
     )
@@ -174,4 +198,4 @@ def test_setwheels_is_a_documented_gap_not_a_silent_one():
         r"\bvoid\s+setWheels\s*\(\s*int\s+left,\s*int\s+right\s*\)\s*\{",
         "setWheels",
     )
-    assert "protocolTryTakeBlockOwnership" not in body
+    assert "protocolTryTakeMotionOwnership" not in body
