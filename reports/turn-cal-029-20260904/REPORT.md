@@ -105,3 +105,41 @@ uv run python tools/camlink.py --register vevov     # once per daemon session
   39/40 on gopiv with a repeatable GO_TO_W "wheels turned" miss that
   tigez passes), no lag_s baked (stop_distance 0). Same procedure when
   they are on the field; expect a different lag than vevov's.
+
+## Evening: tigez on the secondary playfield (camera 2), 2026-09-04
+
+Firmware 1.20260904.4 on tigez (farm flash, `captures/tigez-029-reflash-20260904/`),
+bakes slip 0.9617 / stop_distance 0 / lag 0. Field: secondary playfield,
+110 x 70 cm, NO rails, camera 2 (`hd-usb-camera`); the tool grew
+`--camera` and `--field-cm`, margin 15 cm, pivots only. tovez (the other
+agent's) sat on the main field; vevov shared this one.
+
+| run | carrier | lag | pivots | camera error |
+|---|---|---|---|---|
+| tigez-01 (main field, before the move) | WiFi | 0 | dance | +0.5 / +6.7 / +4.3 PASS |
+| tigez-03 | WiFi | 0 | dance | **WiFi module died at the first MOVE_X** (unacked, socket broke, host down for good); micro:bit fine over the radio |
+| tigez-04 | radio | 0 | dance | +3.6 / +4.2 / +6.1 PASS |
+| tigez-05-lag0 | radio | 0 | 7 | **+4.3 deg mean** (fit offset +6.6) |
+| tigez-05-lag0.04 | radio | 0.04 | 8 | +0.7 / -1.5 / +1.9 / -1.8, offset +0.3, mean abs 2.2 |
+| tigez-06-lag0.10 | radio | 0.10 | 8 | -1.1 / -0.4 / +0.5 / +0.4, offset -0.75, mean abs 1.9 |
+| tigez-06/07 lag 0.05 confirm | radio | 0.05 | -- | killed: camera 2 stopped delivering frames (twice), relay pool silent once |
+
+- **Same knob, same direction as vevov**: lag 0 over-rotates, a small lag
+  centres it. tigez sits on a plateau between 0.04 and 0.10 (vevov's slope
+  was steeper). **Baked `lag_s 0.05`** in radio-robot-lib (tigez.json,
+  provenance in the file); NOT yet flashed (tigez has no Pi; farm) and
+  straights unverified.
+- **tigez's WiFi module drops the moment the motors engage** on the field
+  (as gopiv's did this morning); the micro:bit keeps answering over the
+  radio (5-7 of 8 pings). The brick rail under motor load is the suspect
+  on both boards; vevov's module held through 24 pivots.
+- **Camera 2 died twice in ~40 min** ("no frame available", daemon lists
+  it present/unusable, calibration stale) and did not come back after
+  the second Terminal restart of the daemon; camera 3 kept serving. A
+  camera/USB fault, not the daemon. The tool now treats a daemon error
+  as a missed fix and reconnects through the relay pool after two
+  unacked moves (relay gozop passed nothing outbound in two sessions).
+- Dance pivots at lag 0 on the 029 engine over-rotate 4-6 deg, i.e. the
+  new engine untuned is about where the old engine untuned was; the
+  bench squares on gopiv (`reports/gopiv-square-029-20260904/`, closure
+  19-24 mm, each pivot +0.3..+1.5 deg by the encoders) say the same.

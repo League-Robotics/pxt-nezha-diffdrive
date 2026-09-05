@@ -1,0 +1,43 @@
+relay: gozop (DEVICE:RADIOBRIDGE:relay:gozop:4267970133)
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '135', 'cyc': '3313', 'tlm': 'off', 'next': '1', 'done': '12', 'reason': 'stop'}
+SET lag 0.05 -> ack 1 12 stop
+rotational_slip=0.962 stop_distance=0.0 lag=0.05 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 57 at (3.5, -13.7) cm heading -3.9 deg
+telemetry OFF (--no-tlm): camera-only scoring, no wheel speeds or encoder heading
+telemetry columns: []
+12 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90  -- MOVE_X not accepted: None
+  2    -90  -- MOVE_X not accepted: None
+  link silent twice -- reconnecting through the relay pool
+relay: zetog (DEVICE:RADIOBRIDGE:relay:zetog:3446622357)
+  link: radio relay ch 55 grp 114 (torture:8760); robot: device NEZHA2 robot tigez 3527777815
+  SET lag 0.05 -> ack 1 12 stop
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+camera hd-usb-camera: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'
+STOP: no camera fix
+{}
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 1017, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 1010, in main
+    link.seqd('STOP', wait=1.0)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 153, in seqd
+    self.send(wire)
+    ~~~~~~~~~^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 120, in send
+    self.sock.sendall((line + '\n').encode())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 9] Bad file descriptor

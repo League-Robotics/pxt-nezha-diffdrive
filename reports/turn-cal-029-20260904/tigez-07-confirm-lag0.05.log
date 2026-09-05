@@ -1,0 +1,23 @@
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 1021, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 957, in main
+    link, where = open_link(a)
+                  ~~~~~~~~~^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 229, in open_link
+    return RelayLink(ch, grp), f'radio relay ch {ch} grp {grp} ({RELAY_HOST}:{RELAY_PORT})'
+           ~~~~~~~~~^^^^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 216, in __init__
+    super().__init__(host, port)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 88, in __init__
+    self.sock = socket.create_connection((host, port), timeout=10)
+                ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/eric/.local/share/uv/python/cpython-3.13.7-macos-aarch64-none/lib/python3.13/socket.py", line 840, in create_connection
+    for res in getaddrinfo(host, port, 0, SOCK_STREAM):
+               ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/eric/.local/share/uv/python/cpython-3.13.7-macos-aarch64-none/lib/python3.13/socket.py", line 977, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+               ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known

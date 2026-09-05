@@ -117,7 +117,10 @@ class Link:
                         self.lines.append((time.time(), s))
 
     def send(self, line):
-        self.sock.sendall((line + '\n').encode())
+        try:
+            self.sock.sendall((line + '\n').encode())
+        except OSError as e:
+            print(f'link: send failed ({e}); the carrier is gone')
 
     def since(self, t0, prefix=None):
         with self.lock:
@@ -485,6 +488,7 @@ def run_sweep(link, cam, a, out):
     print(f'{len(plan)} pivots: {plan}')
 
     rows, frames_out = [], []
+    silent = 0   # consecutive moves the robot never acked
     print(f"{'#':>3} {'cmd':>6} {'camera':>8} {'err':>7} {'enc':>8} {'encerr':>7} {'drift':>6} {'peakL':>6} {'peakR':>6} {'dur':>5}  reason")
     for i, deg in enumerate(plan, 1):
         lights_on()
@@ -496,7 +500,23 @@ def run_sweep(link, cam, a, out):
         row, err = one_turn(link, cam, deg, a.cruise, a.timeout_ms, cols, frames_out, i, a.settle, poll=not a.no_poll)
         if err:
             print(f'{i:3d} {deg:6d}  -- {err}')
+            if 'not accepted' in err:
+                silent += 1
+                if silent >= 2 and a.radio:
+                    # a pool relay that passes nothing outbound (tigez
+                    # 2026-09-04, three sessions): drop it, take another,
+                    # re-apply the live SETs, keep going
+                    print('  link silent twice -- reconnecting through the relay pool')
+                    link.close()
+                    link, where = open_link(a)
+                    print(f'  link: {where}; robot: {link.hello()}')
+                    for kv in a.set:
+                        k, v = kv.split('=', 1)
+                        tid, ack = link.seqd(f'SET {k} {v}', wait=2.0)
+                        print(f'  SET {k} {v} -> {ack}')
+                    silent = 0
             continue
+        silent = 0
         rows.append(row)
         print(f"{i:3d} {deg:6d} {row['camera_deg']:8.1f} {row['error_deg']:7.1f} "
               f"{str(row['encoder_deg']):>8} {str(row['encoder_error_deg']):>7} {row['drift_cm']:6.1f} "
@@ -512,6 +532,7 @@ def run_sweep(link, cam, a, out):
     summary = analyze(rows, a)
     (out / 'summary.json').write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
+    a.link = link   # may have been reconnected mid-sweep
     return rows
 
 
@@ -991,7 +1012,7 @@ def main():
         run_sweep(link, cam, a, out)
     finally:
         link.seqd('STOP', wait=1.0)
-        link.close()
+        getattr(a, "link", link).close()
     print(f'wrote {out}; render with: <plot venv>/bin/python {sys.argv[0]} --render {out}')
     return 0
 
