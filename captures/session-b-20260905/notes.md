@@ -445,3 +445,62 @@ interfered leg, but three other interfered legs in the same run did
 not. A repeat run is the next data point. Do NOT average this into the
 group means -- it is either a real intermittent worth its own issue or
 it is not, and 64.5-vs-2.25 is entirely this one leg.
+
+### Repeat run: the anomaly did NOT recur, and the guard's claim holds
+
+`captures/session-b-20260905/busguard-repeat/`, ten alternating 120 mm
+legs, same build, same session, immediately after:
+
+| leg | kind | cam | dh | i2cf/cyc |
+|---|---|---|---|---|
+| 0 | clean | 113.5 mm | -2.45 | +1/55 |
+| 1 | FIX | 113.2 mm | +0.64 | +0/55 |
+| 2 | clean | 112.7 mm | +0.14 | +3/56 |
+| 3 | FIX | 112.9 mm | -0.81 | +4/56 |
+| 4 | clean | 113.4 mm | +0.10 | +0/55 |
+| 5 | FIX | 114.4 mm | +1.10 | +2/56 |
+| 6 | clean | 111.4 mm | -2.54 | +3/54 |
+| 7 | FIX | 112.3 mm | +1.50 | +2/55 |
+| 8 | clean | 114.1 mm | -2.10 | +2/56 |
+| 9 | FIX | 112.6 mm | +0.53 | +3/55 |
+
+| group | n | i2cf/move | mean len err | mean abs dh |
+|---|---|---|---|---|
+| clean | 5 | 1.8 | -6.97 mm | 1.46 deg |
+| interfered | 5 | 2.2 | -6.90 mm | 0.92 deg |
+| **difference** | | **+0.40** | **+0.1 mm** | -0.55 |
+
+Every leg between +0/55 and +4/56 cyc. No 4293-cycle event; leg 5 of
+this run cost +2/56.
+
+### Item 1 -- the verdict
+
+Across BOTH runs, **nine interfered legs against nine clean ones**
+(excluding run 1's leg 5), a wire-issued OTOS read landing mid-drive
+costs:
+
+- **0.1 mm** of leg length (-6.90 vs -6.97 mm mean error),
+- **0.4** extra i2cf per move (2.2 vs 1.8),
+- nothing in heading (interfered legs were LOWER on |dh| in both runs,
+  which is noise, not an effect).
+
+Every one of the ten `RUN:fix` calls answered with a real `OCAL:` line,
+so the OTOS transaction completed mid-drive rather than being deferred
+or wedging the wire. **Sprint 030's bus-ownership guard does what it
+claims on the failure that matters** -- a destroyed encoder sample is a
+lost tick of control and would show up as distance, and it does not.
+
+The original Item 1 wording ("`i2cf` does not climb") remains
+unanswerable on post-028 firmware and should be replaced by this
+comparison in the sprint's own issue file.
+
+### The leg-5 event stays open -- 1 in 10 interfered legs
+
+4293 cycles and +251 i2cf on a leg that delivered 112.9 mm and
++1.49 deg normally. Ten further interfered legs did not reproduce it,
+so it is NOT attributable to the OTOS read on this evidence -- but it
+is not explained either, and "the move completed and the kernel then
+ticked for ~100 s against wheels that were not turning" is a motion
+obligation that outlived its move. Worth its own issue and an 8 Hz
+STATUS poll on the next busguard run so the event has frames around it
+rather than only a before/after pair.
