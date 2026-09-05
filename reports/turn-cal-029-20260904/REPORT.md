@@ -143,3 +143,31 @@ agent's) sat on the main field; vevov shared this one.
   new engine untuned is about where the old engine untuned was; the
   bench squares on gopiv (`reports/gopiv-square-029-20260904/`, closure
   19-24 mm, each pivot +0.3..+1.5 deg by the encoders) say the same.
+
+## Night, 2026-09-05: tigez finished on the secondary playfield (camera 2 repaired)
+
+Camera 2 came back after the stakeholder's fix; tag-57 mount registered
+(-0.67 / -0.02 / 11.7 cm, -89.65 deg) and camera 2 knows its own
+height (144 cm), so the daemon reports the centre of rotation: per-pivot
+centre drift 0.25-0.41 cm across the night, which is the parallax check
+passing. tigez had rebooted (lag back to 0); everything over the radio
+relay, camera-only scoring, 15 cm margin, tigez's WiFi left alone.
+
+| run | lag | pivots | camera error | notes |
+|---|---|---|---|---|
+| tigez-08 dance | 0 | 3 | +1.2 / +4.4 / +3.6 PASS, home 0.4 cm | |
+| tigez-09 confirm | 0.05 | 10/12 | mean abs 2.2 deg; +90 -0.2, -90 +0.1, +107 -2.3, -107 +3.0, +180 +2.0, -180 -1.6 | relay guvov went silent, reconnect to gozop |
+| tigez-10 straights | 0.05 / 0.10 | 4 + 4 x 400 mm | 0.05: +3.6 / -1.7 / +0.9 / -1.6 mm; 0.10: -0.7 / +1.3 / -1.1 / +1.3 mm | east/west legs, heading change < 2.5 deg |
+| tigez-12 statistics | 0.10 | 14/24 | **mean abs 0.65 deg**, offset -0.7, all within 1.8 | 10 unacked, 5 relay reconnects |
+| tigez-13 statistics | 0.05 | 22/24 | **mean abs 1.1 deg**, offset -0.4; per angle -0.1 / -1.1 / -0.2 / -0.7 / +1.0 / -1.1 | |
+
+**tigez on the 029 engine: lag 0.05 baked (radio-robot-lib tigez.json),
+pivots within about 1 deg, 400 mm straights within 4 mm.** 0.10 is
+equally good (a plateau from 0.04 to 0.10 on this drivetrain, unlike
+vevov's steep slope), so the bake stays at 0.05, the most-measured
+value. Still to do: a farm flash of tigez so the bake survives a reboot
+(no Pi on tigez); until then `SET lag 0.05` after every power-up.
+
+The relay pool cost 10-20 % of pivots to unacked moves (the tool
+reconnects after two); tigez's WiFi would have been lossless but it
+drops at the first motor engage on this board.

@@ -767,7 +767,7 @@ def render(out):
     out = pathlib.Path(out)
     rescore(out)
     turns = list(csv.DictReader(open(out / 'turns.csv')))
-    frames = list(csv.DictReader(open(out / 'frames.csv')))
+    frames = list(csv.DictReader(open(out / 'frames.csv'))) if (out / 'frames.csv').exists() else []   # --no-tlm runs have none
     summary = json.loads((out / 'summary.json').read_text()) if (out / 'summary.json').exists() else {}
     for r in turns:
         for k in ('commanded', 'camera_deg', 'error_deg', 'drift_cm', 'duration_s'):
