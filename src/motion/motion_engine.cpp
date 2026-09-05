@@ -365,7 +365,16 @@ bool MotionEngine::service() {
     const VelocityShaper::Step step =
         shaper_.advance(target, remain, al.floor, al.cap, dt, limits_, vAct);
 
-    const bool wrongWay = seg_.wrongWay(out);
+    // A cold wheel's brief start-up skew can register as backward
+    // progress before real rotation begins -- trust wrongWay()'s own
+    // verdict only once the yaw axis has moved at least
+    // kMinYawProgressBeforeWrongWay in either direction; below
+    // that, hold off and let a later tick's own (by-then-genuine)
+    // progress decide.
+    const bool wrongWay =
+        seg_.wrongWay(out) &&
+        std::fabs(seg_.yawProgress(out)) >=
+            kMinYawProgressBeforeWrongWay;
     const bool expired = static_cast<int32_t>(nowVal - seg_.deadline) >= 0;
     if (wrongWay || out.stallHalted || out.estopped || expired) {
       if (wrongWay) ++wrongWayCount_;

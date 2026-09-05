@@ -412,6 +412,19 @@ class MotionEngine {
   static constexpr int kSettleMaxSteps = 12;
   static constexpr float kSettleRestCountsPerS = 25.0f;
 
+  // [counts] a pivot/blended-arc's yaw axis must have moved at least
+  // this far, in EITHER direction, before wrongWay() (segment.h) is
+  // trusted at all -- a cold wheel's brief start-up skew can read
+  // backward before real rotation begins, and evaluating direction
+  // against that noise (rather than genuine motion) is what let a
+  // start-up skew read as a reversed pivot even though the margin
+  // there (segment.h's own kWrongWayMargin, 12 counts) already floors
+  // out small noise. Chosen well above that floor so a real skew of a
+  // few tens of counts cannot trip a false abort, while still catching
+  // a genuinely reversed wheel within a small fraction of any real
+  // pivot's own target.
+  static constexpr float kMinYawProgressBeforeWrongWay = 40.0f;
+
   // [mm/s] [mm/s] the pair a caller reads back from axisLimits() below
   // -- a plain aggregate (no default member initializers, so it stays a
   // C++11 aggregate; see tests/host/test_cxx11_syntax_gate.py's own

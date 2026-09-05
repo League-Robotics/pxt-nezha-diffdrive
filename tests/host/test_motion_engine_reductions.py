@@ -1324,6 +1324,79 @@ def test_move_x_wrong_way_abort_increments_count(motion_lib):
         assert e.wrong_way_count() == before + 1
 
 
+def test_wrong_way_ignores_a_brief_cold_start_skew_below_minimum_progress(
+    motion_lib,
+):
+    """A brief, small backward skew right after a pivot starts (the
+    cold-boot wheel start-up skew described in wrongWay()'s own margin
+    comment, segment.h) must not trip a wrong-way abort by itself --
+    only a skew that persists past a minimum absolute progress on the
+    dominant (yaw) axis counts as a genuine reversal. Chosen numbers: a
+    small pivot gives a yawTarget of about 80 counts, so the SCALED
+    margin (0.25 * yawTarget = 20 counts) sits comfortably below
+    MotionEngine's own minimum-progress gate (40 counts) -- a 35-count
+    skew crosses the old margin-only check but sits under the new
+    gate."""
+    with Engine(motion_lib) as e:
+        _ready(e)
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        before = e.wrong_way_count()
+
+        rotation = 80.0 / (0.5 * b * cpm)  # [rad] -- yawTarget ~ 80 counts
+        e.move_x(0.0, rotation, 100.0, 5000)
+        e.step()
+        e.service_move()  # lazy origin capture at (0, 0) -- not wrongWay yet
+
+        # Small, transient wrong-direction skew: magnitude 35 counts,
+        # which exceeds the scaled margin (20 counts) but sits below
+        # the new minimum-progress gate (40 counts).
+        e.arm_motor_position(LEFT, 35.0)
+        e.arm_motor_position(RIGHT, -35.0)
+        e.step()
+        assert e.service_move()          # still running -- not aborted
+        assert e.is_move_active()
+        assert e.wrong_way_count() == before
+
+        # Real motion resumes the COMMANDED (correct) direction; the
+        # earlier skew is never retroactively counted.
+        e.arm_motor_position(LEFT, -50.0)
+        e.arm_motor_position(RIGHT, 50.0)
+        e.step()
+        e.service_move()
+        assert e.wrong_way_count() == before
+
+
+def test_wrong_way_still_catches_a_genuine_reversal_past_minimum_progress(
+    motion_lib,
+):
+    """The minimum-progress gate above only DELAYS judgment -- it must
+    not blind wrongWay() to a wheel that keeps moving the wrong way
+    past the gate's own threshold. Same pivot as the sibling test
+    above, but the skew grows past 40 counts instead of stopping at
+    35."""
+    with Engine(motion_lib) as e:
+        _ready(e)
+        cpm = e.counts_per_mm()
+        b = e.effective_track_width()
+        before = e.wrong_way_count()
+
+        rotation = 80.0 / (0.5 * b * cpm)  # [rad] -- yawTarget ~ 80 counts
+        e.move_x(0.0, rotation, 100.0, 5000)
+        e.step()
+        e.service_move()
+
+        # A genuine reversal: magnitude 60 counts, past BOTH the old
+        # margin (20 counts) and the new minimum-progress gate (40).
+        e.arm_motor_position(LEFT, 60.0)
+        e.arm_motor_position(RIGHT, -60.0)
+        e.step()
+
+        assert not e.service_move()
+        assert not e.is_move_active()
+        assert e.wrong_way_count() == before + 1
+
+
 def test_move_x_progress_reports_zero_then_fraction(motion_lib):
     with Engine(motion_lib) as e:
         _ready(e)
