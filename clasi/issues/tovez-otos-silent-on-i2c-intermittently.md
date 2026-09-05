@@ -2,66 +2,78 @@
 status: pending
 ---
 
-# tovez's OTOS is intermittently silent on the I2C bus (physical, not firmware)
+# A late Nezha-brick power-on cannot recover the OTOS: `otosBegin()` is one-shot
 
 MEASURED tovez 2026-09-04, firmware 1.20260903.1,
-`captures/session-a-20260904/otos-boot-banner-watch.log` and
-`captures/session-a-20260904/notes.md`.
+`captures/session-a-20260904/notes.md` and
+`captures/session-a-20260904/otos-boot-banner-watch.log`.
 
-## What was measured
+## Root cause: the Nezha brick was OFF. The sensor is fine.
 
-Across four power cycles in one session, `STATUS` reported `otos=1` on
-the first boot and `otos=0` on the three that followed. The firmware's
-own boot banner on a failing boot:
+An earlier revision of this issue concluded the OTOS had an
+"intermittent physical fault -- a marginal I2C connection or power
+feed." **That was wrong**, and the correction matters because it points
+at a completely different fix.
+
+The brick was simply off. Once the stakeholder powered it on, a forced
+retry answered immediately and correctly:
 
 ```
-OTOS:boot:id=0:connected=0
+RUN:probe  ->  OPROBE:95:1        # 95 == 0x5F == kExpectedProductId
+STATUS     ->  ... otos=1 ...
 ```
 
-`OtosPort::begin()` takes that id straight from
-`readReg8(kRegProductId, &id)` with `id` pre-initialised to 0, and
-`readReg8` returns false on a NAK without writing `val`. **id=0 means
-the chip did not answer at all** -- distinct from a wrong device
-(non-zero id != 0x5F) or an init-logic bug (id == 0x5F, connected=0).
+No reseat, no rewiring, no power-cycle. The sensor was never faulty.
 
-A `RUN:probe` retry well after boot did not recover it: the host timed
-out at 2 s, `PING` afterwards answered normally (`pong 217661`), and
-`STATUS` still read `otos=0 i2cf=0`. So the sensor is **silent, not
-slow**, and a retry alone will not fix it.
+`.claude/rules/playfield-testing.md` already says, in its own section
+heading, "**The robot is OFF -- check this first**." The evidence was
+consistent with an unpowered brick the whole way through
+(`connL=0 connR=0 otos=0` at every boot before the first tick) and
+"marginal connection" was a more exotic explanation than the facts
+required. Recorded here so the next reader reaches for the power switch
+before the soldering iron.
 
-Because it answered on one power-up and not the next, the chip is not
-simply dead. This points at a **marginal I2C connection or power feed
-to the OTOS**.
+## The real defect: one failed probe latches `otos=0` for the session
 
-## Why this is filed as hardware
+`otosBegin()` is called **exactly once**, at boot
+(`test/test.ts:819`). `OtosPort::begin()` sets
+`initialized_ = ok && (id == kExpectedProductId)`, and `connected()`
+returns `initialized_ && connected_`. Nothing retries automatically --
+the only other call sites are the `RUN:probe` handler
+(`test.ts:647`) and the `calibrate world sensor` block
+(`src/blocks/world.ts:22`), both operator-triggered.
 
-The firmware reported the fault accurately and immediately via its boot
-banner. It is not misreporting a healthy sensor.
+So if the brick is off (or the chip merely slow) at that instant, the
+board reports `otos=0` **for the rest of the session**, and powering the
+brick on afterwards changes nothing. That is exactly what was observed:
+`STATUS` still read `otos=0` with `cyc=0` after the brick came on, and
+only the forced `RUN:probe` retry brought it up.
 
-## Two firmware weaknesses this exposed (worth fixing, but NOT the cause)
+This is a real usability defect. A student or bench operator who
+switches the brick on a moment late gets a board that silently has no
+world sensor, with no indication that a retry would fix it.
 
-1. **One-shot init with no retry.** `otosBegin()` is called exactly once
-   at boot (`test/test.ts:819`); one failed probe latches `otos=0` for
-   the entire session. The only other call sites are `RUN:probe` and the
-   `calibrate world sensor` block, both operator-triggered. A bounded
-   retry with backoff would at least survive a slow-to-wake chip.
-2. **A silent OTOS blocks the command channel.** The `RUN:probe` read
-   stalled the host past 2 s. RUN handlers run on the protocol fiber, so
-   an unresponsive sensor makes the whole wire unresponsive. This is the
-   same failure class sprint 032 ticket 002 addresses -- now observed on
-   hardware, not argued from source.
+### Suggested fix
 
-## Suggested next steps
+A bounded retry: re-attempt `otosBegin()` on a backoff (or on the first
+world-frame read that finds `connected() == false`) instead of trusting
+one probe at boot. Cheap, and it makes power-on ordering stop mattering.
 
-- Physically inspect the OTOS's I2C wiring and power on tovez; reseat.
-- Re-run the boot banner check across several power cycles and record
-  the `otos=1` / `otos=0` ratio before and after any reseat.
-- Consider the bounded-retry change independently; it is cheap and makes
-  a marginal connection far less disruptive.
+## Secondary: a silent OTOS blocks the command channel
+
+With the brick off, `RUN:probe`'s read stalled the host past its 2 s
+timeout; `PING` afterwards answered normally, so the board did not wedge
+-- the wire was simply unresponsive for the duration. RUN handlers run
+on the protocol fiber, so an unresponsive sensor freezes the whole
+command channel.
+
+Same failure class as sprint 032 ticket 002, now observed on hardware
+rather than argued from source. Worth citing there.
 
 ## What this does NOT affect
 
-Sprint 031 Session A's travel and yaw-drift figures stand: `connL=1
-connR=1` throughout, and the OTOS is not in the wheel-odometry or camera
-measurement path. Boot 1 (`otos=1`) and boots 2-3 (`otos=0`) agree on
-both headline numbers.
+Sprint 031 Session A's travel and yaw-drift figures stand. `connL=1
+connR=1` throughout every run once the kernel ticked, and the OTOS is
+not in the wheel-odometry or camera measurement path. Boot 1
+(`otos=1`) and boots 2-3 (`otos=0`) agree on both headline numbers,
+which is itself evidence the OTOS state did not affect them.

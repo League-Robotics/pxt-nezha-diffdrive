@@ -261,7 +261,9 @@ Incidental from the listener: `BG:wifi state=0 ip=- peer=-:0 tcp=0/0`
 `tovez.local` never resolved all session.
 
 
-## RESOLVED -- the OTOS is not answering on the I2C bus. Not firmware.
+## SUPERSEDED -- see the correction at the end of this file.
+
+## (superseded) the OTOS is not answering on the I2C bus. Not firmware.
 
 MEASURED tovez 2026-09-04, `captures/session-a-20260904/otos-boot-banner-watch.log`
 line 189, firmware 1.20260903.1:
@@ -321,3 +323,36 @@ connR=1` throughout every run, and the OTOS is not in the wheel-odometry
 or camera measurement path. Boot 1 (otos=1) and boots 2-3 (otos=0) agree
 on both headline figures, which is itself evidence the OTOS state does
 not affect them.
+
+
+## CORRECTION -- the brick was off; the sensor was always fine
+
+The section above concluded an "intermittent physical fault -- a
+marginal I2C connection or power feed." **That conclusion was wrong.**
+
+MEASURED tovez 2026-09-04, same session, after the stakeholder powered
+the Nezha brick on:
+
+```
+RUN:probe  ->  OPROBE:95:1        # 95 == 0x5F == kExpectedProductId
+STATUS     ->  ... otos=1 ...
+```
+
+The OTOS answered immediately and correctly. No reseat, no rewiring.
+
+What was actually true the whole time:
+
+- the brick was off, so the OTOS had no power and NAKed its product-ID
+  read -- hence `OTOS:boot:id=0:connected=0`;
+- `otosBegin()` runs exactly once at boot, so powering the brick on
+  afterwards could not fix it -- `STATUS` still read `otos=0` with
+  `cyc=0` until a forced `RUN:probe` retry;
+- boot 1 read `otos=1` because the brick happened to be on then.
+
+Every observation was consistent with "unpowered" from the start.
+`.claude/rules/playfield-testing.md` has a section titled "**The robot
+is OFF -- check this first**" precisely for this, and the more exotic
+"marginal connection" reading went beyond what the evidence required.
+
+The genuine defect that remains is the one-shot init, filed as
+`clasi/issues/tovez-otos-silent-on-i2c-intermittently.md`.
