@@ -1,6 +1,9 @@
 ---
-status: pending
-sprint: '031'
+status: in-progress
+sprint: '032'
+tickets:
+- 032-007
+- 032-008
 ---
 
 # Blocks: goTo pivot honours the default turn rate; arrival tolerance applies to both go-to blocks; one tick runner; delete cycleStat; one stop block

@@ -1,6 +1,9 @@
 ---
-status: pending
-sprint: '031'
+status: in-progress
+sprint: '032'
+tickets:
+- 032-005
+- 032-006
 ---
 
 # Simulator: mirror the 50 deg pivot-then-straight split; drift-test sim geometry; honour set geometry
