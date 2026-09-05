@@ -914,3 +914,64 @@ from four independent directions.
 and below the 1.00-1.08 measured earlier today on warm runs, which is
 itself consistent with i2cf being a breakaway counter rather than a bus
 health metric.
+
+## Ticket 015 baked and FLASHED -- twist_hold_gain 2.0 -> 4.0
+
+The twist-hold sweep (all camera-truthed, alternating +-600 mm legs at
+cruise 100, gain applied live via `SET twist_hold_gain`):
+
+| gain | mean abs dheading | legs | capture |
+|---|---|---|---|
+| 2 (old default) | 2.88 deg | 18 | `g3-cruise100/`, `g3-cruise100-x12/` |
+| **4 (baked)** | **2.10 deg** | 12 | `twist-4-x12/` |
+| 6 | 1.67 deg | **6 only** | `twist-6/` |
+
+**Two caveats that must travel with these numbers.**
+
+1. A 6-leg run at gain 4 gave **0.98 deg** and did NOT replicate at 12
+   legs (2.10). Six legs does not resolve anything at this noise level.
+   The 12-leg figure is the one to trust, and the 0.98 should not be
+   quoted.
+2. **Gain 6's 1.67 is from 6 legs and is therefore NOT comparable** to
+   the 12- and 18-leg figures above. It is not evidence that 6 beats 4.
+   That arm needs a 12-leg rerun before anyone concludes anything --
+   including before anyone concludes 4 was the right pick.
+
+Baked in `src/shims.cpp` (`cfg.twistHoldGain`), pinned by two tests in
+`tests/host/test_wire_constants_drift.py`, 1272 tests passing, commit
+`05de015`. Kernel `kp`/`ki` untouched (ticket 011 did not converge) and
+no per-wheel `travel_calib` (its sign is unresolved -- see above).
+
+### Flashed to tovez on the farm
+
+`captures/session-b-20260905/tovez-1.20260904.5-twist4-bake.hex`
+(1,722,851 bytes, sha256 339dd60b91ed459f2efba6e039506057e8933dbd52e1b6d95abbd689df8e81ed),
+flashed over `mbdeploy deploy tovez-2 --remote`. The flash needed a
+CTRL-AP mass erase to recover a locked device first, then programmed
+418816 bytes cleanly -- the same recovery the ticket-008 flash needed.
+
+Verified from the chip, not the registry:
+
+```
+HELLO -> device NEZHA2 robot tovez 2314287040
+ID    -> id diffdrive tovez 1.20260904.5 tovez
+GET twist_hold_gain -> get twist_hold_gain 4.000000     <- the bake is live
+```
+
+### NOT YET VERIFIED -- the bake has no on-field confirmation
+
+The gain-4 evidence is all from **live `SET`**, not from the baked
+default. Nothing has driven this hex on the playfield: tovez went to the
+farm and zilch (the on-robot Pi) went on charge before a confirmation
+run could happen. Ticket 016's own criteria call for exactly that run.
+Until it happens, the honest status is "baked, matches a live-set value
+that measured 2.10 deg over 12 legs, unconfirmed as a default".
+
+### WiFi should return with this build
+
+This hex is the first tovez build made with `config/wifi_secrets.json`
+present in the worktree; the build log reads `WiFi link ENABLED,
+ssid='Busboom Mesh'` where every previous build in a worktree silently
+disabled it. tovez's config carries a static `wifi_ip 192.168.4.11`.
+Association not yet observed at the time of writing -- see the next
+section for whether it came up.
