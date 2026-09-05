@@ -1,7 +1,7 @@
 ---
 id: '032'
 title: Test program, blocks and simulator parity
-status: ticketing
+status: executing
 branch: sprint/032-test-program-blocks-and-simulator-parity
 use-cases: []
 issues:

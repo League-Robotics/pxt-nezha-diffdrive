@@ -16,6 +16,16 @@ bypass is real": `Protocol::handleRun()` (protocol.cpp) recognizes
 going through `runQueue_.enqueue()` at all and without gating on
 `motionOwner_`.
 
+A later pass over `test.ts` itself found the wire-visible half of this
+had rotted: `aborted` was reset only by the three original tours, so
+any RUN:pivot/straight/face/cal/arc issued after a RUN:abort silently
+truncated to one tick and reported a normal end, and five newer tours
+plus RUN:cal applied no shaping profile and emitted no reasoned
+terminal line at all. The fix collapses every job's own
+reset/profile/terminal-line handling into one `beginJob()`/`endJob()`
+pair; the tests below pin THAT single choke point rather than counting
+per-handler duplicates the way this file used to.
+
 **What this is NOT.** Source-text pinning, following
 `test_block_toolbox_order.py`'s own precedent of regex-asserting on
 source text without compiling it -- `tests/host/` cannot compile
@@ -35,15 +45,78 @@ import re
 # tests/host/test_run_abort_source_pin.py -> host -> tests -> repo root
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _TEST_TS = _REPO_ROOT / "test" / "test.ts"
+_WORLD_TS = _REPO_ROOT / "src" / "blocks" / "world.ts"
 _PROTOCOL_CPP = _REPO_ROOT / "src" / "comms" / "protocol.cpp"
+_SHIMS_CPP = _REPO_ROOT / "src" / "shims.cpp"
+
+# Every motion-issuing plain function that must run through
+# beginJob()/endJob() -- the tour functions and the two ("straight",
+# "cal") whose onRun() handler is a one-line call into one of these,
+# so the job lifecycle lives in the function, not the handler body.
+_JOB_FUNCTIONS = (
+    "tourRobot", "tourWheels", "tourWorld", "straightRun", "leverCal",
+    "squareTour", "infinityTour", "snakeTour", "diamondTour", "circleTour",
+)
+# The remaining motion-issuing onRun() verbs, where beginJob()/endJob()
+# live directly in the handler body instead of a named function.
+_JOB_ONRUN_VERBS = ("goto", "face", "pivot", "arc")
 
 
 def _test_ts_source() -> str:
     return _TEST_TS.read_text(encoding="utf-8")
 
 
+def _world_ts_source() -> str:
+    return _WORLD_TS.read_text(encoding="utf-8")
+
+
 def _protocol_cpp_source() -> str:
     return _PROTOCOL_CPP.read_text(encoding="utf-8")
+
+
+def _shims_cpp_source() -> str:
+    return _SHIMS_CPP.read_text(encoding="utf-8")
+
+
+def _find_balanced_close(text: str, open_brace_idx: int) -> int:
+    """Index just past the '}' matching the '{' at open_brace_idx."""
+    depth = 0
+    i = open_brace_idx
+    while i < len(text):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    raise ValueError("unbalanced braces starting at %d" % open_brace_idx)
+
+
+def _function_body(name: str, src: str = None) -> str:
+    """Body of `function <name>(...) {...}` in test.ts, brace-balanced
+    (a naive non-greedy regex breaks on any handler with a nested
+    `{...}` block, which every for-loop-bearing one here has)."""
+    src = _test_ts_source() if src is None else src
+    m = re.search(r"function\s+%s\s*\([^)]*\)(?:\s*:\s*\w+)?\s*\{" %
+                  re.escape(name), src)
+    assert m, "function %s() not found" % name
+    open_idx = m.end() - 1
+    close_idx = _find_balanced_close(src, open_idx)
+    return src[m.end():close_idx - 1]
+
+
+def _onrun_body(verb: str) -> str:
+    """Body of `diffDrive.onRun("<verb>", function (...) {...})`,
+    brace-balanced -- same reasoning as _function_body()."""
+    src = _test_ts_source()
+    m = re.search(
+        r'diffDrive\.onRun\(\s*"%s"\s*,\s*function\s*\([^)]*\)\s*\{' %
+        re.escape(verb), src)
+    assert m, 'diffDrive.onRun("%s", ...) not found' % verb
+    open_idx = m.end() - 1
+    close_idx = _find_balanced_close(src, open_idx)
+    return src[m.end():close_idx - 1]
 
 
 # ---------------------------------------------------------------------------
@@ -60,19 +133,67 @@ def test_run_abort_handler_is_registered():
     )
 
 
-def test_abort_flag_declared_and_reset_by_every_tour():
+def test_abort_handler_calls_stop_move():
+    """BT-11: RUN:abort must not just set the flag -- it must call the
+    REAL stop, so it can interrupt a move in flight anywhere, including
+    inside goToWorld()'s own tick loop in world.ts, which has no
+    visibility into `aborted` at all."""
+    body = _onrun_body("abort")
+    assert re.search(r"\baborted\s*=\s*true\b", body), (
+        "RUN:abort must still set aborted = true"
+    )
+    assert "diffDrive.stopMove()" in body, (
+        "RUN:abort must call diffDrive.stopMove() -- without it, an "
+        "abort sent during a goToWorld leg can only prevent the NEXT "
+        "leg from starting, not stop the one in flight"
+    )
+
+
+def test_begin_job_and_end_job_exist():
     src = _test_ts_source()
-    assert re.search(r'\blet\s+aborted\s*=\s*false\b', src), (
-        "a module-level `let aborted = false` flag must exist"
+    assert re.search(r"function\s+beginJob\s*\(", src), (
+        "test.ts must define a single beginJob() job-entry function"
     )
-    # Each of the three tours resets it at the start, alongside `touring
-    # = true` -- a crude but effective count: at least 4 occurrences of
-    # `aborted = false` (the initial declaration plus one per tour).
-    resets = re.findall(r'\baborted\s*=\s*false\b', src)
-    assert len(resets) >= 4, (
-        "expected the declaration plus a reset in each of tourRobot()/"
-        "tourWheels()/tourWorld(), found: %r" % (resets,)
+    assert re.search(r"function\s+endJob\s*\(", src), (
+        "test.ts must define a single endJob() job-exit function"
     )
+
+
+def test_aborted_is_reset_only_inside_begin_job():
+    """The single choke point every job resets `aborted` through now.
+    Before this ticket, only the three original tours reset it, so any
+    RUN:pivot/straight/face/cal/arc issued after a RUN:abort silently
+    truncated to one tick. If this count grows above 2 (the declaration
+    plus beginJob()'s own reset), some handler is hand-rolling its own
+    reset again instead of going through beginJob()."""
+    body = _function_body("beginJob")
+    assert re.search(r"\baborted\s*=\s*false\b", body), (
+        "beginJob() must reset `aborted = false`"
+    )
+    src = _test_ts_source()
+    resets = re.findall(r"\baborted\s*=\s*false\b", src)
+    assert len(resets) == 2, (
+        "expected exactly 2 occurrences of `aborted = false` (the "
+        "declaration and beginJob()'s own reset), found: %r" % (resets,)
+    )
+
+
+def test_every_motion_job_calls_begin_job_and_end_job():
+    """Every motion-issuing job -- not just the three original tours --
+    must go through the shared pair, with no handler left hand-rolling
+    any subset of reset/profile/terminal-line on its own."""
+    for fn in _JOB_FUNCTIONS:
+        body = _function_body(fn)
+        assert "beginJob(" in body, "%s() does not call beginJob()" % fn
+        assert "endJob(" in body, "%s() does not call endJob()" % fn
+    for verb in _JOB_ONRUN_VERBS:
+        body = _onrun_body(verb)
+        assert "beginJob(" in body, (
+            'RUN:%s handler does not call beginJob()' % verb
+        )
+        assert "endJob(" in body, (
+            'RUN:%s handler does not call endJob()' % verb
+        )
 
 
 def test_tick_to_completion_checks_aborted_and_stops_for_real():
@@ -92,21 +213,94 @@ def test_tick_to_completion_checks_aborted_and_stops_for_real():
     )
 
 
-def test_no_tour_emits_the_old_unconditional_tour_end():
-    """The old bare `TOUR:end` (no reason suffix) must be gone -- every
-    tour now emits TOUR:end:ok / TOUR:end:abort / TOUR:end:estop."""
+def test_no_bare_unreasoned_terminal_lines_remain():
+    """The old ad hoc terminal lines (no reason suffix) must be gone --
+    every job's terminal line now goes through endJob(), which always
+    appends a reason."""
     src = _test_ts_source()
-    assert 'emitLine("TOUR:end")' not in src, (
-        "found the old unconditional TOUR:end -- every tour must emit "
-        "a reason-suffixed TOUR:end:<ok|abort|estop> line instead"
+    for bare in ('emitLine("TOUR:end")', 'emitLine("PIVOT:end")',
+                 'emitLine("ARC:end")', 'emitLine("FACE:end")',
+                 'emitLine("GOTO:end")'):
+        assert bare not in src, (
+            "found the old unreasoned %s -- every terminal line must "
+            "now go through endJob()" % bare
+        )
+
+
+def test_end_job_emits_gap_then_reasoned_terminal_line():
+    body = _function_body("endJob")
+    gap_match = re.search(r'emitLine\(\s*"GAP:"\s*\+\s*maxGap\s*\)', body)
+    end_match = re.search(r'":end:"\s*\+\s*reason', body)
+    assert gap_match, "endJob() must emit the GAP: line"
+    assert end_match, (
+        "endJob() must emit a terminal line containing ':end:' followed "
+        "by the reason argument"
     )
-    # And the reason-aware form is actually present, at least once per
-    # tour (tourRobot/tourWheels/tourWorld = 3).
-    reasoned = re.findall(r'emitLine\("TOUR:end:"\s*\+\s*reason\)', src)
-    assert len(reasoned) == 3, (
-        "expected exactly 3 reason-aware TOUR:end emissions (one per "
-        "tour), found: %d" % len(reasoned)
+    assert gap_match.start() < end_match.start(), (
+        "GAP: must be emitted BEFORE the terminal <VERB>:end:<reason> "
+        "line, matching every job's original ordering"
     )
+
+
+def test_job_reason_priority_matches_abort_over_estop_over_ok():
+    """Reason priority: abort (operator intent) beats a coincident
+    e-stop, which beats a clean finish -- the same order tourRobot's
+    original comment documented."""
+    body = _function_body("jobReason")
+    assert re.search(
+        r'aborted\s*\?\s*"abort"\s*:\s*\('
+        r'diffDrive\.probe\(1\)\s*!=\s*0\s*\?\s*"estop"\s*:\s*"ok"\s*\)',
+        body,
+    ), (
+        "jobReason() must return \"abort\" if aborted, else \"estop\" if "
+        "diffDrive.probe(1) is nonzero, else \"ok\" -- found: %r" % body
+    )
+
+
+# ---------------------------------------------------------------------------
+# Open Question 1 (sprint.md Architecture): does stopMove() ever refuse
+# to stop a move it doesn't "own"? Confirmed by source, not assumption.
+# ---------------------------------------------------------------------------
+
+
+def test_end_move_stops_unconditionally_with_no_ownership_gate():
+    """`diffDrive.stopMove()`'s native body is shims.cpp's endMove().
+    For RUN:abort to interrupt a goToWorld leg (BT-11), this must stop
+    whatever tick loop is currently active with NO motionOwner_ check
+    -- unlike the queued dispatchJob() path, which correctly refuses to
+    START a new job while something else owns the drivetrain (see
+    test_dispatch_job_refuses_while_something_already_owns_motion
+    below, the contrast case)."""
+    text = _shims_cpp_source()
+    m = re.search(r"void endMove\(\)\s*\{(.*?)\n\}", text, re.DOTALL)
+    assert m, "endMove() not found in shims.cpp"
+    body = m.group(1)
+    assert "motionOwner_" not in body, (
+        "endMove() now checks motionOwner_ -- stopMove() would no "
+        "longer be able to interrupt a move it doesn't 'own', silently "
+        "breaking RUN:abort during a goToWorld leg"
+    )
+    assert "engine.endMove()" in body, (
+        "endMove() no longer calls the move engine's own endMove() -- "
+        "this is what actually ends the tick loop's isDriving() state"
+    )
+
+
+def test_world_ts_tick_loops_have_no_local_abort_flag():
+    """world.ts's tickedMove()/tickedGoTo() (goToWorld()'s own tick
+    runner) must rely ENTIRELY on `_tickDrive()` going false -- i.e. on
+    stopMove() reaching in from outside -- to end early. They have no
+    way to see test.ts's `aborted` at all; if they ever gained their
+    own abort check it would mean someone tried to plumb the flag
+    across files instead of trusting the universal stopMove() path."""
+    src = _world_ts_source()
+    for fn in ("tickedMove", "tickedGoTo"):
+        body = _function_body(fn, src=src)
+        assert "_tickDrive" in body, "%s() must tick via _tickDrive()" % fn
+        assert "aborted" not in body, (
+            "%s() references `aborted` -- it has no way to see test.ts's "
+            "module-level flag; it must rely on stopMove() alone" % fn
+        )
 
 
 # ---------------------------------------------------------------------------

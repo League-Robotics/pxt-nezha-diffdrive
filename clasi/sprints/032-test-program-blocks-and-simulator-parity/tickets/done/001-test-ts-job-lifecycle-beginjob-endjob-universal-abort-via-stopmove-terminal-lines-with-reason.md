@@ -1,11 +1,13 @@
 ---
-id: "001"
-title: "test.ts job lifecycle: beginJob/endJob, universal abort via stopMove, terminal lines with reason"
-status: open
-use-cases: [SUC-001]
+id: '001'
+title: 'test.ts job lifecycle: beginJob/endJob, universal abort via stopMove, terminal
+  lines with reason'
+status: done
+use-cases:
+- SUC-001
 depends-on: []
-github-issue: ""
-issue: "test-program-job-lifecycle-abort-profile-terminal-line.md"
+github-issue: ''
+issue: test-program-job-lifecycle-abort-profile-terminal-line.md
 completes_issue: true
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
@@ -51,7 +53,7 @@ immediately — no `aborted`-flag plumbing needed in `world.ts` at all.
 
 ## Acceptance Criteria
 
-- [ ] A single `beginJob(name: string)` function in `test.ts`: sets
+- [x] A single `beginJob(name: string)` function in `test.ts`: sets
       `touring = true`, clears `aborted = false`, applies the shaping
       profile `name` calls for (open-loop vs closed-loop, matching what
       each handler already selects today), and resets `maxGap = 0`.
@@ -61,7 +63,7 @@ immediately — no `aborted`-flag plumbing needed in `world.ts` at all.
       `beginJob` is unconditional — pick whichever keeps every call
       site as a two-line preamble, and document the choice at
       `beginJob`'s own definition).
-- [ ] A single `endJob(reason: string)` function: emits
+- [x] A single `endJob(reason: string)` function: emits
       `emitLine("GAP:" + maxGap)` then the terminal
       `<VERB>:end:<reason>` line, then `touring = false`. Reason is one
       of `"ok"`/`"abort"`/`"estop"`, using the SAME priority order
@@ -70,22 +72,22 @@ immediately — no `aborted`-flag plumbing needed in `world.ts` at all.
       Decide (and document at the call site) how `endJob` learns the
       verb name for the `<VERB>:` prefix — a parameter, or read back
       via `diffDrive.runCommandText()`/the current run name.
-- [ ] Every motion-issuing `onRun()` handler
+- [x] Every motion-issuing `onRun()` handler
       (`tour`/`straight`/`cal`/`goto`/`face`/`pivot`/`arc`/`square`/
       `infinity`/`snake`/`diamond`/`circle`, and the tour functions
       they call) uses `beginJob()`/`endJob()` instead of hand-rolling
       any subset of reset/profile/terminal-line — no handler is left
       with its OLD ad hoc terminal line format alongside the new
       mechanism.
-- [ ] `squareTour`/`infinityTour`/`snakeTour`/`diamondTour`/`circleRun`
+- [x] `squareTour`/`infinityTour`/`snakeTour`/`diamondTour`/`circleRun`
       now apply an explicit profile (decide open- vs closed-loop per
       tour, matching the speed/behavior each already assumes today —
       note in the ticket's own commit message which was chosen and
       why, since this is an observable behavior change for these five
       tours, not a pure refactor).
-- [ ] The `abort` handler (`test.ts` line ~608) calls
+- [x] The `abort` handler (`test.ts` line ~608) calls
       `diffDrive.stopMove()` in addition to `aborted = true`.
-- [ ] A `RUN:goto` sent, then a `RUN:abort` sent while it's still
+- [x] A `RUN:goto` sent, then a `RUN:abort` sent while it's still
       running, stops the CURRENT leg (not just prevents the next one)
       — this is the one behavior in this ticket that most wants a
       source-level confirmation that `stopMove()`'s call path
@@ -94,11 +96,11 @@ immediately — no `aborted`-flag plumbing needed in `world.ts` at all.
       further plumbing (Open Question 1 in `sprint.md`'s Architecture
       section — confirm via a host/source-pin test, not just reasoning
       about it).
-- [ ] `test_run_abort_source_pin.py` is extended: it must now assert
+- [x] `test_run_abort_source_pin.py` is extended: it must now assert
       `beginJob`/`endJob` exist and that EVERY motion-issuing
       `onRun()` handler's body references `beginJob(`, not just the
       three original tours.
-- [ ] `test_run_tour_programs.py` is extended: every one of the eleven
+- [x] `test_run_tour_programs.py` is extended: every one of the eleven
       verbs (not just the three original tours) emits a terminal line
       containing `:end:` followed by a reason token.
 

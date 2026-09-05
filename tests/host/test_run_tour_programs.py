@@ -90,6 +90,83 @@ def test_every_arc_figure_has_an_on_robot_handler():
     )
 
 
+# The eleven motion verbs whose job used to hand-roll (or, for most of
+# them, skip) its own reset/profile/terminal-line handling -- "tour"
+# itself is a pure router onto tourRobot/tourWheels/tourWorld and is
+# not counted separately here, matching the issue's own "~11" count.
+# Verbs that route through a named function (straight/cal/square/
+# infinity/snake/diamond/circle) are checked via that function; the
+# rest (goto/face/pivot/arc) carry beginJob()/endJob() directly in
+# their onRun() handler body.
+_ELEVEN_VERB_JOB_FUNCTIONS = {
+    "straight": "straightRun",
+    "cal": "leverCal",
+    "square": "squareTour",
+    "infinity": "infinityTour",
+    "snake": "snakeTour",
+    "diamond": "diamondTour",
+    "circle": "circleTour",
+}
+_ELEVEN_VERB_DIRECT = ("goto", "face", "pivot", "arc")
+
+
+def _find_balanced_close(text: str, open_brace_idx: int) -> int:
+    """Index just past the '}' matching the '{' at open_brace_idx."""
+    depth = 0
+    i = open_brace_idx
+    while i < len(text):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    raise ValueError("unbalanced braces starting at %d" % open_brace_idx)
+
+
+def _function_body(name: str) -> str:
+    m = re.search(r"function\s+%s\s*\([^)]*\)(?:\s*:\s*\w+)?\s*\{" %
+                  re.escape(name), _TS)
+    assert m, "function %s() not found" % name
+    open_idx = m.end() - 1
+    close_idx = _find_balanced_close(_TS, open_idx)
+    return _TS[m.end():close_idx - 1]
+
+
+def _onrun_body(verb: str) -> str:
+    m = re.search(
+        r'diffDrive\.onRun\(\s*"%s"\s*,\s*function\s*\([^)]*\)\s*\{' %
+        re.escape(verb), _TS)
+    assert m, 'diffDrive.onRun("%s", ...) not found' % verb
+    open_idx = m.end() - 1
+    close_idx = _find_balanced_close(_TS, open_idx)
+    return _TS[m.end():close_idx - 1]
+
+
+def test_every_verb_reaches_a_reasoned_terminal_line():
+    """Every one of the eleven motion verbs -- not just the three
+    original tours -- must end in a terminal line containing `:end:`
+    followed by a reason token, via the shared endJob() mechanism (see
+    test_run_abort_source_pin.py for the beginJob()/endJob() pins
+    themselves; this test's job is just to confirm all eleven verbs are
+    wired to it, and that endJob() actually produces the reasoned
+    line)."""
+    for verb, fn in _ELEVEN_VERB_JOB_FUNCTIONS.items():
+        body = _function_body(fn)
+        assert "endJob(" in body, (
+            "RUN:%s (%s()) must call endJob()" % (verb, fn)
+        )
+    for verb in _ELEVEN_VERB_DIRECT:
+        body = _onrun_body(verb)
+        assert "endJob(" in body, "RUN:%s handler must call endJob()" % verb
+    end_job_body = _function_body("endJob")
+    assert re.search(r'":end:"\s*\+\s*reason', end_job_body), (
+        "endJob() must emit a terminal line containing ':end:' followed "
+        "by a reason token"
+    )
+
+
 def test_arc_steps_stay_below_the_split_threshold():
     """Every angle handed to arcSegment() must be under the threshold.
 
