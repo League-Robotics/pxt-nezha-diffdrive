@@ -740,3 +740,69 @@ demonstrably drives when idle. Either fix/identify the working RUN
 motion verb, or drive the block side from the physical buttons (which
 is Item 2(a)'s stakeholder-present scenario anyway) and watch the wire
 leg's distance.
+
+## CONFIRMED (source): every motion `RUN:` verb is refused by its own dispatch
+
+The "plausible reading, NOT verified" above is now traced end to end in
+source, and it matches the measured 0.02 cm exactly.
+
+```
+wire "RUN:straight:8"
+  -> Protocol::handleRun()      parks the text in runQueue_
+                                (protocol.h:351; only `abort` and
+                                 `clearestop` bypass the queue,
+                                 protocol.cpp:145)
+  -> Protocol::dispatchJob()    motionOwner_ = kJob   (protocol.cpp:439)
+                                then runDispatch()
+  -> test.ts straightRun()      -> tickedMove()  (test.ts:465-472, :126)
+  -> diffDrive.startMove()      if (!protocolTryTakeBlockOwnership()) return;
+                                (shims.cpp)
+  -> tryTakeBlockOwnership()    if (*owner != kNone) return false;
+                                (core/motion_owner.h)
+                                ... owner is kJob -> FALSE
+  -> startMove() returns early. NO MOTION.
+```
+
+`tickToCompletion()` then loops `while (diffDrive.driveTick())`, which
+is immediately false because nothing is active, so the handler runs to
+completion and emits its normal receipts (`DBG:straight=`,
+`STRAIGHT:end:`). **The verb looks like it worked.** That is why this
+survived: the wire response is indistinguishable from a successful run.
+
+### Scope: not one verb, all of them
+
+Every on-robot program in `test.ts` drives through `tickedMove()` /
+`tickedGoTo()` (both call `startMove`/`startGoTo`) or `driveTwist()` --
+all three gated on `protocolTryTakeBlockOwnership()`. So `straight`,
+`tour`, `square`, `infinity`, `snake`, `diamond`, `circle`, `pivot`,
+`arc`, `goto` and `face` are ALL refused when dispatched over the wire.
+Only the non-motion verbs (`probe`, `fix`, `gap`, `arm`, `seed`,
+`clearestop`, `abort`) still do their job.
+
+### The design mismatch
+
+Refusing a BLOCK-side move while a job holds the drivetrain is correct
+and deliberate (`shims.cpp`'s own comment: "Refused, not superseding,
+while a wire motion or a dispatched job already holds the drivetrain").
+The defect is that a dispatched job's own handler reaches the
+drivetrain through that same block-facing gate, so it is refused by the
+ownership its own dispatch just claimed. `tryTakeBlockOwnership()`
+requires `kNone`; `dispatchJob()` guarantees `kJob`. Nothing can ever
+satisfy both.
+
+### This blocks ticket 014
+
+Ticket 014's scenario is "Run `RUN:tour` with a radio `RUN` issued
+mid-tour", then halt with pyOCD and scan the protocol fiber's stack.
+**There is no tour to run.** The canary build will flash and boot, but
+the scenario cannot be staged over the wire until this is fixed or a
+job-facing motion entry point exists. Ticket 014 should not be attempted
+before then; the button-driven tour (button A runs `straightRun`
+directly, off the RUN path) may be the available substitute, and is
+worth checking against this same gate first.
+
+MEASURED tovez 2026-09-05 (the hardware half): `RUN:straight:8` with
+the robot idle moved it **0.02 cm**, while a wire `MOVE_X 600` on the
+same connection seconds later delivered **59.55 cm**, STATUS healthy
+throughout (`ready=1 connL=1 connR=1`, `cyc` advancing, no wedge, no
+reset).
