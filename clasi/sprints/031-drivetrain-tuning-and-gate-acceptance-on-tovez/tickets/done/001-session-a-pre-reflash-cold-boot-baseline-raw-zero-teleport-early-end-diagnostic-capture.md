@@ -2,8 +2,10 @@
 id: '001'
 title: 'Session A: pre-reflash cold-boot baseline (raw-zero teleport + early-end diagnostic
   capture)'
-status: open
-use-cases: [SUC-008, SUC-003]
+status: done
+use-cases:
+- SUC-008
+- SUC-003
 depends-on: []
 github-issue: ''
 issue:
