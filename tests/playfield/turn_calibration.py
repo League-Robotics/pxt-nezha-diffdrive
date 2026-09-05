@@ -158,6 +158,12 @@ G5_PEAK_OVERSHOOT_FRAC = 0.05  # WHEELS_V peak <= cruise * 1.05 (design S10.2 ta
 # failures, and is a FRACTION so a different --seg-mm still means
 # something. Ticket 010's own bar on the count is zero.
 COLDBOOT_SHORT_FRAC = 0.55
+
+# G5's no-motion floor [cm]. A WHEELS_V step at the gate's own default
+# (200 mm/s for 1500 ms) travels ~30 cm; the four zero-motion trials of
+# 2026-09-05 read 0.011-0.027 cm, which is camera noise. 2 cm is far
+# below any real step and far above the noise.
+G5_MIN_TRAVEL_CM = 2.0
 G5_MAX_RISE_MM_S2 = 600.0      # max frame-to-frame wheel-speed rise, unchanged (design S10.2)
 G6_BASELINE_CLOSURE_MM = 10.8  # reports/gopiv-closure-20260901.md, 5-tour mean; unchanged
 
@@ -905,7 +911,17 @@ def run_g5(link, cam, a, out):
     for k, sign in enumerate(([1, -1] * a.reps)):
         pre = cam.fix()
         t0 = time.time() - 0.3
-        link.send(f'WHEELS_V {sign * a.cruise_g5} {sign * a.cruise_g5} {a.hold_ms}')
+        # WHEELS_V is SEQUENCED (.claude/rules/playfield-testing.md's own
+        # table). Sent unsequenced it parses as `#0`, which is
+        # unconditionally below the robot's `expectedNext_`, so the v6
+        # handler classifies it as a stale retransmit and does not
+        # execute it -- silently. This mode used `link.send()` and so
+        # never moved the robot at all; MEASURED tovez 2026-09-05,
+        # captures/session-b-20260905/g5-today/summary.json: four trials,
+        # every one peak_v 0, max_accel null, travel 0.011-0.027 cm, and
+        # byte-identical lag fits -- scored `passed: true`.
+        link.seqd(f'WHEELS_V {sign * a.cruise_g5} {sign * a.cruise_g5} '
+                  f'{a.hold_ms}', wait=2.0)
         time.sleep(a.hold_ms / 1000.0 + 0.6)
         frames = []
         for t, s2 in link.since(t0, 't '):
@@ -929,15 +945,34 @@ def run_g5(link, cam, a, out):
     peaks = [t['peak_v'] for t in trials if t['peak_v'] is not None]
     rises = [t['max_accel'] for t in trials if t['max_accel'] is not None]
     peak_bar = a.cruise_g5 * (1.0 + G5_PEAK_OVERSHOOT_FRAC)
-    peak_pass = bool(peaks) and max(peaks) <= peak_bar
-    rise_pass = not rises or max(rises) <= G5_MAX_RISE_MM_S2
+    # A robot that never moved trivially clears "peak <= bar" and
+    # reports no acceleration data at all to fail the rise bar with --
+    # so the ORIGINAL form of this gate scored `passed: true` on four
+    # trials of zero motion. `.claude/rules/playfield-testing.md` is
+    # explicit that odometry cannot detect its own failure to move and
+    # only an external instrument can; the camera travel per trial is
+    # that instrument, and it is already recorded. Fail closed on it.
+    moved = [t['travel_cm'] for t in trials if t['travel_cm'] is not None]
+    motion_pass = bool(moved) and max(moved) >= G5_MIN_TRAVEL_CM
+    peak_pass = bool(peaks) and max(peaks) > 0 and max(peaks) <= peak_bar
+    rise_pass = bool(rises) and max(rises) <= G5_MAX_RISE_MM_S2
+    if not motion_pass:
+        print(f"G5: NO MOTION -- max camera travel "
+              f"{max(moved) if moved else None} cm over {len(trials)} trials, "
+              f"below the {G5_MIN_TRAVEL_CM} cm floor. The robot did not "
+              f"move; every bar below is vacuous. Check that WHEELS_V "
+              f"carried a sequence id, that the e-stop is clear, and that "
+              f"the brick has power (playfield-testing.md).")
     print(f"G5: peak {max(peaks) if peaks else None} mm/s (bar <= {peak_bar:.0f}) -- "
           f"{'PASS' if peak_pass else 'FAIL'}; max rise {max(rises) if rises else None} mm/s^2 "
           f"(bar <= {G5_MAX_RISE_MM_S2}) -- {'PASS' if rise_pass else 'FAIL'}")
+    passed = motion_pass and peak_pass and rise_pass
     summary = {'gate': 'G5', 'cruise_mm_s': a.cruise_g5, 'accel_config': accel, 'bar_peak_mm_s': peak_bar,
-               'bar_rise_mm_s2': G5_MAX_RISE_MM_S2, 'trials': trials, 'passed': peak_pass and rise_pass}
+               'bar_rise_mm_s2': G5_MAX_RISE_MM_S2, 'trials': trials,
+               'min_travel_cm_bar': G5_MIN_TRAVEL_CM, 'motion_pass': motion_pass,
+               'peak_pass': peak_pass, 'rise_pass': rise_pass, 'passed': passed}
     (out / 'summary.json').write_text(json.dumps(summary, indent=2, default=str))
-    return peak_pass and rise_pass
+    return passed
 
 
 def run_g6(link, cam, a, out):

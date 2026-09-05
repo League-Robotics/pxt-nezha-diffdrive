@@ -504,3 +504,120 @@ ticked for ~100 s against wheels that were not turning" is a motion
 obligation that outlived its move. Worth its own issue and an 8 Hz
 STATUS poll on the next busguard run so the event has frames around it
 rather than only a before/after pair.
+
+## `--mode g5` never drove the robot, and scored a PASS for it
+
+Two independent defects in `turn_calibration.py`'s G5 mode, both found
+when ticket 011's gain sweep produced impossible results.
+
+### Defect 1 -- `WHEELS_V` was sent unsequenced, so it was silently dropped
+
+`run_g5` issued `link.send(f'WHEELS_V ...')`. `WHEELS_V` is a
+**sequenced** verb (`.claude/rules/playfield-testing.md`'s own table);
+an unsequenced line parses as `#0`, which is unconditionally below the
+robot's `expectedNext_`, so the v6 handler classifies it as a stale
+retransmit and deliberately does not execute it. No error, no nack.
+
+MEASURED tovez 2026-09-05, direct A/B in one session, seconds apart,
+console transcript in this file:
+
+| command | camera travel |
+|---|---|
+| `WHEELS_V 200 200 1200` (unsequenced) | **0.04 cm** |
+| `WHEELS_V 200 200 1200 #1` (sequenced) | **20.84 cm** |
+
+### Defect 2 -- the gate passes vacuously on a robot that never moved
+
+`captures/session-b-20260905/g5-today-FALSEPASS-unsequenced/summary.json`
+(kept deliberately) is the original mode's own output: four trials,
+every one `peak_v` 0, `max_accel` null, camera travel 0.011-0.027 cm,
+byte-identical lag fits (`lag 0.4, rms 138.21, n 26` four times over) --
+and `"passed": true`.
+
+Both bars are satisfiable by not moving: peak 0 clears "peak <= 210",
+and with no acceleration samples there is nothing to fail the rise bar
+against. `.claude/rules/playfield-testing.md` is explicit that odometry
+cannot detect its own failure to move and only an external instrument
+can. The camera travel per trial was already being recorded; the gate
+simply did not look at it.
+
+### Both fixed, both pinned
+
+`run_g5` now issues `WHEELS_V` through `seqd()`, and fails closed when
+max camera travel across the trials is below `G5_MIN_TRAVEL_CM` (2 cm;
+a real 200 mm/s step for 1500 ms travels ~30 cm, the zero-motion
+trials read 0.027 cm). `motion_pass` and `min_travel_cm_bar` are
+recorded in the summary so a reader can tell a real pass from a vacuous
+one. Pinned by three tests in
+`tests/playfield/test_turn_calibration_gates.py`.
+
+### Scope: this predates today
+
+The defect has been in `--mode g5` since ticket 007 folded sprint 029's
+`lag_measure.py` into it. **Any G5 result taken from that mode is
+void**, and ticket 007 should not be read as having delivered a working
+G5. Worth checking the other folded modes for the same
+`send()`-instead-of-`seqd()` slip before ticket 016 leans on them --
+note `run_g3`, `run_g6` and `run_coldboot` all issue their motion
+through `seqd()`, and the field dance and every measurement earlier in
+this file used sequenced verbs, so nothing else in this session is
+affected.
+
+## Ticket 011 -- ticket 006's candidate gains tried live. NONE hold the bars.
+
+MEASURED tovez 2026-09-05, `captures/session-b-20260905/g5-*/`,
+firmware 1.20260904.5, four `WHEELS_V 200 200 1500` steps per gain set
+(alternating sign), gains applied live via `SET pid_kp` / `SET pid_ki`
+/ `SET accel_kaff` and restored to firmware defaults afterwards.
+Camera travel 22-26 cm on every trial, so every row below is a run that
+actually moved (see the G5 defect section above for why that has to be
+said).
+
+| gain set | kp | ki | kaff | peak [mm/s] | max rise [mm/s^2] | verdict |
+|---|---|---|---|---|---|---|
+| today (firmware default) | 0 | 6 | 0 | **227** | **864** | FAIL / FAIL |
+| candidate 1 | 0 | 0.5 | 0.10 | **230** | **631** | FAIL / FAIL |
+| candidate 2 | 0.075 | 0.5 | 0.05 | **220** | **1394** | FAIL / FAIL |
+| candidate 3 | 0.10 | 0 | 0 | **220** | **652** | FAIL / FAIL |
+
+Bars: peak <= 210 mm/s (cruise x1.05), rise <= 600 mm/s^2 (1.5 x accel
+400). Per-trial peaks: today [220, 227, 227, 227], cand1 [230, 220,
+220, 227], cand2 [220, 210, 210, 220], cand3 [210, 210, 204, 220].
+
+### "today" reproduces sprint 029's own hardware number
+
+227 mm/s peak against sprint 029's measured 226-256 mm/s
+(`tovez-drivetrain-tuning-and-restated-acceptance-bars.md`). That is
+the check that this sweep is measuring the real thing at last, rather
+than the zero-motion artifact the same mode produced an hour earlier.
+
+### The host model over-promised
+
+`tests/host/test_profile_probe.py::test_kernel_ff_i_gain_retune_candidates`
+asserts every one of the three candidates holds BOTH bars on the
+LaggedRig model. On hardware, none of them holds EITHER bar. The model
+is not useless -- it correctly predicted "today" would overshoot -- but
+its absolute numbers do not transfer, and its own module comment says
+why: `LaggedRig` carries a HYPOTHESIZED per-wheel residual
+(0.97/1.02, explicitly "NOT measured") and a single breakaway constant
+not fitted for tovez. Ticket 006's own docstring anticipated this and
+says re-running the sweep with the measured residual is the right
+extension.
+
+### Best achieved, per ticket 011's own acceptance criterion
+
+**Candidate 3 (kp = 0.10, ki = 0, kaff = 0)** is the closest: peak
+220 mm/s (bar 210, over by 4.8 %) and max rise 652 mm/s^2 (bar 600,
+over by 8.7 %). It is also the only set whose per-trial peaks reach
+down to 204-210. Candidate 1 gets the rise lowest of the ki>0 sets
+(631) but has the highest peak (230); candidate 2 is the worst on rise
+by more than double.
+
+**Ticket 011 does NOT converge, and ticket 015 must not bake any of
+these as if it had.** Ticket 011's own criterion says to state the best
+achieved result and flag the gap rather than accept a value that misses
+the bar -- this is that statement. The gap is small enough (5-9 %) that
+a grid extension around candidate 3 (kp 0.10-0.20 with a small kaff) is
+the obvious next search, ideally after re-running ticket 006's model
+with tovez's MEASURED per-wheel residual instead of the hypothesized
+one.

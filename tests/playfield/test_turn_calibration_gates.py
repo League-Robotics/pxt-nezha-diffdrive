@@ -304,3 +304,57 @@ def test_camera_noise_floor_no_samples_does_not_raise():
     cam = _FakeCam([])
     noise = tc.camera_noise_floor(cam, n=5, gap=0.0)
     assert noise == {'n': 0, 'sd': None, 'ptp': None}
+
+
+# --- G5's two 2026-09-05 defects: a dropped verb and a vacuous pass ------
+#
+# MEASURED tovez 2026-09-05, captures/session-b-20260905/g5-today/
+# summary.json: four WHEELS_V trials, every one `peak_v` 0,
+# `max_accel` null, camera travel 0.011-0.027 cm, byte-identical lag
+# fits -- and `"passed": true`. Two independent causes, both pinned
+# here.
+
+
+def test_g5_sends_wheels_v_sequenced():
+    """`WHEELS_V` is a SEQUENCED verb (.claude/rules/playfield-testing.md).
+    Sent unsequenced it parses as `#0`, below the robot's
+    `expectedNext_`, and the v6 handler silently declines to execute it
+    -- so the gate drove nothing. `run_g5` must reach the wire through
+    `seqd()` (which attaches the id), never `send()`."""
+    import inspect
+    src = inspect.getsource(tc.run_g5)
+    assert "WHEELS_V" in src, "run_g5 no longer issues WHEELS_V"
+    for line in src.splitlines():
+        if "WHEELS_V" in line and "#" not in line.split("WHEELS_V")[0]:
+            # the line that actually issues it must not be a bare send()
+            assert "link.send(" not in line, (
+                "run_g5 issues WHEELS_V through link.send() -- unsequenced "
+                "verbs are silently dropped; use link.seqd()"
+            )
+    assert "link.seqd(f'WHEELS_V" in src or 'link.seqd(f"WHEELS_V' in src, (
+        "run_g5 does not issue WHEELS_V through seqd()"
+    )
+
+
+def test_g5_min_travel_floor_is_between_noise_and_a_real_step():
+    """The floor has to sit above camera noise (the zero-motion trials
+    read 0.027 cm) and far below a real step (200 mm/s for 1500 ms is
+    ~30 cm)."""
+    assert 0.5 < tc.G5_MIN_TRAVEL_CM < 10.0
+
+
+def test_g5_summary_records_the_motion_check_alongside_the_bars():
+    """Whatever else changes, the summary must carry the no-motion
+    verdict as its own field, so a reader can tell a real pass from a
+    vacuous one without re-deriving it from the trials."""
+    import inspect
+    src = inspect.getsource(tc.run_g5)
+    for field in ("motion_pass", "min_travel_cm_bar"):
+        assert f"'{field}'" in src, (
+            f"run_g5's summary no longer records {field} -- a G5 pass "
+            f"would again be indistinguishable from a robot that never moved"
+        )
+    assert "motion_pass and peak_pass" in src, (
+        "run_g5's verdict no longer requires motion_pass -- zero motion "
+        "clears the peak bar trivially and reports no rise data to fail on"
+    )
