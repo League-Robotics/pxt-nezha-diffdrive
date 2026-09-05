@@ -364,3 +364,84 @@ anything WORSE at the lower cruise.
 
 `first_moving_v` is 10-34.5 mm/s across the six legs, comfortably under
 the 70 mm/s floor -- G4's first-tick half passes cleanly.
+
+## field_dance -- run late, PASSED
+
+Run after the measurements above rather than before them (the process
+miss recorded in Pre-flight). `uv run tools/field_dance.py --tcp
+zilch.local:35139`, robot placed at field centre (-0.5, -0.1).
+
+Note `field_dance.py` takes `--tcp host:port` and has NO `--robot`
+flag: an initial `--robot tovez` invocation silently fell back to the
+default torture-relay carrier, got `status: None`, and reported
+`turn +90 ... **FAIL** <- NO MOTION (estop? stall?)`. That is the
+script working exactly as designed -- it labelled a refusal a refusal
+instead of reporting it as a heading error -- but it is a trap worth
+knowing: on tovez the dance MUST be given `--tcp`.
+
+```
+turn  +90 deg   +82.3d   -7.7d  PASS      drive +20 cm  19.4c  PASS (bearing +3 deg)
+turn +180 deg  +178.1d   -1.9d  PASS      drive -40 cm  39.2c  PASS (bearing -4 deg)
+turn  +90 deg   +83.7d   -6.3d  PASS      drive +20 cm  19.2c  PASS (bearing +2 deg)
+returned home     4.9c   +4.9c  PASS
+DANCE PASSED -- left is left, forward is forward, and it comes home.
+ACCURACY (not a gate): net heading drift over the three pivots -11.9 deg,
+i.e. -4.0 deg per 90 deg pivot -- retune stop_distance before precision work.
+```
+
+So the convention was sound for every measurement in this file, which
+is what the 12 cm probe had already indicated (+5.05 deg gap). The
+-4.0 deg per 90 deg pivot is an accuracy number for ticket 015's bake,
+not a gate failure.
+
+## Ticket 009 Item 1, restated and RUN -- and a new anomaly
+
+`turn_calibration.py --mode busguard --legs 8 --busguard-mm 120`,
+`captures/session-b-20260905/busguard/`. Eight alternating 120 mm legs,
+every other one interfered with by a `RUN:fix` fired 0.6 s into the
+drive -- `worldReady()` + `logFix()` -> `readWorld()`, a real OTOS I2C
+transaction issued from the protocol fiber while the kernel is
+stepping. That is the scenario sprint 030's bus guard exists for,
+exercised rather than argued from source.
+
+| leg | kind | cam | len err | dh | i2cf/cyc | RUN:fix reply |
+|---|---|---|---|---|---|---|
+| 0 | clean | 113.5 mm | -6.5 | -0.12 | +1/56 | |
+| 1 | FIX | 112.0 mm | -8.0 | -0.80 | +3/56 | `OCAL:now:-3007:3146:9609` |
+| 2 | clean | 112.8 mm | -7.2 | +0.57 | +0/55 | |
+| 3 | FIX | 113.7 mm | -6.3 | +0.93 | +4/57 | `OCAL:now:-3082:3101:8649` |
+| 4 | clean | 113.9 mm | -6.1 | -1.62 | +5/58 | |
+| 5 | FIX | 112.9 mm | -7.1 | +1.49 | **+251/4293** | `OCAL:now:-3159:3101:7656` |
+| 6 | clean | 112.0 mm | -8.0 | +0.46 | +3/55 | |
+| 7 | FIX | 113.4 mm | -6.6 | +0.56 | +0/55 | `OCAL:now:-3222:3073:6563` |
+
+| group | n | i2cf/move | mean len err | mean abs dh |
+|---|---|---|---|---|
+| clean | 4 | 2.25 | -6.96 mm | 0.69 deg |
+| interfered | 4 | 64.5 | -7.01 mm | 0.94 deg |
+
+### The guard's own claim: supported
+
+**Mean length error is identical between the groups (-6.96 vs -7.01 mm,
+a difference of 0.0 mm).** A destroyed encoder sample is a lost tick of
+control and would show up as distance; it does not. Every `RUN:fix`
+answered with a real `OCAL:` line, so the OTOS read genuinely completed
+mid-drive rather than being deferred past the leg or wedging the wire.
+Excluding leg 5, i2cf per move is **2.33 (interfered) vs 2.25 (clean)**
+-- indistinguishable.
+
+### Leg 5: a 4293-cycle, +251-fault event -- UNVERIFIED, n=1
+
+Leg 5 accrued 4293 control cycles (~100 s at the kernel's 24 ms
+period) against ~56 for every other leg, and +251 i2cf. It still
+delivered 112.9 mm and +1.49 deg, both normal -- so **the move
+completed correctly and then the kernel went on ticking against wheels
+that were not turning** (driven-and-unchanged is exactly what
+increments i2cf). That reads more like a motion obligation left armed
+than a corrupted sample.
+
+Not attributed to the OTOS read on this evidence: it happened on an
+interfered leg, but three other interfered legs in the same run did
+not. A repeat run is the next data point. Do NOT average this into the
+group means -- it is either a real intermittent worth its own issue or
+it is not, and 64.5-vs-2.25 is entirely this one leg.
