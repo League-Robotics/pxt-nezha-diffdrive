@@ -21,10 +21,12 @@ the reasoning matters more than the tidy answer.
    camera-measured, and `connL=1 connR=1` once the kernel ticked.
    Motors do not turn on an unpowered brick.
 
-What was actually off was a separate supply/enable for the **OTOS
-specifically** -- the device the stakeholder identified as "TreoBytes".
-The drivetrain was powered throughout; only the world sensor was dark.
-That is why `connL`/`connR` came up normally while `otos` stayed 0.
+What was actually off was power or an enable to the **OTOS
+specifically**. The stakeholder switched something on and the sensor
+answered immediately; **which device that was has not been established
+and is deliberately not named here.** The drivetrain was powered
+throughout, which is why `connL`/`connR` came up normally while `otos`
+stayed 0.
 
 Once the stakeholder powered it on, a forced retry answered immediately
 and correctly:

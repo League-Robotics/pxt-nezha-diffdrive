@@ -368,9 +368,10 @@ proof is in this file: the robot drove 28-31 cm under command on every
 boot, camera-measured, and `connL=1 connR=1` once the kernel ticked.
 Motors do not turn and encoders do not answer on an unpowered brick.
 
-What was off was a separate supply/enable feeding the **OTOS alone** --
-the device the stakeholder identified as "TreoBytes". That is precisely
-why the symptom looked so confusing: the drivetrain behaved perfectly
+What was off was power or an enable feeding the **OTOS alone**. Which
+device that was is NOT established -- the stakeholder switched something
+on and the sensor answered. Naming it would be a guess. That is
+precisely why the symptom looked so confusing: the drivetrain behaved perfectly
 while the world sensor stayed dark, which reads as a sensor fault rather
 than a power-sequencing one.
 
