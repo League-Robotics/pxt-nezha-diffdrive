@@ -1046,3 +1046,69 @@ first tick, which is precisely what G4's first-tick bar measures. That
 is a trade the bake makes, and it belongs in ticket 016's scorecard --
 if the first-tick bar matters more than the accel/decel bars, gain 4 is
 not obviously the right pick.
+
+## Ticket 009 Item 2(b) -- PASSES, with a control that finally works
+
+MEASURED tovez 2026-09-05, baked firmware (twist_hold_gain 4.0), fresh
+calibration, driven over WiFi. Stakeholder at the robot pressing the
+button. Console transcript in this file.
+
+### The control -- button A alone
+
+Robot placed at the west end facing east, (-45.7, -0.4) h=1.9 deg.
+Stakeholder pressed button A (`straightRun(100)`, `test.ts:573`):
+
+```
+before (-45.7, -0.4) h=1.9
+after  ( 53.5,  0.3) h=1.8
+travel 99.2 cm of a commanded 100    heading change -0.08 deg
+```
+
+**99.2 % of commanded, and 0.08 deg of heading change over a full
+metre** -- the cleanest leg measured this session.
+
+That is also the behavioural proof of ticket 017. The SAME motion path
+(`straightRun` -> `tickedMove` -> `startMove`) drives 99.2 cm entered
+from a button and **0.02 cm** entered via `RUN:straight`, because only
+the RUN route arrives already holding `kJob`. The defect is no longer
+just a source reading.
+
+### The test -- button A during a live wire leg
+
+Robot repositioned to (-48.9, -1.0) h=-1.2. Wire leg
+`MOVE_X 600 0 60 20000` (cruise 60 mm/s -> ~10 s of travel, a wide
+window for a human press). Stakeholder pressed button A while it drove.
+
+```
+end (10.5, -3.2) h=-2.1
+TRAVEL 59.5 cm    (wire leg commanded 60.0 ; button A alone commands 100)
+heading change -0.93 deg
+
+status trace (t, active, done, reason, cyc):
+  (0.1, active=1, done=11, stop, cyc 4869)
+  (2.5, active=1, ...            cyc 4968)
+  (4.9, active=1, ...            cyc 5069)
+  (7.3, active=1, ...            cyc 5170)
+  (9.7, active=0, done=1, stop,  cyc 5224)
+```
+
+**The wire leg delivered 59.5 of 60.0 cm and stopped.** It did not run
+on toward button A's own 100 cm, and it did not come up short. The
+block-side move was REFUSED, not superseding -- exactly what sprint 030
+ticket 002's `kBlock` ownership was built to do, and what has been
+UNVERIFIED since.
+
+`active=1` spans t=0.1 to t=7.3 and drops to 0 by t=9.7, so a genuine
+~9 s drive window existed for the press to land in.
+
+**Honest limit:** the wire cannot tell me WHEN the button was pressed,
+only that the window existed and the leg was unaffected. Combined with
+the control -- the same press moves the robot 99.2 cm when idle -- a
+press anywhere in that window would have been visible. n=1.
+
+### Item 2(a) remains blocked, not pending
+
+"A button-handler tour during a live RUN job must not corrupt the
+shared `lineBuf_`" requires a live RUN JOB, and motion `RUN:` verbs are
+refused by their own dispatch (ticket 017). It cannot be staged until
+017 lands. Blocked, not outstanding.
