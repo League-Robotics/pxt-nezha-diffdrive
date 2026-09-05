@@ -10,8 +10,11 @@ paths:
 **Before ANY commanded motion on the playfield, run:**
 
 ```
-uv run tools/field_dance.py
+uv run python tests/calibration/calibrate.py dance
 ```
+
+(`tools/field_dance.py` still runs it, as a shim; the program lives in
+`tests/calibration/` with the other calibration programs.)
 
 Ask the operator to put the robot in the **middle of the field** first.
 That is the entire safety argument — the dance never leaves a 25 cm

@@ -2,10 +2,10 @@
 """Turn calibration against the overhead camera -- pivots of +-90, +-107
 and +-180 deg, many repeats, with wheel speeds recorded, then charts.
 
-    uv run python tests/playfield/turn_calibration.py --robot tigez --dance
-    uv run python tests/playfield/turn_calibration.py --robot tigez \
+    uv run python tests/calibration/turn_calibration.py --robot tigez --dance
+    uv run python tests/calibration/turn_calibration.py --robot tigez \
         --angles 90 107 180 --reps 4 --cruise 60 --out reports/tigez-turn-cal-20260903
-    <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/tigez-turn-cal-20260903
+    <plot venv>/bin/python tests/calibration/turn_calibration.py --render reports/tigez-turn-cal-20260903
 
 What it does, per turn: take a rest fix from the camera (position and
 heading, several samples averaged), command one in-place pivot over the

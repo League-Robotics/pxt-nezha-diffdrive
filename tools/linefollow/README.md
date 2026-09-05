@@ -17,6 +17,6 @@ aprilcam venv python (`~/.local/pipx/venvs/aprilcam/bin/python`) unless noted.
 | `follow.py`, `camlog.py`, `chart.py` | the earlier camera-mapped odometry follower (comparison only) |
 
 If the robot ever latches an e-stop, `SET estop_clear 1 #<id>` clears it
-(the minimal program has no clear verb). Run `uv run tools/field_dance.py`
+(the minimal program has no clear verb). Run `uv run python tests/calibration/calibrate.py dance`
 first, every session. The camera is a
 diagnostic and a rail guard, never a steering input.

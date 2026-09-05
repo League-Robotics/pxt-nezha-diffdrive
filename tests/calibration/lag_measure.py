@@ -16,7 +16,7 @@ Carrier/camera options are turn_calibration.py's (--robot, --host/--port,
 and prints the per-wheel mean; `--apply` then `SET lag <mean>` on the
 robot (RAM only -- bake it in radio-robot-lib as firmware_bake.lag_s).
 
-  uv run python tests/playfield/lag_measure.py --robot vevov --heading-offset 91.28 --out reports/<dir>
+  uv run python tests/calibration/lag_measure.py --robot vevov --heading-offset 91.28 --out reports/<dir>
 """
 import argparse
 import json
