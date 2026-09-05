@@ -57,6 +57,23 @@
       ],
       "parallax_k": 1.0,
       "_lever_parallax_note": "parallax_k = 1.0 because the daemon already applies the tag-height (mount_z_cm = 11.3) parallax correction for a REGISTERED tag (aprilcam list_tag_parameters reports mount_z_applied: true for tag 52), so a tool dividing by a parallax factor on top of that corrects twice. MEASURED tovez 2026-09-04, captures/bench-acceptance-029-20260904d/heading-probe.log: a 5 cm MOVE_X displaced the daemon-reported (registered) tag position by 4.87 cm -- i.e. already undilated; the old k=1.1167 borrowed from vevov made every dance drive read ~12 % short (field-dance-refit-run1/2.log: 17.6 cm for 20, 35.3 cm for 40 = 20/1.1167, 40/1.1167). vevov's entry still needs its k because tag 53 is registered with mount_z 0 -- see clasi/issues/parallax-k-and-registered-mount-z-correct-twice.md. lever_cm=[0,0] remains a PLACEHOLDER (harmless for the dance: turn() reads heading deltas, drive() differences two poses at one heading)."
+    },
+    "tigez": {
+      "tag_family": "apriltag",
+      "tag_number": 57,
+      "camera": "arducam-ov9782-usb-camera",
+      "mount_x_cm": -0.67,
+      "mount_y_cm": -0.02,
+      "mount_z_cm": 11.7,
+      "mount_yaw_residual_deg": 0.35,
+      "radio_channel": 55,
+      "radio_group": 114,
+      "lever_cm": [
+        0.0,
+        0.0
+      ],
+      "parallax_k": 1.0,
+      "_provenance": "TIGEZ-MEASURED 2026-08-30 (reports/tigez-turn-cal-20260903/REPORT.md, tag-57 mount -0.67/-0.02 cm at 11.7 cm, -89.65 deg = -90 convention + 0.35 residual), the values the daemon's persisted registry has carried since; entered here 2026-09-05 so camlink.py --register tigez and the field dance can use it. lever_cm/parallax_k are the registered-mount placeholders (the daemon applies both), as for tovez."
     }
   }
 }
