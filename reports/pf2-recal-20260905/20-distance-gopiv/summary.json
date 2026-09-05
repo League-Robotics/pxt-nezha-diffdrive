@@ -1,0 +1,12 @@
+{
+  "robot": "gopiv",
+  "link": "gopiv serial daemon 192.168.4.50:45433",
+  "camera": "hd-usb-camera",
+  "cruise": 0,
+  "n_legs": 0,
+  "lengths": [
+    200,
+    300,
+    400
+  ]
+}

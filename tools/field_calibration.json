@@ -75,6 +75,21 @@
       "_provenance": "TIGEZ-MEASURED 2026-09-05 on the SECONDARY playfield (110x70, hd-usb-camera) by tests/calibration/mount.py over the radio relay: reports/pf2-recal-20260905/08-mount-tigez/mount.json and 08-mount-tigez.log. 9 rest poses over 8 +-90 pivots, residual rms 1.1 mm, verification centre drift 0.06 cm/pivot -- the tightest solve of the session. Tag height 11.6 cm is the stakeholder's tape measurement the same day (was 11.7). The lever is essentially UNCHANGED from the 2026-08-30 solve it replaces (-0.67/-0.02 -> -0.57/+0.09, 1.4 mm), so tigez's plate had NOT moved; only vevov's had.",
       "_mount_provenance": "TIGEZ-MEASURED 2026-09-05 by tests/calibration/mount.py on hd-usb-camera: 9 rest poses over 8 +-90 pivots, residual rms 1.1 mm; verification drift 0.06 cm/pivot; yaw residual from a 300 mm probe. reports/pf2-recal-20260905/08-mount-tigez/mount.json",
       "_mount_yaw_note": "robot heading = tag yaw + 90 (AprilCam's fixed front-edge convention) + this residual. MEASURED 2026-09-05, 08-mount-tigez.log: a 300 mm probe travelled 299.3 mm at bearing -2.9 deg with the daemon reporting heading +0.8 deg -> -3.77 deg. That is 4.1 deg away from the +0.35 recorded on 2026-08-30 and is the one number in this entry worth re-checking: it rests on a SINGLE probe, and the same session's distance run showed tigez crabbing (cross-track -12.8 -> -35.2 mm across forward legs, 09-distance-tigez/legs.csv), which biases a one-probe bearing. Re-probe before treating it as plate skew."
+    },
+    "gopiv": {
+      "tag_family": "apriltag",
+      "tag_number": 54,
+      "camera": "hd-usb-camera",
+      "lever_cm": [
+        0.0,
+        0.0
+      ],
+      "parallax_k": 1.0,
+      "mount_x_cm": 1.263,
+      "mount_y_cm": -0.868,
+      "mount_z_cm": 12.2,
+      "mount_yaw_residual_deg": 4.24,
+      "_mount_provenance": "GOPIV-MEASURED 2026-09-05 by tests/calibration/mount.py on hd-usb-camera: 9 rest poses over 8 +-90 pivots, residual rms 15.9 mm; verification drift 0.66 cm/pivot; yaw residual from a 300 mm probe. reports/pf2-recal-20260905/19-mount-gopiv/mount.json"
     }
   }
 }

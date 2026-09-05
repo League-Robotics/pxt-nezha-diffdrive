@@ -1,0 +1,21 @@
+registered 'gopiv' from /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tools/field_calibration.json
+provisional mount registered (0, 0, 12.2, -90 deg): None
+link: gopiv serial daemon 192.168.4.50:45433
+robot: device NEZHA2 robot gopiv 2175407711
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '86', 'cyc': '391', 'tlm': 'off', 'next': '1', 'done': '1', 'reason': 'stop'}
+tag at (26.63, -6.13) heading -67.9
+  pivot 1 +90: tag (27.71, -4.93) heading 32.1
+  pivot 2 -90: tag (23.82, -6.74) heading -72.4
+  pivot 3 +90: tag (25.16, -6.22) heading 28.3
+  pivot 4 -90: tag (22.52, -7.87) heading -74.1
+  pivot 5 +90: tag (23.79, -7.15) heading 27.2
+  pivot 6 -90: tag (21.75, -8.63) heading -72.5
+  pivot 7 +90: tag (22.82, -7.71) heading 26.3
+  pivot 8 -90: tag (20.41, -9.30) heading -73.6
+
+solved mount (robot frame): x +1.26 cm forward, y -0.87 cm left; centre (23.41, -6.30); residual rms 15.9 mm
+implied centre per pose: (27.0,-4.6) (26.2,-4.9) (24.3,-5.3) (23.6,-6.1) (23.0,-6.4) (22.3,-7.0) (22.2,-7.2) (21.3,-7.5) (20.9,-7.8)
+verification: centre drift per pivot 1.03 0.27 0.99 0.36 cm (mean 0.66)
+probe 300 mm: travelled 300.9 mm at bearing -175.9, heading was 179.9 -> yaw residual +4.24 deg
+wrote reports/pf2-recal-20260905/19-mount-gopiv/mount.json
+wrote /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tools/field_calibration.json

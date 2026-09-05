@@ -202,3 +202,50 @@ gain belongs to travel and trackwidth.
    measurement of its tag height. New AprilTags 10/14/15/16 also appeared
    on that field (15 sits at ~(0.4, 0.8), i.e. near the origin) and are
    presumably reference furniture; not yet identified.
+
+## gopiv, 2026-09-05 -- calibration BLOCKED by a mechanical fault
+
+Carrier: gopiv's own serial daemon on `null` (192.168.4.50:45433), which
+`calibrate.py` resolves itself when given no `--wifi`/`--radio`/`--host`
+flag. That is the lossless path and it never dropped; the radio relay had
+died after one pivot on the first attempt.
+
+gopiv has **no `firmware_bake` at all** in radio-robot-lib, so it runs pure
+firmware defaults -- confirmed live: `lag 0.000000`,
+`rotational_slip 0.952000`, fw 1.20260904.4.
+
+- **dance PASSED** (`18-dance-gopiv.log`): +96.1 / +185.3 / +95.4, so the
+  convention is right and it over-rotates ~1.06 with no bake. But it
+  returned home only within **7.5 cm**, against tigez's 0.8 and vevov's 0.2.
+- **mount solved, but POORLY** (`19-mount-gopiv`): x +1.26, y -0.87 cm,
+  residual +4.24 deg, rms **15.9 mm** (tigez 1.1, vevov 4.8). The implied
+  centre WALKS monotonically across the eight pivots, (27.0,-4.6) ->
+  (20.9,-7.8), ~6.9 cm.
+- **probe is fine**: 300.9 mm for a commanded 300, so gopiv's default
+  travel_calib 0.78623 is already right.
+- **distance could not run** (`20-distance-gopiv`): `face()` turned gopiv to
+  face east and the robot TRANSLATED 45 cm doing it -- (-11.8,-11.3) ->
+  (31.4, 2.3), confirmed by an independent `get_tag` read. The program's
+  own projected-end check then refused the first leg, correctly.
+
+**The fault:** gopiv does not pivot about a consistent point. Alternating
++-90 pivots hide it (their translations cancel -- hence only 0.86 cm/pivot
+residual in the mount solve), but same-direction turns accumulate, and a
+single ~180 deg turn moved it 45 cm. A 1.5 cm lever rotated 180 deg can
+only move the reported centre ~3 cm, so this is real translation, not a
+mount artifact. Mechanically it implies rotation about a point ~22 cm
+outside the robot -- one wheel doing far more than the other.
+
+This is NOT something to calibrate around: a mount solve and a
+rotational_slip both assume a fixed centre of rotation. gopiv's numbers
+above should be treated as provisional until the mechanics are fixed.
+
+Its `motors` block records `fwd_sign_left +1 / fwd_sign_right -1` with NO
+ports and nothing baked, where vevov (which is fine) has explicit
+`left_port 2 / right_port 1`. Whether that is the cause is UNVERIFIED --
+the tovez precedent says a bad mapping reverses travel while leaving
+rotation alone, which is not this signature.
+
+**Blocked on:** gopiv is at x=31.4 with 8.6 cm of margin, and `face()`
+carries no safety check, so no further pivots there. It needs recentring
+before any more driving.
