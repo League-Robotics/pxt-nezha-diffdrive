@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint: '032'
+status: in-progress
+sprint: '033'
+tickets:
+- 033-007
 ---
 
 # Wire minors: telemetry terminator reserve and sink strip check, RX drain loop and counters, count handleRun refusals, seq wrap, GET rebase

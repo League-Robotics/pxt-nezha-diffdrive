@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint: '032'
+status: in-progress
+sprint: '033'
+tickets:
+- 033-008
 ---
 
 # Strip units from identifier names in src/comms/wifi_link.*

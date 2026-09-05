@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint: '032'
+status: in-progress
+sprint: '033'
+tickets:
+- 033-002
 ---
 
 # Odometry as an object that is the PoseSource; delete the three rebase-epoch copies
