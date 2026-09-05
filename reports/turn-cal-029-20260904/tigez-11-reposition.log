@@ -1,0 +1,4 @@
+relay: gozop (DEVICE:RADIOBRIDGE:relay:gozop:4267970133)
+start (-13.3, -18.5, -3.9)
+facing 87.8 projected end (-13.2, -3.7, 87.8) safe: True
+now (-13.8, -4.3, 89.8)

@@ -1,0 +1,23 @@
+relay: zetog (DEVICE:RADIOBRIDGE:relay:zetog:3446622357)
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '63', 'cyc': '4878', 'tlm': 'off', 'next': '1', 'done': '15', 'reason': 'stop'}
+SET lag 0.05 -> ack 1 15 stop
+rotational_slip=0.952 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 57 at (-14.3, -3.9) cm heading 84.9 deg
+telemetry OFF (--no-tlm): camera-only scoring, no wheel speeds or encoder heading
+telemetry columns: []
+24 pivots: [90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180, 90, -90, 107, -107, 180, -180, -90, 90, -107, 107, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90  -- MOVE_X not accepted: None
+  2    -90  -- MOVE_X not accepted: None
+  link silent twice -- reconnecting through the relay pool
+relay: gozop (DEVICE:RADIOBRIDGE:relay:gozop:4267970133)
+  link: radio relay ch 55 grp 114 (torture:8760); robot: device NEZHA2 robot tigez 3527777815
+  SET lag 0.05 -> ack 1 15 stop
+  3    107    107.8     0.8     None    None    0.3   None   None   0.0  stop
+  4   -107   -107.8    -0.8     None    None    0.4   None   None   0.0  stop
+  5    180    180.7     0.7     None    None    0.3   None   None   0.0  stop
+  6   -180   -180.2    -0.2     None    None    0.4   None   None   0.0  stop
+  7    -90    -90.9    -0.9     None    None    0.0   None   None   0.0  stop
+  8     90     89.6    -0.4     None    None    0.2   None   None   0.0  stop
