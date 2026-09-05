@@ -39,12 +39,72 @@ prefix).
 - Every number a program prints that a config later carries must cite
   the run directory (`.claude/rules/measurement-citations.md`).
 
-## Relationship to sprint 029
+## Relationship to sprint 029 and sprint 031
 
 Sprint 029's acceptance session (`reports/bench-acceptance-029-20260904d.md`)
 measured the same quantities on tovez with its own scripts
-(`captures/bench-acceptance-029-20260904d/*.py`); the two should
-converge on `turn_calibration.py` as the one calibration program, with
-the sprint's `lag`/`stop_distance` measurements folded in as modes.
-That is part of the tovez drivetrain tuning issue
-(`clasi/issues/tovez-drivetrain-tuning-and-restated-acceptance-bars.md`).
+(`captures/bench-acceptance-029-20260904d/*.py`) as six named gates,
+G1 through G6 (rest-heading accuracy, endpoint position, leg length,
+first-tick tracking, tracking overshoot, square closure vs. baseline).
+
+**Sprint 031 folds those six gates into `turn_calibration.py` as named
+modes**, so there is one calibration/acceptance program instead of a
+family of one-off scripts — the standalone `g1`-`g6` scripts under
+`captures/bench-acceptance-029-20260904d/` are retired (or reduced to
+thin wrappers where a still-cited capture path names one directly).
+
+**Sprint 031 also restates G1 and G2**, the two bars the camera's own
+noise floor could not resolve as originally set: camera heading noise
+at rest measures sd 1.03°/sample (0.65° on a difference of 5-sample
+means) and position repeatability is several mm — both already exceed
+the original 0.4° (G1) and 5 mm (G2) bars before the drivetrain enters
+into it at all. Restated:
+
+- **G1** (rest-heading accuracy): mean|err| ≤ 1.0°, sd ≤ 1.0°, with
+  ≥ 20-sample averaged fixes (up from single-sample fixes).
+- **G2** (endpoint position): ≤ 10 mm.
+- G3 (leg length), G4 (first-tick tracking), G5 (tracking overshoot),
+  and G6 (square closure vs. baseline) are unchanged.
+
+This is a floor set by today's instrument, not by the drivetrain's true
+capability — a future fixture improvement (a larger tag, two tags, more
+samples per fix) should re-tighten these bars rather than treat them as
+permanent. See
+`clasi/sprints/031-drivetrain-tuning-and-gate-acceptance-on-tovez/sprint.md`'s
+Design Rationale for the full argument.
+
+### Implementation (ticket 007)
+
+`turn_calibration.py` gained `--mode {sweep,g1,g2,g3,g5,g6}` (default
+`sweep`, the pre-existing pivot sweep, unchanged). G4 reports alongside
+G3 (`--mode g3`), since sprint 029's `g3_run.py` already measured both
+from the same telemetry in one script — no separate mode for it. Each
+gate mode is one `run_gN()` drive function built on two new
+camera/telemetry primitives, `one_leg()` and `one_arc()` (the
+straight-line and arc analogues of the pre-existing `one_turn()`), plus
+a shared `_wait_done()` completion-poll and `_enable_tlm_full()`
+telemetry-setup helper factored out of the sweep's own code. Every
+gate's scoring is a small pure function (`g1_score`, `g2_score`,
+`arc_expected_endpoint_mm`, `arc_path_points`, `leg_metrics`,
+`fit_wheel_lag`, `square_closure_ok`) with no Link/Camera dependency,
+unit-tested in `tests/playfield/test_turn_calibration_gates.py` (27
+cases: bar constants, scoring boundaries, arc geometry, synthetic-frame
+metrics, lag-fit recovery, the completion-poll, and the camera
+noise-floor calculation G1's bar is sized against). The sprint 029
+standalone scripts (`captures/bench-acceptance-029-20260904d/g*.py`,
+`lag_measure.py`) are retired as of this ticket — their captured
+outputs remain as citations, but ticket 016 (Session C) runs the
+consolidated program, not those scripts.
+
+Each gate mode repeats the mandatory pre-flight path check
+(`.claude/rules/playfield-testing.md`) from a measured start pose
+before arming a commanded move — `tools/field.py`'s `check_path()` for
+every translating mode (g2/g3/g5/g6), a new `arc_path_points()` for g2
+so a curved leg's projected path (which bows past its own chord) is
+checked, not just its endpoint. This could not be verified end-to-end
+without a robot; what ticket 007 could and did verify: every mode's
+pure scoring logic (above), and that each mode fails loudly rather
+than hanging or silently no-op'ing on a missing precondition (an
+unknown robot name errors out of argparse immediately; a bad host/port
+raises rather than blocking) — confirmed by hand, not by pytest, since
+it requires actually invoking `main()`.
