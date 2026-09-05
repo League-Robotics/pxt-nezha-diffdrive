@@ -686,9 +686,12 @@ input.onButtonPressed(Button.AB, function () {
 // guard on `touring`: an abort sent while nothing is touring is a
 // harmless no-op (nothing ever reads `aborted` outside a tour/tickedMove
 // leg), and an abort sent WHILE a tour is running must land even though
-// that tour's own handler is mid-execution on its own fiber -- RUN
-// handlers already interleave (that is exactly why `touring` exists as a
-// re-entrancy guard for the MOVE-issuing handlers in the first place).
+// that tour's own handler is still mid-execution -- protocol.cpp
+// dispatches abort/clearestop reentrantly, NESTED inside the running
+// job's own onRun() call, on the SAME protocol fiber (sprint 028; see
+// onRun()'s own doc comment in run.ts) -- which is exactly why `touring`
+// exists as a re-entrancy guard for the MOVE-issuing handlers in the
+// first place.
 // Clear the emergency-stop latch. ESTOP is reachable over the wire but
 // nothing was: once latched, every motion verb was silently ignored and
 // the ONLY recovery was a reflash or a power cycle. Found the hard way

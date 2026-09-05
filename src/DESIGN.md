@@ -1351,7 +1351,7 @@ graph TD
     Protocol -->|enqueue on RUN: prefix| RunQueue[run_queue.h ring]
     RunQueue -->|dropped counter| DiagValue[shims.cpp diagValue ordinal table]
     Protocol -->|dispatchJob: dequeue + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
-    TSDispatch -->|student onRun handler, own MessageBus fiber| StudentCode[Student RUN / button handler]
+    TSDispatch -->|student onRun handler, nested on protocol fiber -- not forked| StudentCode[Student RUN / button handler]
     StudentCode -->|startMove/driveTwist/startDrive: takes kBlock| MotionOwner
     Protocol -->|motionOwner_ arbitration: kNone/kWire/kJob/kBlock| MotionOwner{motionOwner_}
     MotionOwner -->|tickDrive, guard held only inside step| Rig[shims.cpp Rig / DifferentialDrive kernel]

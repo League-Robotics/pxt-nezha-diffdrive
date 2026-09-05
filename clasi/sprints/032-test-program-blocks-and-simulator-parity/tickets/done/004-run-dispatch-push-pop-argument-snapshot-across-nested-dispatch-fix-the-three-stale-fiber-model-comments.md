@@ -1,11 +1,14 @@
 ---
-id: "004"
-title: "RUN dispatch: push/pop argument snapshot across nested dispatch; fix the three stale fiber-model comments"
-status: open
-use-cases: [SUC-003]
-depends-on: ["001"]
-github-issue: ""
-issue: "run-dispatch-contract-argument-snapshot-and-fiber-doc.md"
+id: '004'
+title: 'RUN dispatch: push/pop argument snapshot across nested dispatch; fix the three
+  stale fiber-model comments'
+status: done
+use-cases:
+- SUC-003
+depends-on:
+- '001'
+github-issue: ''
+issue: run-dispatch-contract-argument-snapshot-and-fiber-doc.md
 completes_issue: true
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
@@ -52,7 +55,7 @@ second fiber to nested dispatch on the protocol fiber itself):
 
 ## Acceptance Criteria
 
-- [ ] `run.ts` gains a push/pop stack (or equivalent structurally-safe
+- [x] `run.ts` gains a push/pop stack (or equivalent structurally-safe
       mechanism — a stack is the Design Rationale's chosen approach in
       `sprint.md`; deviate only with a documented reason) so that:
       `wireRunDispatch()`'s callback pushes the newly-split `parts`
@@ -60,11 +63,11 @@ second fiber to nested dispatch on the protocol fiber itself):
       equivalent) after all handlers/any-handlers have run; `runArgText`/
       `runArgCount` read the TOP of the stack, not a bare module
       variable.
-  - [ ] `onRun()`'s existing public signature
+  - [x] `onRun()`'s existing public signature
         (`(name: string, handler: (arg: number) => void) => void`) is
         UNCHANGED — this is a purely internal mechanism change per the
         Design Rationale's explicit rejection of a signature change.
-- [ ] A host test demonstrates the property directly: simulate (via a
+- [x] A host test demonstrates the property directly: simulate (via a
       TS-shape/source-pin test, since `tests/host/` cannot execute PXT)
       that after a nested dispatch pushes and pops its own frame, the
       stack's top-of-stack again matches the outer dispatch's own
@@ -72,7 +75,7 @@ second fiber to nested dispatch on the protocol fiber itself):
       full runtime simulation isn't available host-side (state this
       limitation explicitly in the test's own docstring, following
       `test_run_abort_source_pin.py`'s precedent).
-- [ ] The three comments identified above are corrected:
+- [x] The three comments identified above are corrected:
       1. `run.ts`'s `runParts` declaration comment (~lines 1-5) no
          longer claims MessageBus delivery; it should instead describe
          the actual safety mechanism this ticket introduces (the
@@ -88,7 +91,7 @@ second fiber to nested dispatch on the protocol fiber itself):
       3. `test.ts`'s `abort` handler's preamble comment (~line 589) is
          reworded to describe the actual mechanism (nested reentrant
          dispatch on one fiber), not "its own fiber."
-- [ ] No other stale "own fiber"/"MessageBus"/"forked fiber" claim is
+- [x] No other stale "own fiber"/"MessageBus"/"forked fiber" claim is
       left in `run.ts` or `test.ts` — re-grep both files for
       `"own fiber"`/`MessageBus`/`forked` after the edit and confirm
       every remaining hit describes something ELSE accurately (e.g.
