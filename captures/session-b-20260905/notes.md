@@ -877,3 +877,40 @@ is too low, so `travel_calib` is the right knob.
 Expected outcome after baking: mean |dh| ~1.4 deg on 600 mm legs, not
 the <=1.0 deg in this sprint's Success Criteria. Accepted by the
 stakeholder.
+
+## Ticket 010 -- PASS. Three cold boots, zero early-ending segments.
+
+MEASURED tovez 2026-09-05, firmware 1.20260904.5 (ticket 005's fix),
+`captures/session-b-20260905/ticket010/boot{1,2,3}/`. Three genuine
+power cycles by the stakeholder; each confirmed cold at the wire before
+anything was commanded (`cyc=0 next=1 connL=0 connR=0`), `otos=1` on
+all three. Ten `MOVE_X 40 0 100 4000` segments per boot, camera fix at
+every boundary, STATUS polled at 8 Hz from before the pre-pivot.
+
+| boot | cold | early ends | travel | % cmd | yaw | deg/cm | i2cf/cyc |
+|---|---|---|---|---|---|---|---|
+| 1 | yes | **none** | 29.80 cm | 74.5 | +19.18 | +0.644 | +9/193 |
+| 2 | yes | **none** | 29.74 cm | 74.3 | +23.91 | +0.804 | +8/192 |
+| 3 | yes | **none** | 29.99 cm | 75.0 | +10.11 | +0.337 | +6/192 |
+
+**Ticket 010's bar is zero early-ending segments in the first ten moves
+after three cold boots. Result: 0 across 30 segments. PASS.**
+
+Every one of the thirty landed between 2.75 and 3.24 cm. Session A's
+boot 3, on the PRE-fix build, produced 0.93 cm and 1.84 cm on the same
+protocol -- far outside that band. Ticket 005's `wrongWay()`
+minimum-progress gate is confirmed on hardware.
+
+### Incidental: three more nails in Session A's "Concern 1"
+
+These are cold boots on the POST-fix build, and their yaw drift is
++0.337 to +0.804 deg/cm -- squarely inside the pre-fix band
+(+0.577..+0.936) and below the +1.158 that Session A read as a doubling.
+Together with the charged-battery warm run (+1.270) and the leg-length
+sweep, the "post-030 doubled the yaw drift" reading is now contradicted
+from four independent directions.
+
+`i2cf` per move: 0.9, 0.8, 0.6 -- back in the pre-fix range (0.60-0.82)
+and below the 1.00-1.08 measured earlier today on warm runs, which is
+itself consistent with i2cf being a breakaway counter rather than a bus
+health metric.
