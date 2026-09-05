@@ -249,3 +249,29 @@ rotation alone, which is not this signature.
 **Blocked on:** gopiv is at x=31.4 with 8.6 cm of margin, and `face()`
 carries no safety check, so no further pivots there. It needs recentring
 before any more driving.
+
+## Defect: the facing pivots carry no safety check
+
+`distance.py::face()` and `mount.py`'s `--face` loop both command
+`MOVE_X 0 <rad>` pivots with **no `check_safe()`** on the projected result.
+Every straight LEG is checked (that is what stopped the gopiv run), and so
+is the mount probe -- but the pivots that aim the robot are not.
+
+The assumption is that a pivot does not translate, so there is nothing to
+project. gopiv broke that assumption on 2026-09-05: one `face()` call moved
+it 45 cm (`20-distance-gopiv.log`, confirmed by an independent `get_tag`).
+On the secondary field, which has NO rails, that is a fall.
+
+It also compounds: `face()` retries up to 3 times, so a robot that
+over-rotates gets pivoted repeatedly, each time from a worse position, with
+nothing re-checking the margin between attempts.
+
+Suggested fix: have `face()` refuse to pivot when the CURRENT pose is
+already outside the margin, and re-check after each of its three attempts,
+bailing out rather than correcting from an unsafe spot. That is enough to
+have caught this case -- gopiv was inside the margin when `face()` started
+and outside when it finished, and the next thing to run was the leg check,
+which did fire.
+
+Not fixed here: `tests/` is CLASI-gated and the out-of-process window for
+this session closed when the earlier fix was committed.
