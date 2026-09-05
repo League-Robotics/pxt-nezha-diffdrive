@@ -208,6 +208,19 @@ void meApplyStictionProbeKernelConfig(void* handle) {
       .setStall(191.4f, 510.4f, 500.0f);
 }
 
+// Sprint 031 ticket 006: overrides ONLY the three gains
+// meApplyStictionProbeKernelConfig() bakes fixed (kp/ki/kaff) -- lets a
+// host test try a CANDIDATE gain set against the same LaggedRig model,
+// on top of every other Config field that call already set (iMax,
+// pidMax, twistHoldGain, adaptation, stall), the same one-field-at-a-
+// time shape meSetTwistHoldGain() above already uses. Call AFTER
+// meApplyStictionProbeKernelConfig() -- this does not set the other
+// fields itself.
+void meSetPidGains(void* handle, float kp, float ki, float kaff) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->kernel.setKp(kp).setKi(ki).setKaff(kaff);
+}
+
 // ---- MotionEngine: geometry (motion-api.md S2.1) -----------------------
 
 float meCountsPerMm(void* handle) {
