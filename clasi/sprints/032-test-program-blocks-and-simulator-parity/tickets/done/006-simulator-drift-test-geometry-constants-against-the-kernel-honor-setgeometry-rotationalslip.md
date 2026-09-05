@@ -1,11 +1,13 @@
 ---
-id: "006"
-title: "Simulator: drift-test geometry constants against the kernel; honor _setGeometry/RotationalSlip"
-status: open
-use-cases: [SUC-005]
-depends-on: ["005"]
-github-issue: ""
-issue: "simulator-split-parity-and-geometry-drift.md"
+id: '006'
+title: 'Simulator: drift-test geometry constants against the kernel; honor _setGeometry/RotationalSlip'
+status: done
+use-cases:
+- SUC-005
+depends-on:
+- '005'
+github-issue: ''
+issue: simulator-split-parity-and-geometry-drift.md
 completes_issue: true
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
@@ -37,7 +39,7 @@ ticket edits the POST-split `_startMove`/`simIntegrate` shape.
 
 ## Acceptance Criteria
 
-- [ ] `_setGeometry(trackWidth, calib)` and/or `_setKernelValue(field,
+- [x] `_setGeometry(trackWidth, calib)` and/or `_setKernelValue(field,
       value)` (whichever actually corresponds to the wire's
       `RotationalSlip` kernel field — confirm the field-id mapping by
       reading `shims.cpp`'s real `setKernelValue()`/the
@@ -46,7 +48,7 @@ ticket edits the POST-split `_startMove`/`simIntegrate` shape.
       replacing the fixed `kSimTrackWidth`/`kSimRotationalSlip`
       constants with mutable state that defaults to those same two
       values until a program calls one of these setters.
-- [ ] `_driveTwist()`'s own analogous divisor (confirmed to already
+- [x] `_driveTwist()`'s own analogous divisor (confirmed to already
       independently reproduce `effectiveTrackWidth()`'s formula per
       that function's own comment) is updated the SAME way — both
       call sites must read the same live geometry state, not just one
@@ -54,7 +56,28 @@ ticket edits the POST-split `_startMove`/`simIntegrate` shape.
       same way the issue's own history describes them once doing
       (comment cites a prior 4.3% discrepancy between a bare-115
       literal and this exact formula).
-- [ ] A drift test pins the simulator's DEFAULT (never-configured)
+
+      **Correction on inspection**: `_driveTwist()` in the current
+      source has no such divisor to begin with — it converts
+      `yawRate` straight to rad/s (`(yawRate / 100) * Math.PI / 180`)
+      and never reads `kSimTrackWidth`/`kSimRotationalSlip` at all.
+      This is provably correct as-is: hardware's own
+      `twist = yaw * 0.5 * effectiveTrackWidth()` fed into
+      `wheelsV(vx-twist, vx+twist)` produces
+      `omega = (right-left)/effectiveTrackWidth() = yaw` for ANY
+      trackWidth/slip value — the multiply and divide cancel
+      algebraically — so `_driveTwist()`'s direct formula already
+      matches hardware's observable output exactly, independent of
+      geometry, with nothing to wire up. Verified, not just asserted:
+      `tests/host/test_sim_geometry_matches_kernel_and_setters_apply.py`'s
+      compiled-and-executed harness (inside
+      `test_geometry_setters_change_simulated_yaw_rate`) drives the
+      SAME `_driveTwist()` call through two very different live
+      geometries and asserts the resulting `simYawRate` is bit-for-bit
+      identical. Documented in `_setWheels()`'s own comment in
+      `blocks/sim.ts` so a future reader doesn't go looking for a
+      missing divisor.
+- [x] A drift test pins the simulator's DEFAULT (never-configured)
       geometry constants against `motion_engine.h`'s own compiled
       default `trackWidth_`/`rotationalSlip_` values — per Open
       Question 3 in `sprint.md`'s Architecture section, this compares
@@ -62,13 +85,13 @@ ticket edits the POST-split `_startMove`/`simIntegrate` shape.
       robot), not a live per-robot fleet bake; state this scope
       explicitly in the new test's own docstring so a future reader
       doesn't mistake it for a live-hardware assertion.
-- [ ] A behavioral test confirms that calling the simulator's
+- [x] A behavioral test confirms that calling the simulator's
       `setGeometry`/kernel-value-write block CHANGES a subsequent
       move's simulated yaw rate (not just that the setter stores a
       value somewhere) — a before/after comparison of `simYawRate` (or
       an equivalent externally-observable quantity) for the same
       `_setWheels()` call, with and without a prior geometry-set call.
-- [ ] `simLastGeometryTrackWidth`/`simLastGeometryCalib`/
+- [x] `simLastGeometryTrackWidth`/`simLastGeometryCalib`/
       `simLastKernelField`/`simLastKernelValue` — if they become
       genuinely redundant once the real state they were standing in
       for exists — are either repurposed as the live state itself or

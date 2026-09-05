@@ -1658,9 +1658,13 @@ a single `main.ts` into six cohesion-sized modules. Current structure:
   motion/pose/stop behaviour (`_setWheels`, `_driveTwist`,
   `_startMove`, `_updateMove`, `_tickDrive`, `_progress`, `_endMove`,
   `_stopAll`, `_estopAll`, `_estopClear`, `_poseX`/`Y`/`Heading`,
-  `_resetPose`, `_seedPose`), and the no-op stand-ins for shim-only
-  surface with no browser model at all (`_clearStallLatch`,
-  `_isStalled`, `_setGeometry`, `_setKernelValue`, `_startProtocol`,
+  `_resetPose`, `_seedPose`, and `_setGeometry`/`_setKernelValue`'s
+  field-16 case, which update the live `simTrackWidth`/
+  `simRotationalSlip` state `_setWheels()`'s divisor reads instead of
+  discarding their arguments), and the no-op
+  stand-ins for shim-only surface with no browser model at all
+  (`_clearStallLatch`, `_isStalled`, `_setGeometry`'s `calib` argument
+  and every `_setKernelValue` field other than 16, `_startProtocol`,
   `probe`, `setTaperWindows`/`Floors`/`RampMs` (retired no-ops, sprint
   029 ticket 004), `setLimits` (their replacement, same ticket),
   `otosBegin`/`Read`/

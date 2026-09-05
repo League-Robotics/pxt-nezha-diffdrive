@@ -399,8 +399,14 @@ reproduction of the closed-loop control law:
   stop-vs-latch distinction (§9's `deliverStopNow()`).
 - `poseX`/`poseY`/`poseHeading`/`resetPose` read/reset the simulated
   pose.
-- `setGeometry`/`setKernelValue` are no-ops in the simulator — track
-  width, wheel calibration, and kernel tuning have no simulated effect.
+- `setGeometry`/`setKernelValue` update the simulator's own live
+  `trackWidth`/`rotationalSlip` copies, which `setWheels`'s yaw-rate
+  divisor reads — so a program that pastes a calibration block turns
+  differently in the browser afterward, the same way it would on a
+  calibrated robot. Wheel calibration (`setGeometry`'s `calib`
+  argument) and every other `setKernelValue` field still have no
+  simulated effect: nothing in this idealized kinematic model converts
+  from an encoder count or models PID/shaping behavior.
 - `_tickDrive` (sprint 002) mirrors the hardware tick engine's
   absolute-deadline 24 ms pacing with `basic.pause()`, so
   `while (driveTick())` loops are timing-observable in the browser the

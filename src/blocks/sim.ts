@@ -113,15 +113,18 @@ namespace diffDrive {
         simHeading += stepYawRate * stepDt
     }
 
-    // Fixed stand-ins for motion_engine.h's trackWidth_/rotationalSlip_
-    // (caliper-measured 114.2 mm; camera-derived 0.952 slip correction).
-    // setGeometry() is a no-op in the simulator (see _setGeometry below),
-    // so there is no live value to read -- these are the simulator's own
-    // copies, kept as two named constants (not one derived literal) so a
-    // future geometry/slip bake update can't silently reopen the gap
-    // between this divisor and effectiveTrackWidth()'s.
-    const kSimTrackWidth = 114.2  // [mm]
-    const kSimRotationalSlip = 0.952
+    // Live stand-ins for motion_engine.h's trackWidth_/rotationalSlip_.
+    // Default values mirror that header's own compiled defaults exactly
+    // (drift-tested, see tests/host) so an unconfigured simulator
+    // matches an unconfigured robot. _setGeometry()/_setKernelValue()
+    // below now actually update these instead of discarding their
+    // arguments, so a calibrated robot's browser twin turns the same
+    // way its own hardware does once a program pastes its calibration
+    // block. Kept as two named variables (not one derived value) so a
+    // future geometry/slip update can't silently reopen the gap between
+    // this divisor and effectiveTrackWidth()'s.
+    let simTrackWidth = 114.2  // [mm]
+    let simRotationalSlip = 0.952
 
     //% shim=diffDrive::setWheels
     export function _setWheels(left: number, right: number): void {
@@ -134,20 +137,26 @@ namespace diffDrive {
         // computes `twist = yaw * 0.5 * effectiveTrackWidth()`,
         // shims.cpp). Hardware's own divisor is NOT trackWidth_ alone:
         // it is effectiveTrackWidth() = trackWidth_ / rotationalSlip_
-        // (motion_engine.h), and _driveTwist() below already reproduces
-        // that exactly. The simulator's contract is exact parity on
-        // *observable* kinematic output, not a physical model of
-        // hardware's calibration mechanism -- rotationalSlip_ corrects
-        // for a real wheel imperfection this idealized simulator has no
-        // equivalent of -- so this divides by the same two constituent
-        // constants (kSimTrackWidth / kSimRotationalSlip, just above)
-        // rather than growing its own "slip" concept. (Previously
-        // divided by trackWidth_ alone via a bare 115 literal -- a 4.3%
-        // discrepancy against hardware and against _driveTwist() below.
-        // Before that, divided by 10 first as well, an erroneous
-        // effective 1150 mm track that turned 10x too slowly --
-        // R-12/BLK-06.)
-        simYawRate = (right - left) / (kSimTrackWidth / kSimRotationalSlip)  // [rad/s]
+        // (motion_engine.h). _driveTwist() below needs no matching
+        // update: it converts yawRate straight to rad/s with no
+        // trackWidth divisor of its own, because hardware's own
+        // multiply-by-effectiveTrackWidth()-then-divide-by-it round trip
+        // (twist -> wheelsV -> omega) cancels algebraically for ANY
+        // trackWidth/slip value -- the two paths' observable yaw rate
+        // is exactly equal without _driveTwist() ever reading either
+        // one. The simulator's contract is exact parity on *observable*
+        // kinematic output, not a physical model of hardware's
+        // calibration mechanism -- rotationalSlip_ corrects for a real
+        // wheel imperfection this idealized simulator has no equivalent
+        // of -- so this divides by the same two constituent values
+        // (simTrackWidth / simRotationalSlip, just above -- now live
+        // state, not fixed constants) rather than growing its own
+        // "slip" concept. (Previously divided by trackWidth_ alone via a
+        // bare 115 literal -- a 4.3% discrepancy against hardware and
+        // against _driveTwist() below. Before that, divided by 10 first
+        // as well, an erroneous effective 1150 mm track that turned 10x
+        // too slowly -- R-12/BLK-06.)
+        simYawRate = (right - left) / (simTrackWidth / simRotationalSlip)  // [rad/s]
         simMoveActive = false
     }
 
@@ -426,28 +435,31 @@ namespace diffDrive {
         simHeading = 0
     }
 
-    // Simulator: geometry/kernel-tuning setters stay no-ops on purpose
-    // (Architecture Design Rationale) -- _setWheels()'s divisor above is
-    // a fixed stand-in, not a live-read value, so there is nothing for
-    // either call to actually change. Recorded into otherwise-unread
-    // module variables so each has a real body: an empty `{}` body is
-    // emitted by pxt as native-only, and no pxsim implementation exists
-    // for either, so the simulator crashes at the call site.
-    let simLastGeometryTrackWidth = 0
-    let simLastGeometryCalib = 0
-    let simLastKernelField = 0
-    let simLastKernelValue = 0
+    // Geometry/kernel-tuning setters: _setGeometry() below now updates
+    // the live simTrackWidth state _setWheels() actually divides by
+    // (see that function's own comment). Its `calib` argument (wheel
+    // travel calibration, mm per shaft degree) has no simulator model
+    // to route to -- this simulator integrates simVel directly rather
+    // than converting a move from an encoder count, so there is nothing
+    // for that value to correct -- and is validated the same way but
+    // not stored. _setKernelValue() below forwards field 16
+    // (ConfigField.RotationalSlip in blocks/motion.ts; wire name
+    // "rotational_slip") to the paired simRotationalSlip state; every
+    // other field still has no simulator model and stays a silent
+    // no-op, same as before. Both keep real (if partial) bodies, not
+    // bare `{}`: an empty body is emitted by pxt as native-only, and no
+    // pxsim implementation exists for either, so the simulator crashes
+    // at the call site.
 
     //% shim=diffDrive::setGeometry
-    export function _setGeometry(trackWidth: number, calib: number): void {
-        simLastGeometryTrackWidth = trackWidth
-        simLastGeometryCalib = calib
+    export function _setGeometry(trackWidth: number, calib: number): void {  // [0.1 mm] [1e-4 mm/deg]
+        if (trackWidth > 0) simTrackWidth = trackWidth * 0.1
     }
 
     //% shim=diffDrive::setKernelValue
-    export function _setKernelValue(field: number, value: number): void {
-        simLastKernelField = field
-        simLastKernelValue = value
+    export function _setKernelValue(field: number, value: number): void {  // [x1000 scaled]
+        const v = value * 0.001
+        if (field == 16 && v > 0) simRotationalSlip = v
     }
 
     // Recorded so a bare project's on-start sequence is observable in
@@ -503,12 +515,13 @@ namespace diffDrive {
         return
     }
 
-    // this ticket: the replacement for the three retired shims above --
-    // see shims.cpp's own setLimits() comment for the full rationale
-    // (four plain-unit int params, no wire x1000 scaling). Simulator has
-    // no shaping model to update; recorded the same way _setKernelValue()
-    // above records its own last-seen args, so a test can still observe
-    // the call landed.
+    // The replacement for the three retired shims above -- see
+    // shims.cpp's own setLimits() comment for the full rationale (four
+    // plain-unit int params, no wire x1000 scaling). Simulator has no
+    // shaping model to update; recorded into its own last-seen-args
+    // variables below so a test can still observe the call landed (the
+    // paired ConfigField.RotationalSlip case above has a live state
+    // variable to route to instead, so it no longer needs this pattern).
     let simLastLimitsAccel = 0
     let simLastLimitsDecel = 0
     let simLastLimitsVMax = 0
