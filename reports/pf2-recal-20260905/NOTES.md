@@ -118,12 +118,55 @@ answer is obvious on sight.
   sending ids from 1, so every command is classified as a stale retransmit
   and silently dropped -- `ack: None`, no motion, healthy STATUS.
 
+## Both robots reflashed, 2026-09-05 (farm)
+
+tigez (node magni) and vevov (node meili), built from this worktree with
+`make_deploy.py --robot <name> --radio-link` and flashed with
+`mbdeploy deploy --remote`. Both flashes hit the documented
+`flash erase sector failure ... 0x67`, mass-erased and succeeded on the
+retry (418816 bytes each).
+
+Verified on a FRESH BOOT each (`STATUS cyc=0`, so the values are the
+build's, not a leftover live SET):
+
+| | tigez | vevov |
+|---|---|---|
+| `ID` | `diffdrive tigez 1.20260904.4` | `diffdrive vevov 1.20260904.4` |
+| `GET lag` | **0.050000** (was 0.0) | **0.040000** |
+| `GET rotational_slip` | 0.962000 | **1.000000** (was 0.987) |
+
+`travel_calib` is bake-only with no wire field, so it cannot be read back
+-- it was verified in the scratch source before the build
+(`travelCalib_ = 0.79324f` for vevov, `0.78623f` for tigez) and the two
+hexes were confirmed to differ by md5, which is the check that catches the
+stale-scratch guard silently serving cached TUs.
+
+**`VER` is 1.20260904.4 on both, unchanged from the pre-flash build** --
+make_deploy does not bump it, so VER cannot tell the new firmware from the
+old. The discriminators are `GET lag` / `GET rotational_slip` on a fresh
+boot.
+
+Two build traps avoided, both of which ship a quietly degraded hex:
+
+- `config/wifi_secrets.json` is gitignored and so absent from this
+  worktree; without copying it in, make_deploy prints one line and builds
+  with the WiFi stack down. Copied from the main checkout first.
+- Neither robot's config has `connection.v6_radio_link`, so the radio link
+  defaults OFF. Since WiFi is what dies under motor load, that would have
+  left both boards with no reliable carrier. Built with `--radio-link`.
+
 ## Still to do
 
-1. **Reflash vevov** with the new bake (travel_calib 0.79324,
-   rotational_slip 1.0), then re-run `calibrate.py turns --no-tlm` with no
-   live SET to confirm -- DESIGN.md step 5. Until then those two values are
-   derived, not flown.
-2. **Reflash tigez** so `lag_s 0.05` is actually in the build.
-3. Re-probe tigez's -3.77 deg yaw residual (single probe, crabbing robot).
-4. Diagnose tigez's cross-track drift.
+1. **Confirm both robots on the field** -- `calibrate.py turns --no-tlm`
+   with NO live SET, per DESIGN.md step 5. vevov's travel_calib 0.79324 and
+   rotational_slip 1.0 are still DERIVED (measured at the old travel_calib
+   and divided through); this is the run that makes them measured.
+   Also re-run `distance` on vevov: the gain should now be 1.00, not 1.13.
+2. Re-probe tigez's -3.77 deg yaw residual (single probe, crabbing robot).
+3. Diagnose tigez's cross-track drift.
+4. **gopiv is now on the secondary field (tag 54)** and has NO entry in
+   `tools/field_calibration.json` -- no mount at all. It needs the full
+   dance -> mount -> distance -> turns pass, starting with a tape
+   measurement of its tag height. New AprilTags 10/14/15/16 also appeared
+   on that field (15 sits at ~(0.4, 0.8), i.e. near the origin) and are
+   presumably reference furniture; not yet identified.
