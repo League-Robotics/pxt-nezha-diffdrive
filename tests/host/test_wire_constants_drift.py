@@ -113,6 +113,8 @@ import json
 import pathlib
 import re
 
+import pytest
+
 # tests/host/test_wire_constants_drift.py -> host -> tests -> repo root
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _SRC_DIR = _REPO_ROOT / "src"
@@ -983,6 +985,77 @@ def _shims_cpp_limits_field_ordinals(text):
     match = re.search(r"kLimitsFields\[\]\s*=\s*\{(.*?)\n\};", text, re.DOTALL)
     assert match, "shims.cpp's kLimitsFields[] table was not found"
     return {int(n) for n in re.findall(r"\{(\d+),\s*&MotionLimits::", match.group(1))}
+
+
+
+# ---------------------------------------------------------------------------
+# 10. cfg.twistHoldGain's shipped default (shims.cpp) -- sprint 031
+#     ticket 015. Not a cross-file drift test like the others above (no
+#     second file mirrors this number); a single-file regression pin so
+#     a future edit can't silently drift the baked default back toward
+#     2.0, or away from 4.0 without a deliberate update here. Same shape
+#     as test_sim_tick_period_matches_hardware_cycle_period's own
+#     cfg.cyclePeriod extraction, above.
+# ---------------------------------------------------------------------------
+
+
+def _shims_cpp_twist_hold_gain_default():
+    text = _read("shims.cpp")
+    match = re.search(r"cfg\.twistHoldGain\s*=\s*([0-9.]+)f;", text)
+    assert match, "shims.cpp's cfg.twistHoldGain assignment was not found"
+    return float(match.group(1))
+
+
+def _shims_cpp_twist_hold_gain_comment():
+    """The block of `//` comment lines directly above
+    cfg.twistHoldGain's assignment -- same technique as this file's
+    other doc-comment checks (e.g.
+    _radio_transport_max_payload_bytes_doc_comment)."""
+    text = _read("shims.cpp")
+    match = re.search(
+        r"((?:^[ \t]*//[^\n]*\n|^[ \t]*//\n)+)[ \t]*cfg\.twistHoldGain\s*=",
+        text,
+        re.MULTILINE,
+    )
+    assert match, (
+        "No comment block was found directly above cfg.twistHoldGain's "
+        "assignment in shims.cpp"
+    )
+    return match.group(1)
+
+
+def test_twist_hold_gain_default_is_pinned_at_4():
+    """sprint 031 ticket 015: cfg.twistHoldGain's shipped default was
+    raised from 2.0 to 4.0, MEASURED tovez 2026-09-05 (firmware
+    1.20260904.5, captures/session-b-20260905/: gain 4 gave the best
+    mean |dheading| of the three gains tried, 2.10 deg over the
+    largest sample, 12 legs). A future edit that changes this value
+    without updating this pin is a deliberate, reviewed decision, not
+    an accidental regression back toward the old default."""
+    assert _shims_cpp_twist_hold_gain_default() == pytest.approx(4.0), (
+        "shims.cpp's cfg.twistHoldGain default has changed from the "
+        "pinned value 4.0 -- if this is a deliberate re-bake (a new "
+        "MEASURED capture backs a different gain), update this pin; "
+        "if not, it's a regression back toward an unmeasured or "
+        "stale value."
+    )
+
+
+def test_twist_hold_gain_default_comment_cites_the_measurement():
+    """The comment above cfg.twistHoldGain must name the capture
+    directory backing the 4.0 default -- measurement-citations.md's
+    rule that a MEASURED claim names its artifact."""
+    comment = _shims_cpp_twist_hold_gain_comment()
+    assert "captures/session-b-20260905" in comment, (
+        "shims.cpp's cfg.twistHoldGain comment no longer cites its "
+        "backing capture directory (captures/session-b-20260905/) -- "
+        "a MEASURED claim with no named artifact is exactly what "
+        "measurement-citations.md exists to prevent."
+    )
+    assert "2026-09-05" in comment, (
+        "shims.cpp's cfg.twistHoldGain comment no longer cites the "
+        "measurement date (2026-09-05)."
+    )
 
 
 def test_shims_cpp_set_and_get_config_value_cover_every_config_field_ordinal():

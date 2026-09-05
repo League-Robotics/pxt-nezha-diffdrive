@@ -285,7 +285,26 @@ static Rig& ensure() {
     // imbalance integrating into heading, rotating the whole square).
     // This is the kernel's own servo for exactly that -- it trims the
     // measured differential toward the commanded one.
-    cfg.twistHoldGain = 2.0f;        // [1/s]
+    //
+    // Raised 2.0 -> 4.0 (sprint 031 ticket 015). MEASURED tovez
+    // 2026-09-05, firmware 1.20260904.5, six-and-twelve alternating
+    // +-600 mm legs at cruise 100 mm/s, camera-truthed, gain applied
+    // live via `SET twist_hold_gain` (captures/session-b-20260905/):
+    //   gain 2 (old default)  mean |dheading| 2.88 deg over 18 legs
+    //                         (g3-cruise100/, g3-cruise100-x12/)
+    //   gain 4                mean |dheading| 2.10 deg over 12 legs
+    //                         (twist-4-x12/)
+    //   gain 6                mean |dheading| 1.67 deg over  6 legs
+    //                         (twist-6/)
+    // Gain 4 is the best of the three on the largest sample (12 legs),
+    // so it is the new default. Two caveats this comment does NOT
+    // smooth over: a 6-leg run at gain 4 gave 0.98 deg and did NOT
+    // replicate at 12 legs (2.10) -- six legs is not enough at this
+    // noise level, trust the 12-leg number. And gain 6's 1.67 deg is
+    // itself only 6 legs, not comparable to the 12/18-leg figures above
+    // -- it is NOT evidence gain 6 beats gain 4; that arm needs its own
+    // 12-leg rerun before anyone bakes it.
+    cfg.twistHoldGain = 4.0f;        // [1/s]
     cfg.cyclePeriod = 24;            // [ms]
     rig->kernel.setConfig(cfg);
     rig->kernel.begin();   // primes encoders, arms boot zero-write
