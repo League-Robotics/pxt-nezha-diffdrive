@@ -1,0 +1,42 @@
+wifilink: tigez.local -> 192.168.1.217 (mDNS)
+link: WiFi TCP 192.168.1.217:7654
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '25', 'cyc': '434', 'tlm': 'off', 'next': '1', 'done': '10', 'reason': 'stop'}
+rotational_slip=0.962 stop_distance=0.0 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 57 at (1.7, -13.1) cm heading -2.1 deg
+home (1.7, -13.1) h=-2.3
+  (MOVE_X +90 not acknowledged: None; retrying once)
+turn  +90: camera    -0.2 (unwrapped    +2.1, 87 samples) **FAIL**
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 975, in main
+    passed = dance(link, cam, a.cruise, a.dance_turns_only, a.margin)
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 672, in dance
+    turn(90); turn(180); turn(90)
+              ~~~~^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 630, in turn
+    tid, ack = link.seqd(f'MOVE_X 0 {int(round(math.radians(deg)*1000))} {cruise} 9000', wait=3.0)
+               ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 153, in seqd
+    self.send(wire)
+    ~~~~~~~~~^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 120, in send
+    self.sock.sendall((line + '\n').encode())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 989, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 982, in main
+    link.seqd('STOP', wait=1.0)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 153, in seqd
+    self.send(wire)
+    ~~~~~~~~~^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 120, in send
+    self.sock.sendall((line + '\n').encode())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe

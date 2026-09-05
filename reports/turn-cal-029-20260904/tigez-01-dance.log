@@ -1,0 +1,14 @@
+wifilink: tigez.local -> 192.168.1.217 (mDNS)
+link: WiFi TCP 192.168.1.217:7654
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '0', 'active': '0', 'connL': '0', 'connR': '0', 'otos': '0', 'wedge': '0', 'flags': '0', 'i2cf': '0', 'cyc': '0', 'tlm': 'off', 'next': '1', 'done': '0', 'reason': 'none'}
+WARNING: ready=0 -- the kernel needs a first move before it reports ready; continuing
+rotational_slip=0.962 stop_distance=0.0 lag=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 57 at (-36.1, 23.6) cm heading -79.3 deg
+home (-36.1, 23.6) h=-79.2
+turn  +90: camera   +90.5 (unwrapped   +89.9, 31 samples) PASS
+turn +180: camera  +186.7 (unwrapped  +184.7, 34 samples) PASS
+turn  +90: camera   +94.3 (unwrapped   +91.7, 30 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 1.3 cm; net heading +10.7 deg
+DANCE PASSED -- left is left, forward is forward, and it comes home.

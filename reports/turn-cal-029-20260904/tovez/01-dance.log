@@ -1,0 +1,16 @@
+link: tovez serial daemon 192.168.4.52:33941
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 981, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 919, in main
+    banner = link.hello()
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 160, in hello
+    got = self.unseq('HELLO', r'^device ')
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 140, in unseq
+    self.send(cmd)
+    ~~~~~~~~~^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 120, in send
+    self.sock.sendall((line + '\n').encode())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe

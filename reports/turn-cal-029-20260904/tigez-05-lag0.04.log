@@ -1,0 +1,40 @@
+relay: zetog (DEVICE:RADIOBRIDGE:relay:zetog:3446622357)
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '65', 'cyc': '1554', 'tlm': 'off', 'next': '1', 'done': '13', 'reason': 'stop'}
+SET lag 0.04 -> ack 1 13 stop
+rotational_slip=0.962 stop_distance=0.0 lag=0.04 (live), trackwidth assumed 114.2 mm
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/aprilcam/src/aprilcam/client/daemon_client.py", line 690, in _call
+    return method(request)
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/.venv/lib/python3.13/site-packages/grpc/_channel.py", line 1168, in __call__
+    return _end_unary_response_blocking(state, call, False, None)
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/.venv/lib/python3.13/site-packages/grpc/_channel.py", line 999, in _end_unary_response_blocking
+    raise _InactiveRpcError(state)  # pytype: disable=not-instantiable
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+grpc._channel._InactiveRpcError: <_InactiveRpcError of RPC that terminated with:
+	status = StatusCode.INTERNAL
+	details = "no frame available from camera 'hd-usb-camera'"
+	debug_error_string = "INTERNAL:no frame available from camera 'hd-usb-camera'"
+>
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 992, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 968, in main
+    pose = cam.fix()
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 286, in fix
+    s = self.sample()
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 263, in sample
+    r = self.raw()
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/turn-calibration-029/tests/playfield/turn_calibration.py", line 257, in raw
+    for rec in self.D.get_tags(self.cam).tags:
+               ~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/aprilcam/src/aprilcam/client/daemon_client.py", line 430, in get_tags
+    response = self._call(self._stub.GetTags, request)
+  File "/Volumes/Proj/proj/RobotProjects/aprilcam/src/aprilcam/client/daemon_client.py", line 692, in _call
+    raise _reconstruct_error(exc, self._target) from exc
+aprilcam.errors.ConnectionFailed: daemon at 'localhost' did not answer: no frame available from camera 'hd-usb-camera'

@@ -84,6 +84,8 @@ def main():
     ap.add_argument('--wifi', metavar='NAME|IP')
     ap.add_argument('--radio', action='store_true')
     ap.add_argument('--tag', type=int)
+    ap.add_argument('--camera', default=None)
+    ap.add_argument('--field-cm', type=float, nargs=2, metavar=('W', 'H'), default=None)
     ap.add_argument('--heading-offset', type=float, default=0.0)
     ap.add_argument('--trials', type=int, default=4)
     ap.add_argument('--margin', type=float, default=tc.SAFE_MARGIN)
@@ -91,6 +93,10 @@ def main():
     ap.add_argument('--out', default='reports/lag')
     a = ap.parse_args()
     out = pathlib.Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    if a.camera:
+        tc.CAM = a.camera
+    if a.field_cm:
+        tc.FIELD_X, tc.FIELD_Y = a.field_cm[0] / 2.0, a.field_cm[1] / 2.0
     tag = a.tag or tc.TAGS.get(a.robot)
     if tag is None:
         raise SystemExit(f'no tag known for {a.robot}; pass --tag')

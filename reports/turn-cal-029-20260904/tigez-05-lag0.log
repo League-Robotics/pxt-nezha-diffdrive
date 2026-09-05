@@ -1,0 +1,70 @@
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '36', 'cyc': '792', 'tlm': 'off', 'next': '1', 'done': '6', 'reason': 'stop'}
+SET lag 0 -> ack 1 6 stop
+rotational_slip=0.962 stop_distance=0.0 lag=0.0 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 57 at (2.1, -12.9) cm heading 11.4 deg
+telemetry OFF (--no-tlm): camera-only scoring, no wheel speeds or encoder heading
+telemetry columns: []
+8 pivots: [90, -90, 180, -180, -90, 90, -180, 180]
+  #    cmd   camera     err      enc  encerr  drift  peakL  peakR   dur  reason
+  1     90  -- MOVE_X not accepted: None
+  2    -90    -92.7    -2.7     None    None    0.2   None   None   0.0  stop
+  3    180    182.5     2.5     None    None    0.4   None   None   0.0  stop
+  4   -180   -183.1    -3.1     None    None    0.3   None   None   0.0  stop
+  5    -90    -96.1    -6.1     None    None    0.1   None   None   0.0  stop
+  6     90     96.6     6.6     None    None    0.3   None   None   0.0  stop
+  7   -180   -183.8    -3.8     None    None    0.2   None   None   0.0  stop
+  8    180    185.3     5.3     None    None    0.7   None   None   0.0  stop
+{
+  "robot": "tigez",
+  "cruise_mm_s": 0,
+  "n_turns": 7,
+  "n_disturbed_excluded": 0,
+  "disturbed_turns": [],
+  "slip_during_run": 0.962,
+  "pivot_overrun_during_run_mm": 0.0,
+  "overrun_field": "stop_distance",
+  "lag_during_run_s": 0.0,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 118.71,
+  "fit_gain": 0.9837,
+  "fit_offset_deg": 6.61,
+  "mean_err_left_deg": 4.81,
+  "mean_err_right_deg": -3.92,
+  "per_command": {
+    "-90": {
+      "n": 2,
+      "mean_err": -4.41,
+      "min": -6.08,
+      "max": -2.74
+    },
+    "+180": {
+      "n": 2,
+      "mean_err": 3.92,
+      "min": 2.52,
+      "max": 5.31
+    },
+    "-180": {
+      "n": 2,
+      "mean_err": -3.44,
+      "min": -3.78,
+      "max": -3.1
+    },
+    "+90": {
+      "n": 1,
+      "mean_err": 6.61,
+      "min": 6.61,
+      "max": 6.61
+    }
+  },
+  "mean_abs_err_deg": 4.31,
+  "mean_drift_cm": 0.3,
+  "suggested": {
+    "rotational_slip": 0.9463,
+    "stop_distance_mm": 6.85,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
+  }
+}
+wrote reports/turn-cal-029-20260904/tigez-05-lag0; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render reports/turn-cal-029-20260904/tigez-05-lag0

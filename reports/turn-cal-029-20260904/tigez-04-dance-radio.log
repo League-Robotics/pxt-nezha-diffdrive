@@ -1,0 +1,12 @@
+link: radio relay ch 55 grp 114 (torture:8760)
+robot: device NEZHA2 robot tigez 3527777815
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '0', 'wedge': '0', 'flags': '31', 'i2cf': '25', 'cyc': '434', 'tlm': 'off', 'next': '1', 'done': '10', 'reason': 'stop'}
+rotational_slip=0.962 stop_distance=0.0 lag=0.0 (live), trackwidth assumed 114.2 mm
+camera: hd-usb-camera, field +-55.0 x +-35.0 cm, margin 15.0 cm; tag 57 at (1.7, -13.1) cm heading -2.6 deg
+home (1.7, -13.1) h=-3.0
+turn  +90: camera   +93.6 (unwrapped   +92.4, 26 samples) PASS
+turn +180: camera  +184.2 (unwrapped  +183.5, 22 samples) PASS
+turn  +90: camera   +96.1 (unwrapped   +96.0, 20 samples) PASS
+(drive legs skipped: --dance-turns-only)
+returned home within 0.5 cm; net heading +14.4 deg
+DANCE PASSED -- left is left, forward is forward, and it comes home.

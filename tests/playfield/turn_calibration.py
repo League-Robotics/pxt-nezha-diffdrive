@@ -212,6 +212,9 @@ class RelayLink(Link):
     def __init__(self, channel, group, host=RELAY_HOST, port=RELAY_PORT):
         super().__init__(host, port)
         time.sleep(1.0)
+        banner = next((s for _, s in self.since(0) if 'RADIOBRIDGE' in s), '')
+        self.relay = banner.split(':')[3] if banner.count(':') >= 3 else '?'
+        print(f'relay: {self.relay} ({banner.strip()[:60]})')
         for c in ('!ECHO OFF', f'!CG {channel} {group}', '!GO'):
             self.send(c)
             time.sleep(0.5)
@@ -237,7 +240,8 @@ class Camera:
     """One aprilcam daemon connection; `fix()` averages rest samples;
     `Tracker` samples continuously for unwrapped heading during a turn."""
 
-    def __init__(self, tag, heading_offset_deg=0.0, cam=CAM):
+    def __init__(self, tag, heading_offset_deg=0.0, cam=None):
+        cam = cam or CAM
         from aprilcam.mcp import connection as _conn
         self.D = _conn.ConnectionManager().resolve()
         self.tag = tag
@@ -250,7 +254,15 @@ class Camera:
         self._th = None
 
     def raw(self):
-        for rec in self.D.get_tags(self.cam).tags:
+        try:
+            recs = self.D.get_tags(self.cam).tags
+        except Exception as e:  # a dropped frame / daemon hiccup is a missed fix, not a crash
+            now = time.time()
+            if now - getattr(self, '_last_err', 0) > 5:
+                print(f'camera {self.cam}: {str(e).splitlines()[-1][:90]}')
+                self._last_err = now
+            return None
+        for rec in recs:
             if rec.tag.number == self.tag:
                 return rec
         return None
@@ -875,6 +887,7 @@ def compare(dirs, out):
 
 # ------------------------------------------------------------------ main
 def main():
+    global CAM, FIELD_X, FIELD_Y
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--robot', default='tigez')
     ap.add_argument('--host'); ap.add_argument('--port', type=int)
@@ -882,6 +895,9 @@ def main():
     ap.add_argument('--radio', action='store_true',
                     help="drive over the torture relay pool on the robot's own channel/group (lossy)")
     ap.add_argument('--tag', type=int)
+    ap.add_argument('--camera', default=CAM, help='aprilcam camera name (main field: arducam-ov9782-usb-camera; secondary: hd-usb-camera)')
+    ap.add_argument('--field-cm', type=float, nargs=2, metavar=('W', 'H'), default=None,
+                    help='playfield width and height [cm] (main 134.3 89.3, secondary 110 70); sets the rail limits')
     ap.add_argument('--heading-offset', type=float, default=0.0,
                     help='deg added to the camera yaw (0 when the tag mount is registered)')
     ap.add_argument('--angles', type=int, nargs='+', default=[90, 107, 180])
@@ -904,6 +920,9 @@ def main():
     ap.add_argument('--render', metavar='DIR', help='only render charts + REPORT.md from an existing --out')
     ap.add_argument('--compare', nargs='+', metavar='DIR', help='overlay several runs/robots into --out')
     a = ap.parse_args()
+    CAM = a.camera
+    if a.field_cm:
+        FIELD_X, FIELD_Y = a.field_cm[0] / 2.0, a.field_cm[1] / 2.0
     if a.render:
         render(a.render); return 0
     if a.compare:
@@ -957,7 +976,7 @@ def main():
     pose = cam.fix()
     if pose is None:
         raise SystemExit(f'camera does not see tag {tag} -- lights? robot on the field?')
-    print(f'camera: tag {tag} at ({pose[0]:.1f}, {pose[1]:.1f}) cm heading {pose[2]:.1f} deg')
+    print(f'camera: {CAM}, field +-{FIELD_X} x +-{FIELD_Y} cm, margin {a.margin} cm; tag {tag} at ({pose[0]:.1f}, {pose[1]:.1f}) cm heading {pose[2]:.1f} deg')
     bad = check_safe(pose, a.margin)
     if bad:
         raise SystemExit(f'not safe to pivot: {bad}')
