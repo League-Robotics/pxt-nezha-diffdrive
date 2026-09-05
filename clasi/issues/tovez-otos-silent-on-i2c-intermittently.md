@@ -2,21 +2,32 @@
 status: pending
 ---
 
-# A late Nezha-brick power-on cannot recover the OTOS: `otosBegin()` is one-shot
+# A late OTOS power-on cannot recover it: `otosBegin()` is one-shot
 
 MEASURED tovez 2026-09-04, firmware 1.20260903.1,
 `captures/session-a-20260904/notes.md` and
 `captures/session-a-20260904/otos-boot-banner-watch.log`.
 
-## Root cause: the Nezha brick was OFF. The sensor is fine.
+## Root cause: the OTOS's own power/enable was OFF. The sensor is fine.
 
-An earlier revision of this issue concluded the OTOS had an
-"intermittent physical fault -- a marginal I2C connection or power
-feed." **That was wrong**, and the correction matters because it points
-at a completely different fix.
+This issue has been wrong twice; both errors are left visible because
+the reasoning matters more than the tidy answer.
 
-The brick was simply off. Once the stakeholder powered it on, a forced
-retry answered immediately and correctly:
+1. First it claimed an "intermittent physical fault -- a marginal I2C
+   connection or power feed." Wrong: no reseat was needed.
+2. Then it claimed "the Nezha brick was off." **Also wrong** -- the
+   brick was demonstrably powered the whole time. The robot drove
+   ~30 cm under command on every one of the three Session A boots,
+   camera-measured, and `connL=1 connR=1` once the kernel ticked.
+   Motors do not turn on an unpowered brick.
+
+What was actually off was a separate supply/enable for the **OTOS
+specifically** -- the device the stakeholder identified as "TreoBytes".
+The drivetrain was powered throughout; only the world sensor was dark.
+That is why `connL`/`connR` came up normally while `otos` stayed 0.
+
+Once the stakeholder powered it on, a forced retry answered immediately
+and correctly:
 
 ```
 RUN:probe  ->  OPROBE:95:1        # 95 == 0x5F == kExpectedProductId
@@ -43,15 +54,17 @@ the only other call sites are the `RUN:probe` handler
 (`test.ts:647`) and the `calibrate world sensor` block
 (`src/blocks/world.ts:22`), both operator-triggered.
 
-So if the brick is off (or the chip merely slow) at that instant, the
-board reports `otos=0` **for the rest of the session**, and powering the
-brick on afterwards changes nothing. That is exactly what was observed:
-`STATUS` still read `otos=0` with `cyc=0` after the brick came on, and
+So if the OTOS is unpowered (or the chip merely slow) at that instant,
+the board reports `otos=0` **for the rest of the session**, and powering
+it on afterwards changes nothing. That is exactly what was observed:
+`STATUS` still read `otos=0` with `cyc=0` after the sensor came on, and
 only the forced `RUN:probe` retry brought it up.
 
 This is a real usability defect. A student or bench operator who
-switches the brick on a moment late gets a board that silently has no
-world sensor, with no indication that a retry would fix it.
+powers the sensor on a moment late gets a board that silently has no
+world sensor, with no indication that a retry would fix it -- while the
+drivetrain works perfectly, which makes it look like a sensor fault
+rather than a sequencing one.
 
 ### Suggested fix
 
@@ -61,8 +74,8 @@ one probe at boot. Cheap, and it makes power-on ordering stop mattering.
 
 ## Secondary: a silent OTOS blocks the command channel
 
-With the brick off, `RUN:probe`'s read stalled the host past its 2 s
-timeout; `PING` afterwards answered normally, so the board did not wedge
+With the OTOS unpowered, `RUN:probe`'s read stalled the host past its
+2 s timeout; `PING` afterwards answered normally, so the board did not wedge
 -- the wire was simply unresponsive for the duration. RUN handlers run
 on the protocol fiber, so an unresponsive sensor freezes the whole
 command channel.

@@ -325,7 +325,7 @@ on both headline figures, which is itself evidence the OTOS state does
 not affect them.
 
 
-## CORRECTION -- the brick was off; the sensor was always fine
+## CORRECTION (v1, itself corrected below) -- the sensor was always fine
 
 The section above concluded an "intermittent physical fault -- a
 marginal I2C connection or power feed." **That conclusion was wrong.**
@@ -356,3 +356,33 @@ is OFF -- check this first**" precisely for this, and the more exotic
 
 The genuine defect that remains is the one-shot init, filed as
 `clasi/issues/tovez-otos-silent-on-i2c-intermittently.md`.
+
+
+## CORRECTION v2 -- it was the OTOS's own supply, NOT the Nezha brick
+
+The correction above says "the brick was off." That is also wrong, and
+the distinction is not pedantic.
+
+**The Nezha brick was powered during all three Session A boots.** The
+proof is in this file: the robot drove 28-31 cm under command on every
+boot, camera-measured, and `connL=1 connR=1` once the kernel ticked.
+Motors do not turn and encoders do not answer on an unpowered brick.
+
+What was off was a separate supply/enable feeding the **OTOS alone** --
+the device the stakeholder identified as "TreoBytes". That is precisely
+why the symptom looked so confusing: the drivetrain behaved perfectly
+while the world sensor stayed dark, which reads as a sensor fault rather
+than a power-sequencing one.
+
+So the corrected chain is:
+
+1. the OTOS's supply was off at micro:bit boot -> its product-ID read
+   NAKed -> `OTOS:boot:id=0:connected=0`;
+2. `otosBegin()` is one-shot, so `otos=0` latched for the session;
+3. powering the sensor on later changed nothing until a forced
+   `RUN:probe` retry, which then returned `OPROBE:95:1`;
+4. boot 1 read `otos=1` because the sensor happened to be powered then.
+
+Every travel and yaw number in this file stands unchanged -- they came
+from wheel encoders and the overhead camera, neither of which involves
+the OTOS.
