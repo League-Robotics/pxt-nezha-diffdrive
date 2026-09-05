@@ -281,6 +281,68 @@ and record what comes back.
   camera-in-the-loop experiment the doctrine now forbids (it left the
   robot stationary 73% of a run).
 
+## Camera-parallax correction: one owner, never two (sprint 031 ticket 002)
+
+A tag mounted above the field plane makes the camera report a
+DILATED position -- displacements scale up the higher the tag rides,
+because the reading is a projection through the tag's own height, not
+a flat overhead measurement. There are two ways to correct that, and
+this repo now enforces exactly one per tag:
+
+1. **Daemon-owned (the convention for a REGISTERED tag).**
+   `tools/camlink.py::Cam.register()` sends the tag's `mount_z_cm` to
+   the aprilcam daemon's `register_tag()`; the daemon then applies the
+   correction itself, so every position it reports for that tag
+   (`world.x`, `world.y`) is already undilated. A tool consuming a
+   registered tag's pose (via
+   `tools/field.py::pose_from_registered_samples()`, which every
+   registered-tag reader in this repo goes through) must use those
+   coordinates AS-IS -- see `tools/field.py::registered_pose_distance()`,
+   which takes no scaling-factor argument at all, by design.
+2. **Tool-owned (only for a RAW/unregistered tag).** A tag never
+   registered with the daemon reports raw, dilated coordinates; a tool
+   reading it must apply its own correction -- a `parallax_k` divisor
+   from `field_calibration.json`, alongside a `lever_cm` and (for
+   heading) `robot_heading_from_tag_yaw()`. `tools/linefollow/` is the
+   one place in this repo that does this deliberately, for vevov, and
+   documents why in its own `DESIGN.md`.
+
+**These two paths must never be mixed for the same tag.** Applying
+BOTH -- registering `mount_z_cm` with the daemon AND also dividing by
+a tool-side `parallax_k` -- corrects the same parallax twice. This
+happened: `tools/field_dance.py` registered tovez's tag (path 1) but
+its `drive()` and return-home check still divided by `parallax_k`
+(path 2), so every drive read ~12% short until fixed
+(`clasi/issues/parallax-k-and-registered-mount-z-correct-twice.md`,
+MEASURED tovez 2026-09-04,
+`captures/bench-acceptance-029-20260904d/field-dance-refit-run1.log`:
+17.6 cm for a commanded 20, 35.3 cm for a commanded 40). It is
+structurally the same shape as the +90 deg heading double-add fixed
+earlier the same day (`field.pose_from_registered_samples()`'s own
+docstring) -- two layers each believing they own a correction. The fix
+removed `field_dance.py`'s `parallax_k` division entirely (it now
+calls `field.registered_pose_distance()`, whose signature has nowhere
+to plug a scaling factor back in) and dropped the now-inert
+`parallax_k` key from `field_calibration.json`'s tovez entry.
+
+**vevov's entry is deliberately NOT changed by this fix.** vevov's tag
+is registered with a non-zero `mount_z_cm` (12.0) in
+`field_calibration.json`, but `tools/linefollow/`'s scripts read it via
+the RAW-tag path (their own `parallax_k`, never the daemon
+registration), so no double-correction currently exists for vevov --
+but nothing has confirmed which path vevov's daemon registration is
+actually live under at any given moment, and re-fitting it onto the
+single-owner convention without a fresh capture would just move the
+bug rather than fix it. Flagged as a fast-follow re-fit, not silently
+resolved.
+
+**When adding a new camera-consuming tool:** read a registered tag's
+pose through `field.pose_from_registered_samples()` and compute any
+distance from it through `field.registered_pose_distance()` (or
+another function with the same no-scaling-argument shape) -- never
+introduce a fresh `parallax_k` division against a registered tag's
+coordinates.
+
 ## Ground truth and calibration
 
 - **`pivot_truth.py`** / **`truth_check.py`** — camera vs. OTOS vs.

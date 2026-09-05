@@ -161,6 +161,56 @@ def test_pose_from_registered_samples_empty_returns_none():
     assert field.pose_from_registered_samples([], lever_cm=[0.0, 0.0]) is None
 
 
+# --- registered_pose_distance() (sprint 031 ticket 002) -------------------
+#
+# The positional analogue of the 2026-09-04d heading bug pinned above:
+# `tools/field_dance.py` used to divide a distance computed from two
+# REGISTERED-tag poses by a tool-side `parallax_k`, even though the
+# daemon's own registered `mount_z_cm` had already applied that exact
+# parallax correction when it reported those poses. Every tovez drive
+# read ~12% short until the division was removed
+# (`clasi/issues/parallax-k-and-registered-mount-z-correct-twice.md`).
+# `registered_pose_distance()` takes no scaling-factor argument at all
+# -- that absence is the guard against reintroducing the double
+# correction, not just a comment saying not to.
+
+def test_registered_pose_distance_matches_raw_hypot():
+    a = (0.0, 0.0, 0.0)
+    b = (3.0, 4.0, 0.0)
+    assert field.registered_pose_distance(a, b) == pytest.approx(5.0)
+
+
+def test_registered_pose_distance_ignores_heading():
+    # Only the x/y components participate -- differing headings must
+    # not perturb the distance.
+    a = (0.0, 0.0, 10.0)
+    b = (6.0, 8.0, 200.0)
+    assert field.registered_pose_distance(a, b) == pytest.approx(10.0)
+
+
+def test_registered_pose_distance_zero_for_identical_poses():
+    a = (12.5, -3.2, 45.0)
+    assert field.registered_pose_distance(a, a) == pytest.approx(0.0)
+
+
+def test_registered_pose_distance_is_unscaled_not_dilated_by_a_borrowed_k():
+    # This is exactly the recorded regression shape: a 20 cm commanded
+    # drive, read through vevov's borrowed parallax_k = 1.1167, used to
+    # come back as 20 / 1.1167 = 17.91 cm. registered_pose_distance()
+    # must return the true 20.0, not that dilated figure, and its
+    # signature has no k parameter to divide by in the first place.
+    a = (0.0, 0.0, 0.0)
+    b = (20.0, 0.0, 0.0)
+    dist = field.registered_pose_distance(a, b)
+    assert dist == pytest.approx(20.0)
+    assert dist != pytest.approx(20.0 / 1.1167)
+    import inspect
+    assert 'k' not in inspect.signature(field.registered_pose_distance).parameters, (
+        'registered_pose_distance() must not grow a scaling-factor '
+        'parameter -- that is what let the daemon-owned parallax '
+        'correction be re-applied a second time')
+
+
 # --- score_corners(): the disagreement this ticket fixes -----------------
 
 def _row(t, x, y, yaw=0.0):

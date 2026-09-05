@@ -37,7 +37,8 @@ sys.path.insert(0, str(_HERE))
 
 from aprilcam.mcp import connection as _conn          # noqa: E402
 from fieldlink import FieldLink, TcpFieldLink            # noqa: E402
-from field import pose_from_registered_samples           # noqa: E402
+from field import (pose_from_registered_samples,          # noqa: E402
+                    registered_pose_distance)
 from make_deploy import derive_radio_from_name          # noqa: E402
 
 # Sprint 029 ticket 006: field_calibration.json now carries several
@@ -75,7 +76,17 @@ LEVER = _ENTRY['lever_cm']
 # vs raw: who adds the 90"). Doing that add a second time was exactly
 # the 2026-09-04d bug: pivots passed (deltas cancel a constant offset)
 # while every drive's bearing was off by +90 deg.
-K = _ENTRY['parallax_k']                 # camera parallax dilation
+#
+# Sprint 031 ticket 002: the positional analogue of that same bug. A
+# registered tag's world position already has the daemon's own
+# `mount_z_cm` parallax correction applied, so `drive()` below must use
+# `field.registered_pose_distance()` (unscaled by construction -- see
+# its docstring) and must NOT divide by a tool-side `parallax_k` on top
+# -- that corrected the same parallax twice and read every drive on
+# tovez ~12% short
+# (`clasi/issues/parallax-k-and-registered-mount-z-correct-twice.md`).
+# `field_calibration.json` no longer carries a `parallax_k` entry for
+# tovez; this script no longer reads that key at all.
 
 TOL_DEG, TOL_CM = 8.0, 3.0
 
@@ -207,8 +218,12 @@ def main(tcp=None):
         settle()
         b = pose()
         dx, dy = b[0]-a[0], b[1]-a[1]
-        # camera distances are dilated about the nadir; divide for truth
-        dist = math.hypot(dx, dy) / K
+        # a/b are registered-tag poses -- the daemon's own mount_z_cm
+        # already applied the parallax correction, so this distance is
+        # used UNSCALED (field.registered_pose_distance(); no
+        # parallax_k division on top of it -- see the module docstring
+        # above).
+        dist = registered_pose_distance(a, b)
         brg = math.degrees(math.atan2(dy, dx))
         # forward means along the heading; backward means 180 from it
         want = a[2] if cm > 0 else (a[2] + 180)
@@ -227,7 +242,7 @@ def main(tcp=None):
     drive(20); drive(-40); drive(20)
 
     end = pose()
-    back = math.hypot(end[0]-home[0], end[1]-home[1]) / K
+    back = registered_pose_distance(home, end)
     dh = (end[2] - home[2] + 180) % 360 - 180
     print()
     ok = back <= 5.0
