@@ -149,6 +149,15 @@ G3_LENGTH_TOL_FRAC = 0.005     # +-0.5 %, e.g. 600mm +-3mm (design S10.1)
 G4_MAX_ACCEL_FRAC = 1.5        # measured accel <= 1.5 x the `accel` config
 G4_MAX_DECEL_FRAC = 2.0        # measured decel <= 2.0 x the `decel` config
 G5_PEAK_OVERSHOOT_FRAC = 0.05  # WHEELS_V peak <= cruise * 1.05 (design S10.2 target <= 210 on 200)
+
+# coldboot: "early-ending segment" bar. Every healthy segment across
+# Session A's three cold boots (captures/session-a-20260904/) landed
+# between 2.41 and 3.37 cm for a 4.0 cm command -- 60 % to 84 %; the two
+# that ended early were 0.93 and 1.84 cm (23 % and 46 %). 0.55 sits in
+# the gap, below every healthy segment and above the worse of the two
+# failures, and is a FRACTION so a different --seg-mm still means
+# something. Ticket 010's own bar on the count is zero.
+COLDBOOT_SHORT_FRAC = 0.55
 G5_MAX_RISE_MM_S2 = 600.0      # max frame-to-frame wheel-speed rise, unchanged (design S10.2)
 G6_BASELINE_CLOSURE_MM = 10.8  # reports/gopiv-closure-20260901.md, 5-tour mean; unchanged
 
@@ -984,6 +993,237 @@ def run_g6(link, cam, a, out):
     return passed
 
 
+# --- coldboot: the cold-boot segment protocol (sprint 031 tickets 009/010) --
+#
+# Ten short `MOVE_X` segments from a cold boot, camera-fixed at every
+# boundary, with STATUS polled at 8 Hz from BEFORE the first command.
+# Folds sprint 031 ticket 001's Session A harness in as a mode, with two
+# corrections that capture forced:
+#
+# 1. **The poller starts before the pre-pivot, not after.** Session A's
+#    harness started its 8 Hz thread only once the repositioning pivot
+#    was done, so each run's log opened at whatever `i2cf` the pivot had
+#    already accrued -- boot 3's first sample reads 25, boot 4's reads
+#    22. Reading those logs as "0 -> N" made boot 4 look like a 6x
+#    regression against boot 1 (which had no pre-pivot at all and so
+#    genuinely started at 0); per control cycle the four runs are 26.8 /
+#    16.3 / 26.2 / 52.0 faults per 1000 `cyc`. Whatever the truth about
+#    the post-030 build, it has to be measured on the same window.
+# 2. **`i2cf` and `cyc` are recorded at every segment boundary**, so a
+#    rate can be computed per segment instead of only across a run.
+#
+# `i2cf` is NOT a bus-wide I2C counter and the OTOS is not in it:
+# `DifferentialDrive::step()` increments `i2cFaultCount_` on a cycle
+# whose WHEEL-ENCODER sample timestamp failed to advance
+# (`src/core/diffdrive.cpp`), i.e. a failed Nezha collect. Nor does a
+# wire-issued `MOVE_X` read the OTOS at all: OTOS sampling lives in
+# `test/test.ts`'s `tickToCompletion()` (the on-robot RUN-handler loop),
+# while wire motion is ticked by the protocol fiber through
+# `tickDrive()` (`src/shims.cpp`), which issues no OTOS transaction.
+# So `otos=1` vs `otos=0` across runs does not change the bus traffic
+# this protocol measures, and runs on either can be compared directly.
+
+
+def _status_poller(link, stop, rows, hz=8.0):
+    """Poll STATUS at `hz` into `rows` as (t, line). STATUS is
+    unsequenced (`.claude/rules/playfield-testing.md`), so hammering it
+    cannot disturb the sequence a move is running under."""
+    period = 1.0 / hz
+    while not stop.is_set():
+        t0 = time.time()
+        link.send('STATUS')
+        dt = period - (time.time() - t0)
+        if dt > 0:
+            time.sleep(dt)
+
+
+def _status_now(link, timeout=1.5):
+    """The most recent `status ...` line as a dict, or {}."""
+    t0 = time.time()
+    link.send('STATUS')
+    got = link.wait_for(r'^status ', t0, timeout)
+    return dict(kv.split('=', 1) for kv in got.split()[1:]) if got else {}
+
+
+def _best_heading(x, y, need_cm):
+    """Heading [deg] with the most straight-line room inside the safe
+    box, and that room. Same scan as Session A's harness."""
+    best, bestd = 0.0, -1.0
+    for h in range(0, 360, 5):
+        d = 0.0
+        while d < max(90.0, need_cm + 10.0):
+            nx = x + (d + 2.0) * math.cos(math.radians(h))
+            ny = y + (d + 2.0) * math.sin(math.radians(h))
+            if fieldlib.check_path([(x, y), (nx, ny)]):
+                break
+            d += 2.0
+        if d > bestd:
+            best, bestd = float(h), d
+    return best, bestd
+
+
+def _pivot_to(link, cam, target_deg, a, tol=4.0, tries=4):
+    """Camera-closed-loop pivot in place. MOVE_X takes millIRADIANS."""
+    for _ in range(tries):
+        p = cam.fix(n=3)
+        if p is None:
+            return None
+        err = wrap(target_deg - p[2])
+        if abs(err) <= tol:
+            return p
+        mrad = int(round(math.radians(err) * 1000))
+        link.seqd(f'MOVE_X 0 {mrad} 150 6000', wait=2.0)
+        time.sleep(2.2)
+        cam.settle(timeout=4.0)
+    return cam.fix(n=3)
+
+
+def run_coldboot(link, cam, a, out):
+    """Cold-boot segment protocol: `a.segments` short `MOVE_X` legs with
+    STATUS at 8 Hz from before the first command.
+
+    Ticket 009's controlled repeat (does the post-sprint-030 build
+    really accrue `i2cf` faster, on a charged battery?) and ticket 010's
+    three-cold-boot early-end re-verification are the SAME run; which
+    one a given run answers is a matter of how many boots are done, not
+    of what the program does. `--boot-label` names the sub-directory so
+    several boots land side by side under one `--out`."""
+    out = out / a.boot_label
+    out.mkdir(parents=True, exist_ok=True)
+
+    st0 = _status_now(link)
+    cold = st0.get('cyc') == '0'
+    print(f"pre-move STATUS: {st0}")
+    if not cold:
+        print(f"  !! NOT a fresh boot (cyc={st0.get('cyc')}) -- recorded and flagged")
+
+    poll, stop = [], threading.Event()
+    with link.lock:
+        poll_from = time.time()
+    th = threading.Thread(target=_status_poller, args=(link, stop, poll),
+                          daemon=True)
+    th.start()                      # BEFORE the pre-pivot -- see above
+
+    try:
+        p0 = cam.fix()
+        if p0 is None:
+            print('ABORT: no camera fix'); return False
+        print(f'start pose ({p0[0]:.2f}, {p0[1]:.2f}) h={p0[2]:.2f}')
+        need = (a.seg_mm / 10.0) * a.segments
+        h, room = _best_heading(p0[0], p0[1], need)
+        print(f'best heading {h:.0f} deg with {room:.0f} cm of room (need {need:.0f})')
+        pre_pivot = None
+        if room < need:
+            print(f'ABORT: nowhere from here has {need:.0f} cm of straight room')
+            return False
+        if abs(wrap(h - p0[2])) > 6.0:
+            print(f'pre-pivot {p0[2]:.1f} -> {h:.0f} deg (a recorded step, inside the poll window)')
+            pre_pivot = dict(from_deg=p0[2], to_deg=h,
+                             i2cf_before=intfield(st0, 'i2cf'),
+                             cyc_before=intfield(st0, 'cyc'))
+            pp = _pivot_to(link, cam, h, a)
+            st = _status_now(link)
+            pre_pivot.update(achieved_deg=pp[2] if pp else None,
+                             i2cf_after=intfield(st, 'i2cf'),
+                             cyc_after=intfield(st, 'cyc'))
+            print(f"  after pivot: h={pp[2]:.2f} i2cf {pre_pivot['i2cf_before']}"
+                  f" -> {pre_pivot['i2cf_after']} over "
+                  f"{pre_pivot['cyc_after'] - pre_pivot['cyc_before']} cyc"
+                  if pp else '  after pivot: no camera fix')
+
+        rows = []
+        for i in range(1, a.segments + 1):
+            lights_on()
+            p = cam.fix(n=3)
+            if p is None:
+                print(f'seg {i}: ABORT -- lost camera fix'); break
+            d = a.seg_mm / 10.0
+            end = (p[0] + d * math.cos(math.radians(p[2])),
+                   p[1] + d * math.sin(math.radians(p[2])))
+            offenders = fieldlib.check_path([(p[0], p[1]), end])
+            if offenders:
+                print(f'seg {i}: ABORT -- path check failed near {offenders[0]}')
+                break
+            before = _status_now(link)
+            tid, _ack = link.seqd(
+                f'MOVE_X {a.seg_mm} 0 {a.cruise_seg} {a.timeout_ms}', wait=2.0)
+            time.sleep(a.seg_settle)
+            cam.settle(timeout=4.0)
+            after = _status_now(link)
+            p2 = cam.fix(n=3)
+            moved = (math.hypot(p2[0] - p[0], p2[1] - p[1])
+                     if p2 else float('nan'))
+            row = dict(seg=i, id=tid, commanded_cm=d, moved_cm=moved,
+                       x0=p[0], y0=p[1], h0=p[2],
+                       x1=p2[0] if p2 else None, y1=p2[1] if p2 else None,
+                       h1=p2[2] if p2 else None,
+                       dheading_deg=wrap(p2[2] - p[2]) if p2 else None,
+                       i2cf_before=intfield(before, 'i2cf'),
+                       i2cf_after=intfield(after, 'i2cf'),
+                       cyc_before=intfield(before, 'cyc'),
+                       cyc_after=intfield(after, 'cyc'),
+                       reason=after.get('reason'), done=after.get('done'))
+            rows.append(row)
+            print(f"seg {i:2d}: cmd {d:.1f} cm  moved {moved:5.2f} cm  "
+                  f"dh {row['dheading_deg']:+6.2f}  "
+                  f"i2cf +{row['i2cf_after'] - row['i2cf_before']}"
+                  f"/{row['cyc_after'] - row['cyc_before']} cyc  "
+                  f"reason={row['reason']}")
+            _write_csv(out / 'segments.csv', rows)
+    finally:
+        stop.set()
+        th.join(timeout=3)
+
+    lines = link.since(poll_from, 'status')
+    with open(out / 'status-8hz.log', 'w') as f:
+        for t, ln in lines:
+            f.write(f'{t:.3f} {ln}\n')
+
+    if not rows:
+        print('coldboot: no segments completed -- FAIL')
+        return False
+
+    travel = sum(r['moved_cm'] for r in rows
+                 if r['moved_cm'] == r['moved_cm'])
+    commanded = sum(r['commanded_cm'] for r in rows)
+    dh = sum(r['dheading_deg'] for r in rows
+             if r['dheading_deg'] is not None)
+    seg_i2cf = rows[-1]['i2cf_after'] - rows[0]['i2cf_before']
+    seg_cyc = rows[-1]['cyc_after'] - rows[0]['cyc_before']
+    rate = 1000.0 * seg_i2cf / seg_cyc if seg_cyc else None
+    # An "early end" is a segment far below the band every healthy
+    # segment in Session A's three boots landed in (2.41-3.37 cm for a
+    # 4.0 cm command). Expressed as a fraction of the command so a
+    # different --seg-mm still means something.
+    short = [r for r in rows
+             if r['moved_cm'] == r['moved_cm']
+             and r['moved_cm'] < COLDBOOT_SHORT_FRAC * r['commanded_cm']]
+    print(f"\ntravel {travel:.2f} / {commanded:.1f} cm commanded "
+          f"({100.0*travel/commanded:.1f} %)")
+    print(f"net heading change {dh:+.2f} deg over {travel:.2f} cm "
+          f"({dh/travel:+.3f} deg/cm)" if travel else '')
+    print(f"i2cf over the segments: +{seg_i2cf} in {seg_cyc} cyc"
+          + (f" ({rate:.1f} per 1000 cyc)" if rate is not None else ''))
+    print(f"early-ending segments (< {COLDBOOT_SHORT_FRAC:.0%} of command): "
+          f"{[r['seg'] for r in short] or 'none'}")
+    if short:
+        print('  ^ ticket 010\'s bar is ZERO across three cold boots -- '
+              'this run FAILS it; capture is kept for ticket 005')
+    summary = dict(mode='coldboot', boot_label=a.boot_label,
+                   cold_boot=cold, pre_move_status=st0,
+                   pre_pivot=pre_pivot, segments=rows,
+                   travel_cm=travel, commanded_cm=commanded,
+                   net_heading_deg=dh,
+                   heading_per_cm=(dh / travel) if travel else None,
+                   segment_i2cf=seg_i2cf, segment_cyc=seg_cyc,
+                   i2cf_per_1000_cyc=rate,
+                   early_ending_segments=[r['seg'] for r in short],
+                   status_samples=len(lines))
+    (out / 'summary.json').write_text(json.dumps(summary, indent=2, default=str))
+    print(f'-> {out}/')
+    return not short
+
+
 def _write_csv(path, rows):
     if not rows:
         return
@@ -1523,10 +1763,11 @@ def main():
     ap.add_argument('--out', default=None)
     ap.add_argument('--render', metavar='DIR', help='only render charts + REPORT.md from an existing --out')
     ap.add_argument('--compare', nargs='+', metavar='DIR', help='overlay several runs/robots into --out')
-    ap.add_argument('--mode', choices=['sweep', 'g1', 'g2', 'g3', 'g5', 'g6'], default='sweep',
+    ap.add_argument('--mode', choices=['sweep', 'g1', 'g2', 'g3', 'g5', 'g6', 'coldboot'], default='sweep',
                     help="sweep (default) = the multi-angle pivot sweep above; g1/g2/g3/g5/g6 = "
                          "sprint 029's acceptance gates, folded in as named modes (sprint 031 ticket "
                          "007). g4 reports alongside g3 (same telemetry, same script upstream). "
+                         "coldboot = the cold-boot segment protocol (tickets 009/010). "
                          "G1 and G2 use this sprint's RESTATED bars; G3/G4/G5/G6 are unchanged. "
                          "See each run_gN() docstring for what it folds in.")
     ap.add_argument('--n-fix', type=int, default=G1_MIN_FIX_SAMPLES,
@@ -1540,6 +1781,16 @@ def main():
     ap.add_argument('--hold-ms', type=int, default=1500, help='g5: WHEELS_V hold duration [ms]')
     ap.add_argument('--side-mm', type=int, default=200, help='g6: square side length [mm] (200 or 500)')
     ap.add_argument('--laps', type=int, default=3, help='g6: number of laps')
+    ap.add_argument('--segments', type=int, default=10,
+                    help='coldboot: number of MOVE_X segments after the boot')
+    ap.add_argument('--seg-mm', type=int, default=40,
+                    help='coldboot: segment distance [mm]')
+    ap.add_argument('--cruise-seg', type=int, default=100,
+                    help='coldboot: segment cruise speed [mm/s]')
+    ap.add_argument('--seg-settle', type=float, default=1.8,
+                    help='coldboot: seconds to wait after each MOVE_X before the camera fix')
+    ap.add_argument('--boot-label', default='boot1',
+                    help='coldboot: sub-directory under --out for THIS power cycle')
     a = ap.parse_args()
     if a.render:
         render(a.render); return 0
@@ -1593,7 +1844,8 @@ def main():
         if a.mode == 'sweep':
             run_sweep(link, cam, a, out)
         else:
-            gate_fn = {'g1': run_g1, 'g2': run_g2, 'g3': run_g3, 'g5': run_g5, 'g6': run_g6}[a.mode]
+            gate_fn = {'g1': run_g1, 'g2': run_g2, 'g3': run_g3, 'g5': run_g5,
+                       'g6': run_g6, 'coldboot': run_coldboot}[a.mode]
             gate_ok = gate_fn(link, cam, a, out)
     finally:
         link.seqd('STOP', wait=1.0)
