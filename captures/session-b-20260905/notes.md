@@ -836,3 +836,44 @@ press a button. But it changes the disposition of two blocked items:
   needs ("a button-handler tour during a live RUN job must not corrupt
   the shared `lineBuf_`"). All three can be done in one visit to the
   field.
+
+## SHIP IT (stakeholder, 2026-09-05): what ticket 015 should actually bake
+
+Stakeholder accepted the 1.40 deg residual. The pooled 600 mm data says
+something more specific than "a per-direction constant", and the more
+specific form is the one to bake.
+
+Decompose the pooled means (forward -1.82 deg, reverse +2.89 deg):
+
+| component | value | what it is |
+|---|---|---|
+| antisymmetric, flips with direction | **+2.35 deg** | a per-wheel gain mismatch -- one wheel travels further for the same command, so forward and reverse curve opposite ways |
+| symmetric, same both ways | +0.54 deg | NOT explained by a wheel mismatch; small, left alone |
+
+The antisymmetric part converts directly into a per-wheel calibration.
+With trackwidth 114.2 mm over a 600 mm leg:
+
+```
+wheel path difference = radians(2.35) * 114.2 mm = 4.69 mm
+relative mismatch     = 4.69 / 600 = 0.782 %
+```
+
+So **one wheel runs 0.78 % long**, and the bake is a per-wheel
+`travel_calib` of that magnitude -- e.g. left x 0.99218 or right x
+1.00782. Forward legs turn NEGATIVE (clockwise) in the registered-tag
+frame, which puts the longer-travelling wheel on the LEFT, so the
+correction scales the left wheel DOWN. **Confirm that sign on the robot
+before baking** -- it follows from the camera convention rather than
+from a direct per-wheel measurement, and getting it backwards doubles
+the error instead of cancelling it. `WHEELS_V` per wheel against the
+camera (ticket 012's own step 1, never run this session) settles it in
+one pass.
+
+This also retires ticket 012's open question of twist-hold vs
+`travel_calib`: an antisymmetric, direction-flipping yaw is the
+signature of a per-wheel gain mismatch, not of a twist-hold gain that
+is too low, so `travel_calib` is the right knob.
+
+Expected outcome after baking: mean |dh| ~1.4 deg on 600 mm legs, not
+the <=1.0 deg in this sprint's Success Criteria. Accepted by the
+stakeholder.
