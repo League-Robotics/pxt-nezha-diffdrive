@@ -26,25 +26,33 @@ programs refusing inside the margin.
 | `turn_calibration.py` | camera-scored pivots ±90/107/180, many repeats; `--set FIELD=VALUE` sweeps a knob; `--no-tlm` camera-only; `--render`, `--compare` | per-angle error, fit gain/offset, `rotational_slip` + `stop_distance` (029) / `pivot_overrun` (pre-029) suggestion |
 | `lag_measure.py` | step-response drivetrain lag from `WHEELS_V` + `TLM FULL` (design S10.2) | `lag_s` per wheel; `--apply` SETs the mean |
 | `distance.py` | camera-scored straights out and back at several lengths | fit gain/offset; `travel_calib` suggestion |
+| `mount.py` | tag lever/height from in-place pivots, yaw residual from a probe | writes `tools/field_calibration.json`, registers the daemon |
 
-## The 029-engine calibration order
+## The calibration order (stakeholder, 2026-09-05)
 
-1. `dance` -- robot in the middle, under a minute.
-2. `turns --no-tlm --set lag=<x>` at a few lags (0, 0.04, 0.10), 8
-   pivots each: the pivot error is a function of `lag` on this engine
-   (vevov: linear, −65 deg/s; tigez: a plateau 0.04-0.10). Pick the
-   centred value.
-3. `distance` at that lag: straights within a few mm confirm the lag
-   does not break braking; the fit gain is the `travel_calib` scale.
-4. `turns` 12-24 pivots at the chosen lag; bake `lag_s` (and
-   `travel_calib` if the gain moved) in radio-robot-lib
+1. `dance` -- robot in the middle, under a minute: which way is left,
+   which way is forward, does it come home.
+2. `mount` -- after any tag (re)mount: the tag's lever and height from
+   in-place pivots (least squares, P = C + R(h) m), verified by the
+   centre standing still through four more pivots, then the yaw residual
+   from a forward probe. Writes the calibration of record and registers
+   the daemon; from here the camera reports the centre of rotation.
+3. `distance` -- straights out and back at several lengths, faced along
+   the field's long axis: the fit gain is the wheel-size scale
+   (`travel_calib`), the offset is end-of-leg braking, not a scale.
+4. `turns` -- `--no-tlm --set lag=<x>` at a few lags (0, 0.04, 0.10),
+   8 pivots each: the pivot error is a function of `lag` on the 029
+   engine (vevov: linear, -65 deg/s; tigez: a plateau 0.04-0.10). Pick
+   the centred value, then 12-24 pivots to confirm; the fit gain gives
+   `rotational_slip`.
+5. Bake `travel_calib`, `rotational_slip`, `lag_s` in radio-robot-lib
    `geometry.firmware_bake`; flash; confirm once with no live SET.
 
 `lag` (the step-response measurement) is recorded for the drivetrain's
 sake; it is NOT the operating value -- the arrival credit at the floor
 speed makes 0.13 s stop pivots ~4.5 deg short, and `stop_distance`
 cannot go negative to compensate (`motion_limits.h`). Sprint 031 owns
-reconciling the two; until then step 2 is the calibration.
+reconciling the two; until then step 4 is the calibration.
 
 ## Rules baked into the programs (each learned the hard way)
 
