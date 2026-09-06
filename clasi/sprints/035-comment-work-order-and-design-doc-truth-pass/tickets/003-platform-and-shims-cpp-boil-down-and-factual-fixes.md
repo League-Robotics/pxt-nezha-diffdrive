@@ -1,10 +1,12 @@
 ---
-id: "003"
-title: "platform/ and shims.cpp boil-down and factual fixes"
-status: open
-use-cases: [SUC-001]
-depends-on: ["001"]
-github-issue: ""
+id: '003'
+title: platform/ and shims.cpp boil-down and factual fixes
+status: in-progress
+use-cases:
+- SUC-001
+depends-on:
+- '001'
+github-issue: ''
 issue: code-review/comment-work-order-factual-fixes-untracked-citations.md
 completes_issue: false
 ---
