@@ -1,0 +1,30 @@
+{
+  "board": "vevov",
+  "date": "2026-09-06",
+  "surface": "farm stand, wheels up; encoder pose only",
+  "otos": "not sampled by wheels tour",
+  "completed": true,
+  "firmware_sha256": "c83276e1af5b74eeba86018bf1c962c2353405a82096052a70fde04e98e6f8e0",
+  "telemetry": {
+    "frames": 459,
+    "dropped": 0,
+    "loss_pct": 0.0,
+    "orphan_frames": 0,
+    "malformed": 0,
+    "columns": [
+      "seq",
+      "now",
+      "flags",
+      "x",
+      "y",
+      "h",
+      "ox",
+      "oy",
+      "oh",
+      "vl",
+      "vr",
+      "i2cf"
+    ],
+    "duration": 33.008
+  }
+}

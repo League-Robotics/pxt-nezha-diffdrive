@@ -136,6 +136,15 @@ def _function_body(name: str) -> str:
     return _TS[m.end():close_idx - 1]
 
 
+def test_wheels_tour_does_not_require_or_sample_otos():
+    body = _function_body("tourWheels")
+    for forbidden in ("worldReady()", "seedPose(", "logFix("):
+        assert forbidden not in body
+    assert "sampleWorld = false" in body
+    assert "sampleWorld = true" in body
+    assert "sampleWorld &&" in _function_body("tickToCompletion")
+
+
 def _onrun_body(verb: str) -> str:
     m = re.search(
         r'diffDrive\.onRun\(\s*"%s"\s*,\s*function\s*\([^)]*\)\s*\{' %

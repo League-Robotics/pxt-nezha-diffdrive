@@ -1,0 +1,7 @@
+device NEZHA2 robot vevov 1198504156
+> TLM OFF
+ack 1 1 timeout
+> STOP
+ack 2 1 timeout
+> STATUS
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=45 cyc=1286 tlm=off next=3 done=1 reason=timeout

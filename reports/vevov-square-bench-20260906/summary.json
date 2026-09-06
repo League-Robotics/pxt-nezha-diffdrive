@@ -1,0 +1,32 @@
+{
+  "closure_mm": 31.064449134018133,
+  "heading_residual_deg": -4.350000000000023,
+  "final_pose_mm_cdeg": [
+    -26,
+    17,
+    35565
+  ],
+  "i2cf_final": 45,
+  "telemetry": {
+    "frames": 459,
+    "dropped": 0,
+    "loss_pct": 0.0,
+    "orphan_frames": 0,
+    "malformed": 0,
+    "columns": [
+      "seq",
+      "now",
+      "flags",
+      "x",
+      "y",
+      "h",
+      "ox",
+      "oy",
+      "oh",
+      "vl",
+      "vr",
+      "i2cf"
+    ],
+    "duration": 33.008
+  }
+}

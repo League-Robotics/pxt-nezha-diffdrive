@@ -1426,9 +1426,22 @@ def flash(name, hex_path=HEX):
         sys.exit(1)
 
 
+def _disable_otos_boot(deploy_dir):
+    path = os.path.join(deploy_dir, 'test/test.ts')
+    with open(path) as source:
+        text = source.read()
+    original = 'const otosBootId = diffDrive.otosBegin()'
+    if text.count(original) != 1:
+        raise ValueError('Expected exactly one OTOS boot initializer')
+    with open(path, 'w') as source:
+        source.write(text.replace(original, 'const otosBootId = 0'))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--flash', action='store_true')
+    ap.add_argument('--no-otos', action='store_true',
+                    help='skip OTOS boot initialization in the test.ts bench build')
     ap.add_argument('--robot', default=DEFAULT_ROBOT,
                      help="target robot name -- selects the flash "
                           "target, the radio channel, and the wire ID "
@@ -1468,6 +1481,8 @@ def main():
                           "copy .tmp/deploy-<stem>, so it never shares "
                           "a build cache with the test.ts deploy")
     a = ap.parse_args()
+    if a.no_otos and (a.fault_spin or a.testrig or a.program != 'test.ts'):
+        ap.error('--no-otos is supported only by the primary test.ts build')
     if a.fault_spin:
         if a.testrig:
             ap.error('--fault-spin and --testrig are separate scratch '
@@ -1528,6 +1543,9 @@ def main():
         return
     for f in sync():
         print(f'  {f}')
+    if a.no_otos:
+        _disable_otos_boot(DEPLOY)
+        print('make_deploy: OTOS boot initialization disabled')
     _inject_radio_channel(DEPLOY, a.robot)
     _inject_profile(DEPLOY, a.robot)
     _inject_wifi_secrets(DEPLOY)

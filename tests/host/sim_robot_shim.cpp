@@ -167,6 +167,10 @@ void srSetLimits(void* handle, float accel, float decel, float vFloor,
   l.setStopDistance(stopDistance);
 }
 
+void srSetJerk(void* handle, float jerk) {
+  static_cast<Handle*>(handle)->engine.limits().setJerk(jerk);
+}
+
 // The port's own shaping parameters -- the layer this whole shim exists
 // to exercise. Defaults are the firmware's shipped values; a caller
 // sweeps `reversalDwell` to isolate its contribution.

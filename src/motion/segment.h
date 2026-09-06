@@ -55,6 +55,10 @@ struct Segment {
 
   uint32_t deadline = 0;  // [ms] the caller's timeout backstop
   bool active = false;
+  bool settling = false;
+  uint8_t restSamples = 0;
+  uint32_t restSampleLeft = 0;
+  uint32_t restSampleRight = 0;
 
   // A pure pivot: rotation only, no translation (motion-api.md S2.1's
   // degenerate case). The single predicate this struct's own

@@ -267,6 +267,33 @@ def test_jerk_bounds_the_change_in_commanded_acceleration(lib):
         assert vs.velocity == pytest.approx(target, abs=1.0)
 
 
+def test_jerk_limited_target_reduction_preserves_rate_bounds(lib):
+    with Shaper(lib) as shaper:
+        limits = Limits(accel=400.0, decel=400.0, jerk=800.0, vFloor=0.0)
+        interval = 0.024
+        for _ in range(150):
+            shaper.advance(100.0, -1.0, 0.0, 250.0, interval, limits)
+        previous = shaper.acceleration
+        for _ in range(150):
+            shaper.advance(10.0, -1.0, 0.0, 250.0, interval, limits)
+            acceleration = shaper.acceleration
+            assert abs(acceleration) <= limits.decel + 1e-3
+            assert abs(acceleration - previous) <= limits.jerk * interval + 1e-3
+            previous = acceleration
+        assert shaper.velocity == pytest.approx(10.0, abs=0.01)
+        assert shaper.acceleration == pytest.approx(0.0, abs=0.01)
+
+
+def test_jerk_limited_start_does_not_jump_to_the_floor(lib):
+    with Shaper(lib) as shaper:
+        limits = Limits(jerk=800.0)
+        interval = 0.024
+        speed, arriving = shaper.advance(
+            150.0, 1000.0, limits.vFloor, 250.0, interval, limits)
+        assert speed <= limits.jerk * interval * interval + 1e-4
+        assert not arriving
+
+
 def test_arrival_fires_exactly_when_predicted_by_the_stop_condition(lib):
     """design S6.3: `arriving = remain >= 0 and remain <= vNext*dt +
     stopDistance` -- tested here not by re-deriving the formula but by

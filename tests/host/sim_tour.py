@@ -31,7 +31,7 @@ the robot for values.
 
 Run it::
 
-    uv run python tests/host/sim_tour.py
+    uv run --with matplotlib python tests/host/sim_tour.py
 """
 
 from __future__ import annotations
@@ -122,6 +122,7 @@ def _bind(lib):
     f.srSetKernelConfig.argtypes = [P, F, F, F, F, F, F, F, F]
     f.srSetGeometry.argtypes = [P, F, F, F]
     f.srSetLimits.argtypes = [P, F, F, F, F, F, F]
+    f.srSetJerk.argtypes = [P, F]
     f.srConfigureShaping.argtypes = [P, F, F, F, F]
     f.srSetGroundGains.argtypes = [P, F, F]
     f.srMoveX.argtypes = [P, F, F, F, ctypes.c_uint32]
@@ -162,7 +163,7 @@ class SimRobot:
                  # --- tovez motor bake: left = port 2 (-1), right = port 1
                  left_port=2, left_sign=-1, right_port=1, right_sign=1,
                  ground_gain_1=1.0, ground_gain_2=1.0,
-                 settle_ticks=16):
+                 settle_ticks=16, jerk=0.0):
         self.f = lib
         cpm = 10.0 / travel_calib  # [counts/mm]
         self.cpm = cpm
@@ -173,6 +174,7 @@ class SimRobot:
                               i_max, kaff, pid_max, twist_hold_gain)
         lib.srSetLimits(self.h, accel, decel, v_floor, omega_floor, lag,
                         stop_distance)
+        lib.srSetJerk(self.h, jerk)
         lib.srConfigureShaping(self.h, output_deadband, reversal_dwell,
                                slew_rate, write_throttle)
         lib.srSetGroundGains(self.h, ground_gain_1, ground_gain_2)
@@ -184,7 +186,8 @@ class SimRobot:
         # dwell before the next move even starts, and the dwell then
         # never bites. 16 ticks is 384 ms against a 100 ms dwell.
         self.settle_ticks = settle_ticks
-        self.trace = []          # (t_s, vl_mm_s, vr_mm_s, duty1, duty2)
+        # (t_s, vl_mm_s, vr_mm_s, duty1, duty2, x_mm, y_mm, h_deg)
+        self.trace = []
         self.t = 0.0
 
     def close(self):
@@ -224,16 +227,16 @@ class SimRobot:
         limit = int(timeout_ms * 1000 / _TICK_US) + 200
         while n < limit:
             active = self.f.srTick(self.h, _TICK_US)
-            self._record()
+            self._record(active)
             n += 1
             if not active:
                 break
         for _ in range(self.settle_ticks):   # coast to rest
-            self.f.srTick(self.h, _TICK_US)
-            self._record()
+            a = self.f.srTick(self.h, _TICK_US)
+            self._record(a)
         return n
 
-    def _record(self):
+    def _record(self, active=1):
         self.t += _TICK_US / 1e6
         self.trace.append((
             self.t,
@@ -241,6 +244,7 @@ class SimRobot:
             self.f.srWheelVelocity(self.h, 1) / self.cpm,
             self.f.srWrittenDuty(self.h, 1),
             self.f.srWrittenDuty(self.h, 2),
+            self.x, self.y, self.heading_deg, active,
         ))
 
 
@@ -278,6 +282,115 @@ def run_square(lib, **kw):
         return closure, net, per_move, r.trace, bounds
 
 
+# dataviz reference palette, same pair tools/tour_chart.py uses so a sim
+# chart and a hardware chart read as one family.
+_S1, _S2, _S3, _S4 = "#2a78d6", "#eb6834", "#2e9e6b", "#8a5cd6"
+_INK, _MUTED, _GRID = "#0b0b0b", "#52514e", "#d8d6d0"
+
+
+def chart(runs, out_png, pivot_bounds=None,
+          headline="jerk limited (jerk 800)"):
+    """Three panels: the configs' ground tracks against the commanded
+    rectangle, wheel speeds across the whole tour, and a zoom on the
+    first pivot -- which is where the reversal dwell and the twist-hold
+    response actually show up.
+
+    Fixed axis limits, no autoscale: two runs must be comparable by eye
+    and, later, pixel-wise against a golden (radio-robot-elite's
+    system-test charter).
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig = plt.figure(figsize=(17.5, 6.6))
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.05, 1.25, 1.0], wspace=0.28)
+    ax1, ax2, ax3 = (fig.add_subplot(gs[0]), fig.add_subplot(gs[1]),
+                     fig.add_subplot(gs[2]))
+    colors = [_S1, _S2, _S3, _S4]
+
+    # ---- panel 1: ground track vs the commanded 100x60 rectangle
+    for (label, closure, net, trace), c in zip(runs, colors):
+        ax1.plot([s[5] for s in trace], [s[6] for s in trace],
+                 color=c, lw=2.0, zorder=3,
+                 label=f"{label}\n    closure {closure:.0f} mm, "
+                       f"net {net:+.1f} deg")
+        ax1.plot(trace[-1][5], trace[-1][6], "o", color=c, ms=7, zorder=4)
+    # Commanded shape drawn ON TOP, dashed and light: it is the
+    # reference the eye compares against, so it must not be buried.
+    ax1.plot([0, 1000, 1000, 0, 0], [0, 0, 600, 600, 0], "--",
+             color=_INK, lw=1.3, alpha=0.55, zorder=6,
+             label="commanded 100x60 cm")
+    ax1.plot(0, 0, "o", color=_INK, ms=8, zorder=7)
+    ax1.annotate("start", (0, 0), textcoords="offset points",
+                 xytext=(8, -16), fontsize=9, color=_INK)
+    ax1.set_aspect("equal")
+    ax1.set_xlim(-300, 1250)
+    ax1.set_ylim(-320, 820)
+    ax1.set_xlabel("x [mm]", color=_MUTED)
+    ax1.set_ylabel("y [mm]", color=_MUTED)
+    ax1.set_title("Ground track -- 8 moves, open loop", color=_INK,
+                  fontsize=11, loc="left")
+    ax1.grid(True, color=_GRID, lw=0.6)
+    ax1.legend(fontsize=7.6, loc="upper center",
+               bbox_to_anchor=(0.5, -0.13), framealpha=0.0, ncol=1,
+               handlelength=1.6, labelspacing=0.75)
+
+    # ---- panel 2: wheel speeds, whole tour, headline config
+    label, closure, net, trace = next(r for r in runs if r[0] == headline)
+    ts = [s[0] for s in trace]
+    ax2.plot(ts, [s[1] for s in trace], color=_S1, lw=1.3, label="left wheel")
+    ax2.plot(ts, [s[2] for s in trace], color=_S2, lw=1.3, label="right wheel")
+    ax2.axhline(0, color=_MUTED, lw=0.8)
+    for v, lbl in ((150, "leg cruise 150"), (100, "pivot cruise 100"),
+                   (-100, None)):
+        ax2.axhline(v, color=_MUTED, lw=0.7, ls=":", alpha=0.7)
+        if lbl:
+            ax2.annotate(lbl, (max(ts) * 0.995, v + 6), fontsize=7.5,
+                         color=_MUTED, ha="right")
+    ax2.set_xlim(0, max(ts))
+    ax2.set_ylim(-230, 240)
+    ax2.set_xlabel("time [s]", color=_MUTED)
+    ax2.set_ylabel("wheel speed [mm/s]", color=_MUTED)
+    ax2.set_title(f"Wheel speeds -- {label}", color=_INK, fontsize=11,
+                  loc="left")
+    ax2.grid(True, color=_GRID, lw=0.6)
+    ax2.legend(fontsize=8.5, loc="lower right", framealpha=0.95)
+
+    if pivot_bounds:
+        lo, hi = pivot_bounds
+        seg = trace[lo:hi]
+        t0 = seg[0][0]
+        ax3.plot([s[0] - t0 for s in seg], [s[1] for s in seg],
+                 color=_S1, lw=1.8, label="left (reversing)")
+        ax3.plot([s[0] - t0 for s in seg], [s[2] for s in seg],
+                 color=_S2, lw=1.8, label="right (forward)")
+        ax3.axhline(100, color=_MUTED, lw=0.9, ls=":")
+        ax3.axhline(-100, color=_MUTED, lw=0.9, ls=":")
+        ax3.annotate("commanded +-100", (0.02, 106), fontsize=8,
+                     color=_MUTED)
+        ax3.axhline(0, color=_MUTED, lw=0.8)
+        ax3.set_xlim(0, seg[-1][0] - t0)
+        ax3.set_ylim(-230, 240)
+        ax3.set_xlabel("time into pivot [s]", color=_MUTED)
+        ax3.set_ylabel("wheel speed [mm/s]", color=_MUTED)
+        ax3.set_title("Pivot 1, zoomed", color=_INK, fontsize=11,
+                      loc="left")
+        ax3.grid(True, color=_GRID, lw=0.6)
+        ax3.legend(fontsize=8.5, loc="lower right", framealpha=0.95)
+
+    fig.suptitle("tovez square tour -- HOST SIM: real port + kernel + "
+                 "engine + shaper over a simulated Nezha brick    "
+                 "(plant tau/breakaway NOT fitted to tovez -- mechanism, "
+                 "not values)",
+                 color=_INK, fontsize=12, x=0.008, ha="left")
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    pathlib.Path(out_png).parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=150)
+    print(f"chart {out_png}")
+    return out_png
+
+
 def main():
     lib = _bind(build())
     print("square tour, host sim -- real port + kernel + engine + shaper")
@@ -287,8 +400,10 @@ def main():
     print(header)
     print("-" * len(header))
     keep = {}
+    for_chart = []
     for label, kw in [
-        ("as flashed (dwell 100, th 4)", {}),
+        ("jerk limited (jerk 800)", dict(jerk=800.0)),
+        ("current controller (jerk 0)", {}),
         ("twist_hold_gain 0", dict(twist_hold_gain=0.0)),
         ("reversal_dwell 0", dict(reversal_dwell=0.0)),
         ("dwell 0 + th 0", dict(reversal_dwell=0.0, twist_hold_gain=0.0)),
@@ -299,6 +414,8 @@ def main():
         closure, net, moves, trace, bounds = run_square(lib, **kw)
         pivots = [m["dheading"] for m in moves if m["cmd_rot"]]
         keep[label] = (moves, trace, bounds)
+        if len(for_chart) < 4:
+            for_chart.append((label, closure, net, trace))
         print(f"{label:30s} {closure:7.1f}mm {net:+7.2f}   "
               + " ".join(f"{p:+6.2f}" for p in pivots))
 
@@ -307,7 +424,7 @@ def main():
     # post-deadband, post-slew, post-throttle, post-dwell -- so a wheel
     # held by the reversal dwell shows a literal 0.00 while its partner
     # is already driving.
-    for label in ("as flashed (dwell 100, th 4)", "reversal_dwell 0"):
+    for label in ("jerk limited (jerk 800)", "current controller (jerk 0)"):
         moves, trace, bounds = keep[label]
         lo, hi = bounds[1]
         print(f"\n  pivot 1 -- {label}")
@@ -316,6 +433,11 @@ def main():
         for s in trace[lo:min(lo + 14, hi)]:
             print(f"    {s[0]-t0:6.2f} {s[1]:+8.1f} {s[2]:+8.1f} "
                   f"{s[3]:+7.2f} {s[4]:+7.2f}")
+
+    out = _REPO / "reports" / "tovez-sim-square-20260906" / "sim-square.png"
+    chart(for_chart, out, pivot_bounds=keep[
+        "jerk limited (jerk 800)"][2][1])
+    subprocess.run(["open", str(out)], check=False)
 
 
 if __name__ == "__main__":

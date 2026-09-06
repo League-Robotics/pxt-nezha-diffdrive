@@ -1,0 +1,102 @@
+device NEZHA2 robot vevov 1198504156
+ack 1 1 timeout
+ID
+id diffdrive vevov 1.20260906.2 vevov
+GET
+ack 2 1 timeout
+get max_duty 100.000008
+get full_duty_velocity 10795.000977
+get pid_kp 0.000000
+get pid_ki 6.000000
+get pid_i_max 765.600037
+get accel_kaff 0.000000
+get pid_max 1276.000000
+get twist_hold_gain 4.000000
+get v_floor 70.000000
+get pos_err_max 127.600006
+get stall_speed 191.400009
+get stall_demand 510.400024
+get stall_window 500.000031
+get lambda_enabled 0.000000
+get crawl_pulse 0.000000
+get default_cruise 150.000000
+get rotational_slip 1.101000
+get stall_clear 0.000000
+get stop_distance 0.000000
+get accel 400.000031
+get decel 400.000031
+get v_max 250.000015
+get jerk 800.000061
+get omega_max 0.000000
+get estop_clear 0.000000
+get omega_floor 20.000000
+get arrive_dist 1.000000
+get arrive_yaw 0.300000
+get lag 0.040000
+get straight_trim 0.000000
+get goto_timeout 0.000000
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+STATUS
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=0 cyc=24 tlm=off next=3 done=1 reason=timeout
+ack 3 1 timeout
+ack 4 1 timeout
+get jerk 800.000061
+DBG:tour=wheels:profile=open
+DBG:corner=0
+DBG:corner=1
+DBG:corner=2
+DBG:corner=3
+DBG:corner=4
+GAP:27
+TOUR:end:ok
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=45 cyc=1286 tlm=pose next=6 done=1 reason=timeout
+t 76 119739 31 -26 17 35565 0 0 0 0 0 45
+t 77 119795 31 -26 17 35565 0 0 0 0 0 45
+t 78 119851 31 -26 17 35565 0 0 0 0 0 45
+t 79 119907 31 -26 17 35565 0 0 0 0 0 45
+t 80 119963 31 -26 17 35565 0 0 0 0 0 45
+t 81 120019 31 -26 17 35565 0 0 0 0 0 45
+t 82 120075 31 -26 17 35565 0 0 0 0 0 45
+t 83 120131 31 -26 17 35565 0 0 0 0 0 45
+t 84 120187 31 -26 17 35565 0 0 0 0 0 45
+DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+t 85 120243 31 -26 17 35565 0 0 0 0 0 45
+t 86 120299 31 -26 17 35565 0 0 0 0 0 45
+t 87 120355 31 -26 17 35565 0 0 0 0 0 45
+t 88 120411 31 -26 17 35565 0 0 0 0 0 45
+t 89 120467 31 -26 17 35565 0 0 0 0 0 45
+t 90 120523 31 -26 17 35565 0 0 0 0 0 45
+t 91 120579 31 -26 17 35565 0 0 0 0 0 45
+thdr seq now flags x y h ox oy oh vl vr i2cf
+t 92 120635 31 -26 17 35565 0 0 0 0 0 45
+t 93 120691 31 -26 17 35565 0 0 0 0 0 45
+{
+  "board": "vevov",
+  "date": "2026-09-06",
+  "surface": "farm stand, wheels up; encoder pose only",
+  "otos": "not sampled by wheels tour",
+  "completed": true,
+  "firmware_sha256": "c83276e1af5b74eeba86018bf1c962c2353405a82096052a70fde04e98e6f8e0",
+  "telemetry": {
+    "frames": 459,
+    "dropped": 0,
+    "loss_pct": 0.0,
+    "orphan_frames": 0,
+    "malformed": 0,
+    "columns": [
+      "seq",
+      "now",
+      "flags",
+      "x",
+      "y",
+      "h",
+      "ox",
+      "oy",
+      "oh",
+      "vl",
+      "vr",
+      "i2cf"
+    ],
+    "duration": 33.008
+  }
+}

@@ -416,8 +416,9 @@ bool MotionEngine::service() {
     const float vAct = seg_.dominantAxis == Segment::Axis::kYaw  // [mm/s]
         ? std::fabs(0.5f * (out.velocityRight - out.velocityLeft) / cpm)
         : std::fabs(0.5f * (out.velocityLeft + out.velocityRight) / cpm);
-    const VelocityShaper::Step step =
-        shaper_.advance(target, remain, al.floor, al.cap, dt, limits_, vAct);
+    const VelocityShaper::Step step = seg_.settling
+      ? VelocityShaper::Step{0.0f, true}
+      : shaper_.advance(target, remain, al.floor, al.cap, dt, limits_, vAct);
 
     // A cold wheel's brief start-up skew can register as backward
     // progress before real rotation begins -- trust wrongWay()'s own
@@ -450,19 +451,20 @@ bool MotionEngine::service() {
 
     if (step.arriving) {  // 6.3: the plan says "this is the last tick"
       kernel_.neutral();
+      if (limits_.lag > 0.0f) {
+        const bool fresh = out.sampleTimeLeft != seg_.restSampleLeft &&
+                           out.sampleTimeRight != seg_.restSampleRight;
+        const bool stopped = out.connectedLeft && out.connectedRight && fresh &&
+            out.appliedDutyLeft == 0.0f && out.appliedDutyRight == 0.0f &&
+            std::fabs(out.velocityLeft) < kSettleRestCountsPerS &&
+            std::fabs(out.velocityRight) < kSettleRestCountsPerS;
+        seg_.restSamples = seg_.settling && stopped ? seg_.restSamples + 1 : 0;
+        seg_.restSampleLeft = out.sampleTimeLeft;
+        seg_.restSampleRight = out.sampleTimeRight;
+        seg_.settling = true;
+        if (seg_.restSamples < 2) return true;
+      }
       if (seg_.hasPending) {
-        // 6.4: the pivot->straight handoff goes through rest. neutral()
-        // above only STAGES the stop -- delivery (and the kernel's own
-        // reference disarm) happens on the caller's NEXT step(). K4's
-        // rearmReferences() disarms the twist-hold/position references
-        // too, at the START of that same next step(), so phase 2
-        // re-anchors fresh instead of carrying phase 1's accumulated
-        // reference. beginPendingStraightPhase() builds phase 2 as a
-        // brand-new Segment (originPending = true, shaper_ reset) but
-        // issues no drive() of its own (S6.5's lazy start) -- the
-        // FOLLOWING service() tick captures its origin and issues its
-        // first command, by which point the neutral+rearm above has
-        // actually landed.
         kernel_.rearmReferences();
         beginPendingStraightPhase();
         return seg_.active;
@@ -480,7 +482,7 @@ bool MotionEngine::service() {
     const float velocity = (seg_.distTarget / seg_.dominant) * step.vCmd;
     const float twist = (seg_.yawTarget / seg_.dominant) * step.vCmd;
     const DiffDrive::DifferentialDrive::Status driveStatus =
-        kernel_.drive(velocity * cpm, twist * cpm, 500u);
+        kernel_.drive(velocity * cpm, twist * cpm, 500u, limits_.lag);
     // this ticket: beginSegment() issues NO drive() of its own
     // (design S6.5's lazy start), so a refused command (maxDuty == 0,
     // e-stopped, non-finite target, ...) can only ever be discovered
@@ -520,7 +522,7 @@ bool MotionEngine::service() {
   const float velocity = hold_.v * scale;
   const float twist = hold_.twist * scale;
   const DiffDrive::DifferentialDrive::Status holdDriveStatus =
-      kernel_.drive(velocity * cpm, twist * cpm, 500u);
+      kernel_.drive(velocity * cpm, twist * cpm, 500u, limits_.lag);
   if (holdDriveStatus != DiffDrive::DifferentialDrive::Status::kOk) {
     kernel_.neutral();
     hold_.active = false;

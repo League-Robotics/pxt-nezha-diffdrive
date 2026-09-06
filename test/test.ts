@@ -110,6 +110,7 @@ let pivotYawRate = 90
 // 10 Hz (100 ms) rate.
 const OTOS_SAMPLE_TICKS = 4
 let otosSampleTickCount = 0
+let sampleWorld = true
 
 function tickToCompletion() {
     let last = control.millis()
@@ -120,7 +121,7 @@ function tickToCompletion() {
         // Sample the world sensor on THIS fiber, between ticks -- never
         // concurrently with one. See OTOS_SAMPLE_TICKS's own comment.
         otosSampleTickCount += 1
-        if (otosSampleTickCount >= OTOS_SAMPLE_TICKS) {
+        if (sampleWorld && otosSampleTickCount >= OTOS_SAMPLE_TICKS) {
             otosSampleTickCount = 0
             diffDrive.readWorld()
         }
@@ -543,26 +544,20 @@ function tourRobot() {
 // ---- tour A+B: wheels -----------------------------------------------
 function tourWheels() {
     if (touring) return
-    if (!worldReady()) return
     beginJob("TOUR")
+    sampleWorld = false
     diffDrive.resetPose()
-    diffDrive.seedPose(START_X, START_Y, START_H)
     diffDrive.emitLine("DBG:tour=wheels:profile=open")
-    logFix("c0")
-    // See tourRobot()'s identical comment: no per-leg
-    // basic.showNumber() -- logFix()'s OCAL:c<N> line below is the
-    // non-blocking progress signal now.
+    diffDrive.emitLine("DBG:corner=0")
     for (let i = 0; i < 4; i++) {
         tickedMove(LEG_CM[i], 0)     // straight leg
         if (aborted) break           // don't also issue the turn below
         tickedMove(0, 90)            // then LEFT
-        // Checked BEFORE logFix() below: an abort mid-leg must not emit a
-        // plausible-looking OCAL: fix for a corner the robot never
-        // reached.
         if (aborted) break
-        logFix("c" + (i + 1))
+        diffDrive.emitLine("DBG:corner=" + (i + 1))
     }
     endJob(jobReason())
+    sampleWorld = true
     basic.showString("W")
 }
 
