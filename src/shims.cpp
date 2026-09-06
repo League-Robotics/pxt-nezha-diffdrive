@@ -653,7 +653,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
   odomUpdate(r);
-  const float distanceF = static_cast<float>(distance);  // [mm]
+  const float requestedDistance = static_cast<float>(distance);  // [mm]
   const float rotation = static_cast<float>(yaw) * kCdegToRad;  // [rad]
 
   // This shim predates MotionEngine::moveX()'s single-`cruise` wire-
@@ -677,7 +677,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
       static_cast<float>(yawRate > 0 ? yawRate : 1) * kCdegToRad;  // [rad/s]
 
   const MotionEngine::DualRateReconciliation rr =
-      r.engine.reconcileDualRateCruise(distanceF, rotation, speedFloored,
+      r.engine.reconcileDualRateCruise(requestedDistance, rotation, speedFloored,
                                        yawRateFloored);
   if (rr.cruise <= 0.0f) {
     // Nothing to do -- release right away rather than leaving kBlock
@@ -699,7 +699,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // own private kTurnFirstAngle) rather than retyping the 50 deg
   // constant here, so this decision can never drift from moveX()'s own.
   const bool willSplit =
-      distanceF != 0.0f &&
+      requestedDistance != 0.0f &&
       std::fabs(rotation) >= MotionEngine::turnFirstAngle();
   const float budgetDuration =
       willSplit ? (rr.distDuration + rr.yawDuration)
@@ -716,7 +716,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   const uint32_t timeout =
       static_cast<uint32_t>(budgetDuration * 1000.0f) + 1500u;
 
-  r.engine.moveX(distanceF, rotation, rr.cruise, timeout);
+  r.engine.moveX(requestedDistance, rotation, rr.cruise, timeout);
 }
 
 //%

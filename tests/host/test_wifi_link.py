@@ -277,7 +277,7 @@ def test_strict_configure_step_error_backs_off_and_restarts_from_rst(link):
     assert link.state() == BACKOFF
     assert link.lib.wlRestarts(link.h) == 1
     assert link.commands(4000) == []          # still backing off
-    link.step(1100)                           # past kBackoffDelayMs
+    link.step(1100)                           # past kBackoffDelay
     assert link.state() == CONFIGURE
     link.expect_command("AT+RST")
 

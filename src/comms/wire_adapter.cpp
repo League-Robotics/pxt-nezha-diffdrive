@@ -408,21 +408,22 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
   // Same cruise <0 handling as onWheelsX() above; the ==0 substitution
   // itself now goes through resolveDefaultCruise() (SUC-003) instead
   // of the flat engineDefaultCruise() directly. D is
-  // engineDominantAxisTravel(distance, yaw), NOT |distance|
+  // engineDominantAxisTravel(distance, engineRotation), NOT |distance|
   // alone -- a pure pivot (distance == 0) still moves its wheels
-  // |yaw|*b/2 mm each, and resolving from |distance| alone
+  // |rotation|*b/2 mm each, and resolving from |distance| alone
   // would always see D == 0 there and refuse every default-speed pivot
   // once shaped mode is on (every pivot in a tour is exactly this
-  // call). `yaw` (the wire's `rotation` field converted to radians) is
-  // computed once, here, and reused below for
+  // call). `engineRotation` (this call's `rotation` argument on the
+  // ENGINE's own scale rather than the wire's) is computed once, here,
+  // and reused below for
   // the dispatch -- the wire's ONE milliradian->radian conversion seam
   // (motion-api.md S9.1, mradToRad()'s own comment above).
   if (cruise < 0.0f) return Wire::Result::kRange;
-  const float yaw = mradToRad(rotation);  // [rad]
+  const float engineRotation = mradToRad(rotation);  // [rad]
   const float resolvedCruise =
       cruise == 0.0f
           ? resolveDefaultCruise(
-                engineDominantAxisTravel(distance, yaw))
+                engineDominantAxisTravel(distance, engineRotation))
           : cruise;
   if (resolvedCruise <= 0.0f) return Wire::Result::kRange;
   // sprint 005 ticket 004: resolve any still-pending PREVIOUS motion
@@ -433,7 +434,7 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
   // there, but is kept identical for one uniform rule (resolve-before-
   // dispatch, always) rather than a rule with silent exceptions.
   if (now_ != nullptr) forceResolvePending(Wire::DoneReason::kAborted);
-  engineMoveX(distance, yaw, resolvedCruise, timeout);
+  engineMoveX(distance, engineRotation, resolvedCruise, timeout);
   if (now_ != nullptr) {
     // GOAL-DIRECTED: this class's own resolvePendingReason() also reads
     // engineMoveActive() for this one -- see wire_adapter.h.

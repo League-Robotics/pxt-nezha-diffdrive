@@ -2,7 +2,7 @@
 id: 008
 title: Strip units from src/comms/wifi_link.* identifiers and fold in remaining judgment
   calls
-status: in-progress
+status: done
 use-cases:
 - SUC-005
 depends-on:
@@ -53,14 +53,18 @@ about code identifiers only (per the rule's own scope note).
 
 ## Acceptance Criteria
 
-- [ ] Every renamed identifier in `wifi_link.h`/`.cpp` carries a
+- [x] Every renamed identifier in `wifi_link.h`/`.cpp` carries a
       trailing `// [unit]` comment on its declaration.
-- [ ] `tests/host/test_no_units_in_identifiers_source_pin.py`'s
+- [x] `tests/host/test_no_units_in_identifiers_source_pin.py`'s
       `wifi_link` exclusion is removed and the test passes.
-- [ ] `yawRadPerS`, `distanceF` (`shims.cpp::startMove()`), and `yaw`
+- [x] `yawRadPerS`, `distanceF` (`shims.cpp::startMove()`), and `yaw`
       (`wire_adapter.cpp::onMoveX()`) are renamed per the rule.
-- [ ] No wire field name or JSON config key is touched.
-- [ ] No behavior change — every rename is value- and control-flow-
+      (`yawRadPerS` was already renamed to `yawRateFloored` by sprint
+      032 ticket 007, commit c39f85d, before this ticket opened;
+      `distanceF` -> `requestedDistance`; `yaw` -> `engineRotation`,
+      since the enclosing parameter is already named `rotation`.)
+- [x] No wire field name or JSON config key is touched.
+- [x] No behavior change — every rename is value- and control-flow-
       identical (verified by the existing test suite staying green,
       not by re-deriving logic).
 
