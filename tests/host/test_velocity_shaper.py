@@ -578,3 +578,56 @@ def test_axis_unit_conversions_match_design_s6_2_worked_example(lib):
         assert floor_speed == pytest.approx(20.94, abs=0.05)
         assert max_speed == pytest.approx(90.0 * 3.14159265358979323846 / 180.0 * 60.0)
         assert max_speed == pytest.approx(94.25, abs=0.05)
+
+
+def test_lagged_arrival_is_not_advanced_by_the_pipeline_term(lib):
+    """The one-tick pipeline term is driven by the COMMANDED speed, not
+    the measured one, even when `lag > 0` -- the lag has its own separate
+    `vAct*lim.lag` credit and must not ALSO be paid inside the `dt` term.
+
+    REGRESSION GUARD. A `(lim.lag > 0 ? vAct : vNext) * dt` form shipped
+    briefly and terminated real moves early: MEASURED tovez 2026-09-06
+    (reports/square-hw-vs-sim-20260906/pivot-cruise-ab.json vs
+    ...-PREMERGE.json), 90 deg pivots at lag 0.13 / cruise 188 landed
+    -8.75 deg short against -6.91 deg for the same board and config on
+    the pre-merge build -- 1.8 deg per pivot, four corners of which
+    walked a 60 cm square into the west rail.
+
+    It survived review because the `lag > 0` guard left every lag = 0
+    test bit-identical, so THIS TEST MUST RUN AT lag > 0 to see it at
+    all. The host sim cannot show it either: its plant IS a first-order
+    lag with tau == the configured lag, so the extra coast that form
+    assumes is true there by construction.
+
+    Setup: ramp to a steady v_prev, then one tick with `measured` well
+    above it and a `remain` chosen to sit BETWEEN the two forms\'
+    thresholds, so they must disagree:
+
+        vAct = 3*v_prev = 240, lag 0.05  ->  vAct*lag        = 12.00 mm
+        decel clamp holds vNext at v_prev - decel*dt = 72 mm/s
+        correct threshold = vNext*dt + vAct*lag = 1.44 + 12 = 13.44 mm
+        buggy   threshold = vAct*dt  + vAct*lag = 4.80 + 12 = 16.80 mm
+        remain = 15.5 mm  ->  correct: NOT arriving; buggy: arriving
+    """
+    lim = Limits(accel=400.0, decel=400.0, jerk=0.0, vFloor=0.0, lag=0.05,
+                 stopDistance=0.0)
+    dt = 0.02
+    with Shaper(lib) as shaper:
+        for _ in range(10):
+            shaper.advance(target=200.0, remain=1e6, floor=0.0, cap=1e9,
+                           dt=dt, lim=lim)
+        v_prev = shaper.velocity
+        assert v_prev == pytest.approx(80.0, abs=1e-3)
+
+        vcmd, arriving = shaper.advance(
+            target=200.0, remain=15.5, floor=0.0, cap=1e9, dt=dt, lim=lim,
+            measured=3.0 * v_prev)
+        # The decel clamp pins vNext for BOTH forms, so `arriving` is the
+        # only thing that can differ -- confirm that before asserting it.
+        assert vcmd == pytest.approx(72.0, abs=1e-3), (
+            "vNext is no longer decel-clamped at 72 mm/s -- the two forms "
+            "may no longer be isolated (recheck the constants)")
+        assert not arriving, (
+            "a high measured speed advanced arrival at lag > 0: the "
+            "one-tick pipeline term is being driven by vAct instead of "
+            "the commanded vNext (see this test\'s docstring)")
