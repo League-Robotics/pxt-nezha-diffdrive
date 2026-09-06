@@ -1,8 +1,9 @@
 ---
 id: '001'
 title: One commanded-anchored turn_total(), and delete the retired rotationScrub print
-status: open
-use-cases: [SUC-006]
+status: done
+use-cases:
+- SUC-006
 depends-on: []
 github-issue: ''
 issue: analysis-fixes-total-turn-score-corners-leg-analysis.md
@@ -47,17 +48,17 @@ Two smaller defects ride along in the same files:
 
 ## Acceptance Criteria
 
-- [ ] `field.turn_total(commanded_deg, delta_deg)` exists beside
+- [x] `field.turn_total(commanded_deg, delta_deg)` exists beside
       `wrap()`, is documented with the failure it replaces, and does not
       use `round()` or a `revs` term.
-- [ ] `rotation_check.py` and `pivot_truth.py` both call it; neither
+- [x] `rotation_check.py` and `pivot_truth.py` both call it; neither
       keeps a private copy of the arithmetic.
-- [ ] A 183 deg physical turn against a 180 deg command reports
+- [x] A 183 deg physical turn against a 180 deg command reports
       **+183**, not -177. Same for -183 against -180.
-- [ ] `pivot_truth.py` reports "camera saw no rotation" (naming the
+- [x] `pivot_truth.py` reports "camera saw no rotation" (naming the
       robot-is-off check) instead of raising `ZeroDivisionError`.
-- [ ] The `rotationScrub 1.040` print is gone from `rotation_check.py`.
-- [ ] `tools/truth_check.py` is **not touched** -- ticket 003 deletes it.
+- [x] The `rotationScrub 1.040` print is gone from `rotation_check.py`.
+- [x] `tools/truth_check.py` is **not touched** -- ticket 003 deletes it.
 
 ## Implementation Plan
 

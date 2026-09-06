@@ -94,6 +94,43 @@ def wrap(d):
     return d
 
 
+def turn_total(commanded: float, measured: float) -> float:
+    """Total physical turn of a pivot, in degrees -- the one owner of
+    this arithmetic for every bench tool that scores a commanded pivot
+    against a measured heading change.
+
+    `commanded` is the angle asked for [deg]; `measured` is the
+    after-minus-before heading difference [deg], wrapped or not. The
+    result is `measured` unwrapped onto the revolution `commanded`
+    names, so a 183 deg physical turn against a 180 deg command reports
+    +183 and `turn_total(...) / commanded` keeps the sign of the turn.
+
+    **The failure this replaces.** `rotation_check.py` and
+    `truth_check.py` each carried::
+
+        revs = round(commanded / 360.0)
+        revs * 360.0 + wrap(after - before - revs * 360.0)
+
+    which asks `round()` to guess the revolution count. For
+    `commanded = +/-180`, `round(+/-0.5)` is **0** under banker's
+    rounding, so the whole expression collapses to `wrap(after -
+    before)` -- and a 183 deg turn (over-rotation is the norm on this
+    fleet) came back as **-177 deg**, flipping the sign of
+    `gyro / commanded` to -0.98 and poisoning any mean taken over a
+    mixed `[360, 180, -180]` pivot set. Anchoring the unwrap on the
+    commanded angle needs no `revs` term and no `round()`, and is
+    correct for every commanded angle uniformly -- including the
+    +/-180 boundary, which is why callers no longer need a special
+    case for it.
+
+    The one assumption: the robot turned closer to `commanded` than to
+    `commanded +/- 360`, i.e. the error is under half a revolution.
+    That is the same assumption the `revs` form was reaching for, made
+    explicit instead of delegated to rounding.
+    """
+    return commanded + wrap(measured - commanded)
+
+
 def robot_heading_from_tag_yaw(tag_yaw_deg, residual_deg=0.0):
     """Robot heading [deg] from a RAW (unregistered/uncorrected) tag
     yaw reading, per

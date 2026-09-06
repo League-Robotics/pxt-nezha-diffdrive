@@ -20,6 +20,7 @@ Run with::
 
     uv run pytest tests/tools/test_field.py
 """
+import inspect
 import math
 import pathlib
 import sys
@@ -64,6 +65,80 @@ def test_wrap_result_always_in_range():
     for d in (-1000.0, -725.3, -1.0, 0.0, 1.0, 359.0, 1000.0):
         w = field.wrap(d)
         assert -180.0 < w <= 180.0
+
+
+# --- turn_total() (sprint 034 ticket 001, TL-03) -------------------------
+#
+# The defect this replaces: `rotation_check.py` and `truth_check.py`
+# each unwrapped a pivot with `revs = round(commanded / 360.0)`, and
+# `round(0.5)` is 0 under banker's rounding. So for a commanded +/-180
+# the whole expression collapsed to `wrap(after - before)`, a 183 deg
+# physical turn read -177, and `gyro / commanded` came out NEGATIVE --
+# which then went into a mean taken over [360, 180, -180]. turn_total()
+# anchors the unwrap on the commanded angle instead, with no `revs`
+# term and no `round()`, so every angle (the +/-180 boundary included)
+# goes through the same one line.
+
+@pytest.mark.parametrize('commanded, measured, expected', [
+    # The regression itself: over-rotation on the wrap boundary. The
+    # OTOS reports the wrapped delta, -177, for a real +183 deg turn.
+    (180.0, -177.0, 183.0),
+    (-180.0, 177.0, -183.0),
+    # Under-rotation on the same boundary still works.
+    (180.0, 177.0, 177.0),
+    (-180.0, -177.0, -177.0),
+    # Exactly on the command.
+    (180.0, 180.0, 180.0),
+    (-180.0, -180.0, -180.0),
+    # A full revolution, which a wrapped heading cannot show at all.
+    (360.0, 3.0, 363.0),
+    (360.0, 0.0, 360.0),
+    (-360.0, -3.0, -363.0),
+    # Small commanded angles, where no unwrapping is needed.
+    (90.0, 92.0, 92.0),
+    (-90.0, -88.0, -88.0),
+    (0.5, 0.7, 0.7),
+    # A commanded 0 with a small measured drift reports the drift.
+    (0.0, 2.5, 2.5),
+    (0.0, -2.5, -2.5),
+])
+def test_turn_total_unwraps_onto_the_commanded_revolution(
+        commanded, measured, expected):
+    assert field.turn_total(commanded, measured) == pytest.approx(expected)
+
+
+def test_turn_total_accepts_an_already_unwrapped_measurement():
+    # A caller summing per-sample wrapped deltas (tools/pivot_truth.py's
+    # _yaw_mark()) hands in a total that is already unwrapped. It must
+    # pass through, not get re-wrapped onto some other revolution.
+    assert field.turn_total(180.0, 183.0) == pytest.approx(183.0)
+    assert field.turn_total(360.0, 363.0) == pytest.approx(363.0)
+    assert field.turn_total(-360.0, -363.0) == pytest.approx(-363.0)
+
+
+@pytest.mark.parametrize('commanded, measured', [
+    (180.0, -177.0),    # +183 physical
+    (-180.0, 177.0),    # -183 physical
+])
+def test_turn_total_ratio_keeps_the_sign_of_an_overrotating_pivot(
+        commanded, measured):
+    # The defect's user-visible symptom: `gyro / commanded` was -0.98
+    # for a pivot that over-rotated by 3 deg, and that sign-flipped
+    # term was averaged in with the others.
+    ratio = field.turn_total(commanded, measured) / commanded
+    assert ratio > 0.0
+    assert ratio == pytest.approx(183.0 / 180.0)
+
+
+def test_turn_total_does_not_use_round_or_a_revs_term():
+    # Pins the fix itself, not just its outputs: the `revs` form is
+    # what could not resolve the +/-180 boundary, and re-introducing it
+    # would pass the numeric cases above only until someone commanded
+    # a half-revolution again.
+    src = inspect.getsource(field.turn_total)
+    body = src.split('"""')[-1]
+    assert 'round(' not in body
+    assert 'revs' not in body
 
 
 # --- robot_heading_from_tag_yaw() (sprint 029 ticket 006, TL-11) ---------

@@ -147,6 +147,13 @@ whole suite.
 Imports `tools/field.py` directly:
 
 - **`wrap()`** — parametrized angle-wrap cases into `(-180, 180]`.
+- **`turn_total()`** (sprint 034 ticket 001) — the ±180 wrap-boundary
+  regression: 183° physical against a 180° command must report **+183**,
+  not −177, and `turn / commanded` must stay POSITIVE for an
+  over-rotating pivot. Also under-rotation, full revolutions, a
+  commanded 0 with a small drift, an already-unwrapped measurement, and
+  a source-level assertion that the replaced `round()`/`revs` form has
+  not come back.
 - **`score_corners()`** — the gap-aware forward-only scan, including
   the exact disagreement `tour_run.py`'s console and
   `practice_chart.py`'s chart used to produce for the same recorded run
@@ -175,6 +182,18 @@ to the numeric vocabulary fails loudly instead of silently. Covers
 and `turn_sweep.py` (`RUN:turnrate:<rate>` then `RUN:pivot:<deg>`).
 Cannot prove the robot moves — no serial port, no robot — only that
 each tool's own RUN-sending code path targets a real handler.
+
+Sprint 034 ticket 001 adds a second, unrelated-to-verbs group here
+(the file already imports both tools, so a new file would only split
+the same fixtures): source-level assertions that `rotation_check.py`
+carries neither the retired `rotationScrub`/`1.040` constant nor a
+private copy of the turn arithmetic, that `pivot_truth.py` dropped its
+±180 wrap-boundary special case, and a synthetic **still-camera** run —
+a fake `Cam` whose samples never change yaw, paired with an OTOS that
+reports the full commanded ±180 — driving `pivot_truth.main()` to
+completion. It must print "camera saw no rotation" and name the
+robot-is-switched-OFF check, where it used to raise
+`ZeroDivisionError`.
 
 Run: `uv run pytest tests/tools/test_run_verbs.py`, or as part of the
 whole suite.

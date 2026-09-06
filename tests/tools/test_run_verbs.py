@@ -282,3 +282,121 @@ def test_one_turn_negative_degrees_still_send_the_signed_value(
 
     assert fake.sent == ['RUN:turnrate:180', 'RUN:pivot:-90']
     _assert_no_dead_numeric_forms(fake.sent)
+
+
+# --- sprint 034 ticket 001 (TL-03, TL-08, TL-25): one commanded-anchored
+# turn_total(), a guarded gyro/camera ratio, and the retired
+# rotationScrub print deleted ------------------------------------------
+
+def _tool_source(name):
+    return (_TOOLS_DIR / name).read_text()
+
+
+def test_rotation_check_has_no_retired_rotation_scrub_constant():
+    # The tool used to close its report with "firmware rotationScrub is
+    # 1.040; this run implies {1.040 * mean}" -- scaling a fresh
+    # measurement by a constant its OWN module docstring says was
+    # retired (wrong sign; rotationalSlip 0.952 replaced it). A reader
+    # got a conclusion the firmware had already stopped believing.
+    src = _tool_source('rotation_check.py')
+    assert 'rotationScrub' not in src
+    assert '1.040' not in src
+
+
+def test_rotation_check_still_names_the_slip_that_replaced_it():
+    # Deleting the print must not delete the history that explains why
+    # the constant is gone -- otherwise the next reader re-derives it.
+    # Whitespace-normalised: the docstring wraps the name and its value
+    # across a line break.
+    src = ' '.join(_tool_source('rotation_check.py').split())
+    assert 'rotationalSlip 0.952' in src
+
+
+@pytest.mark.parametrize('name', ['rotation_check.py', 'pivot_truth.py'])
+def test_bench_tools_keep_no_private_copy_of_the_turn_arithmetic(name):
+    # Both tools must CALL field.turn_total(), not carry the `revs =
+    # round(commanded / 360.0)` form that could not resolve a +/-180
+    # pivot. tools/truth_check.py still has its copy; sprint 034 ticket
+    # 003 deletes that file outright, so it is deliberately not checked
+    # here.
+    src = _tool_source(name)
+    assert 'turn_total' in src
+    assert 'revs' not in src
+    assert 'round(commanded' not in src
+
+
+def test_pivot_truth_no_longer_special_cases_the_180_wrap_boundary():
+    # turn_total() handles every commanded angle uniformly, so the old
+    # "pick whichever of gyro, gyro +/- 360 lands nearest the camera"
+    # branch -- which made the gyro's own reading depend on the camera
+    # being trustworthy -- is unnecessary and gone.
+    src = _tool_source('pivot_truth.py')
+    assert 'abs(commanded) == 180' not in src
+    assert 'gyro + 360.0' not in src
+
+
+def test_rotation_check_gyro_matches_turn_total_on_the_180_boundary():
+    # The defect, at the call site: a 183 deg physical turn against a
+    # commanded 180 must report +183, not -177.
+    assert rotation_check.turn_total(180.0, -177.0) == pytest.approx(183.0)
+    assert rotation_check.turn_total(-180.0, 177.0) == pytest.approx(-183.0)
+
+
+# --- pivot_truth.py: a camera that saw no rotation is the robot-is-OFF
+# signature, and must be REPORTED, not divided by ------------------------
+
+def test_gyro_over_camera_is_none_when_the_camera_saw_no_rotation():
+    assert pivot_truth.gyro_over_camera(180.0, 0.0) is None
+    assert pivot_truth.gyro_over_camera(180.0, 0.2) is None
+
+
+def test_gyro_over_camera_divides_normally_once_the_camera_saw_a_turn():
+    assert pivot_truth.gyro_over_camera(180.0, 180.0) == pytest.approx(1.0)
+    assert pivot_truth.gyro_over_camera(176.0, 180.0) == pytest.approx(
+        176.0 / 180.0)
+
+
+class _StillCam:
+    """A camera that watched the robot NOT move: every sample carries
+    the same yaw, so `_yaw_mark()`'s unwrapped total is exactly 0.0.
+    Paired with an OTOS that reports the full commanded turn, this is
+    the robot-is-switched-OFF signature from
+    `.claude/rules/playfield-testing.md`.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.samples = [(0.0, 10.0, 20.0, 45.0), (1.0, 10.0, 20.0, 45.0)]
+        self.latest = (10.0, 20.0, 45.0)
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def test_pivot_truth_reports_a_still_camera_instead_of_dividing_by_zero(
+        monkeypatch, capsys):
+    # Before this ticket, `gyro / camdeg` raised ZeroDivisionError here
+    # and the whole run's report was lost -- at the exact moment the
+    # run had the most to say.
+    cam = _StillCam()
+    # Two pivots' worth of OTOS fixes: the wheels believe +180 then
+    # -180 while the camera saw nothing at all.
+    fake = FakeLink([
+        'OCAL:now:0:0:0', 'GAP:0', 'OCAL:now:0:0:18000',
+        'OCAL:now:0:0:18000', 'GAP:0', 'OCAL:now:0:0:0',
+    ])
+    monkeypatch.setattr(pivot_truth, 'Cam', lambda *a, **k: cam)
+    monkeypatch.setattr(pivot_truth, 'open_link', lambda *a, **k: fake)
+    monkeypatch.setattr(pivot_truth.time, 'sleep', lambda *a, **k: None)
+    monkeypatch.setattr(sys, 'argv', ['pivot_truth.py', '--reps', '1'])
+
+    pivot_truth.main()   # must not raise
+
+    out = capsys.readouterr().out
+    assert 'camera saw no rotation' in out
+    assert 'THE CAMERA SAW NO ROTATION' in out
+    assert 'SWITCHED ON' in out
+    assert 'playfield-testing.md' in out
+    # And the gyro column still shows what the wheels believed.
+    assert '180.0' in out

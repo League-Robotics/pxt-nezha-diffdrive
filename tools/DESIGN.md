@@ -371,6 +371,36 @@ coordinates.
 - **`reposition.py`** — put the robot on a world point, camera-
   verified, seeding from measured truth rather than assumed placement.
 
+### Unwrapping a pivot: `field.turn_total()` is the one owner (sprint 034 ticket 001)
+
+`tools/field.py` already owns every angle-math primitive with no I/O of
+its own, and `turn_total(commanded, measured)` joins `wrap()` there:
+it returns the total physical turn in degrees by unwrapping the
+measured heading difference onto the revolution the *commanded* angle
+names — `commanded + wrap(measured - commanded)`, one line, no `round()`
+and no revolution count.
+
+`rotation_check.py` and `pivot_truth.py` both call it and keep no
+private copy. What they each used to carry could not resolve a ±180°
+pivot: `round(commanded / 360.0)` is **0** for ±0.5 under banker's
+rounding, collapsing the whole expression to `wrap(after - before)`, so
+a 183° physical turn (over-rotation is this fleet's norm) read **−177°**
+and `gyro / commanded` came back **−0.98** — a sign-flipped term
+averaged in with the rest. Anchoring on the command handles the ±180
+boundary like any other angle, which is also why `pivot_truth.py` no
+longer needs its "pick whichever of gyro, gyro ± 360 lands nearest the
+camera" special case — a branch that made the gyro's own reading depend
+on the camera being trustworthy.
+
+`pivot_truth.py`'s `gyro_over_camera()` guards the paired division:
+below `NO_ROTATION` (0.5°) of camera yaw it returns `None`, and the run
+reports "camera saw no rotation" naming
+`.claude/rules/playfield-testing.md`'s **robot-is-switched-OFF** check
+rather than raising `ZeroDivisionError` and losing the report at the
+moment it had the most to say. Odometry reports the full commanded turn
+on a robot with no motor power; the camera is the only instrument that
+can contradict it.
+
 ## OTOS rig console
 
 - **`otos_bench.py`** — chainable subcommands driving

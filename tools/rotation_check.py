@@ -9,9 +9,14 @@ Why it exists: the lever-arm run on 2026-08-20 showed each commanded
 UNDER-rotation. That agrees with the firmware's resolved rotationalSlip
 0.952 (six 180 deg pivots measured 164-166 deg physical -- also
 under-rotation; see motion_engine.h for the full derivation). An
-earlier single-pivot reading (rotationScrub 1.040, i.e. OVER-rotation)
-had the sign of the effect backwards and was retired. This measures it
-directly, over a full turn where a small per-pivot error is easy to see.
+earlier single-pivot reading had the sign of the effect backwards -- it
+implied OVER-rotation, and the scrub constant derived from it was
+retired in favour of that resolved slip. Neither its name nor its value
+is repeated here: this tool used to close its report by scaling the
+run's mean by that dead constant, quietly re-publishing a number the
+firmware had already stopped believing. This measures rotation
+directly instead, over a full turn where a small per-pivot error is
+easy to see.
 
 The robot's own odometry heading rides the same telemetry frames, so
 each run compares three numbers: what was commanded, what the wheels
@@ -26,7 +31,7 @@ import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
-from field import wrap
+from field import turn_total, wrap
 import tlm
 
 # Commanded rotation [deg]. RUN:pivot:<deg> takes the angle directly,
@@ -107,11 +112,13 @@ def main():
                 print('  no fix after pivot -- skipping')
                 continue
 
-            # Total turn, recovering full revolutions the wrapped
-            # heading cannot show: trust the commanded magnitude to
-            # pick the revolution, measure the remainder.
-            revs = round(commanded / 360.0)
-            gyro = revs * 360.0 + wrap(after[2] - before[2] - revs * 360.0)
+            # Total turn, recovering the full revolutions a wrapped
+            # heading cannot show. field.turn_total() anchors the
+            # unwrap on the commanded angle; the private
+            # rounded-revolution form this replaced read a 183 deg turn
+            # against a 180 deg command as -177 -- see turn_total()'s
+            # own docstring for the arithmetic.
+            gyro = turn_total(commanded, after[2] - before[2])
             wheels = '%9.1f' % wrap(enc1 - enc0)
             drift = ((after[0] - before[0]) ** 2
                      + (after[1] - before[1]) ** 2) ** 0.5
@@ -124,8 +131,6 @@ def main():
     if ratios:
         mean = sum(ratios) / len(ratios)
         print(f"\nmean gyro/commanded = {mean:.3f} over {len(ratios)} pivots")
-        print(f"firmware rotationScrub is 1.040; this run implies "
-              f"{1.040 * mean:.3f}")
         print("(drift mm is how far the CENTRE moved during a pivot that "
               "should hold it still -- a residual lever-arm error.)")
 
