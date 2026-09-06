@@ -601,3 +601,133 @@ def test_check_path_flags_the_whole_unsafe_stretch_of_a_segment_not_just_its_end
         'segment-walking from an endpoints-only check')
 
 
+
+
+# --- usable_half_extent(): ONE field size, derived ------------------------
+
+def test_usable_half_extent_is_derived_from_limits_and_margin():
+    """Derived, never a second hand-typed pair -- that is the whole
+    point of the accessor. Recomputing it here from `LIMITS` and
+    `MARGIN` (which the rule-file drift guard above pins to
+    `.claude/rules/playfield-testing.md`) means a typo'd literal in
+    `field.py` fails here rather than shrinking the field silently."""
+    hx, hy = field.usable_half_extent()
+    assert hx == pytest.approx(field.LIMITS[0] - field.MARGIN)
+    assert hy == pytest.approx(field.LIMITS[1] - field.MARGIN)
+    assert (hx, hy) == pytest.approx((55.15, 32.65))
+
+
+def test_within_margin_is_expressed_in_terms_of_the_accessor():
+    """`clears_margin()` / `check_path()` must agree with
+    `usable_half_extent()` exactly -- a point one millimetre inside
+    clears, one millimetre outside does not, on BOTH axes. If the
+    predicate ever grew its own copy of the subtraction, one of these
+    four would drift."""
+    hx, hy = field.usable_half_extent()
+    assert field.clears_margin([_row(0.0, hx - 0.1, 0.0)]) is True
+    assert field.clears_margin([_row(0.0, hx + 0.1, 0.0)]) is False
+    assert field.clears_margin([_row(0.0, 0.0, hy - 0.1)]) is True
+    assert field.clears_margin([_row(0.0, 0.0, hy + 0.1)]) is False
+
+
+def test_the_tour_sizing_test_no_longer_carries_its_own_field_size():
+    """Drift guard for the OTHER half of "one field size".
+
+    `tests/host/test_run_tour_programs.py` used to hold `_FIELD_MM =
+    (600.0, 400.0)` and `_MARGIN_MM = 50.0` -- a 55.0 x 35.0 cm usable
+    field against this module's 55.15 x 32.65, i.e. 2.35 cm LOOSER in
+    y. A figure could pass its sizing gate there and still be refused
+    by the geofence every driving tool pre-flights against. Sprint 034
+    ticket 007 deleted the pair; this fails if anyone reintroduces one.
+    """
+    src = (_REPO_ROOT / 'tests' / 'host' /
+           'test_run_tour_programs.py').read_text()
+    for line in src.splitlines():
+        code = line.split('#', 1)[0]
+        assert '_FIELD_MM =' not in code and '_MARGIN_MM =' not in code, (
+            'the tour sizing test has grown a private field size again; '
+            'it must derive from field.usable_half_extent()')
+    assert 'usable_half_extent' in src, (
+        'the tour sizing test no longer derives its limits from field.py')
+
+
+# --- require_clear_path(): the planners' loud refusal ---------------------
+
+def test_require_clear_path_returns_quietly_for_a_path_that_clears():
+    assert field.require_clear_path(field.RECT, what='the tour') is None
+
+
+def test_require_clear_path_refuses_and_names_the_offending_points():
+    """A refusal must say WHERE the path left the field. A bare
+    "refused" sends the operator back to the geometry with nothing to
+    go on, and is the shape of message people learn to ignore."""
+    with pytest.raises(field.PathRefused) as exc:
+        field.require_clear_path([(0.0, 0.0), (60.0, 0.0)],
+                                 what='drive to (60.0, 0.0)')
+    msg = str(exc.value)
+    assert 'drive to (60.0, 0.0)' in msg, 'the refused move is not named'
+    assert '60.0' in msg, 'no offending point named'
+    assert '55.15' in msg and '32.65' in msg, (
+        'the refusal does not state the usable extent it applied')
+
+
+def test_require_clear_path_refuses_a_legal_TARGET_reached_by_an_illegal_path():
+    """The target itself clears the margin; the path to it does not,
+    because the robot is currently OUTSIDE the margin and the first
+    part of the leg is spent getting back in.
+
+    This is the case that makes the check a PATH check rather than a
+    target check, and it is the one a reposition actually hits: the
+    dots are all legal points, so a tool that only validated its
+    destination would arm every one of these. (A leg between two legal
+    points cannot itself leave the margin -- the usable field is a
+    rectangle, hence convex -- so an out-of-margin START is exactly
+    where a two-waypoint path goes wrong.)"""
+    with pytest.raises(field.PathRefused) as exc:
+        field.require_clear_path([(60.0, 0.0), (0.0, 0.0)],
+                                 what='drive to (0.0, 0.0)')
+    msg = str(exc.value)
+    assert 'drive to (0.0, 0.0)' in msg
+    assert '60.0' in msg, (
+        'the offending START of the leg must be named, not just the '
+        'destination -- the destination is fine')
+
+
+def test_require_clear_path_walks_multi_leg_routes_not_just_their_ends():
+    """A route whose first and last waypoints both clear but whose
+    middle leg does not. `check_path()` already walks the segments;
+    this pins that the planners' gate inherits that and does not
+    shortcut to first/last."""
+    with pytest.raises(field.PathRefused):
+        field.require_clear_path([(0.0, 0.0), (60.0, 0.0), (10.0, 0.0)])
+
+
+def test_require_clear_path_never_clamps_the_waypoints():
+    """It raises; it does not hand back a shortened path. Nothing in
+    the signature offers a corrected route, deliberately: a silently
+    re-planned move is the failure this check exists to prevent."""
+    waypoints = [(0.0, 0.0), (60.0, 0.0)]
+    with pytest.raises(field.PathRefused):
+        field.require_clear_path(waypoints)
+    assert waypoints == [(0.0, 0.0), (60.0, 0.0)]
+
+
+# --- field.py imports nothing that does I/O ------------------------------
+
+def test_field_imports_nothing_that_does_io():
+    """The invariant that lets `tests/calibration/*` and `tests/host/*`
+    both import this module on a machine with no robot, no camera and
+    no relay attached. The geofence is wired in by having the PLANNERS
+    call `check_path()` -- never by teaching `field.py` about a link.
+    """
+    src = (_TOOLS_DIR / 'field.py').read_text()
+    imported = set()
+    for line in src.splitlines():
+        line = line.strip()
+        if line.startswith('import '):
+            imported.update(n.strip().split(' as ')[0].split('.')[0]
+                            for n in line[len('import '):].split(','))
+        elif line.startswith('from ') and ' import ' in line:
+            imported.add(line[len('from '):].split(' import ')[0].split('.')[0])
+    assert imported == {'math'}, (
+        f'tools/field.py must import nothing but math; found {sorted(imported)}')

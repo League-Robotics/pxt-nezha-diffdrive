@@ -16,7 +16,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from field import wrap
+from field import require_clear_path, wrap
 
 
 class Repositioner:
@@ -41,9 +41,29 @@ class Repositioner:
                 return True
         return False
 
+    def check_path(self, pose, x, y):
+        """Pre-flight the straight leg from the MEASURED pose to
+        `(x, y)` -- raises `field.PathRefused` (naming the offending
+        points) if any part of it leaves the playfield margin, and
+        returns quietly otherwise.
+
+        A method rather than an inline call so that every planner this
+        class absorbs keeps the gate: `tour_run.place()` does the same
+        check today and merges in here next (sprint 034 ticket 009).
+        The refusal must stay AHEAD of the first byte sent -- see
+        `field.require_clear_path()`.
+        """
+        require_clear_path([(pose[0], pose[1]), (x, y)],
+                           what=f'drive to ({x:.1f}, {y:.1f})')
+
     def go(self, x, y, heading, tries=3, echo=True):
         """Drive to (x, y) then face `heading`. Returns the final camera
-        pose, or None if the camera lost the robot."""
+        pose, or None if the camera lost the robot.
+
+        Raises `field.PathRefused` -- before sending anything at all --
+        if the straight leg from where the camera says the robot IS to
+        `(x, y)` leaves the playfield margin.
+        """
         for _attempt in range(tries):
             pose = self.fix()
             if pose is None:
@@ -56,6 +76,12 @@ class Repositioner:
                       f'{herr:+6.1f} deg')
             if derr <= self.tol_cm and abs(herr) <= self.tol_deg:
                 return pose
+
+            # Pre-flight the projected path BEFORE the seed: the seed
+            # is already a command on the wire, and a run refused after
+            # it has been sent has still changed the robot's world
+            # frame (.claude/rules/playfield-testing.md).
+            self.check_path(pose, x, y)
 
             # Seed the robot with what the camera SEES, so its own
             # world frame matches the field before it plans anything.

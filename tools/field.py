@@ -51,9 +51,37 @@ MARGIN = 12.0
 CORNER_WINDOW_RADIUS = 15.0  # [cm]
 
 
-def _within_margin(x, y):
+class PathRefused(Exception):
+    """A planner refused to arm a move because its projected path left
+    the usable field. Raised by `require_clear_path()`; never caught
+    and turned into a clamp -- a silently shortened move is worse than
+    no check at all, because the operator believes the commanded
+    geometry ran."""
+
+
+def usable_half_extent() -> tuple:
+    """`(x, y)` half-extents [cm] a planned path must stay inside --
+    `LIMITS` reduced by `MARGIN`, DERIVED here and nowhere else.
+
+    This is the ONE place that subtraction happens. It exists because
+    it had already been done twice, by hand, against two different
+    fields: `tests/host/test_run_tour_programs.py` carried its own
+    `_FIELD_MM = (600.0, 400.0)` / `_MARGIN_MM = 50.0` (a 120 x 80 cm
+    envelope, 55.0 x 35.0 cm usable) while this module's `LIMITS`
+    (cited to `.claude/rules/playfield-testing.md`) gives 55.15 x
+    32.65 cm. x agreed to 1.5 mm; y did not, and the private pair was
+    the LOOSER of the two by 2.35 cm -- so a `.tour` figure could pass
+    its own sizing gate and still be planned outside the geofence
+    every other tool enforces. Sprint 034 ticket 007 deleted the
+    private pair and pointed that test here.
+    """
     lx, ly = LIMITS
-    return abs(x) <= lx - MARGIN and abs(y) <= ly - MARGIN
+    return lx - MARGIN, ly - MARGIN
+
+
+def _within_margin(x, y):
+    lx, ly = usable_half_extent()
+    return abs(x) <= lx and abs(y) <= ly
 
 
 def clears_margin(rows):
@@ -91,6 +119,43 @@ def check_path(waypoints, samples_per_segment=20):
             if not _within_margin(x, y):
                 offenders.append((x, y))
     return offenders
+
+
+def require_clear_path(waypoints, what: str = 'this move',
+                       samples_per_segment: int = 20) -> None:
+    """Pre-flight gate for a PLANNER: return quietly if `waypoints`
+    (and every segment between them) clears the margin, else raise
+    `PathRefused` naming the offending points.
+
+    This is the callable form of `.claude/rules/playfield-testing.md`'s
+    "before sending ANY commanded motion, compute the full projected
+    path from a measured start pose ... and confirm every waypoint
+    clears the margin". Callers put it before the first byte they send,
+    not after the seed: refusing a move that has already been half
+    armed still leaves the robot somewhere it was not asked to be.
+
+    It **refuses**; it never clamps, never shortens, never picks a
+    nearer point. Driving off the playfield is a failure, and so is
+    quietly driving somewhere else instead: both end with an operator
+    who believes the commanded geometry ran.
+
+    `what` names the move in the message ("reposition onto (50, 30)"),
+    so a refusal read off a console says which command was refused as
+    well as where it would have gone.
+    """
+    offenders = check_path(waypoints, samples_per_segment)
+    if not offenders:
+        return
+    hx, hy = usable_half_extent()
+    shown = ', '.join(f'({x:.1f}, {y:.1f})' for x, y in offenders[:4])
+    more = '' if len(offenders) <= 4 else f' +{len(offenders) - 4} more'
+    plan = ' -> '.join(f'({x:.1f}, {y:.1f})' for x, y in waypoints)
+    raise PathRefused(
+        f'REFUSING {what}: the projected path leaves the usable field '
+        f'(+/-{hx:.2f} x +/-{hy:.2f} cm -- LIMITS {LIMITS[0]:.2f}/'
+        f'{LIMITS[1]:.2f} less the {MARGIN:.0f} cm margin) at '
+        f'{shown}{more}. Planned path: {plan}. Nothing was sent; '
+        f'reposition the robot or re-plan -- the margin is not a knob.')
 
 
 def wrap(d):

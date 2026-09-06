@@ -26,7 +26,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
 from camproc import Cam
-from field import ORDER, wrap, score_corners, path_deviation
+from field import (ORDER, PathRefused, clears_margin, path_deviation,
+                   require_clear_path, score_corners, usable_half_extent,
+                   wrap)
 import tlm
 
 
@@ -83,6 +85,12 @@ def place(link, cam, x, y, h, tol_cm=2.5, tol_deg=4.0, tries=3):
     This runs BETWEEN tours, never inside one. Repositioning is setup:
     it is the only way successive practice runs start from the same
     place and their scores mean the same thing.
+
+    Raises `field.PathRefused` -- before anything is sent -- if the
+    straight leg from the camera-measured pose to `(x, y)` leaves the
+    playfield margin. Same gate, same helper, as
+    `reposition.Repositioner.check_path()`; sprint 034 ticket 009 folds
+    this function into that class and the gate goes with it.
     """
     # POSITION first, then heading, and never the other way round. An
     # in-place pivot walks the centre of rotation a centimetre or so,
@@ -96,6 +104,10 @@ def place(link, cam, x, y, h, tol_cm=2.5, tol_deg=4.0, tries=3):
             print('    camera cannot see the robot'); return False
         if math.hypot(p[0] - x, p[1] - y) <= tol_cm:
             break
+        # Pre-flight BEFORE the seed -- the seed is already a command,
+        # and the goto that follows it is the one that drives.
+        require_clear_path([(p[0], p[1]), (x, y)],
+                           what=f'reposition onto ({x:.1f}, {y:.1f})')
         link.send_until(f'RUN:seedxy:{p[0]:.1f}:{p[1]:.1f}:{p[2]:.1f}',
                         'OCAL:seeded', tries=3, wait=5, echo=False)
         link.send_until(f'RUN:goto:{x:.0f}:{y:.0f}', 'GOTO:end',
@@ -161,7 +173,11 @@ def main():
             # 1.5 deg, not 4: an open-loop tour turns start heading
             # error straight into corner error (leg x sin theta), so
             # 4 deg on a 100 cm leg is already 7 cm.
-            if not place(link, cam, 50.0, 30.0, 180.0, tol_deg=1.5):
+            try:
+                if not place(link, cam, 50.0, 30.0, 180.0, tol_deg=1.5):
+                    break
+            except PathRefused as e:
+                print(f'  {e}')
                 break
         # --- camera use #1 of 2: seed the world pose, once ---
         p = cam.fix()
@@ -216,6 +232,13 @@ def main():
         print(f'  path deviation from the rectangle: median '
               f'{r["dev_med"]:.1f} cm, 90th {r["dev_90"]:.1f}, '
               f'max {r["dev_max"]:.1f}')
+        # The geofence, scored after the fact on the rows the recorder
+        # already holds: the pre-flight check refuses a bad PLAN, this
+        # says whether the run as driven stayed inside the margin.
+        hx, hy = usable_half_extent()
+        print(f'  geofence: '
+              f'{"clear" if clears_margin(cam_rows) else "LEFT THE MARGIN"}'
+              f' (usable +/-{hx:.2f} x +/-{hy:.2f} cm)')
         # Achieved wheel speed, from the robot's own encoders. This is
         # the number that says whether a leg ran at its commanded rate
         # or sat on the taper floor -- the fault that used to make the

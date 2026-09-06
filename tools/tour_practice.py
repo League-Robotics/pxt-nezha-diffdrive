@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
 from reposition import Repositioner
 from camproc import Cam
-from field import ORDER, score_corners, closure
+from field import ORDER, PathRefused, closure, score_corners
 import tlm
 
 START = (50.0, 30.0, 180.0)
@@ -171,7 +171,14 @@ def main():
                 # The robot-relative tour has no world frame, so it must
                 # physically start on the dot facing west.
                 print('  repositioning to the NE dot:')
-                start = rep.go(*START)
+                # Repositioner.go() pre-flights the leg against the
+                # playfield margin and REFUSES rather than clamping --
+                # print it and skip the run, never drive anyway.
+                try:
+                    start = rep.go(*START)
+                except PathRefused as e:
+                    print(f'  {e}')
+                    continue
                 if start is None:
                     print('  camera lost the robot; skipping')
                     continue

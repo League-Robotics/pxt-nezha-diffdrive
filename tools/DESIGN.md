@@ -490,6 +490,55 @@ from the LATE sample, pushed `used` to the tail, and left SW/SE/NE a
 handful of final samples — one good run read as three bad corners
 (08-26 C-16, reopened as TL-08).
 
+### The geofence: one field size, checked by every planner (sprint 034 ticket 007)
+
+`field.LIMITS` (±67.15 / ±44.65 cm, the 134.3 × 89.3 cm field) less
+`field.MARGIN` (12 cm) is the only field size in the repo, and
+**`field.usable_half_extent()` is the one place that subtraction
+happens** — `(55.15, 32.65)` cm, derived, never a second typed pair.
+`tests/host/test_run_tour_programs.py` used to carry its own
+`_FIELD_MM`/`_MARGIN_MM` (a 55.0 × 35.0 cm usable field): x agreed to
+1.5 mm, y was 2.35 cm LOOSER, so a `.tour` figure could pass its sizing
+gate and still be outside the fence every driving tool enforces. That
+pair is gone; the test derives from this accessor.
+
+`field.require_clear_path(waypoints, what=...)` is the planners' gate:
+it runs `check_path()` (waypoints **and** the segments between them)
+and raises `field.PathRefused`, naming the offending points, the
+refused move and the usable extent it applied. It **refuses; it never
+clamps** — a silently shortened move ends with an operator who believes
+the commanded geometry ran.
+
+Callers today, i.e. every surviving tool that commands motion to a
+COORDINATE:
+
+- **`reposition.py`** — `Repositioner.check_path()`, called by `go()`
+  ahead of the seed (the seed is already a command on the wire).
+- **`tour_run.py`** — `place()`, same gate, same helper; `main()`
+  catches `PathRefused` and abandons the run rather than tracebacking.
+- **`tour_practice.py`** — inherits it through `Repositioner.go()`;
+  prints the refusal and skips the run.
+- **`tests/calibration/turn_calibration.py`** — already called
+  `check_path()` directly at seven sites (arcs, straights, the G5
+  `WHEELS_V` travel, the square, the segment protocol).
+
+Everything else that drives (`pivot_truth.py`, `turn_sweep.py`,
+`rotation_check.py`, `arc_capture.py`, `tools/linefollow/`,
+`tests/calibration/{distance,mount,lag_measure,field_dance}.py`) issues
+RELATIVE moves — pivots, `MOVE_X` legs, `MOVE_V` steps — with no
+coordinate to check a path against; they are out of this gate's scope,
+not exempt from the rule.
+
+The RECORDERS score the fence after the fact on rows they already hold:
+`tour_run.py` and `tour_watch.py` both print `field.clears_margin()`
+(clear / LEFT THE MARGIN, with the usable extent) in their score line.
+
+**`field.py` still imports nothing but `math`** — pinned by
+`tests/tools/test_field.py`. That invariant is what lets
+`tests/calibration/*` and `tests/host/*` import it on a machine with no
+robot attached, and it is why the geofence is wired in by having the
+PLANNERS call the check, never by teaching `field.py` about a link.
+
 ## OTOS rig console
 
 - **`otos_bench.py`** — chainable subcommands driving

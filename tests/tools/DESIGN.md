@@ -190,9 +190,35 @@ Imports `tools/field.py` directly:
   requiring the second to take the next one.
 - **`path_deviation()`** — the PY-08 degenerate-zero-length-segment
   divide guard.
+- **the geofence** (sprint 034 ticket 007) — `usable_half_extent()` is
+  DERIVED from `LIMITS`/`MARGIN` and agrees with `clears_margin()` to a
+  millimetre on both axes; `require_clear_path()` raises `PathRefused`
+  naming the refused move, the offending points and the extent applied,
+  walks multi-leg routes, and never rewrites the caller's waypoints. A
+  drift guard fails if `tests/host/test_run_tour_programs.py` grows a
+  private field size again, and a source-level test asserts
+  `tools/field.py` imports nothing but `math` — the invariant that lets
+  `tests/calibration/*` and `tests/host/*` import it with no robot
+  attached.
 
 Run: `uv run pytest tests/tools/test_field.py`, or as part of the
 whole suite.
+
+### `test_reposition.py` / `test_tour_run_geofence.py` (sprint 034 ticket 007)
+
+The two planners that command motion to a coordinate, each driven with
+an injected fake link and fake camera. They assert on **what the link
+received**, not on a return value: a refusal that has already sent
+`RUN:seedxy` has still changed the robot's world frame, so every
+refusal case checks `link.sent == []` and one test pins the ORDERING
+explicitly. Accept cases are pinned too (the NE staging dot must still
+drive) — a gate that refuses everything is as useless as one that
+refuses nothing. Two files rather than one because `place()` and
+`Repositioner.go()` are twins until sprint 034 ticket 009 merges them,
+and a gate only one twin has is how twins drift.
+
+Run: `uv run pytest tests/tools/test_reposition.py
+tests/tools/test_tour_run_geofence.py`.
 
 ### `test_run_verbs.py` (sprint 005 ticket 006)
 

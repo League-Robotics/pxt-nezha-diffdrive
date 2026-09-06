@@ -1,7 +1,7 @@
 ---
 id: '007'
 title: Wire the geofence into every planner; one field size
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on:
@@ -56,20 +56,20 @@ unifying can fail a `.tour` figure that passes today.
 
 ## Acceptance Criteria
 
-- [ ] `Repositioner.go()` refuses a target whose projected path fails
+- [x] `Repositioner.go()` refuses a target whose projected path fails
       `check_path([current, target])`, naming the offending waypoints.
-- [ ] `tour_run.place()` does the same.
-- [ ] Every surviving tool that commands motion to a coordinate calls it.
+- [x] `tour_run.place()` does the same.
+- [x] Every surviving tool that commands motion to a coordinate calls it.
       Enumerate them yourself against the tree you find -- ticket 003 has
       deleted `tour_square.py` and `tour_closedloop.py` by now, so the
       issue's list is out of date.
-- [ ] The recorders (`tour_run`, `tour_watch`) print `clears_margin()`
+- [x] The recorders (`tour_run`, `tour_watch`) print `clears_margin()`
       on the camera rows they already hold, in their score line.
-- [ ] `field.py` exposes the usable half-extent as a **derived** value
+- [x] `field.py` exposes the usable half-extent as a **derived** value
       (`LIMITS` minus `MARGIN`), not a second hand-typed pair.
-- [ ] `tests/host/test_run_tour_programs.py` imports it;
+- [x] `tests/host/test_run_tour_programs.py` imports it;
       `_FIELD_MM` and `_MARGIN_MM` are gone.
-- [ ] **`field.py` still imports nothing that does I/O.** No `socket`,
+- [x] **`field.py` still imports nothing that does I/O.** No `socket`,
       no `pyserial`, no `aprilcam`. This is the invariant that lets
       `tests/calibration/*` and `tests/host/*` both import it on a
       machine with no robot attached. Wire the geofence by having the
@@ -138,3 +138,85 @@ Ticket 003.
   refused, exercising the segment walk `check_path` already does.
 - **Verification command**: `uv run pytest tests/tools/test_field.py
   tests/host/test_run_tour_programs.py -q`
+
+## Implementation record
+
+### Open Question 1 -- outcome: NO tour failed the tighter y limit
+
+`tests/host/test_run_tour_programs.py` now derives its limits from
+`field.usable_half_extent()` (55.15 x 32.65 cm = 551.5 x 326.5 mm half-
+extent, vs the deleted private pair's 550.0 x 350.0). Every sized
+`.tour` and every referenced spline path still fits; nothing was
+re-sized and nothing was added to `_UNSIZED`. `LIMITS` and `MARGIN`
+were not touched.
+
+The "either orientation" allowance is what carries it -- the tall
+figures are staged across the field's long axis, where the y limit
+never applies to their long dimension:
+
+| tour | half-extent [mm] | under 550/350 | under 551.5/326.5 |
+|---|---|---|---|
+| circle | 300.0 x 300.0 | fits | fits |
+| diamond | 318.2 x 318.2 | fits | fits |
+| infinity | 250.0 x 500.0 | fits | fits (rotated) |
+| snake | 125.0 x 500.0 | fits | fits (rotated) |
+| square | 300.0 x 300.0 | fits | fits |
+| spline -> complex.path.json | 360.9 x 262.8 | fits | fits |
+
+(`square_cw`, `square_smooth`, `complex_spline`, `tag_spline` and
+`fault_wedge` remain in `_UNSIZED`, unchanged; their extents were
+checked anyway and all clear the tighter limit too.) So the exception
+path was not needed: no `_UNSIZED` addition, no re-size, no exception
+thrown.
+
+### Which tools now call the gate
+
+`field.require_clear_path(waypoints, what=...)` wraps `check_path()`
+and raises `field.PathRefused` naming the refused move, the offending
+points and the usable extent. It refuses; it never clamps.
+
+- `tools/reposition.py` -- `Repositioner.check_path()`, called from
+  `go()` BEFORE the seed (ticket 009 merges `place()` into this class
+  and inherits the method).
+- `tools/tour_run.py` -- `place()`, same helper; `main()` catches
+  `PathRefused` and abandons the run instead of tracebacking.
+- `tools/tour_practice.py` -- inherits it via `Repositioner.go()`;
+  catches, prints, skips the run.
+- `tests/calibration/turn_calibration.py` -- already called
+  `check_path()` directly at seven sites; left as is.
+
+Enumerated against the tree (post-ticket-003) and NOT wired, because
+they command only RELATIVE motion with no coordinate to check:
+`pivot_truth.py`, `turn_sweep.py`, `rotation_check.py`,
+`arc_capture.py`, `tour_capture.py`, `otos_levercal.py`,
+`otos_bench.py` (drum rig, not the robot), `tools/linefollow/*`,
+`tests/calibration/{distance,mount,lag_measure,field_dance}.py`.
+`tools/park.py` sends nothing (pure planner) and carries no field-size
+copy of its own.
+
+### Recorders
+
+`tour_run.py` and `tour_watch.py` both print `clears_margin()` on the
+camera rows they already hold, in their score line, with the usable
+extent: `geofence: clear|LEFT THE MARGIN (usable +/-55.15 x +/-32.65 cm)`.
+
+### Tests
+
+- `tests/tools/test_field.py` -- `usable_half_extent()` is derived and
+  agrees with `clears_margin()` on both axes; `require_clear_path()`
+  names the move/points/extent, catches a legal TARGET reached by an
+  illegal PATH (an out-of-margin start), walks multi-leg routes, never
+  rewrites the caller's waypoints; a drift guard fails if the tour
+  sizing test regrows a private field size; a source test asserts
+  `tools/field.py` imports nothing but `math`.
+- `tests/tools/test_reposition.py` (new) and
+  `tests/tools/test_tour_run_geofence.py` (new) -- injected fake link
+  and camera; every refusal case asserts `link.sent == []`, one test
+  pins that the refusal precedes `RUN:seedxy`, and both accept paths
+  (the NE staging dot) still drive.
+
+Verification: `uv run pytest tests/tools/test_field.py
+tests/host/test_run_tour_programs.py -q` -> 83 passed;
+`uv run pytest tests/tools tests/host/test_run_tour_programs.py -q` ->
+534 passed; `uv run pytest tests/calibration -q` -> 32 passed. Ruff
+clean on every touched file. No version bump.

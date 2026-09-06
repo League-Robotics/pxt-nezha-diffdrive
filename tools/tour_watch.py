@@ -30,7 +30,7 @@ import time
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
 from camproc import Cam
-from field import DOTS, RECT
+from field import DOTS, RECT, clears_margin, usable_half_extent
 import tlm
 
 TOUR_TITLE = {
@@ -214,6 +214,15 @@ def main():
               f'{meta["dropped"]} dropped ({meta["loss_pct"]:.1f}% loss)')
         if closure is not None:
             print(f'    closure {closure:.1f} cm (camera)')
+        # This tool never commands motion, so it has no path to
+        # pre-flight -- but it holds the camera rows, so it can say
+        # whether the run the operator just triggered stayed inside
+        # the margin (.claude/rules/playfield-testing.md).
+        if camrows:
+            hx, hy = usable_half_extent()
+            print(f'    geofence: '
+                  f'{"clear" if clears_margin(camrows) else "LEFT THE MARGIN"}'
+                  f' (usable +/-{hx:.2f} x +/-{hy:.2f} cm)')
         print(f'    -> {png}')
         subprocess.run(['open', png])
         print('watching for the next tour...')
