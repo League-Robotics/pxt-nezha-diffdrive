@@ -53,22 +53,9 @@ Run with::
     uv run pytest tests/host/test_stop_move_zeros_continuous_drive.py
 """
 
-import ctypes
-import pathlib
 
 import pytest
 
-from test_kernel_harness import compile_shared_lib
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
 
 STATUS_OK = 0
 
@@ -84,50 +71,6 @@ FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
 # stop_probe.cpp's own use of kLeaseMax for the "continuous drive, never
 # expires on its own" setup this bug requires.
 _LONG_LEASE_MS = 60_000
-
-
-def _bind(lib):
-    lib.meCreate.argtypes = []
-    lib.meCreate.restype = ctypes.c_void_p
-    lib.meDestroy.argtypes = [ctypes.c_void_p]
-    lib.meDestroy.restype = None
-
-    lib.meSetMaxDuty.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetMaxDuty.restype = None
-    lib.meSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetFullDutyVelocity.restype = None
-    lib.meBegin.argtypes = [ctypes.c_void_p]
-    lib.meBegin.restype = ctypes.c_int
-    lib.meStep.argtypes = [ctypes.c_void_p]
-    lib.meStep.restype = None
-    lib.meClockSetNow.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
-    lib.meClockSetNow.restype = None
-
-    lib.meMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    lib.meMotorLastStagedDuty.restype = ctypes.c_float
-
-    lib.meWheelsV.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
-    ]
-    lib.meWheelsV.restype = None
-    lib.meServiceMove.argtypes = [ctypes.c_void_p]
-    lib.meServiceMove.restype = ctypes.c_int
-
-    lib.meEndMoveOldStopSequence.argtypes = [ctypes.c_void_p]
-    lib.meEndMoveOldStopSequence.restype = None
-    lib.meEndMoveFixedStopSequence.argtypes = [ctypes.c_void_p]
-    lib.meEndMoveFixedStopSequence.restype = None
-
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libstop_move_zeros_continuous_drive_shim.so",
-    )
-    return _bind(ctypes.CDLL(str(lib_path)))
 
 
 class Engine:

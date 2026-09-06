@@ -42,23 +42,10 @@ Run with::
     uv run pytest tests/host/test_motion_engine_primitives.py
 """
 
-import ctypes
 import math
-import pathlib
 
 import pytest
 
-from test_kernel_harness import compile_shared_lib
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
 
 # DiffDrive::DifferentialDrive::Status's DECLARATION order (src/core/diffdrive.h).
 STATUS_OK = 0
@@ -77,82 +64,6 @@ FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
 # the kernel's controlStep() -- algebraically identical, not bit-for-bit
 # identical.
 _DUTY_REL = 1e-4
-
-
-def _bind(lib):
-    """Attach ctypes argtypes/restype for every motion_engine_shim.cpp
-    export."""
-    lib.meCreate.argtypes = []
-    lib.meCreate.restype = ctypes.c_void_p
-    lib.meDestroy.argtypes = [ctypes.c_void_p]
-    lib.meDestroy.restype = None
-
-    lib.meSetMaxDuty.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetMaxDuty.restype = None
-    lib.meSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetFullDutyVelocity.restype = None
-    lib.meBegin.argtypes = [ctypes.c_void_p]
-    lib.meBegin.restype = ctypes.c_int
-    lib.meStep.argtypes = [ctypes.c_void_p]
-    lib.meStep.restype = None
-    lib.meOutLeaseExpired.argtypes = [ctypes.c_void_p]
-    lib.meOutLeaseExpired.restype = ctypes.c_int
-
-    lib.meClockSetNow.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
-    lib.meClockSetNow.restype = None
-
-    lib.meMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    lib.meMotorLastStagedDuty.restype = ctypes.c_float
-
-    lib.meCountsPerMm.argtypes = [ctypes.c_void_p]
-    lib.meCountsPerMm.restype = ctypes.c_float
-    lib.meEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
-    lib.meEffectiveTrackWidth.restype = ctypes.c_float
-    lib.meTrackWidth.argtypes = [ctypes.c_void_p]
-    lib.meTrackWidth.restype = ctypes.c_float
-    lib.meTravelCalib.argtypes = [ctypes.c_void_p]
-    lib.meTravelCalib.restype = ctypes.c_float
-    lib.meRotationalSlip.argtypes = [ctypes.c_void_p]
-    lib.meRotationalSlip.restype = ctypes.c_float
-    lib.meSetTrackWidth.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetTrackWidth.restype = None
-    lib.meSetTravelCalib.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetTravelCalib.restype = None
-    lib.meSetRotationalSlip.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetRotationalSlip.restype = None
-
-    lib.meWheelsV.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
-    ]
-    lib.meWheelsV.restype = None
-    lib.meWheelsX.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_uint32,
-    ]
-    lib.meWheelsX.restype = None
-
-    lib.meServiceMove.argtypes = [ctypes.c_void_p]
-    lib.meServiceMove.restype = ctypes.c_int
-    lib.meIsMoveActive.argtypes = [ctypes.c_void_p]
-    lib.meIsMoveActive.restype = ctypes.c_int
-    lib.meMotorArmPosition.argtypes = [
-        ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_uint64,
-    ]
-    lib.meMotorArmPosition.restype = None
-
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    """Compile motion_engine.cpp (+ diffdrive.cpp + this file's own shim)
-    exactly once for the whole pytest session, mirroring
-    test_kernel_harness.py's own kernel_lib fixture."""
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libmotion_engine_shim.so",
-    )
-    return _bind(ctypes.CDLL(str(lib_path)))
 
 
 class Engine:
@@ -628,7 +539,7 @@ def test_wheels_x_closed_loop_completion_ends_on_arrival(motion_lib):
     dead-reckoned for its whole computed lease no matter what the
     encoders reported)."""
     with Engine(motion_lib) as e:
-        fdv = _ready(e)
+        _ready(e)
         cpm = e.counts_per_mm()
         e.wheels_x(200.0, 200.0, 100.0, 20_000)  # generous timeout
         e.land_first_command()

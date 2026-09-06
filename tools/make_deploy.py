@@ -21,8 +21,9 @@ therefore gets checked in its OWN scratch copy (`--testrig`), generated
 from the same `pxt.json` `testFiles` list, never combined with the
 primary deploy.
 
-  uv run python tools/make_deploy.py            # build (vevov, ch 4)
-  uv run python tools/make_deploy.py --flash    # build, then flash vevov
+  uv run python tools/make_deploy.py            # build for DEFAULT_ROBOT,
+                                                 # on its configured channel
+  uv run python tools/make_deploy.py --flash    # build, then flash it
   uv run python tools/make_deploy.py --robot tovez --flash
                                                  # build for tovez's own
                                                  # radio channel, then
@@ -46,13 +47,17 @@ the scratch copy, this script reads the target robot's own
 config (`radio-robot-lib/config/robots/<robot>.json`) and substitutes
 it into the SCRATCH COPY's `src/comms/radio_transport.h` before
 `build()` runs -- see `_inject_radio_channel()` below. This repo's own
-checked-in source is never touched, so it keeps one fixed default
-(vevov's own channel, 4); a build invoked with no `--robot` is
-therefore byte-equivalent to a build invoked with `--robot vevov`, both
-before and after this behavior existed. No robot->channel table lives
-in this repo -- radio-robot-lib's JSON is the only place a channel
-number is read from, and a missing/unreadable/incomplete config fails
-the build loudly rather than falling back to any default.
+checked-in source is never touched: it keeps one fixed placeholder,
+whatever `src/comms/radio_transport.h` has checked in, which every
+build overwrites in its scratch copy from the target robot's own
+config. Do NOT read that checked-in number as any robot's channel --
+it is a legacy fleet default, and the boards moved off it (the fleet
+table lives in radio-robot-lib's per-robot JSON, mirrored for humans
+in `.claude/rules/playfield-testing.md`). No robot->channel table
+lives in this repo -- radio-robot-lib's JSON is the only place a
+channel number is read from, and a missing/unreadable/incomplete
+config fails the build loudly rather than falling back to any
+default.
 
 The same seam also carries the target robot's own NAME into the
 SCRATCH COPY's `src/comms/protocol.cpp` `kProfile` constant -- see
@@ -614,10 +619,12 @@ def _inject_radio_channel(deploy_dir, robot):
     `src/comms/radio_transport.h`'s `kChannel` constant with `robot`'s
     configured radio channel (`_read_robot_radio_channel()`, above).
     Mutates ONLY the scratch copy at `deploy_dir` -- the repo's own
-    checked-in `src/comms/radio_transport.h` is never touched, which is
-    what keeps a build invoked with no `--robot` byte-equivalent to
-    today's (`DEFAULT_ROBOT`, vevov, is already on channel 4, the
-    checked-in value)."""
+    checked-in `src/comms/radio_transport.h` is never touched. A build
+    invoked with no `--robot` is not a build with no injection: it
+    injects `DEFAULT_ROBOT`'s OWN configured channel and group, read
+    from the same per-robot JSON as any other robot's. The checked-in
+    constants are a placeholder that every build overwrites, not any
+    robot's address."""
     channel = _read_robot_radio_channel(robot)
     group = _read_robot_radio_group(robot)
     path = os.path.join(deploy_dir, 'src', 'comms', 'radio_transport.h')

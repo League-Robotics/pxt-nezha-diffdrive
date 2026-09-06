@@ -138,10 +138,12 @@ of sprint 034 ticket 008 runs in that same venv like everything else
   config (`radio-robot-lib/config/robots/<robot>.json`, never a table
   in this repo) and substituted into the scratch copy's
   `src/comms/radio_transport.h` before `build()` runs — the repo's own
-  checked-in source keeps one fixed default (vevov's own channel, 4),
-  so an unparameterised build stays byte-equivalent to before this
-  existed. A missing/unreadable config, or one with no `radio_channel`
-  field, fails the build loudly rather than falling back to a default.
+  checked-in source keeps one fixed placeholder (a legacy fleet-wide
+  4/10 that is nobody's address any more), and an unparameterised build
+  is not an uninjected one: it injects `DEFAULT_ROBOT`'s own configured
+  channel and group, from the same JSON as any other robot's. A
+  missing/unreadable config, or one with no `radio_channel` field,
+  fails the build loudly rather than falling back to a default.
   Also drops `disablesVariants: ["mbdal"]` from the scratch copy (kept
   in the repo's own `pxt.json`, it produces a hex that is dead on the
   device). Sets `PXT_COMPILE_SWITCHES=csv-mbcodal`

@@ -21,9 +21,14 @@ TypeScript -- a naive `subprocess.run(["npx", "tsc", ...])` would have
 looked like a passing gate returning a random failure, or worse, a
 silently wrong tool. This test shells the concrete installed binary
 (`node_modules/.bin/tsc`, from the pinned `typescript` devDependency in
-`package.json`) instead, and fails loud with an actionable message if
-that binary is missing rather than falling through to `npx`'s
-resolution.
+`package.json`) instead. If that binary is missing the test SKIPS with
+an actionable reason naming `npm ci`, rather than either falling
+through to `npx`'s resolution or failing: an uninstalled toolchain is
+an environment precondition, not a defect in this repo's TypeScript,
+and a fresh worktree whose only red test is "node_modules is absent"
+teaches the next reader that a red suite is normal (sprint 034 ticket
+010). The skip reason carries the no-`npx` reasoning above with it, so
+it is still read at the moment it matters.
 
 **What `tsconfig.json`'s own header comment covers, and doesn't
 duplicate here**: getting this to run cleanly required two real fixes
@@ -50,6 +55,8 @@ Run with::
 import pathlib
 import subprocess
 
+import pytest
+
 # tests/host/test_typescript_typecheck.py -> host -> tests -> repo root
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _TSC = _REPO_ROOT / "node_modules" / ".bin" / "tsc"
@@ -65,12 +72,17 @@ def test_tsc_noemit_is_clean():
     two known-tricky classes of gap this project has already hit:
     missing `pxt_modules/core` manifest entries, and globals PXT's
     device-only ambient set doesn't declare)."""
-    assert _TSC.is_file(), (
-        f"{_TSC} does not exist -- run `npm install` first (this test "
-        f"deliberately does not fall back to `npx tsc`: with no local "
-        f"install, `npx tsc` in this environment resolves to an unrelated "
-        f"decoy package named `tsc`, not real TypeScript)"
-    )
+    if not _TSC.is_file():
+        pytest.skip(
+            f"{_TSC} does not exist -- run `npm ci` (or `npm install`) "
+            f"to install the pinned `typescript` devDependency, then "
+            f"re-run. This test deliberately does not fall back to "
+            f"`npx tsc`: with no local install, `npx tsc` in this "
+            f"environment resolves to an unrelated decoy package named "
+            f"`tsc`, not real TypeScript, so falling back would report a "
+            f"random failure from the wrong tool instead of this "
+            f"message."
+        )
     result = subprocess.run(
         [str(_TSC), "--noEmit", "-p", str(_TSCONFIG)],
         capture_output=True,
@@ -80,4 +92,33 @@ def test_tsc_noemit_is_clean():
     assert result.returncode == 0, (
         f"tsc --noEmit failed (exit {result.returncode}):\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+
+
+def test_missing_tsc_skips_rather_than_fails(monkeypatch, tmp_path):
+    """A checkout with no `node_modules` must SKIP this gate, not fail
+    it. An absent toolchain is an environment precondition, not a defect
+    in this repo's TypeScript -- and reporting it as a red test teaches
+    the next person working in a fresh worktree that a red suite is
+    normal, which is the state in which a real failure stops being
+    visible.
+
+    Verified by pointing the module's `_TSC` at a path that does not
+    exist rather than by moving the real `node_modules`: the real tree
+    is what `test_tsc_noemit_is_clean` above and the `pxt` build both
+    depend on, and a test that relocates it would break every other
+    consumer for the duration of its own run."""
+    monkeypatch.setitem(
+        globals(), "_TSC", tmp_path / "node_modules" / ".bin" / "tsc")
+    with pytest.raises(pytest.skip.Exception) as excinfo:
+        test_tsc_noemit_is_clean()
+    reason = str(excinfo.value)
+    assert "npm" in reason, (
+        f"the skip reason must name the fix (`npm ci`/`npm install`); "
+        f"got: {reason}"
+    )
+    assert "npx" in reason, (
+        f"the skip reason must keep the no-`npx`-fallback reasoning "
+        f"(the decoy `tsc` package this environment resolves); "
+        f"got: {reason}"
     )

@@ -7,7 +7,8 @@
 ## 1. Purpose
 
 Plain-Python unit tests over the logic inside this repo's own `tools/`
-scripts — no compiler, no subprocess, no network. The seam that
+scripts — no compiler, no network, and (with one stated exception,
+`test_ruff_clean.py`, below) no subprocess. The seam that
 separates this directory from its sibling
 [`tests/host/`](../host/DESIGN.md): `tests/host/` compiles the
 extension's portable firmware C++ for the desktop and drives it
@@ -294,6 +295,44 @@ robot-is-switched-OFF check, where it used to raise
 Run: `uv run pytest tests/tools/test_run_verbs.py`, or as part of the
 whole suite.
 
+### `test_ruff_clean.py` (sprint 034 ticket 010)
+
+The lint gate, and this directory's one deliberate subprocess. `ruff`
+had been configured in `pyproject.toml` since sprint 017 ticket 007 and
+declared as a dev dependency, and nothing ever ran it — ten findings had
+accumulated, most of them in `tests/dev/` and `tests/system/`, which
+`uv run pytest` does not collect, so no amount of running the suite
+would have surfaced them. It shells the concrete `ruff` binary
+(resolved from `PATH`, then `.venv/bin/`, never a bare name — the same
+reasoning `tests/host/test_typescript_typecheck.py` spells out for
+`tsc`) over `tools/` and `tests/`, passes no `--select` of its own so
+the rule set stays a one-line `pyproject.toml` change, and folds ruff's
+own output into the assertion message. A missing `ruff` **skips** with
+a reason naming `uv sync` rather than failing: an uninstalled linter is
+an environment precondition, not a finding. It lints itself.
+
+A test rather than a CI workflow on purpose: this repo has one GitHub
+workflow (`publish-extension.yml`) and the developer signal here is
+`uv run pytest`.
+
+Run: `uv run pytest tests/tools/test_ruff_clean.py`.
+
+### `test_travel_calib_drift.py`
+
+Pins the two host-side hand-typed mirrors of
+`src/motion/motion_engine.h`'s `travelCalib_`: `tools/tour_chart.py`'s
+`--travel-calib` default, and (sprint 034 ticket 010)
+`tests/system/run_tour.py`'s `TRAVEL_CALIB`. The second was a third
+copy nothing checked, and it is the one holding the constant that has
+already drifted once (0.8102 stayed mirrored past the 0.7878
+camera-measured update) — and it is not decoration: `CPM = 10.0 /
+TRAVEL_CALIB` is the mm-to-counts scale every tour is commanded and
+scored in, and `tests/system/` is never run by `uv run pytest`, so the
+guard has to live here. Text-based, not imports: `tour_chart.py` needs
+matplotlib and `run_tour.py` opens a socket to a robot.
+
+Run: `uv run pytest tests/tools/test_travel_calib_drift.py`.
+
 ### `test_link.py` (sprint 034 ticket 006)
 
 Pins `tools/link.py`, the one sequenced-wire protocol every carrier
@@ -346,6 +385,12 @@ Run: `uv run pytest tests/tools/test_link.py`.
   tests replace every collaborator that would otherwise shell out or
   touch disk state. A future test that needs a real `pxt build` does
   not belong in this file.
+- **`test_ruff_clean.py` is the one subprocess in this directory, and
+  it stays the only one.** It shells a linter, which reads source text
+  and touches nothing else — no build, no device, no network. That is
+  the whole exception: a test that needs a compiler belongs in
+  `tests/host/`, and one that needs a robot belongs in
+  `tests/system/`.
 - **`test_tlm.py`: an absent CSV is unambiguous; an empty one is not
   — never assert the opposite.** Every fail-loud-guard test asserts
   *both* halves of that: the raising path leaves no file on disk, and
@@ -397,6 +442,8 @@ granularity instead of a C++ vtable.
   ticket 008) — each file alone.
 - **`uv run pytest tests/tools/test_run_verbs.py`** (sprint 005 ticket
   006) — this file alone.
+- **`uv run pytest tests/tools/test_ruff_clean.py`** (sprint 034 ticket
+  010) — the lint gate alone.
 - All also run as part of **`uv run pytest`** from the repo root, and
   the once-per-sprint gate `close_sprint` runs.
 

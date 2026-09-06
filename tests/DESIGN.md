@@ -9,7 +9,7 @@ it?*
 | directory | needs | run by `uv run pytest` | lifetime |
 |---|---|---|---|
 | [`host/`](host/DESIGN.md) | a C++ compiler | yes | permanent |
-| [`tools/`](tools/DESIGN.md) | nothing | yes | permanent |
+| [`tools/`](tools/DESIGN.md) | nothing (bar the lint gate's `ruff`) | yes | permanent |
 | [`system/`](system/DESIGN.md) | a real robot | **no** — run by hand | permanent |
 | `dev/` | a real robot | **no** | disposable |
 
@@ -25,7 +25,13 @@ not a suite.
   system compiler and driven from pytest through `ctypes`, against fake
   ports. No micro:bit, PXT, or CODAL anywhere in the link.
 - **`tools/`** — plain-Python unit tests over `tools/` scripts' own
-  logic, no shim compilation and no hardware or network.
+  logic, no shim compilation and no hardware or network. It also holds
+  the repo's **lint gate**, `test_ruff_clean.py` (sprint 034 ticket
+  010): `ruff check tools tests`, run as a test rather than as a CI
+  workflow because `uv run pytest` is this project's developer signal.
+  Note its scope is `tests/` entire, not just the two collected
+  directories — which is the point: the findings it first caught were
+  in `dev/` and `system/`, where nothing else looks.
   `test_make_deploy_triage.py` pins `tools/make_deploy.py`'s
   `classify_attempt()` against saved/synthetic build logs;
   `test_tlm.py` pins `tools/tlm.py`'s `TlmStream` parser against the

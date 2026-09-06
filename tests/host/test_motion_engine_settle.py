@@ -53,21 +53,9 @@ Run with::
 """
 
 import ctypes
-import pathlib
 
 import pytest
 
-from test_kernel_harness import compile_shared_lib
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
 
 LEFT = 0
 RIGHT = 1
@@ -88,72 +76,6 @@ SETTLE_REST_COUNTS_PER_S = 25.0  # [counts/s] ~2 mm/s
 
 _CYCLE_S = 0.024  # [s] one control cycle, matching
                    # DifferentialDrive::Config's default cyclePeriod
-
-
-def _bind(lib):
-    lib.meCreate.argtypes = []
-    lib.meCreate.restype = ctypes.c_void_p
-    lib.meDestroy.argtypes = [ctypes.c_void_p]
-    lib.meDestroy.restype = None
-
-    lib.meSetMaxDuty.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetMaxDuty.restype = None
-    lib.meSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetFullDutyVelocity.restype = None
-    lib.meBegin.argtypes = [ctypes.c_void_p]
-    lib.meBegin.restype = ctypes.c_int
-    lib.meStep.argtypes = [ctypes.c_void_p]
-    lib.meStep.restype = None
-
-    lib.meMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    lib.meMotorLastStagedDuty.restype = ctypes.c_float
-    lib.meMotorArmPosition.argtypes = [
-        ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_uint64,
-    ]
-    lib.meMotorArmPosition.restype = None
-
-    lib.meOutVelocityLeft.argtypes = [ctypes.c_void_p]
-    lib.meOutVelocityLeft.restype = ctypes.c_float
-    lib.meOutVelocityRight.argtypes = [ctypes.c_void_p]
-    lib.meOutVelocityRight.restype = ctypes.c_float
-
-    lib.meCountsPerMm.argtypes = [ctypes.c_void_p]
-    lib.meCountsPerMm.restype = ctypes.c_float
-
-    lib.meMoveX.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_uint32,
-    ]
-    lib.meMoveX.restype = None
-    lib.meServiceMove.argtypes = [ctypes.c_void_p]
-    lib.meServiceMove.restype = ctypes.c_int
-    lib.meIsMoveActive.argtypes = [ctypes.c_void_p]
-    lib.meIsMoveActive.restype = ctypes.c_int
-
-    # ---- sprint 008 ticket 004: the extracted settle helper, plus its
-    # own onSleep-driven test-script hook (motion_engine_shim.cpp). ----
-    lib.meSettleToRest.argtypes = [ctypes.c_void_p]
-    lib.meSettleToRest.restype = ctypes.c_uint32
-    lib.meArmSettleProfile.argtypes = [
-        ctypes.c_void_p,
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_uint64),
-        ctypes.c_int,
-    ]
-    lib.meArmSettleProfile.restype = None
-    lib.meDisarmSettleProfile.argtypes = [ctypes.c_void_p]
-    lib.meDisarmSettleProfile.restype = None
-
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libmotion_engine_settle_shim.so",
-    )
-    return _bind(ctypes.CDLL(str(lib_path)))
 
 
 class Engine:

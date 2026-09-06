@@ -73,13 +73,12 @@ import math
 
 import pytest
 
-from test_motion_engine_reductions import (  # noqa: F401 -- motion_lib re-exported as a fixture
+from test_motion_engine_reductions import (
     LEFT,
     RIGHT,
     Engine,
     _expected_duty_pair,
     _ready,
-    motion_lib,
 )
 
 # motion_limits.h's own compiled-in defaults -- restated here (not read

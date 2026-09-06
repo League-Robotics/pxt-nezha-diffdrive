@@ -29,57 +29,11 @@ Run with::
     uv run pytest tests/host/test_goto_turn_rate_reconciliation.py
 """
 
-import ctypes
 import math
-import pathlib
 
 import pytest
 
-from test_kernel_harness import compile_shared_lib
-from test_motion_engine_reductions import Engine, _bind
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
-
-
-def _bind_reconcile(lib):
-    lib.meReconcileCruise.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_float,
-    ]
-    lib.meReconcileCruise.restype = ctypes.c_float
-    lib.meReconcileDistDuration.argtypes = lib.meReconcileCruise.argtypes
-    lib.meReconcileDistDuration.restype = ctypes.c_float
-    lib.meReconcileYawDuration.argtypes = lib.meReconcileCruise.argtypes
-    lib.meReconcileYawDuration.restype = ctypes.c_float
-
-    lib.meDecomposeGoToRBearingRaw.argtypes = [ctypes.c_float, ctypes.c_float]
-    lib.meDecomposeGoToRBearingRaw.restype = ctypes.c_float
-    lib.meDecomposeGoToRTheta.argtypes = [ctypes.c_float, ctypes.c_float]
-    lib.meDecomposeGoToRTheta.restype = ctypes.c_float
-    lib.meDecomposeGoToRChord.argtypes = [ctypes.c_float, ctypes.c_float]
-    lib.meDecomposeGoToRChord.restype = ctypes.c_float
-    lib.meDecomposeGoToRArcLength.argtypes = [ctypes.c_float, ctypes.c_float]
-    lib.meDecomposeGoToRArcLength.restype = ctypes.c_float
-    lib.meDecomposeGoToRWillSplit.argtypes = [ctypes.c_float, ctypes.c_float]
-    lib.meDecomposeGoToRWillSplit.restype = ctypes.c_int
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libgoto_turn_rate_reconciliation_shim.so",
-    )
-    return _bind_reconcile(_bind(ctypes.CDLL(str(lib_path))))
+from test_motion_engine_reductions import Engine
 
 
 class ReconcileEngine(Engine):

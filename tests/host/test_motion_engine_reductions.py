@@ -44,23 +44,10 @@ Run with::
     uv run pytest tests/host/test_motion_engine_reductions.py
 """
 
-import ctypes
 import math
-import pathlib
 
 import pytest
 
-from test_kernel_harness import compile_shared_lib
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
 
 LEFT = 0
 RIGHT = 1
@@ -80,99 +67,6 @@ _DUTY_REL = 1e-4
 # difference between this file's math and the engine's own float
 # literal can never flip which branch a test observes.
 _TURN_FIRST_DEG = 50.0
-
-
-def _bind(lib):
-    lib.meCreate.argtypes = []
-    lib.meCreate.restype = ctypes.c_void_p
-    lib.meDestroy.argtypes = [ctypes.c_void_p]
-    lib.meDestroy.restype = None
-
-    lib.meSetMaxDuty.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetMaxDuty.restype = None
-    lib.meSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetFullDutyVelocity.restype = None
-    lib.meSetTwistHoldGain.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetTwistHoldGain.restype = None
-    lib.meBegin.argtypes = [ctypes.c_void_p]
-    lib.meBegin.restype = ctypes.c_int
-    lib.meStep.argtypes = [ctypes.c_void_p]
-    lib.meStep.restype = None
-    lib.meOutLeaseExpired.argtypes = [ctypes.c_void_p]
-    lib.meOutLeaseExpired.restype = ctypes.c_int
-
-    lib.meClockSetNow.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
-    lib.meClockSetNow.restype = None
-
-    lib.meMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    lib.meMotorLastStagedDuty.restype = ctypes.c_float
-    lib.meMotorArmPosition.argtypes = [
-        ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_uint64,
-    ]
-    lib.meMotorArmPosition.restype = None
-
-    # The kernel's own MEASURED velocity (Output.
-    # velocityLeft/Right) -- distinct from meMotorLastStagedDuty's
-    # COMMANDED duty, see motion_engine_shim.cpp's own comment on these
-    # two exports.
-    lib.meOutVelocityLeft.argtypes = [ctypes.c_void_p]
-    lib.meOutVelocityLeft.restype = ctypes.c_float
-    lib.meOutVelocityRight.argtypes = [ctypes.c_void_p]
-    lib.meOutVelocityRight.restype = ctypes.c_float
-
-    lib.meCountsPerMm.argtypes = [ctypes.c_void_p]
-    lib.meCountsPerMm.restype = ctypes.c_float
-    lib.meEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
-    lib.meEffectiveTrackWidth.restype = ctypes.c_float
-    lib.meSetRotationalSlip.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetRotationalSlip.restype = None
-    lib.meRotationalSlip.argtypes = [ctypes.c_void_p]
-    lib.meRotationalSlip.restype = ctypes.c_float
-    lib.meWheelsV.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
-    ]
-    lib.meWheelsV.restype = None
-    lib.meWheelsX.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_uint32,
-    ]
-    lib.meWheelsX.restype = None
-
-    lib.meMoveX.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_uint32,
-    ]
-    lib.meMoveX.restype = None
-    lib.meMoveV.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
-    ]
-    lib.meMoveV.restype = None
-    lib.meGoToR.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_float, ctypes.c_uint32,
-    ]
-    lib.meGoToR.restype = None
-    lib.meServiceMove.argtypes = [ctypes.c_void_p]
-    lib.meServiceMove.restype = ctypes.c_int
-    lib.meIsMoveActive.argtypes = [ctypes.c_void_p]
-    lib.meIsMoveActive.restype = ctypes.c_int
-    lib.meEndMove.argtypes = [ctypes.c_void_p]
-    lib.meEndMove.restype = None
-    lib.meProgress.argtypes = [ctypes.c_void_p]
-    lib.meProgress.restype = ctypes.c_int
-    lib.meWrongWayCount.argtypes = [ctypes.c_void_p]
-    lib.meWrongWayCount.restype = ctypes.c_uint32
-
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libmotion_engine_reductions_shim.so",
-    )
-    return _bind(ctypes.CDLL(str(lib_path)))
 
 
 class Engine:
@@ -674,7 +568,7 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
     reference on a neutral (or raw-duty) step -- never on a velocity-mode
     drive() call alone, no matter how much the commanded twist changes.
     Every OTHER test in this file leaves twistHoldGain at its 0.0 (off)
-    default (this file's own `_bind()`/Engine setup, and
+    default (conftest.py's `_bind_motion_lib()`/this file's Engine setup, and
     motion_engine_shim.cpp's own comment on why), so none of them can
     see this at all; this is the one test in the tree that turns the
     gain on to exercise it.

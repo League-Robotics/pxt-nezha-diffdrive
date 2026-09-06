@@ -29,62 +29,8 @@ Run with::
     uv run pytest tests/host/test_motion_engine_shaping_fields.py
 """
 
-import ctypes
-import pathlib
 
 import pytest
-
-from test_kernel_harness import compile_shared_lib
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
-
-_GETTERS = (
-    "meLimitsAccel", "meLimitsDecel", "meLimitsJerk", "meLimitsVMax",
-    "meLimitsOmegaMax", "meLimitsVFloor", "meLimitsOmegaFloor",
-    "meLimitsStopDistance", "meLimitsArriveDist", "meLimitsArriveYaw",
-)
-_SETTERS = (
-    "meLimitsSetAccel", "meLimitsSetDecel", "meLimitsSetJerk",
-    "meLimitsSetVMax", "meLimitsSetOmegaMax", "meLimitsSetVFloor",
-    "meLimitsSetOmegaFloor", "meLimitsSetStopDistance",
-    "meLimitsSetArriveDist", "meLimitsSetArriveYaw",
-)
-
-
-def _bind(lib):
-    lib.meCreate.argtypes = []
-    lib.meCreate.restype = ctypes.c_void_p
-    lib.meDestroy.argtypes = [ctypes.c_void_p]
-    lib.meDestroy.restype = None
-
-    for getter in _GETTERS:
-        fn = getattr(lib, getter)
-        fn.argtypes = [ctypes.c_void_p]
-        fn.restype = ctypes.c_float
-
-    for setter in _SETTERS:
-        fn = getattr(lib, setter)
-        fn.argtypes = [ctypes.c_void_p, ctypes.c_float]
-        fn.restype = None
-
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libmotion_engine_shaping_fields_shim.so",
-    )
-    return _bind(ctypes.CDLL(str(lib_path)))
 
 
 class Limits:

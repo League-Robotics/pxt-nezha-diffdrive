@@ -35,8 +35,6 @@ import json
 import pathlib
 import sys
 
-import pytest
-
 # tests/tools/test_field_dance_accel_bake.py -> tools -> tests -> repo root
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _TOOLS_DIR = _REPO_ROOT / "tools"

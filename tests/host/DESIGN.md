@@ -116,6 +116,26 @@ Three kinds of file, one pattern:
   `compile_shared_lib()` (defined in `test_kernel_harness.py`,
   reused by every later suite: same compiler invocation, no CMake)
   and asserts through the handle.
+- **`conftest.py`** (sprint 034 ticket 010) — the ONE place the
+  motion-engine shim is compiled. Thirteen files here drive the same
+  four translation units behind the same `meCreate()` handle, and each
+  used to carry its own copy of the source list, its own `_bind()` and
+  its own session-scoped `motion_lib` fixture with its own `out_name` —
+  so the identical compile ran thirteen times a session, and one source
+  list existed in thirteen places to drift. `conftest.py` now holds
+  `MOTION_SHIM_SOURCES`, a `_bind_motion_lib()` that is the union of
+  those thirteen binders (70 symbols; no two files had disagreed about
+  a signature), and the `motion_lib` fixture they all take by name.
+  MEASURED 2026-09-06, `uv run pytest tests/host tests/tools -q`:
+  75.30 s before (1719 passed), 57.88 s / 58.47 s after (1722 passed --
+  three new tests this ticket adds). The remainder of the run is not the
+  compile: `tests/tools` alone takes ~28 s on its own, unchanged by this. Consequence: those
+  files share ONE `ctypes.CDLL` object now, so a binder applied at call
+  time (`test_segment_lazy_origin.py`'s `_bind_rebase()`) mutates shared
+  state and must stay signature-compatible with the union. This is not a
+  general "fixtures go in conftest" policy — the kernel, wire and
+  run-queue shims are different source lists with one owner file each,
+  and they stay where they are.
 
 Run: `uv run pytest` from the repo root. Modeled on
 radio-robot-lib's `tests/protocol` harness.
@@ -173,6 +193,9 @@ made the motion-obligation arming bug observable from a test.
 ## 5. Interfaces
 
 ### Exposes
+- **`motion_lib`** (`conftest.py`) — the compiled-once, fully bound
+  motion-engine shim, available by name to every test file in this
+  directory.
 - **`uv run pytest`** — the whole suite from a clean checkout;
   scope with a path (`uv run pytest tests/host/test_wire_grammar.py`).
   Also the once-per-sprint gate `close_sprint` runs.

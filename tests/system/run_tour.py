@@ -18,7 +18,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import re
 import socket
 import subprocess
@@ -28,7 +27,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from tourfile import parse_tour, Twist, Dwell, SetCfg, Spline   # noqa: E402
+from tourfile import parse_tour, Dwell, SetCfg, Spline   # noqa: E402
 
 DEFAULT_HOST, DEFAULT_PORT = '192.168.1.147', 0   # 0 => discover
 
@@ -69,6 +68,15 @@ def discover_port(host, want_name=None):
             continue
     raise SystemExit(f'no diffdrive serial daemon found on {host} '
                      f'(checked ports {ports})')
+# [mm/deg] wheel travel per shaft degree. A MIRROR of
+# src/motion/motion_engine.h's own `travelCalib_` default, not an
+# independent choice -- this script converts host-side mm to the counts
+# the robot's encoders report, so a stale copy here silently mis-scales
+# every tour it charts. Pinned against the header by
+# tests/tools/test_travel_calib_drift.py (the same guard tour_chart.py's
+# --travel-calib default has); update both when the camera-measured
+# value moves. This exact constant is the one that drifted before:
+# 0.8102 stayed mirrored well past the 0.7878 update.
 TRAVEL_CALIB = 0.7878
 CPM = 10.0 / TRAVEL_CALIB          # counts per mm
 

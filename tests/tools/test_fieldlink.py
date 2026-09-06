@@ -22,8 +22,6 @@ import sys
 import threading
 import time
 
-import pytest
-
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _TOOLS_DIR = _REPO_ROOT / 'tools'
 if str(_TOOLS_DIR) not in sys.path:
