@@ -344,6 +344,14 @@ per leg, all at cruise 100 with `rotational_slip` 0.962, telemetry kept
 the two discriminator runs (8 legs). Leg 2 in every run is the forward
 leg that starts immediately after a reverse leg.
 
+**Where the baseline's `accel 300` came from** (found afterwards):
+`test/test.ts:335` `openLoopProfile()` -> `setLimits(300, 300, 200, 90)` is
+called only from RUN handlers, and the ticket 017 check ran
+`RUN:straight:8` before every gate -- so the whole session ran on the
+RUN open-loop profile, not the fleet default of accel 400 that a
+student block program gets. A 400 run is recorded in the table below
+so the 800 bake is defended against the real default.
+
 | config | leg 0 | leg 1 | leg 2 | leg 3 | mean\|dh\| | max |
 |---|---|---|---|---|---|---|
 | **baseline** gain 4, v_floor 70, accel 300 (8 legs) | -1.37 / -2.76 | +1.65 / -2.64 | +4.59 / +7.61 | -6.65 / -1.72 | **3.62** | 7.61 |

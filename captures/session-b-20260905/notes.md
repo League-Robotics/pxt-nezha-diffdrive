@@ -1726,3 +1726,15 @@ of `accel` would be overridden by this call whenever test.ts is the
 program; ticket 020 must change the literal there (accel -> 800, decel
 stays 300, which is exactly what the sweep did) as well as adding the
 per-robot bake for student programs that never call `setLimits`.
+
+**Correction on the 300's origin.** `openLoopProfile()` (test.ts:335) is
+called ONLY from RUN handlers (tourRobot/tourWheels/straightRun/
+tourWorld and the face/pivot/arc verbs), never at boot. The ticket 017
+verification ran `RUN:straight:8` -> `straightRun()` -> `setLimits(300,
+300, 200, 90)`, and that profile then governed EVERY gate and sweep
+tonight (the dance had set 400/400 minutes earlier). So "accel 300
+baseline" = the RUN open-loop profile, not the fleet default of 400
+that a student block program gets. accel 400 was not measured tonight
+until the run recorded below. The dance's own `SET accel/decel 400`
+(field_dance.py:189) and the RUN profile's 300 are two more places a
+bake gets silently overridden -- ticket 020 handles all three.
