@@ -5,9 +5,9 @@ Every tool that needs the overhead camera gets it through this module's
 `Cam` class instead of hand-rolling a `subprocess.Popen([VENV, CAMLINK,
 ...])` plus a polling thread of its own -- this repo used to carry
 seven near-identical copies of exactly that (`tour_run.py`,
-`tour_square.py`, `tour_closedloop.py`, `tour_watch.py`,
-`tour_practice.py`'s `CamProc`, `pivot_truth.py`'s `CamStream`,
-`turn_sweep.py`'s `CamStream`) -- see
+`tour_watch.py`, `tour_practice.py`'s `CamProc`, `pivot_truth.py`'s
+`CamStream`, `turn_sweep.py`'s `CamStream`, and two tour variants
+sprint 034 ticket 003 later deleted outright) -- see
 `clasi/sprints/005-retrofit-bench-tooling-onto-the-v6-telemetry-stream/
 issues/tools-link-layer-consolidation.md` (code review R-24/R-26).
 
@@ -80,16 +80,15 @@ class Cam:
     `(t, x_cm, y_cm, yaw_deg)`. See the module docstring for the
     `ERR`-surfacing and stale-pose-invalidation contract.
 
-    `respawn=True` (`tour_square.py`'s original behavior) restarts the
-    subprocess if it dies instead of giving up, recording each death's
+    `respawn=True` restarts the subprocess if it dies instead of
+    giving up, recording each death's
     timestamp in `.deaths` so a caller can flag scores computed across
     a respawn window as untrustworthy.
     """
 
-    def __init__(self, tag=None, hz=20.0, venv=None, camlink=CAMLINK,
+    def __init__(self, tag=None, venv=None, camlink=CAMLINK,
                  respawn=False, _spawn=True):
         self.tag = tag
-        self.hz = hz
         self.venv = venv or resolve_venv()
         self.camlink = camlink
         self.respawn = respawn
@@ -112,7 +111,7 @@ class Cam:
                 time.sleep(0.2)
 
     def _spawn_process(self):
-        cmd = [self.venv, self.camlink, '--hz', str(self.hz)]
+        cmd = [self.venv, self.camlink]
         if self.tag is not None:
             cmd += ['--tag', str(self.tag)]
         return subprocess.Popen(cmd, stdout=subprocess.PIPE,

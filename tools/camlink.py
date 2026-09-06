@@ -185,12 +185,13 @@ class Cam:
             raise CamDown(f'aprilcam stream died: {e}') from e
 
 
-def _stream(tag_id, hz):
+def _stream(tag_id):
     """Print `yaw_deg x_cm y_cm` lines forever, for another process.
 
-    The camera library and pyserial live in DIFFERENT interpreters (the
-    aprilcam venv has no pyserial), so the camera runs as its own
-    process and streams lines; the robot-driving process reads them.
+    This is the child half of `camproc.Cam`: the camera is read in its
+    own process, under the aprilcam venv, and the driving process reads
+    the printed lines. The stream paces itself off the camera -- there
+    is no rate to ask for, which is why there is no `--hz`.
     """
     cam = Cam()
     try:
@@ -212,8 +213,6 @@ def _stream(tag_id, hz):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('--tag', type=int, default=53)
-    ap.add_argument('--hz', type=float, default=20.0,
-                    help='ignored; the stream paces itself off the camera')
     ap.add_argument('--check', action='store_true',
                     help='verify the fixed calibration tags and exit')
     ap.add_argument('--register', metavar='ROBOT|field', default=None,
@@ -244,4 +243,4 @@ if __name__ == '__main__':
                           f'{math.hypot(r[1] - tx, r[2] - ty):.2f} cm')
             break
         sys.exit(0)
-    _stream(args.tag, args.hz)
+    _stream(args.tag)

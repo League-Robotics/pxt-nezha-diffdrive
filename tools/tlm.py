@@ -3,8 +3,8 @@ fail-loud guards that make "the instrument returned nothing" a loud,
 immediate failure instead of a silent empty CSV.
 
 Six tools (`tour_run.py`, `tour_capture.py`, `tour_watch.py`,
-`truth_check.py`, `rotation_check.py`, `tour_practice.py`) used to each
-parse the retired v5 `TLM:` cleartext line with their own scattered
+`rotation_check.py`, `tour_practice.py`, and one ground-truth tool
+sprint 034 ticket 003 deleted) used to each parse the retired v5 `TLM:` cleartext line with their own scattered
 arity check and scale factor. Two of them were already silently dead
 -- `tour_watch.py:202` and `tour_capture.py:70` both hard-coded field
 counts that stopped matching the wire line when `vl`/`vr` were added,

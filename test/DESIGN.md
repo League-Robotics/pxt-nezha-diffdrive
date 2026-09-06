@@ -21,7 +21,7 @@ the same flashable hex; `make_deploy.py` promotes only `test.ts` into
   tick model stays visible test code; plus named `RUN:` commands for
   lever-arm calibration (`cal`), fixes, seeding, probes, **and, as of
   sprint 005, a relative pivot verb and a turn-rate verb** — added so
-  `pivot_truth.py`, `truth_check.py`, `rotation_check.py`, and
+  `pivot_truth.py`, `rotation_check.py`, and
   `turn_sweep.py` have a real named target instead of the dead numeric
   `RUN:2/4/5/10`/`RUN:57000+rate`/`RUN:58360+deg` offsets they used to
   send against a named-verb-only dispatch (see `tools/DESIGN.md`).

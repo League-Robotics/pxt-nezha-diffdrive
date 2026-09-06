@@ -296,10 +296,12 @@ and record what comes back.
   have, one more instance of it, not a new kind of dependency.
 - **`tour_practice.py`** — repeated camera-scored runs from the start
   dot, repositioning between runs.
-- **`tour_square.py`**, **`tour_closedloop.py`** — earlier variants
-  kept for reference: composing a tour host-side, and the
-  camera-in-the-loop experiment the doctrine now forbids (it left the
-  robot stationary 73% of a run).
+
+Two further variants — one that composed a tour host-side, one
+camera-in-the-loop — were kept "for reference" until sprint 034 ticket
+003 deleted them: nothing imported either, and the camera-in-the-loop
+one demonstrated the doctrine this repo now forbids (it left the robot
+stationary 73% of a run).
 
 ## Camera-parallax correction: one owner, never two (sprint 031 ticket 002)
 
@@ -365,9 +367,10 @@ coordinates.
 
 ## Ground truth and calibration
 
-- **`pivot_truth.py`** / **`truth_check.py`** — camera vs. OTOS vs.
-  odometry for rotations: is the robot misbehaving or the sensor
-  mis-reporting?
+- **`pivot_truth.py`** — camera vs. OTOS vs. odometry for rotations:
+  is the robot misbehaving or the sensor mis-reporting? (A second tool
+  measured the same thing through a v1 camera API and five subprocess
+  launches per fix; sprint 034 ticket 003 deleted it.)
 - **`rotation_check.py`** — commanded vs. gyro-measured rotation
   (floor + radio only; on the bench the body never rotates).
 - **`turn_sweep.py`** — turn accuracy vs. yaw rate, camera-scored.
@@ -444,8 +447,8 @@ firmware — pose columns record empty, silently. The `RUN:` cleartext
 by exact name, `test/test.ts` registers only named handlers, and
 `testrig.ts`'s two-arg handler stores the argument, not the name — so
 every numeric command from `otos_bench.py`, `rotation_check.py`,
-`truth_check.py`, `pivot_truth.py`, `turn_sweep.py`, and
-`otos_levercal.py` is a silent no-op. Only named-verb `RUN:` commands
+`pivot_truth.py`, `turn_sweep.py`, and `otos_levercal.py` is a silent
+no-op. Only named-verb `RUN:` commands
 and `emitLine()`-based result lines still work. Telemetry restored by
 the planned telemetry-frame work (sprint 004), not yet built; the
 numeric-vocabulary breakage is separate and unplanned (see
@@ -456,8 +459,8 @@ is stale — sprint 004 shipped the v6 telemetry frame, sprint 005 ticket
 001 built `tools/tlm.py` as its host-side parser, sprint 005 ticket 002
 retrofitted the tour/ground-truth consumers onto it, and sprint 005
 ticket 006 retargeted `otos_bench.py`, `pivot_truth.py`,
-`truth_check.py`, `rotation_check.py`, `turn_sweep.py`, and
-`otos_levercal.py` off the dead numeric vocabulary. Sprint 011 does not
+`rotation_check.py`, `turn_sweep.py`, and `otos_levercal.py` off the
+dead numeric vocabulary. Sprint 011 does not
 rewrite this section (that rewrite belongs to whichever sprint lands
 last among 005/011, or a future hygiene pass) — it added the one piece
 sprint 005 did not cover: `tour_capture.py`'s numeric tour-selection

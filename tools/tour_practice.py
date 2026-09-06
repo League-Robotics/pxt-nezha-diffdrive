@@ -13,15 +13,12 @@ homework.
 Wheel speeds ride the v6 telemetry frame's own vl/vr columns (the
 kernel's own per-tick measurement, via tools/tlm.py) rather than being
 polled: a request/reply round-trip inside a move over the wireless link
-is measured to collapse a 197.5 mm leg to 0.3 mm. (`wheel_speeds()`
-below, deriving speed by differencing the pose stream instead, is not
-called anywhere in this file -- kept for reference only.)
+is measured to collapse a 197.5 mm leg to 0.3 mm.
 
   python3 tools/tour_practice.py [--tours robot world] [--runs 2]
 """
 import argparse
 import csv
-import math
 import os
 import subprocess
 import sys
@@ -31,11 +28,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
 from reposition import Repositioner
 from camproc import Cam
-from field import ORDER, wrap, score_corners, closure
+from field import ORDER, score_corners, closure
 import tlm
 
 START = (50.0, 30.0, 180.0)
-TRACK_CM = 12.0          # effective track (114.2 mm / 0.952 scrub)
 
 TITLES = {'robot': 'Tour A — robot-relative (encoder only)',
           'world': 'Tour B — world goToWorld (OTOS-guided)',
@@ -85,28 +81,6 @@ def record_tour(link, cam, name, timeout=120):
         if started and time.time() - t0 > timeout:
             break
     return t0, pose, fixes, started, stream
-
-
-def wheel_speeds(pose):
-    """Left/right wheel speed [cm/s] derived from the encoder pose
-    stream -- v +- omega*track/2. Telemetry is not polled during a run,
-    so this is the honest way to get them."""
-    out = []
-    for a, b in zip(pose, pose[1:]):
-        dt = b[0] - a[0]
-        if dt <= 0.001:
-            continue
-        ds = math.hypot(b[1] - a[1], b[2] - a[2])
-        # sign of travel: project onto the heading
-        h = math.radians(a[3])
-        fwd = (b[1] - a[1]) * math.cos(h) + (b[2] - a[2]) * math.sin(h)
-        if fwd < 0:
-            ds = -ds
-        dw = math.radians(wrap(b[3] - a[3]))
-        v = ds / dt
-        om = dw / dt
-        out.append((b[0], v - om * TRACK_CM / 2, v + om * TRACK_CM / 2))
-    return out
 
 
 def score(camrows):

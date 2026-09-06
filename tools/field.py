@@ -113,8 +113,8 @@ def turn_total(commanded: float, measured: float) -> float:
     names, so a 183 deg physical turn against a 180 deg command reports
     +183 and `turn_total(...) / commanded` keeps the sign of the turn.
 
-    **The failure this replaces.** `rotation_check.py` and
-    `truth_check.py` each carried::
+    **The failure this replaces.** `rotation_check.py` and a second
+    bench tool (deleted by sprint 034 ticket 003) each carried::
 
         revs = round(commanded / 360.0)
         revs * 360.0 + wrap(after - before - revs * 360.0)

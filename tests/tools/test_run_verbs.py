@@ -1,16 +1,16 @@
-"""tests/tools/test_run_verbs.py -- pins the RUN strings five bench
+"""tests/tools/test_run_verbs.py -- pins the RUN strings four bench
 tools send after sprint 005 ticket 006's retarget off the dead numeric
 RUN vocabulary.
 
 **Why this exists.** `otos_levercal.py`, `pivot_truth.py`,
-`truth_check.py`, `rotation_check.py` and `turn_sweep.py` used to send
+`rotation_check.py` and `turn_sweep.py` used to send
 `RUN:8`/`RUN:14`/`RUN:10`/`RUN:2`/`RUN:4`/`RUN:5`/`RUN:{57000+rate}`/
 `RUN:{58360+deg}` -- numeric commands current firmware's string-keyed
 `onRun()` dispatch (`test.ts`) never registers, so every one of these
 tools was a silent no-op: it ran to completion, printed numbers, and
 measured nothing, because the robot never received a single command.
-Two of the five (`otos_levercal.py`'s `RUN:8`/`RUN:14`,
-`pivot_truth.py`/`truth_check.py`/`rotation_check.py`'s `RUN:10`) had
+Two of the four (`otos_levercal.py`'s `RUN:8`/`RUN:14`,
+`pivot_truth.py`/`rotation_check.py`'s `RUN:10`) had
 real named equivalents already on `test.ts` (`RUN:cal`/`RUN:cal:1`,
 `RUN:fix`) and needed only a Python-side rename. The remaining piece --
 a relative pivot and a settable turn rate -- needed two new `test.ts`
@@ -46,7 +46,6 @@ if str(_TOOLS_DIR) not in sys.path:
 import otos_levercal  # noqa: E402  (path must be set up first)
 import pivot_truth  # noqa: E402  (ditto)
 import rotation_check  # noqa: E402  (ditto)
-import truth_check  # noqa: E402  (ditto)
 import turn_sweep  # noqa: E402  (ditto)
 
 
@@ -154,10 +153,11 @@ def test_otos_levercal_verify_sends_run_cal_1_not_run14(monkeypatch):
     _assert_no_dead_numeric_forms(fake.sent)
 
 
-# --- pivot_truth.py / truth_check.py: RUN:10 -> RUN:fix -------------------
-# Both files define their own otos_fix()/send_pivot() (not shared code),
-# so both get their own tests -- a shared helper elsewhere could drift
-# out of sync with one of the two copies without either test noticing.
+# --- pivot_truth.py / rotation_check.py: RUN:10 -> RUN:fix ---------------
+# Both files define their own otos_fix()/fix()/send_pivot() (not shared
+# code), so both get their own tests -- a shared helper elsewhere could
+# drift out of sync with one of the two copies without either test
+# noticing.
 
 OCAL_NOW_LINE = 'OCAL:now:123:45:6789'
 
@@ -166,16 +166,6 @@ def test_pivot_truth_otos_fix_sends_run_fix_not_run10():
     fake = FakeLink([OCAL_NOW_LINE])
 
     result = pivot_truth.otos_fix(fake)
-
-    assert fake.sent == ['RUN:fix']
-    _assert_no_dead_numeric_forms(fake.sent)
-    assert result == (12.3, 4.5, 67.89)
-
-
-def test_truth_check_otos_fix_sends_run_fix_not_run10():
-    fake = FakeLink([OCAL_NOW_LINE])
-
-    result = truth_check.otos_fix(fake)
 
     assert fake.sent == ['RUN:fix']
     _assert_no_dead_numeric_forms(fake.sent)
@@ -192,7 +182,7 @@ def test_rotation_check_fix_sends_run_fix_not_run10():
     assert result == (12.3, 4.5, 67.89)
 
 
-# --- pivot_truth.py / truth_check.py / rotation_check.py: the old
+# --- pivot_truth.py / rotation_check.py: the old
 # PIVOT_VERB={180:4,-180:5,360:2} lookup -> RUN:pivot:<deg> -----------
 
 @pytest.mark.parametrize('deg', [180, -180, 360, 45])
@@ -200,16 +190,6 @@ def test_pivot_truth_send_pivot_sends_the_degree_value_directly(deg):
     fake = FakeLink(['GAP:0'])
 
     pivot_truth.send_pivot(fake, deg)
-
-    assert fake.sent == [f'RUN:pivot:{deg}']
-    _assert_no_dead_numeric_forms(fake.sent)
-
-
-@pytest.mark.parametrize('deg', [180, -180, 360, 45])
-def test_truth_check_send_pivot_sends_the_degree_value_directly(deg):
-    fake = FakeLink(['GAP:0'])
-
-    truth_check.send_pivot(fake, deg)
 
     assert fake.sent == [f'RUN:pivot:{deg}']
     _assert_no_dead_numeric_forms(fake.sent)
@@ -230,10 +210,6 @@ def test_pivot_truth_pivot_verb_table_is_gone():
     # arbitrary degree value, so there is no fixed 3-way table left to
     # accidentally reintroduce a numeric-offset lookup into.
     assert not hasattr(pivot_truth, 'PIVOT_VERB')
-
-
-def test_truth_check_pivot_verb_table_is_gone():
-    assert not hasattr(truth_check, 'PIVOT_VERB')
 
 
 def test_rotation_check_pivots_are_bare_degrees_not_verb_pairs():
@@ -316,9 +292,8 @@ def test_rotation_check_still_names_the_slip_that_replaced_it():
 def test_bench_tools_keep_no_private_copy_of_the_turn_arithmetic(name):
     # Both tools must CALL field.turn_total(), not carry the `revs =
     # round(commanded / 360.0)` form that could not resolve a +/-180
-    # pivot. tools/truth_check.py still has its copy; sprint 034 ticket
-    # 003 deletes that file outright, so it is deliberately not checked
-    # here.
+    # pivot. A third tool carried the same private copy; sprint 034
+    # ticket 003 deleted that file outright rather than fixing it.
     src = _tool_source(name)
     assert 'turn_total' in src
     assert 'revs' not in src

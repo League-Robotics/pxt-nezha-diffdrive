@@ -65,10 +65,8 @@ _AUDITED_TOOLS = [
     'pivot_truth.py',
     'tour_capture.py',
     'tour_chart.py',
-    'tour_closedloop.py',
     'tour_practice.py',
     'tour_run.py',
-    'tour_square.py',
     'tour_watch.py',
 ]
 

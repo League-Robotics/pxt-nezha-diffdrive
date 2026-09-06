@@ -5,7 +5,6 @@
       NAME RUN cam.csv pose.csv out.png
 """
 import csv
-import math
 import os
 import sys
 
@@ -15,9 +14,8 @@ import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tlm
-from field import DOTS, ORDER, RECT, wrap, score_corners, closure
+from field import DOTS, ORDER, RECT, score_corners, closure
 
-TRACK_CM = 12.0
 TITLES = {'robot': 'Tour A — robot-relative (local frame, IMU heading)',
           'world': 'Tour B — world goToWorld (camera-seeded, OTOS-guided)',
           'wheels': 'Tour A+B — wheels (open loop)'}
@@ -40,7 +38,10 @@ def wheel_speeds(pose, hdr):
     out every ~56 ms (2.33 ticks), so each frame catches 2 or 3 ticks in
     a 2-2-3 pattern and a steady 44 cm/s leg reads as 55/55/84. The
     kernel measures each wheel per tick; those values now ride the
-    frame. Falls back to differencing only for older recordings.
+    frame. A recording whose header carries neither column charts no
+    wheel-speed panel -- the differencing fallback that used to cover
+    that case is gone, because it produced the 55/55/84 sawtooth above
+    and labelled it "measured".
     """
     if 'vl_cms' in hdr:
         a, b = hdr.index('vl_cms'), hdr.index('vr_cms')
@@ -48,18 +49,7 @@ def wheel_speeds(pose, hdr):
     if 'vl_mms' in hdr:      # tour_run.py records mm/s; plot in cm/s
         a, b = hdr.index('vl_mms'), hdr.index('vr_mms')
         return [(p[0], p[a] / 10.0, p[b] / 10.0) for p in pose]
-    out = []
-    for a, b in zip(pose, pose[1:]):
-        dt = b[0] - a[0]
-        if dt <= 0.02 or dt > 0.5:
-            continue
-        h = math.radians(a[3])
-        fwd = (b[1] - a[1]) * math.cos(h) + (b[2] - a[2]) * math.sin(h)
-        ds = math.copysign(math.hypot(b[1] - a[1], b[2] - a[2]), fwd)
-        om = math.radians(wrap(b[3] - a[3])) / dt
-        v = ds / dt
-        out.append((b[0], v - om * TRACK_CM / 2, v + om * TRACK_CM / 2))
-    return out
+    return []
 
 
 def score(cam):

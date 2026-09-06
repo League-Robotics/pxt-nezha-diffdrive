@@ -69,8 +69,9 @@ def test_wrap_result_always_in_range():
 
 # --- turn_total() (sprint 034 ticket 001, TL-03) -------------------------
 #
-# The defect this replaces: `rotation_check.py` and `truth_check.py`
-# each unwrapped a pivot with `revs = round(commanded / 360.0)`, and
+# The defect this replaces: `rotation_check.py` and a second bench
+# tool (deleted outright by sprint 034 ticket 003) each unwrapped a
+# pivot with `revs = round(commanded / 360.0)`, and
 # `round(0.5)` is 0 under banker's rounding. So for a commanded +/-180
 # the whole expression collapsed to `wrap(after - before)`, a 183 deg
 # physical turn read -177, and `gyro / commanded` came out NEGATIVE --

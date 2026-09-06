@@ -57,10 +57,10 @@ against a `Cam(_spawn=False)` double — the consolidation that replaced
 seven copied `Cam`/`CamStream`/`CamProc` scaffolds and four
 *disagreeing* corner-scoring implementations with one of each.
 `test_run_verbs.py` (sprint 005 ticket 006) pins the exact RUN string
-five bench tools (`otos_levercal.py`, `pivot_truth.py`,
-`truth_check.py`, `rotation_check.py`, `turn_sweep.py`) send against a
+four bench tools (`otos_levercal.py`, `pivot_truth.py`,
+`rotation_check.py`, `turn_sweep.py`) send against a
 fake link, proving each now matches a real `test.ts`/`testrig.ts`
-handler instead of a dead numeric offset. All five files import the
+handler instead of a dead numeric offset. All four files import the
 module under test directly, in-process; nothing under `tools/` knows
 this directory exists.
 
@@ -186,7 +186,7 @@ asserts none of the old dead numeric forms (`RUN:8`, `RUN:14`,
 `RUN:{58360+deg}`) appear anywhere in what was sent — a regression back
 to the numeric vocabulary fails loudly instead of silently. Covers
 `otos_levercal.py` (`RUN:cal`/`RUN:cal:1`), `pivot_truth.py`/
-`truth_check.py`/`rotation_check.py` (`RUN:fix`, `RUN:pivot:<deg>`),
+`rotation_check.py` (`RUN:fix`, `RUN:pivot:<deg>`),
 and `turn_sweep.py` (`RUN:turnrate:<rate>` then `RUN:pivot:<deg>`).
 Cannot prove the robot moves — no serial port, no robot — only that
 each tool's own RUN-sending code path targets a real handler.
@@ -303,7 +303,7 @@ granularity instead of a C++ vtable.
 - **`tools/camproc.py`**'s `Cam`/`resolve_venv()` and **`tools/field.py`**'s
   `wrap()`/`score_corners()`/`path_deviation()` (sprint 005 ticket 003)
   — see [`tools/DESIGN.md`](../../tools/DESIGN.md)'s "Link layer" section.
-- **`otos_levercal.py`**, **`pivot_truth.py`**, **`truth_check.py`**,
+- **`otos_levercal.py`**, **`pivot_truth.py`**,
   **`rotation_check.py`**, **`turn_sweep.py`**'s own RUN-sending code
   paths (sprint 005 ticket 006), each monkeypatched at its `Link`/
   `send`/`send_until` call.
