@@ -1,7 +1,7 @@
 ---
 id: '033'
 title: 'Cohesion: odometry object, config descriptor table, Protocol diet'
-status: executing
+status: done
 branch: sprint/033-cohesion-odometry-object-config-descriptor-table-protocol-diet
 use-cases:
 - SUC-001
