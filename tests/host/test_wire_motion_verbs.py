@@ -2193,6 +2193,14 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     # non-default-value rationale as accel/decel/v_max above.
     "lag": 0.08,
     "estop_clear": 0.0,
+    # Sprint 031 ticket 019 (docs/sprint-031-postmortem.md §2.2): NEW
+    # ordinal (38) -- straight_trim, a dimensionless per-robot bias on
+    # the kernel's OWN twist-hold reference (a real stored
+    # DiffDrive::Config field, unlike default_cruise/rotational_slip's
+    # own Rig/MotionEngine forwards above). Same non-default-value
+    # rationale as accel/decel/v_max above; also deliberately negative-
+    # capable (sign is meaningful), unlike most of this table.
+    "straight_trim": 0.0055,
 }
 
 
@@ -3189,6 +3197,10 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # sprint 029 ticket 009 (design S4.1/S6.1/S10.2): ordinal 37
         # (lag), NEW, declared after arrive_yaw in kFields.
         b"lag",
+        # sprint 031 ticket 019 (docs/sprint-031-postmortem.md §2.2):
+        # ordinal 38 (straight_trim), NEW, declared after lag in
+        # kFields.
+        b"straight_trim",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

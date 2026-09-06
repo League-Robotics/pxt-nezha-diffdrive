@@ -66,6 +66,11 @@ void kdSetPidMax(void* handle, float v) {
 void kdSetTwistHoldGain(void* handle, float v) {
   static_cast<Handle*>(handle)->kernel.setTwistHoldGain(v);
 }
+// sprint 031 ticket 019: straight_trim's own setter (diffdrive.h) --
+// same thin-passthrough shape as kdSetTwistHoldGain() immediately above.
+void kdSetStraightTrim(void* handle, float v) {
+  static_cast<Handle*>(handle)->kernel.setStraightTrim(v);
+}
 void kdSetSpeedFloor(void* handle, float v) {
   static_cast<Handle*>(handle)->kernel.setSpeedFloor(v);
 }

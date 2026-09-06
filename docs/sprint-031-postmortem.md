@@ -349,7 +349,9 @@ leg that starts immediately after a reverse leg.
 | **baseline** gain 4, v_floor 70, accel 300 (8 legs) | -1.37 / -2.76 | +1.65 / -2.64 | +4.59 / +7.61 | -6.65 / -1.72 | **3.62** | 7.61 |
 | gain 20 | +17.06 | -5.34 | +0.68 | (margin) | 7.69 | 17.06 |
 | v_floor 150 | +1.11 | -2.08 | +8.89 | +1.04 | 3.28 | 8.89 |
-| accel 800 (run 1) | +3.45 | +1.86 | +1.39 | +0.38 | **1.77** | 3.45 |
+| accel 800 (run 1) | +3.45 | +1.86 | +1.39 | +0.38 | 1.77 | 3.45 |
+| accel 800 (run 2) | +1.62 | -0.95 | -0.72 | +0.45 | 0.94 | 1.62 |
+| **accel 800, both runs (8 legs)** | | | | | **1.35** | **3.45** |
 
 - **Gain 20 is destabilising**: leg 0's encoder twist ran to +125 counts
   and the ground to +17 deg -- the hold overshoots the breakaway instead
@@ -393,7 +395,18 @@ telemetry, per leg:
 ramps at ~850 mm/s^2 at accel 300 (which is also why G4's "<= 1.5 x
 accel" bar fails at 300: the limit is not what governs the ramp). So
 run 1's 1.77 deg mean has no mechanism behind it and is, until the
-second run says otherwise, a favourable n=4. `v_floor 150` is the only
+second run says otherwise, a favourable n=4.
+
+**The second run held.** Over 8 legs accel 800 gives mean|dh| 1.35 deg
+(sd 1.36) against the baseline's 3.62 (sd 4.26), max 3.45 vs 7.61, and
+the forward-after-reverse legs went from +4.59/+7.61 to +1.39/-0.72;
+`i2cf` per leg fell from 12-43 to 2-5. A replicated 2.7x with every leg
+under 3.5 deg is enough to ship for students. The MECHANISM is still
+unverified -- the ramp did not change, so the leading hypothesis is that
+a commanded ramp far below what the wheels do anyway (300 vs ~850)
+saturates the wheel PID early and winds the twist hold up during the
+very window the breakaway happens in; at 800 the command tracks the
+plant. Ticket 020 bakes it per-robot with that caveat in the provenance. `v_floor 150` is the only
 setting that physically changed the start of the leg (ramp x1.7, time
 to speed halved) and it reduced breakaway EVENTS without reducing the
 worst-case ground yaw.

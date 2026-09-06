@@ -153,6 +153,39 @@ host that owns its loop drives `step()` directly).
   Everything else in the kernel — the FF+I law, lambda, bias, stall/
   deficit latches, lease, e-stop, output publication — is untouched by
   this ticket.
+  - **straight_trim** (sprint 031 ticket 019,
+    `docs/sprint-031-postmortem.md` §2.2) — a new `Config::straightTrim`
+    field ([1], default 0, wire ordinal 38): every tick the twist-hold
+    block is active, `straightTrim · cmd.velocity · dt` is added to
+    `twistRef_.reference` directly, alongside (not instead of) K1's own
+    `scaledTwist · floorScale · dt` term — an independent additive bias,
+    not scaled by `floorScale` (it is not a commanded twist the speed
+    floor ever touches). **Positive `straightTrim` makes the RIGHT
+    wheel travel further than the LEFT in encoder space.** It exists
+    because tovez's forward legs curve by a per-robot amount that
+    §2.2's own re-analysis found splits roughly in half: MEASURED tovez
+    2026-09-05 (`captures/session-b-20260905/discriminator-20260905/
+    legs.json`, two 600 mm legs with `TLM FULL`), camera dh
+    −1.37/+1.65 deg vs encoder-integrated dh −0.75/+0.63 deg — so the
+    curvature is **not** purely encoder-invisible (§2.2's original
+    hypothesis (A)); roughly half reaches the encoders and is left as
+    steady-state error by a proportional-only twist hold (gain 4 [1/s])
+    against a constant disturbance (hypothesis (B)), and roughly half
+    never reaches the encoders at all (a ground-side wheel-radius/scrub
+    mismatch — twist hold's own measured error is genuinely zero for
+    this half, which is why retuning `twist_hold_gain` alone, sprint
+    031 tickets 012/015, could never close it). A single bias on the
+    REFERENCE (not the feedback) cancels the total of both components
+    in steady state: it deliberately drives the encoders to twist by
+    the fraction that cancels the invisible half, and the nonzero
+    target it gives the proportional hold also relieves that hold's own
+    residual on the visible half. The magnitude is **not** a physical
+    constant — MEASURED tovez, the same curvature was 3.2 deg per
+    600 mm an hour before the discriminator run above and 1.5 deg on
+    that run itself, same robot, same firmware — so this is a per-robot
+    trim the stakeholder sizes from a warm run, not a value this ticket
+    bakes anywhere (default stays 0). Host-proved (no hardware needed
+    to validate the mechanism) in `tests/host/test_straight_trim.py`.
 - Each `step()` runs split-phase encoder sampling:
   `requestSample()` → 4 ms settle sleep → `tick()` per wheel. Anything
   that lands other I2C traffic inside that settle window destroys the

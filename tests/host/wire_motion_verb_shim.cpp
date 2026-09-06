@@ -392,6 +392,11 @@ void setKernelValue(int field, int value) {
     // shape as stall_clear's case 17 above, just calling
     // kernel.estopClear() instead of clearStallLatch().
     case 33: if (v != 0.0f) k.estopClear(); break;
+    // 38 (sprint 031 ticket 019): straight_trim, mirroring shims.cpp's
+    // real setKernelValue() case 38 exactly -- a thin forward to the
+    // REAL kernel's own setStraightTrim() (a real stored kernel Config
+    // field, unlike case 15/16's own Rig/MotionEngine fields above).
+    case 38: k.setStraightTrim(v); break;
     default: break;
   }
 }
@@ -450,6 +455,10 @@ int getConfigValue(int field) {
     case 33:
       v = g_activeWaHandle->kernel.output().estopped ? 1.0f : 0.0f;
       break;
+    // 38 (sprint 031 ticket 019): straight_trim's GET side, mirroring
+    // shims.cpp's real getConfigValue() case 38 exactly -- read straight
+    // from `c` (it IS a stored kernel Config field).
+    case 38: v = c.straightTrim; break;
     default: break;
   }
   // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,

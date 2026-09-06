@@ -1701,3 +1701,19 @@ knob is not a trim constant; it is breakaway handling: a much higher
 `twist_hold_gain` (so the stuck wheel is pushed hard the instant the
 other moves), a higher `speed_floor`, or a symmetric breakaway kick.
 The first two are live `SET`s and are being swept now.
+
+### Sweep verdict: `accel 800` replicates (n=8), everything else does not
+
+`captures/session-b-20260905/gain-sweep-20260905/{gain20,floor150,accel800,accel800b}/`.
+Baseline = the two discriminator runs. Camera dh per leg [deg]:
+
+| config | legs | mean\|dh\| | max | fwd-after-rev legs |
+|---|---|---|---|---|
+| baseline (gain 4, v_floor 70, accel 300) | 8 | 3.62 | 7.61 | +4.59, +7.61 |
+| twist_hold_gain 20 | 3 | 7.69 | 17.06 | +0.68 |
+| v_floor 150 | 4 | 3.28 | 8.89 | +8.89 |
+| **accel 800** | **8** | **1.35** | **3.45** | **+1.39, -0.72** |
+
+Physical ramp (peak frame-to-frame wheel accel) was ~850 mm/s^2 at BOTH
+accel 300 and 800, so 800 is not "a faster ramp". Mechanism UNVERIFIED;
+result replicated. Baked for tovez by ticket 020.
