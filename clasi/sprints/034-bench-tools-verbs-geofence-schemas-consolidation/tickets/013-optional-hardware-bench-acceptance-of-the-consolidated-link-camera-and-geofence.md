@@ -120,3 +120,101 @@ Ticket 012 -- everything else must be landed and documented first.
 - **On-robot**: the acceptance run itself, captured.
 - **Verification command**: `uv run pytest tests/calibration -q` for the
   host-side half.
+
+## Host-side implementation record
+
+**Status: the HOST half is landed; the on-robot half is UNVERIFIED.**
+No acceptance box above is ticked, because every one of them describes
+a result that only a robot, a camera and a lit field can produce. This
+section records what exists so a later session can run it, and what the
+operator has to do to close them.
+
+Per the ticket's Implementation Plan ("write the script, dry-run its
+non-motion paths host-side, then hand it over") and the project's
+hardware-ticket practice, the scripted session was written, its
+argument parsing / pre-flight checks / refusal paths were unit-tested
+against an injected fake link and fake camera, and nothing was driven.
+
+### What landed
+
+- `tests/calibration/consolidation_acceptance.py` -- the scripted
+  session. Registered in `tests/calibration/calibrate.py`'s dispatcher
+  as `acceptance` and documented in `tests/calibration/DESIGN.md`
+  (its own section, since it is the one program in that directory that
+  is not a calibration) and `tests/DESIGN.md`.
+  - built on this sprint's consolidated surface only: `tools/link.py`
+    (`Sequencer`/`LineBuffer` via `robotlink.Link`), `tools/robotlink.py`
+    (`Link`, `open_link`, `WifiSerial`), `tools/wifilink.py`,
+    `tools/camlink.py` (in-process `Cam`, `Cam.register()` from the
+    calibration of record -- construction never registers),
+    `tools/field.py` (`require_clear_path`/`PathRefused`,
+    `usable_half_extent`, `DOTS`, `wrap`,
+    `pose_from_registered_samples`, `registered_pose_distance`) and
+    `tools/reposition.py` (`Repositioner`);
+  - pre-flight, each PASS/FAIL/BLOCKED with a reason: Shelly lights
+    (injectable HTTP getter; the real one is `urllib`), `PING` on the
+    chosen carrier (never `HELLO` -- that is a session reset), the
+    field-centre tag at world (0, 0), and this robot's tag visible and
+    REGISTERED. A non-PASS stops the run before any move is armed and
+    records the three checks `BLOCKED` rather than skipping them;
+  - check (a) `check_move_x()`: measured start pose, full projected
+    path checked from it, `MOVE_X` with the id attached by the shared
+    `Sequencer`, ack matched by id, completion polled via `STATUS`,
+    then displacement scored from the CAMERA against a minimum travel
+    -- odometry alone never confirms it;
+  - check (b) `check_pose_ground_truth()` against `field.DOTS`, with
+    `registered_heading()` used unchanged and `double_add_signature()`
+    naming the "+90 applied twice" pattern (a ~90 deg travel-bearing
+    error while rotation looks fine) when it appears;
+  - check (c) `check_geofence()`: an out-of-bounds `Repositioner.go()`
+    must raise `PathRefused` with **nothing on the wire** (asserted
+    against a `RecordingLink`), and a legitimate in-bounds target must
+    not be refused;
+  - capture: every result, the camera readings and every command line
+    appended to `<capture-dir>/notes.md`, plus the `git add -f`
+    reminder in the file and on the console;
+  - `--dry-run` prints the whole plan and opens no carrier, no camera
+    and no socket.
+- `tests/calibration/test_consolidation_acceptance.py` -- **55 host
+  tests**, no robot, no daemon, no network. Covers: lights BLOCKED when
+  off / unreachable / malformed; field centre BLOCKED when tag 1 is not
+  visible and when the stream is dead; the `MOVE_X` line carrying
+  `#<id>` (through the REAL `robotlink.Link` over a `FakePort`, so the
+  consolidated sequencer is what attaches it); the move FAILING when
+  the camera shows no displacement, with the robot-is-off case named;
+  the path check refusing with nothing sent; the geofence refusing
+  out-of-bounds with nothing sent and accepting in-bounds; the
+  registered heading NOT gaining a +90 (plus an `ast` guard that the
+  program never calls `robot_heading_from_tag_yaw()`); `--dry-run`
+  opening nothing; carrier selection and the capture file.
+
+### What a future operator runs to close the boxes above
+
+A board is assigned by the stakeholder for that session; `tovez` below
+is a placeholder. Read the plan first, then run it:
+
+```
+uv run python tests/calibration/calibrate.py acceptance <robot> --dry-run
+uv run python tests/calibration/calibrate.py acceptance <robot> --dot NE
+uv run python tools/wire_acceptance.py --wifi-tcp <robot>
+git add -f captures/consolidation-acceptance-<robot>-<date>/notes.md
+```
+
+Prefer `--radio` or `--serial <host:port>` over the default WiFi TCP
+for the run with motion in it -- WiFi drops once the motors have been
+working. Park the robot on the `--dot` dot **facing inward**: the
+`MOVE_X` probe drives along its measured heading, so a robot facing out
+from a corner has its probe refused (correctly) before anything is
+sent. Exit code 0 = every check passed, 1 = something FAILED, 2 =
+nothing failed but something was BLOCKED -- record those as
+**UNVERIFIED** and say what would settle them, which is a perfectly
+respectable outcome for this ticket.
+
+### Deliberately not done here
+
+No robot, relay, Shelly or aprilcam daemon was touched, and **no
+MEASURED claim is written anywhere** in the program, its tests or this
+record (`.claude/rules/measurement-citations.md`) -- the program
+produces the artifact a future citation will point at. `status` stays
+`in-progress`; how the on-robot half is recorded is the team-lead's
+call.

@@ -10,7 +10,7 @@ it?*
 |---|---|---|---|
 | [`host/`](host/DESIGN.md) | a C++ compiler | yes | permanent |
 | [`tools/`](tools/DESIGN.md) | nothing (bar the lint gate's `ruff`) | yes | permanent |
-| [`calibration/`](calibration/DESIGN.md) | a robot, the playfield and its camera | its **programs** no; its one gate-logic unit test yes | permanent |
+| [`calibration/`](calibration/DESIGN.md) | a robot, the playfield and its camera | its **programs** no; its two pure-logic unit tests yes | permanent |
 | [`system/`](system/DESIGN.md) | a real robot | **no** — run by hand | permanent |
 | [`dev/`](dev/DESIGN.md) | a real robot | **no** | disposable |
 
@@ -19,12 +19,17 @@ The mechanism is the `test_` prefix, not a directory list:
 descends the whole tree and collects whatever is named like a test.
 `system/`, `dev/` and every measurement program in `calibration/` are
 named for what they do (`run_tour.py`, `turn_calibration.py`,
-`closure.py`), so nothing collects them — they need hardware that is
-not present in a clean checkout, and a suite that cannot run everywhere
-is not a suite. `calibration/test_turn_calibration_gates.py` is the one
-exception and is deliberate: its pass/fail gate logic is pure, so it is
-named as a test and runs in the ordinary suite while the program around
-it stays a person's tool.
+`closure.py`, `consolidation_acceptance.py`), so nothing collects them
+— they need hardware that is not present in a clean checkout, and a
+suite that cannot run everywhere is not a suite.
+`calibration/test_turn_calibration_gates.py` and
+`calibration/test_consolidation_acceptance.py` are the two exceptions
+and both are deliberate: the pass/fail logic of a gate, and the
+argument parsing, pre-flight checks and refusal paths of an acceptance
+program, are pure, so they are named as tests and run in the ordinary
+suite while the programs around them stay a person's tools. Both drive
+their subject through injected fakes — a fake link, a fake camera, a
+fake HTTP getter — and neither touches hardware.
 
 ## The two permanent pytest suites
 
