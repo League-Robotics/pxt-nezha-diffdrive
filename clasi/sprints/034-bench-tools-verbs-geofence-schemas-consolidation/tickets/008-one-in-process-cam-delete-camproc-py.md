@@ -1,7 +1,7 @@
 ---
 id: 008
 title: One in-process Cam; delete camproc.py
-status: open
+status: in-progress
 use-cases:
 - SUC-005
 depends-on:
