@@ -137,6 +137,13 @@ def _bind(lib):
     # own comment.
     lib.meApplyStictionProbeKernelConfig.argtypes = [ctypes.c_void_p]
     lib.meApplyStictionProbeKernelConfig.restype = None
+    # Sprint 031 ticket 006: overrides just kp/ki/kaff on top of
+    # whatever meApplyStictionProbeKernelConfig() already staged --
+    # lets a test try a candidate gain set against the LaggedRig model.
+    lib.meSetPidGains.argtypes = [
+        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
+    ]
+    lib.meSetPidGains.restype = None
     # Sprint 029 ticket 010: lets a test override the twist-hold gain
     # meApplyStictionProbeKernelConfig() bakes in (2.0) -- e.g. to 0.0
     # for a servo-off comparison run. Mirrors kernel_shim.cpp's own
@@ -245,6 +252,12 @@ class Rig:
 
     def set_twist_hold_gain(self, v):
         self._lib.meSetTwistHoldGain(self._handle, v)
+
+    def set_pid_gains(self, kp, ki, kaff):
+        """Sprint 031 ticket 006: overrides the kernel's kp/ki/kaff on
+        top of whatever Config a prior meApplyStictionProbeKernelConfig()
+        (LaggedRig.__init__) already staged."""
+        self._lib.meSetPidGains(self._handle, kp, ki, kaff)
 
     def twist_reference_counts(self):
         return self._lib.meTwistReferenceCounts(self._handle)
@@ -574,6 +587,179 @@ def test_design_s6_3_table_remeasured_with_the_fix(motion_lib):
     for tau, cruise, before_err, after_err in rows:
         print(f"{tau:>8.2f}{cruise:>8.0f}{before_err:>+17.1f}°"
               f"{after_err:>+17.1f}°")
+
+
+# ---- sprint 031 ticket 006: kernel FF/I gain retune, candidates ONLY --
+#
+# MODEL PREDICTIONS, NOT MEASUREMENTS (.claude/rules/measurement-
+# citations.md): everything below runs the REAL compiled kernel
+# (core/diffdrive.cpp, via this file's own LaggedRig) against a host
+# SIMULATION of the wheel -- first-order lag + breakaway stiction, no
+# tovez hardware in this dispatch. Nothing here is labelled MEASURED.
+# Ticket 011 is the hardware session that tries these candidates on
+# tovez via live `SET pid_kp`/`SET pid_ki`/`SET pid_kaff` (shims.cpp's
+# SET dispatch cases 2/3/5) and either confirms or refutes them; ticket
+# 015 bakes whichever one converges. This ticket changes no firmware
+# default (`shims.cpp`'s `cfg.kp = 0.0f` / `cfg.ki = 6.0f` are untouched).
+#
+# The scenario: `sprint.md` §"Kernel tracking overshoot" / this sprint's
+# linked issue -- a `WHEELS_V 200 200` step overshoots to 226-256 mm/s
+# on hardware today (`kp=0, ki=6`, shims.cpp's tovez defaults) with
+# measured acceleration up to 993 mm/s^2 on a 400-limited command
+# (accel=400 mm/s^2 is this engine's own compiled MotionLimits default,
+# confirmed via `Rig.limits_accel()` below -- so this sprint's own
+# "<=1.5x accel" bar is <=600 mm/s^2). `WHEELS_V` calls
+# MotionEngine::wheelsV() directly (motion_engine.cpp) -- unlike a
+# MOVE_X segment it never goes through VelocityShaper's braking/arrival
+# math, so `MotionLimits.lag` (the OTHER "lag" in this file, ticket
+# 009's arrival-side knob) plays no role here; only LaggedRig's own
+# `tau` (the wheel's simulated physical response time) matters, set to
+# 0.13 to match the `lag_s 0.13` tovez already runs (baked
+# radio-robot-lib eafccd2, per this ticket's own description).
+#
+# `_wheels_v_step_response()` reproduces the WHOLE closed loop the
+# hardware step exercises: `WHEELS_V 200 200` for 3 s against
+# LaggedRig(tau=0.13, breakaway=70 -- this file's own
+# `_LAG_MODEL_BREAKAWAY`, not independently fitted for tovez), with
+# `meApplyStictionProbeKernelConfig()`'s tovez-shaped Config (iMax
+# 765.6, pidMax 1276, twistHoldGain 2.0, ...) and `set_pid_gains()`
+# overriding just kp/ki/kaff per candidate. `speed_log[0]` is a
+# pre-Hold capture-loop artifact (same reason
+# test_wheels_v_ramp_never_exceeds_accel_per_tick above drops it) --
+# excluded from both the peak and the per-tick acceleration series.
+#
+# A BARE LaggedRig(tau=0.13, breakaway=70) has NO per-wheel gain
+# mismatch (gain_left == gain_right == 1.0, its own default) and no
+# wheelGain/wheelIntercept miscalibration (Config defaults, unset by
+# this file's Rig) -- so a candidate with ki=0 "settles" on this model
+# with near-zero steady-state error almost by construction: there is
+# nothing modeled for an integrator to correct. That is a known gap,
+# not an oversight -- `reports/tovez-wheel-velocity-pid-20260828.md`
+# reports the robot's real per-wheel feedforward calibration is
+# `wheel_gain_left 0.80` vs `wheel_gain_right 0.9567` (already what the
+# firmware's own `correctedCommand()`/`wheelGain[]` is FOR, so most of
+# that spread is presumably already compensated -- using it directly as
+# an uncorrected physical mismatch would double-count the calibration).
+# `_ASYM_GAIN_LEFT`/`_ASYM_GAIN_RIGHT` below inject a much smaller,
+# explicitly HYPOTHESIZED residual (a plausible leftover after
+# calibration, not itself measured) via LaggedRig's own
+# `gain_left`/`gain_right` (ticket 010's per-wheel-gain lag model) --
+# just enough that a ki=0 candidate's steady-state bias becomes visible
+# and rankable, without pretending to know the REAL residual. Ticket
+# 011 measures the real one; if it turns out much larger than this
+# hypothesis, re-running this sweep with the measured value is the
+# right way to extend it (this test's own docstring says so again).
+_ASYM_GAIN_LEFT = 0.97   # [1] HYPOTHESIZED residual per-wheel mismatch,
+_ASYM_GAIN_RIGHT = 1.02  # [1] NOT measured -- see module comment above.
+
+_GAIN_RETUNE_LAG_S = 0.13  # [s] tovez's baked wheel lag, radio-robot-lib eafccd2
+_GAIN_RETUNE_CRUISE = 200.0     # [mm/s] the sprint's own step-response scenario
+_GAIN_RETUNE_DURATION_MS = 3000
+_GAIN_RETUNE_PEAK_BOUND = 210.0      # [mm/s] this sprint's own G3-peak/G5 bar
+_GAIN_RETUNE_ACCEL_BOUND = 600.0     # [mm/s^2] 1.5 x accel(400) -- same bar
+
+
+def _wheels_v_step_response(motion_lib, kp, ki, kaff,
+                            gain_left=1.0, gain_right=1.0):
+    """Runs a `WHEELS_V 200 200` step against LaggedRig(tau=0.13) with
+    the given candidate gains, returning (peak_speed, peak_accel,
+    settle_left, settle_right) -- see the module comment above this
+    function for what is and is not modeled. `peak_speed`/`peak_accel`
+    are the worst of either wheel's own signed physical speed
+    (`velocity_log_left`/`_right` -- the LAGGED, physically-realized
+    speed, not the commanded reference); `settle_left`/`_right` are
+    each wheel's speed at the end of the 3 s window, for ranking
+    candidates by residual steady-state bias."""
+    with LaggedRig(motion_lib, tau=_GAIN_RETUNE_LAG_S,
+                   breakaway=_LAG_MODEL_BREAKAWAY,
+                   gain_left=gain_left, gain_right=gain_right) as r:
+        r.set_pid_gains(kp, ki, kaff)
+        r.wheels_v(_GAIN_RETUNE_CRUISE, _GAIN_RETUNE_CRUISE,
+                  _GAIN_RETUNE_DURATION_MS)
+        n_ticks = int(_GAIN_RETUNE_DURATION_MS / TICK_MS)
+        left, right = [], []
+        for _ in range(n_ticks):
+            r.tick()
+            left.append(abs(r.velocity_log_left[-1]))
+            right.append(abs(r.velocity_log_right[-1]))
+        # Drop the pre-Hold artifact tick (see this function's own
+        # docstring / the module comment's citation of the identical
+        # drop in test_wheels_v_ramp_never_exceeds_accel_per_tick).
+        left, right = left[1:], right[1:]
+        dt = TICK_MS / 1000.0
+        accel_left = max((b - a) / dt for a, b in zip(left, left[1:]))
+        accel_right = max((b - a) / dt for a, b in zip(right, right[1:]))
+        peak = max(max(left), max(right))
+        peak_accel = max(accel_left, accel_right)
+        return peak, peak_accel, left[-1], right[-1]
+
+
+# Ranked candidates from this ticket's own sweep (a wider grid than
+# this, kp in [0, 0.2] step 0.025, ki in [0, 3] step 0.5, kaff in
+# [0, 0.1] step 0.05, run against `_wheels_v_step_response` with the
+# hypothesized asymmetry above, ranked by steady-state bias then peak
+# acceleration then peak speed) -- reproduce with the same grid to
+# extend it. "today" is `shims.cpp`'s own tovez default, included for
+# comparison, not a candidate. See this module's own docstring above
+# for what "MODEL PREDICTION" means here.
+_GAIN_RETUNE_CANDIDATES = [
+    # label,        kp,    ki,   kaff
+    ("today (kp=0, ki=6)", 0.0, 6.0, 0.0),
+    ("candidate 1", 0.0, 0.5, 0.10),
+    ("candidate 2", 0.075, 0.5, 0.05),
+    ("candidate 3", 0.10, 0.0, 0.0),
+]
+
+
+def test_kernel_ff_i_gain_retune_candidates(motion_lib):
+    """Sprint 031 ticket 006's own deliverable: prints and checks the
+    ranked candidate table (see the module comment above this section
+    for the full methodology and its citations). "today" is expected to
+    OVERSHOOT the bar (reproducing, at model scale, the sprint's own
+    hardware finding of 226-256 mm/s / up to 993 mm/s^2 -- this model's
+    own "today" row is a PREDICTION that happens to land inside that
+    measured range, not a re-measurement of it); every candidate is
+    asserted to hold both this sprint's own bars, since narrowing the
+    hardware search to sets the model has already ruled the peak/accel
+    bars against is the whole point of running this sweep before ticket
+    011's live session."""
+    rows = []
+    for label, kp, ki, kaff in _GAIN_RETUNE_CANDIDATES:
+        peak, accel, settle_left, settle_right = _wheels_v_step_response(
+            motion_lib, kp, ki, kaff,
+            gain_left=_ASYM_GAIN_LEFT, gain_right=_ASYM_GAIN_RIGHT)
+        rows.append((label, kp, ki, kaff, peak, accel, settle_left,
+                     settle_right))
+
+    print(f"\nsprint 031 ticket 006 -- MODEL PREDICTIONS, not measured "
+          f"(LaggedRig tau={_GAIN_RETUNE_LAG_S}, hypothesized asymmetry "
+          f"{_ASYM_GAIN_LEFT}/{_ASYM_GAIN_RIGHT}):")
+    print(f"{'label':>22}{'kp':>7}{'ki':>7}{'kaff':>7}{'peak':>9}"
+          f"{'accel':>9}{'settleL':>9}{'settleR':>9}")
+    for label, kp, ki, kaff, peak, accel, sl, sr in rows:
+        print(f"{label:>22}{kp:>7.3f}{ki:>7.2f}{kaff:>7.2f}{peak:>9.1f}"
+              f"{accel:>9.1f}{sl:>9.1f}{sr:>9.1f}")
+
+    today_label, _, _, _, today_peak, today_accel, _, _ = rows[0]
+    assert today_peak > _GAIN_RETUNE_PEAK_BOUND, (
+        f"{today_label}: model predicts peak {today_peak:.1f} mm/s -- "
+        "expected it to reproduce the sprint's own overshoot finding, "
+        "not clear the bar; if this model change made 'today' pass, the "
+        "model no longer reproduces the problem this ticket is tuning"
+    )
+
+    for label, kp, ki, kaff, peak, accel, _sl, _sr in rows[1:]:
+        assert peak <= _GAIN_RETUNE_PEAK_BOUND, (
+            f"{label} (kp={kp}, ki={ki}, kaff={kaff}): model predicts "
+            f"peak {peak:.1f} mm/s, above the {_GAIN_RETUNE_PEAK_BOUND} "
+            "mm/s bar -- not a viable candidate for ticket 011"
+        )
+        assert accel <= _GAIN_RETUNE_ACCEL_BOUND, (
+            f"{label} (kp={kp}, ki={ki}, kaff={kaff}): model predicts "
+            f"peak accel {accel:.1f} mm/s^2, above the "
+            f"{_GAIN_RETUNE_ACCEL_BOUND} mm/s^2 bar -- not a viable "
+            "candidate for ticket 011"
+        )
 
 
 # ---- pivot 90 deg lands within 0.5 deg, at cruise 60/100/200 --------

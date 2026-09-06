@@ -129,7 +129,7 @@ program flow continues.
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|
-| `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. Setting both at once produces an arc. Internally: `startMove(distance, yaw)` then `while (_tickDrive())` — the blocking form ticks the control loop itself at the 24 ms cadence until the move ends. |
+| `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. Below ~50 deg of yaw, setting both at once produces one blended arc; at or above that (`kTurnFirstAngleRad`), it pivots to the new heading FIRST, then drives the distance straight — two sequential phases, not one arc (see the `goTo` split below for why this is NOT the same reduction that reaches a target point exactly). The browser simulator mirrors this same split, drift-tested against the firmware constant it shares. Internally: `startMove(distance, yaw)` then `while (_tickDrive())` — the blocking form ticks the control loop itself at the 24 ms cadence until the move ends. |
 | `go to x %x cm y %y cm` | `goTo(x, y)` | `x`: forward distance cm; `y`: leftward distance cm (robot frame) | Reaches a point in the robot's current coordinate frame exactly, then stops. Blocks the same way as `move`. |
 
 `goTo`'s reduction (in `startGoTo`, shared by the blocking and async
@@ -399,8 +399,14 @@ reproduction of the closed-loop control law:
   stop-vs-latch distinction (§9's `deliverStopNow()`).
 - `poseX`/`poseY`/`poseHeading`/`resetPose` read/reset the simulated
   pose.
-- `setGeometry`/`setKernelValue` are no-ops in the simulator — track
-  width, wheel calibration, and kernel tuning have no simulated effect.
+- `setGeometry`/`setKernelValue` update the simulator's own live
+  `trackWidth`/`rotationalSlip` copies, which `setWheels`'s yaw-rate
+  divisor reads — so a program that pastes a calibration block turns
+  differently in the browser afterward, the same way it would on a
+  calibrated robot. Wheel calibration (`setGeometry`'s `calib`
+  argument) and every other `setKernelValue` field still have no
+  simulated effect: nothing in this idealized kinematic model converts
+  from an encoder count or models PID/shaping behavior.
 - `_tickDrive` (sprint 002) mirrors the hardware tick engine's
   absolute-deadline 24 ms pacing with `basic.pause()`, so
   `while (driveTick())` loops are timing-observable in the browser the

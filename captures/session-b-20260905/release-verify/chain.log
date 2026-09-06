@@ -1,0 +1,16 @@
+endpoint 192.168.4.52:35249
+warm-up done {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '16', 'cyc': '141', 'tlm': 'off', 'next': '8', 'done': '7', 'reason': 'stop'}
+turn +90 deg               +90.0d     +86.5d    -3.5d  PASS
+turn +180 deg             +180.0d    -171.9d    +8.1d  **FAIL**
+turn +90 deg               +90.0d     +89.5d    -0.5d  PASS
+drive +20 cm                20.0c      19.2c    -0.8c  PASS  (bearing off -1 deg)
+drive -40 cm                40.0c      39.7c    -0.3c  PASS  (bearing off -1 deg)
+drive +20 cm                20.0c      19.6c    -0.4c  PASS  (bearing off +0 deg)
+returned home                0.0c       1.2c    +1.2c  PASS
+DANCE FAILED: turn +180
+final (-48.7, -0.8) h=2.4
+leg 0 d= +600  cam dh  +0.44  enc dh -0.3  twist -8 counts (posl 7550, posr 7542)  OTOS dh 0.0  i2cf +8  frames 164  stop
+leg 1 d= -600  cam dh  -2.08  enc dh -0.12  twist -3 counts (posl -7539, posr -7542)  OTOS dh 0.0  i2cf +3  frames 164  stop
+leg 2 d= +600  cam dh  +2.38  enc dh -0.3  twist -8 counts (posl 7536, posr 7528)  OTOS dh 0.0  i2cf +4  frames 163  stop
+leg 3 d= -600  cam dh  -0.92  enc dh 0.53  twist 14 counts (posl -7553, posr -7539)  OTOS dh 0.0  i2cf +3  frames 164  stop
+CHAIN-DONE

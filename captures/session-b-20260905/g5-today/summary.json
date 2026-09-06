@@ -1,0 +1,82 @@
+{
+  "gate": "G5",
+  "cruise_mm_s": 200,
+  "accel_config": 400.000031,
+  "bar_peak_mm_s": 210.0,
+  "bar_rise_mm_s2": 600.0,
+  "trials": [
+    {
+      "k": 0,
+      "sign": 1,
+      "fit_vl": {
+        "lag": 0.065,
+        "rms": 16.31,
+        "n": 24
+      },
+      "fit_vr": {
+        "lag": 0.04,
+        "rms": 13.31,
+        "n": 24
+      },
+      "peak_v": 220,
+      "max_accel": 863.6363636363636,
+      "travel_cm": 25.799383670479788
+    },
+    {
+      "k": 1,
+      "sign": -1,
+      "fit_vl": {
+        "lag": 0.14,
+        "rms": 18.9,
+        "n": 24
+      },
+      "fit_vr": {
+        "lag": 0.055,
+        "rms": 17.06,
+        "n": 24
+      },
+      "peak_v": 227,
+      "max_accel": 345.45454545454544,
+      "travel_cm": 24.930219405541134
+    },
+    {
+      "k": 2,
+      "sign": 1,
+      "fit_vl": {
+        "lag": 0.115,
+        "rms": 20.39,
+        "n": 24
+      },
+      "fit_vr": {
+        "lag": 0.055,
+        "rms": 15.11,
+        "n": 24
+      },
+      "peak_v": 227,
+      "max_accel": 750.0,
+      "travel_cm": 25.938670544409856
+    },
+    {
+      "k": 3,
+      "sign": -1,
+      "fit_vl": {
+        "lag": 0.105,
+        "rms": 20.41,
+        "n": 24
+      },
+      "fit_vr": {
+        "lag": 0.035,
+        "rms": 17.83,
+        "n": 24
+      },
+      "peak_v": 227,
+      "max_accel": 277.77777777777777,
+      "travel_cm": 25.074401239378698
+    }
+  ],
+  "min_travel_cm_bar": 2.0,
+  "motion_pass": true,
+  "peak_pass": false,
+  "rise_pass": false,
+  "passed": false
+}

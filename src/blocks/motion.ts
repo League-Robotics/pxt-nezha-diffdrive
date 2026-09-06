@@ -79,7 +79,9 @@ enum ConfigField {
     //% block="arrive yaw deg"
     ArriveYaw = 36,
     //% block="response lag (s)"
-    Lag = 37
+    Lag = 37,
+    //% block="straight trim"
+    StraightTrim = 38
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"
@@ -88,6 +90,11 @@ enum ConfigField {
 namespace diffDrive {
     let defaultSpeed = 15      // [cm/s]
     let defaultYawRate = 90    // [deg/s]
+    // Shared "on target" threshold for every go-to block -- both
+    // goTo()/startGoTo() below (feeds _goToR's own arrive parameter)
+    // and world.ts's goToWorld() (its own pre-check) read this same
+    // value, so one setArrivalTolerance() call governs both.
+    let arriveTol = 1.0  // [cm]
     // Guards startDrive()'s background tick fiber so repeated calls
     // re-aim the running loop instead of stacking fibers. Cleared by
     // the loop itself when tickDrive() goes false.
@@ -166,6 +173,15 @@ namespace diffDrive {
      * while it is still running re-aims the existing loop rather than
      * stacking a second fiber.
      *
+     * This loop also owns the world sensor: it samples `read world
+     * position()` itself every few ticks while it runs. This is the
+     * ONE background fiber this block creates, so while it is live, do
+     * not also call `read world position`/`set world pose`/
+     * `calibrate world sensor` from another fiber (e.g. a `forever`
+     * loop) -- see those blocks' own doc comments in world.ts. They are
+     * live I2C bus transactions, and this loop is already the one
+     * fiber responsible for sampling the sensor.
+     *
      * UNVERIFIED on hardware (added 2026-08-29): the background fiber
      * is new. tickDrive() is documented safe against a second fiber
      * calling it (shims.cpp's check-and-set guard is atomic on CODAL's
@@ -183,7 +199,21 @@ namespace diffDrive {
         if (driveLoopRunning) return
         driveLoopRunning = true
         control.inBackground(() => {
-            while (_tickDrive());
+            // Samples the world sensor every OTOS_SAMPLE_TICKS ticks --
+            // see this function's own doc comment above. Local to this
+            // loop (not a module-level counter like test.ts's
+            // tickToCompletion() uses) because this is the only tick
+            // loop in this file, and it must reset cleanly each time
+            // the loop is (re)started.
+            const OTOS_SAMPLE_TICKS = 4
+            let otosSampleTickCount = 0
+            while (_tickDrive()) {
+                otosSampleTickCount += 1
+                if (otosSampleTickCount >= OTOS_SAMPLE_TICKS) {
+                    otosSampleTickCount = 0
+                    readWorld()
+                }
+            }
             driveLoopRunning = false
         })
     }
@@ -228,8 +258,11 @@ namespace diffDrive {
     // ================= position-mode moves: blocking =================
 
     /**
-     * Drive a distance while turning a yaw angle, then stop. Both at
-     * once makes an arc. Waits until the move is done.
+     * Drive a distance while turning a yaw angle, then stop. Below
+     * about 50 degrees of yaw, both axes blend into one arc; at or
+     * above that, this pivots to the new heading FIRST, then drives
+     * the distance straight -- two SEQUENTIAL phases, not one blended
+     * arc. Waits until the move is done.
      * @param distance distance to travel, eg: 20
      * @param yaw angle to turn CCW+, eg: 0
      */
@@ -296,15 +329,24 @@ namespace diffDrive {
         const goalX = Math.round(x * 10)  // [mm]
         const goalY = Math.round(y * 10)  // [mm]
         const goalSpeed = Math.round(defaultSpeed * 10)  // [mm/s]
-        // arrive: 1 mm -- tight enough that "on target" means on
-        // target, loose enough not to fight int-mm rounding.
-        const goalArrive = 1  // [mm]
+        // Shared with world.ts's goToWorld() pre-check (arriveTol
+        // above) instead of a hardcoded value, so one
+        // setArrivalTolerance() call governs both go-to blocks.
+        const goalArrive = Math.round(arriveTol * 10)  // [mm]
         // timeout: goToR() drives a <=180 deg pivot (its own short-arc
         // wrap) THEN the straight-line chord -- two SEQUENTIAL phases,
         // not one blended segment like startMove()'s reconciliation, so
-        // their worst-case durations are summed, not maxed, using the
-        // same defaultYawRate/defaultSpeed startMove() itself would use
-        // for those two axes; +1500 ms mirrors startMove()'s own
+        // their worst-case durations are summed, not maxed. `pivotS`
+        // deliberately stays the WORST-CASE 180 deg bound here (goToR()
+        // never pivots more than that, by construction of its own
+        // short-arc wrap) rather than the actual bearing this call will
+        // pivot -- this is a conservative backstop, not the pivot's own
+        // real duration (see engineGoToRArmed()'s own comment, shims.cpp,
+        // for that -- it reconciles the ACTUAL bearing against
+        // defaultYawRate to pick the move's cruise). A worst-case
+        // timeout can only be >= the reconciliation's own estimate, so
+        // the two never disagree in a way that matters: this one just
+        // never times out early. +1500 ms mirrors startMove()'s own
         // end-of-move taper backstop (shims.cpp).
         const chordCm = Math.sqrt(x * x + y * y)
         const pivotS = 180 / defaultYawRate
@@ -312,8 +354,14 @@ namespace diffDrive {
         const timeout = Math.round((pivotS + straightS) * 1000) + 1500  // [ms]
         // Must precede _goToR() immediately -- see
         // Rig::pendingGoToDeadline_'s comment (shims.cpp) for the
-        // one-shot handoff contract this pair relies on.
+        // one-shot handoff contract this pair relies on. _setGoToYawRate()
+        // is the analogous pre-arm for the pivot phase's own rate
+        // ceiling (engineGoToRArmed() reconciles it against goalSpeed
+        // the same way _startMove() reconciles its own two rate
+        // ceilings) -- centidegree-per-second, matching startMove()'s
+        // own Math.round(defaultYawRate * 100) convention.
         _setGoToDeadline(timeout)
+        _setGoToYawRate(Math.round(defaultYawRate * 100))  // [cdeg/s]
         _goToR(goalX, goalY, goalSpeed, goalArrive)
     }
 
@@ -348,12 +396,19 @@ namespace diffDrive {
     /**
      * Stop the robot now -- including a continuous drive command in
      * progress (setWheelSpeeds()/driveTwist()), the same full-stop
-     * contract stop() has (stop.ts). A no-op if the robot was already
-     * idle. Note: under the tick model, a move started with
-     * startMove()/startGoTo() and never paired with a driveTick() loop
-     * will not have progressed anyway (see startMove()'s doc comment).
+     * contract stop() has (stop.ts): their native bodies are identical.
+     * A no-op if the robot was already idle. Note: under the tick
+     * model, a move started with startMove()/startGoTo() and never
+     * paired with a driveTick() loop will not have progressed anyway
+     * (see startMove()'s doc comment).
+     *
+     * Hidden from the toolbox -- stop() (stop.ts) is the one visible
+     * stop control -- but stays exported and callable: every internal
+     * caller here and in world.ts/test.ts keeps working, and a saved
+     * project already using the "stop move" block still compiles.
      */
     //% block="stop move"
+    //% blockHidden=true
     //% group="Stop" weight=290
     export function stopMove(): void {
         _endMove()
@@ -404,6 +459,30 @@ namespace diffDrive {
     //% subcategory="Setup"
     export function setDefaultSpeed(speed: number): void {
         defaultSpeed = Math.max(1, speed)
+    }
+
+    /**
+     * How close counts as "arrived", in cm. Shared by both go-to
+     * blocks: goTo()/startGoTo() above and world.ts's goToWorld().
+     * @param tol eg: 1
+     */
+    //% block="set arrival tolerance %tol cm"
+    //% group="Setup" weight=60
+    //% subcategory="Setup"
+    export function setArrivalTolerance(tol: number): void {
+        arriveTol = Math.max(0.1, tol)
+    }
+
+    /**
+     * The shared arrival tolerance, in cm -- world.ts's goToWorld()
+     * reads this for its own pre-check instead of keeping an
+     * independent copy, so one setArrivalTolerance() call governs
+     * both go-to blocks. Not a block: a plain accessor for the one
+     * cross-file caller.
+     */
+    //% blockHidden=true
+    export function arrivalTolerance(): number {
+        return arriveTol
     }
 
     /**

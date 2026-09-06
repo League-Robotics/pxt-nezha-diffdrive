@@ -102,6 +102,21 @@ int wheelSpeed(int which);  // [mm/s]; which: 0 = left, 1 = right
 // MotionEngine/Rig -- see this file's own header comment.
 bool engineMoveActive();
 
+// The SECOND genuinely new read, alongside engineMoveActive() above --
+// true iff the most recent Segment to go inactive ended via its OWN
+// deadline rather than by reaching its own goal, an abort, or an
+// external stop. Latched by MotionEngine on the exact tick a Segment
+// ends (motion_engine.h's own doc comment on
+// MotionEngine::lastSegmentEndedByDeadline()), so resolvePendingReason()
+// below can read it an arbitrary time later and still get the answer as
+// of that tick -- not a re-derivation against
+// motionObligationDeadlineLive()'s own now_(), which is only correct if
+// resolution happens to run before the wire-side deadline elapses (an
+// early-arriving goal-directed move otherwise reads `reason=timeout`
+// whenever STATUS/ack traffic happens to poll late). Same "no stored
+// engine reference" contract as engineMoveActive().
+bool engineMoveEndedByDeadline();
+
 namespace {
 
 // The `ConfigField` enum entries (`blocks/motion.ts`) mapped onto
@@ -268,6 +283,16 @@ constexpr FieldEntry kFields[] = {
                                // measured dominant-axis speed. See
                                // shims.cpp's setKernelValue()/
                                // getConfigValue() case (kLimitsFields).
+    {"straight_trim", 38},     // ConfigField.StraightTrim: [1] a
+                               // dimensionless per-robot bias on the
+                               // kernel's OWN twist-hold reference
+                               // (DiffDrive::Config::straightTrim), a
+                               // real stored kernel Config field --
+                               // handled by setKernelValue()/
+                               // getConfigValue() case 38 directly, NOT
+                               // routed through kLimitsFields (this is
+                               // not a MotionLimits member). Default 0;
+                               // no robot's value is baked here.
 };
 constexpr size_t kFieldCount = sizeof(kFields) / sizeof(kFields[0]);
 
@@ -408,7 +433,7 @@ void WireAdapter::setIdentity(const Wire::Identity& identity) {
   identity_ = identity;
 }
 
-void WireAdapter::setJobOwnsMotion(bool owns) { jobOwnsMotion_ = owns; }
+void WireAdapter::setExternalOwner(MotionOwner owner) { externalOwner_ = owner; }
 
 uint32_t WireAdapter::now() const {
   // See this file's own header comment: now_ is supplied at
@@ -467,11 +492,12 @@ void WireAdapter::status(Wire::StatusFields& out) const {
 
 Wire::Result WireAdapter::onWheelsV(float left, float right,
                                     uint32_t duration, uint32_t id) {
-  // A dispatched RUN job owns the drivetrain -- refuse outright (kBusy)
-  // rather than silently overwrite or race its move. Checked first,
-  // before any other validation, on all six motion verbs identically --
-  // see setJobOwnsMotion()'s own doc comment (wire_adapter.h).
-  if (jobOwnsMotion_) return Wire::Result::kBusy;
+  // Something other than a wire motion owns the drivetrain -- refuse
+  // outright (kBusy) rather than silently overwrite or race its move.
+  // Checked first, before any other validation, on all six motion verbs
+  // identically -- see setExternalOwner()'s own doc comment
+  // (wire_adapter.h).
+  if (externalOwner_ != MotionOwner::kNone) return Wire::Result::kBusy;
   if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
   // WIRE-08 (code review 2026-08-23): refuse BEFORE the cast below runs
   // at all -- see kWireBoundaryCastCeiling's own doc comment
@@ -513,7 +539,7 @@ Wire::Result WireAdapter::onWheelsV(float left, float right,
 Wire::Result WireAdapter::onWheelsX(float left, float right, float cruise,
                                     uint32_t timeout, uint32_t id) {
   // See onWheelsV()'s identical check above.
-  if (jobOwnsMotion_) return Wire::Result::kBusy;
+  if (externalOwner_ != MotionOwner::kNone) return Wire::Result::kBusy;
   // A speed ceiling has no sign -- refuse outright rather than take its
   // magnitude, or fall into wheelsX()'s own non-positive-cruise no-op
   // (motion_engine.h), which would silently accept this as "nothing to
@@ -547,7 +573,7 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
                                   float cruise, uint32_t timeout,
                                   uint32_t id) {
   // See onWheelsV()'s identical check above.
-  if (jobOwnsMotion_) return Wire::Result::kBusy;
+  if (externalOwner_ != MotionOwner::kNone) return Wire::Result::kBusy;
   // Same cruise <0 handling as onWheelsX() above; the ==0 substitution
   // itself now goes through resolveDefaultCruise() (SUC-003) instead
   // of the flat engineDefaultCruise() directly. D is
@@ -590,7 +616,7 @@ Wire::Result WireAdapter::onMoveX(float distance, float rotation,
 Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
                                   uint32_t id) {
   // See onWheelsV()'s identical check above.
-  if (jobOwnsMotion_) return Wire::Result::kBusy;
+  if (externalOwner_ != MotionOwner::kNone) return Wire::Result::kBusy;
   // Shares WHEELS_V's own ceiling and "duration is the lease" rationale
   // -- see kWheelsVDurationCeiling's own doc comment (wire_adapter.h).
   if (duration > kWheelsVDurationCeiling) return Wire::Result::kRange;
@@ -615,7 +641,7 @@ Wire::Result WireAdapter::onMoveV(float v_x, float omega, uint32_t duration,
 Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
                                   uint32_t timeout, uint32_t id) {
   // See onWheelsV()'s identical check above.
-  if (jobOwnsMotion_) return Wire::Result::kBusy;
+  if (externalOwner_ != MotionOwner::kNone) return Wire::Result::kBusy;
   // `speed`'s <0 handling mirrors onWheelsX()/onMoveX() above -- see
   // this method's own doc comment (wire_adapter.h) for why (`speed`
   // plays `cruise`'s role for the underlying moveX() call). The ==0
@@ -646,7 +672,7 @@ Wire::Result WireAdapter::onGoToR(float x, float y, float speed, float arrive,
 Wire::Result WireAdapter::onGoToW(float x, float y, float speed, float arrive,
                                   uint32_t timeout, uint32_t id) {
   // See onWheelsV()'s identical check above.
-  if (jobOwnsMotion_) return Wire::Result::kBusy;
+  if (externalOwner_ != MotionOwner::kNone) return Wire::Result::kBusy;
   // Same speed <0 handling as onGoToR() above, and the same
   // resolveDefaultCruise() substitution on ==0 (SUC-003) -- but
   // UNLIKE onGoToR()'s (x, y) (already body-frame, i.e. already the
@@ -772,12 +798,26 @@ Wire::Result WireAdapter::onStop(bool /*immediate*/, uint32_t /*id*/) {
   return Wire::Result::kOk;
 }
 
-bool WireAdapter::hasLiveMotionObligation() const {
+bool WireAdapter::motionObligationDeadlineLive() const {
   if (!motionObligationActive_ || now_ == nullptr) return false;
   const uint32_t sample = now_();  // [ms]
   // Wraparound-safe elapsed check (signed-difference idiom), same one
   // sprint 002's original obligation tracking used in protocol.cpp.
   return static_cast<int32_t>(sample - motionObligationDeadline_) < 0;
+}
+
+bool WireAdapter::hasLiveMotionObligation() const {
+  // Resolve a completed-but-unpolled motion FIRST -- this is what lets
+  // a caller that polls only THIS accessor (protocol.cpp's fiber loop
+  // is exactly that caller) see the obligation clear itself the moment
+  // the motion actually finished, not only after something else also
+  // happens to call lastDone()/lastDoneReason(). resolvePendingIfDue()
+  // reaches resolvePendingReason(), which reads
+  // motionObligationDeadlineLive() directly rather than this method --
+  // see that method's own comment (wire_adapter.h) for why calling
+  // back into this method from there would recurse.
+  resolvePendingIfDue();
+  return motionObligationDeadlineLive();
 }
 
 // ---- sprint 005 ticket 004: motion-completion resolution (S8.8) --------
@@ -795,28 +835,38 @@ Wire::DoneReason WireAdapter::resolvePendingReason() const {
   if (diagValue(kDiagEstopped) != 0) return Wire::DoneReason::kEstop;
   if (diagValue(kDiagStallHalted) != 0) return Wire::DoneReason::kStall;
   if (pendingGoalDirected_) {
-    // MOVE_X/GO_TO_R/GO_TO_W: the ONE genuinely new read (this file's
-    // own forward declaration above). Still active means not yet
-    // resolved, regardless of the wire-side deadline -- the engine's
-    // own internal deadline/goal/wrong-way checks (serviceMove(),
-    // motion_engine.cpp) are what eventually clear it, and this class
-    // only ever observes the result. Once it goes inactive: the wire-
-    // side lease not yet elapsed means it reached its own stop
-    // condition EARLY (kStop); already elapsed means the deadline is
-    // what ended it (kTimeout).
+    // MOVE_X/GO_TO_R/GO_TO_W: still active means not yet resolved,
+    // regardless of the wire-side deadline -- the engine's own internal
+    // deadline/goal/wrong-way checks (service(), motion_engine.cpp) are
+    // what eventually clear it, and this class only ever observes the
+    // result.
     if (engineMoveActive()) return Wire::DoneReason::kNone;
-    return hasLiveMotionObligation() ? Wire::DoneReason::kStop
-                                      : Wire::DoneReason::kTimeout;
+    // Once inactive, ask the ENGINE why, via engineMoveEndedByDeadline()
+    // -- NOT motionObligationDeadlineLive(), which this branch used to
+    // read here. That read compared the wire's OWN deadline against
+    // now_() AT WHATEVER MOMENT this method happens to run, which is
+    // only correct if resolution runs before that deadline elapses --
+    // exactly the assumption a late STATUS/ack poll breaks (a move that
+    // arrived early is misread as `kTimeout` the moment its own
+    // deadline has since passed, even though the engine went inactive
+    // long before that). engineMoveEndedByDeadline() instead reports
+    // what the engine itself decided, latched on the tick it decided
+    // it -- immune to how late this method is called afterward. See
+    // this file's own forward declaration of it above and
+    // MotionEngine::lastSegmentEndedByDeadline()'s doc comment
+    // (motion_engine.h) for the full fix.
+    return engineMoveEndedByDeadline() ? Wire::DoneReason::kTimeout
+                                        : Wire::DoneReason::kStop;
   }
   // WHEELS_V/WHEELS_X/MOVE_V: no engine read needed -- these resolve
   // entirely from the SAME lease-deadline bookkeeping
-  // hasLiveMotionObligation() already provides ("no new dependency
+  // motionObligationDeadlineLive() already provides ("no new dependency
   // needed for these three verbs," sprint.md's own Design Rationale).
   // A still-live lease means not yet resolved; an elapsed one with
   // nothing having superseded or stopped it (both handled elsewhere,
   // see forceResolvePending()) means it simply ran out the clock.
-  return hasLiveMotionObligation() ? Wire::DoneReason::kNone
-                                    : Wire::DoneReason::kTimeout;
+  return motionObligationDeadlineLive() ? Wire::DoneReason::kNone
+                                         : Wire::DoneReason::kTimeout;
 }
 
 void WireAdapter::resolvePendingIfDue() const {
@@ -831,7 +881,7 @@ void WireAdapter::resolvePendingIfDue() const {
   // clearing point that was missing before (only onEstop()/onStop() ever
   // cleared this flag). `reason` was computed by resolvePendingReason()
   // just above, which itself reads the pre-clear value of
-  // motionObligationActive_ (via hasLiveMotionObligation()) for the
+  // motionObligationActive_ (via motionObligationDeadlineLive()) for the
   // lease-style branch -- so clearing it AFTER that read, not before, is
   // required for correctness here too, same ordering rule onStop()'s own
   // comment documents for forceResolvePending() below.
@@ -963,15 +1013,29 @@ Wire::Result WireAdapter::onTlm(Wire::TlmMode mode) {
   if (mode == Wire::TlmMode::kBuffer) return Wire::Result::kUnimplemented;
   // TLM NOW is a one-shot request in the CURRENT subscription's shape,
   // not a new subscription (protocol.md S6.1: "does not change mode") --
-  // so it is deliberately never stored into mode_. TLM AUTO is a
+  // so it is deliberately never stored into mode_. Instead it arms
+  // oneShotTelemetryDue_, which consumeOneShotTelemetry() (below) hands
+  // to protocol.cpp's fiber loop -- previously this arm was the ONLY
+  // thing missing: nothing ever read a "one-shot due" signal, so TLM
+  // NOW acked kOk and emitted nothing at all. TLM AUTO is a
   // documented ALIAS for TLM POSE as of this same ticket -- it stores
   // mode_ = kAuto here like any other mode, but buildSnapshot() below
   // already treats every stored mode other than kFull identically, so
   // kAuto needs no separate branch there to behave exactly like kPose
   // (same 12 columns, same cadence). Everything else (kOff/kPose/kFull/
   // kAuto) becomes the persisted mode.
-  if (mode != Wire::TlmMode::kNow) mode_ = mode;
+  if (mode == Wire::TlmMode::kNow) {
+    oneShotTelemetryDue_ = true;
+  } else {
+    mode_ = mode;
+  }
   return Wire::Result::kOk;
+}
+
+bool WireAdapter::consumeOneShotTelemetry() {
+  if (!oneShotTelemetryDue_) return false;
+  oneShotTelemetryDue_ = false;
+  return true;
 }
 
 bool WireAdapter::telemetryEnabled() const {

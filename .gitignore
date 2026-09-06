@@ -37,7 +37,7 @@ config/wifi_secrets.json
 .simstate.json
 _history
 projects/
-captures/
+captures/*
 
 # --- pipx/setuptools build droppings under tools/rogo ---
 tools/rogo/build/

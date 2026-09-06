@@ -1,0 +1,17 @@
+status: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=74 cyc=515 tlm=off next=1 done=6 reason=stop
+home (  27.2,  -4.5) h= 158.1
+
+step                     expected   measured      err  result
+turn +90 deg               +90.0d     +83.9d    -6.1d  PASS
+turn +180 deg             +180.0d    +177.8d    -2.2d  PASS
+turn +90 deg               +90.0d     +86.2d    -3.8d  PASS
+drive +20 cm                20.0c      19.4c    -0.6c  PASS  (bearing off +4 deg)
+drive -40 cm                40.0c      39.6c    -0.4c  PASS  (bearing off -2 deg)
+drive +20 cm                20.0c      19.7c    -0.3c  PASS  (bearing off +3 deg)
+
+returned home                0.0c       4.9c    +4.9c  PASS
+
+ACCURACY (not a gate): net heading drift over the three pivots -7.4 deg, i.e. -2.5 deg per 90 deg pivot.
+  ^ worth retuning stop_distance before precision work.
+
+DANCE PASSED -- left is left, forward is forward, and it comes home.

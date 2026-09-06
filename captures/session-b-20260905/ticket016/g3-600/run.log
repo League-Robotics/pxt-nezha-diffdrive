@@ -1,0 +1,16 @@
+link: serial daemon 192.168.4.52:46011
+robot: device NEZHA2 robot tovez 2314287040
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '1105', 'cyc': '8632', 'tlm': 'off', 'next': '1', 'done': '6', 'reason': 'stop'}
+rotational_slip=0.962 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 52 at (-46.5, -1.7) cm heading -2.5 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+6 alternating +-600 mm legs at cruise 100 mm/s (accel=300.0, v_floor=70.0 live)
+  0 cmd  +600 cam   597.7 mm (err -2.3) peak 118 first 36.0 dh -2.40 reason=stop
+  1 cmd  -600 cam   596.4 mm (err -3.6) peak 112 first 10.0 dh +2.87 reason=stop
+  2 cmd  +600 cam   595.0 mm (err -5.0) peak 121 first 20.0 dh -5.02 reason=stop
+  3 cmd  -600 cam   594.0 mm (err -6.0) peak 118 first 10.0 dh +3.45 reason=stop
+  4 cmd  +600 cam   594.9 mm (err -5.1) peak 121 first 14.5 dh -2.80 reason=stop
+  5 cmd  -600 cam   593.9 mm (err -6.1) peak 121 first 11.5 dh +2.61 reason=stop
+G3: length err mean -4.7 mm (bar +-3.0) -- FAIL; peak v max 121 mm/s (bar <= 105) -- FAIL
+G4: first-tick max 36.0 mm/s (bar <= v_floor 70.0) -- PASS; max accel 787.8787878787879 (bar <= 1.5x accel=300) -- FAIL; max decel 490.74074074074076 (bar <= 2.0x accel) -- PASS
+wrote captures/session-b-20260905/ticket016/g3-600; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render captures/session-b-20260905/ticket016/g3-600

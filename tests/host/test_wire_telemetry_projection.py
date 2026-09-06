@@ -53,6 +53,7 @@ from test_wire_motion_verbs import (  # noqa: F401 -- wa/motion_verb_lib re-expo
     TLM_AUTO,
     TLM_BUFFER,
     TLM_FULL,
+    TLM_NOW,
     TLM_POSE,
     WireAdapterHandle,
     motion_verb_lib,
@@ -479,3 +480,101 @@ def test_tlm_buffer_never_emits_a_thdr_or_t_frame(wa):
     assert not reply.startswith(b"t ")
 
     assert not wa.has_live_telemetry()
+
+
+# ---------------------------------------------------------------------------
+# TLM NOW's one-shot delivery (closes the "acks kOk and emits nothing"
+# gap): onTlm(TlmMode::kNow) arms a one-shot flag rather than a
+# subscription -- consumeOneShotTelemetry() reads and clears it exactly
+# once, and whichever caller sees `true` back builds and emits ONE
+# buildSnapshot()/emitTelemetry() pair, the same pair the periodic path
+# already uses. These tests drive that sequence directly (onTlm(),
+# consumeOneShotTelemetry(), build_snapshot()/emit_telemetry()) rather
+# than through a live protocol.cpp fiber, the same "one shim, drive the
+# real adapter's own methods by hand" convention every other test in
+# this file already uses for buildSnapshot()/telemetryEnabled().
+# ---------------------------------------------------------------------------
+
+
+def test_tlm_now_arms_the_one_shot_flag_via_direct_on_tlm(wa):
+    """A bare, never-subscribed handle: onTlm(kNow) acks kOk (same as
+    every other accepted TLM mode) and arms the flag, readable via
+    consumeOneShotTelemetry()."""
+    assert wa.on_tlm(TLM_NOW) == 0  # Wire::Result::kOk
+    assert wa.consume_one_shot_telemetry()
+
+
+def test_tlm_now_does_not_start_a_subscription(wa):
+    """protocol.md S6.1's own 'does not change mode' contract for TLM
+    NOW -- with nothing else ever subscribed, telemetryEnabled() must
+    stay false after a TLM NOW, exactly as it was before. This is the
+    behavior a caller that (incorrectly) checked has_live_telemetry()
+    instead of consuming the one-shot flag would misread as 'nothing to
+    do' -- the two are deliberately independent signals."""
+    assert not wa.has_live_telemetry()
+    assert wa.on_tlm(TLM_NOW) == 0
+    assert not wa.has_live_telemetry()
+    assert wa.consume_one_shot_telemetry()  # the one-shot itself DID arm
+
+
+def test_tlm_now_leaves_an_existing_subscription_untouched(wa):
+    """The other half of the same contract: a TLM NOW arriving while
+    POSE is already active must not disturb that subscription -- a host
+    streaming POSE that also asks for one extra fix must keep streaming
+    POSE afterward, at POSE's own 12 columns, not fall back to OFF or
+    switch shape."""
+    assert wa.on_tlm(TLM_POSE) == 0
+    assert wa.has_live_telemetry()
+
+    assert wa.on_tlm(TLM_NOW) == 0
+    assert wa.has_live_telemetry()  # still subscribed, unchanged
+    assert wa.build_snapshot().count == 12  # still POSE's own column set
+    assert wa.consume_one_shot_telemetry()
+
+
+def test_tlm_now_consume_reads_and_clears_exactly_once(wa):
+    """consumeOneShotTelemetry() is a read-THEN-clear: the second call,
+    with no intervening onTlm(kNow), reports nothing due -- a caller
+    that (incorrectly) polled it twice per request would otherwise risk
+    emitting the same one-shot frame twice."""
+    assert wa.on_tlm(TLM_NOW) == 0
+    assert wa.consume_one_shot_telemetry()
+    assert not wa.consume_one_shot_telemetry()
+
+
+def test_tlm_now_produces_exactly_one_thdr_and_t_frame(wa):
+    """The full simulated one-shot delivery, end to end: onTlm(kNow)
+    arms the flag; consumeOneShotTelemetry() reports it due; the SAME
+    buildSnapshot()/emitTelemetry() pair the periodic telemetry path
+    already uses (not a new, second emission mechanism) produces one
+    thdr line (this handle's first-ever emission, so a header is
+    unconditionally due -- headerChanged()'s own 'nothing to compare
+    against yet' branch) and one t line. This is the real fix for the
+    bug this ticket closes: previously nothing anywhere ever emitted a
+    frame for TLM NOW at all."""
+    assert wa.on_tlm(TLM_NOW) == 0
+    assert wa.consume_one_shot_telemetry()
+
+    wa.emit_telemetry(wa.build_snapshot())
+    lines = [line for line in wa.take_sink().split(b"\n") if line]
+    assert len(lines) == 2
+    assert lines[0].startswith(b"thdr ")
+    assert lines[1].startswith(b"t ")
+
+    # Spent -- a caller with no new TLM NOW has nothing left to emit.
+    assert not wa.consume_one_shot_telemetry()
+
+
+def test_tlm_now_frame_reflects_the_current_pose_not_a_stale_one(wa):
+    """The one-shot frame is a REAL buildSnapshot() read, not a canned
+    reply -- a pose set between the request and the emission is what
+    actually goes out, same as any periodic frame would report."""
+    wa.set_pose_raw(1234, -5678, 900)
+    assert wa.on_tlm(TLM_NOW) == 0
+    assert wa.consume_one_shot_telemetry()
+
+    snapshot = wa.build_snapshot()
+    columns = _column_map(snapshot)
+    assert columns["x"] == (1234, False)
+    assert columns["y"] == (-5678, False)
+    assert columns["h"] == (900, False)

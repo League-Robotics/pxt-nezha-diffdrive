@@ -1,0 +1,10 @@
+status {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '399', 'cyc': '5966', 'tlm': 'off', 'next': '1', 'done': '5', 'reason': 'stop'}
+VERIFIED ['get twist_hold_gain 4.000000']
+VERIFIED ['get v_floor 70.000000']
+VERIFIED ['get accel 800.000061']
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+leg 0 d= +600  cam dh  +1.62  enc dh -0.36  twist -9 counts (posl 7520, posr 7511)  OTOS dh 0.0  i2cf +3  frames 164  stop
+leg 1 d= -600  cam dh  -0.95  enc dh 0.64  twist 16 counts (posl -7508, posr -7492)  OTOS dh 0.0  i2cf +5  frames 164  stop
+leg 2 d= +600  cam dh  -0.72  enc dh -0.24  twist -6 counts (posl 7539, posr 7533)  OTOS dh 0.0  i2cf +3  frames 163  stop
+leg 3 d= -600  cam dh  +0.45  enc dh 0.56  twist 14 counts (posl -7528, posr -7514)  OTOS dh 0.0  i2cf +2  frames 172  stop
+wrote captures/session-b-20260905/gain-sweep-20260905/accel800b/

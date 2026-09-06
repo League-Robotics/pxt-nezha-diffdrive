@@ -1,0 +1,222 @@
+1788576863.630 === watch start ===
+1788576869.940 endpoint zilch.local:33941
+1788576870.169 connected
+1788576877.943 RX D
+1788576877.946 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns
+1788576877.950 RX =0/0 cmd= reply=
+1788576887.942 RX D
+1788576887.945 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0
+1788576887.947 RX drop=0 mdns=0/0 cmd= reply=
+1788576897.943 RX D
+1788576897.947 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=
+1788576897.952 RX 0/0 cmd= reply=
+1788576907.943 RX D
+1788576908.053 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788576917.944 RX D
+1788576917.948 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdn
+1788576917.951 RX s=0/0 cmd= reply=
+1788576927.942 RX D
+1788576927.946 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=
+1788576927.951 RX 0 drop=0 mdns=0/0 cmd= reply=
+1788576937.946 RX D
+1788576937.949 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788576947.943 RX D
+1788576947.946 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd=
+1788576947.949 RX reply=
+1788576957.941 RX D
+1788576957.949 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=
+1788576957.952 RX 0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788576967.949 RX D
+1788576967.953 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788576977.942 RX D
+1788576977.944 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=
+1788576977.947 RX 0 drop=0 mdns=0/0 cmd= reply=
+1788576987.941 RX D
+1788576987.945 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd
+1788576987.948 RX = reply=
+1788576997.948 RX D
+1788576997.949 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577007.942 RX D
+1788577007.944 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx
+1788577007.948 RX =0 drop=0 mdns=0/0 cmd= reply=
+1788577017.943 RX D
+1788577017.948 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577027.944 RX D
+1788577027.950 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577037.942 RX D
+1788577037.945 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 m
+1788577037.947 RX dns=0/0 cmd= reply=
+1788577047.941 RX D
+1788577047.944 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cm
+1788577047.948 RX d= reply=
+1788577057.941 RX D
+1788577057.944 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx
+1788577057.947 RX =0 drop=0 mdns=0/0 cmd= reply=
+1788577067.945 RX D
+1788577067.948 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577077.941 RX D
+1788577077.946 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0
+1788577077.949 RX mdns=0/0 cmd= reply=
+1788577087.940 RX D
+1788577087.943 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0
+1788577087.950 RX mdns=0/0 cmd= reply=
+1788577097.943 RX D
+1788577097.945 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577107.940 RX D
+1788577107.943 RX BG:wifi state=0 ip=- peer=-
+1788577107.949 RX :0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0
+1788577107.966 RX mdns=0/0 cmd= reply=
+1788577117.940 RX D
+1788577117.942 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0
+1788577117.945 RX rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577127.940 RX D
+1788577127.943 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0
+1788577127.947 RX mdns=0/0 cmd= reply=
+1788577137.939 RX D
+1788577137.942 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restart
+1788577137.944 RX s=0 sent=0 rx=0 drop=0 mdns=0/0 c
+1788577137.946 RX md= reply=
+1788577147.939 RX D
+1788577147.941 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restart
+1788577147.943 RX s=0 sent=0 rx=0 drop=0 mdns=0/0 c
+1788577147.947 RX md= reply=
+1788577157.940 RX D
+1788577157.942 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=
+1788577157.945 RX 0 mdns=0/0 cmd= reply=
+1788577167.940 RX D
+1788577167.942 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0
+1788577167.946 RX rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577177.939 RX D
+1788577177.941 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 resta
+1788577177.945 RX rts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577187.940 RX D
+1788577187.942 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0
+1788577187.945 RX mdns=0/0 cmd= reply=
+1788577197.942 RX D
+1788577197.945 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577207.941 RX D
+1788577208.158 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577217.938 RX D
+1788577217.942 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0
+1788577217.945 RX cmd= reply=
+1788577227.938 RX D
+1788577227.941 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=
+1788577227.945 RX 0 mdns=0/0 cmd= reply=
+1788577237.940 RX D
+1788577237.981 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577247.937 RX D
+1788577247.942 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent
+1788577247.945 RX =0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577257.944 RX D
+1788577257.949 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577267.936 RX D
+1788577267.942 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=
+1788577267.942 RX 0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577277.936 RX D
+1788577277.940 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop
+1788577277.945 RX =0 mdns=0/0 cmd= reply=
+1788577287.949 RX D
+1788577287.951 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577297.936 RX D
+1788577297.938 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent
+1788577297.941 RX =0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577307.935 RX D
+1788577307.939 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=
+1788577307.945 RX 0 mdns=0/0 cmd= reply=
+1788577317.934 RX D
+1788577317.961 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sen
+1788577317.967 RX t=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577327.938 RX D
+1788577327.984 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577337.934 RX D
+1788577337.938 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sen
+1788577337.940 RX t=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577347.935 RX D
+1788577347.938 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/
+1788577347.944 RX 0 cmd= reply=
+1788577357.934 RX D
+1788577357.943 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= rep
+1788577357.945 RX ly=
+1788577367.935 RX D
+1788577367.955 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop
+1788577367.966 RX =0 mdns=0/0 cmd= reply=
+1788577377.933 RX D
+1788577377.935 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 d
+1788577377.937 RX r
+1788577377.940 RX op=0 mdns=0/0 cmd= reply=
+1788577387.932 RX DBG:wifi sta
+1788577387.935 RX te=0 ip=- p
+1788577387.943 RX eer=-:0 tcp
+1788577387.946 RX =0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577397.934 RX D
+1788577397.937 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= rep
+1788577397.944 RX ly=
+1788577407.932 RX D
+1788577407.935 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 d
+1788577407.940 RX rop=0 mdns=0/0 cmd= reply=
+1788577417.932 RX D
+1788577417.934 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 dr
+1788577417.937 RX op=0 mdns=0/0 cmd= reply=
+1788577427.931 RX D
+1788577427.935 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=
+1788577427.938 RX 0/0 cmd= reply=
+1788577437.938 RX D
+1788577437.941 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577447.931 RX D
+1788577447.934 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=
+1788577447.935 RX 0
+1788577447.938 RX /0 cmd= reply=
+1788577457.938 RX D
+1788577457.941 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577467.930 RX D
+1788577467.933 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 dr
+1788577467.936 RX op=0 mdns=0/0 cmd= reply=
+1788577477.931 RX D
+1788577477.932 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 d
+1788577477.938 RX rop=0 mdns=0/0 cmd= reply=
+1788577487.936 RX D
+1788577487.939 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577497.929 RX D
+1788577498.146 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577500.753 peer closed
+1788577510.557 connect failed [Errno 61] Connection refused
+1788577516.879 endpoint zilch.local:44463
+1788577518.935 connected
+1788577530.760 RX d
+1788577530.971 RX evice NEZHA2 robot tovez 2314287040
+1788577544.025 RX D
+1788577544.029 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577544.029 RX OTOS:boot:id=0:connected=0
+1788577544.044 RX DBG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577554.032 RX D
+1788577554.035 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577564.027 RX D
+1788577564.051 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdn
+1788577564.056 RX s=0/0 cmd= reply=
+1788577574.028 RX D
+1788577574.053 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577584.023 RX D
+1788577584.025 RX BG:wifi s
+1788577584.029 RX tate=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0
+1788577584.033 RX drop=0 mdns=0/0 cmd= reply=
+1788577594.024 RX D
+1788577594.027 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4
+1788577594.030 RX restarts=0 sent=0 rx=0 drop=0 mdns
+1788577594.071 RX =0/0 cmd= reply=
+1788577604.026 RX D
+1788577604.028 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdn
+1788577604.033 RX s=0/0 cmd= reply=
+1788577614.025 RX D
+1788577614.027 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0
+1788577614.030 RX drop=0 mdns=0/0 cmd= reply=
+1788577624.028 RX D
+1788577624.041 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd= reply=
+1788577634.024 RX D
+1788577634.026 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0
+1788577634.031 RX drop=0 mdns=0/0 cmd= reply=
+1788577644.024 RX D
+1788577644.027 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdn
+1788577644.030 RX s=0/0 cmd= reply=
+1788577654.025 RX D
+1788577654.027 RX BG:wifi state=0 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd=
+1788577654.034 RX reply=

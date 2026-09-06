@@ -230,6 +230,83 @@ def test_hand_rotation_resync_still_works_the_same_two_strike_way(lib):
         assert armor.evaluate(20_050) == K_ACCEPT_AS_REBASELINE
 
 
+# ---- AC: explicit raw-zero rejection, independent of magnitude --------
+
+@pytest.mark.parametrize("baseline", [30, 100_000])
+def test_raw_zero_after_nonzero_good_is_rejected_regardless_of_magnitude(lib, baseline):
+    """The defect this closes: a destroyed sample reads back as an exact
+    raw 0. When `baseline` is small (30), |0 - 30| = 30 sits WELL inside
+    kMaxDeltaCounts -- the old magnitude-only check would have let this
+    straight through as kAccept, exactly the failure mode that lets a
+    destroyed zero pass as real motion early in a fresh counter's life.
+    When `baseline` is large (100_000), the magnitude check alone would
+    already have caught it -- included here to prove the new zero check
+    is not what is doing the work in that case, and that both paths
+    agree. Either way this must be REJECTED, and the two-strike hold
+    (not yet a rebaseline) must not disturb the recorded last-good
+    value."""
+    with Armor(lib) as armor:
+        armor.prime(baseline)
+        assert armor.evaluate(0) == K_REJECT_PENDING
+        assert armor.last_good_raw() == baseline
+
+
+def test_two_consistent_raw_zero_readings_still_rebaseline(lib):
+    """The other half of the acceptance criteria, in tension with the
+    one above: a GENUINE counter restart landing exactly on zero twice
+    in a row (no intervening nonzero noise) must still reach
+    kAcceptAsRebaseline on the second reading -- the zero check must
+    not be special-cased OUT of the two-strike path entirely, only
+    exempted from the magnitude gate on its first appearance."""
+    with Armor(lib) as armor:
+        armor.prime(50_000)
+        first = armor.evaluate(0)
+        assert first == K_REJECT_PENDING
+        assert armor.last_good_raw() == 50_000  # still holding pre-reset value
+
+        second = armor.evaluate(0)
+        assert second == K_ACCEPT_AS_REBASELINE
+        assert armor.last_good_raw() == 0
+
+
+def test_raw_zero_then_inconsistent_nonzero_second_reading_still_holds(lib):
+    """A zero-first rejection is not a free pass into rebaseline on
+    ANY second reading -- the second reading must still be consistent
+    (within kMaxDeltaCounts) with the FIRST rejected value (0), exactly
+    the same two-strike discipline the all-nonzero case already
+    enforces."""
+    with Armor(lib) as armor:
+        armor.prime(50_000)
+        assert armor.evaluate(0) == K_REJECT_PENDING
+        # Second reading is itself far from the first rejected value (0):
+        # not self-consistent, must keep holding.
+        assert armor.evaluate(40_000) == K_REJECT_PENDING
+        assert armor.last_good_raw() == 50_000
+
+
+def test_raw_zero_then_consistent_nonzero_second_reading_rebaselines(lib):
+    """A zero-first rejection followed by a SMALL nonzero reading close
+    to that zero (the reset counter incrementing normally right after
+    restarting) is exactly the reset signature -- must rebaseline to
+    the new, post-reset counts stream."""
+    with Armor(lib) as armor:
+        armor.prime(50_000)
+        assert armor.evaluate(0) == K_REJECT_PENDING
+        assert armor.evaluate(75) == K_ACCEPT_AS_REBASELINE
+        assert armor.last_good_raw() == 75
+
+
+def test_raw_zero_while_last_good_is_already_zero_is_ordinary_accept(lib):
+    """The new check is gated on `lastGoodRaw_ != 0` specifically so a
+    counter genuinely resting at 0 (nothing has moved since priming, or
+    a prior rebaseline already landed exactly on 0) does not get stuck
+    rejecting its own steady-state reading forever."""
+    with Armor(lib) as armor:
+        armor.prime(0)
+        assert armor.evaluate(0) == K_ACCEPT
+        assert armor.last_good_raw() == 0
+
+
 # ---- Documented not-yet-primed corner case (pre-existing behavior) ----
 
 def test_unprimed_armor_accepts_everything_unconditionally(lib):

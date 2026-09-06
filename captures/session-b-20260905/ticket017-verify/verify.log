@@ -1,0 +1,13 @@
+STATUS before: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '90', 'cyc': '902', 'tlm': 'off', 'next': '1', 'done': '8', 'reason': 'stop'}
+  before  ( +24.98,   -8.89) cm  heading +150.83 deg
+  RUN:straight:8 -> 'DBG:straight=8:profile=open'  (0.1 s)
+  after   ( +18.29,   -5.41) cm  heading +151.88 deg
+
+  travel  7.54 cm (commanded 8.0)
+  bearing +152.5 deg vs heading +150.8 -> off +1.6 deg
+STATUS after:  {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '90', 'cyc': '941', 'tlm': 'off', 'next': '1', 'done': '8', 'reason': 'stop'}
+ID: id diffdrive tovez 1.20260904.5 tovez
+
+PASS: RUN:straight drove 7.54 cm. The ticket 017 fix is live on the board.
+
+[exited with code 0]

@@ -214,6 +214,40 @@ class MotionEngine {
   // unit now a trailing comment, per this project's naming rule.
   float dominantAxisTravel(float distance, float rotation) const;  // [mm] [rad] -> [mm]
 
+  // A caller-facing pair (moveX()/goToR()) that reports its own
+  // reconciled duration alongside `cruise`, in [s] -- a plain aggregate
+  // (see AxisLimits above for why: no default member initializers, so
+  // it stays a C++11 aggregate).
+  struct DualRateReconciliation {
+    float cruise;        // [mm/s] see reconcileDualRateCruise() below
+    float distDuration;  // [s] the distance axis's own ceiling-limited duration
+    float yawDuration;   // [s] the yaw axis's own ceiling-limited duration
+  };
+
+  // The block API (`move`/`goTo`) exposes two INDEPENDENT rate ceilings
+  // -- a distance-axis speed and a yaw-axis rate -- but every native
+  // move-engine entry point (moveX()/goToR()) takes exactly one
+  // `cruise`. This reconciles the two into that one value: whichever
+  // axis takes LONGER at its own ceiling governs a shared `duration`
+  // (`distDuration`/`yawDuration`, both returned so a caller whose own
+  // move splits into sequential phases can budget a deadline off their
+  // SUM instead of this method's own max-based `duration`), and
+  // `cruise` is the dominant WHEEL's speed that reproduces the exact
+  // same commanded velocity/twist a caller driving both axes at this
+  // single ceiling would produce. `distance` [mm] and `rotation` [rad]
+  // are the axis targets (as moveX() itself would receive them, or the
+  // bearing/chord pair goToR()'s own split queues -- see decomposeGoToR()
+  // below); `speed` [mm/s] and `yawRate` [rad/s] must already be
+  // floored to a positive value by the caller (the same "avoid a
+  // divide-by-zero, not a meaningful floor" contract shims.cpp's
+  // startMove() already applies to its own int-scale inputs before
+  // converting them here). Returns cruise/distDuration/yawDuration all
+  // 0 when there is nothing to do (both axes already at target),
+  // matching beginSegment()'s own "dominant <= 0" degenerate contract.
+  DualRateReconciliation reconcileDualRateCruise(
+      float distance, float rotation, float speed,
+      float yawRate) const;  // [mm] [rad] [mm/s] [rad/s]
+
   // ---- the two primitives (motion-api.md S3.1/S3.2) ----
 
   // wheels_v(left, right, duration): hold each wheel at a commanded
@@ -258,6 +292,28 @@ class MotionEngine {
   // shims.cpp's startMove(), budgeting a caller-supplied timeout) reads
   // it from this class instead of re-typing the constant a second time.
   static constexpr float turnFirstAngle() { return kTurnFirstAngle; }
+
+  // goToR()'s own bearing-then-chord decomposition of a body-frame
+  // target (x forward, y left, both [mm]), extracted into its own pure
+  // function so a caller that must reconcile a SEPARATE yaw-rate
+  // ceiling against goToR()'s own split decision (e.g. the block API's
+  // go-to entry point) can compute the exact same split goToR() itself
+  // will make, rather than re-deriving it and risking drift -- same
+  // rationale as turnFirstAngle() just above, extended to the whole
+  // decomposition instead of only its threshold. See goToR()'s own
+  // comment (below/motion_engine.cpp) for the derivation of each field;
+  // `bearingRaw`/`chord` are the pivot/straight pair goToR() queues when
+  // `willSplit`, `theta`/`arcLength` are the single blended segment's
+  // own (rotation, distance) pair when it is not. A plain aggregate,
+  // same reason AxisLimits/DualRateReconciliation above are.
+  struct GoToRPlan {
+    float bearingRaw;  // [rad] atan2(y, x) -- the pivot angle when willSplit
+    float theta;       // [rad] wrapped 2*bearingRaw -- goToR()'s own split-decision angle, and the blended segment's own rotation when !willSplit
+    float chord;       // [mm] hypot(x, y) -- the straight-phase distance when willSplit
+    float arcLength;   // [mm] the blended segment's own signed distance when !willSplit
+    bool willSplit;    // |theta| >= kTurnFirstAngle
+  };
+  static GoToRPlan decomposeGoToR(float x, float y);  // [mm] [mm]
 
   // ---- move engine (motion-api.md S3.3-S3.5) -- see this file's header
   // comment for the shape of each reduction. ----
@@ -325,6 +381,26 @@ class MotionEngine {
   // comment.
   bool isDriving() const { return seg_.active || hold_.active; }
 
+  // True iff the MOST RECENT Segment to go inactive ended because ITS
+  // OWN deadline (seg_.deadline, service()'s own `expired` check) was
+  // reached, rather than by reaching its own goal (step.arriving), an
+  // abort (wrongWay/stallHalted/estopped/a refused drive), or an
+  // external cancelMove()/endMove(). Set ONCE, synchronously, at the
+  // exact service() tick the engine itself ends the segment -- a caller
+  // that reads this an arbitrary time later still gets the answer as of
+  // THAT tick, unlike re-deriving "did it time out" from a wire-side
+  // deadline compared against a clock read fresh at whenever the
+  // caller happens to ask (correct only if that ask lands before the
+  // deadline elapses; wrong for an early-arriving move whose next poll
+  // happens to be late). Persists across the seg_ reset that ends a
+  // segment (it lives on MotionEngine, not on Segment) until the NEXT
+  // segment overwrites it in beginSegment() -- see that method's own
+  // reset -- so it is well-defined at any later read as long as no
+  // newer segment has started since.
+  bool lastSegmentEndedByDeadline() const {
+    return lastSegmentEndedByDeadline_;
+  }
+
   // Force-end the current command now (no-op if neither a Segment nor a
   // Hold is active): neutrals the kernel if something was active, resets
   // the shaper, then clears both seg_/hold_ (design S4.4's table).
@@ -391,6 +467,19 @@ class MotionEngine {
   // ~2 mm/s].
   static constexpr int kSettleMaxSteps = 12;
   static constexpr float kSettleRestCountsPerS = 25.0f;
+
+  // [counts] a pivot/blended-arc's yaw axis must have moved at least
+  // this far, in EITHER direction, before wrongWay() (segment.h) is
+  // trusted at all -- a cold wheel's brief start-up skew can read
+  // backward before real rotation begins, and evaluating direction
+  // against that noise (rather than genuine motion) is what let a
+  // start-up skew read as a reversed pivot even though the margin
+  // there (segment.h's own kWrongWayMargin, 12 counts) already floors
+  // out small noise. Chosen well above that floor so a real skew of a
+  // few tens of counts cannot trip a false abort, while still catching
+  // a genuinely reversed wheel within a small fraction of any real
+  // pivot's own target.
+  static constexpr float kMinYawProgressBeforeWrongWay = 40.0f;
 
   // [mm/s] [mm/s] the pair a caller reads back from axisLimits() below
   // -- a plain aggregate (no default member initializers, so it stays a
@@ -573,6 +662,12 @@ class MotionEngine {
   // Moves aborted because the robot was rotating AWAY from the
   // commanded direction (service()). Cumulative since construction.
   uint32_t wrongWayCount_ = 0;
+
+  // Backing field for lastSegmentEndedByDeadline() above -- see that
+  // accessor's own doc comment. Set at every site in service()/endMove()
+  // that ends a Segment, and reset in beginSegment() when a new one
+  // starts.
+  bool lastSegmentEndedByDeadline_ = false;
 };
 
 }  // namespace diffDrive

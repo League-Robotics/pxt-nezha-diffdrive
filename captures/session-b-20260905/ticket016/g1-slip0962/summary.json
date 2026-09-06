@@ -1,0 +1,20 @@
+{
+  "gate": "G1",
+  "bar": {
+    "mean_abs_err_deg": 1.0,
+    "sd_deg": 1.0,
+    "min_fix_samples": 20
+  },
+  "camera_noise": {
+    "n": 20,
+    "sd": 0.162,
+    "ptp": 0.629
+  },
+  "score": {
+    "n": 12,
+    "mean_abs_err": 1.531,
+    "sd": 1.775,
+    "mean": -0.294,
+    "passed": false
+  }
+}

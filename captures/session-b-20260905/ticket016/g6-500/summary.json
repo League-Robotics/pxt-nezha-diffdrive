@@ -1,0 +1,26 @@
+{
+  "gate": "G6",
+  "side_mm": 500,
+  "bar_mm": 10.8,
+  "laps": [
+    {
+      "lap": 0,
+      "closure_mm": 48.387730299098415,
+      "heading_residual_deg": 1.8753814999408291,
+      "ok": true
+    },
+    {
+      "lap": 1,
+      "closure_mm": 14.948858040832977,
+      "heading_residual_deg": 2.8055051035589145,
+      "ok": true
+    },
+    {
+      "lap": 2,
+      "closure_mm": 102.50258166279893,
+      "heading_residual_deg": -2.0353272634812356,
+      "ok": true
+    }
+  ],
+  "passed": false
+}

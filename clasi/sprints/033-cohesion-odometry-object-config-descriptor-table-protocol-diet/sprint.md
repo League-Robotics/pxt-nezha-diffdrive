@@ -9,6 +9,7 @@ issues:
 - code-review/config-descriptor-table-softstop-goto-deadline.md
 - code-review/protocol-diet-runbridge-radio-enable-routeline.md
 - code-review/wire-minors-telemetry-terminator-rx-counters-seq-wrap.md
+- code-review/strip-units-from-wifi-link-identifiers.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 

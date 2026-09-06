@@ -208,6 +208,19 @@ void meApplyStictionProbeKernelConfig(void* handle) {
       .setStall(191.4f, 510.4f, 500.0f);
 }
 
+// Sprint 031 ticket 006: overrides ONLY the three gains
+// meApplyStictionProbeKernelConfig() bakes fixed (kp/ki/kaff) -- lets a
+// host test try a CANDIDATE gain set against the same LaggedRig model,
+// on top of every other Config field that call already set (iMax,
+// pidMax, twistHoldGain, adaptation, stall), the same one-field-at-a-
+// time shape meSetTwistHoldGain() above already uses. Call AFTER
+// meApplyStictionProbeKernelConfig() -- this does not set the other
+// fields itself.
+void meSetPidGains(void* handle, float kp, float ki, float kaff) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->kernel.setKp(kp).setKi(ki).setKaff(kaff);
+}
+
 // ---- MotionEngine: geometry (motion-api.md S2.1) -----------------------
 
 float meCountsPerMm(void* handle) {
@@ -367,6 +380,58 @@ void meMoveV(void* handle, float vx, float omega, uint32_t durationMs) {
 void meGoToR(void* handle, float x, float y, float speed, float arrive,
             uint32_t timeoutMs) {
   static_cast<Handle*>(handle)->engine.goToR(x, y, speed, arrive, timeoutMs);
+}
+
+// ---- MotionEngine::reconcileDualRateCruise()/decomposeGoToR() --------
+// Exposed for the block API's "go-to honors the default turn rate" fix
+// (shims.cpp's engineGoToRArmed()) -- one scalar getter per struct
+// field, matching this file's existing style (no out-params/structs
+// anywhere else in this file) rather than introducing a new ctypes
+// marshaling shape for these two callers alone. Each call recomputes
+// the whole struct internally; cheap, pure functions, only ever called
+// from test code.
+
+float meReconcileCruise(void* handle, float distance, float rotation,
+                        float speed, float yawRate) {
+  return static_cast<Handle*>(handle)
+      ->engine.reconcileDualRateCruise(distance, rotation, speed, yawRate)
+      .cruise;
+}
+
+float meReconcileDistDuration(void* handle, float distance, float rotation,
+                              float speed, float yawRate) {
+  return static_cast<Handle*>(handle)
+      ->engine.reconcileDualRateCruise(distance, rotation, speed, yawRate)
+      .distDuration;
+}
+
+float meReconcileYawDuration(void* handle, float distance, float rotation,
+                             float speed, float yawRate) {
+  return static_cast<Handle*>(handle)
+      ->engine.reconcileDualRateCruise(distance, rotation, speed, yawRate)
+      .yawDuration;
+}
+
+// decomposeGoToR() is static (a pure function of x, y) -- no handle
+// needed.
+float meDecomposeGoToRBearingRaw(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).bearingRaw;
+}
+
+float meDecomposeGoToRTheta(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).theta;
+}
+
+float meDecomposeGoToRChord(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).chord;
+}
+
+float meDecomposeGoToRArcLength(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).arcLength;
+}
+
+int meDecomposeGoToRWillSplit(float x, float y) {
+  return diffDrive::MotionEngine::decomposeGoToR(x, y).willSplit ? 1 : 0;
 }
 
 // ---- MotionEngine: goToW (motion-api.md S3.6, sprint 003 ticket 010) --

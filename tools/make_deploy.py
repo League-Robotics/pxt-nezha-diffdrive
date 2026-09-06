@@ -156,6 +156,14 @@ HEX = os.path.join(DEPLOY, 'built', 'binary.hex')
 DEPLOY_TESTRIG = os.path.join(REPO, '.tmp', 'deploy-testrig')
 HEX_TESTRIG = os.path.join(DEPLOY_TESTRIG, 'built', 'binary.hex')
 
+# The DIFFDRIVE_FAULT_SPIN debug build's own scratch copy -- NEVER the
+# same directory as DEPLOY. Sprint 031 ticket 013/014: the canary build
+# is a distinct binary from the plain consolidated build every tuning
+# measurement is taken against, and the two must not be able to share a
+# build cache or a hex path. See sync_fault_spin()/_inject_fault_spin().
+DEPLOY_FAULT_SPIN = os.path.join(REPO, '.tmp', 'deploy-faultspin')
+HEX_FAULT_SPIN = os.path.join(DEPLOY_FAULT_SPIN, 'built', 'binary.hex')
+
 ELITE = '/Volumes/Proj/proj/RobotProjects/radio-robot-elite'
 
 # radio-robot-lib's own per-robot config tree -- the fleet's one
@@ -426,6 +434,14 @@ def sync_testrig():
     return _sync_scratch(DEPLOY_TESTRIG, 'testrig.ts')
 
 
+def sync_fault_spin():
+    """The DIFFDRIVE_FAULT_SPIN debug build's scratch copy: the same
+    `test.ts` program the flashable deploy promotes, in its own
+    directory. Identical sources; what makes it a different binary is
+    `_inject_fault_spin()`, applied after this."""
+    return _sync_scratch(DEPLOY_FAULT_SPIN, 'test.ts')
+
+
 # --- per-robot build-time injection ---------------------------------------
 #
 # The scratch copy sync() just populated (DEPLOY) is the injection seam:
@@ -667,7 +683,7 @@ def _read_robot_profile(robot):
                   f"'{robot}' at {path}: {exc}")
 
 
-def _inject_profile(deploy_dir, robot):
+def _inject_profile(deploy_dir, robot, suffix=''):
     """Substitute `deploy_dir`'s own copy of `src/comms/protocol.cpp`'s
     `kProfile` constant with `robot`'s own fleet name (after confirming
     `robot` is a real, configured fleet member via
@@ -685,18 +701,88 @@ def _inject_profile(deploy_dir, robot):
     checked-in source once baked. That is intentional: an
     unparameterized build must not be able to impersonate a robot on
     the fleet, which a byte-equivalent-to-checked-in default would
-    allow."""
+    allow.
+
+    `suffix`, when given, is appended to the baked name (it does NOT
+    change which robot config is validated). That is how a debug
+    variant announces itself on the wire: `kProfile` is this build's
+    provenance field, so a DIFFDRIVE_FAULT_SPIN build of tovez answers
+    `ID` with `tovez-faultspin` and cannot be mistaken for the plain
+    consolidated build it must never be confused with (sprint 031
+    ticket 014's own acceptance criterion). Identity itself still comes
+    from the chip via `HELLO` -- see
+    `.claude/rules/playfield-testing.md`; this only labels the build."""
     _read_robot_profile(robot)
     path = os.path.join(deploy_dir, 'src', 'comms', 'protocol.cpp')
     text = open(path).read()
-    new_text, n = _K_PROFILE_RE.subn(rf'\g<1>{robot}\g<2>', text)
+    new_text, n = _K_PROFILE_RE.subn(rf'\g<1>{robot}{suffix}\g<2>', text)
     if n != 1:
         sys.exit(f"make_deploy: expected exactly one kProfile constant in "
                   f"{path}, found {n} -- protocol.cpp's shape has "
                   f"changed, update _K_PROFILE_RE")
     with open(path, 'w') as f:
         f.write(new_text)
-    return robot
+    return robot + suffix
+
+
+# --- DIFFDRIVE_FAULT_SPIN: the debug-only fault/stack-canary build -------
+#
+# Two translation units carry `#ifdef DIFFDRIVE_FAULT_SPIN` branches:
+# `protocol.cpp`'s `paintStackCanary()` (fills the protocol fiber's
+# stack with 0xA5 so an offline scan can find its high-water mark) and
+# `nezha_port.cpp`'s `diffdriveFaultReport()` (spins in the handler
+# instead of resetting, so pyOCD can halt on the stacked frame). Both
+# compile to nothing -- an empty function body, a `NVIC_SystemReset()`
+# -- without the macro, which is exactly why this build has to exist:
+# until sprint 031 ticket 013 the enabled branches had been
+# source-reviewed but never put through the ARM toolchain at all.
+_FAULT_SPIN_SOURCES = (
+    os.path.join('src', 'comms', 'protocol.cpp'),
+    os.path.join('src', 'platform', 'nezha_port.cpp'),
+)
+_FAULT_SPIN_DEFINE = '#define DIFFDRIVE_FAULT_SPIN 1'
+
+# Appended to `kProfile` so the canary build is distinguishable over the
+# wire -- see `_inject_profile()`'s `suffix` and ticket 014.
+FAULT_SPIN_PROFILE_SUFFIX = '-faultspin'
+
+
+def _inject_fault_spin(deploy_dir):
+    """Prepend `#define DIFFDRIVE_FAULT_SPIN 1` to `deploy_dir`'s own
+    copy of each `_FAULT_SPIN_SOURCES` entry, so the debug branches
+    compile in. Same scratch-copy-only seam as every other injector
+    here: the repo's checked-in sources keep the macro undefined, so a
+    routine build is unaffected.
+
+    The define goes at the very top of the file, ahead of its includes,
+    which is where a `-D` flag would effectively land -- both `#ifdef`
+    sites sit well below the include block.
+
+    Refuses a file that already defines the macro rather than stacking
+    a second definition: that means the checked-in source changed shape
+    and this injector's premise no longer holds."""
+    applied = []
+    for rel in _FAULT_SPIN_SOURCES:
+        path = os.path.join(deploy_dir, rel)
+        if not os.path.exists(path):
+            sys.exit(f'make_deploy: {path} is missing from the scratch copy '
+                     f'-- DIFFDRIVE_FAULT_SPIN has no translation unit to '
+                     f'enable; if the fault/canary code moved, update '
+                     f'_FAULT_SPIN_SOURCES')
+        text = open(path).read()
+        if _FAULT_SPIN_DEFINE in text:
+            sys.exit(f'make_deploy: {path} already contains '
+                     f'{_FAULT_SPIN_DEFINE!r} -- refusing to define it '
+                     f'twice; update _inject_fault_spin()')
+        if '#ifdef DIFFDRIVE_FAULT_SPIN' not in text:
+            sys.exit(f'make_deploy: {path} has no #ifdef '
+                     f'DIFFDRIVE_FAULT_SPIN branch to enable -- the macro '
+                     f'would be defined and do nothing; update '
+                     f'_FAULT_SPIN_SOURCES')
+        with open(path, 'w') as f:
+            f.write(f'{_FAULT_SPIN_DEFINE}\n{text}')
+        applied.append(rel)
+    return applied
 
 
 _K_WIFI_SSID_RE = re.compile(
@@ -934,26 +1020,41 @@ def _inject_radio_link(deploy_dir, enabled):
 # this dict's own key order does not encode measurement order --
 # _inject_geometry() applies whatever keys a robot's own
 # firmware_bake block names, in no particular order.
+#
+# Sprint 031 ticket 020: `accel` -- MotionLimits::accel (motion_limits.h,
+# same file as lag_s/stop_distance_mm), fleet default 400.0f unchanged.
+# tovez bakes 800: MEASURED tovez 2026-09-05,
+# captures/session-b-20260905/gain-sweep-20260905/accel800/ and
+# .../accel800b/ (n=8) vs the accel-300 baseline
+# captures/session-b-20260905/discriminator-20260905{,-v2}/ (n=8) --
+# mean|dh| 3.62 -> 1.35 deg. See
+# radio-robot-lib/config/robots/tovez.json's own `_accel_provenance`
+# for the full numbers; the MECHANISM is UNVERIFIED (the physical wheel
+# ramp did not change between 300 and 800 -- docs/sprint-031-postmortem.md
+# S3a).
 _GEOMETRY_BAKE_RES = {
     'travel_calib': re.compile(r'(float travelCalib_ = )[-+0-9.eE]+(f;)'),
     'trackwidth': re.compile(r'(float trackWidth_ = )[-+0-9.eE]+(f;)'),
     'rotational_slip': re.compile(r'(float rotationalSlip_ = )[-+0-9.eE]+(f;)'),
     'lag_s': re.compile(r'(float lag = )[-+0-9.eE]+(f;)'),
     'stop_distance_mm': re.compile(r'(float stopDistance = )[-+0-9.eE]+(f;)'),
+    'accel': re.compile(r'(float accel = )[-+0-9.eE]+(f;)'),
 }
 
 # Which `src/motion/*.h` file each `_GEOMETRY_BAKE_RES` key's regex
 # targets. travel_calib/trackwidth/rotational_slip stay in
 # motion_engine.h (MotionEngine's own trackWidth_/travelCalib_/
 # rotationalSlip_ fields, untouched by this ticket); lag_s/
-# stop_distance_mm target motion_limits.h (MotionLimits::lag/
-# stopDistance) instead, per _GEOMETRY_BAKE_RES's own comment above.
+# stop_distance_mm/accel target motion_limits.h (MotionLimits::lag/
+# stopDistance/accel) instead, per _GEOMETRY_BAKE_RES's own comment
+# above.
 _GEOMETRY_BAKE_FILES = {
     'travel_calib': 'motion_engine.h',
     'trackwidth': 'motion_engine.h',
     'rotational_slip': 'motion_engine.h',
     'lag_s': 'motion_limits.h',
     'stop_distance_mm': 'motion_limits.h',
+    'accel': 'motion_limits.h',
 }
 
 # OLD bake key -> NEW bake key, for a robot config that has not yet been
@@ -1381,6 +1482,16 @@ def main():
                           "link is the untethered carrier")
     ap.add_argument('--no-radio-link', dest='radio_link', action='store_false',
                      help="force the v6 radio link OFF regardless of config")
+    ap.add_argument('--fault-spin', dest='fault_spin', action='store_true',
+                     help="build the DIFFDRIVE_FAULT_SPIN debug variant "
+                          "in its own scratch copy (.tmp/deploy-faultspin) "
+                          "-- the fault handler spins instead of resetting "
+                          "and the protocol fiber's stack is painted with "
+                          "a 0xA5 canary. NOT a build to take a "
+                          "measurement against; it answers ID with a "
+                          "'-faultspin' profile so it cannot be confused "
+                          "with the plain build (sprint 031 tickets "
+                          "013/014)")
     ap.add_argument('--program', default='test.ts',
                      help="which test/ program to promote into the hex "
                           "(a `testFiles` basename, default test.ts). "
@@ -1388,6 +1499,37 @@ def main():
                           "copy .tmp/deploy-<stem>, so it never shares "
                           "a build cache with the test.ts deploy")
     a = ap.parse_args()
+    if a.fault_spin:
+        if a.testrig:
+            ap.error('--fault-spin and --testrig are separate scratch '
+                     'builds; run them one at a time')
+        if a.program != 'test.ts':
+            ap.error('--fault-spin builds test.ts; --program selects a '
+                     'different program and the two do not combine')
+        for f in sync_fault_spin():
+            print(f'  {f}')
+        _inject_radio_channel(DEPLOY_FAULT_SPIN, a.robot)
+        profile = _inject_profile(DEPLOY_FAULT_SPIN, a.robot,
+                                  FAULT_SPIN_PROFILE_SUFFIX)
+        print(f'make_deploy: wire profile = {profile}')
+        _inject_wifi_secrets(DEPLOY_FAULT_SPIN)
+        for _name, _value in _inject_geometry(DEPLOY_FAULT_SPIN, a.robot):
+            print(f'make_deploy: geometry bake {_name} = {_value:g}')
+        for _name, _value in _inject_motors(DEPLOY_FAULT_SPIN, a.robot):
+            print(f'make_deploy: motor bake {_name} = {_value:+d}')
+        _inject_version(DEPLOY_FAULT_SPIN)
+        _inject_boot_banner(DEPLOY_FAULT_SPIN, a.robot)
+        radio_link = (a.radio_link if a.radio_link is not None
+                      else _read_robot_radio_link(a.robot))
+        _inject_radio_link(DEPLOY_FAULT_SPIN, radio_link)
+        for rel in _inject_fault_spin(DEPLOY_FAULT_SPIN):
+            print(f'make_deploy: DIFFDRIVE_FAULT_SPIN enabled in {rel}')
+        build(run_fn=lambda: _run_pxt_build(DEPLOY_FAULT_SPIN,
+                                            HEX_FAULT_SPIN),
+              hex_path=HEX_FAULT_SPIN, label='fault-spin ')
+        if a.flash:
+            flash(a.robot, HEX_FAULT_SPIN)
+        return
     if a.program != 'test.ts':
         stem = os.path.splitext(a.program)[0]
         deploy_dir = os.path.join(REPO, '.tmp', f'deploy-{stem}')

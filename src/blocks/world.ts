@@ -37,6 +37,12 @@ namespace diffDrive {
      * Declare where the robot is right now, in world coordinates.
      * Sets BOTH pose sources -- the world sensor and the wheel
      * odometry -- so they start agreed.
+     *
+     * This is a LIVE I2C bus transaction (writes the world sensor's
+     * pose registers) -- call it from the same fiber that is ticking
+     * the drive loop (driveTick()/move()/goTo()/startDrive()'s own
+     * loop), never concurrently with one. See this file's own header
+     * comment.
      * @param x world x, eg: 0
      * @param y world y, eg: 0
      * @param heading world heading in degrees CCW, eg: 0
@@ -53,6 +59,14 @@ namespace diffDrive {
     /**
      * Take a fresh fix from the world sensor. Returns false if the
      * sensor did not answer; the last good values are kept.
+     *
+     * This is a LIVE I2C bus transaction -- call it from the same
+     * fiber that is ticking the drive loop
+     * (driveTick()/move()/goTo()/startDrive()'s own loop), never
+     * concurrently with one: startDrive()'s background loop already
+     * samples this itself (its own doc comment, motion.ts), so do not
+     * also call this from a separate `forever` loop while that drive
+     * is running. See this file's own header comment.
      */
     //% block="read world position"
     //% group="World" weight=150
@@ -94,6 +108,13 @@ namespace diffDrive {
     /**
      * Recalibrate the sensor's gyro bias. The robot must be parked and
      * completely still for about a second.
+     *
+     * This is a LIVE I2C bus transaction -- call it from the same
+     * fiber that is ticking the drive loop, never concurrently with
+     * one (and only while the robot is genuinely idle -- see this
+     * file's own header comment). It does not itself tick the drive
+     * loop, so calling it mid-move would collide with whichever fiber
+     * IS ticking.
      */
     //% block="calibrate world sensor"
     //% group="World" weight=200
@@ -127,7 +148,6 @@ namespace diffDrive {
     // odometry; a small bearing error is absorbed by yawing WHILE
     // driving (the arc), not by steering corrections in flight.
 
-    let arriveTolCm = 1.0        // [cm] v6 GOTO `arrive`
     // Pivot first beyond this bearing error. 12 deg, NOT the 50 this
     // started at: a capped arc physically cannot reach a target that is
     // meaningfully off-bearing -- it drives a bounded curve and lands
@@ -135,19 +155,10 @@ namespace diffDrive {
     // corners. Pointing at the target first makes every drive nearly
     // straight, and that is what actually hit the dots (0.7-12.7 cm
     // when it was done host-side; this moves it onto the robot).
-    // Anything under 12 deg is left to curve out over the leg.
-    let turnFirst = 12.0  // [deg]
-
-    /**
-     * How close counts as "arrived", in cm.
-     * @param tol eg: 1
-     */
-    //% block="set arrival tolerance %tol cm"
-    //% group="Setup" weight=60
-    //% subcategory="Setup"
-    export function setArrivalTolerance(tol: number): void {
-        arriveTolCm = Math.max(0.1, tol)
-    }
+    // Anything under 12 deg is left to curve out over the leg. Never
+    // written after this initializer -- it is a fixed threshold, not a
+    // tunable setting.
+    const turnFirst = 12.0  // [deg]
 
     /**
      * Drive to a point in WORLD coordinates, using the world sensor to
@@ -191,7 +202,11 @@ namespace diffDrive {
 
         let dx = x - px
         let dy = y - py
-        if (Math.sqrt(dx * dx + dy * dy) <= arriveTolCm) return
+        // arrivalTolerance() (motion.ts): the same shared "on target"
+        // threshold startGoTo() below threads into _goToR's own arrive
+        // parameter, so one setArrivalTolerance() call governs both
+        // go-to blocks.
+        if (Math.sqrt(dx * dx + dy * dy) <= arrivalTolerance()) return
 
         let bx = Math.cos(ph) * dx + Math.sin(ph) * dy
         let by = -Math.sin(ph) * dx + Math.cos(ph) * dy
@@ -207,7 +222,7 @@ namespace diffDrive {
         // pivot moves the robot -- and goToR() cannot do that for
         // itself, since it reads its pose once, by contract.
         if (Math.abs(bearing) >= turnFirst * Math.PI / 180) {
-            tickedMove(0, bearing * 180 / Math.PI)
+            move(0, bearing * 180 / Math.PI)
             readWorld()
             ph = worldHeading() * Math.PI / 180
             dx = x - worldX()
@@ -223,24 +238,6 @@ namespace diffDrive {
         // arc could only curve toward the straight-line distance and
         // leave a large residual short of the target; goToR has nothing
         // left for a cap to protect against.
-        tickedGoTo(bx, by)
-    }
-
-    // Shared runner for goToWorld's legs: start the move, then tick it
-    // to completion on THIS fiber (the same fiber that reads the OTOS,
-    // so the two can never interleave on the I2C bus).
-    function tickedMove(distance: number, yaw: number): void {
-        if (distance == 0 && yaw == 0) return
-        startMove(distance, yaw)
-        while (_tickDrive());
-    }
-
-    // goTo-shaped sibling of tickedMove, above: startGoTo() (motion.ts)
-    // only ARMS the move (see its own doc comment) -- something must
-    // still tick it, and that has to be THIS fiber, same OTOS-fiber
-    // constraint as tickedMove.
-    function tickedGoTo(x: number, y: number): void {
-        startGoTo(x, y)
-        while (_tickDrive());
+        goTo(bx, by)
     }
 }

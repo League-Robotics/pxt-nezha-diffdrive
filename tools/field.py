@@ -156,6 +156,38 @@ def pose_from_registered_samples(samples, lever_cm):
     return xs / n, ys / n, wrap(h)
 
 
+def registered_pose_distance(a, b):
+    """Straight-line distance [cm] between two registered-tag poses,
+    each an `(x_cm, y_cm, heading_deg)` tuple from
+    `pose_from_registered_samples()`.
+
+    Deliberately takes no scaling factor -- a registered tag's world
+    position already carries the aprilcam daemon's own `mount_z_cm`
+    parallax correction, applied once, at registration
+    (`tools/camlink.py::Cam.register()`). This function's signature is
+    the guard: there is nowhere to pass a tool-side `parallax_k` into
+    it, so a caller cannot re-apply that correction on top even by
+    accident. Dividing a distance computed from two registered poses
+    by `parallax_k` corrects the SAME parallax twice -- exactly the bug
+    pinned by `clasi/issues/
+    parallax-k-and-registered-mount-z-correct-twice.md`: tovez's
+    `field_dance.py` drives read ~12% short (MEASURED tovez 2026-09-04,
+    `captures/bench-acceptance-029-20260904d/field-dance-refit-run1.log`:
+    17.6 cm for a commanded 20, 35.3 cm for a commanded 40 -- i.e.
+    20/1.1167, 40/1.1167) until that division was found and removed
+    (sprint 031 ticket 002).
+
+    This is the positional analogue of
+    `pose_from_registered_samples()`'s heading fix -- one owner (the
+    daemon's registered `mount_z_cm`) for camera-parallax correction,
+    the same shape as `robot_heading_from_tag_yaw()` vs a registered
+    tag's `yaw_rad` for heading
+    (`.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`,
+    "registered vs raw: who adds the 90").
+    """
+    return math.hypot(b[0] - a[0], b[1] - a[1])
+
+
 def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
     """Closest approach to each dot in `order`, scanning `rows` (each a
     `(t, x_cm, y_cm, yaw_deg)` tuple, timestamps non-decreasing)

@@ -32,6 +32,7 @@
 // getConfigValue/diagValue and the engine* wire forwards. Keep
 // signatures compatible with their forward-declaration blocks.
 #include "pxt.h"
+#include "core/bus_guard.h"
 #include "core/diffdrive.h"
 #include "platform/encoder_pose_source.h"
 #include "motion/motion_engine.h"
@@ -60,6 +61,24 @@ constexpr float kRadToCdeg = 1.0f / kCdegToRad;
 // CodalFiberLauncher mechanism the kernel used for its own now-unwired
 // fiber.
 static void watchdogEntry(void* context);
+
+// Forward declarations: motion-owner arbitration lives on the Protocol
+// singleton (comms/protocol.cpp) -- it is the one object that can see a
+// wire request, a dispatched job, AND a block program's own call, all
+// three. Same same-package forward-declaration convention as
+// protocolEmitLine()/protocolCurrentRunText() elsewhere in this file.
+// protocolTryTakeMotionOwnership() returns true either because this
+// call is the CURRENTLY-DISPATCHING RUN job's own move (recognized by
+// fiber identity -- see core/motion_owner.h's tryTakeMotionOwnership()
+// and comms/protocol.cpp's Protocol::tryTakeMotionOwnership()) or
+// because nothing else currently holds the drivetrain, in which case
+// it takes kBlock; otherwise it leaves motionOwner_ alone and returns
+// false -- refused, not silently superseded.
+// protocolReleaseBlockOwnership() is a no-op unless this fiber's own
+// call actually holds kBlock (a dispatched job's own move never does
+// -- dispatchJob() owns clearing kJob itself).
+bool protocolTryTakeMotionOwnership();
+void protocolReleaseBlockOwnership();
 
 // ---- composition ----------------------------------------------------
 
@@ -135,9 +154,42 @@ struct Rig {
   uint64_t tickDeadline = 0;   // [us] tickDrive()'s own absolute-
                                   // deadline pacing anchor. 0 = no tick
                                   // has run yet -- re-anchor to now.
-  bool stepBusy = false;         // concurrency guard around
-                                  // kernel.step() inside tickDrive();
-                                  // see that function's own comment.
+  // Bus-ownership guard (core/bus_guard.h): serializes kernel.step()
+  // inside tickDrive() against a second fiber also calling tickDrive()
+  // -- see that function's own comment -- AND, as of this change,
+  // against every OTOS shim entry point below (otosBegin/Read/Zero/
+  // Calibrate/SetOffset, seedPose), which now acquire/release the SAME
+  // guard around their own I2C body. Formerly a bare `bool stepBusy`
+  // known only to tickDrive(); promoted to BusGuard so "the bus has
+  // exactly one owner at a time" covers every I2C-touching entry
+  // point, not just the kernel step.
+  BusGuard busGuard;
+  // Deferred OTOS zero: SET rebase
+  // (setKernelValue() case 32) used to call otosRef().setPose(0,0,0)
+  // SYNCHRONOUSLY on whichever fiber issued it (typically the protocol
+  // fiber), with no relationship to busGuard at all -- exactly the
+  // hole this ticket closes for the other six entry points. Setting
+  // this flag instead defers the actual I2C write to tickDrive(),
+  // after busGuard.release() (see that function's own comment for the
+  // exact point), the same deferred-request shape
+  // kernel.rebasePosition() already uses for the kernel's own position
+  // reference. kernel.rebasePosition() and the encoder-odometry x/y/
+  // heading reset stay SYNCHRONOUS, as before -- only the OTOS write
+  // becomes deferred.
+  bool pendingOtosZero = false;
+  // Staged cross-fiber stop: a stop requested while busGuard is held
+  // (i.e. some fiber is mid kernel.step(), possibly parked in its own
+  // encoder settle sleep) cannot write the motor ports immediately
+  // without racing THAT fiber's own I2C traffic on the shared bus --
+  // the exact hazard busGuard exists to prevent. Setting this flag
+  // instead defers the port-level zero write to the fiber that already
+  // holds the guard, delivered from inside tickDrive() itself, still
+  // inside the guarded window, right before it releases the guard (see
+  // that function's own comment for the exact point). When the guard
+  // is free (the overwhelming majority of stops), deliverStopNow()
+  // still writes immediately -- this flag is never touched for that
+  // path.
+  bool pendingStop_ = false;
   uint32_t tickOverrunCount = 0; // Rig-level: tickDrive() calls that ran
                                   // past their own paced deadline.
                                   // Distinct from the kernel's own
@@ -198,6 +250,18 @@ struct Rig {
   // motion.ts's startGoTo()) so there is nowhere for a stale value to
   // leak in from.
   uint32_t pendingGoToDeadline_ = 0;  // [ms]
+
+  // Same one-shot handoff shape as pendingGoToDeadline_ immediately
+  // above, added for the go-to entry point's own yaw-rate ceiling
+  // (engineSetGoToYawRate()/engineGoToRArmed() below) -- kept a
+  // SEPARATE field/setter pair rather than a 5th engineGoToRArmed()
+  // parameter for the exact same reason pendingGoToDeadline_ itself
+  // exists: every `//%` shim in this file stays at <=4 params (see
+  // pendingGoToDeadline_'s own comment for the PXT packager crash this
+  // avoids). One caller (sim.ts's _setGoToYawRate(), called by
+  // motion.ts's startGoTo() immediately before _goToR(), alongside
+  // _setGoToDeadline()).
+  float pendingGoToYawRate_ = 0.0f;  // [cdeg/s]
 };
 
 static Rig* rig = nullptr;
@@ -238,7 +302,26 @@ static Rig& ensure() {
     // imbalance integrating into heading, rotating the whole square).
     // This is the kernel's own servo for exactly that -- it trims the
     // measured differential toward the commanded one.
-    cfg.twistHoldGain = 2.0f;        // [1/s]
+    //
+    // Raised 2.0 -> 4.0 (sprint 031 ticket 015). MEASURED tovez
+    // 2026-09-05, firmware 1.20260904.5, six-and-twelve alternating
+    // +-600 mm legs at cruise 100 mm/s, camera-truthed, gain applied
+    // live via `SET twist_hold_gain` (captures/session-b-20260905/):
+    //   gain 2 (old default)  mean |dheading| 2.88 deg over 18 legs
+    //                         (g3-cruise100/, g3-cruise100-x12/)
+    //   gain 4                mean |dheading| 2.10 deg over 12 legs
+    //                         (twist-4-x12/)
+    //   gain 6                mean |dheading| 1.67 deg over  6 legs
+    //                         (twist-6/)
+    // Gain 4 is the best of the three on the largest sample (12 legs),
+    // so it is the new default. Two caveats this comment does NOT
+    // smooth over: a 6-leg run at gain 4 gave 0.98 deg and did NOT
+    // replicate at 12 legs (2.10) -- six legs is not enough at this
+    // noise level, trust the 12-leg number. And gain 6's 1.67 deg is
+    // itself only 6 legs, not comparable to the 12/18-leg figures above
+    // -- it is NOT evidence gain 6 beats gain 4; that arm needs its own
+    // 12-leg rerun before anyone bakes it.
+    cfg.twistHoldGain = 4.0f;        // [1/s]
     cfg.cyclePeriod = 24;            // [ms]
     rig->kernel.setConfig(cfg);
     rig->kernel.begin();   // primes encoders, arms boot zero-write
@@ -333,7 +416,25 @@ static void odomUpdate(Rig& r) {
 // stays in the same resumable "soft stop" family stopAll()/the watchdog
 // already established: a fresh drive()/tickDrive() call resumes motion
 // with no clear step needed.
+//
+// Staged instead of immediate while busGuard is held: writing the
+// motor ports HERE, on whichever fiber called this, would race the
+// I2C traffic of whichever OTHER fiber currently holds the guard (mid
+// kernel.step(), possibly parked in its own encoder settle sleep) --
+// the exact bus-collision hazard the guard exists to prevent. Setting
+// Rig::pendingStop_ instead defers the port write to that busy fiber
+// itself, delivered from inside tickDrive() before it releases the
+// guard (see that function's own comment), which still lands within
+// the SAME tick the request was made in -- the same "no later than
+// this tick" guarantee this function has always given, just delivered
+// by the fiber that can safely touch the bus rather than this one.
+// When the guard is free (the common case), the write still happens
+// immediately, right here, exactly as before.
 static void deliverStopNow(Rig& r) {
+  if (r.busGuard.held()) {
+    r.pendingStop_ = true;
+    return;
+  }
   r.left.emergencyStop();
   r.right.emergencyStop();
 }
@@ -349,6 +450,13 @@ void setWheels(int left, int right) {  // [mm/s] [mm/s]
 
 //%
 void driveTwist(int speed, int yawRate) {  // [mm/s] [cdeg/s]
+  // Refused (a silent no-op), not superseding, while a wire motion or a
+  // GENUINE block/job COLLISION already holds the drivetrain -- a
+  // dispatched RUN job's own call proceeds instead, see
+  // protocolTryTakeMotionOwnership()'s own comment above. Also the entry
+  // point startDrive() (blocks/motion.ts) reaches, since it calls this
+  // same block-facing driveTwist() before starting its own tick loop.
+  if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
   const float yaw = static_cast<float>(yawRate) * kCdegToRad;  // [rad]
   const float twist = yaw * 0.5f * r.engine.effectiveTrackWidth();  // [mm/s]
@@ -496,11 +604,31 @@ bool engineMoveActive() {
   return rig != nullptr && rig->engine.isMoveActive();
 }
 
+// The SECOND genuinely new read WireAdapter's motion-completion
+// resolution needs, alongside engineMoveActive() above -- true iff the
+// most recent Segment to go inactive ended via its OWN deadline rather
+// than by reaching its own goal, an abort, or an external stop. See
+// MotionEngine::lastSegmentEndedByDeadline()'s own doc comment
+// (motion_engine.h) for why this matters: it is latched once, on the
+// engine's own tick, instead of being re-derived from a wire-side clock
+// comparison whenever a host later happens to ask. `rig == nullptr`
+// answers false, the same honest default engineMoveActive() gives.
+bool engineMoveEndedByDeadline() {
+  return rig != nullptr && rig->engine.lastSegmentEndedByDeadline();
+}
+
 // ---- move engine ----------------------------------------------------
 
 //%
 void startMove(int distance, int yaw, int speed, int yawRate) {
   // [mm] [cdeg] [mm/s] [cdeg/s]
+  // Refused (a silent no-op), not superseding, while a wire motion or a
+  // GENUINE block/job COLLISION already holds the drivetrain -- a
+  // dispatched RUN job's own call (e.g. test.ts's straightRun() ->
+  // tickedMove() -> this function, running synchronously inside
+  // dispatchJob()) proceeds instead: see
+  // protocolTryTakeMotionOwnership()'s own comment above.
+  if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
   odomUpdate(r);
   const float distanceF = static_cast<float>(distance);  // [mm]
@@ -512,66 +640,49 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   // block API still passes two INDEPENDENT rate ceilings (speed for the distance
   // axis, yawRate for the yaw axis), picking whichever axis takes
   // LONGER at its own ceiling as the move's shared duration. Reconciled
-  // here, not by favoring one of the two legacy rates: derive the
-  // single cruise that reproduces the EXACT SAME commanded
-  // velocity/twist this dual-rate math has always produced, so
-  // move()/whileMoving()'s observable behavior is unchanged.
-  //
-  // Algebra: moveX()'s own wheels_x-style reduction commands
-  // velocity = distTarget/dominant*cruiseCounts (dominant =
-  // max(|left|,|right|), in counts). Setting cruiseCounts =
-  // dominant/duration -- `duration` computed the OLD way below --
-  // makes that velocity equal distTarget/duration exactly, the legacy
-  // formula, for ANY distance/yaw/speed/yawRate combination, not only
-  // the degenerate straight/pivot cases.
-  const float cpm = r.engine.countsPerMm();
-  const float b = r.engine.effectiveTrackWidth();
-  const float distTarget = distanceF * cpm;              // [counts]
-  const float yawTarget = rotation * 0.5f * b * cpm;   // [counts]
-  const float distSpeed =
-      static_cast<float>(speed > 0 ? speed : 1) * cpm;    // [counts/s]
-  const float yawRadPerS =
-      static_cast<float>(yawRate > 0 ? yawRate : 1) * kCdegToRad;
-  const float twistSpeed = yawRadPerS * 0.5f * b * cpm;  // [counts/s]
+  // via MotionEngine::reconcileDualRateCruise() (motion_engine.h), not
+  // by favoring one of the two legacy rates: it derives the single
+  // cruise that reproduces the EXACT SAME commanded velocity/twist this
+  // dual-rate math has always produced, so move()/whileMoving()'s
+  // observable behavior is unchanged. The floor-to-nonzero-before-
+  // converting-units step below (avoiding a divide-by-zero, not a
+  // meaningful floor) stays here rather than moving into that shared
+  // method, because it operates on the RAW int-scale inputs, before
+  // either is converted to mm/s or rad/s.
+  const float speedFloored =
+      static_cast<float>(speed > 0 ? speed : 1);          // [mm/s]
+  const float yawRateFloored =
+      static_cast<float>(yawRate > 0 ? yawRate : 1) * kCdegToRad;  // [rad/s]
 
-  // One duration covers both axes -> simultaneous arc completion. This
-  // max()-based `duration` is also what derives `cruise` below
-  // (unaffected by the split-aware budget fix further down) -- it is
-  // the legacy dual-rate reconciliation the header comment above
-  // describes, correct regardless of whether moveX() ends up splitting.
-  float distDuration = 0.0f;  // [s]
-  if (distTarget != 0.0f)
-    distDuration = std::fabs(distTarget) / distSpeed;
-  float yawDuration = 0.0f;  // [s]
-  if (yawTarget != 0.0f)
-    yawDuration = std::fabs(yawTarget) / twistSpeed;
-  const float duration = distDuration > yawDuration ? distDuration
-                                                      : yawDuration;
-  if (duration <= 0.0f) return;  // nothing to do
-
-  const float left = distTarget - yawTarget;
-  const float right = distTarget + yawTarget;
-  const float absLeft = std::fabs(left);
-  const float absRight = std::fabs(right);
-  const float dominant = absLeft > absRight ? absLeft : absRight;
-  const float cruise = (dominant / duration) / cpm;  // [mm/s]
+  const MotionEngine::DualRateReconciliation rr =
+      r.engine.reconcileDualRateCruise(distanceF, rotation, speedFloored,
+                                       yawRateFloored);
+  if (rr.cruise <= 0.0f) {
+    // Nothing to do -- release right away rather than leaving kBlock
+    // held with no move in flight and no tick loop coming to notice.
+    protocolReleaseBlockOwnership();
+    return;
+  }
 
   // moveX() (motion_engine.cpp) splits a nonzero distance combined with
   // a large enough rotation into pivot-then-straight -- two SEQUENTIAL
   // segments sharing the one deadline this call sets (motion_engine.h:
   // "NOT reset across a pivot-to-straight phase transition") -- rather
   // than one blended segment where both axes finish together. Budget
-  // the SUM of both axes' durations for that case; max() only covers
-  // the genuinely simultaneous (non-split) move. Read the split
-  // threshold from MotionEngine itself (turnFirstAngle(), the public
-  // accessor for its own private kTurnFirstAngle) rather than
-  // retyping the 50 deg constant here, so this decision can never drift
-  // from moveX()'s own.
+  // the SUM of both axes' durations for that case; reconcileDualRateCruise()'s
+  // own max()-based duration (which ALSO derives `cruise` above,
+  // unaffected by this split-aware budget) only covers the genuinely
+  // simultaneous (non-split) move. Read the split threshold from
+  // MotionEngine itself (turnFirstAngle(), the public accessor for its
+  // own private kTurnFirstAngle) rather than retyping the 50 deg
+  // constant here, so this decision can never drift from moveX()'s own.
   const bool willSplit =
       distanceF != 0.0f &&
       std::fabs(rotation) >= MotionEngine::turnFirstAngle();
   const float budgetDuration =
-      willSplit ? (distDuration + yawDuration) : duration;
+      willSplit ? (rr.distDuration + rr.yawDuration)
+                : (rr.distDuration > rr.yawDuration ? rr.distDuration
+                                                     : rr.yawDuration);
 
   // Backstop: for a single segment, this covers the end-of-move taper
   // (service()) -- the last ~15 deg / ~40 mm run at reduced rate,
@@ -583,7 +694,7 @@ void startMove(int distance, int yaw, int speed, int yawRate) {
   const uint32_t timeout =
       static_cast<uint32_t>(budgetDuration * 1000.0f) + 1500u;
 
-  r.engine.moveX(distanceF, rotation, cruise, timeout);
+  r.engine.moveX(distanceF, rotation, rr.cruise, timeout);
 }
 
 //%
@@ -616,6 +727,13 @@ bool updateMove() {
 // ticket 002, closes R-10/API-01: see that function's own comment for
 // what it checks, and tickDrive()'s own comment below for why).
 static bool commandLooksActive(const Rig& r);
+
+// Forward declaration: otosRef() (the OTOS lazy singleton) is defined
+// further down, alongside the other OTOS shim entry points -- see its
+// own comment there. tickDrive() below needs it too now, to perform
+// the deferred pendingOtosZero write after busGuard.release() -- see
+// that section of tickDrive()'s own comment.
+static OtosPort& otosRef();
 
 // ---- tick engine --------------------------------------------------------
 // tickDrive(): the caller-driven replacement for the kernel's own
@@ -659,11 +777,10 @@ bool tickDrive() {
   // second fiber also calling tickDrive() -- it just waits (a short
   // timed poll, since the busy fiber may itself be parked in step()'s
   // settle sleeps) until the flag clears rather than racing
-  // kernel.step().
-  while (r.stepBusy) {
-    r.sleeper.sleepMillis(1);
-  }
-  r.stepBusy = true;
+  // kernel.step(). This is now the SAME BusGuard every OTOS shim
+  // entry point acquires, not a private stepBusy flag -- see
+  // Rig::busGuard's own comment.
+  r.busGuard.acquire(r.sleeper);
   r.kernel.step();
 
   // isDriving() (seg_.active || hold_.active), NOT isMoveActive()
@@ -749,18 +866,52 @@ bool tickDrive() {
     r.engine.settleToRest();
     odomUpdate(r);  // coast counts -> pose before the final TLM
   }
-  r.stepBusy = false;
+
+  // Staged cross-fiber stop delivery: some OTHER fiber called
+  // deliverStopNow() (or the watchdog) while THIS fiber held the guard
+  // above and could not write the motor ports itself without racing
+  // this fiber's own I2C traffic -- see Rig::pendingStop_'s and
+  // deliverStopNow()'s own comments. Deliver it now, still inside the
+  // guarded window this fiber already owns, so no other fiber can
+  // interleave its own I2C traffic between this write and release()
+  // below. This lands within the SAME tick the request was staged in,
+  // the same guarantee an unstaged deliverStopNow() call has always
+  // given.
+  if (r.pendingStop_) {
+    r.pendingStop_ = false;
+    r.left.emergencyStop();
+    r.right.emergencyStop();
+  }
+  r.busGuard.release();
+
+  // Deferred OTOS zero: SET rebase
+  // (setKernelValue() case 32) only ARMS pendingOtosZero -- the actual
+  // I2C write happens HERE, on whichever fiber is ticking, exactly like
+  // kernel.rebasePosition()'s own deferred-request shape. Consumed
+  // AFTER busGuard.release() (so this tick's own kernel.step() is not
+  // held up by an extra I2C round trip) but the write itself still
+  // acquires/releases the SAME guard around its own body -- with no
+  // yield between this release() and that reacquire(), no other fiber
+  // can interleave here (see BusGuard's own comment), so this is safe
+  // even though the guard is briefly unheld in between.
+  if (r.pendingOtosZero) {
+    r.pendingOtosZero = false;
+    r.busGuard.acquire(r.sleeper);
+    otosRef().setPose(0.0f, 0.0f, 0.0f);
+    r.busGuard.release();
+  }
 
   // Service hook: fires exactly here on EVERY call -- after this tick's
-  // own kernel.step()/settle work is done (stepBusy just cleared above)
-  // and before the pacing sleep below -- and NEVER inside the stepBusy
-  // window: step() already yields twice in there for its own encoder
-  // select-to-read settle, and landing arbitrary wire/radio/dispatch
-  // work in that window would break bus discipline. Null whenever
-  // nothing has registered one (a host test, or before the protocol
-  // fiber starts); see Rig::serviceHook's own comment for what the
-  // registered callback actually does and why it is itself a no-op for
-  // most callers of this function.
+  // own kernel.step()/settle work and the deferred OTOS zero above are
+  // both done (busGuard released again) and before the pacing sleep
+  // below -- and NEVER inside a busGuard-held window: step() already
+  // yields twice in there for its own encoder select-to-read settle,
+  // and landing arbitrary wire/radio/dispatch work in that window would
+  // break bus discipline. Null whenever nothing has registered one (a
+  // host test, or before the protocol fiber starts); see
+  // Rig::serviceHook's own comment for what the registered callback
+  // actually does and why it is itself a no-op for most callers of this
+  // function.
   if (r.serviceHook) r.serviceHook();
 
   // Absolute-deadline self-pacing, lifted from DifferentialDrive::run()
@@ -785,30 +936,14 @@ bool tickDrive() {
     r.sleeper.yield();
   }
 
-  return commandLooksActive(r);
-}
-
-// cycleStat(): read-only tick/cycle diagnostics for desk verification
-// (and future wire-protocol reporting). 0 = measured cycle period [us],
-// 1 = measured busy time [us] (both straight off the kernel's own
-// Output, unaffected by who calls step()); 2 = the Rig-level
-// tick-overrun counter above (NOT the kernel's own cycleOverrunCount_,
-// which only its unused run() increments); 3 = cycleCount (existing
-// kernel Output field, likewise unaffected by who calls step()).
-// Deliberately NOT exposing more than these four fields -- diagValue()
-// above already covers the rest of Output for the wire protocol's DIAG
-// verb.
-//%
-int cycleStat(int which) {
-  Rig& r = ensure();
-  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
-  switch (which) {
-    case 0: return static_cast<int>(out.cyclePeriodMeasured);
-    case 1: return static_cast<int>(out.cycleBusy);
-    case 2: return static_cast<int>(r.tickOverrunCount);
-    case 3: return static_cast<int>(out.cycleCount);
-    default: return 0;
-  }
+  const bool active = commandLooksActive(r);
+  // Releases kBlock ownership the first tick this drivetrain looks
+  // idle -- a no-op unless a block-motion entry point actually holds
+  // it (protocolReleaseBlockOwnership()'s own comment above), mirroring
+  // how a wire obligation's own owner value drops back to kNone the
+  // first pass it clears (run(), protocol.cpp).
+  if (!active) protocolReleaseBlockOwnership();
+  return active;
 }
 
 // ---- starvation watchdog ------------------------------------------------
@@ -881,10 +1016,19 @@ static void watchdogEntry(void* context) {
     const uint64_t sinceLastTick = now - r.lastTick;  // [us]
     if (sinceLastTick <= kWatchdogTimeout) continue;
     if (!commandLooksActive(r)) continue;
-    r.kernel.neutral();      // commands neutral for whenever step() next runs
-    r.engine.endMove();      // clears the move-engine's own in-flight state
-    r.left.emergencyStop();  // port-level zero write, NOW, tick-independent
-    r.right.emergencyStop();
+    r.kernel.neutral();  // commands neutral for whenever step() next runs
+    r.engine.endMove();  // clears the move-engine's own in-flight state
+    // Port-level zero write, tick-independent -- staged instead of
+    // immediate if busGuard is currently held, so this fiber cannot
+    // land its own I2C traffic inside another fiber's settle window.
+    // See deliverStopNow()'s own comment above for the full reasoning;
+    // this watchdog is the other caller that used to write the ports
+    // directly here, unconditionally.
+    deliverStopNow(r);
+    // An abandoned block-motion call (started, never ticked) would
+    // otherwise hold kBlock forever with nothing left to notice it is
+    // idle -- this is the one background fiber that still can.
+    protocolReleaseBlockOwnership();
   }
 }
 
@@ -914,6 +1058,12 @@ void endMove() {
   // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop move"
   // block's own entry point -- see deliverStopNow()'s comment above.
   deliverStopNow(*rig);
+  // The block program itself says this move is over -- release right
+  // away rather than waiting for tickDrive() to next notice the
+  // drivetrain looks idle. A no-op if this call was never the one
+  // holding kBlock in the first place (protocolReleaseBlockOwnership()'s
+  // own comment above).
+  protocolReleaseBlockOwnership();
 }
 
 // ---- stopping -------------------------------------------------------
@@ -927,6 +1077,11 @@ void stopAll() {
   // and the wire's STOP verb both land here -- see deliverStopNow()'s
   // comment above.
   deliverStopNow(r);
+  // No-op unless THIS call is the one holding kBlock -- see
+  // protocolReleaseBlockOwnership()'s own comment above (a wire-issued
+  // STOP reaching this same function never holds kBlock in the first
+  // place, so this is harmless for that caller too).
+  protocolReleaseBlockOwnership();
 }
 
 //%
@@ -935,6 +1090,8 @@ void estopAll() {
   r.engine.endMove();
   r.kernel.estop();
   r.kernel.emergencyStopMotors();
+  // See stopAll()'s identical call just above.
+  protocolReleaseBlockOwnership();
 }
 
 //%
@@ -1239,6 +1396,18 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // here; odomUpdate()'s own positionEpochLeft/Right check above is
     // what keeps that later, legitimate discontinuity from being
     // mis-read as a spurious jump the next time pose is read.
+    //
+    // The OTOS write is now ALSO deferred, the
+    // same shape as kernel.rebasePosition() above -- this used to call
+    // otosRef().setPose(0,0,0) synchronously, right here, on whichever
+    // fiber issued this SET (typically the protocol fiber), with no
+    // relationship to busGuard at all: exactly the hole this ticket
+    // closes for the other six OTOS entry points. Setting
+    // pendingOtosZero instead defers the actual I2C write to
+    // tickDrive(), after busGuard.release() (see that function's own
+    // comment). kernel.rebasePosition() and the encoder-odometry x/y/
+    // heading reset immediately below stay SYNCHRONOUS, as before --
+    // only the OTOS write moves.
     case 32:
       if (v != 0.0f) {
         odomUpdate(r);        // consume pending deltas before the zero
@@ -1246,7 +1415,7 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
         r.x = 0.0f;
         r.y = 0.0f;
         r.heading = 0.0f;
-        otosRef().setPose(0.0f, 0.0f, 0.0f);
+        r.pendingOtosZero = true;
       }
       break;
     // 33: estop_clear -- a write-triggered ACTION wearing a
@@ -1258,6 +1427,13 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // inline" convention case 17 already uses for clearStallLatch()
     // instead of going through clearStall().
     case 33: if (v != 0.0f) k.estopClear(); break;
+    // 38: straight_trim -- a thin forward to the kernel's own
+    // setStraightTrim() (DiffDrive::Config::straightTrim, a real stored
+    // kernel Config field, unlike case 15/16's own Rig/MotionEngine
+    // fields above). No validation beyond setStraightTrim()'s own
+    // finiteness check -- sign and magnitude are both meaningful (see
+    // that setter's own comment, diffdrive.cpp).
+    case 38: k.setStraightTrim(v); break;
     default: break;
   }
 }
@@ -1325,6 +1501,10 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // it before this function is ever reached, since a rebase has
     // nothing meaningful to read back.
     case 33: v = r.kernel.output().estopped ? 1.0f : 0.0f; break;
+    // 38: straight_trim's GET side -- read back straight from `c` (it
+    // IS a stored kernel Config field, unlike case 15/16's own
+    // Rig/MotionEngine reads above).
+    case 38: v = c.straightTrim; break;
     default: return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));
@@ -1396,6 +1576,21 @@ void engineSetGoToDeadline(uint32_t timeout) {  // [ms]
   ensure().pendingGoToDeadline_ = timeout;
 }
 
+// `//%`-annotated -- same one-shot pre-arm shape as
+// engineSetGoToDeadline() immediately above, added so
+// engineGoToRArmed() below can reconcile a SEPARATE yaw-rate ceiling
+// against `speed` (mirroring startMove()'s existing (distance, yaw,
+// speed, yawRate) shape) without becoming a 5th engineGoToRArmed()
+// parameter -- see Rig::pendingGoToYawRate_'s own comment for why that
+// would resurrect the exact packager crash pendingGoToDeadline_ was
+// split out to avoid. One caller only (sim.ts's _setGoToYawRate(),
+// called by motion.ts's startGoTo() immediately before _goToR(),
+// alongside _setGoToDeadline()).
+//%
+void engineSetGoToYawRate(int yawRate) {  // [cdeg/s]
+  ensure().pendingGoToYawRate_ = static_cast<float>(yawRate);
+}
+
 // `//%`-annotated -- the block layer's own entry point onto the SAME
 // goToR() the wire's GO_TO_R verb reaches via engineGoToR() above,
 // just split to FOUR parameters (engineSetGoToDeadline() immediately
@@ -1404,10 +1599,52 @@ void engineSetGoToDeadline(uint32_t timeout) {  // [ms]
 // Deliberately delegates to engineGoToR() above rather than calling
 // r.engine.goToR() directly a second time, so the actual move-engine
 // call site stays in exactly one place.
+//
+// MotionEngine::goToR() threads a SINGLE `speed`/cruise parameter
+// through both its pivot and straight phases (motion_engine.cpp:
+// queuePivotThenStraight() reuses the same `cruise` for both), exactly
+// as moveX() does for startMove()'s own two axes -- so this reconciles
+// `speed` against the pre-armed yaw-rate ceiling
+// (Rig::pendingGoToYawRate_) the SAME way startMove() reconciles its
+// own two rate ceilings, via the shared
+// MotionEngine::reconcileDualRateCruise(). decomposeGoToR() reproduces
+// goToR()'s own bearing-then-chord split decision first, so this
+// reconciliation can never disagree with which phases goToR() will
+// actually run: the pivot/straight pair (bearingRaw, chord) when it
+// will split, or the single blended segment's own (theta, arcLength)
+// pair when it will not (see motion_engine.h's own GoToRPlan comment).
 //%
 void engineGoToRArmed(float x, float y, float speed, float arrive) {
+  // Refused (a silent no-op), not superseding, while a wire motion or a
+  // GENUINE block/job COLLISION already holds the drivetrain -- a
+  // dispatched RUN job's own call (e.g. test.ts's tickedGoTo(), which
+  // "goto"/"face" run through) proceeds instead: see
+  // protocolTryTakeMotionOwnership()'s own comment above (shims.cpp's
+  // own top section). This is startGoTo()'s (blocks/motion.ts) own
+  // entry point onto the move engine, the goTo() counterpart of
+  // startMove() above.
+  if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
-  engineGoToR(x, y, speed, arrive, r.pendingGoToDeadline_);
+
+  const MotionEngine::GoToRPlan plan = MotionEngine::decomposeGoToR(x, y);
+  const float speedFloored = speed > 0.0f ? speed : 1.0f;  // [mm/s]
+  const float yawRateFloored =
+      (r.pendingGoToYawRate_ > 0.0f ? r.pendingGoToYawRate_ : 1.0f) *
+      kCdegToRad;  // [rad/s]
+  const float pivotRotation = plan.willSplit ? plan.bearingRaw : plan.theta;
+  const float straightDistance =
+      plan.willSplit ? plan.chord : plan.arcLength;
+
+  const MotionEngine::DualRateReconciliation rr =
+      r.engine.reconcileDualRateCruise(straightDistance, pivotRotation,
+                                       speedFloored, yawRateFloored);
+  // Nothing to reconcile (target essentially at the current pose) --
+  // fall back to `speed` unchanged; goToR()'s own `arrive` gate below
+  // is what actually decides this is a no-op, same as before this
+  // reconciliation existed.
+  const float cruise = rr.cruise > 0.0f ? rr.cruise : speedFloored;
+
+  engineGoToR(x, y, cruise, arrive, r.pendingGoToDeadline_);
 }
 
 // GO_TO_W's own PoseSource selection: the ONE place this project
@@ -1551,13 +1788,27 @@ int probe(int what) { return diagValue(what); }
 int otosBegin() {  // -> raw product id, for diagnostics only; readiness
                     // is OtosPort::connected(), gated on otos_port.h's
                     // kExpectedProductId -- not this return value
+  // Bus-ownership guard: begin() issues several
+  // I2C writes and a polled read (otos_port.cpp) -- see BusGuard's own
+  // comment for why every OTOS entry point now brackets its I2C body
+  // this way. productId() below is a cached read, no I2C, safe outside
+  // the guard.
+  Rig& r = ensure();
   OtosPort& o = otosRef();
+  r.busGuard.acquire(r.sleeper);
   o.begin();
+  r.busGuard.release();
   return o.productId();
 }
 
 //%
-bool otosRead() { return otosRef().read(); }
+bool otosRead() {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  const bool ok = otosRef().read();
+  r.busGuard.release();
+  return ok;
+}
 
 //%
 int otosGet(int what) {
@@ -1571,17 +1822,36 @@ int otosGet(int what) {
     case 5: return static_cast<int>(std::lround(o.omega() * kRadToCdeg));
     case 6: return o.productId();
     case 7: return o.connected() ? 1 : 0;
-    case 8: return o.imuCalibrationSamplesRemaining();
+    case 8: {
+      // Bus-ownership guard: imuCalibrationSamplesRemaining() issues a
+      // live I2C read (otos_port.cpp readReg8), unlike every other case
+      // above (cached fields set by the last read()/begin()) -- same
+      // three-line acquire/I2C-call/release bracket as the six named
+      // OTOS entry points above.
+      Rig& r = ensure();
+      r.busGuard.acquire(r.sleeper);
+      const int remaining = o.imuCalibrationSamplesRemaining();
+      r.busGuard.release();
+      return remaining;
+    }
     default: return 0;
   }
 }
 
 //%
-void otosZero() { otosRef().zeroPose(); }
+void otosZero() {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  otosRef().zeroPose();
+  r.busGuard.release();
+}
 
 //%
 void otosCalibrate(int samples) {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
   otosRef().calibrateImu(static_cast<uint8_t>(samples));
+  r.busGuard.release();
 }
 
 // Emit a test-result line on BOTH transports. TypeScript's
@@ -1656,9 +1926,12 @@ void registerTickServiceHook(void (*hook)()) { ensure().serviceHook = hook; }
 
 //%
 void otosSetOffset(int x, int y, int yaw) {  // [0.1 mm] [0.1 mm] [cdeg]
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
   otosRef().setOffset(static_cast<float>(x) * 0.1f,
                       static_cast<float>(y) * 0.1f,
                       static_cast<float>(yaw) * kCdegToRad);
+  r.busGuard.release();
 }
 
 // V6 SEED (protocol-v6-spec.md 5.5): declare the world pose from an
@@ -1673,7 +1946,9 @@ void seedPose(int x, int y, int heading) {  // [mm] [mm] [cdeg]
   r.x = static_cast<float>(x);
   r.y = static_cast<float>(y);
   r.heading = h;
+  r.busGuard.acquire(r.sleeper);
   otosRef().setPose(static_cast<float>(x), static_cast<float>(y), h);
+  r.busGuard.release();
 }
 
 }  // namespace diffDrive

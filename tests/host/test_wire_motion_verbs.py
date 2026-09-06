@@ -325,6 +325,8 @@ def _bind(lib):
     lib.waOnTlm.restype = ctypes.c_int
     lib.waHasLiveTelemetry.argtypes = [ctypes.c_void_p]
     lib.waHasLiveTelemetry.restype = ctypes.c_int
+    lib.waConsumeOneShotTelemetry.argtypes = [ctypes.c_void_p]
+    lib.waConsumeOneShotTelemetry.restype = ctypes.c_int
 
     # sprint 028 ticket 002: `rebase`/`estop_clear` -- the real kernel's
     # own positionEpochLeft/Right (the observable proof rebasePosition()
@@ -759,6 +761,14 @@ class WireAdapterHandle:
 
     def has_live_telemetry(self):
         return bool(self._lib.waHasLiveTelemetry(self._handle))
+
+    def consume_one_shot_telemetry(self):
+        """Calls the REAL WireAdapter::consumeOneShotTelemetry() -- reads
+        and clears the TLM NOW one-shot flag in a single call, the same
+        way the real method is meant to be called exactly once by
+        whichever code (here, the test itself) is about to build and
+        emit the frame."""
+        return bool(self._lib.waConsumeOneShotTelemetry(self._handle))
 
     # ---- sprint 028 ticket 002: rebase/estop_clear ----------------------
 
@@ -2183,6 +2193,14 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     # non-default-value rationale as accel/decel/v_max above.
     "lag": 0.08,
     "estop_clear": 0.0,
+    # Sprint 031 ticket 019 (docs/sprint-031-postmortem.md §2.2): NEW
+    # ordinal (38) -- straight_trim, a dimensionless per-robot bias on
+    # the kernel's OWN twist-hold reference (a real stored
+    # DiffDrive::Config field, unlike default_cruise/rotational_slip's
+    # own Rig/MotionEngine forwards above). Same non-default-value
+    # rationale as accel/decel/v_max above; also deliberately negative-
+    # capable (sign is meaningful), unlike most of this table.
+    "straight_trim": 0.0055,
 }
 
 
@@ -3179,6 +3197,10 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # sprint 029 ticket 009 (design S4.1/S6.1/S10.2): ordinal 37
         # (lag), NEW, declared after arrive_yaw in kFields.
         b"lag",
+        # sprint 031 ticket 019 (docs/sprint-031-postmortem.md §2.2):
+        # ordinal 38 (straight_trim), NEW, declared after lag in
+        # kFields.
+        b"straight_trim",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 
@@ -3460,9 +3482,20 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     "read the other file as text, no compiler needed" shape
     test_wire_constants_drift.py already uses throughout: confirms case
     32's own body calls kernel.rebasePosition(), zeroes x/y/heading, AND
-    re-seeds OTOS to that same zero -- so a future edit cannot silently
-    drop the OTOS half while the encoder half keeps passing every other
-    (compiled) test in this file."""
+    arms the OTOS re-seed to that same zero -- so a future edit cannot
+    silently drop the OTOS half while the encoder half keeps passing
+    every other (compiled) test in this file.
+
+    Sprint 030 ticket 001 (enforce-the-one-fiber-i2c-invariant.md): the
+    OTOS re-seed is now DEFERRED -- case 32 sets `r.pendingOtosZero =
+    true` instead of calling `otosRef().setPose(0.0f, 0.0f, 0.0f)`
+    synchronously on whichever fiber issued this SET. The actual I2C
+    write happens inside tickDrive() after busGuard.release()
+    (test_bus_guard_source_pin.py pins that half, which lives in
+    tickDrive()'s own body, not case 32's). This test's own assertion
+    changes from "the synchronous call is present" to "the deferred
+    flag is armed, and the synchronous call is gone" -- the exact
+    substance of the fix."""
     shims_text = (_SRC_DIR / "shims.cpp").read_text()
     match = re.search(r"case 32:\s*\{?\s*if \(v != 0\.0f\) \{(.*?)\}\s*break;",
                       shims_text, re.DOTALL)
@@ -3471,7 +3504,12 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     assert "k.rebasePosition();" in body, body
     assert "r.x = 0.0f;" in body and "r.y = 0.0f;" in body and \
         "r.heading = 0.0f;" in body, body
-    assert "otosRef().setPose(0.0f, 0.0f, 0.0f);" in body, body
+    assert "r.pendingOtosZero = true;" in body, body
+    assert "otosRef().setPose" not in body, (
+        "case 32 still calls otosRef().setPose(...) synchronously -- "
+        "the OTOS re-seed must be deferred via pendingOtosZero instead "
+        "(sprint 030 ticket 001): " + body
+    )
 
 
 def test_rebase_get_is_refused(wa):

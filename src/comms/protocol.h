@@ -40,6 +40,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "../core/motion_owner.h"  // MotionOwner: shared with wire_adapter.h's own mirror
 #include "../platform/platform_ports.h"  // CodalFiberLauncher, CodalClock (reused, not reimplemented)
 #include "radio_transport.h"  // radio transport -- now a full v6 sink too
 #include "serial_transport.h"
@@ -95,6 +96,43 @@ class Protocol {
   // MessageBus-event-carries-a-slot-number indirection this used to
   // read through is gone).
   const char* currentRunText() const;
+
+  // The take/release pair every MOTION entry point in shims.cpp
+  // (startMove()/driveTwist()/engineGoToRArmed()) brackets its own call
+  // span with -- tryTakeMotionOwnership() up front, releaseBlockOwnership()
+  // (below) once tickDrive()/the starvation watchdog/the explicit stop
+  // paths (endMove()/stopAll()/estopAll()) next find the drivetrain idle.
+  //
+  // This used to be a plain kBlock take (tryTakeBlockOwnership()) --
+  // refused unconditionally whenever motionOwner_ was anything but
+  // kNone, INCLUDING kJob. That refused a dispatched RUN job's own
+  // move: dispatchJob() (below) sets motionOwner_ = kJob and then calls
+  // the TS handler SYNCHRONOUSLY, on THIS fiber, so the handler's own
+  // startMove()/driveTwist() call was indistinguishable from a genuine
+  // block-program caller arriving mid-job -- both saw motionOwner_ ==
+  // kJob and were refused, silently (the caller still emitted its
+  // normal completion receipts). tryTakeMotionOwnership() (below)
+  // resolves that: it computes whether THIS call is running on
+  // Protocol's own fiber (the same fiber-identity comparison
+  // serviceHookEntry() already makes, core/fiber_identity.h) and, if
+  // so AND motionOwner_ is already kJob, lets the call through
+  // unchanged -- that is the job's OWN move, not a competitor for the
+  // drivetrain. A genuine block caller (a different fiber -- a button
+  // handler, a student script) still applies the UNCHANGED kBlock
+  // take/refuse rule: refused, never silently superseding, whenever
+  // motionOwner_ is kWire, kJob, or an already-taken kBlock. Both rules
+  // are the SAME pure decision core/motion_owner.h defines
+  // (tryTakeMotionOwnership(), host-tested there directly) -- a release
+  // is a no-op unless currently kBlock, exactly as before (the job-own-
+  // fiber bypass never sets kBlock, so it has nothing here to release;
+  // dispatchJob() itself owns clearing kJob once runDispatch() returns).
+  // Public (not private, unlike motionOwner_ itself) so the free-
+  // function seam beside these methods' own definitions (protocol.cpp)
+  // can reach them from shims.cpp, the same "public method, free-
+  // function forward-declaration wrapper" shape currentRunText() above
+  // already uses for protocolCurrentRunText().
+  bool tryTakeMotionOwnership();
+  void releaseBlockOwnership();
 
   // Cleartext RUN payloads refused because every slot was still
   // in flight. Saturates rather than wrapping -- a drop count
@@ -154,6 +192,14 @@ class Protocol {
   static void fiberEntry(void* self);
   void run();
 
+  // Debug-build-only scaffold: fills this fiber's own currently-unused
+  // stack region with a fixed byte pattern, once, before run()'s loop
+  // ever starts -- so an offline memory scan can later find the
+  // deepest point any call this fiber makes actually reached. A no-op
+  // body outside a debug forensics build (see the .cpp for the gating
+  // macro): a normal build never runs the fill loop at all.
+  static void paintStackCanary();
+
   // One pass of the WiFi transport's own servicing, called from
   // serviceOnce() when wifiEnabled_: lazily begin()s the link, pumps
   // its AT state machine, greets a newly-learned host with the banner,
@@ -165,14 +211,25 @@ class Protocol {
 
   // ---- single executor -- motionOwner_ arbitration -------------------
   // Exactly one execution model remains for engine-facing motion: this
-  // fiber. motionOwner_ arbitrates which caller currently holds the
-  // drivetrain -- kNone (idle), kWire (a live wire motion obligation,
-  // set/cleared by run()'s own loop around its tickDrive() call), or
-  // kJob (a dispatched RUN job, set/cleared by dispatchJob() around its
-  // call into the TS handler). Lives HERE, not on WireAdapter or the RUN
-  // queue, because this class is the only one that can see both a wire
-  // request and a dispatched job.
-  enum class MotionOwner : uint8_t { kNone, kWire, kJob };
+  // fiber. motionOwner_ (MotionOwner, core/motion_owner.h) arbitrates
+  // which caller currently holds the drivetrain -- kNone (idle), kWire
+  // (a live wire motion obligation, set/cleared by run()'s own loop
+  // around its tickDrive() call), kJob (a dispatched RUN job, set/
+  // cleared by dispatchJob() around its call into the TS handler), or
+  // kBlock (the block program's own fiber -- a student's own move()/
+  // driveTwist()/startDrive() call, or a MessageBus button handler
+  // calling one of those directly -- taken/released via
+  // tryTakeMotionOwnership()/releaseBlockOwnership() below, reached from
+  // shims.cpp through the free-function seam beside those methods; a
+  // dispatched job's OWN call into those same shims.cpp entry points
+  // takes the OTHER branch of tryTakeMotionOwnership() instead, per that
+  // method's own doc comment above, and never touches kBlock at all).
+  // Lives HERE, not on WireAdapter or the RUN queue, because this class
+  // is the only one that can see a wire request, a dispatched job, AND
+  // a block-motion call, all three; wireAdapter_.setExternalOwner()
+  // (wire_adapter.h) is the one seam this class uses to mirror the same
+  // value into that host-portable class, so the two never drift apart
+  // as separately-maintained fields.
   MotionOwner motionOwner_ = MotionOwner::kNone;
 
   // Dequeues and dispatches ONE queued RUN job, if one is waiting and
@@ -238,16 +295,39 @@ class Protocol {
   // plain static member function, not a lambda: a bare C function
   // pointer cannot capture `this`), so it reaches this specific
   // Protocol instance through the protocol() singleton accessor, safe
-  // for the same reason wireNow() is. Deliberately a NO-OP unless
-  // motionOwner_ == kJob: tickDrive() is also called (a) from run()'s
-  // own loop for a live WIRE motion obligation, which already gets its
-  // own servicing once per pass via run()'s own loop calling
-  // serviceOnce() directly, and (b) from a student's own program driving
-  // continuous-mode motion on THAT program's own fiber (the third,
-  // deliberately unchanged execution model) -- neither call site needs
-  // or wants this hook's extra work, and (b)
-  // must never run serviceOnce() on a fiber other than this one.
+  // for the same reason wireNow() is. Gates on WHICH FIBER is calling,
+  // via diffDrive::shouldServiceHookRun() (core/fiber_identity.h) --
+  // NOT on motionOwner_'s value, which used to be this method's whole
+  // check and is exactly what let a second fiber slip through: a
+  // button-handler fiber calling tickDrive() while a job ran on this
+  // one satisfied `motionOwner_ == kJob` and ran serviceOnce() a SECOND
+  // time, concurrently, corrupting the wire dispatcher's own shared
+  // line buffer mid-yield. Comparing fiber identity instead makes "no
+  // fiber but this object's own ever runs serviceOnce()" true by
+  // construction, independent of what any state variable says: tickDrive()
+  // is also called (a) from run()'s own loop for a live wire motion
+  // obligation, which already gets its own servicing once per pass via
+  // run()'s own loop calling serviceOnce() directly, and (b) from
+  // anything else's own fiber -- a student's continuous-mode drive loop,
+  // or a button handler -- neither of which needs or may ever trigger
+  // this hook's extra work.
   static void serviceHookEntry();
+
+  // The identity this fiber captured as its own, the first (and only)
+  // time run() executes -- null before that. shouldServiceHookRun()
+  // above compares currentFiberFn_()'s reading against this on every
+  // tickDrive() call.
+  const void* protocolFiberId_ = nullptr;
+
+  // The injectable "current fiber" reader serviceHookEntry() calls --
+  // defaults to a real CODAL global read (defaultCurrentFiber(),
+  // protocol.cpp), overridable so a future on-target test can pin both
+  // sides of the comparison without a real second fiber. Both ids this
+  // class ever compares are opaque pointers, by identity only, never
+  // dereferenced.
+  using CurrentFiberFn = const void* (*)();
+  static const void* defaultCurrentFiber();
+  static CurrentFiberFn currentFiberFn_;
 
   // ---- the outbound emit path: single producer, one caller each ------
   // emitLine() (public, above) no longer writes a transport itself -- it

@@ -392,6 +392,11 @@ void setKernelValue(int field, int value) {
     // shape as stall_clear's case 17 above, just calling
     // kernel.estopClear() instead of clearStallLatch().
     case 33: if (v != 0.0f) k.estopClear(); break;
+    // 38 (sprint 031 ticket 019): straight_trim, mirroring shims.cpp's
+    // real setKernelValue() case 38 exactly -- a thin forward to the
+    // REAL kernel's own setStraightTrim() (a real stored kernel Config
+    // field, unlike case 15/16's own Rig/MotionEngine fields above).
+    case 38: k.setStraightTrim(v); break;
     default: break;
   }
 }
@@ -450,6 +455,10 @@ int getConfigValue(int field) {
     case 33:
       v = g_activeWaHandle->kernel.output().estopped ? 1.0f : 0.0f;
       break;
+    // 38 (sprint 031 ticket 019): straight_trim's GET side, mirroring
+    // shims.cpp's real getConfigValue() case 38 exactly -- read straight
+    // from `c` (it IS a stored kernel Config field).
+    case 38: v = c.straightTrim; break;
     default: break;
   }
   // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,
@@ -575,6 +584,18 @@ float engineGoToWChord(float worldX, float worldY) {
 bool engineMoveActive() {
   if (g_activeWaHandle == nullptr) return false;
   return g_activeWaHandle->engine.isMoveActive();
+}
+
+// Mirrors shims.cpp's real engineMoveEndedByDeadline() exactly -- the
+// SECOND genuinely new read resolvePendingReason() (wire_adapter.cpp)
+// needs, alongside engineMoveActive() above. Reads this handle's OWN
+// real MotionEngine::lastSegmentEndedByDeadline(), the SAME engine
+// service_move() (below) drives, so a test exercising the real
+// WireAdapter's completion channel exercises the exact bridge
+// production code uses, not a separate notion of "why."
+bool engineMoveEndedByDeadline() {
+  if (g_activeWaHandle == nullptr) return false;
+  return g_activeWaHandle->engine.lastSegmentEndedByDeadline();
 }
 
 // Mirrors the subset of shims.cpp's real diagValue() switch
@@ -1172,6 +1193,16 @@ int waOnTlm(void* handle, int mode) {
 
 int waHasLiveTelemetry(void* handle) {
   return static_cast<WaHandle*>(handle)->adapter.telemetryEnabled() ? 1 : 0;
+}
+
+// The real WireAdapter::consumeOneShotTelemetry() -- lets a test drive
+// TLM NOW's own one-shot arm/consume cycle directly, the same way
+// waOnTlm() above already exposes onTlm() directly, bypassing the wire
+// grammar entirely.
+int waConsumeOneShotTelemetry(void* handle) {
+  return static_cast<WaHandle*>(handle)->adapter.consumeOneShotTelemetry()
+             ? 1
+             : 0;
 }
 
 }  // extern "C"

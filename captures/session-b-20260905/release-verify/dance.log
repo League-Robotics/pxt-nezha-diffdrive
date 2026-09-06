@@ -1,0 +1,17 @@
+status: status ready=1 active=0 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=16 cyc=141 tlm=off next=1 done=7 reason=stop
+home ( -20.0,   0.4) h=   4.6
+
+step                     expected   measured      err  result
+turn +90 deg               +90.0d     +86.5d    -3.5d  PASS
+turn +180 deg             +180.0d    -171.9d    +8.1d  **FAIL**
+turn +90 deg               +90.0d     +89.5d    -0.5d  PASS
+drive +20 cm                20.0c      19.2c    -0.8c  PASS  (bearing off -1 deg)
+drive -40 cm                40.0c      39.7c    -0.3c  PASS  (bearing off -1 deg)
+drive +20 cm                20.0c      19.6c    -0.4c  PASS  (bearing off +0 deg)
+
+returned home                0.0c       1.2c    +1.2c  PASS
+
+ACCURACY (not a gate): net heading drift over the three pivots +1.8 deg, i.e. +0.6 deg per 90 deg pivot.
+
+DANCE FAILED: turn +180
+Do NOT drive the field until this passes.

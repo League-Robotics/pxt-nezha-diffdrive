@@ -115,6 +115,20 @@ _CXX11_PORTABLE_SOURCES = [
     # syntax-check-only headers above, has a natural .cpp of its own,
     # so it is compiled directly, the same way motion_engine.cpp is.
     _SRC_DIR / "motion" / "velocity_shaper.cpp",
+    # Sprint 030 ticket 001 (bus-ownership guard): bus_guard.h has no
+    # pxt.h dependency (it depends only on diffdrive.h, itself already
+    # covered above via diffdrive.cpp) but no natural .cpp of its own,
+    # so this dedicated translation unit exists solely to give this
+    # gate something to compile.
+    _TEST_DIR / "bus_guard_syntax_check.cpp",
+    # Sprint 030 ticket 002 (fiber-identity check + kBlock motion
+    # owner): motion_owner.h and fiber_identity.h have no pxt.h
+    # dependency (both are pure headers with no CODAL type -- see their
+    # own header comments) but no natural .cpp of their own, so these
+    # dedicated translation units exist solely to give this gate
+    # something to compile.
+    _TEST_DIR / "motion_owner_syntax_check.cpp",
+    _TEST_DIR / "fiber_identity_syntax_check.cpp",
 ]
 
 
