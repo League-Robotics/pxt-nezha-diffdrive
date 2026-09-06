@@ -1,6 +1,13 @@
 ---
-status: pending
+status: in-progress
 sprint: '034'
+tickets:
+- 034-003
+- 034-006
+- 034-008
+- 034-009
+- 034-012
+- 034-013
 ---
 
 # Tools consolidation: in-process aprilcam, one wrap(), one link layer, one repositioner, delete dead tools, DESIGN.md truth pass

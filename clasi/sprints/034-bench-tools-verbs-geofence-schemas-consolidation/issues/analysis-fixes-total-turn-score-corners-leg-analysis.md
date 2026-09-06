@@ -1,6 +1,9 @@
 ---
-status: pending
+status: in-progress
 sprint: '034'
+tickets:
+- 034-001
+- 034-002
 ---
 
 # Analysis fixes: total_turn +/-180 wrap, score_corners window, heading-only miss label, retired-constant print

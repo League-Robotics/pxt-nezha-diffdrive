@@ -1,6 +1,11 @@
 ---
-status: pending
+status: in-progress
 sprint: '034'
+tickets:
+- 034-004
+- 034-005
+- 034-007
+- 034-013
 ---
 
 # Tools: _V6_VERBS drift-tested against the firmware verb table; geofence wired into every driving tool; one pose-CSV schema
