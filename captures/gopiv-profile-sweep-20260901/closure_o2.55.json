@@ -1,0 +1,1 @@
+{"args": {"leg": 600, "cruise": 300, "overrun": 2.55, "shaped": false, "repeat": 3, "settle": 1.2, "tag": "o2.55"}, "runs": [{"closure_mm": 18.439088914585867, "net_heading": 360.8099999999995}, {"closure_mm": 34.17601498126998, "net_heading": 361.97000000000025}, {"closure_mm": 22.825424421026767, "net_heading": 361.9399999999996}]}

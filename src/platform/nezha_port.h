@@ -39,13 +39,8 @@ class NezhaMotorPort final : public DiffDrive::Motor {
   // port: 1-based Nezha motor port (M1..M4). fwdSign: +1/-1 so that
   // positive duty is robot-forward for a mirror-mounted wheel pair.
   //
-  // `bus` defaults to `defaultI2CBus()` so this two-argument form still
-  // parses exactly as it always did -- `tools/make_deploy.py`'s
-  // per-robot motor bake matches the `NezhaMotorPort left{1, -1}`
-  // literals in shims.cpp by regex (`_MOTOR_BAKE_RES`), and a changed
-  // signature would silently break that bake on the day it is next
-  // needed. The host harness passes its simulated bus explicitly
-  // instead; see `i2c_bus.h`.
+  // The default bus preserves the two-argument motor-bake literals in
+  // shims.cpp; host tests inject a simulated bus.
   NezhaMotorPort(uint8_t port, int8_t fwdSign,
                  I2CBus& bus = defaultI2CBus())
       : port_(port), fwdSign_(fwdSign), bus_(bus) {}
@@ -119,21 +114,16 @@ class NezhaMotorPort final : public DiffDrive::Motor {
   // Peak consecutive-identical-encoder-read streak observed while the
   // wheel was driven (cumulative since boot) -- direct latch evidence:
   // streaks are ticks (~24 ms each), so 13 means ~300 ms frozen.
+  // Exposed via diagValue() ordinals 21 (left) and 22 (right).
   uint32_t maxDrivenStreak_ = 0;
   uint32_t glitchCount_ = 0;       // rejected implausible encoder reads
-  // Rebaseline-on-discontinuity events (sprint 006 ticket 005,
-  // encoder_glitch_armor.h's kAcceptAsRebaseline outcome): a two-strike
-  // implausible-then-consistent jump treated as a counter restart
-  // (e.g. a brick MCU reset) rather than integrated as a ~4 m
-  // teleport. Should read 0 across a normal session with no
-  // discontinuities. Exposed via diagValue() ordinal 27.
+  // Two-strike counter-restart events, not integrated as motion.
+  // Exposed via diagValue() ordinal 27; normally zero.
   uint32_t rebaselineCount_ = 0;
  private:
-  // Two-strike raw-counts plausibility gate, extracted to
-  // encoder_glitch_armor.h (host-portable, host-tested directly --
-  // see that header and tests/host/test_encoder_glitch_armor.py). Owns
-  // the lastGoodRaw_/lastRejectedRaw_/rejectPending_/primed_ state this
-  // member used to hold inline.
+  // Two-strike raw-counts plausibility gate; owns the
+  // lastGoodRaw_/lastRejectedRaw_/rejectPending_/primed_ state. Lives in
+  // encoder_glitch_armor.h -- host-portable and host-tested directly.
   EncoderGlitchArmor glitchArmor_;
 
   float dutyCarry_ = 0.0f;         // [-1,1] sigma-delta remainder

@@ -1,0 +1,54 @@
+{
+ "robot": "gopiv",
+ "dist_mm": 300.0,
+ "runs": [
+  {
+   "cruise": 100,
+   "peak": 108.0,
+   "accel": 136,
+   "decel": 149,
+   "ticks_decel": 6,
+   "brake_mm": 27.7,
+   "v_end": 0.0,
+   "travel_mm": 300.3,
+   "frames": 45,
+   "dead_channel": null
+  },
+  {
+   "cruise": 200,
+   "peak": 218.0,
+   "accel": 400,
+   "decel": 623,
+   "ticks_decel": 4,
+   "brake_mm": 27.0,
+   "v_end": 0.0,
+   "travel_mm": 298.3,
+   "frames": 25,
+   "dead_channel": null
+  },
+  {
+   "cruise": 300,
+   "peak": 333.5,
+   "accel": 749,
+   "decel": 2180,
+   "ticks_decel": 2,
+   "brake_mm": 21.1,
+   "v_end": 0.0,
+   "travel_mm": 298.3,
+   "frames": 17,
+   "dead_channel": null
+  },
+  {
+   "cruise": 400,
+   "peak": 444.0,
+   "accel": 915,
+   "decel": null,
+   "ticks_decel": 1,
+   "brake_mm": 25.4,
+   "v_end": 0.0,
+   "travel_mm": 305.2,
+   "frames": 13,
+   "dead_channel": null
+  }
+ ]
+}

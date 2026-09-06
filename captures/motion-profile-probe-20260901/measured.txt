@@ -1,0 +1,14 @@
+
+ cruise |  peak | accel_to_peak | decel: measured a  | brake window | ticks decel
+ (mm/s) |(mm/s) |    (mm/s^2)   |     (mm/s^2)       |    (mm)      |
+--------+-------+---------------+--------------------+--------------+------------
+    100 |   100 |           184 |                105 |         25.6 |          26
+    200 |   200 |           368 |                516 |         26.2 |          12
+    300 |   300 |           551 |               1218 |         23.1 |           7
+    400 |   394 |           720 |               2449 |         28.1 |           5
+    600 |   394 |           924 |               5081 |         17.1 |           2
+
+What the numbers say:
+  * accel scales with cruise (it is time-based, not an acceleration)
+  * the brake window stays ~fixed, so required decel grows as v^2
+  * at high cruise the decel phase collapses to a couple of ticks

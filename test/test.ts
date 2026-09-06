@@ -44,9 +44,11 @@ const BOOT_ROBOT = "unknown"
 // robot (.claude/rules/playfield-testing.md has the checklist for that
 // symptom; this would be a new way to trigger it).
 //
-// No channel argument on purpose: enableRadioLink() uses the per-robot
-// channel make_deploy.py injected into kChannel, so `--robot tovez`
-// still lands on channel 3 rather than vevov's 4.
+// No channel argument on purpose: the channel AND the group are
+// deploy-injected per robot -- tools/make_deploy.py rewrites kChannel
+// and kGroup (src/comms/radio_transport.h) from that board's own config
+// -- so `--robot <name>` lands on that board's address. Naming either
+// here would override the injection and put every robot on one address.
 //
 // 2026-09-02: OFF BY DEFAULT. The WiFi link (below) is now the
 // untethered carrier; the v6 radio is only brought up when the deploy
@@ -179,17 +181,19 @@ function tickedGoTo(x: number, y: number) {
 
 // ---- RUN:arc trajectory sampling --------------------------------------
 // A request/reply round trip DURING a move is dangerous (src/shims.cpp's
-// probe() doc comment: a 197.5 mm leg collapsed to 0.3 mm), and
-// subscribing v6 POSE telemetry then sending a cleartext RUN: line hangs
-// the link outright (clasi/issues/cleartext-run-hangs-the-link-under-
-// active-telemetry.md) -- so RUN:arc's heading trajectory cannot be read
-// live off the wire at all. Instead this samples diffDrive.heading()
-// itself, once per tick, on THIS fiber while the move runs -- the same
-// "a test program samples into arrays and dumps afterwards instead"
-// pattern probe()'s own comment already prescribes for exactly this
-// class of problem -- and dumps the trajectory as ARCT: lines after the
-// move completes. No telemetry subscription is ever needed, so the link
-// hang above cannot trigger.
+// probe() doc comment: a 197.5 mm leg collapsed to 0.3 mm), so RUN:arc's
+// heading trajectory is not read live off the wire. Instead this samples
+// diffDrive.heading() itself, once per tick, on THIS fiber while the
+// move runs -- the same "a test program samples into arrays and dumps
+// afterwards instead" pattern probe()'s own comment prescribes -- and
+// dumps the trajectory as ARCT: lines after the move completes.
+//
+// History: a cleartext RUN: line sent under a live POSE subscription
+// used to hang the link outright. Fixed in sprint 027 ticket 001
+// (clasi/sprints/done/027-one-serial-producer-fix-the-uart-wedge-and-
+// retest-the-radio-wedge/issues/done/cleartext-run-hangs-the-link-under-
+// active-telemetry.md); this on-fiber sampling stands on probe()'s own
+// hazard alone, not on that hang.
 //
 // A 180 deg arc runs about 2.8 s at ~24 ms/tick (roughly 120 ticks);
 // this cap leaves comfortable headroom above that and stops growing the
@@ -275,16 +279,11 @@ const CORNERS_X = [-50, -50, 50, 50]
 const CORNERS_Y = [30, -30, -30, 30]
 const LEG_CM = [100, 60, 100, 60]
 
-// vevov's lever arm, MEASURED on the playfield 2026-08-20 (RUN:cal +
-// tools/otos_levercal.py): eight 45 deg pivots swept the sensor around
-// the centre of rotation on a 38.2 mm circle, fit residual rms 1.34 mm.
-// The sensor sits 38.2 mm BEHIND the centre, within a millimetre of the
-// centreline; the mounting yaw came from the 30 cm straight leg after.
 // OTOS lever arm -- sensor position relative to the CENTRE OF ROTATION.
-// RE-MEASURED vevov 2026-08-28 after the chassis rebuild (front caster
-// removed, drive wheels moved forward), which MOVED the centre of
-// rotation and so invalidated the -3.82 cm measured 2026-08-21.
-// Capture: captures/otos-run-handler-i2c-hang-20260828.md.
+// MEASURED vevov 2026-08-28 (RUN:cal + tools/otos_levercal.py), after
+// the chassis rebuild that moved the centre of rotation and invalidated
+// the earlier figure. Capture:
+// captures/otos-run-handler-i2c-hang-20260828.md.
 //
 // Method: with applyArm() not yet run the OTOS reports the SENSOR's own
 // path, so eight 45 deg in-place pivots trace a circle of radius |arm|
@@ -314,21 +313,14 @@ function applyArm() {
 }
 
 function worldReady(): boolean {
-    // MEASURED BUG, vevov 2026-08-25: this fast path used to `return
-    // true` outright. worldTrackingReady() only asks "is the chip
-    // answering" (otosGet(7) -> connected_), and ANY earlier
-    // otosBegin() -- RUN:probe is enough -- makes it true. So the very
-    // first worldReady() after a probe short-circuited here and the
-    // lever arm was NEVER applied, silently, for the whole session.
-    //
-    // The sensor then reports the SENSOR's path, not the centre's, so
-    // every in-place pivot injects a phantom translation of
-    // 2 * 38.2mm * sin(theta/2) into the world pose. Measured against
-    // overhead-camera truth: an 84 deg pivot with no arm reported
-    // 52 mm of travel while the robot physically moved 2.5 mm. With the
-    // arm applied, an identical 90 deg pivot reported 1.2 mm and agreed
-    // with the camera to 2.1 mm. Four corners per tour turned that into
-    // a 58 mm closure error that the robot itself scored as 22 mm.
+    // This fast path must still apply the arm before returning:
+    // worldTrackingReady() only asks "is the chip answering" (otosGet(7)
+    // -> connected_), and ANY earlier otosBegin() -- RUN:probe is enough
+    // -- makes it true. Without the arm the OTOS reports the SENSOR's
+    // path, not the centre's, so every in-place pivot injects a phantom
+    // 2*|arm|*sin(theta/2) of translation. MEASURED BUG, vevov
+    // 2026-08-25, against overhead-camera truth: four uncorrected
+    // corners cost 58 mm of tour closure that the robot scored as 22 mm.
     //
     // armApplied (not the chip's state) is the guard: otosBegin() does
     // NOT clear OtosPort's offsetX_/offsetY_/offsetYaw_ members, so
@@ -702,27 +694,17 @@ input.onButtonPressed(Button.AB, function () {
 
 // ---- named run commands ---------------------------------------------
 
-// RUN:abort -- unlike every other RUN handler here, this one does NOT
-// guard on `touring`: an abort sent while nothing is touring is a
-// harmless no-op (nothing ever reads `aborted` outside a tour/tickedMove
-// leg), and an abort sent WHILE a tour is running must land even though
-// that tour's own handler is still mid-execution -- protocol.cpp
-// dispatches abort/clearestop reentrantly, NESTED inside the running
-// job's own onRun() call, on the SAME protocol fiber (sprint 028; see
-// onRun()'s own doc comment in run.ts) -- which is exactly why `touring`
-// exists as a re-entrancy guard for the MOVE-issuing handlers in the
-// first place.
-// Clear the emergency-stop latch. ESTOP is reachable over the wire but
-// nothing was: once latched, every motion verb was silently ignored and
-// the ONLY recovery was a reflash or a power cycle. Found the hard way
-// on 2026-08-28 -- an ESTOP (sent to catch a runaway) left the robot
-// unable to move, mid-regression, with no way back over the link.
+// abort and clearestop bypass the RUN queue: protocol.cpp
+// dispatches abort/clearestop reentrantly, NESTED inside whatever
+// handler is mid-tick, on the SAME protocol fiber (see onRun()'s own
+// doc comment in run.ts). So neither guards on `touring` -- that guard
+// exists for the MOVE-issuing handlers -- and both must stay flag-only
+// and non-blocking.
 //
-// diffDrive.clearEmergencyStop() already existed as a block; this just
-// gives it a wire-reachable name. Deliberately its OWN verb rather than
-// folding it into STOP: STOP is issued constantly and reflexively, and
-// making it silently disarm a safety latch would be worse than the
-// problem being fixed.
+// clearestop exists because ESTOP had no wire-level clear: once latched,
+// every motion verb was silently ignored and the only recovery was a
+// power cycle. Its own verb, not folded into STOP, which is issued
+// reflexively and must never silently disarm a safety latch.
 diffDrive.onRun("clearestop", function (arg: number) {
     diffDrive.clearEmergencyStop()
     diffDrive.emitLine("ESTOP:cleared")
@@ -925,32 +907,24 @@ diffDrive.onRun("turnrate", function (arg: number) {
 // this ordering regardless.
 // ---- OTOS bring-up: MAIN FIBER, at boot --------------------------------
 //
-// MEASURED 2026-08-28 (vevov and tovez, over radio AND usb): ANY
-// uBit.i2c transaction issued from a RUN handler hangs the board
-// permanently -- silent to every verb on both carriers, cured only by a
-// reflash. Confirmed against 0x10, the NEZHA BRICK, on a robot whose
-// MOTION fiber talks to that same address successfully seconds later
-// (connL=1 connR=1, cyc advancing, i2cf=0). Neither the address nor the
-// device is at fault; the CALLING CONTEXT is.
+// The OTOS is begun once, HERE, so STATUS's `otos=` flag is meaningful
+// from boot; the result is emitted so it can be checked against the
+// product id that produced it rather than trusted on its own.
 //
+// The real hazard is the No-ACK case: an I2C transaction that neither
+// completes nor errors spins CODAL's waitForStop() forever and wedges
+// the board with no recovery
+// (clasi/issues/high/first-i2c-command-can-wedge-the-program-with-no-
+// recovery.md). Bringing the sensor up on the main fiber at boot keeps
+// that risk off the RUN path, where it once bricked two robots.
 // Capture: captures/otos-run-handler-i2c-hang-20260828.md.
-//
-// So RUN:probe could never have started the OTOS, and every world-frame
-// path that reached otosBegin() through a RUN handler carried the same
-// defect. Bringing it up HERE -- on the main fiber during boot, before
-// any RUN handler can be dispatched -- is the fix. The result is emitted
-// so `otos=` in STATUS can be checked against the product id that
-// produced it, rather than being trusted on its own.
 const otosBootId = diffDrive.otosBegin()
 diffDrive.emitLine("OTOS:boot:id=" + otosBootId
     + ":connected=" + diffDrive.otosGet(7))
-// Apply the lever arm HERE too. applyArm() is pure software
-// (setWorldSensorOffset + a log line, no I2C), so it is safe on this
-// fiber. It previously ran only via worldReady() inside a RUN handler,
-// which is the context that hangs -- so in practice the arm was NEVER
-// applied and the OTOS reported the SENSOR's path, injecting
-// 2*|arm|*sin(theta/2) of phantom translation into every pivot (~53 mm
-// per 90 deg corner at the measured arm, four corners per tour).
+// Apply the lever arm HERE too: applyArm() is pure software
+// (setWorldSensorOffset + a log line, no I2C), and applying it at boot
+// means no tour can start on the un-armed sensor -- see worldReady()
+// above for what that costs.
 if (diffDrive.otosGet(7) != 0) {
     applyArm()
 }

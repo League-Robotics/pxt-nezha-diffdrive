@@ -1,8 +1,5 @@
-// velocity_shaper.cpp -- diffDrive::VelocityShaper::advance(), design
-// docs/design/motion-profile-unification.md S6.1. See velocity_shaper.h's
-// header comment for scope and portability, and this file's own step 1/
-// step 5 comments below for the lag-aware amendment and its one
-// deliberate deviation from S6.1's literal pseudocode.
+// VelocityShaper::advance(). See DESIGN.md for the five steps, the
+// lag-aware amendment, and why the lag term is added rather than folded.
 #include "velocity_shaper.h"
 
 #include <cmath>
@@ -19,16 +16,10 @@ VelocityShaper::Step VelocityShaper::advance(float target, float remain,
                                               float dt,
                                               const MotionLimits& lim,
                                               float measured) {
-  const float vPrev = v_;  // [mm/s] this tick's starting speed
-  const float aPrev = a_;  // [mm/s^2] this tick's starting acceleration
+  const float vPrev = v_;  // [mm/s]
+  const float aPrev = a_;  // [mm/s^2]
 
-  // 0. vAct (design S6.1 step 0): what the wheel is ACTUALLY doing --
-  // the kernel's own last-measured dominant-axis speed, when the
-  // caller has one, else this shaper's own last commanded speed (this
-  // parameter's own default assumption). A real drivetrain lags the
-  // command by lim.lag, so the wheel keeps covering ground at this
-  // (possibly higher) speed for that long after a new, lower command
-  // is issued.
+  // 0. What the wheel is ACTUALLY doing, which the command leads by lim.lag.
   const float vAct = measured >= 0.0f ? measured : vPrev;  // [mm/s]
 
   // 1. Budget coast, one command-pipeline tick, and jerk rounding.
@@ -50,7 +41,7 @@ VelocityShaper::Step VelocityShaper::advance(float target, float remain,
     vGoal = target < cap ? target : cap;
   }
 
-  // 2. Rate limit toward vGoal (first-order shaper, design S6.1 step 2).
+  // 2. Rate limit toward vGoal.
   float vNext = vGoal;
   const float vUp = vPrev + lim.accel * dt;
   const float vDown = vPrev - lim.decel * dt;

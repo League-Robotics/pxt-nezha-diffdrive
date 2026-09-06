@@ -62,3 +62,16 @@ not Vevov measurements.
 readback guards; `plot.py` regenerates the graph using `tools/tlm.py`'s
 pose schema. Resolve Vevov's current farm endpoint again before reusing
 the recorder, since the recorded socket is not a permanent assignment.
+
+## Master Integration
+
+Integrated committed master `bb4e2dd` with motion fix `974b52b`, retaining
+master's comment cleanup and the earlier simulator I2C extraction.
+The conflicts in the engine and shaper retained the lag-aware drive,
+rest-confirmed completion, and jerk-aware floor behavior. Motor-port
+comments were shortened to satisfy master's comment-volume gate.
+
+HOST TESTED 2026-09-06, no hardware board involved,
+`merge-regression.log`: all 1879 tests passed in 87.70 seconds on the
+combined tree. This does not replace or imply a repeat of the earlier
+hardware capture; the flashed image is still identified by the hash above.

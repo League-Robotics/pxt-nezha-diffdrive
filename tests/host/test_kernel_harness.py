@@ -61,29 +61,15 @@ def compile_shared_lib(tmp_path_factory, sources=None, include_dirs=None,
     shared library under a fresh session-scoped tmp dir and return its
     path. Mirrors radio-robot-lib/tests/protocol/test_protocol_harness.py's
     own `_compile_shared_lib` -- same compiler invocation, no CMake --
-    factored out here (rather than inlined in a fixture) so a later
-    ticket's own test file can import it and compile ITS OWN shim against
-    a different source list without duplicating the subprocess plumbing.
+    and is importable so another test file can compile ITS OWN shim from
+    a different source list.
 
-    Sprint 017 ticket 009 (host-harness-masks-include-path-errors.md):
-    each source is now compiled to its own object file with `-c` instead
-    of one combined `c++ ... file1.cpp file2.cpp` command line, because a
-    combined command applies the SAME include search path to every file
-    on it. The real PXT build never passes a project-root `-I` at all --
-    it stages every file at its own `pxt.json`-relative path and resolves
-    every `#include "..."` relative to the INCLUDING file's own
-    directory. Giving the whole combined command `-I src` (needed only so
-    a tests/host/ shim like kernel_shim.cpp can reach into `src/` with a
-    project-root-relative path of its own) used to also silently widen
-    what compiles for every production `src/` file compiled alongside it
-    in that same invocation -- exactly the masking this ticket exists to
-    close. Splitting into per-file `-c` compiles lets a production
-    `src/` source be compiled with NO `-I` at all (matching the real
-    build exactly, so a wrongly-spelled `src/`-internal include now fails
-    here the same way it fails the real build) while a tests/host/ shim
-    file -- host-only scaffolding nothing under `src/` ever includes --
-    still gets `include_dirs` so it can reach into `src/`. The object
-    files are then linked together, unchanged from before.
+    Each source gets its own `-c` compile, because that is what lets the
+    include path differ per file: production `src/` files compile with
+    NO `-I` (as PXT does -- so a wrongly-spelled `src/`-internal include
+    fails here exactly as it fails the real build); `tests/host` shims
+    get `include_dirs`, since they must reach into `src/` and nothing
+    under `src/` ever includes them. The objects are then linked.
     """
     sources = [pathlib.Path(s) for s in (sources or _SHIM_SOURCES)]
     include_dirs = include_dirs or [_SRC_DIR, _TEST_DIR]
