@@ -1,0 +1,62 @@
+[
+  {
+    "leg": 0,
+    "d_mm": 600,
+    "reason": "stop",
+    "cam_dh_deg": -1.37,
+    "enc_dh_deg": -0.75,
+    "dposl": 7558,
+    "dposr": 7539,
+    "twist_counts": -19,
+    "frames": 168,
+    "x0": -48.6,
+    "y0": -0.6,
+    "x1": 11.0,
+    "y1": -5.0
+  },
+  {
+    "leg": 1,
+    "d_mm": -600,
+    "reason": "stop",
+    "cam_dh_deg": 1.65,
+    "enc_dh_deg": 0.63,
+    "dposl": -7522,
+    "dposr": -7506,
+    "twist_counts": 16,
+    "frames": 163,
+    "x0": 10.9,
+    "y0": -5.1,
+    "x1": -48.3,
+    "y1": -0.4
+  },
+  {
+    "leg": 2,
+    "d_mm": 600,
+    "reason": "stop",
+    "cam_dh_deg": 4.59,
+    "enc_dh_deg": -0.43,
+    "dposl": 7545,
+    "dposr": 7534,
+    "twist_counts": -11,
+    "frames": 167,
+    "x0": -48.3,
+    "y0": -0.4,
+    "x1": 11.7,
+    "y1": -4.2
+  },
+  {
+    "leg": 3,
+    "d_mm": -600,
+    "reason": "stop",
+    "cam_dh_deg": -6.65,
+    "enc_dh_deg": 1.63,
+    "dposl": -7556,
+    "dposr": -7515,
+    "twist_counts": 41,
+    "frames": 172,
+    "x0": 11.7,
+    "y0": -4.2,
+    "x1": -48.7,
+    "y1": -1.8
+  }
+]

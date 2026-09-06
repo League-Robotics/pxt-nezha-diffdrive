@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 sprint: '031'
 tickets:
 - 031-001
@@ -78,3 +78,9 @@ respectable outcome; an invented number is not.
 
 Remember `captures/` is gitignored — `git add -f` the artifacts, or the
 citation points at nothing from a fresh clone.
+
+> **2026-09-05, team-lead:** archived by ticket 014's closure, but 014
+> itself was closed as DEFERRED, not executed -- the stack-canary scan
+> never ran. The bench session this issue asked for did happen (tickets
+> 001/009/013 and the session-b captures); the one un-run piece is
+> carried in `clasi/issues/stack-canary-scan-deferred-from-sprint-031.md`.

@@ -1646,3 +1646,58 @@ two measured wheels (0.168, 0.096), i.e. wrong for both by ~40%.
 UNVERIFIED: that a per-wheel split actually closes the gates. What IS
 measured is the asymmetry itself, on four independent gates, with the
 captures cited above.
+
+## Discriminator (post-postmortem): the leg yaw is start-of-leg BREAKAWAY, not curvature
+
+Two runs of four alternating +-600 mm legs with `TLM FULL` kept, camera
+fix at rest before and after each leg
+(`captures/session-b-20260905/discriminator-20260905/legs.json`,
+`.../discriminator-20260905-v2/{legs.json,disc_frames_leg*.json,run.log}`).
+
+MEASURED tovez 2026-09-05, firmware 1.20260904.5, `rotational_slip` 0.962,
+`twist_hold_gain` 4, cruise 100:
+
+```
+run 1: leg 0 +600 cam -1.37 enc -0.75 twist -19 | leg 1 -600 cam +1.65 enc +0.63 twist +16
+       leg 2 +600 cam +4.59 enc -0.43 twist -11 | leg 3 -600 cam -6.65 enc +1.63 twist +41
+run 2: leg 0 +600 cam -2.76 enc -0.88 twist -22 | leg 1 -600 cam -2.64 enc +0.88 twist +22
+       leg 2 +600 cam +7.61 enc -1.56 twist -39 | leg 3 -600 cam -1.72 enc +1.20 twist +30
+```
+(`cam` = camera heading change [deg]; `enc` = the kernel's own integrated
+heading, telemetry `h`; `twist` = posr-posl delta [counts]. OTOS `oh` read
+0.00 on every leg -- it is not updating in telemetry despite `otos=1`, so
+it is unusable as a heading reference tonight.)
+
+**What this rules out.**
+
+- *A fixed body-frame curvature* (postmortem 2.2's model, and ticket
+  019's premise): leg 0 and leg 2 are the same command from the same pose
+  and differ by 6-10 deg, with opposite signs, in both runs. A constant
+  cannot do that. `straight_trim` stays 0 for tovez.
+- *The camera*: the position track is self-consistent. Run 2 absolute
+  headings: leg 2 started at -10.81 deg, ENDED at -3.20, and its travel
+  bearing from the two position fixes was -4.83 -- far closer to the end
+  heading than the start. The robot really did end up pointing where the
+  camera says, and it got there early in the leg.
+- *A pure encoder-invisible mismatch*: the encoders see a consistent
+  ~1 deg with the sign tracking drive direction -- that part IS a
+  proportional-hold steady-state error and it is small.
+
+**What it is.** The yaw happens in the FIRST 20% of the leg: in run 2's
+leg 2 the encoder heading's first slice is -1.68 deg (largest of the run,
+wrong sign vs the ground's +7.6) and `i2cf` accrues 7 counts in that same
+slice; the remaining 80% of the leg is straight. One wheel breaks static
+friction before the other; the robot pivots toward the wheel that has
+not moved; that wheel's encoder is not counting (which is exactly what
+`i2cf` counts); twist hold at gain 4 answers a 20-count twist with ~80
+counts/s of trim, which is nothing against stiction. Which wheel sticks
+first sets the sign; how long it sticks sets the magnitude. This is the
+`cold-first-move-yaws` mechanism, persisting on warm legs.
+
+**Consequences.** The postmortem's section 2.2 "uniform curvature" reading
+of the earlier G3 run was wrong -- its lateral numbers happen to fit a
+uniform arc, but the profile data shows the change is front-loaded. The
+knob is not a trim constant; it is breakaway handling: a much higher
+`twist_hold_gain` (so the stuck wheel is pushed hard the instant the
+other moves), a higher `speed_floor`, or a symmetric breakaway kick.
+The first two are live `SET`s and are being swept now.

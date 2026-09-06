@@ -1,0 +1,8 @@
+status {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '204', 'cyc': '2718', 'tlm': 'off', 'next': '1', 'done': '9', 'reason': 'stop'}
+VERIFIED ['get twist_hold_gain 20.000000']
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+leg 0 d= +600  cam dh +17.06  enc dh 4.99  twist 125 counts (posl 7497, posr 7622)  OTOS dh 0.0  i2cf +25  frames 169  stop
+leg 1 d= -600  cam dh  -5.34  enc dh 0.68  twist 17 counts (posl -7542, posr -7525)  OTOS dh 0.0  i2cf +19  frames 166  stop
+leg 2 d= +600  cam dh  +0.68  enc dh 1.56  twist 39 counts (posl 7542, posr 7581)  OTOS dh 0.0  i2cf +43  frames 198  stop
+leg 3: path to (-57.74250507975823, -15.758393644459412) leaves the margin -- stopping
+wrote captures/session-b-20260905/gain-sweep-20260905/gain20/

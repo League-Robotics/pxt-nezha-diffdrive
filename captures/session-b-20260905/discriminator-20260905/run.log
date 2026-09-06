@@ -1,0 +1,7 @@
+status {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '52', 'cyc': '416', 'tlm': 'off', 'next': '1', 'done': '12', 'reason': 'stop'}
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+leg 0 d= +600  cam dh  -1.37  enc dh -0.75  twist -19 counts (posl 7558, posr 7539)  frames 168  stop
+leg 1 d= -600  cam dh  +1.65  enc dh 0.63  twist 16 counts (posl -7522, posr -7506)  frames 163  stop
+leg 2 d= +600  cam dh  +4.59  enc dh -0.43  twist -11 counts (posl 7545, posr 7534)  frames 167  stop
+leg 3 d= -600  cam dh  -6.65  enc dh 1.63  twist 41 counts (posl -7556, posr -7515)  frames 172  stop
+wrote captures/session-b-20260905/discriminator-20260905/

@@ -1,0 +1,10 @@
+status {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '330', 'cyc': '3958', 'tlm': 'off', 'next': '1', 'done': '7', 'reason': 'stop'}
+VERIFIED ['get twist_hold_gain 4.000000']
+VERIFIED ['get v_floor 150.000000']
+VERIFIED ['get accel 300.000000']
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+leg 0 d= +600  cam dh  +1.11  enc dh -0.47  twist -12 counts (posl 7476, posr 7464)  OTOS dh 0.0  i2cf +3  frames 127  stop
+leg 1 d= -600  cam dh  -2.08  enc dh 1.15  twist 29 counts (posl -7512, posr -7483)  OTOS dh 0.0  i2cf +6  frames 130  stop
+leg 2 d= +600  cam dh  +8.89  enc dh -0.04  twist -1 counts (posl 7453, posr 7452)  OTOS dh 0.0  i2cf +5  frames 128  stop
+leg 3 d= -600  cam dh  +1.04  enc dh 0.2  twist 5 counts (posl -7472, posr -7467)  OTOS dh 0.0  i2cf +1  frames 131  stop
+wrote captures/session-b-20260905/gain-sweep-20260905/floor150/
