@@ -1787,3 +1787,18 @@ on this build. Recorded, not fixed.
 serial daemon drops the next client for a moment after a disconnect.
 A 10 s pause before reconnecting cures it. Chain scripts should not
 open a second `Link` within a few seconds of closing one.
+
+### Final hex (after ticket 019 suite fix `185cdd2`)
+
+The hex that was field-verified above (`tovez-1.20260905.1-release-fieldverified.hex`,
+sha256 `697083933d4c...d7a0`) predates 019 suite fix `185cdd2`, which
+added `ConfigField.StraightTrim = 38` to `src/blocks/motion.ts` and
+condensed four comment blocks -- no C++ behaviour change. The branch tip
+was rebuilt from clean and reflashed as `tovez-1.20260905.1-release.hex`
+(1,730,919 bytes, sha256
+`932134f9aee569bfc3b68f3d93af1849fab03ad8aacf6f3c60d2a527a9b0372a`),
+programmed 418,816 bytes, and re-passed the wire check with no `SET`
+sent (slip 0.962 / trim 0 / accel 400 from power-on, `ID 1.20260905.1`).
+Field runs were not repeated; the kernel is byte-identical in intent
+and the wire-visible config is identical. Full suite: 1330 passed.
+`review_sprint_pre_close(031)`: passed.
