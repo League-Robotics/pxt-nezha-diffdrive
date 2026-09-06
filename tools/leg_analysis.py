@@ -1,91 +1,54 @@
 #!/usr/bin/env python3
-"""tools/leg_analysis.py -- per-leg believed-vs-target analysis for
-Square Tour telemetry (sprint 011 ticket 002).
+"""Per-leg believed-vs-commanded classification of a `tour_capture`
+pose CSV. Legs split on telemetry holds between moves; OTOS columns are
+cross-checked for a frozen cache. Heading error = end-pose heading -
+bearing to target.
 
-The residual intermittent leg fault
-(`clasi/sprints/011-hardware-validation-otos-world-pose-tours-and-the-
-residual-leg-fault/issues/intermittent-cw-pivot-abort-wheel-reversal.md`)
-was, until sprint 006's fixes, a wheel-reversal/turn-overshoot bug.
-That class is fixed. What remains is smaller and different-shaped:
-"occasional distance-leg errors (a straight overrunning, or a tour
-truncating mid-leg) ... heading usually still closes." The issue's own
-first "next probe" is per-leg believed-vs-target logging at move end:
-what did the move think it hit, versus the commanded target? This
-module is that tool.
+Two layers, on purpose:
 
-**A leaf consumer of `tools/tlm.py`.** This tool never decodes a wire
-line itself, and since sprint 034 ticket 004 it does not decode the
-pose CSV either -- it hands `<prefix>_pose.csv` to
-`tlm.read_pose_csv()`, which binds that file's columns BY NAME and
-refuses a header it does not recognise, and gets back rows in the SAME
-frame shape `tlm.TlmStream` decodes (x/y/h/ox/oy/oh in wire units).
-Each row then goes to
-`tlm.pose_cm()`/`tlm.otos_cm()` for the one-and-only wire-to-
-engineering-unit conversion, exactly the relationship sprint 005's six
-retrofitted consumers already have (see `tools/DESIGN.md`'s "Tour
-family" section and this sprint's `design/tools-root-DESIGN.md`'s
-"Campaign tooling" section). `tlm.read_meta_sidecar()` is consulted for
-the capture-quality `.meta.json` sidecar, the same SUC-002 zero-frame
-refusal `tour_chart.py` already applies.
+1. `classify_leg(commanded, believed, ground_truth=None) -> LegResult`
+   -- pure, no I/O. Returns a classification plus SEPARATE distance and
+   heading error figures. Both are always carried, whichever way (if
+   any) the leg missed: the distinguishing signal for the residual leg
+   fault is "heading closes while distance does not", and collapsing
+   the two into one pass/fail bit would destroy exactly the signal this
+   tool exists to surface.
+2. `read_pose_rows()` / `segment_legs()` / `analyze_pose_csv()` /
+   `main()` -- the impure CSV, segmentation and reporting layer.
+
+**Leg segmentation.** `test/test.ts`'s tours call `logFix()` between
+legs, which pauses for an OTOS read while telemetry keeps streaming, so
+that pause appears as one or more REPEATED pose samples. A run of
+CHANGING samples is a move (one leg); a sample identical to its
+predecessor extends a hold. This needs at least one held sample
+between legs to separate them -- true of every real capture at the
+~20 Hz frame rate.
 
 **`otos_cm()` is not trusted blindly.** A real bench run (vevov, over
 radio, camera-verified 20 cm drive) found the telemetry ox/oy/oh
 columns byte-identical start to finish across a whole move -- a frozen
-cache, not a live reading, on that firmware build. `believed` (the
-figure `classify_leg()` actually classifies against `commanded`) is
-ALWAYS the encoder x/y/h columns, never OTOS; `detect_otos_staleness()`
-cross-checks the OTOS columns against that same encoder movement and
-flags the leg (`otos_stale`, carried through to every `LegRow`/CSV row
-and the printed table) when OTOS reads ~0 displacement while the
-encoders clearly moved. See the "OTOS staleness guard" section below
-for the scope limit (observed on at least one firmware build; not
-confirmed either way on current master's 20-column frame).
+cache, not a live reading, on that firmware build. `believed`, the
+figure `classify_leg()` classifies against `commanded`, is ALWAYS the
+encoder x/y/h columns; `detect_otos_staleness()` cross-checks the OTOS
+columns against that same encoder movement and flags the leg
+(`otos_stale`) when OTOS reads ~0 displacement while the encoders
+clearly moved. Observed on at least one firmware build; NOT confirmed
+either way on current master's 20-column frame.
 
-**Two layers, on purpose** (the same "pure decision function, unit-
-tested against synthetic fixtures" shape `make_deploy.py`'s
-`classify_attempt()` established -- sprint 008 precedent):
+**Heading convention, a documented simplification.** For a
+corner-target leg, "commanded heading" is the geometric bearing from
+the leg's start point to its target (`atan2(dy, dx)`, 0 deg = +x/east,
+positive toward +y/north -- the pose CSV's own sign convention). That
+is a reasonable proxy for "the heading needed to point at the target",
+not a verified match to the firmware's own steering math: read
+`heading_error_deg` as directional evidence, not a certified figure.
 
-1. `classify_leg(commanded, believed, ground_truth=None) -> LegResult`
-   -- pure, no I/O. Takes a leg's commanded distance/heading and its
-   believed (telemetry-derived) distance/heading and returns a
-   classification plus SEPARATE distance and heading error figures.
-   The issue's own distinguishing signal for the residual fault versus
-   the already-fixed class is "heading usually still closes" while
-   distance does not -- collapsing this into one pass/fail bit would
-   destroy exactly the signal this tool exists to surface, so
-   `LegResult` always carries both errors, regardless of which way (if
-   any) the leg missed.
-2. Everything else (`read_pose_rows()`, `segment_legs()`,
-   `analyze_pose_csv()`, `main()`) -- the impure CSV-reading, leg-
-   segmentation, and CLI/reporting layer that turns a real capture into
-   the `commanded`/`believed` pairs the pure core classifies.
-
-**Leg segmentation.** `tour_chart.py` has no leg-boundary detector of
-its own to reuse (checked -- it plots one continuous trajectory, never
-splits it). `test/test.ts`'s tours (`tourWorld()`/`tourRobot()`/
-`tourWheels()`) call `logFix()` between legs, which pauses briefly for
-an OTOS read -- and telemetry keeps streaming throughout, so that pause
-shows up as one or more REPEATED pose samples (same x/y/h) in the
-capture. `segment_legs()` uses exactly that: a run of samples that
-changes is a MOVE (one leg); a sample that does not change from its
-predecessor extends a HOLD. This requires at least one held sample
-between legs to separate them -- true of every real capture (the
-OTOS read after each `logFix()` call takes measurable time relative to
-the ~20 Hz telemetry rate) and guaranteed by construction in this
-ticket's synthetic fixtures (`tests/tools/test_leg_analysis.py`, which
-is the only thing this ticket's acceptance criteria require to pass --
-"no robot, no real capture file").
-
-**Heading convention, a documented simplification.** For a corner-
-target leg, "commanded heading" is computed as the geometric bearing
-from the leg's start point to its target (`atan2(dy, dx)`, 0 deg = +x/
-east, positive turning toward +y/north -- the pose CSV's own x/y sign
-convention, `test/test.ts`'s "+x east, +y north"). This is a reasonable
-proxy for "the heading needed to point at the target," not a verified
-match to the firmware's own internal steering math -- treat
-`heading_error_deg` as directional evidence, not a certified figure,
-consistent with the issue's own observation that headings generally
-close regardless of which distance fault (if any) a leg hit.
+This module decodes nothing itself. `<prefix>_pose.csv` goes to
+`tlm.read_pose_csv()`, which binds columns by name and refuses a header
+it does not recognise; each row then goes to
+`tlm.pose_cm()`/`tlm.otos_cm()` for the one wire-to-engineering-unit
+conversion. `tlm.read_meta_sidecar()` supplies the capture-quality
+zero-frame refusal `tour_chart.py` also applies.
 
 Usage::
 

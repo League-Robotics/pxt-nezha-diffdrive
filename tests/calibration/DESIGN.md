@@ -1,6 +1,6 @@
 # tests/calibration — the on-robot calibration programs
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-09-05 · **Status:**
+**Owner:** Eric Busboom · **Last reviewed:** 2026-09-06 · **Status:**
 active (consolidated here 2026-09-05 from `tests/playfield/` and
 `tools/field_dance.py` at the stakeholder's direction: "a small number
 of solid tests we're going to use for testing and calibration".
@@ -113,6 +113,16 @@ reconciling the two; until then step 4 is the calibration.
 - Heading comes from the camera with the fixed +90 deg front-edge
   convention (`.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`);
   `--heading-offset` exists only for the sub-degree physical residual.
+- The wire is `tools/link.py`'s. `turn_calibration.py` builds its
+  carriers on `linklib.Sequencer`/`LineBuffer` and tunes the relay with
+  `linklib.relay_setup_lines()` against `RELAY_HOST`/`RELAY_PORT`,
+  rather than the private sequencer and the hard-coded `radio_group`
+  fallback of 10 it carried before. Both halves of the address now come
+  from radio-robot-lib's per-robot config — the deploy-time authority
+  for what is actually baked into the board — with NO default for
+  either (`robot_radio()`). A relay tuned to the right channel and the
+  wrong group is a silent robot with nothing to say why, so a missing
+  key raises instead of guessing.
 - Angles wrap through `tools/field.py`'s `wrap()` and nothing else —
   **(-180, 180]**, upper end closed, so exactly half a revolution reads
   `+180`. `turn_calibration.py` and `field_dance.py` each carried a

@@ -1,6 +1,6 @@
 # tests — Python-run test root
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-09-01 · **Status:** stable
+**Owner:** Eric Busboom · **Last reviewed:** 2026-09-06 · **Status:** stable
 
 Every test in this tree lives in a subdirectory named for its **type**,
 and the type answers one question: *what does it need, and does CI run
@@ -10,13 +10,21 @@ it?*
 |---|---|---|---|
 | [`host/`](host/DESIGN.md) | a C++ compiler | yes | permanent |
 | [`tools/`](tools/DESIGN.md) | nothing (bar the lint gate's `ruff`) | yes | permanent |
+| [`calibration/`](calibration/DESIGN.md) | a robot, the playfield and its camera | its **programs** no; its one gate-logic unit test yes | permanent |
 | [`system/`](system/DESIGN.md) | a real robot | **no** — run by hand | permanent |
-| `dev/` | a real robot | **no** | disposable |
+| [`dev/`](dev/DESIGN.md) | a real robot | **no** | disposable |
 
-`uv run pytest` from the repo root runs `host/` and `tools/` and nothing
-else. That is deliberate: the other two need hardware that is not
-present in a clean checkout, and a suite that cannot run everywhere is
-not a suite.
+The mechanism is the `test_` prefix, not a directory list:
+`pyproject.toml` sets `testpaths = ["tests"]`, so `uv run pytest`
+descends the whole tree and collects whatever is named like a test.
+`system/`, `dev/` and every measurement program in `calibration/` are
+named for what they do (`run_tour.py`, `turn_calibration.py`,
+`closure.py`), so nothing collects them — they need hardware that is
+not present in a clean checkout, and a suite that cannot run everywhere
+is not a suite. `calibration/test_turn_calibration_gates.py` is the one
+exception and is deliberate: its pass/fail gate logic is pure, so it is
+named as a test and runs in the ordinary suite while the program around
+it stays a person's tool.
 
 ## The two permanent pytest suites
 
@@ -29,9 +37,9 @@ not a suite.
   the repo's **lint gate**, `test_ruff_clean.py` (sprint 034 ticket
   010): `ruff check tools tests`, run as a test rather than as a CI
   workflow because `uv run pytest` is this project's developer signal.
-  Note its scope is `tests/` entire, not just the two collected
-  directories — which is the point: the findings it first caught were
-  in `dev/` and `system/`, where nothing else looks.
+  Note its scope is `tools/` and `tests/` entire, not just what pytest
+  collects — which is the point: the findings it first caught were in
+  `dev/` and `system/`, where nothing else looks.
   `test_make_deploy_triage.py` pins `tools/make_deploy.py`'s
   `classify_attempt()` against saved/synthetic build logs;
   `test_tlm.py` pins `tools/tlm.py`'s `TlmStream` parser against the

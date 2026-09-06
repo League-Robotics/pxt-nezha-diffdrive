@@ -1,6 +1,8 @@
 # tests/tools — unit tests for the repo's own Python tooling
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** stable (sprint 005 adds `test_tlm.py` pinning `tools/tlm.py`'s telemetry parser, `test_camlink.py`/`test_field.py` pinning ticket 003's link-layer consolidation, and `test_run_verbs.py` pinning ticket 006's RUN-string retargeting; sprint 034 ticket 008 folded the camera subprocess, and its own test file, into `test_camlink.py`)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-09-06 · **Status:**
+stable. 31 test files. Section 2 below is an orientation to the ones
+whose shape is not obvious from their name, not a complete listing.
 
 ---
 
@@ -28,7 +30,18 @@ table row needs its `// ConfigField.<Name>: "<label>"` annotation; no
 duplicate names or ordinals) against synthetic headers — the failures
 that would otherwise surface as a silently short enum.
 
-Five files: `test_make_deploy_triage.py`, pinning
+A second, smaller family here does not exercise any tool at all: the
+**source-level guards**, which read `tools/` and `tests/` as TEXT and
+assert a structural property of the tree — that a deleted tool stays
+deleted (`test_deleted_tools_stay_deleted.py`), that one `wrap()` has
+no lookalikes (`test_angle_wrap_ownership.py`), that every tool has a
+line in its design doc (`test_tools_design_inventory.py`), that the
+lint gate actually runs (`test_ruff_clean.py`). They cost milliseconds,
+they fail on the change rather than on the consequence, and they catch
+exactly the class of decay this directory's own subject matter keeps
+producing.
+
+`test_make_deploy_triage.py` pins
 `tools/make_deploy.py`'s build-checkpoint triage (added sprint 008,
 ticket 006) — the logic that decides whether a real `pxt build`
 attempt succeeded, hard-failed, or hit a known-benign abort worth
@@ -357,6 +370,40 @@ to 10 is gone; and that `tools/rogo/rogo.py` imports nothing from
 
 Run: `uv run pytest tests/tools/test_link.py`.
 
+### `test_deleted_tools_stay_deleted.py` (sprint 034 ticket 003)
+
+Four tools were deleted outright — a ground-truth checker that read v1
+JSON keys and reported the failure as "camera cannot see the tag",
+sending the operator to the lights; two tour variants nothing imported,
+one of them the camera-in-the-loop experiment this repo's doctrine
+forbids; and the camera-subprocess wrapper, which carried a second
+`Cam` class to bridge two Python interpreters that are now one.
+
+The guard asserts BOTH halves: the paths are gone, and no file under
+`tools/` or `tests/` mentions their stems. A deleted file is only half
+deleted while a docstring or a design-doc bullet still names it — the
+next session reads the reference as an instruction and runs something
+that is not there. `docs/` and `clasi/sprints/done/` are deliberately
+out of scope: a dated code review citing a file that existed that day
+is a true statement, and rewriting it to keep a grep quiet would
+destroy the audit trail `.claude/rules/measurement-citations.md`
+depends on.
+
+### `test_tools_design_inventory.py` (sprint 034 ticket 012)
+
+`tools/DESIGN.md` must name every `*.py` under `tools/` (recursively —
+`rogo/` and `linefollow/` included) plus `field_calibration.json`,
+parametrized one case per file so a failure names the tool. It also
+checks the reverse: no inventory row may point at a path that does not
+exist. Modelled on `tests/host/test_pxt_manifest_completeness.py`, and
+for the same reason — a list maintained by discipline alone drifts, and
+the drift is invisible because nobody reads a doc looking for gaps.
+
+The third test guards the guard: if the inventory tables parse to fewer
+rows than there are files, the table format has changed and the other
+assertions would pass vacuously. This directory keeps finding that
+failure mode in its own checks, so it is asserted rather than assumed.
+
 ## 3. Constraints and Invariants
 
 - **A real compile diagnostic wins, unconditionally.**
@@ -462,8 +509,10 @@ granularity instead of a C++ vtable.
   firmware actually sends.
 - **`tools/camlink.py`**'s `Cam`/`mount_yaw_rad()` and
   **`tools/field.py`**'s `wrap()`/`score_corners()`/`path_deviation()`
-  (sprint 005 ticket 003, sprint 034 ticket 008)
-  — see [`tools/DESIGN.md`](../../tools/DESIGN.md)'s "Link layer" section.
+  (sprint 005 ticket 003, sprint 034 ticket 008) — see
+  [`tools/DESIGN.md`](../../tools/DESIGN.md)'s "Link layer" section for
+  `Cam`, and its "One `wrap()`" / "Scoring a corner" sections for the
+  `field.py` half.
 - **`otos_levercal.py`**, **`pivot_truth.py`**,
   **`rotation_check.py`**, **`turn_sweep.py`**'s own RUN-sending code
   paths (sprint 005 ticket 006), each monkeypatched at its `Link`/
@@ -487,7 +536,7 @@ one-sample-per-real-frame property, against an injected fake daemon
 client. `field.py`'s `wrap()`, `score_corners()`'s
 gap-aware scan (including the historical console-vs-chart
 disagreement), and `path_deviation()`'s degenerate-segment guard. The
-exact RUN string each of the five retargeted tools sends, and the
+exact RUN string each of the four retargeted tools sends, and the
 absence of every old dead numeric form, for both the fix/pivot/
 turnrate path and the `cal`/`cal:1` rename.
 

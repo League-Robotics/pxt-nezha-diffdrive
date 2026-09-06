@@ -1,10 +1,10 @@
 # tests/host — native host test harness
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** stable
-(as of sprint 008: boundary-value timeout coverage for all six motion
-verbs, `kVersion`/`RUN_EVENT_SOURCE` drift tests, the `WaHandle`
-wedge/`setWheelsTimed`/config-rounding re-sync plus its own drift test,
-a new settle-loop shim, and `TLM AUTO`/`BUFFER` pinning tests)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-09-06 · **Status:**
+stable. The motion-engine shim is compiled once per session in
+`conftest.py` (§2); which translation units this harness can and cannot
+reach is enumerated in `tests/DESIGN.md` and enforced by
+`test_pxt_bound_exclusion_is_current.py` (§6).
 
 ---
 

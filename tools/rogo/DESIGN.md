@@ -1,9 +1,11 @@
 # tools/rogo — `nc` for a robot over its WiFi TCP server
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-09-04 · **Status:**
-stable (merged to master 2026-09-03 with the WiFi transport; this
-document added at sprint 029's close, which found the subsystem
-without one)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-09-06 · **Status:**
+stable. Re-checked against `tools/link.py`, which now owns the
+sequenced-wire protocol for the rest of `tools/`: rogo still does not
+use it and still must not — see "The duplication is deliberate" below,
+the one section of this document a consolidation pass needs to read
+before re-filing `rogo.py` as an accidental copy.
 
 A single-file, standard-library-only CLI (`rogo.py`, packaged by
 `pyproject.toml` so `pipx install` works from this checkout or straight
@@ -75,8 +77,14 @@ release automation and no wheel on an index.
 
 ## Tests
 
-None on the host: the module is stdlib networking against a live
-firmware announcer. Its acceptance is `tools/wire_acceptance.py
---wifi-tcp <name>` (the carrier proof) and a manual `rogo <name> PING`.
-A loopback test of the discovery parser would be the first thing to add
-if `rogo.py` grows.
+`tests/tools/test_rogo.py` pins the parts that can be pinned without a
+robot: the `dns-sd` parsers, against output captured verbatim on
+2026-09-02 (macOS, tovez announcing from 192.168.1.213); the discovery
+ORDER, with `_dns_sd`/`resolve_host` monkeypatched — including the
+announced SRV port beating the 7654 default, which is the whole reason
+discovery reads the port and not just the address; and the pipe itself
+over a `socket.socketpair()`. No network, no subprocess.
+
+What no host test can reach is the live announcer. That acceptance is
+`tools/wire_acceptance.py --wifi-tcp <name>` (the carrier proof) plus a
+manual `rogo <name> PING`.

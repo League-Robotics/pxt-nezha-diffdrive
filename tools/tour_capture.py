@@ -6,12 +6,8 @@ tools/tlm.py (device-timestamped pose, in wire units: mm/cdeg),
 writing the pose and wheel-speed CSVs tools/tour_chart.py plots plus
 tlm.py's own <out-prefix>_tlm.csv/.meta.json capture-quality sidecar.
 
-**Named RUN verbs, never numeric.** `test.ts` dispatches `onRun()` on
-a STRING key, so `RUN:1` matches no handler and is a silent no-op: the
-tool runs to completion, prints numbers, and the robot never moved.
-Sprint 005 ticket 006 retargeted five tools off that dead vocabulary
-(see tests/tools/test_run_verbs.py) but did not reach this one, which
-was still sending `RUN:<n>`. Tours are `RUN:tour:<name>`.
+RUN verbs are string-keyed (test.ts `onRun`); a numeric `RUN:<n>` is a
+silent no-op. Tours are `RUN:tour:<name>`.
 
 **Wheel speeds come from the telemetry frame, not from DIAG.** DIAG
 was retired in the v6 cutover, so polling it produced an empty

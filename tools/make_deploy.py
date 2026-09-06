@@ -91,52 +91,14 @@ Two traps this script exists to avoid, both of which cost hours:
   an extension, where it is fine and skips a pointless V1 build); the
   deploy copy must not.
 * Packaging can still abort NONDETERMINISTICALLY (the `TS9283`/
-  `TS9043`/`TS9200` shape below), and when it does it DELETES the hex
+  `TS9043`/`TS9200` shape `classify_attempt()` treats as benign and
+  retries once), and when it does it DELETES the hex
   rather than leaving a stale one. The hex is removed up front and its
   existence checked afterwards, so a failed package can never be
   mistaken for a good build.
 
-**Build checkpoint triage (sprint 008).** `build()` used to only check
-"does a hex exist" -- no distinction between "a `.cpp` failed to
-compile" and "packaging aborted for an unrelated, retriable reason".
-Three real target-only defects escaped the host suite because nothing
-in the per-ticket/per-sprint flow required a real build
-(`clasi/issues/host-tests-compile-newer-standard-than-target.md`); this
-script is now the standing per-sprint build-checkpoint tool, and it
-judges on "did any `.cpp`/`.h` fail to compile" (a real GCC/Clang
-diagnostic naming a source file and a line), not on the packaging
-abort's error code, which varies run to run and is not the defect
-signal itself. One abort shape is known-benign and retried once,
-automatically, before being reported as anything:
-
-* The nondeterministic packaging abort, always after a pxt-core
-  cache-write `TypeError [ERR_INVALID_ARG_TYPE]`, seen as `TS9283`
-  ("program too big"), `TS9043` ("hex file is not available"), or
-  `TS9200` -- always succeeded on retry, every time it has been seen.
-
-The retry is bounded, not infinite: if the same benign shape recurs on
-the retry and still produces no hex, that IS reported as a failure --
-the shape is expected to be transient, not chronic.
-
-**Sprint 014: V1 is no longer built at all.**
-`PXT_COMPILE_SWITCHES=csv-mbcodal` (set unconditionally in
-`_run_pxt_build()`'s subprocess environment) selects
-`appTargetVariant=mbcodal` before any variant-dependency filtering
-runs, so the legacy V1 `bbc-microbit-classic-gcc` variant is never
-compiled under this script -- see
-`clasi/issues/never-build-the-v1-mbdal-variant.md` for the measured
-mechanism. Its old hex-merge failure (`srec_cat: ... contradictory ...
-value`) is therefore no longer a known-benign shape: if it is ever seen
-again, `classify_attempt()` reports it as `UNKNOWN` (a hard failure,
-no retry), because it can now only mean the switch silently failed to
-take effect, not an expected, transient trap. See
-`tools/DESIGN.md`'s "Build checkpoint triage" section for the full
-decision table (what is a hard failure, what is retried, and why), and
-`classify_attempt()` below, which is unit-tested against saved/
-synthetic build-log fixtures in
-`tests/tools/test_make_deploy_triage.py` -- this logic can fail loudly
-if someone breaks it later, the same theme sprint 008 applies
-everywhere else.
+Build verdicts: see classify_attempt() and tools/DESIGN.md
+"Build checkpoint triage".
 """
 import argparse
 import json

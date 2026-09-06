@@ -1,30 +1,18 @@
-"""tools/tlm.py -- the single v6 telemetry parser, plus the three
-fail-loud guards that make "the instrument returned nothing" a loud,
-immediate failure instead of a silent empty CSV.
+"""v6 telemetry parser. `thdr` binds columns by name; `t` rows decode
+against the last header. Wire units: x/y/ox/oy mm; h/oh centideg;
+vl/vr mm/s; dutl/dutr percent x100.
 
-Six tools (`tour_run.py`, `tour_capture.py`, `tour_watch.py`,
-`rotation_check.py`, `tour_practice.py`, and one ground-truth tool
-sprint 034 ticket 003 deleted) used to each parse the retired v5 `TLM:` cleartext line with their own scattered
-arity check and scale factor. Two of them were already silently dead
--- `tour_watch.py:202` and `tour_capture.py:70` both hard-coded field
-counts that stopped matching the wire line when `vl`/`vr` were added,
-and the failure mode was an empty CSV, not a crash. This module is the
-fix: ONE place a v6 wire column is decoded and ONE place any
-wire-to-engineering-unit scale factor is written. No consumer is
-retrofitted here (that is sprint 005 ticket 002's job) -- this module
-is only imported.
+The single place a v6 wire column is decoded and the single place a
+wire-to-engineering-unit scale factor is written, plus three fail-loud
+guards that make "the instrument returned nothing" an immediate
+failure instead of a silent empty CSV.
 
-Wire shape (protocol.md S5.2, confirmed against real hardware --
-tovez, 2026-08-24, see
-clasi/issues/retrofit-bench-tooling-onto-the-v6-telemetry-stream.md's
-"Bench confirmation" and "Realistic-value capture" sections):
+Wire shape (protocol.md S5.2):
 
-    thdr <col> <col> ...          -- column header, re-emitted by
-                                      firmware every kHeaderRefreshFrames
-                                      (20) frames, ~1 Hz at the 20 Hz
-                                      frame rate
-    t <val> <val> ...             -- one telemetry frame, values in the
-                                      header's column order
+    thdr <col> <col> ...          -- column header, re-emitted every
+                                     kHeaderRefreshFrames (20) frames,
+                                     ~1 Hz at the 20 Hz frame rate
+    t <val> <val> ...             -- one frame, in the header's order
 
 Two column sets exist and can appear in the SAME capture:
 
@@ -32,47 +20,38 @@ Two column sets exist and can appear in the SAME capture:
     FULL (20 cols): seq now flags x y h ox oy oh vl vr i2cf cyc posl
                     posr dutl dutr lexc wrng cycovr
 
-`TlmStream` binds every column by NAME from the most recently seen
-`thdr` line -- never by a fixed index or position -- so a mid-stream
-switch between the two (or a firmware upgrade that adds a column) is
-handled for free.
+Binding by NAME rather than by index is what makes a mid-stream switch
+between the two -- or a firmware upgrade that adds a column -- free.
 
-Measured line widths, real hardware: POSE thdr 44 B / idle `t` 29 B;
-FULL thdr 85 B / live `t` 75 B (flags=31 hex, vl=-122, dutl=-1300, all
-real non-zero magnitudes). The host test suite's own predicted
-worst-case FULL `t` line is 138 B; `RadioTransport::kMaxPayloadBytes`
-is 200 B. `TlmStream.feed()` imposes no line-length ceiling of its own
--- a legitimate line anywhere under the 200 B radio cap is never
-rejected for its length; a line truncated by the radio layer is caught
-by the arity check below instead (a truncated line has too few
-values, not merely a long one).
+MEASURED tovez 2026-08-24, line widths on real hardware (see
+clasi/issues/retrofit-bench-tooling-onto-the-v6-telemetry-stream.md's
+"Bench confirmation" and "Realistic-value capture" sections): POSE
+thdr 44 B / idle `t` 29 B; FULL thdr 85 B / live `t` 75 B (flags=31
+hex, vl=-122, dutl=-1300, all real non-zero magnitudes). The host
+suite's predicted worst-case FULL `t` line is 138 B and
+`RadioTransport::kMaxPayloadBytes` is 200 B, so `TlmStream.feed()`
+imposes no line-length ceiling of its own: a legitimate line under the
+radio cap is never rejected for its length, and a line the radio layer
+truncated is caught by the arity check instead (too few values, not
+merely a long line).
 
 `ox`/`oy`/`oh` are legitimately 0 on any OTOS-less robot (most of the
-fleet, tovez included) -- this module never treats a zero OTOS column
-as missing data or a fault; it is just a valid integer like any other.
+fleet, tovez included). A zero OTOS column is valid data, never
+missing data and never a fault.
 
-The reliability keepalive (`ack <n> <lastDone> <reason>`, and its
-`nack` counterpart) is a per-line reply -- one for whatever line
-provoked it, not a periodic broadcast (sprint 024 ticket 001 deleted
-protocol.cpp's free-running emitReliability() call; see
-clasi/issues/reliability-line-free-runs-at-20-hz-on-the-radio-with-no-
-host.md). Either way, it is NOT telemetry. `TlmStream.feed()` only
-recognizes the `thdr`/`t` tags; every other line (including `ack`/
-`nack`, and any other STATUS/VER/GET/err reply sharing the same link)
-is silently ignored -- `feed()` returns None for it, uncounted
-anywhere. This is deliberate filtering, not a gap: a caller that only
-speaks `feed()` never has to know the reliability line's own shape,
-and that filtering logic itself is unchanged by any of this.
+`feed()` recognises only the `thdr`/`t` tags. Every other line sharing
+the link -- `ack`/`nack`, STATUS, VER, GET, err -- returns None and is
+counted nowhere. That is deliberate filtering, not a gap: a caller
+that only speaks `feed()` never has to know the reliability line's
+shape.
 
 Import `TlmStream`, `require_stream()`, `write_tlm_csv()`,
-`read_meta_sidecar()` (sprint 005 ticket 002's read-side zero-frame
-guard for chart tools that did not capture the run they plot),
-`write_pose_csv()`/`read_pose_csv()` (sprint 034 ticket 004's one
-header-keyed on-disk pose schema -- see the "pose-CSV codec" section at
+`read_meta_sidecar()`, `write_pose_csv()`/`read_pose_csv()` (the one
+header-keyed on-disk pose schema -- see the pose-CSV codec section at
 the foot of this module), and the
-`pose_cm()`/`otos_cm()`/`wheels_mms()` helpers. See tools/DESIGN.md's
-"Telemetry (tlm.py)" section for the module's place in the bench
-tooling architecture.
+`pose_cm()`/`otos_cm()`/`wheels_mms()`/`duty_pct()` converters. See
+tools/DESIGN.md's "Telemetry (`tlm.py`)" section for this module's
+place in the bench tooling architecture.
 """
 import csv
 import json
