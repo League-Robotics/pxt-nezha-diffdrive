@@ -1,8 +1,9 @@
 ---
 id: '003'
 title: Unified config descriptor table replacing setKernelValue/getConfigValue/kFields/ConfigField
-status: open
-use-cases: [SUC-002]
+status: in-progress
+use-cases:
+- SUC-002
 depends-on: []
 github-issue: ''
 issue: config-descriptor-table-softstop-goto-deadline.md
