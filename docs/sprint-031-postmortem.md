@@ -360,6 +360,7 @@ so the 800 bake is defended against the real default.
 | accel 800 (run 1) | +3.45 | +1.86 | +1.39 | +0.38 | 1.77 | 3.45 |
 | accel 800 (run 2) | +1.62 | -0.95 | -0.72 | +0.45 | 0.94 | 1.62 |
 | **accel 800, both runs (8 legs)** | | | | | **1.35** | **3.45** |
+| **accel 400 / decel 400 -- the FLEET DEFAULT** (run 1) | +0.58 | +0.87 | +0.58 | +1.01 | **0.76** | **1.01** |
 
 - **Gain 20 is destabilising**: leg 0's encoder twist ran to +125 counts
   and the ground to +17 deg -- the hold overshoots the breakaway instead
@@ -414,7 +415,16 @@ unverified -- the ramp did not change, so the leading hypothesis is that
 a commanded ramp far below what the wheels do anyway (300 vs ~850)
 saturates the wheel PID early and winds the twist hold up during the
 very window the breakaway happens in; at 800 the command tracks the
-plant. Ticket 020 bakes it per-robot with that caveat in the provenance. `v_floor 150` is the only
+plant. Ticket 020 was dispatched to bake it per-robot with that caveat -- and
+then the fleet-default run above came in: at accel 400 / decel 400 the
+same four legs read 0.58 / 0.87 / 0.58 / 1.01 deg (mean 0.76, max 1.01,
+`i2cf` 1-4). Better than 800. So the whole leg-yaw episode was the RUN
+open-loop profile's 300/300 (set by my own `RUN:straight:8` check and
+never cleared), which student block programs never enter. The correct
+change is NOT an 800 bake but fixing `openLoopProfile()`'s literals to
+the fleet default (400/400) and leaving tovez's accel unbaked; 020 is
+being redirected accordingly. Replication of the 400 run to n=8 is in
+`gain-sweep-20260905/accel400b/`. `v_floor 150` is the only
 setting that physically changed the start of the leg (ramp x1.7, time
 to speed halved) and it reduced breakaway EVENTS without reducing the
 worst-case ground yaw.

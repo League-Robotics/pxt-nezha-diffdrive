@@ -1738,3 +1738,16 @@ that a student block program gets. accel 400 was not measured tonight
 until the run recorded below. The dance's own `SET accel/decel 400`
 (field_dance.py:189) and the RUN profile's 300 are two more places a
 bake gets silently overridden -- ticket 020 handles all three.
+
+### accel 400 / decel 400 (fleet default) -- the actual answer
+
+`captures/session-b-20260905/gain-sweep-20260905/accel400/` (run 1, n=4):
+cam dh +0.58 / +0.87 / +0.58 / +1.01 deg, mean|dh| 0.76, max 1.01,
+i2cf 1-4 per leg, encoder twist 3-11 counts. Forward-after-reverse leg:
++0.58. Replication in `accel400b/`.
+
+So: the 300/300 RUN profile (`openLoopProfile()`, entered by my own
+`RUN:straight:8` and never cleared) is what produced tonight's 3.6-8.9
+deg legs. The fleet default that student programs actually run under
+gives ~1 deg. Ticket 020's 800 bake is withdrawn in favour of fixing the
+RUN profile's literals; tovez keeps the fleet default.
