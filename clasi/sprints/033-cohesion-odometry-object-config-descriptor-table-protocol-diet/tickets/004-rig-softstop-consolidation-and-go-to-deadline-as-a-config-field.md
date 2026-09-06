@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: Rig::softStop() consolidation and go-to deadline as a config field
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on:
@@ -46,16 +46,16 @@ a bespoke singleton field to the shared config table.
 
 ## Acceptance Criteria
 
-- [ ] `grep -c 'deliverStopNow' src/shims.cpp` is 1 (sprint Success
+- [x] `grep -c 'deliverStopNow' src/shims.cpp` is 1 (sprint Success
       Criteria's own bar).
-- [ ] `stopAll()`, `endMove()`, the starvation watchdog, and
+- [x] `stopAll()`, `endMove()`, the starvation watchdog, and
       `updateMove()`'s completion branch all call `Rig::softStop()`;
       none duplicates the triplet inline.
-- [ ] The go-to deadline is settable/gettable through the same
+- [x] The go-to deadline is settable/gettable through the same
       descriptor table as every other config field (round-trip test).
-- [ ] `pendingGoToDeadlineMs_` (or its successor storage) is no longer
+- [x] `pendingGoToDeadlineMs_` (or its successor storage) is no longer
       a bespoke, call-scoped singleton field.
-- [ ] `engineSetGoToDeadline()`/`engineSetGoToYawRate()`'s existing
+- [x] `engineSetGoToDeadline()`/`engineSetGoToYawRate()`'s existing
       call signatures (and every caller in `blocks/motion.ts`) are
       unchanged.
 

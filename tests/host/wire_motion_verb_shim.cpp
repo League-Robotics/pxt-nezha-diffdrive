@@ -175,6 +175,19 @@ struct WaHandle {
   // 0, which the wire-level SET path deliberately cannot do).
   float defaultCruiseMmS = 150.0f;  // [mm/s]
 
+  // Sprint 033 ticket 004: mirrors shims.cpp's real Rig::goToDeadline
+  // -- the deadline the next go-to gets, an ordinary config row
+  // (`goto_timeout`, ordinal 39) rather than the private handoff field
+  // it used to be. Mirrored as a plain field for the same reason
+  // defaultCruiseMmS above is: this handle has no Rig, and the field
+  // is the whole of the real accessor's state. The block-layer half
+  // (engineSetGoToDeadline()/engineGoToRArmed()) has no test-double
+  // counterpart here at all -- wire_adapter.cpp reaches goToR()
+  // through the five-parameter engineGoToR() below, which carries its
+  // own timeout argument and never reads this field, exactly as in
+  // production.
+  uint32_t goToDeadline = 0;  // [ms]
+
   // A settable override for diagValue()'s otherwise kernel/engine-
   // derived ordinals (i2cf=8, lexc=9, posl=10, posr=11, dutl=12,
   // dutr=13, cyc=16, cycovr=19, wrng=25) -- lets a scale test or the
@@ -471,6 +484,18 @@ static void waSetStraightTrim(WaHandle& h, float v) {
   h.kernel.setStraightTrim(v);
 }
 
+// goto_timeout: mirrors shims.cpp's cfgGetGoToDeadline()/
+// cfgSetGoToDeadline() exactly, including the "0 is legal, negative is
+// refused" rule (see those accessors' own comment for why 0 has to
+// store).
+static float waGetGoToDeadline(WaHandle& h) {
+  return static_cast<float>(h.goToDeadline);
+}
+static void waSetGoToDeadline(WaHandle& h, float v) {
+  if (v < 0.0f) return;
+  h.goToDeadline = static_cast<uint32_t>(v);
+}
+
 struct WaConfigAccessor {
   int ordinal;
   float (*get)(WaHandle&);        // [unscaled]
@@ -498,6 +523,7 @@ static const WaConfigAccessor kWaConfigAccessors[] = {
     {32, &waGetRebase, &waSetRebase},
     {33, &waGetEstopClear, &waSetEstopClear},
     {38, &waGetStraightTrim, &waSetStraightTrim},
+    {39, &waGetGoToDeadline, &waSetGoToDeadline},
 };
 
 static const WaConfigAccessor* waFindConfigAccessor(int ordinal) {

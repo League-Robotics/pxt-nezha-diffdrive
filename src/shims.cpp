@@ -180,10 +180,18 @@ struct Rig {
   // holds the guard, delivered from inside tickDrive() itself, still
   // inside the guarded window, right before it releases the guard (see
   // that function's own comment for the exact point). When the guard
-  // is free (the overwhelming majority of stops), deliverStopNow()
-  // still writes immediately -- this flag is never touched for that
-  // path.
+  // is free (the overwhelming majority of stops), softStop() still
+  // writes immediately -- this flag is never touched for that path.
   bool pendingStop_ = false;
+
+  // The ONE soft stop this file has: kernel-neutral plus the
+  // port-level zero, staged behind busGuard when the guard is held.
+  // Defined out-of-line below (right where the free function it
+  // replaces used to sit), because its contract needs a full essay and
+  // this struct is already long. Every stop path in this file calls
+  // it: stopAll(), endMove(), the starvation watchdog, and
+  // updateMove()'s move-completion branch.
+  void softStop();
 
   // Plain, no-capture function pointer the protocol fiber registers
   // (registerTickServiceHook(), below) once it starts. tickDrive() calls
@@ -222,32 +230,50 @@ struct Rig {
   // default, not a comment asserting they match.
   float defaultCruise_ = 150.0f;  // [mm/s]
 
-  // Sprint 015 ticket 006 (build checkpoint): one-shot handoff from
-  // engineSetGoToDeadline() to engineGoToRArmed() (both below), the
-  // block layer's own go-to entry point split across two `//%` shims.
-  // A real PXT build of the ORIGINAL single five-parameter
-  // engineGoToR() shim reproduced "TS9200: Assertion failed"
-  // deterministically -- twice, non-benign, surviving make_deploy.py's
-  // one retry for the shape tools/DESIGN.md documents under the same
-  // error code -- confirming the risk setTaperWindows()'s own comment
-  // already recorded from an earlier incident. NOT a sticky
-  // MotionEngine config field like setRampMs()/setTaperWindows()/
-  // setTaperFloors() above (those intentionally persist across many
-  // moves); this is read-once, for the VERY NEXT engineGoToRArmed()
-  // call only, and both halves have exactly one caller between them
-  // (sim.ts's _setGoToDeadline()/_goToR() pair, called back-to-back by
-  // motion.ts's startGoTo()) so there is nowhere for a stale value to
-  // leak in from.
-  uint32_t pendingGoToDeadline_ = 0;  // [ms]
+  // The deadline the NEXT go-to gets: an ordinary config field
+  // (`goto_timeout`, ordinal 39, kConfigAccessors below), backed by
+  // this Rig member exactly the way defaultCruise_ above backs
+  // `default_cruise` -- NOT a bespoke, call-scoped handoff slot, which
+  // is what it was until sprint 033 ticket 004.
+  //
+  // It arrived as one, and the shape it left behind is why
+  // engineSetGoToDeadline() (below) still exists as its own `//%`
+  // shim. Sprint 015 ticket 006 split the block layer's go-to entry
+  // point across two shims because a real PXT build of the ORIGINAL
+  // single five-parameter engineGoToR() reproduced "TS9200: Assertion
+  // failed" deterministically -- twice, non-benign, surviving
+  // make_deploy.py's one retry for the shape tools/DESIGN.md documents
+  // under the same error code -- confirming the risk
+  // setTaperWindows()'s own comment already recorded from an earlier
+  // incident. Every `//%` shim in this file therefore stays at <=4
+  // params, and the fifth argument has to reach engineGoToRArmed()
+  // through Rig rather than through its own parameter list.
+  //
+  // Only the STORAGE moved: engineSetGoToDeadline() writes this field
+  // and engineGoToRArmed() reads it, exactly as before, but it is now
+  // one row of the shared config surface -- so a bench host can also
+  // read the pending deadline back with `GET goto_timeout`, and set
+  // one with `SET goto_timeout`. Neither was possible while it was a
+  // private field, which is the standing cost of a bespoke singleton.
+  //
+  // It was never one-SHOT even when it was bespoke: nothing zeroes it
+  // after a go-to consumes it, and nothing ever did. The block layer
+  // sets it immediately before every _goToR() (motion.ts's
+  // startGoTo()), so the last writer wins and a wire-set value is
+  // overwritten by the next block-issued go-to. That ORDERING is the
+  // contract; the storage never was.
+  uint32_t goToDeadline = 0;  // [ms]
 
-  // Same one-shot handoff shape as pendingGoToDeadline_ immediately
-  // above, added for the go-to entry point's own yaw-rate ceiling
-  // (engineSetGoToYawRate()/engineGoToRArmed() below) -- kept a
-  // SEPARATE field/setter pair rather than a 5th engineGoToRArmed()
-  // parameter for the exact same reason pendingGoToDeadline_ itself
-  // exists: every `//%` shim in this file stays at <=4 params (see
-  // pendingGoToDeadline_'s own comment for the PXT packager crash this
-  // avoids). One caller (sim.ts's _setGoToYawRate(), called by
+  // The go-to entry point's own yaw-rate ceiling
+  // (engineSetGoToYawRate()/engineGoToRArmed() below) -- a SEPARATE
+  // field/setter pair rather than a 5th engineGoToRArmed() parameter
+  // for the exact same reason goToDeadline immediately above records:
+  // every `//%` shim in this file stays at <=4 params (see that
+  // field's own comment for the PXT packager crash this avoids).
+  // Deliberately still a plain Rig field rather than a config row: the
+  // wire's own GO_TO_R carries no yaw-rate ceiling, so there is no
+  // wire-side counterpart for it to become one row of. One caller
+  // (sim.ts's _setGoToYawRate(), called by
   // motion.ts's startGoTo() immediately before _goToR(), alongside
   // _setGoToDeadline()).
   float pendingGoToYawRate_ = 0.0f;  // [cdeg/s]
@@ -341,8 +367,44 @@ static Rig& ensure() {
 // against a scripted wheel path with no kernel in the link at all.
 static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 
-// ---- cross-fiber stop delivery (sprint 006 ticket 002) -----------------
-// Closes R-08/BLK-01 (code review 2026-08-23, independently re-derived in
+// ---- the soft stop (sprint 033 ticket 004; cross-fiber delivery from
+// sprint 006 ticket 002) -------------------------------------------------
+// THE one soft stop this file has. Every stop path calls it and none
+// writes the sequence out again: stopAll() (the `stop` block and the
+// wire's STOP verb), endMove() (the `stop move` block), the starvation
+// watchdog, and updateMove()'s own move-completion branch. Until this
+// ticket the three parts below were spelled out separately at each of
+// those four sites (the port-level third part behind a free function,
+// deliverStopNow(), which this method absorbs), and four copies of one
+// sequence is four chances for them to stop agreeing -- which they
+// already had: updateMove()'s branch carried only the port write.
+//
+// The three parts, in order, and why each is needed:
+//
+//   engine.endMove()  clears the move engine's own in-flight state, so
+//                     a later service() cannot re-command from it.
+//   kernel.neutral()  disarms the kernel's HELD commanded velocity
+//                     (a continuous drive holds up to kLeaseMax, one
+//                     hour). Without it the port zero below is
+//                     momentary: the very next step() re-commands the
+//                     duty. endMove() stages this itself only when a
+//                     move-engine move was active, which is why the
+//                     call is unconditional here -- a stop after
+//                     setWheels()/driveTwist() needs it and would
+//                     otherwise not get it (stakeholder decision,
+//                     2026-08-26).
+//   the port write    delivers the stop NOW, see below.
+//
+// updateMove()'s completion branch gains the first two by routing here,
+// and they are inert on that path: MotionEngine::service() has already
+// neutralled the kernel and cleared the Segment by the time it returns
+// false, so endMove() finds nothing active (it leaves
+// lastSegmentEndedByDeadline_ alone for exactly that reason) and the
+// only residue is a VelocityShaper reset that every subsequent segment
+// start performs anyway (motion_engine.cpp).
+//
+// Why a PORT-LEVEL write at all. Closes R-08/BLK-01 (code review
+// 2026-08-23, independently re-derived in
 // verify-blocks.md): kernel.neutral() only STAGES a zero command
 // (diffdrive.cpp) -- delivery to the motors happens solely on a LATER
 // kernel.step(), and step()'s own duty write happens BEFORE its two
@@ -355,12 +417,12 @@ static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 // the same class of bug commit 3e919e5 fixed for the in-fiber
 // (move-completion) case, reopened here for the cross-fiber case.
 //
-// This helper pushes an immediate, PORT-LEVEL zero write to both
-// motors -- the exact primitive the starvation watchdog below already
-// uses (NezhaMotorPort::emergencyStop(), proven tick-independent by its
-// exact-zero short-circuit in writeShapedDuty()) -- alongside the
-// pre-existing staged kernel.neutral()/engine.endMove() at each call
-// site. That delivers the stop within the SAME tick regardless of where
+// This method's third part is an immediate, PORT-LEVEL zero write to
+// both motors -- the exact primitive the starvation watchdog below used
+// to use directly (NezhaMotorPort::emergencyStop(), proven
+// tick-independent by its exact-zero short-circuit in
+// writeShapedDuty()) -- alongside the staged kernel.neutral()/
+// engine.endMove(). That delivers the stop within the SAME tick regardless of where
 // in the settle window the race lands, adds no new fiber/ticker (a
 // synchronous call on whichever fiber is already running -- the
 // one-ticker-per-move invariant is unaffected), and never touches the
@@ -388,13 +450,15 @@ static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 // by the fiber that can safely touch the bus rather than this one.
 // When the guard is free (the common case), the write still happens
 // immediately, right here, exactly as before.
-static void deliverStopNow(Rig& r) {
-  if (r.busGuard.held()) {
-    r.pendingStop_ = true;
+void Rig::softStop() {
+  engine.endMove();
+  kernel.neutral();
+  if (busGuard.held()) {
+    pendingStop_ = true;
     return;
   }
-  r.left.emergencyStop();
-  r.right.emergencyStop();
+  left.emergencyStop();
+  right.emergencyStop();
 }
 
 // ---- velocity commands ----------------------------------------------
@@ -672,9 +736,11 @@ bool updateMove() {
   // without tickDrive() ever running. Mirrors tickDrive()'s own
   // wasActive && !moveActive gate, but delivers the port write HERE
   // instead of relying on a settle-loop re-step this call path never
-  // runs. See deliverStopNow()'s own comment above for the full
-  // write-up.
-  if (wasActive && !moveActive) deliverStopNow(r);
+  // runs. Sprint 033 ticket 004: routed through Rig::softStop() with
+  // the other three stop paths -- this branch used to call the
+  // port-write half alone. See that method's own comment above for why
+  // the two calls it gains are inert on this particular path.
+  if (wasActive && !moveActive) r.softStop();
   return moveActive;
 }
 
@@ -826,15 +892,18 @@ bool tickDrive() {
   }
 
   // Staged cross-fiber stop delivery: some OTHER fiber called
-  // deliverStopNow() (or the watchdog) while THIS fiber held the guard
-  // above and could not write the motor ports itself without racing
-  // this fiber's own I2C traffic -- see Rig::pendingStop_'s and
-  // deliverStopNow()'s own comments. Deliver it now, still inside the
-  // guarded window this fiber already owns, so no other fiber can
-  // interleave its own I2C traffic between this write and release()
-  // below. This lands within the SAME tick the request was staged in,
-  // the same guarantee an unstaged deliverStopNow() call has always
-  // given.
+  // Rig::softStop() while THIS fiber held the guard above, and could
+  // not write the motor ports itself without racing this fiber's own
+  // I2C traffic -- see Rig::pendingStop_'s and Rig::softStop()'s own
+  // comments. Deliver it now, still inside the guarded window this
+  // fiber already owns, so no other fiber can interleave its own I2C
+  // traffic between this write and release() below. This lands within
+  // the SAME tick the request was staged in, the same guarantee an
+  // unstaged softStop() has always given. The port write is spelled out
+  // here rather than calling softStop() again: this is the DELIVERY of
+  // an already-decided stop, and re-entering softStop() would re-run
+  // its endMove()/neutral() and re-take the held() branch it is the
+  // consumer of.
   if (r.pendingStop_) {
     r.pendingStop_ = false;
     r.left.emergencyStop();
@@ -973,15 +1042,20 @@ static void watchdogEntry(void* context) {
     const uint64_t sinceLastTick = now - r.lastTick;  // [us]
     if (sinceLastTick <= kWatchdogTimeout) continue;
     if (!commandLooksActive(r)) continue;
-    r.kernel.neutral();  // commands neutral for whenever step() next runs
-    r.engine.endMove();  // clears the move-engine's own in-flight state
-    // Port-level zero write, tick-independent -- staged instead of
-    // immediate if busGuard is currently held, so this fiber cannot
-    // land its own I2C traffic inside another fiber's settle window.
-    // See deliverStopNow()'s own comment above for the full reasoning;
-    // this watchdog is the other caller that used to write the ports
-    // directly here, unconditionally.
-    deliverStopNow(r);
+    // The same soft stop every other stop path takes: the move
+    // engine's in-flight state cleared, the kernel commanded neutral
+    // for whenever step() next runs, and a tick-independent port-level
+    // zero write -- staged instead of immediate if busGuard is
+    // currently held, so this fiber cannot land its own I2C traffic
+    // inside another fiber's settle window. This watchdog used to
+    // write all three out itself (and, before sprint 030, to write the
+    // ports directly and unconditionally); see Rig::softStop()'s own
+    // comment above for the full reasoning. Ordering note: it spelled
+    // the first two in the opposite order, which reaches the same end
+    // state -- endMove() stages its own neutral() when a move was
+    // live, and the unconditional neutral() covers the case where none
+    // was.
+    r.softStop();
     // An abandoned block-motion call (started, never ticked) would
     // otherwise hold kBlock forever with nothing left to notice it is
     // idle -- this is the one background fiber that still can.
@@ -1002,19 +1076,17 @@ int progress() {  // [0..1000]
 void endMove() {
   if (rig == nullptr) return;
   // "stop move" is a full stop, not move-engine bookkeeping alone
-  // (stakeholder decision, 2026-08-26): engine.endMove() only stages
-  // kernel.neutral() when a move-engine move (startMove/startGoTo) is
-  // active. After a continuous-drive command (setWheelSpeeds/
-  // driveTwist) no move-engine move is active, so without the explicit
-  // kernel.neutral() below nothing disarms the kernel's held commanded
-  // velocity mode (up to kLeaseMax, one hour) -- deliverStopNow()'s
-  // port-level zero is momentary and the very next step() re-commands
-  // the duty. Same three-call shape stopAll() already uses.
-  rig->engine.endMove();
-  rig->kernel.neutral();
-  // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop move"
-  // block's own entry point -- see deliverStopNow()'s comment above.
-  deliverStopNow(*rig);
+  // (stakeholder decision, 2026-08-26) -- which is exactly what
+  // Rig::softStop() is, and why this is one call rather than the three
+  // it used to spell out. The unconditional kernel.neutral() inside it
+  // is the part that makes this a full stop: engine.endMove() alone
+  // stages a neutral only when a move-engine move (startMove/
+  // startGoTo) is active, so after a continuous-drive command
+  // (setWheelSpeeds/driveTwist) nothing would disarm the kernel's held
+  // commanded velocity mode (up to kLeaseMax, one hour) and the
+  // port-level zero would be momentary -- the very next step() would
+  // re-command the duty.
+  rig->softStop();
   // The block program itself says this move is over -- release right
   // away rather than waiting for tickDrive() to next notice the
   // drivetrain looks idle. A no-op if this call was never the one
@@ -1028,12 +1100,11 @@ void endMove() {
 //%
 void stopAll() {
   Rig& r = ensure();
-  r.engine.endMove();
-  r.kernel.neutral();
-  // Cross-fiber stop delivery (sprint 006 ticket 002): the "stop" block
-  // and the wire's STOP verb both land here -- see deliverStopNow()'s
-  // comment above.
-  deliverStopNow(r);
+  // The "stop" block and the wire's STOP verb both land here, and take
+  // the same one soft stop every other stop path takes -- see
+  // Rig::softStop()'s own comment above (including its cross-fiber
+  // delivery, sprint 006 ticket 002).
+  r.softStop();
   // No-op unless THIS call is the one holding kBlock -- see
   // protocolReleaseBlockOwnership()'s own comment above (a wire-issued
   // STOP reaching this same function never holds kBlock in the first
@@ -1062,7 +1133,7 @@ void estopClear() { ensure().kernel.estopClear(); }
 // review trail). Two thin forwards, exactly like estopClear() above,
 // except deliberately NOT routed through estopClear()/estopAll() or any
 // new top-level wire verb: the stall latch and the e-stop latch are
-// separate fault classes (same principle deliverStopNow() above
+// separate fault classes (same principle Rig::softStop() above
 // established for a different pair -- a stop must never silently
 // become a latch, and clearing one latch must never silently clear the
 // other). clearStall() is reachable from a dedicated `blocks/stop.ts` block
@@ -1382,7 +1453,7 @@ void cfgSetRotationalSlip(Rig& r, float v) { r.engine.setRotationalSlip(v); }
 // clearStallLatch() and estopClear() are deliberately separate: the
 // stall latch and the e-stop latch are distinct fault classes, and
 // clearing one must never silently clear the other (the same principle
-// deliverStopNow() follows for a different pair).
+// Rig::softStop() follows for a different pair).
 float cfgGetStallClear(Rig& r) {
   return r.kernel.output().stallHalted ? 1.0f : 0.0f;
 }
@@ -1431,6 +1502,29 @@ void cfgSetEstopClear(Rig& r, float v) {
 float cfgGetStraightTrim(Rig& r) { return r.kernel.config().straightTrim; }
 void cfgSetStraightTrim(Rig& r, float v) { r.kernel.setStraightTrim(v); }
 
+// goto_timeout: the deadline the next go-to gets (Rig::goToDeadline --
+// see that field's own comment for how it stopped being a bespoke
+// call-scoped handoff slot and became this row). Backed by a Rig field
+// rather than by the kernel's Config, exactly like default_cruise
+// above.
+//
+// 0 is a legal value here, unlike default_cruise's ">0, else keep":
+// engineGoToRArmed() passes whatever this holds straight to
+// MotionEngine::goToR() as its `timeout`, and 0 is that call's own
+// "already expired" -- refusing to store it would mean this field
+// could not read back the state the block layer can actually put the
+// robot in. Negative is refused: the cast below is undefined for it,
+// and the wire has no meaning for a deadline in the past. The upper
+// end needs no guard -- the wire's x1000 integer convention caps an
+// arriving value near 2.1e6 ms, far below what a uint32_t holds.
+float cfgGetGoToDeadline(Rig& r) {
+  return static_cast<float>(r.goToDeadline);
+}
+void cfgSetGoToDeadline(Rig& r, float v) {
+  if (v < 0.0f) return;
+  r.goToDeadline = static_cast<uint32_t>(v);
+}
+
 struct ConfigAccessor {
   int ordinal;
   float (*get)(Rig&);          // [unscaled]
@@ -1458,6 +1552,7 @@ constexpr ConfigAccessor kConfigAccessors[] = {
     {32, &cfgGetRebase, &cfgSetRebase},
     {33, &cfgGetEstopClear, &cfgSetEstopClear},
     {38, &cfgGetStraightTrim, &cfgSetStraightTrim},
+    {39, &cfgGetGoToDeadline, &cfgSetGoToDeadline},
 };
 
 const ConfigAccessor* findConfigAccessor(int ordinal) {
@@ -1560,24 +1655,26 @@ void engineGoToR(float x, float y, float speed, float arrive,
 // same error code, so this was the ARITY, not a nondeterministic
 // abort. setTaperWindows()'s own comment already recorded an earlier
 // incident with the identical symptom; this build is what confirmed
-// it. Every `//%` shim in this file now stays at <=4 params. See
-// Rig::pendingGoToDeadline_ (above, in the struct) for the handoff
-// contract -- one caller only (sim.ts's _setGoToDeadline(), called by
-// motion.ts's startGoTo() immediately before _goToR()), so there is no
-// path for a stale deadline to reach an unrelated move.
+// it. Every `//%` shim in this file now stays at <=4 params. The
+// value lands in Rig::goToDeadline, which since sprint 033 ticket 004
+// is an ordinary config row (`goto_timeout`, ordinal 39) rather than a
+// private handoff slot -- see that field's own comment (above, in the
+// struct) for what did and did not change. This signature did not: one
+// caller (sim.ts's _setGoToDeadline(), called by motion.ts's
+// startGoTo() immediately before _goToR()), still writing the value
+// the very next go-to reads.
 //%
 void engineSetGoToDeadline(uint32_t timeout) {  // [ms]
-  ensure().pendingGoToDeadline_ = timeout;
+  ensure().goToDeadline = timeout;
 }
 
-// `//%`-annotated -- same one-shot pre-arm shape as
-// engineSetGoToDeadline() immediately above, added so
-// engineGoToRArmed() below can reconcile a SEPARATE yaw-rate ceiling
-// against `speed` (mirroring startMove()'s existing (distance, yaw,
-// speed, yawRate) shape) without becoming a 5th engineGoToRArmed()
-// parameter -- see Rig::pendingGoToYawRate_'s own comment for why that
-// would resurrect the exact packager crash pendingGoToDeadline_ was
-// split out to avoid. One caller only (sim.ts's _setGoToYawRate(),
+// `//%`-annotated -- same pre-arm shape as engineSetGoToDeadline()
+// immediately above, added so engineGoToRArmed() below can reconcile a
+// SEPARATE yaw-rate ceiling against `speed` (mirroring startMove()'s
+// existing (distance, yaw, speed, yawRate) shape) without becoming a
+// 5th engineGoToRArmed() parameter -- see Rig::pendingGoToYawRate_'s
+// own comment for why that would resurrect the exact packager crash
+// the deadline's own setter was split out to avoid. One caller only (sim.ts's _setGoToYawRate(),
 // called by motion.ts's startGoTo() immediately before _goToR(),
 // alongside _setGoToDeadline()).
 //%
@@ -1588,8 +1685,8 @@ void engineSetGoToYawRate(int yawRate) {  // [cdeg/s]
 // `//%`-annotated -- the block layer's own entry point onto the SAME
 // goToR() the wire's GO_TO_R verb reaches via engineGoToR() above,
 // just split to FOUR parameters (engineSetGoToDeadline() immediately
-// above supplies the fifth, `timeout`, via
-// Rig::pendingGoToDeadline_) -- see that function's comment for why.
+// above supplies the fifth, `timeout`, via Rig::goToDeadline) -- see
+// that function's comment for why.
 // Deliberately delegates to engineGoToR() above rather than calling
 // r.engine.goToR() directly a second time, so the actual move-engine
 // call site stays in exactly one place.
@@ -1638,7 +1735,7 @@ void engineGoToRArmed(float x, float y, float speed, float arrive) {
   // reconciliation existed.
   const float cruise = rr.cruise > 0.0f ? rr.cruise : speedFloored;
 
-  engineGoToR(x, y, cruise, arrive, r.pendingGoToDeadline_);
+  engineGoToR(x, y, cruise, arrive, r.goToDeadline);
 }
 
 // GO_TO_W's own PoseSource selection: the ONE place this project

@@ -383,3 +383,110 @@ def test_every_stored_field_round_trips_its_value(wa, name, ordinal):
         f"its own SET of 2.0 should have stored -- its GET and its SET "
         f"are not addressing the same field."
     )
+
+
+# ---------------------------------------------------------------------------
+# The go-to deadline (sprint 033 ticket 004): a field that used to be a
+# bespoke, call-scoped slot on the singleton, now one row of the surface
+# above. These pin the move itself; the parametrized sweeps above
+# already cover it as an ordinary field, which is the whole point.
+# ---------------------------------------------------------------------------
+
+GOTO_TIMEOUT_NAME = "goto_timeout"
+GOTO_TIMEOUT_ORDINAL = 39
+
+
+def test_goto_timeout_is_an_ordinary_row_of_the_table():
+    """Name, ordinal and unit, in the one table -- not a fifth list, and
+    not a fresh use of a retired ordinal."""
+    rows = {name: (ordinal, unit) for name, ordinal, unit in config_field_rows()}
+    assert GOTO_TIMEOUT_NAME in rows, (
+        f"config_fields.h no longer names {GOTO_TIMEOUT_NAME}: {sorted(rows)}"
+    )
+    ordinal, unit = rows[GOTO_TIMEOUT_NAME]
+    assert ordinal == GOTO_TIMEOUT_ORDINAL, (
+        f"{GOTO_TIMEOUT_NAME} moved to ordinal {ordinal}; ordinals are a "
+        f"wire contract and this one was published as "
+        f"{GOTO_TIMEOUT_ORDINAL}."
+    )
+    assert unit == "ms", f"{GOTO_TIMEOUT_NAME}'s unit reads {unit!r}, not 'ms'"
+    assert GOTO_TIMEOUT_ORDINAL in set(shims_accessor_ordinals()), (
+        "shims.cpp's kConfigAccessors has no row for the go-to deadline "
+        "-- the name would ack a SET and silently drop it."
+    )
+
+
+def test_goto_deadline_is_no_longer_a_bespoke_singleton_field():
+    """The storage moved: `Rig::goToDeadline` is what the config
+    accessors read and write, and the old private handoff field is gone
+    by name as well as by shape. `engineSetGoToDeadline()` still writes
+    it -- that shim exists to keep every `//%` shim at <=4 parameters,
+    which this ticket did not change -- so the check is that it writes
+    the CONFIG-backed field, not a private one of its own."""
+    shims = _read("shims.cpp")
+    assert "pendingGoToDeadline" not in shims, (
+        "shims.cpp still carries the pendingGoToDeadline_ field (or a "
+        "comment naming it) -- the go-to deadline now lives in the "
+        "config table as Rig::goToDeadline."
+    )
+    assert re.search(r"^\s*uint32_t goToDeadline = 0;\s*//\s*\[ms\]", shims, re.M), (
+        "Rig no longer declares `uint32_t goToDeadline = 0;  // [ms]` -- "
+        "the field the goto_timeout accessors are supposed to back."
+    )
+    assert re.search(r"r\.goToDeadline = static_cast<uint32_t>\(v\)", shims), (
+        "cfgSetGoToDeadline() no longer writes Rig::goToDeadline."
+    )
+    assert re.search(
+        r"void engineSetGoToDeadline\(uint32_t timeout\)[^\n]*\n"
+        r"\s*ensure\(\)\.goToDeadline = timeout;",
+        shims,
+    ), (
+        "engineSetGoToDeadline() either changed signature or no longer "
+        "writes the config-backed Rig::goToDeadline -- the block layer's "
+        "pre-arm and the wire's `SET goto_timeout` must reach the same "
+        "storage, and motion.ts's callers must not have to change."
+    )
+    assert re.search(r"engineGoToR\(x, y, cruise, arrive, r\.goToDeadline\)", shims), (
+        "engineGoToRArmed() no longer reads the deadline from "
+        "Rig::goToDeadline."
+    )
+    assert re.search(r"void engineSetGoToYawRate\(int yawRate\)", shims), (
+        "engineSetGoToYawRate()'s signature changed -- this ticket "
+        "moved only the deadline's storage; every TS caller of both "
+        "shims stays as it was."
+    )
+
+
+def test_goto_timeout_round_trips_a_real_deadline(wa):
+    """A SET/GET round trip through the REAL WireAdapter at a value a
+    bench host would actually send. The parametrized sweep above already
+    round-trips 2.0 through every stored field; this one uses a
+    plausible go-to deadline (4500 ms) so the check also covers the
+    x1000 wire scaling at a magnitude the 2.0 case cannot reach."""
+    wa.feed(f"SET {GOTO_TIMEOUT_NAME} 4500 #1\n".encode())
+    assert wa.take_sink() == _ack(1), "SET goto_timeout refused"
+
+    wa.feed(f"GET {GOTO_TIMEOUT_NAME} #2\n".encode())
+    reply = wa.take_sink()
+    prefix = _ack(2) + f"get {GOTO_TIMEOUT_NAME} ".encode()
+    assert reply.startswith(prefix), reply
+    assert float(reply[len(prefix):]) == pytest.approx(4500.0, abs=1e-3), reply
+
+
+def test_goto_timeout_stores_zero_rather_than_keeping_the_prior_value(wa):
+    """0 is a legal deadline (MotionEngine::goToR()'s own "already
+    expired"), so this field must NOT take the ">0, else keep" shape
+    `default_cruise` uses -- otherwise a GET could not read back a state
+    the block layer can actually put the robot in."""
+    wa.feed(f"SET {GOTO_TIMEOUT_NAME} 4500 #1\n".encode())
+    assert wa.take_sink() == _ack(1)
+    wa.feed(f"SET {GOTO_TIMEOUT_NAME} 0 #2\n".encode())
+    assert wa.take_sink() == _ack(2)
+
+    wa.feed(f"GET {GOTO_TIMEOUT_NAME} #3\n".encode())
+    reply = wa.take_sink()
+    prefix = _ack(3) + f"get {GOTO_TIMEOUT_NAME} ".encode()
+    assert reply.startswith(prefix), reply
+    assert float(reply[len(prefix):]) == pytest.approx(0.0, abs=1e-3), (
+        f"goto_timeout kept its prior value through a SET of 0: {reply!r}"
+    )

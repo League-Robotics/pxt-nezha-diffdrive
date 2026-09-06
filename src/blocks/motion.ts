@@ -81,7 +81,9 @@ enum ConfigField {
     //% block="response lag (s)"
     Lag = 37,
     //% block="straight trim"
-    StraightTrim = 38
+    StraightTrim = 38,
+    //% block="go-to timeout ms"
+    GoToTimeout = 39
 }
 
 //% color=#0f9c5a icon="" block="DiffDrive"
@@ -352,9 +354,11 @@ namespace diffDrive {
         const pivotS = 180 / defaultYawRate
         const straightS = chordCm / defaultSpeed
         const timeout = Math.round((pivotS + straightS) * 1000) + 1500  // [ms]
-        // Must precede _goToR() immediately -- see
-        // Rig::pendingGoToDeadline_'s comment (shims.cpp) for the
-        // one-shot handoff contract this pair relies on. _setGoToYawRate()
+        // Must precede _goToR() immediately -- see Rig::goToDeadline's
+        // comment (shims.cpp) for the last-writer-wins ordering this
+        // pair relies on (it is also the wire's own `goto_timeout`
+        // config field, so this call is what overwrites any value a
+        // bench host set). _setGoToYawRate()
         // is the analogous pre-arm for the pivot phase's own rate
         // ceiling (engineGoToRArmed() reconciles it against goalSpeed
         // the same way _startMove() reconciles its own two rate

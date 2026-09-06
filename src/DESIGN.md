@@ -695,7 +695,7 @@ robot without a live OTOS (§9), so this handler always dispatches to
 here is the **single** place wire milliradians become radians.
 GET/SET map snake_case wire names 1:1 onto config ordinals — 15 names
 through sprint 006, 18 as of sprint 007, 19 as of 2026-08-29, 34 as of
-sprint 029 ticket 004, and 31 rows today.
+sprint 029 ticket 004, and 32 rows today.
 
 **The config surface is one list, in one file.** `comms/config_fields.h`
 holds `kConfigFields[]` — `{name, ordinal, unit}`, one row per name a
@@ -732,6 +732,25 @@ that addresses a different field than the wire does. `rebase` (32) and
 `estop_clear` (33) are enum members like any other row as of sprint 033
 ticket 003 — previously they were wire-only names with no member, which
 is why the enum and the wire table were not even the same length.
+
+**`goto_timeout` (39): a field that was private state.** Sprint 033
+ticket 004 added the go-to deadline as an ordinary row of this same
+table, backed by `Rig::goToDeadline`. It is new to the WIRE only. The
+value already existed, as a `shims.cpp`-local field written by
+`engineSetGoToDeadline()` and read by `engineGoToRArmed()` — a
+pre-arming pair that exists because every `//%` shim in this file stays
+at four parameters or fewer (a five-parameter `engineGoToR()` shim
+reproduced PXT's "TS9200: Assertion failed" deterministically, sprint
+015 ticket 006), so `goToR()`'s fifth argument has to reach the shim
+through `Rig` rather than through its own parameter list. That
+constraint is unchanged, and so are both shims' signatures and every
+`blocks/motion.ts` caller; only the storage moved. What the move buys
+is that the deadline is now readable and settable like any other
+config field (`GET goto_timeout` / `SET goto_timeout`), where a private
+field was neither. It was never one-shot: nothing zeroes it after a
+go-to consumes it, and `startGoTo()` sets it immediately before every
+`_goToR()`, so a block-issued go-to overwrites whatever a bench host
+set. That ordering is the contract; the storage never was.
 
 Before this consolidation there were four hand-synchronised lists of
 the same surface (`kFields`, both `shims.cpp` switches, and the enum).
@@ -789,8 +808,9 @@ documented, this is the third independent way to read the stall
 latch's state). `stall_clear` is deliberately **not** a new top-level
 wire verb and is **not** folded into `clearEmergencyStop()`/`ESTOP`
 (§9) — the stall latch and the e-stop latch are semantically distinct
-fault classes, same principle sprint 006 established for
-`deliverStopNow()` deliberately not touching `estopLatch_`. **Sprint
+fault classes, same principle sprint 006 established for the soft
+stop (`Rig::softStop()` since sprint 033) deliberately not touching
+`estopLatch_`. **Sprint
 028**: the table gains `rebase` (ordinal 32, backed by
 `kernel.rebasePosition()` plus, on an OTOS-equipped chassis, the
 platform-layer pose-seed path `seedPose()` already uses so both pose
@@ -1306,9 +1326,11 @@ The result: every I2C caller on this bus reaches it through
 points against the guard) rather than by three-plus call sites each
 independently remembering a documented rule.
 
-**Staged stop under a live guard (sprint 030).** `deliverStopNow()`
-and the starvation watchdog write the motor register from whichever
-fiber calls them, by design (sprint 006) — a genuine safety path that
+**Staged stop under a live guard (sprint 030).** The soft stop
+(`deliverStopNow()` then; `Rig::softStop()` since sprint 033 folded
+that free function into it) and the starvation watchdog write the
+motor register from whichever fiber calls them, by design
+(sprint 006) — a genuine safety path that
 must not wait on anything. That is still true when the bus is idle.
 When `BusGuard` is held, sprint 030 changes this to a *staged* stop:
 the caller sets a `pendingStop_` flag on the Rig instead of writing
@@ -1683,7 +1705,8 @@ Pieces the kernel deliberately does not contain:
   ordinal (§5) reaches the same `clearStallLatch()` call via
   `setKernelValue()`'s ordinal 17. Deliberately **not** folded into
   `clearEmergencyStop()`/`ESTOP` — same principle sprint 006 established
-  for `deliverStopNow()` deliberately not touching `estopLatch_`: the
+  for the soft stop (`Rig::softStop()`) deliberately not touching
+  `estopLatch_`: the
   stall latch and the e-stop latch are semantically distinct fault
   classes, and blurring their clear paths would reintroduce the
   ambiguity that decision fixed for a different pair.
@@ -2152,8 +2175,15 @@ Five "make it stop" mechanisms exist across three layers (kernel,
 motion engine, shim/wire); each is individually defensible, but
 nothing previously stated which one a given entry point delivers. That
 gap is exactly why `shims.cpp::endMove()` shipped for several sprints
-calling `deliverStopNow()` alone, unpaired with `kernel.neutral()` — a
-defect this sprint fixed (see the entry-point table below). Two
+calling the port-level zero alone, unpaired with `kernel.neutral()` —
+a defect this sprint fixed (see the entry-point table below). **Sprint
+033 ticket 004 update:** the three-call sequence the fix produced was
+still written out separately at each of four call sites, and
+`updateMove()`'s branch never matched the other three. It now has one
+definition, `Rig::softStop()`, which absorbed the former free function
+`deliverStopNow()`; the rows below name it, and citations to
+`shims.cpp` line numbers are left as of sprint 016 rather than
+re-derived — read them as "this function", not "this line". Two
 properties distinguish the five: **(a)** does it write to the motor
 ports immediately (tick-independent), or only *stage* a command that
 needs a subsequent `kernel.step()` to reach the motors, and **(b)**
@@ -2166,31 +2196,39 @@ velocity) re-assert itself unless something else also holds it down.
 | Mechanism | Immediate or staged? | Entry point(s) | Persists across subsequent `step()`s? | Requires clearing to resume? |
 |---|---|---|---|---|
 | `kernel.neutral()` (`core/diffdrive.cpp:365-369`) | Staged — overwrites `command_`; the motors are zeroed only on the next `step()` | `MotionEngine::endMove()` (`motion/motion_engine.cpp:103-106`, conditional on `move_.active`); `MotionEngine::serviceMove()`'s move-completion branch (`motion/motion_engine.cpp:451`, unconditional — natural end, timeout, stall, wrong-way, or e-stop); `shims.cpp::stopAll()` (`shims.cpp:767`); `shims.cpp::endMove()` free function (`shims.cpp:755`, unconditional as of this sprint); starvation watchdog (`shims.cpp:726`) | Yes, once a `step()` delivers it — holds until a new `drive()`/`driveDuty()` overwrites `command_` | No (not a latch) |
-| `NezhaMotorPort::emergencyStop()` (`platform/nezha_port.cpp:125-130`) | Immediate — writes zero duty straight to the port, tick-independent | `deliverStopNow()` (`shims.cpp:272-275`), called from `stopAll()` (`shims.cpp:771`), `endMove()` (`shims.cpp:758`), and `updateMove()`'s move-end path (`shims.cpp:505`); the starvation watchdog's direct calls (`shims.cpp:728-729`); `DifferentialDrive::emergencyStopMotors()`'s own internal calls (`core/diffdrive.cpp:381-382`) | **No — momentary.** `command_`/the lease are untouched; the very next `step()` re-commands from them unless paired with `kernel.neutral()` or an e-stop latch | N/A (not a latch) |
+| `NezhaMotorPort::emergencyStop()` (`platform/nezha_port.cpp:125-130`) | Immediate — writes zero duty straight to the port, tick-independent | `Rig::softStop()`, called from `stopAll()`, `endMove()`, the starvation watchdog, and `updateMove()`'s move-end path — all four, exclusively, since sprint 033; `tickDrive()`'s own delivery of a stop `softStop()` staged behind `busGuard`; `DifferentialDrive::emergencyStopMotors()`'s own internal calls (`core/diffdrive.cpp:381-382`) | **No — momentary.** `command_`/the lease are untouched; the very next `step()` re-commands from them unless paired with `kernel.neutral()` or an e-stop latch | N/A (not a latch) |
 | `kernel.estop()` (`core/diffdrive.cpp:371-373`) | Staged — sets `estopLatch_ = true` only; no motor write | `DifferentialDrive::estop()`, called from `shims.cpp::estopAll()` (`shims.cpp:778`) — always paired there with `emergencyStopMotors()` | Yes — re-checked on every `step()` (`core/diffdrive.cpp:485`) regardless of `command_` | Yes — `kernel.estopClear()` (`core/diffdrive.cpp:375-377`), forwarded by `shims.cpp::estopClear()` (`shims.cpp:783`) |
 | `kernel.emergencyStopMotors()` (`core/diffdrive.cpp:379-383`) | Both — an immediate port zero on both motors (same primitive as row 2) **and** `estopLatch_ = true` as a side effect, undocumented at the header (`core/diffdrive.h:200`) | `shims.cpp::estopAll()` (`shims.cpp:779`), reached from the `emergency stop` block (`blocks/stop.ts:21-25`) and the wire's ESTOP verb (`WireAdapter::onEstop()`, `comms/wire_adapter.cpp:494-499`) | Yes — same latch as row 3 | Yes — same `estopClear()` path |
 | Lease expiry (`core/diffdrive.cpp:475-483`) | Staged — a passive per-`step()` check (`cmd.validUntil` vs. the kernel clock), not a caller-invoked action | Not an entry point a caller invokes. `MotionEngine::serviceMove()` reissues a rolling 500 ms lease every tick while a move is active (`motion/motion_engine.cpp:388`), so an abandoned move degrades within 500 ms of servicing stopping; the wire's `WHEELS_V`/`WHEELS_X`/`MOVE_V` verbs set the lease to the caller's full requested duration once, at command time (`kWheelsVDurationCeiling`, `comms/wire_adapter.h:59`) | Yes, once triggered — forces `effective = kModeNeutral` on every subsequent `step()` until a new `drive()`/`driveDuty()` call | No explicit clear — a fresh lease-bearing command resumes motion |
 
 **Row 2 is the one that misleads, and it is this sprint's own
-finding.** `deliverStopNow()` alone — an immediate, port-level zero
-write — is momentary, not a stop: it does not touch `command_` or any
+finding.** The port-level zero write alone — immediate, and since
+sprint 033 the third part of `Rig::softStop()` — is momentary, not a
+stop: it does not touch `command_` or any
 latch, so a still-live kernel command (a long continuous-drive lease,
 in particular) re-asserts a nonzero duty on the very next `step()`.
 Every production call site pairs it with `kernel.neutral()` (row 1) or
 an e-stop latch (rows 3/4) for exactly this reason — `shims.cpp::
-endMove()` calling `deliverStopNow()` unpaired was the gap; it now
-also calls `kernel.neutral()` unconditionally (below).
+endMove()` calling it unpaired was the gap. Sprint 016 fixed that by
+adding an unconditional `kernel.neutral()` there; sprint 033 made the
+pairing structural rather than remembered, by putting all three calls
+inside `Rig::softStop()` so no caller can take one without the
+others.
 
 **Entry points:**
 
 | Entry point | Mechanism(s) delivered | Survives the next `step()`? |
 |---|---|---|
-| `stop` block / wire STOP → `stopAll()` (`shims.cpp:764-772`) | `engine.endMove()` + `kernel.neutral()` (staged) + `deliverStopNow()` (immediate) | Yes |
+| `stop` block / wire STOP → `stopAll()` | `Rig::softStop()`: `engine.endMove()` + `kernel.neutral()` (staged) + the port-level zero (immediate) | Yes |
 | `emergency stop` block / wire ESTOP → `estopAll()` (`shims.cpp:775-780`) | `engine.endMove()` + `kernel.estop()` + `kernel.emergencyStopMotors()` (latch + immediate) | Yes, robustly — latched until `estopClear()` |
-| `stop move` block → `endMove()` free function (`shims.cpp:743-759`) | `engine.endMove()` (stages neutral only if a move-engine move was active) + an unconditional `kernel.neutral()` (this sprint's fix) + `deliverStopNow()` | Yes — the unconditional `kernel.neutral()` is what now also stops a continuous-drive command, not only a move-engine move |
-| Starvation watchdog (`watchdogEntry()`, `shims.cpp:718-731`) | `kernel.neutral()` + `engine.endMove()` + an immediate port zero on both motors | Yes, but non-latching — a fresh `drive()`/`tickDrive()` call resumes motion immediately; re-fires every ~50 ms while abandonment persists |
-| `updateMove()`'s move-end path (`shims.cpp:487-507`, via `MotionEngine::serviceMove()`) | `serviceMove()`'s own `kernel.neutral()` on move completion/timeout/stall/wrong-way/e-stop (`motion/motion_engine.cpp:451`) + `deliverStopNow()` when the move was active and just ended (`shims.cpp:505`) | Yes — same staged-plus-immediate pairing as `stopAll()`/`endMove()` |
+| `stop move` block → `endMove()` free function | `Rig::softStop()` — the same three, and the unconditional `kernel.neutral()` inside it is sprint 016's own fix, now structural | Yes — that unconditional `kernel.neutral()` is what also stops a continuous-drive command, not only a move-engine move |
+| Starvation watchdog (`watchdogEntry()`) | `Rig::softStop()` — it used to spell the same three out itself, in the opposite order, which reaches the same end state | Yes, but non-latching — a fresh `drive()`/`tickDrive()` call resumes motion immediately; re-fires every ~50 ms while abandonment persists |
+| `updateMove()`'s move-end path (via `MotionEngine::service()`) | `service()`'s own `kernel.neutral()` on move completion/timeout/stall/wrong-way/e-stop + `Rig::softStop()` when the move was active and just ended. This is the site that used to take the port write ALONE; since sprint 033 it takes the same soft stop as the other three, and the two calls it gained are inert here (`service()` has already neutralled the kernel and cleared the Segment) | Yes — same staged-plus-immediate pairing as `stopAll()`/`endMove()` |
 
-No structural change — this section is documentation-only. Every
-citation above was checked against this sprint's final source, not
-carried over from planning notes.
+Sprint 016 made no structural change here — that section was
+documentation-only, and every citation in it was checked against that
+sprint's final source rather than carried over from planning notes.
+Sprint 033 ticket 004 IS a structural change to the same taxonomy: the
+soft stop's three parts now have one definition instead of four, so
+the rows above name `Rig::softStop()` where they used to name three
+calls per site.

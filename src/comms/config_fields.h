@@ -131,6 +131,15 @@ constexpr ConfigFieldDescriptor kConfigFields[] = {
     {"lag", 37, "s"},
     // ConfigField.StraightTrim: "straight trim"
     {"straight_trim", 38, "1"},
+    // The deadline the NEXT go-to gets, backed by Rig::goToDeadline --
+    // which is where the block layer's own engineSetGoToDeadline()
+    // shim writes it too (it exists because every `//%` shim stays at
+    // <=4 params, not because the value is private). It was a bespoke
+    // handoff field until sprint 033 ticket 004 made it this row; see
+    // that field's comment in shims.cpp for what a wire caller can and
+    // cannot rely on (a block-issued go-to overwrites it).
+    // ConfigField.GoToTimeout: "go-to timeout ms"
+    {"goto_timeout", 39, "ms"},
 };
 
 constexpr int kConfigFieldCount =

@@ -159,6 +159,10 @@ _BASELINE_GROUP_ORDER = {
     # enum removes. They sit between OmegaMax and OmegaFloor because
     # that is where they sit in the wire table; no existing member
     # changed name or ordinal.
+    # Sprint 033 ticket 004: GoToTimeout is NEW, appended after
+    # StraightTrim (ordinal 39) -- the go-to deadline, which was a
+    # private field on the native Rig until it became an ordinary row
+    # of the same table.
     "ENUM": [
         "ConfigField.MaxDuty", "ConfigField.FullDutyVelocity",
         "ConfigField.Kp", "ConfigField.Ki", "ConfigField.IMax",
@@ -182,6 +186,7 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.ArriveYaw",     # ordinal 36
         "ConfigField.Lag",           # ordinal 37
         "ConfigField.StraightTrim",  # ordinal 38
+        "ConfigField.GoToTimeout",   # ordinal 39
     ],
 }
 

@@ -2201,6 +2201,14 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     # rationale as accel/decel/v_max above; also deliberately negative-
     # capable (sign is meaningful), unlike most of this table.
     "straight_trim": 0.0055,
+    # Sprint 033 ticket 004: NEW ordinal (39) -- the deadline the next
+    # go-to gets, in ms. It is only new to the WIRE: the value existed
+    # as a private handoff field on Rig (engineSetGoToDeadline() ->
+    # engineGoToRArmed()) and this ticket moved its storage into the
+    # config table, so a bench host can read and set it like any other
+    # field. Whole milliseconds, and deliberately not the field's own 0
+    # default, per the non-default-value rationale above.
+    "goto_timeout": 4500.0,
 }
 
 
@@ -3201,6 +3209,13 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # ordinal 38 (straight_trim), NEW, declared after lag in
         # kFields.
         b"straight_trim",
+        # sprint 033 ticket 004: ordinal 39 (goto_timeout), NEW,
+        # declared after straight_trim. New to the WIRE only -- the
+        # value was already Rig state (the deadline the next go-to
+        # gets); this ticket moved its storage out of a private handoff
+        # field and into the one config table, which is what puts it in
+        # this dump.
+        b"goto_timeout",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 
