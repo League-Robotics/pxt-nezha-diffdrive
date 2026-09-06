@@ -396,9 +396,18 @@ def test_measured_speed_higher_than_v_prev_arrives_sooner(lib):
     on EXACTLY vFloor with no accumulated drift to control for), then a
     second tick where a small `remain` and `lag > 0` make the floor+
     decel-clamp interplay force the SAME returned `vCmd` in both runs
-    (isolating the arrival predicate's own `vAct*lag` term from any
+    (isolating the arrival predicate's own lag-credit term from any
     difference in vCmd itself) -- the run with the higher `measured`
-    speed must declare `arriving` while the unmeasured run does not."""
+    speed must declare `arriving` while the unmeasured run does not.
+
+    The credit is FLOOR-RELATIVE, `(vAct - floor) * lag` (design S6.3,
+    "floor-relative credit"; MEASURED tovez 2026-09-06, reports/
+    square-hw-vs-sim-20260906/bench-demo/lag-sweep-bench*.json). Here
+    that is (140 - 70) * 0.1 = 7 mm for the measured run and exactly 0
+    for the unmeasured one (vAct == floor), so with vCmd*dt = 1.4 mm
+    the thresholds are 8.4 vs 1.4 mm and `remain = 8` sits between
+    them. Under the earlier full `vAct*lag` credit the same setup used
+    `remain = 10` against 15.4 vs 8.4."""
     lim = Limits(accel=400.0, decel=400.0, jerk=0.0, vFloor=70.0, lag=0.1,
                  stopDistance=0.0)
     dt = 0.02
@@ -411,11 +420,11 @@ def test_measured_speed_higher_than_v_prev_arrives_sooner(lib):
         assert measured_hi.velocity == pytest.approx(70.0)
 
         vcmd_unmeasured, arriving_unmeasured = unmeasured.advance(
-            target=200.0, remain=10.0, floor=70.0, cap=1e9, dt=dt, lim=lim,
+            target=200.0, remain=8.0, floor=70.0, cap=1e9, dt=dt, lim=lim,
             measured=-1.0,
         )
         vcmd_measured, arriving_measured = measured_hi.advance(
-            target=200.0, remain=10.0, floor=70.0, cap=1e9, dt=dt, lim=lim,
+            target=200.0, remain=8.0, floor=70.0, cap=1e9, dt=dt, lim=lim,
             measured=140.0,
         )
         # The floor+decel-clamp interplay forces the SAME vCmd in both

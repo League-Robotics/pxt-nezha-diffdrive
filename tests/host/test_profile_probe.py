@@ -405,7 +405,29 @@ _LAG_MODEL_BREAKAWAY = 70.0
 # (ticket 009) changed; only K1's servo did. The bound widens to cover
 # the new worst case with a small margin, same shape as the deviation
 # above.
-_LAG_MODEL_ARRIVAL_BOUND_DEG = 3.75
+#
+# RE-MEASURED 2026-09-06 (floor-relative arrival credit, design S6.3
+# "floor-relative credit"): the arrival predicate now credits lag coast
+# only ABOVE the speed floor, `(vAct - floor) * lag`, because a real
+# wheel is stiction-bound at the floor and does not coast the full
+# vAct*lag there. MEASURED tovez, bench, wheels up, 12 interleaved 90 deg
+# pivots (reports/square-hw-vs-sim-20260906/bench-demo/lag-sweep-bench*.
+# json): full credit landed -8.05 deg at lag 0.13; floor-relative -2.38;
+# the clean 600 mm square went from 387.4 mm closure to 11.0 mm at the
+# same bake. THIS rig's plant is a first-order lag with breakaway only
+# at START (LaggedRig / stiction_probe.cpp): it coasts the full vAct*lag
+# at every speed, so on it the floor-relative form lands every cell LONG
+# -- +3.59 / +3.84 / +3.26 (tau 0.08, cruise 40/100/200) and +4.63 /
+# +4.99 / +4.31 (tau 0.15) -- the model coasting what the hardware does
+# not. The bound below therefore covers a KNOWN MODEL OFFSET, not an
+# engine-accuracy claim: it is widened to clear the worst cell (4.99),
+# and every cell is additionally required to be one-signed (LONG), so a
+# regression that lands SHORT again on this plant -- the full-credit
+# form's signature -- still fails. Do not restore the full credit to
+# tighten this; fit a plant with floor stiction (design S10.2) instead.
+_LAG_MODEL_ARRIVAL_BOUND_DEG = 5.5
+_LAG_MODEL_ARRIVAL_SIGN_NOTE = ("on this no-floor-stiction plant the "
+                                "floor-relative credit must land LONG")
 
 
 @pytest.mark.parametrize("cruise", _LAG_MODEL_CRUISES)
@@ -433,6 +455,10 @@ def test_lag_aware_pivot_lands_within_the_measured_arrival_window(
             f"tau={tau} cruise={cruise}: lag-aware pivot landed at "
             f"{heading_deg:.3f} deg, more than "
             f"{_LAG_MODEL_ARRIVAL_BOUND_DEG} deg from the commanded 90"
+        )
+        assert heading_deg >= 90.0 - 0.5, (
+            f"tau={tau} cruise={cruise}: landed SHORT at {heading_deg:.3f} "
+            f"deg -- {_LAG_MODEL_ARRIVAL_SIGN_NOTE} (2026-09-06 note above)"
         )
 
 
@@ -471,6 +497,10 @@ def test_design_s6_3_table_remeasured_with_the_fix(motion_lib):
                 f"tau={tau} cruise={cruise}: after-fix error "
                 f"{after_err:+.2f} deg exceeds "
                 f"{_LAG_MODEL_ARRIVAL_BOUND_DEG} deg"
+            )
+            assert after_err >= -0.5, (
+                f"tau={tau} cruise={cruise}: after-fix error {after_err:+.2f} "
+                f"deg is SHORT -- {_LAG_MODEL_ARRIVAL_SIGN_NOTE}"
             )
 
     print("\ndesign S6.3 table, re-measured against THIS ticket's fix "

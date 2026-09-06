@@ -650,6 +650,45 @@ tick* — the `remain <= arrive` case of the same test — so a call whose
 residual is already inside the window issues nothing, as `goToR`'s
 `arrive` gate does today.
 
+**Floor-relative credit (2026-09-06).** The additive `vAct·lag` term is
+right while the wheel is genuinely coasting and wrong where every pivot
+actually ends: at the speed floor, where a real wheel is stiction-bound
+and stops within a millimetre or two. Credited in full there it ends a
+lag-0.13 pivot ~8 mm per wheel early. MEASURED tovez, bench, wheels up,
+12 interleaved 90° pivots
+(`reports/square-hw-vs-sim-20260906/bench-demo/lag-sweep-bench.json`):
+odometry shortfall +0.14 / −0.56 / −2.80 / **−8.05°** at lag 0.00 /
+0.04 / 0.08 / 0.13 — linear in lag at ~63 mm/s, i.e. the credit was
+being taken at the 70 mm/s floor. With the arrival term changed to
+
+```
+arriving = remain >= 0 and
+           remain <= vNext*dt + max(0, vAct - floor)*lag + stopDistance
+```
+
+(the braking plan in §6.1 keeps its full `vAct·lag`, which is what
+brings the wheel to the floor in time on a straight) the same sweep
+gives +0.60 / +0.12 / −0.10 / **−2.38°**
+(`…/lag-sweep-bench-FLOORCREDIT.json`), and the clean 600 mm square at
+tovez's baked lag 0.13 closes at **11.0 mm**
+(`…/square_clean-floorcredit.json`) against 387.4 mm on the full-credit
+form the same hour — and 5.0 mm on the pre-029 engine with its measured
+2 mm `pivot_overrun` (`reports/tours-20260901.md`). This is the
+"floor-speed coast credited separately" reconciliation vevov's
+2026-09-04 config note asked sprint 031 for; `pivot_overrun` was a
+measured floor coast all along, and `vAct·lag` at the floor is not.
+
+The host models cannot show this. `LaggedRig` (`test_profile_probe.py`)
+and `SimWheel` (`sim_nezha_bus.h`) are first-order lags with no
+stiction below the floor, so they coast the full credit and land the
+floor-relative form ~3–4° LONG on a lag-0.13 pivot — exactly the
+behaviour the table above was fitted against, and the same plant that
+scored the merge regression `974b52b` better than its fix. Their tests
+carry that offset as a documented deviation (`_LAG_MODEL_ARRIVAL_BOUND_
+DEG`, `test_sim_profile_tracking.py`'s module note). Until a plant with
+floor stiction is fitted (§10.2), the robot arbitrates and the models
+are for mechanism only.
+
 ### 6.4 The pivot→straight handoff goes through rest
 
 motion-api §3.3: "Never replace an in-flight arc with a pivot at speed…

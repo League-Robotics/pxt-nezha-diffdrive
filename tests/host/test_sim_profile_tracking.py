@@ -19,6 +19,21 @@ vs ...-PREMERGE.json). Tight absolute bounds here would have locked that
 regression in. Real drivetrains stop far faster than a first-order lag
 near the speed floor; this model cannot represent that, and no threshold
 in this file should pretend otherwise.
+
+KNOWN MODEL OFFSET (2026-09-06). The arrival predicate now credits lag
+coast only ABOVE the speed floor (`(vAct - floor) * lag`, design S6.3
+"floor-relative credit"), because real wheels are stiction-bound at the
+floor: MEASURED tovez, wheels up, the full-credit form landed 90 deg
+pivots -8.05 deg short at lag 0.13 and the floor-relative form -2.38,
+closing the clean 600 mm square at 11.0 mm instead of 387.4
+(reports/square-hw-vs-sim-20260906/bench-demo/). THIS plant has no
+stiction below the floor -- `SimWheel` is a first-order lag at every
+speed -- so on it the same predicate lands a lag-0.13 pivot about
++3 deg LONG (jerk 0; ~+0.7 with jerk 800). That is the model coasting
+what the hardware does not, and it is the second time this session the
+tau == lag plant has scored the hardware-wrong form better. The bounds
+below carry that offset explicitly; do not "fix" them by restoring the
+full credit.
 """
 
 import pytest
@@ -59,15 +74,19 @@ def test_wheel_speed_tracks_segment_cruise(square):
 
 
 def test_square_closes_without_accumulating_corner_error(square):
-    """Corner error must not ACCUMULATE. The per-pivot bound is the real
-    assertion; the closure/heading bounds are model-slack (see module
-    docstring) and exist only to catch gross divergence."""
+    """Corner error must not ACCUMULATE: every pivot lands within a
+    tight band of every other, and within the model's documented +3 deg
+    offset of the command (module docstring). The closure/heading
+    bounds are model-slack and exist only to catch gross divergence --
+    four pivots at the +3 deg model offset alone put the ground track
+    ~120 mm from closed, so the closure cap is not a fidelity claim."""
     closure, heading, moves, _, _ = square
-    assert closure < 35.0
-    assert abs(heading) < 3.5
-    for move in moves:
-        if move["cmd_rot"]:
-            assert abs(move["dheading"] - move["cmd_rot"]) < 1.0
+    pivots = [m["dheading"] - m["cmd_rot"] for m in moves if m["cmd_rot"]]
+    assert max(pivots) - min(pivots) < 1.0, pivots      # no accumulation
+    for dev in pivots:
+        assert -1.0 < dev < 4.0, pivots                  # model offset band
+    assert closure < 160.0
+    assert abs(heading) < 16.0
 
 
 @pytest.mark.parametrize("jerk", [0.0, 800.0])
@@ -80,7 +99,7 @@ def test_move_completion_requires_rest_without_external_pause(simulation, jerk):
         assert abs(sample[1]) < 5.0
         assert abs(sample[2]) < 5.0
     # Model-slack bounds, not a fitted expectation -- see the module
-    # docstring on why absolute numbers from this plant are not a
-    # target to tighten onto.
-    assert closure < 35.0
-    assert abs(heading) < 3.5
+    # docstring (KNOWN MODEL OFFSET) on why absolute numbers from this
+    # plant are not a target to tighten onto.
+    assert closure < 160.0
+    assert abs(heading) < 16.0

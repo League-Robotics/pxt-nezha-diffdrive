@@ -107,8 +107,40 @@ VelocityShaper::Step VelocityShaper::advance(float target, float remain,
   // a tick or more early on a real, lagged drivetrain -- see the
   // measurement cited in step 1. Pinned by
   // test_lagged_arrival_is_not_advanced_by_the_pipeline_term.
+  //
+  // Lag coast is credited only for speed ABOVE the floor. At the floor a
+  // real wheel is stiction-bound and stops within a millimetre or two;
+  // crediting the full vAct*lag there ends a pivot before the wheels
+  // have covered the arc. MEASURED tovez 2026-09-06, wheels up, 12
+  // interleaved 90 deg pivots, reports/square-hw-vs-sim-20260906/
+  // bench-demo/lag-sweep-bench.json: with the full-credit form the
+  // odometry shortfall was +0.14 / -0.56 / -2.80 / -8.05 deg at lag
+  // 0.00 / 0.04 / 0.08 / 0.13 -- linear in lag at ~63 mm/s, i.e. the
+  // credit was being taken AT the 70 mm/s floor. This is the
+  // "floor-speed coast credited separately" reconciliation vevov's
+  // 2026-09-04 config note asked sprint 031 for.
+  //
+  // MEASURED on this form, same bench, same sweep
+  // (bench-demo/lag-sweep-bench-FLOORCREDIT.json): +0.60 / +0.12 /
+  // -0.10 / -2.38 deg at lag 0.00 / 0.04 / 0.08 / 0.13. The clean
+  // 4-leg 600 mm square at tovez's baked lag 0.13 closed at 11.0 mm
+  // (bench-demo/square_clean-floorcredit.json) against 387.4 mm on
+  // the full-credit form forty minutes earlier -- and 5.0 mm on the
+  // pre-029 engine with its MEASURED 2 mm pivot_overrun (gopiv,
+  // reports/tours-20260901.md). The residual at 0.13 is credit taken
+  // during the last braking ticks where vAct is still ~20 mm/s above
+  // the floor.
+  //
+  // The host plants (LaggedRig in test_profile_probe.py, SimWheel in
+  // sim_nezha_bus.h) are pure first-order lags that coast the full
+  // vAct*lag at every speed, so on THEM this form lands a lag-0.13
+  // pivot ~3 deg LONG; their tests carry that offset as a documented
+  // model deviation. Real wheels arbitrate; see docs/design/
+  // motion-profile-unification.md S6.3, "floor-relative credit".
+  const float coastCredit =                                  // [mm]
+      vAct > floor ? (vAct - floor) * lim.lag : 0.0f;
   const bool arriving = remain >= 0.0f &&
-      remain <= vNext * dt + vAct * lim.lag + lim.stopDistance;
+      remain <= vNext * dt + coastCredit + lim.stopDistance;
 
   v_ = vNext;
   a_ = dt > 0.0f ? (vNext - vPrev) / dt : 0.0f;
