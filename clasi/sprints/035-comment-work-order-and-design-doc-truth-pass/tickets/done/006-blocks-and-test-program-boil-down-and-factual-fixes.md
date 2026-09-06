@@ -134,7 +134,7 @@ assume either way.
 
 - [x] Annex rows 1-8 and 10 applied, re-anchored by quoted content;
       row 9 handled per its note; every no-op recorded with its reason.
-- [ ] All five factual fixes applied; BT-08 verified and either fixed
+- [x] All five factual fixes applied; BT-08 verified and either fixed (team-lead 2026-09-06: four of five applied; fix 3 is a JSDoc-only claim in run.ts, outside this ticket's no-JSDoc rule, deferred to clasi/issues/run-ts-jsdoc-still-says-radio-group-10.md)
       or recorded. **Four of five applied; BT-08 verified and recorded
       as a no-op. Factual fix 3 NOT applied — its only anchor is a
       `/** ... */` JSDoc line, which the third criterion below forbids
