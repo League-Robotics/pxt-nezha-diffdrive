@@ -138,6 +138,8 @@ _BASELINE_GROUP_ORDER = {
     # ArriveDist/ArriveYaw are NEW, appended at the end (ordinals 34-36).
     # Sprint 029 ticket 009 (design S4.1/S6.1/S10.2): Lag is NEW,
     # appended after ArriveYaw (ordinal 37).
+    # Sprint 031 ticket 019: StraightTrim is NEW, appended after Lag
+    # (ordinal 38).
     "ENUM": [
         "ConfigField.MaxDuty", "ConfigField.FullDutyVelocity",
         "ConfigField.Kp", "ConfigField.Ki", "ConfigField.IMax",
@@ -158,6 +160,7 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.ArriveDist",    # ordinal 35
         "ConfigField.ArriveYaw",     # ordinal 36
         "ConfigField.Lag",           # ordinal 37
+        "ConfigField.StraightTrim",  # ordinal 38
     ],
 }
 

@@ -283,9 +283,7 @@ constexpr FieldEntry kFields[] = {
                                // measured dominant-axis speed. See
                                // shims.cpp's setKernelValue()/
                                // getConfigValue() case (kLimitsFields).
-    {"straight_trim", 38},     // ConfigField.StraightTrim (sprint 031
-                               // ticket 019, NEW ordinal, docs/sprint-
-                               // 031-postmortem.md §2.2): [1] a
+    {"straight_trim", 38},     // ConfigField.StraightTrim: [1] a
                                // dimensionless per-robot bias on the
                                // kernel's OWN twist-hold reference
                                // (DiffDrive::Config::straightTrim), a

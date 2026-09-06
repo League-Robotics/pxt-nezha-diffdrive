@@ -1460,8 +1460,7 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
     // inline" convention case 17 already uses for clearStallLatch()
     // instead of going through clearStall().
     case 33: if (v != 0.0f) k.estopClear(); break;
-    // 38 (sprint 031 ticket 019, docs/sprint-031-postmortem.md §2.2):
-    // straight_trim -- a thin forward to the kernel's own
+    // 38: straight_trim -- a thin forward to the kernel's own
     // setStraightTrim() (DiffDrive::Config::straightTrim, a real stored
     // kernel Config field, unlike case 15/16's own Rig/MotionEngine
     // fields above). No validation beyond setStraightTrim()'s own
@@ -1535,9 +1534,9 @@ int getConfigValue(int field) {  // -> [x1000 scaled]
     // it before this function is ever reached, since a rebase has
     // nothing meaningful to read back.
     case 33: v = r.kernel.output().estopped ? 1.0f : 0.0f; break;
-    // 38 (sprint 031 ticket 019): straight_trim's GET side -- read back
-    // straight from `c` (it IS a stored kernel Config field, unlike
-    // case 15/16's own Rig/MotionEngine reads above).
+    // 38: straight_trim's GET side -- read back straight from `c` (it
+    // IS a stored kernel Config field, unlike case 15/16's own
+    // Rig/MotionEngine reads above).
     case 38: v = c.straightTrim; break;
     default: return 0;
   }
