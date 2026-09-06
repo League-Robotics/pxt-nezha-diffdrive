@@ -143,6 +143,13 @@ _CXX11_PORTABLE_SOURCES = [
     # translation unit exists solely to give this gate something to
     # compile. wire_adapter.cpp, above, also includes it.
     _TEST_DIR / "config_fields_syntax_check.cpp",
+    # comms/transport_sink.h has no pxt.h dependency (the one Wire::Sink
+    # every transport is reached through, plus the terminator decision
+    # it makes -- see its own header comment) but no natural .cpp of its
+    # own, so this dedicated translation unit exists solely to give this
+    # gate something to compile. It instantiates the template, since a
+    # class template that merely parses is not one that compiles.
+    _TEST_DIR / "transport_sink_syntax_check.cpp",
 ]
 
 

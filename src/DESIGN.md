@@ -999,23 +999,45 @@ drains buffered bytes into a 240-byte partial-line accumulator across
 calls. `kMaxLineBytes` = 240 is deliberately kept equal to
 `WireHandler::kMaxLineBytes` so this transport is never the tighter
 cap (a 201–239-byte line would otherwise be truncated one layer below
-the tested discard-whole-line guarantee). `writeLine()`'s two-writer
-guard (sprint 004 ticket 006) is a **bounded retry inside the call
-itself**: a second caller finding the guard held sleeps `fiber_sleep(2)`
-and checks again, up to `kMaxSendAttempts = 5`, before giving up and
-counting a drop — deliberately a *different* policy from
-`RadioTransport::sendLine()`'s drop-and-retry-once below (the sprint's
-architecture review explicitly approved keeping the two distinct:
-serial has no caller whose loss is "fine" the way telemetry's
-self-healing `seq` gap makes radio's drop acceptable). The drop
-counter is exposed at diag ordinal 26 (`probe(26)`/`diagValue(26)`,
-`shims.cpp`).
+the tested discard-whole-line guarantee). **Single writer: the protocol
+fiber.** `writeLine()` claims and releases nothing. Its two
+`uBit.serial.send(…, SYNC_SLEEP)` calls do yield (once CODAL's TX ring
+fills), but a yield only corrupts a line if a *second* writer can
+interleave into it, and none can: every caller — a v6 reply, a
+telemetry frame, a line another fiber handed to `Protocol::emitLine()`
+and this fiber later drained off the emit ring — reaches it from
+`Protocol::serviceOnce()`, on `Protocol`'s own fiber. The `sending_`
+bool and its bounded `kMaxSendAttempts` retry that used to guard
+against a TS-fiber writer are **deleted**: that writer stopped existing
+when the emit ring shipped, and a guard describing a caller that cannot
+occur is worse than none — it reads as live protection. The drop
+counter stays (a `uBit.serial.send()` that itself reports a failure) and
+is exposed at diag ordinal 26 (`probe(26)`/`diagValue(26)`,
+`shims.cpp`): "did a line ever fail to go out" is a real, still-open
+question, unrelated to how many fibers write.
 
 **RadioTransport.** Frames wire lines for the fleet's RADIOBRIDGE
 relay: `[SEQ][FLAGS][LEN][payload]` fragments (START/MORE/END flags),
-a TX-only port of the fleet's robot-side radio driver. Radio enable is
-lazy (group 10 by default, channel 4 — vevov's fleet assignment —
-power 7). Group is the one field a student program can change, via
+a TX-only port of the fleet's robot-side radio driver. **The v6 radio
+link is opt-in, and this class owns that decision**: `enable()` sets
+it, `enabled()` answers it, and `sendLine()`/`tryReceiveLine()` return
+`false` — touching no hardware — until `enable()` has been called.
+That gate used to be a `Protocol::radioEnabled_` bool checked at three
+call sites the source itself numbered "Gate 1/2/3 of 3" (the RX poll,
+`emitLineNow()`'s radio mirror, and the radio telemetry emission);
+every path into this class has to be gated, not just the poll, because
+BOTH entry points lazily call `ensureRadioReady()` — so a caller-side
+gate is a rule each new call site must remember, while one on the
+object cannot be forgotten. `Protocol` now asks
+`radioTransport_.enabled()` at the one place the answer still buys
+something (skipping `wireHandlerRadio_.emitTelemetry()`, which would
+otherwise format frames and advance its own header state for a link
+that cannot carry them) and lets the transport refuse everywhere else.
+`enable()` does not bring the radio up: bring-up stays
+lazy-on-first-use (group 10 by default, channel 4 — vevov's fleet
+assignment — power 7), so a program that enables the link and never
+sends or polls still never pays `uBit.radio.enable()`'s RAM/softdevice
+cost. Group is the one field a student program can change, via
 `setGroup()`/the blocks layer's "set radio group" block (sprint 021
 ticket 005). The supported path is calling it from `on start`, before
 the radio has come up: `setGroup()` just stores the value, and
@@ -1033,13 +1055,17 @@ kills the program within two polls (measured; CODAL EmptyPacket
 refcounting). Multi-fragment inbound reassembly is deliberately out of
 scope. Send-path scratch buffers are members, not stack locals — the
 protocol fiber's 2 KB stack overflowed and hard-faulted with them on
-the stack (measured). Those buffers are no longer single-fiber-only
-(sprint 004 ticket 002): the protocol fiber (via `RadioSink::write()`)
-and the TS fiber (via `Protocol::emitLine()`) both call `sendLine()`
-now, guarded by a `sending_` bool — the second caller in returns
-`false` untouched. `emitLine()` retries once after `fiber_sleep(2)`;
-`RadioSink::write()` ignores the drop by design (a lost `t` frame
-self-heals via the next `seq` gap). Not host-testable (this file
+the stack (measured). Those buffers are **single-fiber use**: the
+protocol fiber is `sendLine()`'s only writer, so they are shared in the
+sense of "reused every call", not "reached concurrently". The
+`sending_` re-entrancy guard, and `emitLineNow()`'s
+`fiber_sleep(2)`-and-retry that existed only to answer it, are
+**deleted** — the TS-fiber writer they guarded against went away when
+`emitLine()` became a ring enqueue drained by this same fiber, and a
+`false` return now means one thing only: the link is disabled. Retrying
+a disabled radio achieves nothing. A telemetry frame or reply that does
+not go out is still accepted silently (a lost `t` frame self-heals via
+the next `seq` gap). Not host-testable (this file
 includes `pxt.h`); verified by code review, first exercised live at
 the bench. **Sprint 008**: `kMaxPayloadBytes`'s own doc comment
 previously claimed it was "sized the same as SerialTransport's bound"
@@ -1377,9 +1403,11 @@ covers `core/diffdrive.cpp` without editing it.
 
 **Responsibility.** The CODAL fiber that plumbs bytes between the
 transports and the v6 wire stack — it knows nothing of the grammar
-itself. Composition by NSDMI in declaration order: `SerialSink`/
-`RadioSink` (each strips the trailing `\n` WireHandler supplies,
-because its own transport appends its own), a single `WireAdapter`
+itself. Composition by NSDMI in declaration order: one
+**`TransportSink`** per transport — all three instantiations of the
+same class (`comms/transport_sink.h`), not three hand-copied `Wire::Sink`
+subclasses as before — each pairing a transport with a one-line writer
+function; a single `WireAdapter`
 (constructed with a placeholder identity; `run()` installs the real
 one via `setIdentity()` once the fiber is executing — the proven-safe
 time to call `microbit_friendly_name()`/`microbit_serial_number()`),
@@ -1393,13 +1421,18 @@ other's next command.
 
 **Fiber loop (`run()`).** Sends the boot banner unsolicited
 (byte-identical to HELLO's reply), then forever: poll serial
-`tryReadLine()` — lines with the literal `RUN:` prefix go to the
-legacy MessageBus bridge, everything else is `feed()`'d to
-`wireHandler_`; poll radio RX the same way (sprint 004 ticket 001,
-closing sprint 003's own Open Question 4) — lines with the literal
-`RUN:` prefix go to the same legacy bridge, preserved unchanged as a
-fallback, everything else — the full v6 grammar — is `feed()`'d to
-`wireHandlerRadio_` instead; every 50 ms, if
+`tryReadLine()`, poll radio RX, poll WiFi — and hand whatever each one
+produced to **`routeLine(handler, data, len)`**, the one inbound path.
+A line carrying the literal `RUN:` prefix goes to the cleartext RUN
+bridge; everything else — the full v6 grammar, including its own
+space-separated `RUN <name> … #<id>` verb — is `feed()`'d to the
+`handler` the caller passed, followed by the separate `"\n"` feed that
+completes the line. Which `WireHandler` that is (`wireHandler_` /
+`wireHandlerRadio_` / `wireHandlerWifi_`, each with its own
+`expectedNext_`) is the ONLY thing that ever differed between the three
+poll branches — which is exactly why the `RUN:` carve-out used to be
+written out three times to stay true on all three wires. Then, every
+50 ms, if
 `wireAdapter_.telemetryEnabled()`, call `wireAdapter_.buildSnapshot()`
 **once** and hand that same `Snapshot` reference to both handlers'
 `emitTelemetry(snapshot)` (sprint 004 tickets 003/004) — building it
@@ -1411,7 +1444,29 @@ tick where no host has subscribed), the tick emits nothing at all —
 any path; §"Reliability layer" above); and while
 `wireAdapter_.hasLiveMotionObligation()`, call `tickDrive()` itself
 (the fiber is the tick source for wire-issued motion), else
-`fiber_sleep(5)`.
+`fiber_sleep(5)`. Every millisecond reading this loop takes comes from
+one method, `clockNow()` — the single place `clock_`'s microsecond
+counter is reduced to the scale the telemetry cadence, the WiFi debug
+period, the RUN dedupe window and `wireNow()` all work in; it replaced
+four separate `nowMicros() / 1000` conversions.
+
+**One sink, `comms/transport_sink.h`.** Outbound, the mirror of
+`routeLine()`. Every reply, ack and telemetry frame leaves through a
+`TransportSink<Transport>`: it decides how much of the written line is
+content and hands those bytes to the transport, which appends its own
+single delimiter. That decision — `wireLineContentLength()` — is why a
+sink drops a byte at all: `WireHandler::writeLine()` terminates every
+line it writes, and passing that byte through as well would double it.
+It is dropped only after being **checked for**, which the three
+hand-copied sinks this replaces did not do: they took the last byte off
+blind, so a line arriving without its terminator lost a real byte
+instead — a plausible, wrong number rather than a visibly truncated
+one. The header has no `pxt.h` dependency (only `wire_handler.h`'s
+`Sink` interface), so unlike the sinks it replaces it is executable
+under `tests/host/test_transport_sink.py`, terminated / unterminated /
+CRLF / empty / maximum-width lines included; the transport a sink is
+paired with, and everything below it, remains review-verified and
+bench-exercised.
 
 **Sprint 028: one execution model, not three.** Before this sprint,
 wire motion ticked on this fiber (above) while `RUN:` motion ticked on
@@ -1492,7 +1547,11 @@ motion owner):
 
 ```mermaid
 graph TD
-    Wire[Serial / Radio transport] --> Protocol
+    Wire[Serial / Radio / WiFi transport] -->|one line| RouteLine[routeLine -- one inbound path]
+    RouteLine --> Protocol
+    Protocol -->|every reply, ack, telemetry frame| Sink[TransportSink -- one Sink class]
+    Sink --> Wire
+    Radio[RadioTransport] -->|enable / enabled -- owns its own gate| Radio
     Protocol -->|drainEmitQueue, then serviceOnce: read/telemetry| Protocol
     Protocol -->|offer on RUN: prefix| RunBridge[comms/run_bridge.h -- sanitize, dedupe, park]
     RunBridge -->|run_queue.h ring| RunQueue[8 x 48 slot ring]
@@ -1565,14 +1624,14 @@ size/framing constants — `kFrameHeaderBytes`, `kGroup`, `kChannel`,
 moved: nothing outside the class needs to name the others, so widening
 them would be access-loosening without a caller to justify it).
 Single-sourcing the name, not the value, closes the drift risk without
-touching radio's actual capacity (sprint 010's scope, §6). Since
-sprint 004 ticket
-002, the radio half checks `RadioTransport::sendLine()`'s bool return:
-`false` means its re-entrancy guard fired against the protocol fiber's
-own concurrent `RadioSink::write()`, and — because this is the one
-caller whose loss is user-visible (a test's own recorded result) —
-this retries once after `fiber_sleep(2)` before giving up silently,
-not in a loop.
+touching radio's actual capacity (sprint 010's scope, §6). The radio
+half no longer checks `sendLine()`'s bool return or retries: `false`
+used to mean "the re-entrancy guard fired against a concurrent writer",
+which is why it was worth one `fiber_sleep(2)`-and-retry; with the emit
+ring making this fiber the sole writer, `false` means "the link is
+disabled", and sending the same line twice to a disabled radio achieves
+nothing. `emitLineNow()` also no longer gates on a radio-enable flag of
+its own — `RadioTransport` refuses on its own behalf (§6).
 
 **Lifecycle.** Lazy singleton `protocol()`, started by a top-level
 `_startProtocol()` call the moment the extension's compiled code loads

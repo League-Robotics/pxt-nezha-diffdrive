@@ -2,7 +2,7 @@
 id: '006'
 title: RadioTransport enable/enabled, routeLine() + one TransportSink, delete vestigial
   two-writer guards
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 depends-on:
@@ -63,18 +63,55 @@ created; none of those are touched by 031's unmerged commits
 
 ## Acceptance Criteria
 
-- [ ] `radioEnabled_` and all three "Gate N of 3" comments/call sites
+- [x] `radioEnabled_` and all three "Gate N of 3" comments/call sites
       are gone from `protocol.cpp`; `RadioTransport::enabled()` is the
       single source of that answer.
-- [ ] `routeLine()`/one `TransportSink` exist and both transports use
+- [x] `routeLine()`/one `TransportSink` exist and both transports use
       them; the copy-pair poll branches in `Protocol::run()` are gone.
-- [ ] One `nowMs()` replaces the four `nowMicros()/1000` conversions.
-- [ ] `sending_` and its retries are deleted from both transports; the
+      (WiFi's identical fourth branch goes through the same two paths —
+      see Implementation Notes.)
+- [x] One `nowMs()` replaces the four `nowMicros()/1000` conversions.
+      Named `Protocol::clockNow()` with a `// [ms]` trailing comment,
+      per `.claude/rules/no-units-in-identifiers.md` (which postdates
+      this ticket's text).
+- [x] `sending_` and its retries are deleted from both transports; the
       drop counters remain; all four comment blocks are rewritten to
       state "single writer: the protocol fiber."
-- [ ] `RUN:abort`/`RUN:clearestop`'s existing bypass-the-queue,
+- [x] `RUN:abort`/`RUN:clearestop`'s existing bypass-the-queue,
       act-immediately behavior is unaffected by any of the above.
-- [ ] No change to `motion_engine.*`, `segment.h`, or `wire_adapter.cpp`.
+- [x] No change to `motion_engine.*`, `segment.h`, or `wire_adapter.cpp`.
+
+## Implementation Notes
+
+- **WiFi took the same two paths.** `serviceWifi()`'s inbound loop had
+  the identical strip-and-`feed()`-and-re-`feed("\n")` shape with its
+  own copy of the `RUN:` carve-out, and `WifiSink` was a third copy of
+  the same blind-strip sink, so both went through `routeLine()` and
+  `TransportSink` with serial and radio rather than being left as the
+  one branch still written out by hand. No identifier in `wifi_link.*`
+  was renamed (ticket 008's scope).
+- **One behavioural difference, deliberate and documented.** The old
+  sinks took the last byte off every written line without checking it
+  was the terminator. `wireLineContentLength()` checks first, so a line
+  arriving WITHOUT a terminator now keeps its last byte instead of
+  losing a real one. Identical for every line that carries its `\n`
+  (all of them today); this is the seam ticket 007's telemetry-terminator
+  fix builds on, not that fix itself.
+- **What is verified, and how.** The new host-portable seam
+  (`src/comms/transport_sink.h`) is executed directly by
+  `tests/host/test_transport_sink.py` — terminated, unterminated, CRLF,
+  empty and maximum-width lines, plus the sink's own dispatch through
+  the real `Wire::Sink&`. Everything else in this ticket —
+  `RadioTransport`'s enable/enabled state machine, the guard deletion,
+  `routeLine()`'s call sites, `clockNow()` — is in `pxt.h`-bound
+  translation units that no host test can compile, and is **verified by
+  code review only, first exercised live at the next bench session**,
+  per `src/DESIGN.md` §6/§8's own standing convention for this layer.
+  Nothing here was run on hardware; no MEASURED claim is made anywhere
+  in this change. As an extra offline check the exact new NSDMI sink
+  composition was compiled at `-std=c++11` against the real (pxt-free)
+  transport headers in a scratch translation unit, which the C++11 gate
+  cannot reach through `protocol.h`.
 
 ## Testing
 

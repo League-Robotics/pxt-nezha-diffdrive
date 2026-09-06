@@ -53,6 +53,14 @@ Three kinds of file, one pattern:
   encoder, clock or control loop in the link — the first host coverage
   of the dead-reckoning math, which lived in `shims.cpp` (`pxt.h`-bound,
   unlinkable here) until `Odometry` made it portable.
+  `transport_sink_shim.cpp` (sprint 033) exposes
+  `diffDrive::TransportSink` and the `wireLineContentLength()` decision
+  behind it — the outbound half of the same kind of extraction: three
+  hand-copied `Wire::Sink` subclasses inside the `pxt.h`-bound
+  `protocol.cpp` became one class in a header with no CODAL dependency,
+  so `test_transport_sink.py` can drive the real sink, through the real
+  `Wire::Sink&` the wire stack holds, over a recording fake transport.
+  The transports those sinks write to are still out of reach here.
   `wire_motion_verb_shim.cpp` carries two handles:
   `WvHandle` (WireHandler + mock adapter — decode/dispatch mechanics)
   and `WaHandle` (WireHandler + the **real** `WireAdapter` + a

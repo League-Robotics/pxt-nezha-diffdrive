@@ -10,7 +10,12 @@ name/ordinal/unit table — one list, read by `wire_adapter.cpp` and by
 the `ConfigField` generator, with the matching behaviour in
 `shims.cpp`), `serial_transport.*` /
 `radio_transport.*` (byte framing over uBit.serial and the fleet
-radio relay), `run_queue.h` / `run_bridge.h/.cpp`
+radio relay — the radio owns its own opt-in gate, `enable()`/
+`enabled()`), `transport_sink.h` (`diffDrive::TransportSink`, the one
+`Wire::Sink` all three transports are reached through, plus the
+terminator decision it makes — host-portable, no `pxt.h`, host-tested
+by `tests/host/test_transport_sink.py`), `run_queue.h` /
+`run_bridge.h/.cpp`
 (`diffDrive::RunBridge`, the cleartext `RUN:` bridge's sanitize/dedupe/
 park rules over that ring — host-portable, no `pxt.h`, host-tested by
 `tests/host/test_run_bridge.py`), and `protocol.h/.cpp`

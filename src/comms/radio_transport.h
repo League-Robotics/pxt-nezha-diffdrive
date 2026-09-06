@@ -58,6 +58,33 @@ inline bool radioRxLineFits(size_t declaredLen, size_t bufferCapacity) {
 
 class RadioTransport {
  public:
+  // The v6 radio link is OPT-IN, and this class owns that decision --
+  // sendLine() and tryReceiveLine() below both refuse (return false,
+  // touching no hardware) until enable() has been called.
+  //
+  // Being opt-in is what lets a student's program use MakeCode's own
+  // `radio.*` blocks (a joystick controller, say). This class frames
+  // raw RadioRelay fragments with NO PXT radio packet header, on a
+  // fixed band -- see this file's top comment -- so the two cannot
+  // share the air. Whichever one comes up first owns the radio.
+  //
+  // The gate lives HERE, on one object, rather than as a bool on
+  // Protocol checked at each of its call sites, because EVERY path
+  // that reaches this class must be gated, not just the RX poll: both
+  // sendLine() and tryReceiveLine() lazily call ensureRadioReady(), so
+  // an ungated emit or telemetry write claims the radio just as surely
+  // as a poll does. A caller-side gate has to be remembered at every
+  // new call site; this one cannot be forgotten.
+  //
+  // enable() does NOT bring the radio up: the lazy first-use bring-up
+  // (ensureRadioReady(), still called from sendLine()/tryReceiveLine())
+  // is unchanged, so a program that enables the link and never sends or
+  // polls still never pays uBit.radio.enable()'s RAM/softdevice cost.
+  // Idempotent; there is deliberately no disable() -- nothing has ever
+  // needed to hand the air back.
+  void enable() { enabled_ = true; }
+  bool enabled() const { return enabled_; }
+
   // Fragments `data` (len bytes) into RadioRelay-framed radio packets
   // and transmits each one via uBit.radio.datagram.send(), appending a
   // trailing 0x0A ('\n') as the final payload byte -- the same
@@ -66,30 +93,29 @@ class RadioTransport {
   // module's internal line-buffer capacity, mirroring SerialTransport's
   // own defensive truncation.
   //
-  // Lazily enables and configures the radio (uBit.radio.enable(),
+  // Lazily brings up and configures the radio (uBit.radio.enable(),
   // group/channel/power -- see group_/kChannel/kTransmitPower below;
   // group is student-settable via setGroup(), channel and power are
   // fixed -- matching the reference driver's own begin()) on the FIRST
-  // call, never at construction and never via a separate begin() step:
+  // call PAST the enable gate below, never at construction and never
+  // via a separate begin() step:
   // uBit.radio.enable() has its own RAM/softdevice cost, so a
   // bench-only serial user who never calls sendLine() never pays it.
   //
-  // Re-entrancy guard: TWO fibers can call this -- the TS fiber via
-  // Protocol::emitLine(), and the protocol fiber via RadioSink::write()
-  // (replies and emitTelemetry()'s frames) -- and
-  // uBit.radio.datagram.send() can block and yield, giving the two a
-  // real chance to interleave mid-format into payloadBuf_/frameBuf_.
-  // Returns false, WITHOUT TOUCHING payloadBuf_/frameBuf_ at all, if a
-  // call is already in progress on the other fiber; true after a
-  // normal completion. The dropped caller decides for itself whether
-  // that matters: Protocol::emitLine() retries once after
-  // fiber_sleep(2); RadioSink::write() ignores the return value and
-  // accepts the drop silently -- deliberately different from
-  // SerialTransport::writeLine()'s own guard, which retries internally
-  // instead of dropping (see that method's own doc comment).
+  // Returns false, having touched nothing, while the link is disabled
+  // (enable(), above); true once the fragments are on air. That is the
+  // ONLY thing the return value means. Single writer: the protocol
+  // fiber. Every caller -- a v6 reply, a telemetry frame, a queued
+  // emitLine() -- arrives from Protocol::serviceOnce() on Protocol's
+  // own fiber, so the shared payloadBuf_/frameBuf_ scratch below cannot
+  // be interleaved and no caller needs to retry.
   bool sendLine(const uint8_t* data, size_t len);
 
-  // RX (radio command plane, single-fragment only): polls one queued
+  // RX (radio command plane, single-fragment only): returns false,
+  // having touched nothing, while the link is disabled (enable(),
+  // above) -- which is what leaves the radio free for MakeCode's own
+  // radio blocks, since this is the call that would otherwise bring it
+  // up. Once enabled it polls one queued
   // datagram, accepts frames whose flags carry START|END together (a
   // complete message in one fragment -- with the 250-byte fleet packet
   // size every relay-forwarded command line qualifies), strips the
@@ -316,21 +342,16 @@ class RadioTransport {
   // buffers at the bottom of the deepest call chain (bench-measured:
   // run()+the (since-retired) DIAG-surface formatter+sendLine+
   // sendFragmented overflowed the fiber stack and hard-faulted ~1 s
-  // after boot). No longer single-fiber
-  // use only as of sprint 004 ticket 002: two fibers now call
-  // sendLine() (see its header comment), and sending_ below is what
-  // keeps only one of them touching these buffers at a time.
+  // after boot). Single-fiber use: the protocol fiber is sendLine()'s
+  // only writer (see its own doc comment), so these are shared scratch
+  // in the sense of "reused every call", not "reached concurrently".
   uint8_t payloadBuf_[kMaxPayloadBytes + 1];
   uint8_t frameBuf_[256];
 
+  // Set by enable(); the whole of this class's opt-in gate -- see
+  // enable()'s own doc comment above.
+  bool enabled_ = false;
   bool radioReady_ = false;
-  // Re-entrancy guard for sendLine()'s payloadBuf_/frameBuf_-touching
-  // body (sprint 004 ticket 002): true from the moment a caller enters
-  // that body until it returns. A second caller arriving while this is
-  // already true returns false immediately, touching neither buffer;
-  // only the caller that actually set this clears it, on its own way
-  // out -- the dropped caller never touches it.
-  bool sending_ = false;
   volatile bool rxReady_ = false;
   size_t rxLen_ = 0;
 

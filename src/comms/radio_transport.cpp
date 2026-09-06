@@ -149,6 +149,10 @@ void RadioTransport::sendFragmented(const uint8_t* payload,
 
 bool RadioTransport::tryReceiveLine(uint8_t* outBuf, size_t outCap,
                                     size_t* outLen) {
+  // Opt-in gate, ahead of ensureRadioReady(): NOT calling that is what
+  // leaves the radio to MakeCode's own radio blocks (enable()'s own
+  // doc comment, radio_transport.h).
+  if (!enabled_) return false;
   ensureRadioReady();
   if (!rxReady_) return false;
   size_t len = rxLen_;
@@ -160,15 +164,15 @@ bool RadioTransport::tryReceiveLine(uint8_t* outBuf, size_t outCap,
 }
 
 bool RadioTransport::sendLine(const uint8_t* data, size_t len) {
+  // Same opt-in gate tryReceiveLine() applies, and for the same reason:
+  // this call would otherwise bring the radio up out from under
+  // MakeCode's own radio blocks.
+  if (!enabled_) return false;
   ensureRadioReady();
 
-  // Re-entrancy guard (sprint 004 ticket 002): payloadBuf_/frameBuf_
-  // are shared scratch now reached by two fibers (see header comment).
-  // A caller that finds sending_ already true returns immediately,
-  // WITHOUT touching either buffer -- the in-flight caller owns them
-  // until it clears sending_ on its own way out below.
-  if (sending_) return false;
-  sending_ = true;
+  // Single writer: the protocol fiber. payloadBuf_/frameBuf_ below are
+  // reused every call but never reached concurrently, so nothing here
+  // guards them (see sendLine()'s own doc comment, radio_transport.h).
 
   // `data`/`len` plus one trailing '\n' delimiter -- the ONE
   // terminator every outbound line uses here, exactly as
@@ -182,8 +186,6 @@ bool RadioTransport::sendLine(const uint8_t* data, size_t len) {
   }
   payload[n] = kLineDelimiter;
   sendFragmented(payload, n + 1);
-
-  sending_ = false;
   return true;
 }
 

@@ -49,6 +49,7 @@
 #include "wire_adapter.h"
 #include "run_bridge.h"
 #include "emit_queue.h"
+#include "transport_sink.h"  // the ONE Sink all three transports use
 #include "wire_handler.h"
 
 namespace diffDrive {
@@ -161,7 +162,7 @@ class Protocol {
   // free-function shim beside startProtocol() (protocol.cpp) is this
   // method's only caller.
   //
-  // Channel and group are applied BEFORE radioEnabled_ flips, so the
+  // Channel and group are applied BEFORE the link is enabled, so the
   // radio comes up already on the requested channel/group the first time
   // anything touches it -- the supported ordering (see
   // RadioTransport::setChannel()'s own doc comment for why the
@@ -269,6 +270,32 @@ class Protocol {
   // itself) is already mid-tick when this fires, so doing either here
   // would be reentrant and wrong.
   void serviceOnce();
+
+  // The ONE path an inbound line takes, whichever transport produced
+  // it: `data`/`len` is one complete line, delimiter already stripped by
+  // the transport that framed it. A line whose first bytes are the
+  // literal "RUN:" prefix goes to the old-style cleartext bridge
+  // (handleRun(), below); everything else -- including the v6 grammar's
+  // own space-separated "RUN <name> ... #<id>" verb -- is fed to
+  // `handler`, followed by the separate "\n" feed() needs to see the
+  // line as complete.
+  //
+  // `handler` is the caller's own WireHandler, never a fixed one: each
+  // transport has its own (wireHandler_/wireHandlerRadio_/
+  // wireHandlerWifi_), each with its own expectedNext_, so a sequence
+  // gap on one transport can never nack another's next command. That
+  // per-transport handler is the ONLY thing that ever differed between
+  // the three poll branches this replaces -- they were otherwise
+  // identical, which is exactly why the "RUN:" carve-out had to be
+  // written out three times to stay true on all three wires.
+  void routeLine(Wire::WireHandler& handler, const uint8_t* data, size_t len);
+
+  // This fiber's own clock reading -- the ONE place clock_'s microsecond
+  // counter is reduced to the millisecond scale everything above it
+  // (the telemetry cadence, the WiFi debug period, RunBridge's dedupe
+  // window) actually works in. Was four separate `nowMicros() / 1000`
+  // conversions, one per caller.
+  uint32_t clockNow();  // [ms]
 
   // tickDrive()'s (shims.cpp) service hook, registered once via
   // registerTickServiceHook() when run() starts -- a plain
@@ -381,95 +408,53 @@ class Protocol {
   // running fiber, well after that singleton is assigned).
   static uint32_t wireNow();  // [ms]
 
-  // ---- ticket 005: the v6 wire transport seam --------------------------
-  // The one Sink WireHandler writes every reply line through (Sink's own
-  // contract, wire_handler.h). `data`/`length` always include a
-  // trailing '\n' -- WireHandler::writeLine() supplies it on every
-  // call -- so this strips that one byte before handing off to
-  // SerialTransport::writeLine(), which appends its OWN trailing
-  // delimiter; passing both through would double the newline.
-  class SerialSink : public Wire::Sink {
-   public:
-    explicit SerialSink(SerialTransport& transport) : transport_(transport) {}
-    void write(const char* data, size_t length) override {
-      const size_t contentLen = length > 0 ? length - 1 : 0;
-      transport_.writeLine(reinterpret_cast<const uint8_t*>(data),
-                           contentLen);
-    }
-
-   private:
-    SerialTransport& transport_;
-  };
-
-  // The Sink wireHandlerRadio_ writes every v6 reply line through --
-  // mirrors SerialSink exactly, including WHY the trailing '\n' is
-  // stripped here: RadioTransport::sendLine() appends its own trailing
-  // delimiter, same convention SerialTransport::writeLine() follows,
-  // so passing both through would double it.
-  class RadioSink : public Wire::Sink {
-   public:
-    explicit RadioSink(RadioTransport& transport) : transport_(transport) {}
-    void write(const char* data, size_t length) override {
-      const size_t contentLen = length > 0 ? length - 1 : 0;
-      // sendLine()'s bool return (ticket 002's re-entrancy guard) is
-      // deliberately ignored here, not an oversight: a telemetry/ack
-      // line dropped under contention with Protocol::emitLine() (the
-      // TS fiber's own sendLine() caller) self-heals for free via the
-      // next frame's seq gap, and retrying here would just reintroduce
-      // the contention the guard exists to avoid (see sprint.md's
-      // Design Rationale -- do not "fix" this into matching
-      // emitLine()'s retry).
-      (void)transport_.sendLine(reinterpret_cast<const uint8_t*>(data),
-                                contentLen);
-    }
-
-   private:
-    RadioTransport& transport_;
-  };
-
-  // The Sink wireHandlerWifi_ writes every v6 reply line through --
-  // mirrors RadioSink, including the trailing-'\n' strip (WifiLink::
-  // sendLine() frames the datagram with its own '\n'). A line dropped
-  // because the link is down, no host is known, or the bounded send
-  // queue is full is dropped silently here, by the same reasoning
-  // RadioSink gives: it self-heals through the host's own retransmit.
-  class WifiSink : public Wire::Sink {
-   public:
-    explicit WifiSink(WifiLink& link) : link_(link) {}
-    void write(const char* data, size_t length) override {
-      const size_t contentLen = length > 0 ? length - 1 : 0;
-      (void)link_.sendLine(reinterpret_cast<const uint8_t*>(data), contentLen);
-    }
-
-   private:
-    WifiLink& link_;
-  };
+  // ---- the v6 wire transport seam --------------------------------------
+  // All three transports are reached through ONE Sink class
+  // (TransportSink, transport_sink.h) rather than one hand-copied Sink
+  // apiece. Everything a Sink does here -- decide how much of the
+  // written line is content, hand those bytes to the transport, which
+  // appends its own single delimiter -- is identical for all three; the
+  // only difference is the write call itself, which is what these three
+  // one-line adapters supply. The content decision (and, in particular,
+  // that the terminator is CHECKED before it is dropped) lives in
+  // transport_sink.h, host-portable and host-tested by
+  // tests/host/test_transport_sink.py.
+  //
+  // A dropped line is accepted silently in all three cases: radio
+  // refuses while its link is disabled, and WiFi drops while the link
+  // is down, no host is known, or its bounded send queue is full. Both
+  // self-heal -- a lost telemetry frame through the next frame's seq
+  // gap, a lost reply through the host's own retransmit.
+  static void writeSerial(SerialTransport& transport, const uint8_t* data,
+                          size_t length) {
+    transport.writeLine(data, length);
+  }
+  static void writeRadio(RadioTransport& transport, const uint8_t* data,
+                         size_t length) {
+    (void)transport.sendLine(data, length);
+  }
+  static void writeWifi(WifiLink& link, const uint8_t* data, size_t length) {
+    (void)link.sendLine(data, length);
+  }
 
   RadioTransport radioTransport_;
   SerialTransport transport_;
   WifiUartCodal wifiUart_;
   CodalFiberLauncher launcher_;
-  CodalClock clock_;  // PING's t=<ms> equivalent is now wireNow(); this
-                      // instance now backs only handleRun()'s own dedupe
-                      // timing and wireNow() itself (via protocol()).
+  CodalClock clock_;  // read through clockNow() (above), never directly:
+                      // the RUN dedupe's timing, the telemetry cadence,
+                      // the WiFi debug period and wireNow() all take
+                      // their reading from that one method.
   bool running_ = false;
 
-  // The v6 radio link is OPT-IN: false until setupRadio() flips it.
+  // The v6 radio link's own OPT-IN flag lives on RadioTransport
+  // (enable()/enabled(), radio_transport.h), not here. This class
+  // asks radioTransport_.enabled() where it needs the answer and
+  // otherwise leaves the refusal to the transport, which returns false
+  // from sendLine()/tryReceiveLine() while disabled -- one object owns
+  // "may the radio transmit or receive right now", instead of a bool
+  // here that every new call site had to remember to check.
   //
-  // This is what lets a student's program use MakeCode's own `radio.*`
-  // blocks (a joystick controller, say). RadioTransport frames raw
-  // RadioRelay fragments with NO PXT radio packet header, on a fixed
-  // band -- see radio_transport.h's top comment -- so the two cannot
-  // share the air. Whichever one comes up first owns the radio.
-  //
-  // Every path that would reach RadioTransport must be gated on this,
-  // not just the RX poll: RadioTransport lazily calls ensureRadioReady()
-  // from BOTH tryReceiveLine() and sendLine(), so an ungated emitLine()
-  // or telemetry emission would claim the radio just as surely as the
-  // poll does. run()'s radio poll, emitLine()'s radio write, and run()'s
-  // wireHandlerRadio_.emitTelemetry() are the three sites.
-  bool radioEnabled_ = false;
-
   // The WiFi link is OPT-IN the same way (enableWifi()); wifiBegun_
   // records that serviceWifi() has already handed wifiLink_ its config
   // on this fiber.
@@ -489,8 +474,9 @@ class Protocol {
   // wireHandler_ -- NOT a second WireAdapter (see this file's own
   // top-of-file comment for why) -- but each keeps its own
   // expectedNext_.
-  SerialSink serialSink_{transport_};
-  RadioSink radioSink_{radioTransport_};
+  TransportSink<SerialTransport> serialSink_{transport_, &Protocol::writeSerial};
+  TransportSink<RadioTransport> radioSink_{radioTransport_,
+                                           &Protocol::writeRadio};
   WireAdapter wireAdapter_{Wire::Identity(), &Protocol::wireNow};
   Wire::WireHandler wireHandler_{wireAdapter_, serialSink_};
   Wire::WireHandler wireHandlerRadio_{wireAdapter_, radioSink_};
@@ -501,7 +487,7 @@ class Protocol {
   // each transport keeps its own expectedNext_, so a sequence gap on
   // WiFi can never nack serial's or radio's next command.
   WifiLink wifiLink_{wifiUart_, &Protocol::wireNow};
-  WifiSink wifiSink_{wifiLink_};
+  TransportSink<WifiLink> wifiSink_{wifiLink_, &Protocol::writeWifi};
   Wire::WireHandler wireHandlerWifi_{wireAdapter_, wifiSink_};
   uint8_t wifiRxBuf_[WifiLink::kMaxLineBytes + 1];
   // Sized for the worst-case `DBG:wifi ...` line: fixed text plus two
