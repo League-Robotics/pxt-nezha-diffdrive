@@ -1,0 +1,90 @@
+{
+  "firmware": "1.20260906.3 (as merged, b9497bb)",
+  "cruise": 188,
+  "settle_s": 3.5,
+  "home": [
+    -17.13,
+    1.01,
+    5.8
+  ],
+  "twist_hold_gain": 4.0,
+  "_note": "RECONSTRUCTED 2026-09-06 from the per-pivot rows the script printed at run time (session transcript): the script's JSON output path was shared across runs and each run overwrote the last. Every value below is exactly as printed; nothing was re-measured or inferred.",
+  "rows": [
+    {
+      "lag": 0.13,
+      "cruise": 188,
+      "odom_deg": 79.96,
+      "cam_deg": 80.66,
+      "odom_err": -10.04,
+      "cam_err": -9.34,
+      "walk_cm": 0.51
+    },
+    {
+      "lag": 0.04,
+      "cruise": 188,
+      "odom_deg": 89.24,
+      "cam_deg": 103.64,
+      "odom_err": -0.76,
+      "cam_err": 13.64,
+      "walk_cm": 0.87
+    },
+    {
+      "lag": 0.13,
+      "cruise": 188,
+      "odom_deg": 80.69,
+      "cam_deg": 89.99,
+      "odom_err": -9.31,
+      "cam_err": -0.01,
+      "walk_cm": 1.06
+    },
+    {
+      "lag": 0.04,
+      "cruise": 188,
+      "odom_deg": 88.78,
+      "cam_deg": 90.82,
+      "odom_err": -1.22,
+      "cam_err": 0.82,
+      "walk_cm": 0.47
+    },
+    {
+      "lag": 0.13,
+      "cruise": 188,
+      "odom_deg": 80.42,
+      "cam_deg": 86.38,
+      "odom_err": -9.58,
+      "cam_err": -3.62,
+      "walk_cm": 0.47
+    },
+    {
+      "lag": 0.04,
+      "cruise": 188,
+      "odom_deg": 89.13,
+      "cam_deg": 92.26,
+      "odom_err": -0.87,
+      "cam_err": 2.26,
+      "walk_cm": 1.04
+    },
+    {
+      "lag": 0.13,
+      "cruise": 188,
+      "odom_deg": 82.09,
+      "cam_deg": 90.52,
+      "odom_err": -7.91,
+      "cam_err": 0.52,
+      "walk_cm": 1.01
+    },
+    {
+      "lag": 0.04,
+      "cruise": 188,
+      "odom_deg": 89.31,
+      "cam_deg": 95.06,
+      "odom_err": -0.69,
+      "cam_err": 5.06,
+      "walk_cm": 0.22
+    }
+  ],
+  "summary": {
+    "lag_0.13_odom_err_mean": -9.21,
+    "lag_0.04_odom_err_mean": -0.88
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "firmware": "1.20260906.900 (pre-merge probe build of 4859d5b)",
+  "lag": 0.13,
+  "settle_s": 4.0,
+  "home": [
+    -15.2,
+    0.0,
+    -10.7
+  ],
+  "twist_hold_gain": 4.0,
+  "_note": "RECONSTRUCTED 2026-09-06 from the per-pivot rows the script printed at run time (session transcript): the script's JSON output path was shared across runs and each run overwrote the last. Every value below is exactly as printed; nothing was re-measured or inferred.",
+  "rows": [
+    {
+      "lag": 0.13,
+      "cruise": 100,
+      "odom_deg": 87.04,
+      "cam_deg": 92.25,
+      "odom_err": -2.96,
+      "cam_err": 2.25,
+      "walk_cm": 0.83
+    },
+    {
+      "lag": 0.13,
+      "cruise": 188,
+      "odom_deg": 83.35,
+      "cam_deg": 94.79,
+      "odom_err": -6.65,
+      "cam_err": 4.79,
+      "walk_cm": 0.98
+    },
+    {
+      "lag": 0.13,
+      "cruise": 100,
+      "odom_deg": 80.57,
+      "cam_deg": 82.82,
+      "odom_err": -9.43,
+      "cam_err": -7.18,
+      "walk_cm": 1.48
+    },
+    {
+      "lag": 0.13,
+      "cruise": 188,
+      "odom_deg": 82.89,
+      "cam_deg": 87.54,
+      "odom_err": -7.11,
+      "cam_err": -2.46,
+      "walk_cm": 0.67
+    },
+    {
+      "lag": 0.13,
+      "cruise": 100,
+      "odom_deg": 87.37,
+      "cam_deg": 89.79,
+      "odom_err": -2.63,
+      "cam_err": -0.21,
+      "walk_cm": 0.07
+    },
+    {
+      "lag": 0.13,
+      "cruise": 188,
+      "odom_deg": 83.43,
+      "cam_deg": 90.45,
+      "odom_err": -6.57,
+      "cam_err": 0.45,
+      "walk_cm": 1.32
+    },
+    {
+      "lag": 0.13,
+      "cruise": 100,
+      "odom_deg": 87.15,
+      "cam_deg": 91.49,
+      "odom_err": -2.85,
+      "cam_err": 1.49,
+      "walk_cm": 1.17
+    },
+    {
+      "lag": 0.13,
+      "cruise": 188,
+      "odom_deg": 82.7,
+      "cam_deg": 91.63,
+      "odom_err": -7.3,
+      "cam_err": 1.63,
+      "walk_cm": 0.51
+    }
+  ],
+  "summary": {
+    "cruise100_odom_err_mean": -4.47,
+    "cruise188_odom_err_mean": -6.91,
+    "cruise100_cam_err_mean": -0.91,
+    "cruise188_cam_err_mean": 1.11
+  }
+}
