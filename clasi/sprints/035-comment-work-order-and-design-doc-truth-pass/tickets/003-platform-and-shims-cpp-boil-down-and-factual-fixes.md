@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: platform/ and shims.cpp boil-down and factual fixes
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
@@ -92,25 +92,25 @@ delete a trailing `// [unit]`).
 
 ## Acceptance Criteria
 
-- [ ] Annex items 8-15 are applied, each re-anchored by quoted content;
+- [x] Annex items 8-15 are applied, each re-anchored by quoted content;
       any judged a no-op is recorded with its reason.
-- [ ] `nezha_port.cpp` no longer carries a stacked `UPDATE <date>`
+- [x] `nezha_port.cpp` no longer carries a stacked `UPDATE <date>`
       chain; the surviving text states the current truth (the VFP
       clobber, fixed by `vfp_guard.h`; the handler stays as the last
       line of defence) and keeps its `MEASURED` citation.
-- [ ] `shims.cpp`'s header no longer says the move engine is added by
+- [x] `shims.cpp`'s header no longer says the move engine is added by
       this file; the ODOMETRY bullet's `live HERE` is untouched.
-- [ ] `nezha_port.cpp`'s tigez citation points at
+- [x] `nezha_port.cpp`'s tigez citation points at
       `captures/tigez-cal-20260830/notes.md`.
-- [ ] `nezha_port.h`'s ordinal-27 claim is recorded as a verified
+- [x] `nezha_port.h`'s ordinal-27 claim is recorded as a verified
       no-op.
-- [ ] All 37 `//%` pragma lines in `src/shims.cpp` are byte-identical
+- [x] All 37 `//%` pragma lines in `src/shims.cpp` are byte-identical
       to before (`git diff` shows no `//%` line).
-- [ ] Every surviving `MEASURED` claim names its board, date and
+- [x] Every surviving `MEASURED` claim names its board, date and
       artifact path.
-- [ ] `shims.cpp`'s ratio is materially below 1.71; recorded in the
+- [x] `shims.cpp`'s ratio is materially below 1.71; recorded in the
       completion notes.
-- [ ] No trailing `// [unit]` deleted, no identifier renamed, no line
+- [x] No trailing `// [unit]` deleted, no identifier renamed, no line
       of code changed.
 
 ## Testing
@@ -145,3 +145,126 @@ Foreground only.
   list", rows 8-15; and its "CH-02" table.
 - Read `sprint.md`'s "Verification pass" section first.
 - Do not run the full repo suite.
+
+## Completion notes
+
+### Annex rows 8-15
+
+| row | outcome |
+|---|---|
+| 8 | **applied.** `nezha_port.cpp`'s fault-handler block: original forensics + the two dated `UPDATE` paragraphs collapsed into one statement of the current truth (weak handler = infinite loop, so the brick keeps its last command; root cause was the VFP clobber `vfp_guard.h` closes; handler stays as the last line of defence). Both `MEASURED` citations kept, the 2026-08-30 one repointed per factual fix 2. The "decode BFAR as ASCII and as a float" advice was kept — it is guidance for the next fault, not archaeology. |
+| 9 | **applied.** Bus-hang guard essay 38 → 9 lines. Kept commit `1fbb724`, the codal-microbit-v2 v0.3.5 pin, the ~11 s bound with its 10 s + 1 s derivation, the 3-per-motor multiplication, and the stated trade-off (a single transient NACK now reports `connected() == false`). Dropped the "not confirmed which path an unpowered brick takes / ticket 005 should watch for it" speculation. |
+| 10 | **applied.** `sampleTime_` hold block 32 → 18 lines. Field name is `sampleTime_` (the annex's `sampleTimeUs_` does not exist). The `MEASURED gopiv 2026-09-02, captures/gopiv-frozen-encoder-fix-20260902/notes.md` citation and its "five tours in six, all this branch" number kept. The annex's "PID chased to 420 mm/s" number was **not** used — that figure belongs to the *other* gopiv 2026-09-01 citation further down the file, not this branch, so importing it would have been a fabricated attribution. |
+| 11 | **applied, to the sprint-033 narration actually present** (not the pre-033 text the annex quotes). 83 → 41 lines, carrying the annex's four target facts plus the two the current code cannot do without: the unconditional `kernel.neutral()`, and the `pendingStop_` staging while `busGuard` is held. `deliverStopNow` still appears on exactly one comment line, as `test_soft_stop_source_pin.py` requires. |
+| 12 | **applied.** `tickDrive()`'s header 30 → 17, the `isDriving()` history 27 → 11, the `odomUpdate()` history 22 → 11, and the move-completion + settle pair 28 → 13. Kept every invariant (absolute-deadline pacing and its re-anchor rule, why raw `moveActive` is the wrong read, why a Hold needs `isDriving()`, the arc-vs-chord error, the +9-13°/+15-22 mm watchdog cost, why one extra step is not enough). |
+| 13 | **applied.** Six wire-forward blocks reduced to what each returns and who calls it: `engineDefaultCruise` 22 → 11, `engineADecel`/`engineDefaultCruiseForDistance` 25 → 9, `engineDominantAxisTravel` 6 → 5, `engineMoveActive` 15 → 8, `engineMoveEndedByDeadline` 12 → 6, `engineWheelsX`/`engineMoveX` 11 → 8. The annex's specific anchor (`this used to read MotionEngine::aDecelMmS2()`) is gone; the behavioural consequence it existed to explain (`engineADecel() > 0` always takes the distance-aware branch) is kept. |
+| 14 | **applied, told once.** The saga now lives only on `engineSetGoToDeadline()` (17 → 10 lines): PXT rejects a `//%` shim with more than four parameters, TS9200, and this setter supplies the fifth. `Rig::goToDeadline` (32 → 12) and `Rig::pendingGoToYawRate_` (13 → 8) now point at it; `engineSetGoToYawRate()` (9 → 6) likewise. `blocks/motion.ts`, `blocks/sim.ts` and `src/DESIGN.md` untouched (tickets 006/008). |
+| 15 | **applied at the reduced scope the ticket describes.** `kLimitsFields`' section header 16 → 9 and its table comment 7 → 3, with the three inline row notes (8/18/37) trimmed but each keeping its ordinal-provenance fact. `kConfigAccessors`' header 26 → 20 (the C++11-vs-C++17 lambda reason and the config_fields.h split are both load-bearing). Per-accessor: `rebase` 19 → 12, `goto_timeout` 15 → 10. `diagValue()` cases 26-34: narration cut, each case keeping one line for what the counter means and what nonzero indicates, and 31-34 keeping the `31 - 32 == 33 + 34` invariant. |
+
+### Factual fixes
+
+1. **Applied.** The header's `MOVE ENGINE` bullet now says the moves
+   live in `motion/motion_engine.{h,cpp}` and that what this file adds
+   is the composed `MotionEngine` member and the forwards onto it. The
+   `ODOMETRY` bullet's `live HERE` above it is byte-unchanged
+   (`grep -n "live HERE" src/shims.cpp` still returns the one line).
+2. **Applied.** Both `captures/tigez-cal-20260830` citations in
+   `nezha_port.cpp` now read `captures/tigez-cal-20260830/notes.md`
+   (lines 23 and 85). **Depends on ticket 007's `git add -f`** — the
+   path does not resolve in a fresh clone until that lands. Both facts
+   cited (CFSR 0x8200 / BFAR 0x474E4988 at notes.md:134; the
+   `uBit.serial.printf()` block with IPSR=3 at notes.md:178-179) were
+   verified present in that file before repointing.
+
+### Verified no-op
+
+- **`nezha_port.h`'s ordinal-27 claim.** Confirmed correct and left
+  alone: `Exposed via diagValue() ordinal 27.` closes the
+  `rebaselineCount_` comment, and `shims.cpp`'s `case 27:` returns
+  `ensure().left.rebaselineCount_ + ensure().right.rebaselineCount_`.
+- **The optional clarity improvement WAS taken**: `maxDrivenStreak_`
+  now carries `Exposed via diagValue() ordinals 21 (left) and 22
+  (right).`, matching `case 21:`/`case 22:` in `shims.cpp`.
+
+### Two `MEASURED` claims given their artifact
+
+Acceptance criterion "every surviving `MEASURED` claim names its board,
+date and artifact path" was not met by two pre-existing claims in this
+ticket's own files: `vfp_guard.h` and `platform_ports.h` each carried
+`MEASURED gopiv 2026-09-01 (pyOCD…)` with no path (`platform_ports.h`
+said only "the knowledge article under docs/"). Both now name
+`docs/knowledge/2026-09-01-codal-does-not-save-fpu-registers-across-fibers.md`,
+which is tracked and contains the cited CFSR 0x8200 / `float -25.0` /
+s16-s31 forensics. Nothing was invented.
+
+### Two files boiled down to absorb those additions
+
+The ratchet from ticket 001 is per file and down-only, so the two added
+citation lines had to be paid for in the same files:
+
+- `platform_ports.h` restated `vfp_guard.h`'s hazard and measurement
+  verbatim while including that header — the "provenance belongs in one
+  authoritative place" standard. It now points at `vfp_guard.h` and
+  keeps its own distinct fact (this class is the vendored kernel's only
+  yield path).
+- `vfp_guard.h`'s header was tightened without dropping a fact: the
+  hazard, the measurement, all three properties of the fix, the
+  `noinline` rationale and the `general-regs-only` ICE warning all
+  survive.
+- `nezha_port.h`'s `glitchArmor_` comment lost its "state this member
+  used to hold inline" diff restatement (anti-pattern 4).
+
+### Ratios (counting rule: `tests/host/test_archaeology_marker_budget.py`)
+
+| file | before | after |
+|---|---|---|
+| `src/shims.cpp` | 1215 / 710 = **1.7113** | 1007 / 710 = **1.4183** |
+| `src/platform/nezha_port.cpp` | 244 / 255 = **0.9569** | 189 / 255 = **0.7412** |
+| `src/platform/vfp_guard.h` | 50 / 13 = **3.8462** | 46 / 13 = **3.5385** |
+| `src/platform/platform_ports.h` | 27 / 27 = **1.0000** | 20 / 27 = **0.7407** |
+| `src/platform/nezha_port.h` | 59 / 74 = **0.7973** | 58 / 74 = **0.7838** |
+
+`src/platform/otos_port.{h,cpp}` were read and judged **no-ops** — no
+annex row anchors in them, no factual error, and both already sit well
+under baseline (0.75 and 0.27).
+
+### Comment-only proof (mechanical)
+
+`shims.cpp` includes `pxt.h` and is not host-compiled, so the edit was
+proved comment-only by text rather than by a build:
+
+1. **Every added/removed line in `git diff -- src/` is a comment.**
+   `git diff -U0` filtered to `^[+-]` (headers excluded) leaves nothing
+   after dropping lines matching `^[+-][[:space:]]*//` — output empty.
+   No `/* */` block was touched anywhere in this ticket.
+2. **No `//%` pragma line appears in the diff.** The same filtered diff,
+   with leading whitespace stripped, has no line matching `^[+-]//%` —
+   output empty. Counts are byte-stable: `src/shims.cpp` 37 before and
+   37 after, `src/comms/protocol.cpp` 4 before and 4 after (that file
+   was not touched at all).
+3. **Code-line count per file identical before and after**, applying the
+   ratchet's own counting rule to `git show HEAD:<file>` vs the working
+   copy: `shims.cpp` 710 → 710, `nezha_port.cpp` 255 → 255,
+   `nezha_port.h` 74 → 74, `platform_ports.h` 27 → 27, `vfp_guard.h`
+   13 → 13.
+4. **No trailing `// [unit]` deleted**: the sorted multiset of
+   `// [...]` annotations in `shims.cpp` is identical before and after,
+   and the trailing-bracket line count is unchanged in all four
+   `platform/` files.
+
+A desk firmware build is still the team-lead's post-sprint step.
+
+### Tests (foreground, this turn)
+
+    uv run pytest tests/host/test_archaeology_marker_budget.py \
+                  tests/host/test_cxx11_syntax_gate.py \
+                  tests/host/test_wire_constants_drift.py -q
+    -> 58 passed in 1.19s
+
+    uv run pytest tests/host/ -k source_pin -q
+    -> 85 passed, 1082 deselected in 0.27s
+
+    uv run pytest tests/host -q
+    -> 1167 passed in 28.65s
+
+No source pin needed restoring — no pin failed at any point.
