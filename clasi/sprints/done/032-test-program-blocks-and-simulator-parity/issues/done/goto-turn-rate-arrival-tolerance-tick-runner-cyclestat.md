@@ -1,5 +1,9 @@
 ---
+<<<<<<<< HEAD:clasi/sprints/032-test-program-blocks-and-simulator-parity/issues/goto-turn-rate-arrival-tolerance-tick-runner-cyclestat.md
 status: in-progress
+========
+status: done
+>>>>>>>> master:clasi/sprints/done/032-test-program-blocks-and-simulator-parity/issues/done/goto-turn-rate-arrival-tolerance-tick-runner-cyclestat.md
 sprint: '032'
 tickets:
 - 032-007

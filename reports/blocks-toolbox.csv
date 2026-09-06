@@ -14,7 +14,6 @@ order,new_order,Cat Order,category,Group Order,group,function,block
 30,11,1,DiffDrive,3,Moving?,diffDrive.moveProgress,move progress
 12,12,1,DiffDrive,3,Moving?,diffDrive.isStalled,is stalled
 9,13,1,DiffDrive,3,Moving?,diffDrive.driveTick,drive tick
-4,14,1,DiffDrive,4,Stop,diffDrive.stopMove,stop move
 11,15,1,DiffDrive,4,Stop,diffDrive.emergencyStop,emergency stop
 10,16,1,DiffDrive,4,Stop,diffDrive.stop,stop
 31,17,1,DiffDrive,4,Stop,diffDrive.clearEmergencyStop,clear emergency stop

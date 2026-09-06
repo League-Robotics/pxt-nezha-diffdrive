@@ -467,24 +467,6 @@ margin aborted forward-left 45° arcs on their first tick (the wheels
 start 30 ms apart, `g2-run.log`, `probe-arc.log`); the margin now
 scales with the yaw target (this session's commit); on the reflashed board 6 of 6 arcs ran (`g2-run-b.log`, endpoint mean 10 mm). `omegaFloor`: no hard floor with `vMin = 0` -- full commanded rotation down to 30 mm/s per wheel, ~50 % at 10 (`omega-floor.log`); the compiled 20 deg/s stays.
 
-**Sprint 031: the yaw-scaled margin still false-positives in the first
-minutes after a cold boot.** The wheels' own start-up skew — before the
-drivetrain has settled to its steady-state per-wheel response — can
-still cross the yaw-scaled margin on the very first commanded segments
-after a power cycle, tripping `wrongWay()` on a segment that is not
-actually running backwards
-(`segment-moves-end-early-just-after-boot.md`; two of four early-ending
-segments captured on tovez 2026-09-04 were confirmed wrong-way aborts
-by `wrongWayCount()`). The fix evaluates `wrongWay()` only after the
-dominant axis has progressed a minimum distance, so a brief start-up
-skew cannot trip the check before real motion begins — the yaw-scaled
-margin itself is unchanged once that minimum is reached. The
-stall-latch window (`updateLatch`, §2) is the separate candidate
-mechanism for this sprint's other two (straight-line, `yawTarget == 0`)
-early-end cases, which have no `wrongWay()` path at all; see this
-sprint's ticket 005 for which mechanism the cold-boot capture actually
-confirms.
-
 **Dependencies.** Holds references to a caller-owned kernel and
 `Clock` (the shaper's `dt` and the deadline backstop need wall time
 independent of kernel stepping). Owns **no odometry** — pose stays a
@@ -846,24 +828,6 @@ arming can't wait for (an explicit STOP, or a later command
 superseding a still-pending earlier one — `kAborted`). Both accessors
 call `resolvePendingIfDue()` before returning, so polling either one
 alone is enough to notice a completion.
-
-**Sprint 031: the `kStop`-vs-`kTimeout` split was decided at the wrong
-time.** `resolvePendingReason()`'s "was the wire-side lease still live"
-check reads `now_()` at the moment `resolvePendingIfDue()` happens to
-run — not at the moment `engineMoveActive()` actually went false. A
-segment that finishes well inside its lease still reads `kTimeout` if
-nothing polls STATUS/`lastDone`/`lastDoneReason` before the lease's
-deadline passes, even though the engine went idle long before that
-deadline (MEASURED tovez 2026-09-04: the same pivot read `stop` when
-polled at 8 Hz and `timeout` when polled slower,
-`wire-done-reason-is-resolved-lazily.md`). The fix latches the
-lease-was-still-live boolean at the tick where the protocol fiber's
-existing per-tick hook (§8) observes `engineMoveActive()` transition to
-false, rather than deferring that comparison to whenever
-`resolvePendingIfDue()` next runs. `resolvePendingReason()`'s two
-possible outputs (`kStop`/`kTimeout`) are unchanged — only when the
-decision is made moves earlier, from poll time to the engine's own
-inactive transition.
 
 **Dependencies.** `wire_handler.h`; `shims.cpp` free functions by
 forward declaration only (`stopAll`, `estopAll`, `setWheelsTimed`,

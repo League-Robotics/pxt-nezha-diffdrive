@@ -66,14 +66,28 @@ if (BOOT_RADIO_LINK) diffDrive.enableRadioLink()
 diffDrive.enableWifiLink()
 
 let touring = false
-// Set by RUN:abort (below); tickToCompletion() -- the single choke point
-// every tickedMove()/tickedGoTo() leg goes through -- checks this and
-// stops early. Each tour's own for loop also checks it after every
-// leg/corner and breaks, so a tour issues no further legs and no further
-// OCAL: corner fixes once an abort lands. Reset to false at the START of
-// each tour, so a previous abort does not poison the next run.
+// Set by RUN:abort (below), which also calls diffDrive.stopMove() so an
+// abort interrupts ANY move currently in flight -- including one inside
+// goToWorld()'s own tick loop (src/blocks/world.ts), which has no
+// visibility into this flag at all. stopMove()'s native body
+// (shims.cpp's endMove()) stops unconditionally, with no ownership
+// check, so it ends whatever tick loop is currently active regardless
+// of which file started it -- world.ts's tickedGoTo()/tickedMove() need
+// no `aborted` plumbing of their own for this to work.
+//
+// tickToCompletion() -- the single choke point every tickedMove()/
+// tickedGoTo() leg in THIS file goes through -- also checks this
+// directly and stops early. Reset to false by beginJob() (below) at
+// the start of EVERY motion job, not just the three original tours --
+// previously a stale `aborted = true` left by an earlier RUN:abort
+// silently truncated the very next RUN:pivot/straight/face/cal/arc to
+// one tick, and that handler's own terminal line reported it as a
+// normal end.
 let aborted = false
 let maxGap = 0  // [ms]
+// Set by beginJob(), read by endJob() for the terminal line's
+// `<VERB>:` prefix.
+let jobVerb = ""
 // The yaw rate the NEXT RUN:pivot uses -- set by RUN:turnrate, so
 // turn_sweep.py's rate-then-angle two-step (RUN:turnrate:<rate> then
 // RUN:pivot:<deg>) mirrors its old two-RUN-command shape. RUN:pivot
@@ -120,6 +134,32 @@ function tickToCompletion() {
             diffDrive.stopMove()
             return
         }
+    }
+}
+
+// Tick-serviced replacement for basic.pause(duration): a bare
+// basic.pause() blocks whatever fiber calls it, and every onRun()
+// handler now runs ON the protocol fiber itself (nested, reentrant
+// dispatch -- see src/comms/protocol.h's own doc comments), so a pause
+// inside a handler's call tree stops that SAME fiber's wire-servicing
+// loop from running for the pause's full duration, leaving PING/
+// ESTOP/RUN:abort unanswered until it returns.
+// diffDrive.driveTick() self-paces to one kernel cycle
+// (Config::cyclePeriod, 24 ms) and runs the wire's own service hook
+// exactly once per call regardless of whether a move is currently
+// active (shims.cpp's tickDrive() steps the kernel and calls
+// serviceHook() unconditionally, every call) -- so ticking it in a
+// loop against elapsed wall-clock time waits the same real duration
+// while continuing to service the wire, instead of blocking it.
+// Deliberately runs the full requested duration unconditionally,
+// matching basic.pause()'s own behavior -- it does not check
+// `aborted` itself; a caller inside a job that wants to bail out on
+// abort mid-wait does that in its own loop, the same way
+// tickToCompletion() does for a live move.
+function tickWait(duration: number) {  // [ms]
+    const deadline = control.millis() + duration
+    while (control.millis() < deadline) {
+        diffDrive.driveTick()
     }
 }
 
@@ -301,8 +341,14 @@ function worldReady(): boolean {
         applyArm()          // begin() re-inits the chip; re-apply
         return true
     }
+    // No basic.showString("NO") here -- this runs inside every RUN
+    // handler's own call tree, BEFORE that handler's beginJob() (if
+    // any), so nothing has been reported done yet and a blocking
+    // display would stall the wire with no terminal line to justify
+    // it. OERR:no-otos above already carries the failure to a bench
+    // tool watching the wire log; an operator with no host connected
+    // loses the on-robot "NO" glyph for this specific failure.
     diffDrive.emitLine("OERR:no-otos")
-    basic.showString("NO")
     return false
 }
 
@@ -374,6 +420,60 @@ function closedLoopProfile() {
     diffDrive.setDefaultYawRate(120)
 }
 
+// ---- job lifecycle ----------------------------------------------------
+// One entry/exit pair for every motion-issuing onRun() handler and tour
+// function below. Replaces what used to be a separate hand-rolled copy,
+// per handler, of "reset aborted, pick a profile, reset the gap
+// tracker" and "log GAP, report how the job ended, clear touring" --
+// most handlers used to skip most of that entirely.
+//
+// Re-entrancy: callers keep the existing `if (touring) return` guard
+// themselves -- several also gate on worldReady()/worldTrackingReady()
+// in between, which must run BEFORE touring is set, so the guard can't
+// live inside beginJob() without splitting that ordering across two
+// functions. beginJob() is therefore unconditional, and every call site
+// stays the same two-line preamble it already was:
+//     if (touring) return
+//     beginJob("<VERB>")
+//
+// `name` also selects the shaping profile: RUN:goto is the only job
+// that ran closedLoopProfile() before this refactor (a leg re-measured
+// and re-planned every hop can afford the faster shaping); every other
+// job -- including the five 2026-09-01 tours and RUN:cal, which used to
+// apply no profile at all and silently inherited whatever the previous
+// command left set -- now explicitly runs openLoopProfile(), matching
+// what tourRobot/tourWheels/tourWorld already did.
+function beginJob(name: string): void {
+    touring = true
+    aborted = false
+    if (name == "GOTO") closedLoopProfile()
+    else openLoopProfile()
+    maxGap = 0
+    jobVerb = name
+}
+
+// The priority order tourRobot's original comment documented: abort
+// reflects the operator's own intent, so it outranks a coincident
+// e-stop, which in turn outranks a clean finish. Call this ONCE, right
+// where a job's endJob() call is reached, and pass the result straight
+// in -- never recompute it later. Sprint 031's session-a capture
+// (tovez, 2026-09-04) found a wire-reported `reason=` can be
+// poll-timing dependent when a caller recomputes it after the fact
+// instead of latching it at the moment the job actually ends.
+function jobReason(): string {
+    return aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
+}
+
+// Emits the GAP: line every job already emitted, then the terminal
+// `<VERB>:end:<reason>` line jobVerb/beginJob() set up, then clears
+// touring -- the one thing every motion job's own ad hoc ending used to
+// hand-roll (or, for more than half of them, skip), now in one place.
+function endJob(reason: string): void {
+    diffDrive.emitLine("GAP:" + maxGap)
+    diffDrive.emitLine(jobVerb + ":end:" + reason)
+    touring = false
+}
+
 // ---- tour A: robot-relative -----------------------------------------
 // "Robot-relative" means the tour never needs a WORLD position -- the
 // rectangle is expressed in a frame anchored where the robot started,
@@ -415,18 +515,20 @@ function legToward(tx: number, ty: number) {
 function tourRobot() {
     if (touring) return
     if (!worldReady()) return
-    touring = true
-    aborted = false
-    openLoopProfile()
-    maxGap = 0
+    beginJob("TOUR")
     // Anchor BOTH sources at the start: encoder pose is the local
     // frame's origin, and the IMU heading is zeroed to it.
     diffDrive.resetPose()
     diffDrive.seedPose(0, 0, 0)
     diffDrive.emitLine("DBG:tour=robot:profile=open")
     logFix("c0")
+    // No per-leg basic.showNumber(i + 1) here -- it blocked the
+    // protocol fiber (this handler's own call tree) for the duration
+    // of the flash/scroll. logFix()'s own OCAL:c<N> line below already
+    // reports per-corner progress over the wire, non-blocking, so a
+    // bench tool watching the log loses nothing; an operator with no
+    // host connected loses the LED leg-counter.
     for (let i = 0; i < 4; i++) {
-        basic.showNumber(i + 1)
         legToward(RTX[i], RTY[i])
         // Checked BEFORE logFix() below: an abort mid-leg must not emit a
         // plausible-looking OCAL: fix for a corner the robot never
@@ -434,31 +536,23 @@ function tourRobot() {
         if (aborted) break
         logFix("c" + (i + 1))
     }
-    diffDrive.emitLine("GAP:" + maxGap)
-    // How the tour ended: an abort takes priority even if e-stop also
-    // tripped at the same moment (the operator's actual intent), then
-    // e-stop (diffDrive.probe(1) -- Output.estopped, shims.cpp's
-    // diagValue() case 1, no new firmware surface), then a clean finish.
-    const reason = aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
-    diffDrive.emitLine("TOUR:end:" + reason)
+    endJob(jobReason())
     basic.showString("A")
-    touring = false
 }
 
 // ---- tour A+B: wheels -----------------------------------------------
 function tourWheels() {
     if (touring) return
     if (!worldReady()) return
-    touring = true
-    aborted = false
-    openLoopProfile()
-    maxGap = 0
+    beginJob("TOUR")
     diffDrive.resetPose()
     diffDrive.seedPose(START_X, START_Y, START_H)
     diffDrive.emitLine("DBG:tour=wheels:profile=open")
     logFix("c0")
+    // See tourRobot()'s identical comment: no per-leg
+    // basic.showNumber() -- logFix()'s OCAL:c<N> line below is the
+    // non-blocking progress signal now.
     for (let i = 0; i < 4; i++) {
-        basic.showNumber(i + 1)
         tickedMove(LEG_CM[i], 0)     // straight leg
         if (aborted) break           // don't also issue the turn below
         tickedMove(0, 90)            // then LEFT
@@ -468,12 +562,8 @@ function tourWheels() {
         if (aborted) break
         logFix("c" + (i + 1))
     }
-    diffDrive.emitLine("GAP:" + maxGap)
-    // See tourRobot()'s identical comment above for the reason priority.
-    const reason = aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
-    diffDrive.emitLine("TOUR:end:" + reason)
+    endJob(jobReason())
     basic.showString("W")
-    touring = false
 }
 
 // ---- straight-line test ---------------------------------------------
@@ -489,20 +579,20 @@ function tourWheels() {
 // correcting it.
 function straightRun(cm: number) {
     if (touring) return
-    touring = true
-    openLoopProfile()
-    maxGap = 0
+    beginJob("STRAIGHT")
     diffDrive.resetPose()
     diffDrive.emitLine("DBG:straight=" + cm + ":profile=open")
     tickedMove(cm, 0)
-    diffDrive.emitLine("GAP:" + maxGap)
-    // cm x100, so a 1 mm drift is still visible as an integer.
-    diffDrive.emitLine("STRAIGHT:end:"
+    // cm x100, so a 1 mm drift is still visible as an integer. Its own
+    // line, not folded into endJob()'s reason line, so the pose data
+    // and the pass/fail reason stay independently parseable -- the
+    // same split ARC:end/ARCT: already uses.
+    diffDrive.emitLine("STRAIGHT:pose:"
         + Math.round(diffDrive.poseX() * 100) + ":"
         + Math.round(diffDrive.poseY() * 100) + ":"
         + Math.round(diffDrive.heading() * 100))
+    endJob(jobReason())
     basic.showString("S")
-    touring = false
 }
 
 // ---- tour B: world --------------------------------------------------
@@ -516,35 +606,37 @@ function tourWorld() {
     // would throw away the pose the host just seeded and send the robot
     // off from a phantom origin.
     if (!diffDrive.worldTrackingReady()) {
+        // No basic.showString("NO") -- see worldReady()'s identical
+        // comment: this runs before beginJob(), so no job has been
+        // reported done, and OERR:not-seeded already carries the
+        // failure over the wire.
         diffDrive.emitLine("OERR:not-seeded")
-        basic.showString("NO")
         return
     }
-    touring = true
-    aborted = false
     // 200 mm/s (stakeholder); 60 cm/s was near the drivetrain ceiling.
     // Accuracy-tuned shaping restored: the earlier "taper too slow"
     // reading was actually the yaw-taper double-count bug
     // (MotionEngine::serviceMove) masking as a profile problem.
-    openLoopProfile()
-    maxGap = 0
+    beginJob("TOUR")
     // NO seed here: the host has already seeded the true world pose
     // from the overhead camera (RUN:seedxy), so the robot can start
     // anywhere on the field and simply drive to the first dot.
     diffDrive.emitLine("DBG:tour=world:profile=open")
     logFix("c0")
+    // See tourRobot()'s identical comment: no per-leg
+    // basic.showNumber() -- logFix()'s OCAL:c<N> line below is the
+    // non-blocking progress signal now.
     for (let i = 0; i < 4; i++) {
-        basic.showNumber(i + 1)
-        // SCOPE BOUNDARY (sprint 016 ticket 005): goToWorld() runs its
-        // OWN internal `while (_tickDrive())` loop inside
-        // src/blocks/world.ts, which this sprint does not touch -- so a
-        // plain abort here cannot interrupt THIS leg mid-flight, only the
-        // next one, via the `if (aborted) break` immediately below. An
-        // e-stop, unlike abort, still interrupts the CURRENT leg promptly
-        // regardless: ticket 002's serviceMove() fix already makes
-        // _tickDrive() return false on the next tick once out.estopped is
-        // set, so world.ts's own loop exits on its own with no change
-        // needed here.
+        // SCOPE BOUNDARY: goToWorld() runs its OWN internal
+        // `while (_tickDrive())` loop inside src/blocks/world.ts, with
+        // no `aborted` flag of its own to check -- but RUN:abort's
+        // handler now calls diffDrive.stopMove() directly, which ends
+        // whatever tick loop is currently active (its native body,
+        // shims.cpp's endMove(), stops unconditionally) regardless of
+        // which file started it. So an abort DOES interrupt THIS leg
+        // mid-flight now, the same way an e-stop already did; the
+        // `if (aborted) break` immediately below only stops a FURTHER
+        // leg from being planned once this one has already ended.
         diffDrive.goToWorld(CORNERS_X[i], CORNERS_Y[i])
         // Checked BEFORE logFix() below: an abort must not emit a
         // plausible-looking OCAL: fix for a corner the robot never
@@ -553,12 +645,8 @@ function tourWorld() {
         if (aborted) break
         logFix("c" + (i + 1))
     }
-    diffDrive.emitLine("GAP:" + maxGap)
-    // See tourRobot()'s identical comment above for the reason priority.
-    const reason = aborted ? "abort" : (diffDrive.probe(1) != 0 ? "estop" : "ok")
-    diffDrive.emitLine("TOUR:end:" + reason)
+    endJob(jobReason())
     basic.showString("B")
-    touring = false
 }
 
 // ---- lever-arm calibration ------------------------------------------
@@ -569,27 +657,39 @@ function tourWorld() {
 function leverCal(verify: boolean) {
     if (touring) return
     if (!worldReady()) return
-    touring = true
+    beginJob("CAL")
     if (verify) applyArm()
     else diffDrive.setWorldSensorOffset(0, 0, 0)
+    // One-off override, same pattern as RUN:pivot/RUN:face below: the
+    // sweep's own slow, fixed rate replaces openLoopProfile()'s
+    // defaults (beginJob() still applies openLoopProfile() first, for
+    // its setLimits() accel/decel/vMax/omegaMax shaping -- this used to
+    // be skipped entirely, silently inheriting whatever the previous
+    // command left set).
     diffDrive.setDefaultSpeed(15)
     diffDrive.setDefaultYawRate(45)
     diffDrive.seedPose(0, 0, 0)
     diffDrive.emitLine("OCAL:begin")
     logFix("p0")
-    for (let i = 1; i <= 8; i++) {
-        basic.showNumber(i)
+    // No per-pivot basic.showNumber(i) -- logFix()'s OCAL:p<N>/s1 lines
+    // already report progress non-blocking; basic.pause(400) is now
+    // tickWait(400), a tick-serviced wait that keeps servicing the wire
+    // for the same settle duration instead of blocking it (this
+    // handler runs before its own endJob() call below, so a blocking
+    // display or pause here would stall the wire mid-job).
+    for (let i = 1; i <= 8 && !aborted; i++) {
         tickedMove(0, 45)
-        basic.pause(400)          // let the wheels settle before the fix
+        tickWait(400)              // let the wheels settle before the fix
         logFix("p" + i)
     }
-    basic.showString("S")
-    tickedMove(30, 0)             // 30 cm straight, for the mounting yaw
-    basic.pause(400)
-    logFix("s1")
+    if (!aborted) {
+        tickedMove(30, 0)         // 30 cm straight, for the mounting yaw
+        tickWait(400)
+        logFix("s1")
+    }
     diffDrive.emitLine("OCAL:end")
+    endJob(jobReason())
     basic.showString("OK")
-    touring = false
 }
 
 // ---- buttons --------------------------------------------------------
@@ -611,9 +711,12 @@ input.onButtonPressed(Button.AB, function () {
 // guard on `touring`: an abort sent while nothing is touring is a
 // harmless no-op (nothing ever reads `aborted` outside a tour/tickedMove
 // leg), and an abort sent WHILE a tour is running must land even though
-// that tour's own handler is mid-execution on its own fiber -- RUN
-// handlers already interleave (that is exactly why `touring` exists as a
-// re-entrancy guard for the MOVE-issuing handlers in the first place).
+// that tour's own handler is still mid-execution -- protocol.cpp
+// dispatches abort/clearestop reentrantly, NESTED inside the running
+// job's own onRun() call, on the SAME protocol fiber (sprint 028; see
+// onRun()'s own doc comment in run.ts) -- which is exactly why `touring`
+// exists as a re-entrancy guard for the MOVE-issuing handlers in the
+// first place.
 // Clear the emergency-stop latch. ESTOP is reachable over the wire but
 // nothing was: once latched, every motion verb was silently ignored and
 // the ONLY recovery was a reflash or a power cycle. Found the hard way
@@ -632,6 +735,15 @@ diffDrive.onRun("clearestop", function (arg: number) {
 
 diffDrive.onRun("abort", function (arg: number) {
     aborted = true
+    // Ends whatever move is CURRENTLY in flight, not just the next one:
+    // stopMove()'s native body (shims.cpp's endMove()) stops
+    // unconditionally, with no ownership check, so it reaches into
+    // ANY currently-active tick loop in ANY file -- including
+    // goToWorld()'s own loop in src/blocks/world.ts, which has no
+    // `aborted` flag of its own to check. Before this call, RUN:abort
+    // during a goToWorld leg could only prevent the NEXT leg from
+    // starting.
+    diffDrive.stopMove()
 })
 
 diffDrive.onRun("tour", function (arg: number) {
@@ -680,7 +792,11 @@ diffDrive.onRun("gap", function (arg: number) {
 diffDrive.onRun("seed", function (arg: number) {
     worldReady()
     diffDrive.seedPose(START_X, START_Y, START_H)
-    basic.pause(300)
+    // tickWait(), not basic.pause(): this handler has no beginJob()/
+    // endJob() of its own, but it still runs on the protocol fiber
+    // (every onRun() handler does), so a blocking pause here would
+    // still stall PING/ESTOP/abort for its own 300 ms.
+    tickWait(300)
     const ok = diffDrive.readWorld()
     diffDrive.emitLine("SEED:read:" + (ok ? 1 : 0)
         + ":" + Math.round(diffDrive.worldX() * 100)
@@ -705,13 +821,11 @@ diffDrive.onRun("seedxy", function (arg: number) {
 diffDrive.onRun("goto", function (arg: number) {
     if (touring) return
     if (!worldReady()) return
-    touring = true
-    closedLoopProfile()
+    beginJob("GOTO")
     diffDrive.emitLine("DBG:goto:profile=closed")
     diffDrive.goToWorld(diffDrive.runArg(0), diffDrive.runArg(1))
     logFix("arrived")
-    diffDrive.emitLine("GOTO:end")
-    touring = false
+    endJob(jobReason())
 })
 
 // Turn in place to an absolute world heading: RUN:face:<deg>. The
@@ -719,8 +833,7 @@ diffDrive.onRun("goto", function (arg: number) {
 diffDrive.onRun("face", function (arg: number) {
     if (touring) return
     if (!worldReady()) return
-    touring = true
-    openLoopProfile()
+    beginJob("FACE")
     // One-off override: anchor the yaw rate explicitly rather than
     // inherit whatever profile the previous handler left behind (the
     // bug this ticket fixes -- RUN:face used to set ONLY this value).
@@ -736,6 +849,7 @@ diffDrive.onRun("face", function (arg: number) {
     // a lost command, so it oscillated instead of converging. On-device
     // it settles in one or two passes with no radio in the loop.
     for (let i = 0; i < 4; i++) {
+        if (aborted) break
         diffDrive.readWorld()
         let err = arg - diffDrive.worldHeading()
         while (err > 180) err -= 360
@@ -744,8 +858,7 @@ diffDrive.onRun("face", function (arg: number) {
         tickedMove(0, err)
     }
     logFix("faced")
-    diffDrive.emitLine("FACE:end")
-    touring = false
+    endJob(jobReason())
 })
 
 // Relative in-place pivot: RUN:pivot:<deg>. Encoder/gyro only -- no
@@ -755,8 +868,7 @@ diffDrive.onRun("face", function (arg: number) {
 // floor, replacing the old dead numeric PIVOT_VERB offsets (2/4/5).
 diffDrive.onRun("pivot", function (arg: number) {
     if (touring) return
-    touring = true
-    openLoopProfile()
+    beginJob("PIVOT")
     // One-off override: pivotYawRate (set by RUN:turnrate) replaces
     // openLoopProfile()'s own 90 deg/s. This also makes defaultSpeed
     // deterministically 20 (from openLoopProfile()) instead of
@@ -765,11 +877,8 @@ diffDrive.onRun("pivot", function (arg: number) {
     // but now deterministic rather than implicit.
     diffDrive.setDefaultYawRate(pivotYawRate)
     diffDrive.emitLine("DBG:pivot:profile=open")
-    maxGap = 0
     tickedMove(0, diffDrive.runArg(0))
-    diffDrive.emitLine("GAP:" + maxGap)
-    diffDrive.emitLine("PIVOT:end")
-    touring = false
+    endJob(jobReason())
 })
 
 // Split move: RUN:arc:<deg>. ONE combined tickedMove(20, deg) call --
@@ -791,15 +900,11 @@ diffDrive.onRun("pivot", function (arg: number) {
 // for why (a telemetry-subscribed capture of this deadlocks the link).
 diffDrive.onRun("arc", function (arg: number) {
     if (touring) return
-    touring = true
-    openLoopProfile()
+    beginJob("ARC")
     diffDrive.emitLine("DBG:arc:profile=open")
-    maxGap = 0
     tickArcSampled(20, diffDrive.runArg(0))
-    diffDrive.emitLine("GAP:" + maxGap)
-    diffDrive.emitLine("ARC:end")
+    endJob(jobReason())
     emitTrajectory()
-    touring = false
 })
 
 // Sets the yaw rate the NEXT RUN:pivot command uses: RUN:turnrate:<deg/s>.
@@ -920,18 +1025,22 @@ function circleRun(rCm: number, ccw: boolean) {
 // RUN:square[:cm] -- the square tour, default 60 cm sides.
 function squareTour(sideCm: number) {
     if (touring) return
-    touring = true
-    aborted = false
+    beginJob("SQUARE")
     diffDrive.emitLine("DBG:tour=square:side=" + sideCm)
+    // DBG:leg=<N>, not basic.showNumber(i + 1): the per-corner LED
+    // countdown blocked the protocol fiber for the duration of the
+    // flash. This is the non-blocking substitute -- a bench tool
+    // watching the wire log sees the same progress, machine-parseable;
+    // an operator with no host connected loses the on-robot LED digit.
     for (let i = 0; i < 4; i++) {
-        basic.showNumber(i + 1)
+        diffDrive.emitLine("DBG:leg=" + (i + 1))
         tickedMove(sideCm, 0)
         if (aborted) break
         tickedMove(0, 90)
         if (aborted) break
     }
     diffDrive.stopMove()
-    touring = false
+    endJob(jobReason())
     basic.showIcon(IconNames.Yes)
 }
 
@@ -940,18 +1049,19 @@ function squareTour(sideCm: number) {
 // robot returns to the crossing point each lap.
 function infinityTour(rCm: number, laps: number) {
     if (touring) return
-    touring = true
-    aborted = false
+    beginJob("INFINITY")
     diffDrive.emitLine("DBG:tour=infinity:r=" + rCm + ":laps=" + laps)
+    // See squareTour()'s identical comment: DBG:lap=<N> replaces the
+    // blocking per-lap basic.showNumber().
     for (let lap = 0; lap < laps; lap++) {
-        basic.showNumber(lap + 1)
+        diffDrive.emitLine("DBG:lap=" + (lap + 1))
         circleRun(rCm, true)         // lobe A, CCW
         if (aborted) break
         circleRun(rCm, false)        // lobe B, CW
         if (aborted) break
     }
     diffDrive.stopMove()
-    touring = false
+    endJob(jobReason())
     basic.showIcon(IconNames.Yes)
 }
 
@@ -966,11 +1076,12 @@ function infinityTour(rCm: number, laps: number) {
 // circular arcs, so the name says so.
 function snakeTour(rCm: number, bends: number) {
     if (touring) return
-    touring = true
-    aborted = false
+    beginJob("SNAKE")
     diffDrive.emitLine("DBG:tour=snake:r=" + rCm + ":bends=" + bends)
+    // See squareTour()'s identical comment: DBG:bend=<N> replaces the
+    // blocking per-bend basic.showNumber().
     for (let b = 0; b < bends; b++) {
-        basic.showNumber(b + 1)
+        diffDrive.emitLine("DBG:bend=" + (b + 1))
         const ccw = (b % 2) == 0
         for (let i = 0; i < 4; i++) {      // half circle = 4 x 45 deg
             if (aborted) break
@@ -979,7 +1090,7 @@ function snakeTour(rCm: number, bends: number) {
         if (aborted) break
     }
     diffDrive.stopMove()
-    touring = false
+    endJob(jobReason())
     basic.showIcon(IconNames.Yes)
 }
 
@@ -987,8 +1098,19 @@ diffDrive.onRun("square", function (arg: number) {
     squareTour(diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 60)
 })
 
+// BT-22: runArgOr(0, 30, 0) rejects both an unparseable radius
+// ("RUN:infinity:abc") and a non-positive one ("RUN:infinity:0" or
+// ":-5") as NaN, folding the two failure shapes into one check --
+// see run.ts's own doc comment for why. Refused outright with an
+// ARGERR: line rather than silently substituting 0 or the fallback:
+// this is a student-facing verb, and a typo that quietly ran eight
+// pivots-in-place used to look like a normal, if odd, completion.
 diffDrive.onRun("infinity", function (arg: number) {
-    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 30
+    const r = diffDrive.runArgOr(0, 30, 0)
+    if (isNaN(r)) {
+        diffDrive.emitLine("ARGERR:infinity:radius:" + diffDrive.runArgText(0))
+        return
+    }
     const laps = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) : 1
     infinityTour(r, laps)
 })
@@ -998,8 +1120,14 @@ diffDrive.onRun("infinity", function (arg: number) {
 // 25 cm either side. The advance runs PERPENDICULAR to the start
 // heading -- the first half circle turns the robot 180 deg, so progress
 // is sideways -- so stage it facing the short axis.
+// See RUN:infinity's identical comment just above -- same runArgOr()
+// rejection, same ARGERR: refusal instead of a silent radius-0 snake.
 diffDrive.onRun("snake", function (arg: number) {
-    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 12.5
+    const r = diffDrive.runArgOr(0, 12.5, 0)
+    if (isNaN(r)) {
+        diffDrive.emitLine("ARGERR:snake:radius:" + diffDrive.runArgText(0))
+        return
+    }
     const bends = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) : 4
     snakeTour(r, bends)
 })
@@ -1011,19 +1139,20 @@ diffDrive.onRun("snake", function (arg: number) {
 // sides span 63.6 cm, which is what fits the field's tight axis.
 function diamondTour(sideCm: number) {
     if (touring) return
-    touring = true
-    aborted = false
+    beginJob("DIAMOND")
     diffDrive.emitLine("DBG:tour=diamond:side=" + sideCm)
     tickedMove(0, 45)                    // enter the diamond
+    // See squareTour()'s identical comment: DBG:leg=<N> replaces the
+    // blocking per-corner basic.showNumber().
     for (let i = 0; i < 4; i++) {
         if (aborted) break
-        basic.showNumber(i + 1)
+        diffDrive.emitLine("DBG:leg=" + (i + 1))
         tickedMove(sideCm, 0)
         if (aborted) break
         tickedMove(0, 90)
     }
     diffDrive.stopMove()
-    touring = false
+    endJob(jobReason())
     basic.showIcon(IconNames.Yes)
 }
 
@@ -1037,17 +1166,25 @@ diffDrive.onRun("diamond", function (arg: number) {
 // 0..2r along it.
 function circleTour(rCm: number, ccw: boolean) {
     if (touring) return
-    touring = true
-    aborted = false
+    beginJob("CIRCLE")
     diffDrive.emitLine("DBG:tour=circle:r=" + rCm + ":ccw=" + (ccw ? 1 : 0))
     circleRun(rCm, ccw)
     diffDrive.stopMove()
-    touring = false
+    endJob(jobReason())
     basic.showIcon(IconNames.Yes)
 }
 
+// See RUN:infinity's identical comment above: runArgOr(0, 30, 0)
+// rejects an unparseable OR non-positive radius as NaN, refused with
+// an ARGERR: line instead of the old runArgCount()>0?runArg(0):30
+// pattern, which mapped "abc" to 0 and silently drove eight
+// pivots-in-place (BT-22).
 diffDrive.onRun("circle", function (arg: number) {
-    const r = diffDrive.runArgCount() > 0 ? diffDrive.runArg(0) : 30
+    const r = diffDrive.runArgOr(0, 30, 0)
+    if (isNaN(r)) {
+        diffDrive.emitLine("ARGERR:circle:radius:" + diffDrive.runArgText(0))
+        return
+    }
     const ccw = diffDrive.runArgCount() > 1 ? diffDrive.runArg(1) != 0 : true
     circleTour(r, ccw)
 })

@@ -1,5 +1,9 @@
 ---
+<<<<<<<< HEAD:clasi/sprints/032-test-program-blocks-and-simulator-parity/issues/simulator-split-parity-and-geometry-drift.md
 status: in-progress
+========
+status: done
+>>>>>>>> master:clasi/sprints/done/032-test-program-blocks-and-simulator-parity/issues/done/simulator-split-parity-and-geometry-drift.md
 sprint: '032'
 tickets:
 - 032-005
