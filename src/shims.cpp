@@ -159,7 +159,7 @@ struct Rig {
   // point, not just the kernel step.
   BusGuard busGuard;
   // Deferred OTOS zero: SET rebase
-  // (setKernelValue() case 32) used to call otosRef().setPose(0,0,0)
+  // (cfgSetRebase()) used to call otosRef().setPose(0,0,0)
   // SYNCHRONOUSLY on whichever fiber issued it (typically the protocol
   // fiber), with no relationship to busGuard at all -- exactly the
   // hole this ticket closes for the other six entry points. Setting
@@ -843,7 +843,7 @@ bool tickDrive() {
   r.busGuard.release();
 
   // Deferred OTOS zero: SET rebase
-  // (setKernelValue() case 32) only ARMS pendingOtosZero -- the actual
+  // (cfgSetRebase()) only ARMS pendingOtosZero -- the actual
   // I2C write happens HERE, on whichever fiber is ticking, exactly like
   // kernel.rebasePosition()'s own deferred-request shape. Consumed
   // AFTER busGuard.release() (so this tick's own kernel.step() is not
@@ -1066,8 +1066,8 @@ void estopClear() { ensure().kernel.estopClear(); }
 // established for a different pair -- a stop must never silently
 // become a latch, and clearing one latch must never silently clear the
 // other). clearStall() is reachable from a dedicated `blocks/stop.ts` block
-// AND (ticket 001) the wire's `stall_clear` SET-action ConfigField
-// (setKernelValue() case 17, below); isStalled() backs the matching
+// AND the wire's `stall_clear` SET-action ConfigField
+// (cfgSetStallClear(), below); isStalled() backs the matching
 // `blocks/stop.ts` readback block, the STATUS `flags` bit 2, and the
 // pre-existing diagValue(2) -- three independent ways to read the same
 // bit, all sourced from this one Output field.
@@ -1199,13 +1199,6 @@ void setGeometry(int trackWidth, int calib) {  // [0.1 mm] [1e-4 mm/deg]
   if (calib > 0) r.engine.setTravelCalib(static_cast<float>(calib) * 1e-4f);
 }
 
-// Defined further down (the OTOS section) -- forward-declared here so
-// case 32 below can re-seed it. Same same-translation-unit
-// forward-declaration convention seedPose() and protocolCurrentRunText()
-// each already use in this file, just internal to this one file instead
-// of crossing to protocol.cpp.
-static OtosPort& otosRef();
-
 // ---- shaping-field descriptor table (this ticket, design S4.7's own
 // review-CO-05-scoped rationale: "one descriptor table replaces the
 // three parallel switches for the shaping fields") -----------------------
@@ -1218,10 +1211,10 @@ static OtosPort& otosRef();
 // "positive, else keep" validated setters (motion_limits.h) -- called
 // through a pointer-to-member-function, exactly the way `field` (a
 // pointer-to-data-member) is read through -- so this table adds no
-// validation logic of its own; it only ROUTES. A later ticket (design
-// review CO-05's fuller ask, the complete config surface) extends this
-// same table additively -- new rows, no new switch statement -- rather
-// than growing a fourth parallel mapping.
+// validation logic of its own; it only ROUTES. The rest of the config
+// surface -- every ordinal that is not a MotionLimits member -- is the
+// kConfigAccessors table immediately below, which both functions consult
+// second; between the two there is no per-field switch left in this file.
 namespace {
 struct LimitsFieldEntry {
   int ordinal;
@@ -1248,16 +1241,16 @@ constexpr LimitsFieldEntry kLimitsFields[] = {
     // (ensure()'s own Config seed comment above).
     {8, &MotionLimits::setVFloor, &MotionLimits::vFloor},
     {34, &MotionLimits::setOmegaFloor, &MotionLimits::omegaFloor},
-    // 18 (this ticket): stop_distance -- the ordinal is unchanged from
-    // the old pivot_overrun; see wire_adapter.cpp's kFields row for the
-    // rename's own provenance.
+    // 18: stop_distance -- the ordinal is unchanged from the old
+    // pivot_overrun; see config_fields.h's row for the rename's own
+    // provenance.
     {18, &MotionLimits::setStopDistance, &MotionLimits::stopDistance},
     {35, &MotionLimits::setArriveDist, &MotionLimits::arriveDist},
     {36, &MotionLimits::setArriveYaw, &MotionLimits::arriveYaw},
     // 37 (design S4.1/S10.2, NEW ordinal): lag --
     // the drivetrain's own first-order response lag, [s]. See
-    // motion_limits.h's own field comment and wire_adapter.cpp's kFields
-    // row for the provenance.
+    // motion_limits.h's own field comment and config_fields.h's row
+    // for the provenance.
     {37, &MotionLimits::setLag, &MotionLimits::lag},
 };
 constexpr size_t kLimitsFieldCount =
@@ -1271,194 +1264,242 @@ const LimitsFieldEntry* findLimitsField(int ordinal) {
 }
 }  // namespace
 
+// ---- config accessor table ------------------------------------------
+// What each wire config ordinal DOES on GET and on SET. The ten shaping
+// ordinals are answered by kLimitsFields above; every other one is a row
+// here.
+//
+// The wire NAMES these ordinals answer to are deliberately absent from
+// this file: they live once, in comms/config_fields.h, which
+// wire_adapter.cpp reads to turn a `SET <name>`/`GET <name>` into an
+// ordinal. That header is host-portable and this file is not (it
+// includes pxt.h, and every accessor below reaches into Rig, the kernel
+// or the motion engine), so the surface is split by portability, not by
+// preference: names and ordinals there, behaviour here, bound by the
+// ordinal and checked by tests/host/test_config_surface_single_source.py
+// -- which fails if either side names an ordinal the other does not.
+// Adding a field means one row in each, and nothing else; before this
+// table there were four hand-kept lists and the drift was visible in the
+// comments.
+//
+// Values are UNSCALED in these accessors. setKernelValue()/
+// getConfigValue() below own the wire's x1000 integer convention, on the
+// way in and on the way out, exactly as they always have.
+//
+// The accessors are named functions rather than lambdas written inline
+// in the table because a non-capturing lambda's conversion to a function
+// pointer only became a constant expression in C++17, and both embedded
+// targets compile at C++11 -- an inline-lambda table would be built by a
+// startup constructor into RAM instead of sitting in flash.
+namespace {
+
+float cfgGetMaxDuty(Rig& r) { return r.kernel.config().maxDuty; }
+void cfgSetMaxDuty(Rig& r, float v) { r.kernel.setMaxDuty(v); }
+
+float cfgGetFullDutyVelocity(Rig& r) {
+  return r.kernel.config().fullDutyVelocity;
+}
+void cfgSetFullDutyVelocity(Rig& r, float v) {
+  r.kernel.setFullDutyVelocity(v);
+}
+
+float cfgGetKp(Rig& r) { return r.kernel.config().kp; }
+void cfgSetKp(Rig& r, float v) { r.kernel.setKp(v); }
+
+float cfgGetKi(Rig& r) { return r.kernel.config().ki; }
+void cfgSetKi(Rig& r, float v) { r.kernel.setKi(v); }
+
+float cfgGetIMax(Rig& r) { return r.kernel.config().iMax; }
+void cfgSetIMax(Rig& r, float v) { r.kernel.setIMax(v); }
+
+float cfgGetKaff(Rig& r) { return r.kernel.config().kaff; }
+void cfgSetKaff(Rig& r, float v) { r.kernel.setKaff(v); }
+
+float cfgGetPidMax(Rig& r) { return r.kernel.config().pidMax; }
+void cfgSetPidMax(Rig& r, float v) { r.kernel.setPidMax(v); }
+
+float cfgGetTwistHoldGain(Rig& r) {
+  return r.kernel.config().twistHoldGain;
+}
+void cfgSetTwistHoldGain(Rig& r, float v) { r.kernel.setTwistHoldGain(v); }
+
+float cfgGetPosErrMax(Rig& r) { return r.kernel.config().posErrMax; }
+void cfgSetPosErrMax(Rig& r, float v) { r.kernel.setPositionErrorMax(v); }
+
+// The three stall parameters share one kernel setter, so each writes its
+// own value alongside the OTHER two read back unchanged -- the same
+// read-modify-write these three ordinals have always done.
+float cfgGetStallSpeed(Rig& r) { return r.kernel.config().stallSpeed; }
+void cfgSetStallSpeed(Rig& r, float v) {
+  const DiffDrive::DifferentialDrive::Config c = r.kernel.config();
+  r.kernel.setStall(v, c.stallDemand, c.stallWindow);
+}
+
+float cfgGetStallDemand(Rig& r) { return r.kernel.config().stallDemand; }
+void cfgSetStallDemand(Rig& r, float v) {
+  const DiffDrive::DifferentialDrive::Config c = r.kernel.config();
+  r.kernel.setStall(c.stallSpeed, v, c.stallWindow);
+}
+
+float cfgGetStallWindow(Rig& r) { return r.kernel.config().stallWindow; }
+void cfgSetStallWindow(Rig& r, float v) {
+  const DiffDrive::DifferentialDrive::Config c = r.kernel.config();
+  r.kernel.setStall(c.stallSpeed, c.stallDemand, v);
+}
+
+float cfgGetLambdaEnabled(Rig& r) {
+  return r.kernel.config().lambdaEnabled ? 1.0f : 0.0f;
+}
+void cfgSetLambdaEnabled(Rig& r, float v) {
+  r.kernel.setLambdaEnabled(v != 0.0f);
+}
+
+float cfgGetCrawlPulse(Rig& r) { return r.kernel.config().crawlPulse; }
+void cfgSetCrawlPulse(Rig& r, float v) { r.kernel.setCrawlPulse(v); }
+
+// default_cruise is the wire layer's OWN configured-default cruise
+// (Rig::defaultCruise_, see engineDefaultCruise() above), not a kernel
+// Config field. Same ">0, else keep" silent-ignore validation
+// setGeometry() uses: `SET default_cruise 0` is accepted but does not
+// clear the field, so there is deliberately no wire-level way to force
+// "no default available".
+float cfgGetDefaultCruise(Rig& r) { return r.defaultCruise_; }
+void cfgSetDefaultCruise(Rig& r, float v) {
+  if (v > 0.0f) r.defaultCruise_ = v;
+}
+
+// rotational_slip lives on MotionEngine, which owns its own ">0, else
+// keep the prior value" validation -- no duplicate check here.
+float cfgGetRotationalSlip(Rig& r) { return r.engine.rotationalSlip(); }
+void cfgSetRotationalSlip(Rig& r, float v) { r.engine.setRotationalSlip(v); }
+
+// stall_clear/estop_clear/rebase are write-triggered ACTIONS wearing a
+// config field's clothes: only nonzero-vs-zero matters (a wire `SET
+// stall_clear 1` arrives as 1000 and reaches here as 1.0f), and the
+// magnitude is ignored. Their GET sides read the live latch back where
+// there is one to read.
+//
+// clearStallLatch() and estopClear() are deliberately separate: the
+// stall latch and the e-stop latch are distinct fault classes, and
+// clearing one must never silently clear the other (the same principle
+// deliverStopNow() follows for a different pair).
+float cfgGetStallClear(Rig& r) {
+  return r.kernel.output().stallHalted ? 1.0f : 0.0f;
+}
+void cfgSetStallClear(Rig& r, float v) {
+  if (v != 0.0f) r.kernel.clearStallLatch();
+}
+
+// rebase zeroes the odometry frame. It writes BOTH pose sources,
+// mirroring seedPose()'s own "write both" contract: the encoder-
+// integrated pose this file tracks AND the OTOS position register, so
+// the two stay agreed at the new zero instead of OTOS silently keeping
+// its old absolute reading.
+//
+// Two of the three writes are DEFERRED requests, not synchronous
+// effects. kernel.rebasePosition() re-anchors the kernel's own position
+// tracking at its NEXT step(); Odometry's own position-epoch guard is
+// what keeps that later, legitimate discontinuity from reading as a
+// spurious jump. The OTOS zero is deferred the same way, by arming
+// pendingOtosZero for tickDrive() to service after busGuard.release() --
+// this used to be an otosRef().setPose(0,0,0) call right here, on
+// whichever fiber issued the SET, with no relationship to the bus guard
+// at all. Only Odometry::reset() happens synchronously.
+//
+// GET is refused upstream (wire_adapter.cpp's onGet()) rather than
+// answered from here: a rebase has no stored value and no latch worth
+// reading back, so any answer would be a manufactured 0.
+float cfgGetRebase(Rig&) { return 0.0f; }
+void cfgSetRebase(Rig& r, float v) {
+  if (v == 0.0f) return;
+  odomUpdate(r);  // consume pending deltas before the zero
+  r.kernel.rebasePosition();
+  r.odometry.reset();
+  r.pendingOtosZero = true;
+}
+
+float cfgGetEstopClear(Rig& r) {
+  return r.kernel.output().estopped ? 1.0f : 0.0f;
+}
+void cfgSetEstopClear(Rig& r, float v) {
+  if (v != 0.0f) r.kernel.estopClear();
+}
+
+// straight_trim IS a stored kernel Config field, unlike default_cruise/
+// rotational_slip above. Sign and magnitude are both meaningful; the
+// kernel setter owns the finiteness check.
+float cfgGetStraightTrim(Rig& r) { return r.kernel.config().straightTrim; }
+void cfgSetStraightTrim(Rig& r, float v) { r.kernel.setStraightTrim(v); }
+
+struct ConfigAccessor {
+  int ordinal;
+  float (*get)(Rig&);          // [unscaled]
+  void (*set)(Rig&, float);    // [unscaled]
+};
+
+constexpr ConfigAccessor kConfigAccessors[] = {
+    {0, &cfgGetMaxDuty, &cfgSetMaxDuty},
+    {1, &cfgGetFullDutyVelocity, &cfgSetFullDutyVelocity},
+    {2, &cfgGetKp, &cfgSetKp},
+    {3, &cfgGetKi, &cfgSetKi},
+    {4, &cfgGetIMax, &cfgSetIMax},
+    {5, &cfgGetKaff, &cfgSetKaff},
+    {6, &cfgGetPidMax, &cfgSetPidMax},
+    {7, &cfgGetTwistHoldGain, &cfgSetTwistHoldGain},
+    {9, &cfgGetPosErrMax, &cfgSetPosErrMax},
+    {10, &cfgGetStallSpeed, &cfgSetStallSpeed},
+    {11, &cfgGetStallDemand, &cfgSetStallDemand},
+    {12, &cfgGetStallWindow, &cfgSetStallWindow},
+    {13, &cfgGetLambdaEnabled, &cfgSetLambdaEnabled},
+    {14, &cfgGetCrawlPulse, &cfgSetCrawlPulse},
+    {15, &cfgGetDefaultCruise, &cfgSetDefaultCruise},
+    {16, &cfgGetRotationalSlip, &cfgSetRotationalSlip},
+    {17, &cfgGetStallClear, &cfgSetStallClear},
+    {32, &cfgGetRebase, &cfgSetRebase},
+    {33, &cfgGetEstopClear, &cfgSetEstopClear},
+    {38, &cfgGetStraightTrim, &cfgSetStraightTrim},
+};
+
+const ConfigAccessor* findConfigAccessor(int ordinal) {
+  for (const auto& entry : kConfigAccessors) {
+    if (entry.ordinal == ordinal) return &entry;
+  }
+  return nullptr;
+}
+
+}  // namespace
+
 //%
 void setKernelValue(int field, int value) {  // [x1000 scaled]
   Rig& r = ensure();
   const float v = static_cast<float>(value) * 0.001f;
-  // this ticket: every shaping ordinal (design S4.7's wire-name table)
-  // is handled by kLimitsFields above, BEFORE the kernel-field switch
-  // below is even reached -- see that table's own header comment.
-  if (const LimitsFieldEntry* entry = findLimitsField(field)) {
-    (r.engine.limits().*(entry->setter))(v);
+  if (const LimitsFieldEntry* shaping = findLimitsField(field)) {
+    (r.engine.limits().*(shaping->setter))(v);
     return;
   }
-  DiffDrive::DifferentialDrive& k = r.kernel;
-  switch (field) {
-    case 0: k.setMaxDuty(v); break;
-    case 1: k.setFullDutyVelocity(v); break;
-    case 2: k.setKp(v); break;
-    case 3: k.setKi(v); break;
-    case 4: k.setIMax(v); break;
-    case 5: k.setKaff(v); break;
-    case 6: k.setPidMax(v); break;
-    case 7: k.setTwistHoldGain(v); break;
-    case 9: k.setPositionErrorMax(v); break;
-    case 10: k.setStall(v, k.config().stallDemand,
-                        k.config().stallWindow); break;
-    case 11: k.setStall(k.config().stallSpeed, v,
-                        k.config().stallWindow); break;
-    case 12: k.setStall(k.config().stallSpeed, k.config().stallDemand,
-                        v); break;
-    case 13: k.setLambdaEnabled(v != 0.0f); break;
-    case 14: k.setCrawlPulse(v); break;
-    // 15 (sprint 007 ticket 003, closing R-11/BLK-03/API-03):
-    // default_cruise -- the wire layer's OWN configured-default cruise
-    // field (Rig::defaultCruise_, NOT kernel.config()), see
-    // engineDefaultCruise()'s own comment above. Same ">0" silent-
-    // ignore validation style as setGeometry() -- a `SET default_cruise
-    // 0` line over the wire is accepted (kOk) but does not clear the
-    // field to 0; that is only reachable via the test double's own
-    // direct setter (there is no wire-level way to force "no default
-    // available" at ordinal 15, deliberately -- unlike stall_clear's
-    // ordinal 17 below, this is a real stored value, not an action).
-    case 15: if (v > 0.0f) r.defaultCruise_ = v; break;
-    // 16 (ticket 005, closing R-14/API-06): rotational_slip -- a thin
-    // forward to the now-tested MotionEngine::setRotationalSlip(),
-    // which already applies the ">0, else keep the prior value"
-    // validation itself (motion_engine.h); no duplicate check needed
-    // here, unlike case 15's own inline check above (defaultCruise_
-    // has no dedicated setter to own that validation).
-    case 16: r.engine.setRotationalSlip(v); break;
-    // 17 (ticket 001): stall_clear -- a write-triggered ACTION wearing a
-    // config-field's clothes, not a stored value. Only nonzero-vs-zero
-    // matters (mirrors the x1000 scaling convention: a wire
-    // `SET stall_clear 1` arrives here as value=1000, v=1.0f); the
-    // magnitude is otherwise ignored. Deliberately does not touch
-    // estopLatch_ -- see clearStall()'s own comment above.
-    case 17: if (v != 0.0f) k.clearStallLatch(); break;
-    // 18-21, 28, 30, 34-37 (design S4.7's wire-name table, extended for
-    // lag): stop_distance/accel/decel/v_max/jerk/
-    // omega_max/omega_floor/arrive_dist/arrive_yaw/lag, and 8 (v_floor)
-    // -- all eleven now handled by kLimitsFields/findLimitsField()
-    // above, before this switch is ever reached. 22, 23, 24, 25, 26, 27,
-    // 29, 31 (brake_frac/dist_taper/
-    // yaw_taper/dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit)
-    // are REMOVED ordinals (design S4.7/S8) with no case here at all --
-    // wire_adapter.cpp's kFields no longer names them, so no caller can
-    // reach this switch with one of these numbers over the wire; a
-    // direct C++ caller passing one falls through to `default: break`
-    // below, the same as any other unrecognized field number always
-    // has.
-    // 32: rebase -- zero the odometry frame, a write-triggered action
-    // wearing a config-field's clothes (same shape as stall_clear's
-    // case 17 above). Writes BOTH pose sources, mirroring seedPose()'s
-    // own "write both" contract below: the encoder-integrated x/y/
-    // heading this file tracks AND the OTOS position register, so the
-    // two stay agreed at the new zero instead of OTOS silently keeping
-    // its old absolute reading. kernel.rebasePosition() itself is a
-    // DEFERRED request (diffdrive.h) -- it re-anchors the kernel's own
-    // position tracking only at its NEXT step(), not synchronously
-    // here; odomUpdate()'s own positionEpochLeft/Right check above is
-    // what keeps that later, legitimate discontinuity from being
-    // mis-read as a spurious jump the next time pose is read.
-    //
-    // The OTOS write is now ALSO deferred, the
-    // same shape as kernel.rebasePosition() above -- this used to call
-    // otosRef().setPose(0,0,0) synchronously, right here, on whichever
-    // fiber issued this SET (typically the protocol fiber), with no
-    // relationship to busGuard at all: exactly the hole this ticket
-    // closes for the other six OTOS entry points. Setting
-    // pendingOtosZero instead defers the actual I2C write to
-    // tickDrive(), after busGuard.release() (see that function's own
-    // comment). kernel.rebasePosition() and the encoder-odometry x/y/
-    // heading reset immediately below stay SYNCHRONOUS, as before --
-    // only the OTOS write moves.
-    case 32:
-      if (v != 0.0f) {
-        odomUpdate(r);        // consume pending deltas before the zero
-        k.rebasePosition();
-        r.odometry.reset();
-        r.pendingOtosZero = true;
-      }
-      break;
-    // 33: estop_clear -- a write-triggered ACTION wearing a
-    // config-field's clothes, identical shape to stall_clear's case 17
-    // above, just calling kernel.estopClear() instead of
-    // clearStallLatch(). Deliberately calls the kernel method directly
-    // rather than routing through this file's own standalone
-    // estopClear() wrapper above -- same "call the kernel method
-    // inline" convention case 17 already uses for clearStallLatch()
-    // instead of going through clearStall().
-    case 33: if (v != 0.0f) k.estopClear(); break;
-    // 38: straight_trim -- a thin forward to the kernel's own
-    // setStraightTrim() (DiffDrive::Config::straightTrim, a real stored
-    // kernel Config field, unlike case 15/16's own Rig/MotionEngine
-    // fields above). No validation beyond setStraightTrim()'s own
-    // finiteness check -- sign and magnitude are both meaningful (see
-    // that setter's own comment, diffdrive.cpp).
-    case 38: k.setStraightTrim(v); break;
-    default: break;
-  }
+  if (const ConfigAccessor* entry = findConfigAccessor(field)) entry->set(r, v);
+  // An ordinal in neither table is silently ignored, the same way an
+  // unrecognized field number always has been. No wire caller can get
+  // here: wire_adapter.cpp only ever passes ordinals config_fields.h
+  // names, and every one of those is in one of the two tables.
 }
 
 // ---- config read-back -------------------------------------------------
 // The read-back counterpart to setKernelValue() above: same ordinals,
-// same x1000 scaling. Reads config() (the kernel's `staged_` Config,
-// written synchronously by every setter, so this always reflects the
-// true current value). Deliberately NOT `//%`-annotated -- C++-internal;
-// wire_adapter.cpp is the only caller, via its own same-package forward
-// declaration. An out-of-range field returns 0.
+// same two tables, same x1000 scaling. Reads flow through each row's own
+// get accessor, so a field's read and its write can no longer disagree
+// about where the value lives. Deliberately NOT `//%`-annotated --
+// C++-internal; wire_adapter.cpp is the only caller, via its own
+// same-package forward declaration. An out-of-range field returns 0.
 int getConfigValue(int field) {  // -> [x1000 scaled]
   Rig& r = ensure();
-  // this ticket: every shaping ordinal (design S4.7's wire-name table)
-  // is handled by kLimitsFields above, BEFORE the kernel Config switch
-  // below is even reached -- mirrors setKernelValue()'s own gate.
-  if (const LimitsFieldEntry* entry = findLimitsField(field)) {
-    const float lv = r.engine.limits().*(entry->field);
-    return static_cast<int>(std::lround(lv * 1000.0));
-  }
-  const DiffDrive::DifferentialDrive::Config c = r.kernel.config();
   float v = 0.0f;
-  switch (field) {
-    case 0: v = c.maxDuty; break;
-    case 1: v = c.fullDutyVelocity; break;
-    case 2: v = c.kp; break;
-    case 3: v = c.ki; break;
-    case 4: v = c.iMax; break;
-    case 5: v = c.kaff; break;
-    case 6: v = c.pidMax; break;
-    case 7: v = c.twistHoldGain; break;
-    case 9: v = c.posErrMax; break;
-    case 10: v = c.stallSpeed; break;
-    case 11: v = c.stallDemand; break;
-    case 12: v = c.stallWindow; break;
-    case 13: v = c.lambdaEnabled ? 1.0f : 0.0f; break;
-    case 14: v = c.crawlPulse; break;
-    // 15 (sprint 007 ticket 003): default_cruise's GET side --
-    // deliberately NOT read from `c` (this ordinal has no stored
-    // kernel Config field at all; it lives on Rig, see
-    // defaultCruise_'s own field comment above).
-    case 15: v = r.defaultCruise_; break;
-    // 16 (ticket 005): rotational_slip's GET side -- a thin forward to
-    // MotionEngine::rotationalSlip(), deliberately NOT read from `c`
-    // (this ordinal has no kernel Config field at all; it lives on
-    // MotionEngine, see setKernelValue() case 16's own comment above).
-    case 16: v = r.engine.rotationalSlip(); break;
-    // 17 (ticket 001): stall_clear's GET side -- a convenience readback
-    // of Output.stallHalted, deliberately NOT read from `c` (this
-    // ordinal has no stored Config field at all; see clearStall()'s own
-    // comment above and sprint 007's design/DESIGN.md §5 field table).
-    case 17: v = r.kernel.output().stallHalted ? 1.0f : 0.0f; break;
-    // 8, 18-21, 28, 30, 34-37 (lag extends the range): all
-    // handled by kLimitsFields/findLimitsField() above, before this
-    // switch is ever reached. 22,
-    // 23, 24, 25, 26, 27, 29, 31 (removed ordinals) have no case here at
-    // all any more -- wire_adapter.cpp's kFields no longer names them,
-    // so this switch's own `default: return 0` is the only path a stray
-    // direct C++ call with one of these numbers can take, same as any
-    // other unrecognized field.
-    // 33: estop_clear's GET side -- a convenience readback of
-    // Output.estopped, same "not a stored Config field" shape as the
-    // stall latch's own clear field's GET (case 17 above). 32 (rebase)
-    // has no case here on purpose: wire_adapter.cpp's onGet() refuses
-    // it before this function is ever reached, since a rebase has
-    // nothing meaningful to read back.
-    case 33: v = r.kernel.output().estopped ? 1.0f : 0.0f; break;
-    // 38: straight_trim's GET side -- read back straight from `c` (it
-    // IS a stored kernel Config field, unlike case 15/16's own
-    // Rig/MotionEngine reads above).
-    case 38: v = c.straightTrim; break;
-    default: return 0;
+  if (const LimitsFieldEntry* shaping = findLimitsField(field)) {
+    v = r.engine.limits().*(shaping->field);
+  } else if (const ConfigAccessor* entry = findConfigAccessor(field)) {
+    v = entry->get(r);
+  } else {
+    return 0;
   }
   return static_cast<int>(std::lround(v * 1000.0));
 }

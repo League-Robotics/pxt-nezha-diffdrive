@@ -42,6 +42,7 @@
         "src/comms/emit_queue.h",
         "src/comms/protocol.h",
         "src/comms/protocol.cpp",
+        "src/comms/config_fields.h",
         "src/comms/wire_handler.h",
         "src/comms/wire_handler.cpp",
         "src/comms/wire_adapter.h",

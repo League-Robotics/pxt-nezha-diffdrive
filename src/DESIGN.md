@@ -290,7 +290,7 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   had a getter but no setter (API-06: the doctrine already named
   `rotationalSlip` as the only correct turn-calibration knob, but no
   caller anywhere could reach it). Reachable from `shims.cpp` through
-  the existing generic `ConfigField`/`kFields` mechanism (§5, §9), not
+  the existing generic config-field mechanism (§5, §9), not
   a new dedicated `setGeometry()`-style shim — this field is a
   one-time chassis-calibration constant for a non-reference kit, not a
   value tuned as routinely as `trackWidth`/`travelCalib`.
@@ -693,17 +693,66 @@ GO_TO_W no longer answers `kUnimplemented` for "no OTOS connected" —
 robot without a live OTOS (§9), so this handler always dispatches to
 `MotionEngine::goToW()`. `mradToRad()`
 here is the **single** place wire milliradians become radians.
-GET/SET map snake_case wire names 1:1 onto the `ConfigField` ordinals
-(`kFields` table) — 15 through sprint 006, 18 as of sprint 007, 19 as
-of 2026-08-29, and **34, as of sprint 029 ticket 004** (design
-`motion-profile-unification.md` §4.7): the ten shaping-related fields
+GET/SET map snake_case wire names 1:1 onto config ordinals — 15 names
+through sprint 006, 18 as of sprint 007, 19 as of 2026-08-29, 34 as of
+sprint 029 ticket 004, and 31 rows today.
+
+**The config surface is one list, in one file.** `comms/config_fields.h`
+holds `kConfigFields[]` — `{name, ordinal, unit}`, one row per name a
+host can `SET`/`GET`, in the order a bare `GET` dumps them.
+`wire_adapter.cpp` includes that header and keeps no copy of its own
+(`kFields`, its old hand-kept copy, is gone). `shims.cpp` carries the
+matching BEHAVIOUR in two tables keyed by the same ordinals —
+`kLimitsFields` (the ten shaping fields, over `MotionLimits`) and
+`kConfigAccessors` (`{ordinal, get, set}`, everything else) — and has
+no per-field `switch` left: `setKernelValue()`/`getConfigValue()` are
+each four lines over those two tables. The behaviour half cannot live
+in the header because every accessor reaches into `Rig`, the kernel or
+the motion engine and therefore needs `pxt.h`, while the header must
+stay host-portable (it is compiled into the host wire tests and
+syntax-checked at the target's own C++11). The split is by portability,
+not preference, and `tests/host/test_config_surface_single_source.py`
+fails if the two halves name different ordinal sets, if an ordinal
+appears in both `shims.cpp` tables, or if `wire_adapter.cpp` grows a
+name table again.
+
+`blocks/motion.ts`'s `ConfigField` enum is **generated** from that same
+header by `tools/gen_config_field_enum.py` and committed — PXT compiles
+a fixed TypeScript file set and cannot read a C++ table at build time,
+so generation plus a drift test is the closest reachable equivalent to
+including it. Each row in the header carries a
+`// ConfigField.<Name>: "<label>"` annotation supplying that row's TS
+member name and `//% block=` dropdown label; a row without one stops
+the generator rather than being skipped. **Re-run
+`uv run python tools/gen_config_field_enum.py` and commit the result
+whenever a row is added, renamed, renumbered, or removed**;
+`tests/tools/test_gen_config_field_enum.py` regenerates and compares,
+so a forgotten run fails the suite instead of shipping a block layer
+that addresses a different field than the wire does. `rebase` (32) and
+`estop_clear` (33) are enum members like any other row as of sprint 033
+ticket 003 — previously they were wire-only names with no member, which
+is why the enum and the wire table were not even the same length.
+
+Before this consolidation there were four hand-synchronised lists of
+the same surface (`kFields`, both `shims.cpp` switches, and the enum).
+The visible cost was `protocol.h`'s comment citing "diagValue ordinal
+30" for the RUN-queue drop counter: the real reader is
+`diagValue()`'s ordinal 28, ordinal 30 does not exist in `diagValue()`
+at all, and 30 in the *config* ordinal space — a different namespace
+entirely — is `omega_max`. Corrected to 28. `diagValue()` itself stays
+a separate, read-only table and is deliberately NOT folded into
+`kConfigFields`: its ordinals have no `SET` counterpart and no natural
+unit, and merging them would force every consumer of the config table
+to handle a "no setter" case for the benefit of neither.
+
+Within that one list, the ten shaping-related fields
 (`v_floor`, `stop_distance`, `accel`, `decel`, `v_max`, `jerk`,
 `omega_max`, `omega_floor`, `arrive_dist`, `arrive_yaw`) are no longer
 individually switched in `shims.cpp` — one small descriptor table
 (`kLimitsFields`, `{ordinal, setter, field}` rows over
 `MotionLimits`' own "positive, else keep" setters and public members,
 `motion_limits.h`) is consulted by `setKernelValue()`/`getConfigValue()`
-BEFORE either function's own per-field switch runs, replacing what used
+BEFORE `kConfigAccessors`, replacing what used
 to be up to thirteen independently-maintained `MotionEngine` shaping
 setters with one small, additive table (review CO-05, scoped to this
 design). `v_floor` keeps ordinal 8 (previously `speed_floor`, the
@@ -719,7 +768,7 @@ ordinal 30 (previously `max_yaw_rate`). `omega_floor` (34),
 name. Eight OLD ordinals (22, 23, 24, 25, 26, 27, 29, 31 —
 `brake_frac`, `dist_taper`, `yaw_taper`, `dist_floor`, `turn_floor`,
 `ramp_ms`, `plateau_min_s`, `profile_exit`) are **removed** outright:
-no row exists for them in `kFields` any more, so both GET and SET
+no row exists for them in `kConfigFields` any more, so both GET and SET
 answer `err 1` (`Wire::Result::kUnknown`, the same reply any
 unrecognized wire name gets) for one release — a stale bench script
 fails loudly instead of silently setting nothing. The
@@ -742,7 +791,7 @@ wire verb and is **not** folded into `clearEmergencyStop()`/`ESTOP`
 (§9) — the stall latch and the e-stop latch are semantically distinct
 fault classes, same principle sprint 006 established for
 `deliverStopNow()` deliberately not touching `estopLatch_`. **Sprint
-028**: `kFields` gains `rebase` (ordinal 32, backed by
+028**: the table gains `rebase` (ordinal 32, backed by
 `kernel.rebasePosition()` plus, on an OTOS-equipped chassis, the
 platform-layer pose-seed path `seedPose()` already uses so both pose
 sources stay agreed at the zero point) and, riding in the same ticket,
@@ -1424,7 +1473,7 @@ graph TD
     Wire[Serial / Radio transport] --> Protocol
     Protocol -->|drainEmitQueue, then serviceOnce: read/telemetry| Protocol
     Protocol -->|enqueue on RUN: prefix| RunQueue[run_queue.h ring]
-    RunQueue -->|dropped counter| DiagValue[shims.cpp diagValue ordinal table]
+    RunQueue -->|dropped counter, diag ordinal 28| DiagValue[shims.cpp diagValue ordinal table]
     Protocol -->|dispatchJob: dequeue + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
     TSDispatch -->|student onRun handler, nested on protocol fiber -- not forked| StudentCode[Student RUN / button handler]
     StudentCode -->|startMove/driveTwist/startDrive: takes kBlock| MotionOwner
@@ -1444,7 +1493,7 @@ graph TD
 **RUN bridge.** `RUN:<name>[:<arg>…]` parks the payload in an 8-slot
 ring (sprint 026 ticket 002's `run_queue.h`, superseding the original
 4-slot MessageBus-events ring this paragraph used to describe — a real
-queue with occupancy and a saturating drop counter, diag ordinal 30,
+queue with occupancy and a saturating drop counter, diag ordinal 28,
 rather than a fixed cursor that could silently overwrite a still-live
 slot). **Sprint 028**: dequeuing no longer raises a MessageBus event at
 all — see the fiber-loop paragraph above for `dispatchJob()`'s direct
@@ -1630,7 +1679,7 @@ Pieces the kernel deliberately does not contain:
   `isStalled()` (returns `kernel.output().stallHalted`), each reachable
   from a dedicated Drive-group block (`clearStallLatch()`,
   `isStalled()`) parked next to `emergencyStop()`/`clearEmergencyStop()`
-  — and, on the wire, `stall_clear`'s new `kFields`/`ConfigField`
+  — and, on the wire, `stall_clear`'s own config-table/`ConfigField`
   ordinal (§5) reaches the same `clearStallLatch()` call via
   `setKernelValue()`'s ordinal 17. Deliberately **not** folded into
   `clearEmergencyStop()`/`ESTOP` — same principle sprint 006 established
@@ -1670,8 +1719,9 @@ Pieces the kernel deliberately does not contain:
 - **Wire bridges**: `setWheelsTimed`/`driveTwistTimed` (duration =
   lease), the six `engineXxx()` forwards, `engineDefaultCruise()`,
   `diagValue()` (the DIAG/STATUS ordinal table),
-  `getConfigValue`/`setKernelValue` (the ×1000 table, 34 ordinals as of
-  sprint 029 ticket 004's descriptor-table rewrite — see §5), `probe()`,
+  `getConfigValue`/`setKernelValue` (the ×1000 surface, 31 named rows,
+  routed through `kLimitsFields`/`kConfigAccessors` with no per-field
+  switch — see §5), `probe()`,
   `setLimits()` (sprint 029 ticket 004: the one shim replacing the now-
   retired `setTaperWindows`/`setTaperFloors`/`setRampMs` no-op shims —
   see §5), `wheelSpeed()`.
@@ -1729,7 +1779,9 @@ fallback bodies (a kinematic stand-in that mirrors the tick engine's
 24 ms pacing), and the RUN dispatcher. **Sprint 012** split this out of
 a single `main.ts` into six cohesion-sized modules. Current structure:
 
-- **`motion.ts`** — the `ConfigField` enum, the two movement-default
+- **`motion.ts`** — the `ConfigField` enum (GENERATED from
+  `comms/config_fields.h` by `tools/gen_config_field_enum.py`; edit the
+  header and re-run, never the enum — §5), the two movement-default
   `let`s (`defaultSpeed`/`defaultYawRate`) and their Setup-group
   setters (`setDefaultSpeed`, `setDefaultYawRate`, `setTrackWidth`,
   `setWheelCalibration`, `setConfigValue`), continuous-mode drive

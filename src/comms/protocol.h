@@ -378,8 +378,10 @@ class Protocol {
   // bare write cursor -- a slot stays in flight from enqueue() until
   // dispatchJob() reads and releases it, so a burst arriving during a
   // long job's dispatch can no longer overwrite payload not yet
-  // consumed. Overflow is counted and readable (diagValue ordinal 30)
-  // instead of silent.
+  // consumed. Overflow is counted and readable (diagValue ordinal 28)
+  // instead of silent. Ordinal 28 is diagValue()'s own numbering, which
+  // is a SEPARATE namespace from the config ordinals SET/GET use -- 28
+  // there is `jerk`, and diagValue() has no ordinal 30 at all.
   static constexpr size_t kRunTextBytes = 48;  // name + args + NUL
   static constexpr int kRunSlots = 8;
   RunQueue<kRunSlots, static_cast<int>(kRunTextBytes)> runQueue_;

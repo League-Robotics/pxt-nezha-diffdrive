@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: Unified config descriptor table replacing setKernelValue/getConfigValue/kFields/ConfigField
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on: []
@@ -63,19 +63,44 @@ it is still unmerged when this ticket runs.
 
 ## Acceptance Criteria
 
-- [ ] Every wire config name (all ~34 total, the 10 shaping fields
-      via `kLimitsFields` unchanged plus the ~24 this ticket covers)
-      round-trips through SET/GET in a host test.
-- [ ] `WireAdapter::kFields` and the TS `ConfigField` enum are the same
-      length and agree name-for-name (drift test).
-- [ ] `protocol.h:361`'s comment is corrected to name ordinal 28, not
-      30.
-- [ ] No ordinal has more than one definition across
+- [x] Every wire config name (all 31 total, the 11 shaping ordinals
+      via `kLimitsFields` unchanged plus the 20 this ticket covers)
+      round-trips through SET/GET in a host test
+      (`tests/host/test_config_surface_single_source.py`:
+      `test_every_table_name_is_reachable_over_the_wire` covers all 31
+      names including the write-only `rebase`;
+      `test_every_stored_field_round_trips_its_value` proves the stored
+      ones give back what was written).
+- [x] `WireAdapter::kFields` and the TS `ConfigField` enum are the same
+      length and agree name-for-name (drift test). `kFields` is DELETED:
+      `wire_adapter.cpp` now includes `comms/config_fields.h`, the one
+      table, and `ConfigField` is generated from it. Length + name
+      agreement is asserted by
+      `test_wire_constants_drift.py::test_config_field_table_ordinals_match_config_field_enum`;
+      the stronger byte-for-byte property is
+      `tests/tools/test_gen_config_field_enum.py`. `rebase` (32) and
+      `estop_clear` (33) become enum members -- they were the two
+      wire-only names that made the lists different lengths.
+- [x] `protocol.h:361`'s comment is corrected to name ordinal 28, not
+      30 (and the same error in `src/DESIGN.md`'s RUN-bridge paragraph
+      and component diagram).
+- [x] No ordinal has more than one definition across
       `setKernelValue`/`getConfigValue`/`kFields`/`ConfigField`.
-- [ ] `diagValue()` is untouched by this ticket — confirmed by a diff
-      review, not just by omission.
-- [ ] `kLimitsFields` and `tests/host/test_config_descriptor_table.py`
-      (sprint 029's shaping-field table) are untouched.
+      `setKernelValue()`/`getConfigValue()` have no switch left; both
+      read `kLimitsFields` then `kConfigAccessors`, and
+      `test_config_surface_single_source.py::test_shims_cpp_implements_exactly_the_ordinals_the_table_names`
+      rejects an ordinal in both tables, an ordinal named with no
+      behaviour, and behaviour with no name.
+- [x] `diagValue()` is untouched by this ticket -- confirmed by
+      `git diff src/shims.cpp | grep diagValue` returning nothing.
+- [x] `kLimitsFields` and `tests/host/test_config_descriptor_table.py`
+      (sprint 029's shaping-field table) are untouched. The table's
+      rows, its `LimitsFieldEntry` struct and `findLimitsField()` are
+      byte-identical; three COMMENT lines around it were corrected
+      (its header comment promised "a later ticket extends this same
+      table", which is not what this ticket did, and two row comments
+      pointed at the now-deleted `kFields`). The test file is not
+      modified at all.
 
 ## Testing
 
@@ -89,3 +114,52 @@ it is still unmerged when this ticket runs.
   every non-shaping config name; a `ConfigField`-vs-table drift test
   (generator output compared against the checked-in TS enum).
 - **Verification command**: `uv run pytest tests/host/`
+
+## Implementation Notes
+
+**The split, and why.** The surface is one list plus one behaviour
+table, not one table, and the seam is portability rather than taste:
+
+- `src/comms/config_fields.h` -- `kConfigFields[]`, `{name, ordinal,
+  unit}`, 31 rows in bare-`GET`-dump order, plus `findConfigField()`.
+  Host-portable (no `pxt.h`), so it compiles into every host wire test
+  and is syntax-checked at the target's C++11 by
+  `tests/host/config_fields_syntax_check.cpp`. `wire_adapter.cpp`
+  includes it and keeps no copy.
+- `src/shims.cpp` -- `kConfigAccessors[]`, `{ordinal, get, set}` over
+  the 20 non-shaping ordinals, alongside the untouched `kLimitsFields`
+  for the other 11. This half cannot move to the header: every accessor
+  reaches into `Rig`/the kernel/the motion engine and therefore needs
+  `pxt.h`.
+
+The accessors are named `cfgGetX`/`cfgSetX` functions rather than
+lambdas written inline in the table, because a non-capturing lambda's
+conversion to a function pointer is not a constant expression until
+C++17 and both embedded targets compile at C++11 -- an inline-lambda
+table would be `const` rather than `constexpr`, i.e. built by a startup
+constructor into RAM instead of sitting in flash.
+
+Keeping the names host-portable while the behaviour stays behind
+`pxt.h` is what let this land without touching
+`test_config_descriptor_table.py`'s `_SHIM_SOURCES` (a new `.cpp` would
+have forced an edit there, and that file is off-limits by AC).
+
+**`diagValue()` stays separate**, per sprint.md's Design Rationale:
+read-only ordinals with no `SET` and no natural unit. The
+`protocol.h`/`DESIGN.md` "ordinal 30" defect was cross-table confusion,
+fixed by precision, not by merging the two namespaces.
+
+**Generator**: `uv run python tools/gen_config_field_enum.py` (add
+`--check` for a no-write drift report). Re-run whenever a row in the
+header is added, renamed, renumbered or removed, and commit both files.
+Each row carries a `// ConfigField.<Name>: "<label>"` annotation; a row
+without one stops the generator rather than being skipped.
+
+**The test double moved too.** `tests/host/wire_motion_verb_shim.cpp`
+now mirrors production's shape (`kWaConfigAccessors`), not just its
+math, and `test_config_surface_single_source.py` fails if the double
+and production cover different ordinals -- every compiled SET/GET test
+in `tests/host/` runs against that double.
+
+**Nothing here is measured on hardware**; no firmware was built or
+flashed for this ticket. All verification is host-side.

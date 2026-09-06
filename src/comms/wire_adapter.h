@@ -187,10 +187,10 @@ class WireAdapter : public Wire::Adapter {
   void onEstop() override;                            // -> estopAll()
   Wire::Result onStop(bool immediate, uint32_t id) override;  // -> stopAll()
 
-  // ---- Wire::Adapter: configuration -- a small field-name table
-  // replacing the old ordinal verbs one-for-one; see wire_adapter.cpp's
-  // kFields for the name<->ordinal mapping onto shims.cpp's
-  // setKernelValue()/getConfigValue() field numbers. onSet() additionally
+  // ---- Wire::Adapter: configuration -- a field-name table replacing
+  // the old ordinal verbs one-for-one; see comms/config_fields.h for
+  // the name<->ordinal mapping onto shims.cpp's setKernelValue()/
+  // getConfigValue() field numbers. onSet() additionally
   // refuses (kRange) when `value * 1000.0f` -- the exact product passed
   // to std::lround() -- falls outside +-kWireBoundaryCastCeiling
   // (WIRE-08): an unclamped `SET pid_kp 3000000` would overflow `long`'s

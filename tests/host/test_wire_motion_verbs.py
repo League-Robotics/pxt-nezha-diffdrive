@@ -3471,10 +3471,10 @@ def test_rebase_is_sequenced_and_reaches_kernel_rebase_position(wa):
 
 def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     """rebase's OTOS re-seed and encoder-frame zero (the acceptance
-    criterion behind wire_adapter.cpp's kFields comment: "the
+    criterion behind the config table's own rebase comment: "the
     platform-layer pose-seed path seedPose() already uses so both pose
     sources stay agreed at the zero point") live entirely in shims.cpp's
-    real setKernelValue() case 32 -- unlike every other case this file's
+    real cfgSetRebase() -- unlike every other row this file's
     WaHandle mirrors, OtosPort cannot be compiled into ANY host test at
     all (otos_port.h includes pxt.h unconditionally; wire_adapter.cpp's
     own forward-declaration comment documents this same gap for GO_TO_W's
@@ -3487,28 +3487,31 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     every other (compiled) test in this file.
 
     Sprint 033 ticket 002: the encoder-frame zero is now
-    `r.odometry.reset()` -- the pose state case 32 used to write field by
+    `r.odometry.reset()` -- the pose state rebase used to write field by
     field (`r.x`/`r.y`/`r.heading`) is one `Odometry` object
     (`src/motion/odometry.h`), so the "zero the encoder frame" half of
     this check reads that call instead of the three assignments. Same
-    substance, same "do not silently drop half of rebase" guard.
+    substance, same "do not silently drop half of rebase" guard. Ticket
+    003 moved the body out of `setKernelValue()`'s `case 32:` and into
+    the named `cfgSetRebase()` row of the config accessor table; this
+    check follows it there unchanged.
 
     Sprint 030 ticket 001 (enforce-the-one-fiber-i2c-invariant.md): the
-    OTOS re-seed is now DEFERRED -- case 32 sets `r.pendingOtosZero =
+    OTOS re-seed is now DEFERRED -- rebase sets `r.pendingOtosZero =
     true` instead of calling `otosRef().setPose(0.0f, 0.0f, 0.0f)`
     synchronously on whichever fiber issued this SET. The actual I2C
     write happens inside tickDrive() after busGuard.release()
     (test_bus_guard_source_pin.py pins that half, which lives in
-    tickDrive()'s own body, not case 32's). This test's own assertion
+    tickDrive()'s own body, not rebase's). This test's own assertion
     changes from "the synchronous call is present" to "the deferred
     flag is armed, and the synchronous call is gone" -- the exact
     substance of the fix."""
     shims_text = (_SRC_DIR / "shims.cpp").read_text()
-    match = re.search(r"case 32:\s*\{?\s*if \(v != 0\.0f\) \{(.*?)\}\s*break;",
+    match = re.search(r"void cfgSetRebase\(Rig& r, float v\) \{(.*?)\n\}",
                       shims_text, re.DOTALL)
-    assert match, "shims.cpp's setKernelValue() case 32 (rebase) body was not found"
+    assert match, "shims.cpp's cfgSetRebase() (rebase) body was not found"
     body = match.group(1)
-    assert "k.rebasePosition();" in body, body
+    assert "r.kernel.rebasePosition();" in body, body
     assert "r.odometry.reset();" in body, body
     assert "r.pendingOtosZero = true;" in body, body
     assert "otosRef().setPose" not in body, (

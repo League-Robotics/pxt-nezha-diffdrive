@@ -55,7 +55,17 @@ Three kinds of file, one pattern:
   production math field-for-field. `getConfigValue`/`setKernelValue`
   fix counts-per-mm at 1.0 (no wire ordinal they reach needs real
   geometry); **sprint 008** ends that shortcut for `setWheelsTimed`
-  specifically, below. `WaHandle`'s DIAG double is re-synced to read
+  specifically, below. Since sprint 033 ticket 003 those two doubles
+  mirror production's SHAPE as well as its math — one
+  `kWaConfigAccessors` row per ordinal, against production's
+  `kConfigAccessors` — and `test_config_surface_single_source.py`
+  fails if the two tables cover different ordinals. That matters more
+  here than symmetry usually does: every compiled `SET`/`GET` test in
+  this directory runs against the double, so a double covering a
+  different surface than the robot means those tests pass while
+  describing a machine that does not exist. The wire NAMES are not
+  doubled at all — the real `comms/config_fields.h` is compiled in
+  through the real `wire_adapter.cpp`. `WaHandle`'s DIAG double is re-synced to read
   `wedgeSuspectLeft/Right` (matching production's `diagValue()`, not
   the double's previous, different `wedgeLeft/Right` substitution —
   both field pairs exist on the kernel's `Output` struct and mean

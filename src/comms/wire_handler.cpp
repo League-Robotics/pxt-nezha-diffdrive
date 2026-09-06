@@ -219,7 +219,7 @@ bool parseTlmMode(const char* field, TlmMode& mode) {
 // matter where inside its own range the clamp threshold sits, EVERY
 // field whose real magnitude reached that line clamped to the exact
 // same wrong constant (4294.967040) -- fullDutyVelocity (10795.0) was
-// simply the first of today's 18 kFields entries to cross it, not a
+// simply the first of the day's 18 config-table entries to cross it, not a
 // field-specific defect (confirmed by reading every seeded Config value
 // in shims.cpp's ensure()).
 //

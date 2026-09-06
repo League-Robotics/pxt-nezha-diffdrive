@@ -62,8 +62,8 @@ cases, closing the loop this file's own docstring predicted --
    not mergeable, guarded the same way `kVersion` guards code vs.
    `pxt.json`.
 9. **`ConfigField` ordinals**: `blocks/motion.ts`'s `ConfigField` TS
-   enum vs `wire_adapter.cpp`'s `kFields` name/ordinal table vs
-   `shims.cpp`'s `setKernelValue()`/`getConfigValue()` switches --
+   enum vs `comms/config_fields.h`'s name/ordinal table vs
+   `shims.cpp`'s `kLimitsFields`/`kConfigAccessors` behaviour tables --
    the same "ordinal -> meaning mapping in two-or-more independently
    maintained places" pattern case 4 above already guards for
    `kDiag*`, found by this sweep to also apply here and previously
@@ -457,10 +457,10 @@ def test_radio_serial_wire_capacity_constants_are_equal_at_240():
 # source inspection (this ticket's own execution) shows they are NOT
 # the same ordinal space: setKernelValue()'s switch (and its
 # getConfigValue() counterpart) encodes the wire's ConfigField ordinals
-# (0-17, e.g. case 2 == pid_kp), which wire_adapter.cpp already names
-# via a SEPARATE, existing {name, ordinal} table with its own
-# ConfigField-referencing comments (kFields, wire_adapter.cpp ~line
-# 106-154) -- an already-addressed, unrelated drift surface. The kDiag*
+# (0-17, e.g. pid_kp == 2), which comms/config_fields.h names via a
+# SEPARATE {name, ordinal, unit} table with its own ConfigField
+# annotations -- an already-addressed, unrelated drift surface, guarded
+# by case 9 below. The kDiag*
 # named constants (wire_adapter.cpp ~line 184-209) only overlap with
 # diagValue()'s switch (shims.cpp), which is what this test pins.
 # ---------------------------------------------------------------------------
@@ -911,9 +911,9 @@ def test_specification_md_rotational_slip_matches_motion_engine():
 
 # ---------------------------------------------------------------------------
 # 9. ConfigField ordinals: blocks/motion.ts's ConfigField TS enum vs
-#    wire_adapter.cpp's kFields name/ordinal table vs shims.cpp's
-#    setKernelValue()/getConfigValue() switches -- sprint 019 ticket
-#    006. The same three-way "ordinal -> meaning in independently
+#    comms/config_fields.h's name/ordinal table vs shims.cpp's
+#    kLimitsFields/kConfigAccessors behaviour tables.
+#    The same three-way "ordinal -> meaning in independently
 #    maintained places" pattern case 4 (above) guards for kDiag*; that
 #    case's own docstring explicitly flagged this ConfigField space as
 #    "an already-addressed, unrelated drift surface" (named, not
@@ -937,40 +937,54 @@ def _motion_ts_config_field_ordinals():
     }
 
 
-def _wire_adapter_kfields_entries():
-    """Each kFields[] row as (wire_name, ordinal, ts_enum_name) --
-    the ts_enum_name comes from that row's own trailing `// ConfigField.
-    Name` comment, which wire_adapter.cpp already carries for every
-    entry (see that file's kFields[] definition)."""
-    text = _read("comms/wire_adapter.cpp")
-    match = re.search(r"kFields\[\]\s*=\s*\{(.*?)\n\};", text, re.DOTALL)
-    assert match, "wire_adapter.cpp's kFields[] table was not found"
-    body = match.group(1)
+def _config_field_table_entries():
+    """Each comms/config_fields.h row as (wire_name, ordinal,
+    ts_enum_name). The ts_enum_name comes from the
+    `// ConfigField.<Name>: "<label>"` comment directly above the row --
+    the same annotation tools/gen_config_field_enum.py reads to generate
+    the TypeScript enum. wire_adapter.cpp no longer keeps a `kFields`
+    copy of this list; it includes this header."""
+    text = _read("comms/config_fields.h")
+    match = re.search(r"kConfigFields\[\]\s*=\s*\{(.*?)\n\};", text, re.DOTALL)
+    assert match, "config_fields.h's kConfigFields[] table was not found"
     rows = re.findall(
-        r'\{"(\w+)",\s*(\d+)\}.*?//\s*ConfigField\.(\w+)', body
+        r'//\s*ConfigField\.(\w+):.*?\n\s*\{"(\w+)",\s*(\d+),', match.group(1)
     )
-    assert rows, "No kFields[] rows with a ConfigField.<Name> comment were found"
-    return [(name, int(ordinal), ts_name) for name, ordinal, ts_name in rows]
+    assert rows, "No kConfigFields[] rows with a ConfigField.<Name> comment were found"
+    return [(name, int(ordinal), ts_name) for ts_name, name, ordinal in rows]
 
 
-def test_wire_adapter_kfields_ordinals_match_config_field_enum():
-    """Every wire_adapter.cpp kFields[] row's ordinal must equal the
-    numeric value blocks/motion.ts's ConfigField enum assigns to the
-    SAME name (per that row's own `// ConfigField.Name` comment) -- a
-    mismatch means SET/GET-by-name (wire_adapter.cpp) and
+def test_config_field_table_ordinals_match_config_field_enum():
+    """Every comms/config_fields.h row's ordinal must equal the numeric
+    value blocks/motion.ts's ConfigField enum assigns to the SAME name
+    (per that row's own `// ConfigField.Name` annotation) -- a mismatch
+    means SET/GET-by-name (wire_adapter.cpp, reading that header) and
     setConfigValue()-by-enum (motion.ts, over the same shim) would
-    silently address two different kernel/engine fields."""
+    silently address two different kernel/engine fields.
+
+    tests/tools/test_gen_config_field_enum.py proves the stronger
+    property (the enum is byte-for-byte what the generator produces from
+    that header). This test survives as the cheap, no-subprocess check
+    of the one relationship that actually corrupts a robot when it
+    breaks, in the same file as the other eight cross-file ordinal
+    guards."""
     ts_ordinals = _motion_ts_config_field_ordinals()
     mismatches = []
-    for wire_name, wire_ordinal, ts_name in _wire_adapter_kfields_entries():
+    for wire_name, wire_ordinal, ts_name in _config_field_table_entries():
         ts_ordinal = ts_ordinals.get(ts_name)
         if ts_ordinal is None:
             mismatches.append((wire_name, ts_name, "not found in ConfigField enum"))
         elif ts_ordinal != wire_ordinal:
             mismatches.append((wire_name, ts_name, f"{wire_ordinal} != {ts_ordinal}"))
     assert not mismatches, (
-        f"wire_adapter.cpp's kFields[] and blocks/motion.ts's "
+        f"comms/config_fields.h and blocks/motion.ts's "
         f"ConfigField enum have diverged on: {mismatches}"
+    )
+    assert len(_config_field_table_entries()) == len(ts_ordinals), (
+        f"comms/config_fields.h has "
+        f"{len(_config_field_table_entries())} rows but ConfigField has "
+        f"{len(ts_ordinals)} members -- the enum is generated from that "
+        f"table and must name every row exactly once."
     )
 
 
@@ -1058,40 +1072,57 @@ def test_twist_hold_gain_default_comment_cites_the_measurement():
     )
 
 
-def test_shims_cpp_set_and_get_config_value_cover_every_config_field_ordinal():
-    """shims.cpp's setKernelValue() and getConfigValue() switches must
-    each have a `case N:` for every ordinal blocks/motion.ts's
-    ConfigField enum defines -- a missing case means
-    setConfigValue()/that field's GET silently falls through to a
-    default/no-op for that field, exactly the "ordinal wire_adapter.cpp
-    names with no matching shims.cpp case" failure mode case 4 (above)
-    guards diagValue() against. Sprint 029 ticket 004: an ordinal
-    covered by `kLimitsFields[]` instead of a literal `case N:` counts
-    too -- see `_shims_cpp_limits_field_ordinals()`'s own comment."""
+def _shims_cpp_config_accessor_ordinals(text):
+    """shims.cpp's `kConfigAccessors[]` rows: `{ordinal, &cfgGetX,
+    &cfgSetX}`. One row carries BOTH directions, so an ordinal listed
+    here is covered for GET and for SET together -- the same "one table,
+    one gate, both functions" property `kLimitsFields` already has for
+    the shaping ordinals."""
+    match = re.search(r"kConfigAccessors\[\]\s*=\s*\{(.*?)\n\};", text, re.DOTALL)
+    assert match, "shims.cpp's kConfigAccessors[] table was not found"
+    return {
+        int(n)
+        for n in re.findall(r"\{(\d+),\s*&cfgGet\w+,\s*&cfgSet\w+\}", match.group(1))
+    }
+
+
+def test_shims_cpp_config_tables_cover_every_config_field_ordinal():
+    """shims.cpp must carry GET/SET behaviour for every ordinal
+    blocks/motion.ts's ConfigField enum defines -- an uncovered ordinal
+    means setConfigValue()/that field's GET silently no-ops, exactly the
+    "ordinal the wire names with no matching shims.cpp behaviour"
+    failure mode case 4 (above) guards diagValue() against.
+
+    There are two tables and no switch: `kLimitsFields[]` (the ten
+    shaping ordinals, over MotionLimits) and `kConfigAccessors[]`
+    (everything else, one get/set pair per row). An ordinal in either
+    counts; an ordinal in BOTH would be two definitions of one field, so
+    this test rejects that too."""
     text = _read("shims.cpp")
     ts_ordinals = _motion_ts_config_field_ordinals()
     expected = set(ts_ordinals.values())
     limits_covered = _shims_cpp_limits_field_ordinals(text)
+    accessor_covered = _shims_cpp_config_accessor_ordinals(text)
 
-    def case_numbers(function_signature_pattern):
-        match = re.search(
-            function_signature_pattern + r"\s*\{(.*?)\n\}", text, re.DOTALL
-        )
-        assert match, f"Function body not found: {function_signature_pattern}"
-        return {int(n) for n in re.findall(r"case (\d+):", match.group(1))}
-
-    set_cases = case_numbers(r"void setKernelValue\(int field, int value\)") | limits_covered
-    get_cases = case_numbers(r"int getConfigValue\(int field\)") | limits_covered
-
-    missing_set = expected - set_cases
-    missing_get = expected - get_cases
-    assert not missing_set, (
-        f"shims.cpp's setKernelValue() has no `case N:` for ConfigField "
-        f"ordinal(s) {sorted(missing_set)} -- a SET for that field would "
-        f"silently no-op."
+    overlap = limits_covered & accessor_covered
+    assert not overlap, (
+        f"shims.cpp defines ordinal(s) {sorted(overlap)} in BOTH "
+        f"kLimitsFields[] and kConfigAccessors[] -- findLimitsField() "
+        f"wins, so the kConfigAccessors row is dead code that reads "
+        f"like a live definition."
     )
-    assert not missing_get, (
-        f"shims.cpp's getConfigValue() has no `case N:` for ConfigField "
-        f"ordinal(s) {sorted(missing_get)} -- a GET for that field would "
-        f"silently fall through to whatever the default case returns."
+
+    missing = expected - (limits_covered | accessor_covered)
+    assert not missing, (
+        f"shims.cpp has no kLimitsFields/kConfigAccessors row for "
+        f"ConfigField ordinal(s) {sorted(missing)} -- a SET for that "
+        f"field would silently no-op and a GET would return 0."
+    )
+
+    extra = (limits_covered | accessor_covered) - expected
+    assert not extra, (
+        f"shims.cpp carries behaviour for ordinal(s) {sorted(extra)} "
+        f"that no ConfigField member (and therefore no comms/"
+        f"config_fields.h row) names -- an ordinal no wire caller can "
+        f"reach."
     )

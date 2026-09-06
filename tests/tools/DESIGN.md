@@ -17,6 +17,16 @@ would otherwise shell out or touch the network. Different toolchain,
 different fixtures, different failure modes — one shared harness would
 fit neither well.
 
+`test_gen_config_field_enum.py` (sprint 033 ticket 003) is the drift
+backstop for this repo's one code generator: `src/blocks/motion.ts`'s
+`ConfigField` enum is generated from `src/comms/config_fields.h` and
+committed, and a generated-and-committed file is only as good as the
+discipline of re-running the generator. It regenerates and compares,
+and separately exercises the generator's own input contract (every
+table row needs its `// ConfigField.<Name>: "<label>"` annotation; no
+duplicate names or ordinals) against synthetic headers — the failures
+that would otherwise surface as a silently short enum.
+
 Five files: `test_make_deploy_triage.py`, pinning
 `tools/make_deploy.py`'s build-checkpoint triage (added sprint 008,
 ticket 006) — the logic that decides whether a real `pxt build`

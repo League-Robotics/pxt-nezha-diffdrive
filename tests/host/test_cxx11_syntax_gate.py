@@ -130,6 +130,12 @@ _CXX11_PORTABLE_SOURCES = [
     # something to compile.
     _TEST_DIR / "motion_owner_syntax_check.cpp",
     _TEST_DIR / "fiber_identity_syntax_check.cpp",
+    # comms/config_fields.h has no pxt.h dependency (it is the wire's
+    # config-name/ordinal table and nothing else -- see its own header
+    # comment) but no natural .cpp of its own, so this dedicated
+    # translation unit exists solely to give this gate something to
+    # compile. wire_adapter.cpp, above, also includes it.
+    _TEST_DIR / "config_fields_syntax_check.cpp",
 ]
 
 
