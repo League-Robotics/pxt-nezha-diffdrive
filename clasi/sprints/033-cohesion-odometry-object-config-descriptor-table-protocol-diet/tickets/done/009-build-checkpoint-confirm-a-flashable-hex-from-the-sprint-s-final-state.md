@@ -1,7 +1,7 @@
 ---
 id: 009
 title: 'Build checkpoint: confirm a flashable hex from the sprint''s final state'
-status: in-progress
+status: done
 use-cases: []
 depends-on:
 - '001'
@@ -54,15 +54,15 @@ running it here catches a failure before that gate rather than at it).
 
 ## Acceptance Criteria
 
-- [ ] `tools/make_deploy.py` produces a flashable hex from the sprint's
+- [x] `tools/make_deploy.py` produces a flashable hex from the sprint's
       final state (after ticket 008).
-- [ ] Any build abort is triaged as benign (retried once, per
+- [x] Any build abort is triaged as benign (retried once, per
       `make_deploy.py`'s own logic) or reported as a real defect — not
       silently ignored.
-- [ ] `ConfigField`'s generated output (ticket 003) matches the
+- [x] `ConfigField`'s generated output (ticket 003) matches the
       checked-in TS file at this final state.
-- [ ] The full `tests/host/` suite passes.
-- [ ] No hardware acceptance is claimed by this ticket — it is a desk
+- [x] The full `tests/host/` suite passes.
+- [x] No hardware acceptance is claimed by this ticket — it is a desk
       build/test checkpoint only.
 
 ## Testing
@@ -73,3 +73,15 @@ running it here catches a failure before that gate rather than at it).
 - **New tests to write**: none — this ticket verifies, it does not add
   coverage.
 - **Verification command**: `uv run pytest tests/host/ && uv run python tools/make_deploy.py`
+
+## Verification record (team-lead desk build, 2026-09-06)
+
+- Hex: `captures/sprint-033-build-checkpoint-20260906/binary-8af1326.hex`
+  (1 773 701 bytes, sha256 13fd99e86688a5dd..., attempt 1, 0 universal-hex
+  markers) from `tools/make_deploy.py` at commit 8af1326 in an isolated
+  worktree; run tail in `make_deploy.tail.txt`, context in `notes.md`
+  (same directory, force-added since `captures/` is gitignored).
+- `uv run python tools/gen_config_field_enum.py --check`: up to date.
+- `uv run pytest tests/host -q` at 8af1326: 1147 passed.
+- Intermediate desk builds after tickets 002-007 also built on attempt 1.
+- No hardware acceptance claimed.
