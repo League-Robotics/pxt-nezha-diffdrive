@@ -1,30 +1,18 @@
-"""tools/tlm.py -- the single v6 telemetry parser, plus the three
-fail-loud guards that make "the instrument returned nothing" a loud,
-immediate failure instead of a silent empty CSV.
+"""v6 telemetry parser. `thdr` binds columns by name; `t` rows decode
+against the last header. Wire units: x/y/ox/oy mm; h/oh centideg;
+vl/vr mm/s; dutl/dutr percent x100.
 
-Six tools (`tour_run.py`, `tour_capture.py`, `tour_watch.py`,
-`truth_check.py`, `rotation_check.py`, `tour_practice.py`) used to each
-parse the retired v5 `TLM:` cleartext line with their own scattered
-arity check and scale factor. Two of them were already silently dead
--- `tour_watch.py:202` and `tour_capture.py:70` both hard-coded field
-counts that stopped matching the wire line when `vl`/`vr` were added,
-and the failure mode was an empty CSV, not a crash. This module is the
-fix: ONE place a v6 wire column is decoded and ONE place any
-wire-to-engineering-unit scale factor is written. No consumer is
-retrofitted here (that is sprint 005 ticket 002's job) -- this module
-is only imported.
+The single place a v6 wire column is decoded and the single place a
+wire-to-engineering-unit scale factor is written, plus three fail-loud
+guards that make "the instrument returned nothing" an immediate
+failure instead of a silent empty CSV.
 
-Wire shape (protocol.md S5.2, confirmed against real hardware --
-tovez, 2026-08-24, see
-clasi/issues/retrofit-bench-tooling-onto-the-v6-telemetry-stream.md's
-"Bench confirmation" and "Realistic-value capture" sections):
+Wire shape (protocol.md S5.2):
 
-    thdr <col> <col> ...          -- column header, re-emitted by
-                                      firmware every kHeaderRefreshFrames
-                                      (20) frames, ~1 Hz at the 20 Hz
-                                      frame rate
-    t <val> <val> ...             -- one telemetry frame, values in the
-                                      header's column order
+    thdr <col> <col> ...          -- column header, re-emitted every
+                                     kHeaderRefreshFrames (20) frames,
+                                     ~1 Hz at the 20 Hz frame rate
+    t <val> <val> ...             -- one frame, in the header's order
 
 Two column sets exist and can appear in the SAME capture:
 
@@ -32,44 +20,38 @@ Two column sets exist and can appear in the SAME capture:
     FULL (20 cols): seq now flags x y h ox oy oh vl vr i2cf cyc posl
                     posr dutl dutr lexc wrng cycovr
 
-`TlmStream` binds every column by NAME from the most recently seen
-`thdr` line -- never by a fixed index or position -- so a mid-stream
-switch between the two (or a firmware upgrade that adds a column) is
-handled for free.
+Binding by NAME rather than by index is what makes a mid-stream switch
+between the two -- or a firmware upgrade that adds a column -- free.
 
-Measured line widths, real hardware: POSE thdr 44 B / idle `t` 29 B;
-FULL thdr 85 B / live `t` 75 B (flags=31 hex, vl=-122, dutl=-1300, all
-real non-zero magnitudes). The host test suite's own predicted
-worst-case FULL `t` line is 138 B; `RadioTransport::kMaxPayloadBytes`
-is 200 B. `TlmStream.feed()` imposes no line-length ceiling of its own
--- a legitimate line anywhere under the 200 B radio cap is never
-rejected for its length; a line truncated by the radio layer is caught
-by the arity check below instead (a truncated line has too few
-values, not merely a long one).
+MEASURED tovez 2026-08-24, line widths on real hardware (see
+clasi/issues/retrofit-bench-tooling-onto-the-v6-telemetry-stream.md's
+"Bench confirmation" and "Realistic-value capture" sections): POSE
+thdr 44 B / idle `t` 29 B; FULL thdr 85 B / live `t` 75 B (flags=31
+hex, vl=-122, dutl=-1300, all real non-zero magnitudes). The host
+suite's predicted worst-case FULL `t` line is 138 B and
+`RadioTransport::kMaxPayloadBytes` is 200 B, so `TlmStream.feed()`
+imposes no line-length ceiling of its own: a legitimate line under the
+radio cap is never rejected for its length, and a line the radio layer
+truncated is caught by the arity check instead (too few values, not
+merely a long line).
 
 `ox`/`oy`/`oh` are legitimately 0 on any OTOS-less robot (most of the
-fleet, tovez included) -- this module never treats a zero OTOS column
-as missing data or a fault; it is just a valid integer like any other.
+fleet, tovez included). A zero OTOS column is valid data, never
+missing data and never a fault.
 
-The reliability keepalive (`ack <n> <lastDone> <reason>`, and its
-`nack` counterpart) is a per-line reply -- one for whatever line
-provoked it, not a periodic broadcast (sprint 024 ticket 001 deleted
-protocol.cpp's free-running emitReliability() call; see
-clasi/issues/reliability-line-free-runs-at-20-hz-on-the-radio-with-no-
-host.md). Either way, it is NOT telemetry. `TlmStream.feed()` only
-recognizes the `thdr`/`t` tags; every other line (including `ack`/
-`nack`, and any other STATUS/VER/GET/err reply sharing the same link)
-is silently ignored -- `feed()` returns None for it, uncounted
-anywhere. This is deliberate filtering, not a gap: a caller that only
-speaks `feed()` never has to know the reliability line's own shape,
-and that filtering logic itself is unchanged by any of this.
+`feed()` recognises only the `thdr`/`t` tags. Every other line sharing
+the link -- `ack`/`nack`, STATUS, VER, GET, err -- returns None and is
+counted nowhere. That is deliberate filtering, not a gap: a caller
+that only speaks `feed()` never has to know the reliability line's
+shape.
 
 Import `TlmStream`, `require_stream()`, `write_tlm_csv()`,
-`read_meta_sidecar()` (sprint 005 ticket 002's read-side zero-frame
-guard for chart tools that did not capture the run they plot), and the
-`pose_cm()`/`otos_cm()`/`wheels_mms()` helpers. See tools/DESIGN.md's
-"Telemetry (tlm.py)" section for the module's place in the bench
-tooling architecture.
+`read_meta_sidecar()`, `write_pose_csv()`/`read_pose_csv()` (the one
+header-keyed on-disk pose schema -- see the pose-CSV codec section at
+the foot of this module), and the
+`pose_cm()`/`otos_cm()`/`wheels_mms()`/`duty_pct()` converters. See
+tools/DESIGN.md's "Telemetry (`tlm.py`)" section for this module's
+place in the bench tooling architecture.
 """
 import csv
 import json
@@ -458,3 +440,289 @@ def read_meta_sidecar(any_csv_path):
         return None
     with open(meta_path) as f:
         return json.load(f)
+
+
+# --- the pose-CSV codec: ONE on-disk pose schema, bound by name ---------
+# Sprint 034 ticket 004. Three tools used to write three different pose
+# CSVs -- wire units (mm/centidegrees), cm/degrees, and cm/degrees plus
+# wheel speeds -- and `tour_chart.py` picked its reader by COUNTING
+# COLUMNS (`len(pose_all[0]) >= 5`, `>= 8`) while assuming wire units
+# throughout. A cm/degree CSV happens to have eight columns too, so it
+# was ACCEPTED: plotted 10x too small, heading divided by 100, the OTOS
+# series read off the wrong columns, under a confident "closure N mm"
+# title. Nothing raised.
+#
+# The fix is the rule this module already applies to the wire: bind
+# every column BY NAME, never by position or by count, and refuse a
+# header that is not recognised rather than guess at it.
+#
+# The surviving schema is `tour_capture.py`'s -- wire units, the wire's
+# own quantities, one column per quantity:
+#
+#     t_host,t_dev_ms,x_mm,y_mm,h_cdeg,ox_mm,oy_mm,oh_cdeg
+#
+# plus the OPTIONAL wheel-speed pair `vl_mms,vr_mms` for recorders that
+# carry the frame's own vl/vr (`tour_practice.py`). Optional means
+# optional to WRITE; nothing about reading changes, because the reader
+# binds by name and simply reports the pair as absent.
+#
+# The CSV column names keep their `_mm`/`_cdeg`/`_mms` suffixes on
+# purpose: `.claude/rules/no-units-in-identifiers.md` exempts wire field
+# names, and the suffix is what makes this header self-describing to the
+# reader that binds against it. Python identifiers in this section carry
+# their unit in a trailing comment instead, per the same rule.
+
+#: The required columns, in write order.
+POSE_CSV_COLUMNS = ('t_host', 't_dev_ms', 'x_mm', 'y_mm', 'h_cdeg',
+                    'ox_mm', 'oy_mm', 'oh_cdeg')
+
+#: The optional wheel-speed pair, appended in this order when a
+#: recorder asks for it (`write_pose_csv(..., wheels=True)`).
+POSE_CSV_WHEEL_COLUMNS = ('vl_mms', 'vr_mms')
+
+#: Schema name `read_pose_csv()` reports for the surviving schema.
+POSE_CSV_SCHEMA = 'pose-csv wire units (mm, centidegrees, mm/s)'
+
+# CSV column -> the key that quantity carries in a DECODED TELEMETRY
+# FRAME (TlmStream.feed()'s own dict). This mapping is what lets a
+# caller hand write_pose_csv() a frame straight off the stream, and lets
+# read_pose_csv() hand a CSV row back in the shape pose_cm()/otos_cm()/
+# wheels_mms() already take -- so the CSV path reuses this module's
+# single set of scale factors instead of growing a second one.
+# `t_host` is the exception: host arrival time is not a wire column at
+# all, and it keeps its own name on both sides.
+_POSE_CSV_FRAME_KEY = {
+    't_host': 't_host',   # [s] host wall clock, not a wire column
+    't_dev_ms': 'now',    # [ms] the device's own clock
+    'x_mm': 'x', 'y_mm': 'y', 'h_cdeg': 'h',
+    'ox_mm': 'ox', 'oy_mm': 'oy', 'oh_cdeg': 'oh',
+    'vl_mms': 'vl', 'vr_mms': 'vr',
+}
+
+# The one frame key that is a real (fractional) time rather than an
+# integer wire quantity -- see _pose_row_from_raw() for why the rest are
+# read back as ints.
+_POSE_CSV_REAL_KEYS = frozenset({'t_host'})
+
+# The headers this repo's own tools wrote before ticket 004, each an
+# entry of (name, required columns, plan, optional plans) where a plan
+# maps a frame key to (source column, factor). Two of the three are
+# cm/degrees, so their factors are the inverse of pose_cm()/otos_cm()'s
+# -- written HERE, beside those, so this module stays the one place any
+# wire <-> engineering-unit scale factor lives. An OPTIONAL plan is
+# applied only when every column it names is present, which is how the
+# same recorder's with-wheels and without-wheels recordings (and its
+# cm/s and mm/s wheel spellings) are all read by one entry instead of
+# one entry each.
+#
+# Headers surveyed off this working tree's own recordings, 2026-09-06,
+# not invented: `captures/` carries the ox/oy/oh-unsuffixed wire-unit
+# variant below, and `.tmp/` carries the with- and without-wheel
+# cm/degree ones.
+#
+# One real historical shape is deliberately NOT converted: the
+# five-column `t_host,t_dev_ms,x_mm,y_mm,h_cdeg` written before the OTOS
+# columns existed. Its OTOS quantities are ABSENT, not zero, and
+# fabricating them here would put a sensor that said nothing on a chart
+# as a fix at the origin -- the exact "a series that was asked for and
+# is absent must be labelled absent" failure `tour_chart.py` already
+# guards against. It is refused, by name, like any other header this
+# codec does not recognise.
+_LEGACY_POSE_SCHEMAS = (
+    (
+        "tour_watch cm/deg "
+        "(t,dev_ms,enc_*_cm,enc_h_deg,otos_*_cm,otos_h_deg)",
+        ('t', 'dev_ms', 'enc_x_cm', 'enc_y_cm', 'enc_h_deg',
+         'otos_x_cm', 'otos_y_cm', 'otos_h_deg'),
+        {'t_host': ('t', 1.0), 'now': ('dev_ms', 1.0),
+         'x': ('enc_x_cm', 10.0), 'y': ('enc_y_cm', 10.0),
+         'h': ('enc_h_deg', 100.0),
+         'ox': ('otos_x_cm', 10.0), 'oy': ('otos_y_cm', 10.0),
+         'oh': ('otos_h_deg', 100.0)},
+        (),
+    ),
+    (
+        "tour_practice cm/deg (t,enc_*,otos_*,dev_ms[,vl_mms/vl_cms])",
+        ('t', 'enc_x', 'enc_y', 'enc_h', 'otos_x', 'otos_y', 'otos_h',
+         'dev_ms'),
+        {'t_host': ('t', 1.0), 'now': ('dev_ms', 1.0),
+         'x': ('enc_x', 10.0), 'y': ('enc_y', 10.0),
+         'h': ('enc_h', 100.0),
+         'ox': ('otos_x', 10.0), 'oy': ('otos_y', 10.0),
+         'oh': ('otos_h', 100.0)},
+        (
+            {'vl': ('vl_mms', 1.0), 'vr': ('vr_mms', 1.0)},
+            {'vl': ('vl_cms', 10.0), 'vr': ('vr_cms', 10.0)},
+        ),
+    ),
+    (
+        "tour_capture wire units, OTOS columns unsuffixed "
+        "(t_host,t_dev_ms,x_mm,y_mm,h_cdeg,ox,oy,oh)",
+        ('t_host', 't_dev_ms', 'x_mm', 'y_mm', 'h_cdeg', 'ox', 'oy', 'oh'),
+        {'t_host': ('t_host', 1.0), 'now': ('t_dev_ms', 1.0),
+         'x': ('x_mm', 1.0), 'y': ('y_mm', 1.0), 'h': ('h_cdeg', 1.0),
+         'ox': ('ox', 1.0), 'oy': ('oy', 1.0), 'oh': ('oh', 1.0)},
+        (),
+    ),
+)
+
+
+class PoseCsvSchemaError(TlmError):
+    """read_pose_csv() met a header it does not recognise, or a row it
+    cannot decode; or write_pose_csv() was handed a row missing a
+    column the schema requires."""
+
+
+def write_pose_csv(rows, path, wheels: bool = False) -> int:
+    """Write `rows` to `path` as the one pose-CSV schema, and return the
+    number of data rows written.
+
+    Each row is a DECODED TELEMETRY FRAME (a `TlmStream.feed()` dict,
+    keys `x`/`y`/`h`/`ox`/`oy`/`oh`, optionally `vl`/`vr`, and the
+    device clock's `now`) with one host-side key added: `t_host`, the
+    host arrival time [s]. `dict(frame, t_host=time.time())` is the
+    whole call-site idiom -- values pass through in the wire's own
+    units, so a recorder never applies a scale factor of its own and
+    the CSV cannot disagree with the `_tlm.csv` written beside it.
+    Extra keys a frame carries (`seq`, `flags`, `i2cf`, the FULL-only
+    columns) are ignored, not written.
+
+    `wheels=True` appends the optional `vl_mms,vr_mms` pair, for a
+    recorder whose chart plots the frame's own wheel speeds.
+
+    Fail-loud, in write_tlm_csv()'s style: a row missing a required key
+    raises PoseCsvSchemaError naming the key and the row number rather
+    than writing a blank cell that reads downstream as a real zero.
+
+    A zero-row capture is NOT refused here -- unlike write_tlm_csv(),
+    whose CSV is the capture-quality record itself, this file is a
+    derived view of a stream whose emptiness that guard (and its
+    `.meta.json` sidecar, checked at read time by read_meta_sidecar())
+    already refuses loudly and in one place.
+    """
+    columns = list(POSE_CSV_COLUMNS)
+    if wheels:
+        columns.extend(POSE_CSV_WHEEL_COLUMNS)
+    written = 0
+    with open(path, 'w', newline='') as f:
+        w = csv.writer(f)
+        w.writerow(columns)
+        for row in rows:
+            out = []
+            for column in columns:
+                key = _POSE_CSV_FRAME_KEY[column]
+                if key not in row:
+                    raise PoseCsvSchemaError(
+                        'refusing to write {path}: row {n} has no {key!r} '
+                        '(the {column!r} column) -- a pose CSV with a '
+                        'blank cell reads downstream as a real zero'
+                        .format(path=path, n=written, key=key,
+                                column=column))
+                value = row[key]
+                out.append(round(value, 3) if column == 't_host' else value)
+            w.writerow(out)
+            written += 1
+    return written
+
+
+def read_pose_csv(path):
+    """Read a pose CSV and return `(rows, schema)`.
+
+    `rows` is a list of dicts in the SAME shape `TlmStream.feed()`
+    produces -- `x`/`y`/`h`/`ox`/`oy`/`oh` in wire units, `now` the
+    device clock [ms], `t_host` the host arrival time [s], plus
+    `vl`/`vr` when the file carried the optional wheel-speed pair -- so
+    `pose_cm()`/`otos_cm()`/`wheels_mms()` apply to a CSV row exactly as
+    they do to a live frame. `schema` names the header that was found,
+    for a caller that wants to say so on its console or chart.
+
+    Columns are bound BY NAME. Position and column count are never
+    consulted: that is the whole defect this codec exists to fix (see
+    this section's header comment). A file whose header carries the
+    required columns in any order is read; unrecognised EXTRA columns
+    beside a complete set are ignored rather than guessed at.
+
+    The legacy headers this repo's own tools wrote before sprint 034
+    ticket 004 are CONVERTED, not refused -- their cm/degree values are
+    scaled back into wire units by `_LEGACY_POSE_SCHEMAS` above and
+    rounded to the integer the wire actually carried, so an existing
+    capture under `captures/` still charts correctly instead of being
+    lost. (Converting is one of the two outcomes ticket 004 permits; the
+    prohibited one is the old behaviour, silently reading cm as mm.) The
+    one historical shape that is deliberately refused instead of
+    converted is documented on `_LEGACY_POSE_SCHEMAS` itself.
+
+    Anything else raises PoseCsvSchemaError naming the file and the
+    header it found. An empty file (no header at all) raises too: a
+    capture that recorded nothing is not a schema this reader can pick.
+    """
+    with open(path, newline='') as f:
+        reader = csv.DictReader(f)
+        header = reader.fieldnames
+        if not header:
+            raise PoseCsvSchemaError(
+                'refusing to read {path}: the file is empty -- it has no '
+                'header row, so there is no schema to bind to'
+                .format(path=path))
+        raw_rows = list(reader)
+
+    present = set(header)
+    if present.issuperset(POSE_CSV_COLUMNS):
+        columns = list(POSE_CSV_COLUMNS)
+        if present.issuperset(POSE_CSV_WHEEL_COLUMNS):
+            columns.extend(POSE_CSV_WHEEL_COLUMNS)
+        plan = {_POSE_CSV_FRAME_KEY[c]: (c, 1.0) for c in columns}
+        return ([_pose_row_from_raw(raw, plan, path, n)
+                 for n, raw in enumerate(raw_rows)], POSE_CSV_SCHEMA)
+
+    for name, legacy_header, plan, optional_plans in _LEGACY_POSE_SCHEMAS:
+        if not present.issuperset(legacy_header):
+            continue
+        plan = dict(plan)
+        for optional in optional_plans:
+            if present.issuperset(column for column, _f in optional.values()):
+                plan.update(optional)
+                break
+        return ([_pose_row_from_raw(raw, plan, path, n)
+                 for n, raw in enumerate(raw_rows)], name)
+
+    raise PoseCsvSchemaError(
+        'refusing to read {path}: its header is not a pose CSV any tool '
+        'in this repo writes -- found [{found}]; expected [{expected}] '
+        '(the wire-unit schema, optionally + [{wheels}]), or one of the '
+        'legacy headers this codec converts: {legacy}. A header that is '
+        'not recognised is refused, never guessed at by column count.'
+        .format(path=path, found=','.join(header),
+                expected=','.join(POSE_CSV_COLUMNS),
+                wheels=','.join(POSE_CSV_WHEEL_COLUMNS),
+                legacy='; '.join(entry[0] for entry in
+                                 _LEGACY_POSE_SCHEMAS)))
+
+
+def _pose_row_from_raw(raw, plan, path, n):
+    """One CSV row -> one frame-shaped dict, per `plan`: frame key ->
+    (source column, factor).
+
+    Every quantity but `t_host` comes back as an int, because that is
+    what the wire carries; a converted legacy value is ROUNDED to the
+    nearest int, which recovers the original wire integer exactly for
+    any value that was written out of a frame in the first place.
+    """
+    row = {}
+    for key, (column, factor) in plan.items():
+        text = raw.get(column)
+        if text is None or text == '':
+            raise PoseCsvSchemaError(
+                'refusing to read {path}: row {n} has no value in the '
+                '{column!r} column -- a blank cell would read downstream '
+                'as a real zero'.format(path=path, n=n, column=column))
+        try:
+            value = float(text)
+        except ValueError as e:
+            raise PoseCsvSchemaError(
+                'refusing to read {path}: row {n} column {column!r} is '
+                '{text!r}, which is not a number'
+                .format(path=path, n=n, column=column, text=text)) from e
+        row[key] = (value * factor if key in _POSE_CSV_REAL_KEYS
+                    else int(round(value * factor)))
+    return row

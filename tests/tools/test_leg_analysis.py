@@ -119,6 +119,64 @@ def test_mid_leg_truncation_when_distance_falls_short_of_commanded():
     assert result.distance_error_cm == pytest.approx(-30.0)
 
 
+def test_heading_miss_when_only_the_heading_is_out_of_tolerance():
+    """TL-10. `believed = (100.5 cm, 30 deg)` against a 100 cm / 0 deg
+    command used to read `straight-overrun` with
+    `distance_error_cm = +0.5` -- a 30 deg heading miss reported as a
+    5 mm overrun, because the verdict was decided by the SIGN of a
+    sub-tolerance distance error. The heading branch now runs first."""
+    commanded = leg_analysis.LegSpec(distance_cm=100.0, heading_deg=0.0)
+    believed = leg_analysis.LegSpec(distance_cm=100.5, heading_deg=30.0)
+
+    result = leg_analysis.classify_leg(commanded, believed)
+
+    assert result.classification == leg_analysis.HEADING_MISS
+    # the new class changes the verdict, not the data -- both errors are
+    # still reported in full, in their own fields.
+    assert result.distance_error_cm == pytest.approx(0.5)
+    assert result.heading_error_deg == pytest.approx(30.0)
+
+
+def test_heading_miss_also_covers_a_sub_tolerance_shortfall():
+    """The other sign of the same sub-tolerance distance error: a
+    heading-only miss on a leg that fell 0.5 cm SHORT used to read
+    `mid-leg-truncation` for the same reason."""
+    commanded = leg_analysis.LegSpec(distance_cm=100.0, heading_deg=0.0)
+    believed = leg_analysis.LegSpec(distance_cm=99.5, heading_deg=-30.0)
+
+    result = leg_analysis.classify_leg(commanded, believed)
+
+    assert result.classification == leg_analysis.HEADING_MISS
+    assert result.distance_error_cm == pytest.approx(-0.5)
+    assert result.heading_error_deg == pytest.approx(-30.0)
+
+
+def test_a_genuine_overrun_with_a_bad_heading_is_still_an_overrun():
+    """`HEADING_MISS` takes precedence only when the DISTANCE is inside
+    tolerance. A leg that missed both keeps the distance-sign verdict --
+    the new class must not swallow the class this tool was built to
+    surface."""
+    commanded = leg_analysis.LegSpec(distance_cm=100.0, heading_deg=0.0)
+    believed = leg_analysis.LegSpec(distance_cm=112.0, heading_deg=30.0)
+
+    result = leg_analysis.classify_leg(commanded, believed)
+
+    assert result.classification == leg_analysis.STRAIGHT_OVERRUN
+    assert result.distance_error_cm == pytest.approx(12.0)
+    assert result.heading_error_deg == pytest.approx(30.0)
+
+
+def test_a_genuine_overrun_with_a_good_heading_is_still_an_overrun():
+    """The plain regression guard: distance out of tolerance, heading
+    in, verdict unchanged by this ticket."""
+    commanded = leg_analysis.LegSpec(distance_cm=100.0, heading_deg=0.0)
+    believed = leg_analysis.LegSpec(distance_cm=112.0, heading_deg=2.0)
+
+    result = leg_analysis.classify_leg(commanded, believed)
+
+    assert result.classification == leg_analysis.STRAIGHT_OVERRUN
+
+
 def test_distance_error_and_heading_error_are_reported_as_separate_fields():
     # The whole point: a residual-fault leg (distance missed, heading
     # closed) must be distinguishable from an already-fixed-class leg
@@ -325,6 +383,20 @@ def test_csv_fixture_on_target_classifies_as_on_target(tmp_path):
     [leg] = leg_analysis.analyze_pose_csv(pose_csv, [(100.0, 0.0)])
 
     assert leg.result.classification == leg_analysis.ON_TARGET
+
+
+def test_csv_fixture_heading_miss_classifies_as_heading_miss(tmp_path):
+    pose_csv = tmp_path / 'headingmiss_pose.csv'
+    # 100.5 cm travelled, 30.00 deg heading -- distance well inside the
+    # 6 cm tolerance, heading well outside the 8 deg one. TL-10's own
+    # example, carried end to end through the CSV pipeline.
+    _write_pose_csv(pose_csv, _single_leg_samples((1005, 0, 3000)))
+
+    [leg] = leg_analysis.analyze_pose_csv(pose_csv, [(100.0, 0.0)])
+
+    assert leg.result.classification == leg_analysis.HEADING_MISS
+    assert leg.result.distance_error_cm == pytest.approx(0.5, abs=0.05)
+    assert leg.result.heading_error_deg == pytest.approx(30.0, abs=0.05)
 
 
 def test_csv_fixture_two_legs_segmented_and_classified_independently(

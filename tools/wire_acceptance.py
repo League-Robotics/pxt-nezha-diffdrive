@@ -5,7 +5,8 @@ Good cases, bad cases, and whether the robot actually MOVES.
 
     uv run python tools/wire_acceptance.py --usb /dev/cu.usbmodemXXXX
     uv run python tools/wire_acceptance.py --gauti            # ssh ros@gauti
-    uv run python tools/wire_acceptance.py --radio 4          # relay pool
+    uv run python tools/wire_acceptance.py --radio tovez      # relay pool,
+                                                              # by robot name
     uv run python tools/wire_acceptance.py --tcp 192.168.1.147:PORT
                                                               # farm serial daemon
     uv run python tools/wire_acceptance.py --wifi tovez       # WiFi, by mDNS/broadcast
@@ -51,7 +52,17 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import link as linklib  # noqa: E402  (tools/link.py -- line reassembly, relay setup)
 import wifilink  # noqa: E402  (tools/wifilink.py -- the UDP link + discovery)
+
+# NOTE: this harness deliberately does NOT use `linklib.Sequencer`. Its
+# whole job is to probe the sequencing contract from outside, so it
+# hand-writes the ids the cases need -- `#0`, `#9` (a gap), the reserved
+# ceiling `#4294967295`, a resend of `#2` -- and tracks the robot's
+# counter from what the robot ACTUALLY says (`next_id()`, below). A
+# Sequencer here would allocate the ids instead and there would be
+# nothing left to test. What it shares is the line reassembly and the
+# relay's control-plane setup.
 
 # --------------------------------------------------------------- results
 PASS, FAIL, BLOCKED = 'PASS', 'FAIL', 'BLOCKED'
@@ -72,7 +83,7 @@ class UsbLink:
     def __init__(self, port):
         import serial
         self.p = serial.Serial(port, 115200, timeout=0.1)
-        self.buf = b''
+        self.buf = linklib.LineBuffer()
         time.sleep(0.8)
         self.read(0.4)
 
@@ -80,14 +91,7 @@ class UsbLink:
         end = time.time() + sec
         got = []
         while time.time() < end:
-            c = self.p.read(4096)
-            if c:
-                self.buf += c
-                while b'\n' in self.buf:
-                    r, self.buf = self.buf.split(b'\n', 1)
-                    t = r.decode('ascii', 'replace').strip()
-                    if t:
-                        got.append(t)
+            got.extend(self.buf.feed(self.p.read(4096)))
         return got
 
     def ask(self, line, sec=0.8):
@@ -102,7 +106,15 @@ class UsbLink:
 class GautiLink:
     """vevov's serial port, reached over ssh. One python process on the
     Pi per call would be far too slow, so a single helper is uploaded
-    and driven line-by-line over stdin."""
+    and driven line-by-line over stdin.
+
+    Its reassembly loop stays hand-written and is NOT `linklib`'s: the
+    loop runs on the Pi, inside `HELPER`, where nothing from this
+    checkout exists. Uploading `link.py` alongside it to save fourteen
+    lines would add a second file to keep in step over ssh, which is a
+    worse trade than the duplicate -- the same call `tools/rogo/` makes
+    for the same reason.
+    """
 
     HELPER = r'''
 import sys, time, serial
@@ -162,17 +174,41 @@ for raw in sys.stdin:
 
 
 class RadioLink:
-    """Through the torture relay pool. NOTE: measured 66-83% per-line
-    delivery, so absence of a reply is NOT evidence of absence of the
-    behaviour. Every negative assertion is retried; see `missing()`."""
+    """Through the torture relay pool, addressed BY ROBOT NAME.
 
-    def __init__(self, channel, host='192.168.1.12', port=8760):
+    NOTE: measured 66-83% per-line delivery, so absence of a reply is
+    NOT evidence of absence of the behaviour. Every negative assertion
+    is retried; see `confirm_absent()`.
+
+    **Behaviour change, sprint 034 ticket 006** (sprint.md Open Question
+    2): this took a bare channel number and sent `!CG <channel> 10`,
+    with the GROUP hard-coded to 10. That cannot be right -- the fleet's
+    groups are 43, 60, 108 and 114 (`.claude/rules/playfield-testing.md`),
+    and only zeguz/zetuv are still on the legacy 3/10. It now takes the
+    robot's NAME and resolves both halves through
+    `robotlink.radio_address()`, the one place that derives them
+    (explicit override in `field_calibration.json`, else the base-5 name
+    derivation the fleet was addressed with in the first place). The host
+    moved from the bare IP `192.168.1.12` to `torture`, the pool's name,
+    which is what the other two relay carriers already used.
+    """
+
+    def __init__(self, robot, host=linklib.RELAY_HOST,
+                 port=linklib.RELAY_PORT):
         import socket
+
+        # Imported here, not at module scope: robotlink pulls in pyserial
+        # and make_deploy, and this file is routinely run over WiFi or a
+        # farm socket where neither is wanted.
+        import robotlink
+
+        channel, group = robotlink.radio_address(robot)
+        self.channel, self.group = channel, group
         self.s = socket.create_connection((host, port), timeout=15)
-        self.buf = b''
+        self.buf = linklib.LineBuffer()
         time.sleep(1.0)
         self.read(1.5)
-        for c in (f'!CG {channel} 10', '!GO'):
+        for c in linklib.relay_setup_lines(channel, group) + ('!GO',):
             self.s.sendall((c + '\n').encode())
             time.sleep(0.4)
             self.read(0.8)
@@ -189,14 +225,7 @@ class RadioLink:
                 continue
             if not c:
                 break
-            self.buf += c
-            while b'\n' in self.buf:
-                r, self.buf = self.buf.split(b'\n', 1)
-                t = r.decode('ascii', 'replace').strip()
-                if t.startswith('< '):
-                    t = t[2:]
-                if t:
-                    got.append(t)
+            got.extend(self.buf.feed(c))
         return got
 
     def ask(self, line, sec=1.2):
@@ -216,7 +245,7 @@ class TcpLink:
         host, _, port = hostport.rpartition(':')
         self.s = socket.create_connection((host, int(port)), timeout=15)
         self.s.settimeout(0.1)
-        self.buf = b''
+        self.buf = linklib.LineBuffer()
         time.sleep(0.5)
         self.read(0.5)
 
@@ -231,12 +260,7 @@ class TcpLink:
                 continue
             if not c:
                 break
-            self.buf += c
-            while b'\n' in self.buf:
-                r, self.buf = self.buf.split(b'\n', 1)
-                t = r.decode('ascii', 'replace').strip()
-                if t:
-                    got.append(t)
+            got.extend(self.buf.feed(c))
         return got
 
     def ask(self, line, sec=0.8):
@@ -709,8 +733,9 @@ def main():
     g.add_argument('--usb', metavar='PORT', help='local serial port')
     g.add_argument('--gauti', action='store_true',
                    help="vevov's port, over ssh ros@gauti")
-    g.add_argument('--radio', metavar='CH', type=int,
-                   help='torture relay pool on this channel')
+    g.add_argument('--radio', metavar='ROBOT',
+                   help="torture relay pool, tuned to this ROBOT's own "
+                        'channel/group (robotlink.radio_address)')
     g.add_argument('--tcp', metavar='HOST:PORT',
                    help="a farm node's serial daemon (mbdeploy serve)")
     g.add_argument('--wifi', metavar='NAME|IP',
@@ -746,7 +771,8 @@ def main():
         link = WifiLink(a.wifi_tcp, tcp=True)
         where = f'WiFi TCP {link.host}:{wifilink.ROBOT_PORT}'
     else:
-        link, where = RadioLink(a.radio), f'radio ch{a.radio}'
+        link = RadioLink(a.radio)
+        where = f'radio {a.radio} ch{link.channel} grp{link.group}'
 
     ident = ''
     for _ in range(4):

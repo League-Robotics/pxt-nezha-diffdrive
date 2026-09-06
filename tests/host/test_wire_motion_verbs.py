@@ -1228,7 +1228,7 @@ def _drive_wheels_v_to_deadline_and_settle(wa, use_is_driving,
     ticks = duration_ms // _HOLD_TICK_MS
     move_active = True
     settled = False
-    for i in range(ticks):
+    for _ in range(ticks):
         t_ms += _HOLD_TICK_MS
         wa.set_now_ms(t_ms)
         duty_left = wa.motor_last_staged_duty(LEFT)
@@ -1629,7 +1629,8 @@ def test_wheels_x_cruise_zero_uses_configured_default(wa):
     wa.set_default_cruise(150.0)
     assert wa.begin() == STATUS_OK
     cpm = wa.counts_per_mm()
-    default_cruise = 150.0  # [mm/s] -- NOT fullDutyVelocity/cpm
+    # The default cruise armed above is 150 [mm/s] -- NOT
+    # fullDutyVelocity/cpm.
 
     b = wa.effective_track_width()
     wa.feed(b"WHEELS_X 200 200 0 5000 #1\n")
@@ -1688,7 +1689,8 @@ def test_wheels_x_cruise_zero_sentinel_unaffected_by_shaping_fields(wa):
     wa.set_v_max_mm_s(1000.0)
     assert wa.begin() == STATUS_OK
     cpm = wa.counts_per_mm()
-    default_cruise = 150.0  # [mm/s] -- must stay this, not v_default(200)
+    # The default cruise armed above is 150 [mm/s] -- must stay this,
+    # not v_default(200).
 
     b = wa.effective_track_width()
     wa.feed(b"WHEELS_X 200 200 0 5000 #1\n")

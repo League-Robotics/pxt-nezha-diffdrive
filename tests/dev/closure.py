@@ -29,7 +29,7 @@ def tour(l, leg_mm, cruise, settle=1.2, legs=4):
     l.seqd('TLM FULL')
     a = rest(l, settle)
     hs, poses = [], [a]
-    for i in range(legs):
+    for _ in range(legs):
         l.seqd(f'MOVE_X {leg_mm} 0 {cruise} 30000')
         time.sleep(leg_mm/cruise + 1.6)
         poses.append(rest(l, settle))

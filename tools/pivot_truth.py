@@ -11,10 +11,9 @@ prints camera / gyro / wheels side by side. Camera yaw is sampled
 CONTINUOUSLY and unwrapped, because a single before/after pair cannot
 resolve a 180 deg turn -- it lands exactly on the wrap boundary.
 
-Run under the project's own venv (not the AprilTags one -- the camera
-runs as its own subprocess via tools/camproc.py, so this file only
-ever needs pyserial):
-  python3 tools/pivot_truth.py [--reps 3]
+Run under the project's own venv, which has both the camera
+(`aprilcam`) and the serial link (`pyserial`) in it:
+  uv run python tools/pivot_truth.py [--reps 3]
 """
 import argparse
 import math
@@ -24,8 +23,32 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
-from camproc import Cam
-from field import wrap
+from camlink import Cam, CamDown
+from field import turn_total, wrap
+
+# Below this, the camera saw no rotation at all and `gyro / camera` is
+# not merely noisy but undefined -- see gyro_over_camera().
+NO_ROTATION = 0.5   # [deg]
+
+
+def gyro_over_camera(gyro: float, camera: float) -> float | None:
+    """`gyro / camera` for one pivot, or `None` when the camera saw no
+    rotation (`abs(camera) < NO_ROTATION`). Both arguments are total
+    unwrapped turns [deg].
+
+    The `None` case is not a rounding curiosity. "The camera saw no
+    rotation while the robot reported a turn" is exactly the
+    robot-is-switched-OFF signature `.claude/rules/playfield-testing.md`
+    says to check FIRST ("The robot is OFF -- check this first"):
+    odometry integrates encoder deltas and happily reports the full
+    commanded turn on a robot with no motor power, and only an external
+    instrument -- this camera -- can contradict it. Dividing by it used
+    to raise `ZeroDivisionError` and lose the whole run's report at the
+    exact moment the run had the most to say.
+    """
+    if abs(camera) < NO_ROTATION:
+        return None
+    return gyro / camera
 
 
 def _yaw_mark(cam):
@@ -33,7 +56,7 @@ def _yaw_mark(cam):
     computed fresh from `cam`'s own recorded samples each call (cheap
     enough for a session's worth of pivot samples), mirroring the old
     CamStream.mark()'s shape so the rest of this file needs no other
-    change. `cam` is a tools/camproc.py Cam; its samples are already
+    change. `cam` is a tools/camlink.py Cam; its samples are already
     `(t, x_cm, y_cm, yaw_deg)`.
     """
     with cam.lock:
@@ -79,7 +102,10 @@ def main():
     ap.add_argument('--tag', type=int, default=53)
     a = ap.parse_args()
 
-    cam = Cam(tag=a.tag)
+    try:
+        cam = Cam(tag=a.tag)
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.latest is None:
         raise SystemExit(f'camera cannot see tag {a.tag}')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
@@ -104,25 +130,28 @@ def main():
                 print('  lost a reading after the pivot -- skipping')
                 continue
 
-            camdeg = t1 - t0
-            gyro = wrap(o1[2] - o0[2]) if abs(commanded) < 360 else None
-            if gyro is None:
-                gyro = o1[2] - o0[2]
-            # A 180 deg turn sits on the wrap boundary: pick the branch
-            # nearest what the camera actually saw.
-            if abs(commanded) == 180.0:
-                for cand in (gyro, gyro + 360.0, gyro - 360.0):
-                    if abs(cand - camdeg) < abs(gyro - camdeg):
-                        gyro = cand
-            # r0/r1 are camproc.Cam's (x_cm, y_cm, yaw_deg) -- x, y are
+            camera = t1 - t0    # [deg] total unwrapped camera yaw
+            # field.turn_total() unwraps the OTOS delta onto the
+            # revolution the command names, uniformly for every angle --
+            # so the +/-180 wrap-boundary special case that used to sit
+            # here (pick whichever of gyro, gyro +/- 360 lands nearest
+            # the camera) is gone, along with its dependence on the
+            # camera being trustworthy to disambiguate the gyro.
+            gyro = turn_total(commanded, o1[2] - o0[2])     # [deg]
+            # r0/r1 are camlink.Cam's (x_cm, y_cm, yaw_deg) -- x, y are
             # indices 0, 1 (NOT 1, 2 -- that was the old CamStream's
             # (yaw, x, y) order this file used to read).
             drift = math.hypot(r1[0] - r0[0], r1[1] - r0[1])
-            ok = abs(camdeg - commanded) < 20.0
-            results.append((commanded, camdeg, gyro, drift, ok))
-            print(f"{commanded:6.0f} {camdeg:8.1f} {gyro:8.1f}"
-                  f" {camdeg / commanded:8.3f} {gyro / camdeg:9.3f}"
-                  f" {drift:9.1f}  {'ok' if ok else 'FAILED'}")
+            ok = abs(camera - commanded) < 20.0
+            results.append((commanded, camera, gyro, drift, ok))
+            ratio = gyro_over_camera(gyro, camera)
+            if ratio is None:
+                ratio_text, verdict = '      n/a', 'camera saw no rotation'
+            else:
+                ratio_text, verdict = f'{ratio:9.3f}', 'ok' if ok else 'FAILED'
+            print(f"{commanded:6.0f} {camera:8.1f} {gyro:8.1f}"
+                  f" {camera / commanded:8.3f} {ratio_text}"
+                  f" {drift:9.1f}  {verdict}")
 
     link.close()
     cam.close()
@@ -142,6 +171,18 @@ def main():
         if gc:
             print(f"\ngyro/camera = {sum(gc)/len(gc):.3f} over {len(gc)} "
                   f"pivots -- 1.0 means the OTOS reports the truth")
+        still = [r for r in results
+                 if gyro_over_camera(r[2], r[1]) is None]
+        if still:
+            print(f"\n{len(still)}/{len(results)} pivots: THE CAMERA SAW NO "
+                  f"ROTATION while the gyro reported "
+                  f"{[round(r[2], 1) for r in still]} deg.")
+            print("Check the ROBOT IS SWITCHED ON before suspecting slip, "
+                  "stiction or the OTOS -- odometry integrates encoder "
+                  "deltas and reports the full commanded turn on a robot "
+                  "with no motor power, and only an external instrument "
+                  "can tell. See .claude/rules/playfield-testing.md, "
+                  "'The robot is OFF -- check this first'.")
         if bad:
             print(f"drift on failed pivots: "
                   f"{[round(r[3],1) for r in bad]} cm "

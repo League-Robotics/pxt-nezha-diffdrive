@@ -1,16 +1,9 @@
 """tests/tools/test_tour_capture.py -- pins the `RUN:tour:<name>` verb
-`tools/tour_capture.py` sends after sprint 011 ticket 001's retarget
-off the dead numeric `RUN:<n>` vocabulary.
+`tools/tour_capture.py` sends.
 
-**Why this exists.** `tour_capture.py` used to select a tour with
-`--run <n>` and send a bare `RUN:<n>` (`link.send_until(f'RUN:{a.run}',
-...)`). Current firmware's `test.ts` registers only named
-`diffDrive.onRun(...)` handlers -- no numeric name is registered
-anywhere -- so `RUN:1` (or any other number) was a silent no-op against
-current hardware: the tool ran to completion and wrote CSVs, but the
-robot never moved. `tour_run.py` already speaks the named
-`RUN:tour:{world,robot,wheels}` vocabulary; this ticket brings
-`tour_capture.py` to the same shape.
+RUN verbs are string-keyed (test.ts `onRun`); a numeric `RUN:<n>` is a
+silent no-op -- the tool runs to completion and writes CSVs while the
+robot never moves.
 
 This file cannot run the firmware, so it cannot prove the robot moves.
 What it CAN prove, with no robot and no serial port, is the one thing

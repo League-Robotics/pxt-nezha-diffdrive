@@ -6,8 +6,10 @@ GUARD_CM of a rail, and logs truth for scoring.
 usage: sensor_run.py ROBOT OUTPREFIX [speed_cm_s] [max_s] [kp]"""
 import sys, socket, subprocess, time, re, json, math, threading, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from aprilcam.mcp import connection as _conn
 REPO = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / 'tools'))
+from field import wrap          # noqa: E402  the repo's one angle-wrap, (-180, 180]
+from aprilcam.mcp import connection as _conn  # noqa: E402
 CAL = json.loads((REPO / 'tools/field_calibration.json').read_text())
 _ROBOT = 'vevov'; _E = CAL['robots'][_ROBOT]  # these tools are vevov-on-the-KIPR-mat tools; sprint 029 robots: schema
 HOFF = 90.0 + _E['mount_yaw_residual_deg']  # robot heading = raw tag yaw + 90 (fixed AprilCam convention) + residual
@@ -54,7 +56,7 @@ def watchdog():
             last = key; t = r.yaw_rad
             ax = r.world.x - (math.cos(t)*LEVER[0] - math.sin(t)*LEVER[1]); ay = r.world.y - (math.sin(t)*LEVER[0] + math.cos(t)*LEVER[1])
             tx, ty = NADIR[0] + (ax - NADIR[0])/K, NADIR[1] + (ay - NADIR[1])/K
-            h = (math.degrees(t) + HOFF + 180) % 360 - 180
+            h = wrap(math.degrees(t) + HOFF)
             cam.append([time.time(), tx, ty, h])
             if (abs(tx) > XLIM or abs(ty) > YLIM) and aborted[0] is None:
                 aborted[0] = (tx, ty); send('RUN:abort'); time.sleep(0.3); send('RUN:abort')   # never ESTOP: the minimal program cannot clear it

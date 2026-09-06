@@ -160,16 +160,7 @@ def main():
     link = open_link(a.port, radio=a.radio, wifi=a.wifi, robot=a.robot)
 
     # --- firmware-identity check (no motion) --------------------------
-    # `ack `/`nack ` lines are filtered out of this check even though
-    # they can no longer arrive as an unsolicited stream -- sprint 024
-    # ticket 001 deleted protocol.cpp's free-running emitReliability()
-    # call, so a reply can now only ever follow a request (see
-    # clasi/issues/reliability-line-free-runs-at-20-hz-on-the-radio-
-    # with-no-host.md). The filter is defensive/vestigial rather than
-    # load-bearing: it stays because some OTHER reply sharing this same
-    # link (STATUS, GET, etc.) could still land inside this read
-    # window, not because a beacon is expected -- keeping it costs
-    # nothing even against firmware that never sends one.
+    # drop any ack/nack reply sharing the link
     bogus = 'RUN:notarealverb'
     seen = list(link.send_until(bogus, '\x00NEVER\x00', tries=1, wait=1.5,
                                  echo=False))

@@ -35,22 +35,6 @@ Run with::
     uv run pytest tests/host/test_motion_engine_estop_and_refusal.py
 """
 
-import ctypes
-import pathlib
-
-import pytest
-
-from test_kernel_harness import compile_shared_lib
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
 
 # DiffDrive::DifferentialDrive::Status's DECLARATION order (src/core/diffdrive.h).
 STATUS_OK = 0
@@ -61,48 +45,6 @@ FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
 # Well beyond this test's handful of ticks -- the point of the e-stop
 # fix is that the move ends immediately, not at this deadline.
 _LONG_TIMEOUT_MS = 30_000
-
-
-def _bind(lib):
-    lib.meCreate.argtypes = []
-    lib.meCreate.restype = ctypes.c_void_p
-    lib.meDestroy.argtypes = [ctypes.c_void_p]
-    lib.meDestroy.restype = None
-
-    lib.meSetMaxDuty.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetMaxDuty.restype = None
-    lib.meSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetFullDutyVelocity.restype = None
-    lib.meBegin.argtypes = [ctypes.c_void_p]
-    lib.meBegin.restype = ctypes.c_int
-    lib.meStep.argtypes = [ctypes.c_void_p]
-    lib.meStep.restype = None
-
-    lib.meMoveX.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_uint32,
-    ]
-    lib.meMoveX.restype = None
-    lib.meServiceMove.argtypes = [ctypes.c_void_p]
-    lib.meServiceMove.restype = ctypes.c_int
-    lib.meIsMoveActive.argtypes = [ctypes.c_void_p]
-    lib.meIsMoveActive.restype = ctypes.c_int
-
-    lib.meOutEstopped.argtypes = [ctypes.c_void_p]
-    lib.meOutEstopped.restype = ctypes.c_int
-    lib.meKernelEstop.argtypes = [ctypes.c_void_p]
-    lib.meKernelEstop.restype = None
-
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libmotion_engine_estop_and_refusal_shim.so",
-    )
-    return _bind(ctypes.CDLL(str(lib_path)))
 
 
 class Engine:

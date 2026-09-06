@@ -44,7 +44,9 @@ _MOTION_H = _REPO_ROOT / "src" / "motion" / "motion_engine.h"
 _TOURS_DIR = _REPO_ROOT / "tests" / "system" / "tours"
 
 sys.path.insert(0, str(_REPO_ROOT / "tests" / "system"))
+sys.path.insert(0, str(_REPO_ROOT / "tools"))
 from tourfile import parse_tour  # noqa: E402  (path set up first)
+from field import usable_half_extent  # noqa: E402  (path set up first)
 
 _TS = _TEST_TS.read_text()
 
@@ -240,12 +242,35 @@ def test_tour_files_also_stay_below_the_split_threshold():
     )
 
 
-# The usable playfield, per the stakeholder 2026-09-01: 120 x 80 cm, so
-# the robot centre lives in +-600 x +-400 mm. tours/FIELD.md keeps 50 mm
-# of margin on top. Both numbers live here too because this test is what
-# enforces them.
-_FIELD_MM = (600.0, 400.0)
-_MARGIN_MM = 50.0
+# The usable playfield comes from `tools/field.py` -- ONE field size for
+# the whole repo. This file used to carry its own `_FIELD_MM = (600.0,
+# 400.0)` / `_MARGIN_MM = 50.0` (the stakeholder's 2026-09-01 120 x 80 cm
+# envelope, less 50 mm), which made two "enforced" fields: 55.0 x 35.0 cm
+# usable here against `field.LIMITS - field.MARGIN`'s 55.15 x 32.65 cm,
+# the latter cited to `.claude/rules/playfield-testing.md`. x agreed to
+# 1.5 mm; y did NOT, and the private pair was the looser of the two by
+# 2.35 cm -- so a figure could pass its sizing gate here and still be
+# refused by the geofence every driving tool now pre-flights against
+# (`field.require_clear_path()`). Sprint 034 ticket 007 deleted the
+# private pair; the numbers live in `field.py` and nowhere else.
+#
+# Sizing outcome of that unification, checked 2026-09-05: EVERY tour and
+# spline path still fits under the tighter y limit -- nothing had to be
+# re-sized and nothing was added to `_UNSIZED`. The "either orientation"
+# allowance is what carries the tall figures (`snake` is 125 x 500 mm
+# half-extent, `infinity` 250 x 500; both are staged across the field's
+# long axis, where 500 <= 551.5).
+
+
+def _usable_half_extent_mm():
+    """The usable half-extents in mm, derived from `tools/field.py`.
+
+    `field.usable_half_extent()` answers in cm (the tools' unit); the
+    `.tour` files are in mm (the wire's unit). This is the ONE place
+    the two meet -- and it is a derivation, not a second copy.
+    """
+    hx, hy = usable_half_extent()
+    return hx * 10.0, hy * 10.0
 
 # Tours that are deliberately not sized to this field: ported artifacts
 # kept for comparison with radio-robot-elite, and the fault-injection
@@ -301,8 +326,7 @@ def test_every_tour_fits_the_usable_playfield():
     Centring is the fair test: a tour is staged wherever it needs to be,
     so what matters is its extent, not where it happens to start.
     """
-    limit_x = _FIELD_MM[0] - _MARGIN_MM
-    limit_y = _FIELD_MM[1] - _MARGIN_MM
+    limit_x, limit_y = _usable_half_extent_mm()
     checked = 0
     for path in sorted(_TOURS_DIR.glob("*.tour")):
         if path.stem in _UNSIZED:
@@ -321,15 +345,14 @@ def test_every_tour_fits_the_usable_playfield():
         checked += 1
         assert fits, (
             f"{path.name} spans {2 * hx:.0f} x {2 * hy:.0f} mm, which does not "
-            f"fit the usable field ({2 * limit_x:.0f} x {2 * limit_y:.0f} mm "
-            f"after {_MARGIN_MM:.0f} mm margin) in either orientation"
+            f"fit the usable field ({2 * limit_x:.0f} x {2 * limit_y:.0f} mm, "
+            f"tools/field.py's LIMITS less its MARGIN) in either orientation"
         )
     assert checked >= 5, f"only {checked} tours sized -- expected at least 5"
 
 
 def test_spline_paths_exist_and_fit():
-    limit_x = _FIELD_MM[0] - _MARGIN_MM
-    limit_y = _FIELD_MM[1] - _MARGIN_MM
+    limit_x, limit_y = _usable_half_extent_mm()
     checked = 0
     for path in sorted(_TOURS_DIR.glob("*.tour")):
         if path.stem in _UNSIZED:

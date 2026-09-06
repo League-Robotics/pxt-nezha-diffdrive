@@ -36,24 +36,12 @@ Run with::
     uv run pytest tests/host/test_goto_block_regression.py
 """
 
-import ctypes
 import math
-import pathlib
 
 import pytest
 
-from test_kernel_harness import compile_shared_lib
-from test_motion_engine_reductions import Engine, _bind
+from test_motion_engine_reductions import Engine
 
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
 
 # Arbitrary [counts/s] -- cancels out of the ideal-wheels kinematics
 # entirely (duty = velocityCmd/fullDutyVelocity, position advances by
@@ -110,29 +98,6 @@ _LANDING_TOLERANCE_MM = 10.0
 # real block would compute.
 _BLOCK_DEFAULT_SPEED_CM_S = 15.0
 _BLOCK_DEFAULT_YAW_RATE_DEG_S = 90.0
-
-
-def _bind_probe(lib):
-    lib.meProbeRunToCompletion.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_uint32, ctypes.c_uint32,
-    ]
-    lib.meProbeRunToCompletion.restype = ctypes.c_uint32
-    lib.meProbeX.argtypes = [ctypes.c_void_p]
-    lib.meProbeX.restype = ctypes.c_float
-    lib.meProbeY.argtypes = [ctypes.c_void_p]
-    lib.meProbeY.restype = ctypes.c_float
-    lib.meProbeHeading.argtypes = [ctypes.c_void_p]
-    lib.meProbeHeading.restype = ctypes.c_float
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libgoto_block_regression_shim.so",
-    )
-    return _bind_probe(_bind(ctypes.CDLL(str(lib_path))))
 
 
 class ProbeEngine(Engine):

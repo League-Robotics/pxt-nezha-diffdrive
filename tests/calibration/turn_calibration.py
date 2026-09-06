@@ -115,6 +115,13 @@ TRACKWIDTH_DEFAULT_MM = 114.2     # motion_engine.h default; overridden by GET i
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'tools'))
 import field as fieldlib  # noqa: E402  (tools/field.py -- path/margin checks, one owner)
+import link as linklib  # noqa: E402  (tools/link.py -- the one sequencer + line buffer)
+# Re-exported deliberately: `mount.py` and `distance.py` reach it as
+# `tc.wrap`, and this program's own gates call it ~15 times. It is
+# `field.wrap()` -- (-180, 180], upper end closed -- not the private
+# modulo-idiom copy that lived here until sprint 034 ticket 009, which
+# closed the OTHER end.
+from field import wrap  # noqa: E402
 
 # --------------------------------------------------- G1-G6 acceptance bars
 #
@@ -181,12 +188,23 @@ class Link:
         self.sock.settimeout(0.1)
         self.lines = []            # (t, line)
         self.lock = threading.Lock()
-        self._seq = 0
+        # Sequencing and line reassembly are tools/link.py's since
+        # sprint 034 ticket 006; the background reader thread, which is
+        # what makes this carrier different from the others, stays here.
+        self.sequencer = linklib.Sequencer()
         self._stop = threading.Event()
-        self._buf = b''
+        self._buf = linklib.LineBuffer()
         self._th = threading.Thread(target=self._reader, daemon=True)
         self._th.start()
         time.sleep(0.5)
+
+    @property
+    def _seq(self):
+        return self.sequencer.seq
+
+    @_seq.setter
+    def _seq(self, value):
+        self.sequencer.seq = value
 
     def _reader(self):
         while not self._stop.is_set():
@@ -198,15 +216,11 @@ class Link:
                 break
             if not c:
                 break
-            self._buf += c
-            while b'\n' in self._buf:
-                raw, self._buf = self._buf.split(b'\n', 1)
-                s = raw.decode('ascii', 'replace').strip()
-                if s.startswith('< '):
-                    s = s[2:]
-                if s:
-                    with self.lock:
-                        self.lines.append((time.time(), s))
+            got = self._buf.feed(c)
+            if got:
+                now = time.time()
+                with self.lock:
+                    self.lines.extend((now, s) for s in got)
 
     def send(self, line):
         try:
@@ -240,20 +254,21 @@ class Link:
 
     def seqd(self, cmd, tries=3, wait=2.0):
         """Send a sequenced verb; returns (id, ack-or-err line or None).
-        Retries resend the SAME id (a fresh one would open a gap)."""
-        self._seq += 1
-        wire = f'{cmd} #{self._seq}'
+        Retries resend the SAME id (a fresh one would open a gap) --
+        `format()` runs ONCE, outside the loop."""
+        wire = self.sequencer.format(cmd, force=True)
+        wire_id = self.sequencer.seq
         for _ in range(tries):
             t0 = time.time()
             self.send(wire)
-            got = self.wait_for(r'^(ack|nack|err)\s+%d\b' % self._seq, t0, wait)
+            got = self.wait_for(r'^(ack|nack|err)\s+%d\b' % wire_id, t0, wait)
             if got:
-                return self._seq, got
-        return self._seq, None
+                return wire_id, got
+        return wire_id, None
 
     def hello(self):
         got = self.unseq('HELLO', r'^device ')
-        self._seq = 0
+        self.sequencer.reset()
         return got
 
     def status(self):
@@ -287,15 +302,33 @@ def resolve_serial_service(robot, timeout=4.0):
     return ip or host, port
 
 
-RELAY_HOST, RELAY_PORT = 'torture', 8760   # the micro:bit relay pool
+RELAY_HOST, RELAY_PORT = linklib.RELAY_HOST, linklib.RELAY_PORT
 
 
 def robot_radio(robot):
-    """(channel, group) from the robot's radio-robot-lib config."""
+    """(channel, group) from the robot's radio-robot-lib config -- the
+    deploy-time authority for the pair actually baked into the board.
+
+    NEITHER half has a default. `radio_group` used to fall back to 10,
+    which is a wrong answer for the whole migrated fleet (groups 43, 60,
+    108, 114 -- `.claude/rules/playfield-testing.md`) delivered in
+    silence: the relay tunes somewhere the robot is not and the board
+    simply never answers. Same defect as the `!CG {channel} 10` sprint
+    034 ticket 006 removed from `tools/wire_acceptance.py`; every robot
+    config in the fleet sets both keys, so there is nothing to default
+    for.
+    """
     import json
     path = pathlib.Path('/Volumes/Proj/proj/RobotProjects/radio-robot-lib/config/robots') / f'{robot}.json'
     c = json.loads(path.read_text()).get('connection', {})
-    return int(c['radio_channel']), int(c.get('radio_group', 10))
+    missing = [k for k in ('radio_channel', 'radio_group') if k not in c]
+    if missing:
+        raise SystemExit(
+            f'{path} has no {"/".join(missing)} for {robot!r} -- there is '
+            f'no default to fall back to (a guessed group tunes the relay '
+            f'at nothing and the robot goes silent). Fill it in, or drive '
+            f'this board over --host/--wifi instead.')
+    return int(c['radio_channel']), int(c['radio_group'])
 
 
 class RelayLink(Link):
@@ -310,7 +343,11 @@ class RelayLink(Link):
         banner = next((s for _, s in self.since(0) if 'RADIOBRIDGE' in s), '')
         self.relay = banner.split(':')[3] if banner.count(':') >= 3 else '?'
         print(f'relay: {self.relay} ({banner.strip()[:60]})')
-        for c in ('!ECHO OFF', f'!CG {channel} {group}', '!GO'):
+        # The FULL relay setup (sprint 034 ticket 006): the relay
+        # PERSISTS its config across resets, so `!MODE RAW250`/`!P 7`
+        # are not the no-ops "a fresh board defaults to them" suggests.
+        # See tools/link.py's relay_setup_lines().
+        for c in linklib.relay_setup_lines(channel, group) + ('!GO',):
             self.send(c)
             time.sleep(0.5)
 
@@ -375,7 +412,7 @@ class Camera:
         if ts is not None and ts == self._last_ts:
             return None
         self._last_ts = ts
-        h = (math.degrees(r.yaw_rad) + self.off + 180) % 360 - 180
+        h = wrap(math.degrees(r.yaw_rad) + self.off)
         sp = r.speed or 0.0
         s = (time.time(), r.world.x, r.world.y, h, sp)
         with self.lock:
@@ -434,13 +471,9 @@ class Camera:
         total, prev = 0.0, None
         for h in hs:
             if prev is not None:
-                total += (h - prev + 180) % 360 - 180
+                total += wrap(h - prev)
             prev = h
         return total, len(hs)
-
-
-def wrap(d):
-    return (d + 180) % 360 - 180
 
 
 SPEED_SANE = 600  # [mm/s] a wheel never exceeds ~400; radio-corrupted frames carried 5567 (tigez 2026-09-04)

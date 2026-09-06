@@ -4,7 +4,7 @@
 Sits on the wireless link and waits. When the robot announces a tour
 with `DBG:tour=<name>` (emitted the moment a button is pressed), this
 starts recording telemetry and overhead-camera samples, stops at
-`TOUR:end`, writes CSVs, renders the standard two-panel chart and
+`TOUR:end`, writes CSVs, renders the standard path chart and
 opens it. Then it goes back to waiting, so all three tours can be run
 back to back without touching the host.
 
@@ -29,8 +29,8 @@ import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
-from camproc import Cam
-from field import DOTS, RECT
+from camlink import Cam, CamDown
+from field import DOTS, RECT, clears_margin, usable_half_extent
 import tlm
 
 TOUR_TITLE = {
@@ -41,7 +41,7 @@ TOUR_TITLE = {
 }
 
 
-def chart(name, pose, vel, fixes, cam, path):
+def chart(name, pose, fixes, cam, path):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -50,10 +50,10 @@ def chart(name, pose, vel, fixes, cam, path):
     INK, INK2, MUTED = '#0b0b0b', '#52514e', '#b9b7b0'
     BG = '#fcfcfb'
 
-    fig = plt.figure(figsize=(12.5, 5.6), facecolor=BG)
+    fig = plt.figure(figsize=(7.0, 5.6), facecolor=BG)
 
-    # ---- panel 1: the rectangle -------------------------------------
-    ax = fig.add_subplot(1, 2, 1)
+    # ---- the rectangle ----------------------------------------------
+    ax = fig.add_subplot(1, 1, 1)
     ax.set_facecolor(BG)
     ax.plot([p[0] for p in RECT], [p[1] for p in RECT], ls='--', lw=1.2,
             color=MUTED, label='the four orange dots', zorder=1)
@@ -67,7 +67,11 @@ def chart(name, pose, vel, fixes, cam, path):
         ax.plot([c[1] for c in cam], [c[2] for c in cam], lw=2,
                 color=S2, label='camera (truth)', zorder=4)
     if pose:
-        ax.plot([p['ox'] for p in pose], [p['oy'] for p in pose], lw=1.6,
+        # `pose` rows are decoded telemetry frames, in wire units; this
+        # panel is drawn in cm, so the conversion goes through
+        # tlm.otos_cm() -- the one place that scale factor is written.
+        otos = [tlm.otos_cm(p) for p in pose]
+        ax.plot([o['x'] for o in otos], [o['y'] for o in otos], lw=1.6,
                 color=S1, label='robot-reported (OTOS)', zorder=3)
 
     closure = None
@@ -95,30 +99,6 @@ def chart(name, pose, vel, fixes, cam, path):
     ax.legend(loc='upper left', frameon=False, fontsize=9, labelcolor=INK2)
     ax.set_title('Path', color=INK, fontsize=11, loc='left')
 
-    # ---- panel 2: wheel speeds --------------------------------------
-    ax2 = fig.add_subplot(1, 2, 2)
-    ax2.set_facecolor(BG)
-    if vel:
-        t0 = vel[0]['t']
-        ax2.plot([v['t'] - t0 for v in vel], [v['l'] for v in vel], lw=1.8,
-                 color=S1, label='left')
-        ax2.plot([v['t'] - t0 for v in vel], [v['r'] for v in vel], lw=1.8,
-                 color=S2, label='right')
-        ax2.legend(loc='lower left', frameon=False, fontsize=9,
-                   labelcolor=INK2)
-    else:
-        ax2.annotate('no wheel-speed samples\n(telemetry is not polled '
-                     'during a run)', (0.5, 0.5), xycoords='axes fraction',
-                     ha='center', color=INK2, fontsize=10)
-    ax2.axhline(0, lw=1.2, color=MUTED)
-    ax2.set_xlabel('time [s]', color=INK2)
-    ax2.set_ylabel('wheel speed [cm/s]', color=INK2)
-    ax2.grid(True, lw=0.5, color=MUTED, alpha=0.5)
-    ax2.tick_params(colors=INK2)
-    for sp in ax2.spines.values():
-        sp.set_color(MUTED)
-    ax2.set_title('Wheel speeds', color=INK, fontsize=11, loc='left')
-
     title = TOUR_TITLE.get(name, f'Tour {name}')
     sub = f'closure {closure:.1f} cm' if closure is not None else ''
     fig.suptitle(f'{title}   —   {sub}', color=INK, fontsize=13)
@@ -141,9 +121,14 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
 
-    # camproc.Cam's own constructor already waits (up to 15s) for a
-    # first sample or an ERR, so no extra fixed sleep is needed here.
-    cam = Cam(tag=a.tag)
+    # Cam's own constructor already waits (up to 15s) for a first
+    # sample or a dead stream, so no extra fixed sleep is needed here.
+    # An unreachable daemon raises; a stream that dies after connecting
+    # lands in `err`.
+    try:
+        cam = Cam(tag=a.tag)
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.err:
         raise SystemExit(f'camera not usable: {cam.err}')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
@@ -162,28 +147,28 @@ def main():
     while True:
         name = None
         stream = tlm.TlmStream()
-        pose, vel, fixes = [], [], []
+        pose, fixes = [], []
         t0 = None
         for s in link.lines(3600):
             if s.startswith('DBG:tour='):
                 name = s.split('=', 1)[1].strip()
                 t0 = time.time()
                 stream = tlm.TlmStream()
-                pose, vel, fixes = [], [], []
+                pose, fixes = [], []
                 print(f'\n>>> {name} started, recording...')
                 continue
             if name is None:
                 continue
-            # `vel` stays empty on this path: it used to be filled from a
-            # cleartext `DIAG:...vel=<l>/<r>` line (encoder counts/s,
-            # scaled by travelCalib), but the firmware no longer emits
-            # that verb at all, so the branch that parsed it could never
-            # fire and has been removed rather than re-pointed at a
-            # constant that would just as silently never run. Wheel
-            # speed IS available per-frame below (`row['vl']`/`row['vr']`,
-            # already mm/s -- see tools/tlm.py's wheels_mms()) but is not
-            # currently plumbed into `vel`; chart()'s "no wheel-speed
-            # samples" fallback covers this path until that's done.
+            # No wheel-speed series is charted here. It used to come from
+            # a cleartext `DIAG:...vel=<l>/<r>` line (encoder counts/s,
+            # scaled by travelCalib) that the firmware no longer emits at
+            # all, and the empty list plus its "no wheel-speed samples"
+            # chart placeholder outlived the parser by two sprints. Per-
+            # frame wheel speed IS on the wire (`row['vl']`/`row['vr']`,
+            # already mm/s -- see tools/tlm.py's wheels_mms()) and lands
+            # in the `_tlm.csv` this run writes; plumb the chart from
+            # there if the panel is wanted back, rather than from a list
+            # nothing fills.
             if s.startswith('OCAL:'):
                 fixes.append(s)
             elif s.startswith('TOUR:end'):
@@ -191,12 +176,15 @@ def main():
             else:
                 row = stream.feed(s)
                 if row is not None:
-                    enc = tlm.pose_cm(row)
-                    otos = tlm.otos_cm(row)
-                    pose.append({'t': time.time(), 'dev': row['now'],
-                                 'x': enc['x'], 'y': enc['y'], 'h': enc['h'],
-                                 'ox': otos['x'], 'oy': otos['y'],
-                                 'oh': otos['h']})
+                    # Recorded in the WIRE's own units, unconverted:
+                    # the decoded frame is the pose row this tool
+                    # writes (tlm.write_pose_csv()), and chart() below
+                    # converts for display through tlm.otos_cm(). This
+                    # tool used to record cm/degrees and write its own
+                    # cm/degree header, which tour_chart.py then read as
+                    # wire units -- the 10x mis-scale sprint 034 ticket
+                    # 004 exists to kill.
+                    pose.append(dict(row, t_host=time.time()))
 
         if name is None:
             continue
@@ -214,13 +202,9 @@ def main():
             print('watching for the next tour...')
             continue
         camrows = cam.since(t0)
-        with open(stamp + '_pose.csv', 'w') as f:
-            w = csv.writer(f)
-            w.writerow(['t', 'dev_ms', 'enc_x_cm', 'enc_y_cm', 'enc_h_deg',
-                        'otos_x_cm', 'otos_y_cm', 'otos_h_deg'])
-            for p in pose:
-                w.writerow([round(p['t'], 3), p['dev'], p['x'], p['y'],
-                            p['h'], p['ox'], p['oy'], p['oh']])
+        # tlm.py owns the pose-CSV schema (sprint 034 ticket 004): one
+        # header, in wire units, that every reader binds by name.
+        tlm.write_pose_csv(pose, stamp + '_pose.csv')
         with open(stamp + '_cam.csv', 'w') as f:
             w = csv.writer(f)
             w.writerow(['t', 'x_cm', 'y_cm', 'yaw_deg'])
@@ -228,13 +212,22 @@ def main():
                 w.writerow([round(c[0], 3), round(c[1], 2), round(c[2], 2),
                             round(c[3], 2)])
         png = stamp + '.png'
-        closure = chart(name, pose, vel, fixes, camrows, png)
+        closure = chart(name, pose, fixes, camrows, png)
         print(f'    {len(pose)} telemetry, {len(camrows)} camera samples, '
               f'{len(fixes)} corner fixes')
         print(f'    telemetry: {meta["frames"]} frames, '
               f'{meta["dropped"]} dropped ({meta["loss_pct"]:.1f}% loss)')
         if closure is not None:
             print(f'    closure {closure:.1f} cm (camera)')
+        # This tool never commands motion, so it has no path to
+        # pre-flight -- but it holds the camera rows, so it can say
+        # whether the run the operator just triggered stayed inside
+        # the margin (.claude/rules/playfield-testing.md).
+        if camrows:
+            hx, hy = usable_half_extent()
+            print(f'    geofence: '
+                  f'{"clear" if clears_margin(camrows) else "LEFT THE MARGIN"}'
+                  f' (usable +/-{hx:.2f} x +/-{hy:.2f} cm)')
         print(f'    -> {png}')
         subprocess.run(['open', png])
         print('watching for the next tour...')

@@ -863,9 +863,9 @@ diffDrive.onRun("face", function (arg: number) {
 
 // Relative in-place pivot: RUN:pivot:<deg>. Encoder/gyro only -- no
 // OTOS, no world frame, deliberately no worldReady()/readWorld() call
-// anywhere in this handler. rotation_check.py, pivot_truth.py,
-// truth_check.py and turn_sweep.py all use this over radio on the
-// floor, replacing the old dead numeric PIVOT_VERB offsets (2/4/5).
+// anywhere in this handler. rotation_check.py, pivot_truth.py and
+// turn_sweep.py all use this over radio on the floor, replacing the
+// old dead numeric PIVOT_VERB offsets (2/4/5).
 diffDrive.onRun("pivot", function (arg: number) {
     if (touring) return
     beginJob("PIVOT")

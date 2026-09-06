@@ -13,15 +13,12 @@ homework.
 Wheel speeds ride the v6 telemetry frame's own vl/vr columns (the
 kernel's own per-tick measurement, via tools/tlm.py) rather than being
 polled: a request/reply round-trip inside a move over the wireless link
-is measured to collapse a 197.5 mm leg to 0.3 mm. (`wheel_speeds()`
-below, deriving speed by differencing the pose stream instead, is not
-called anywhere in this file -- kept for reference only.)
+is measured to collapse a 197.5 mm leg to 0.3 mm.
 
   python3 tools/tour_practice.py [--tours robot world] [--runs 2]
 """
 import argparse
 import csv
-import math
 import os
 import subprocess
 import sys
@@ -30,12 +27,11 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
 from reposition import Repositioner
-from camproc import Cam
-from field import ORDER, wrap, score_corners, closure
+from camlink import Cam, CamDown
+from field import ORDER, PathRefused, closure, score_corners
 import tlm
 
 START = (50.0, 30.0, 180.0)
-TRACK_CM = 12.0          # effective track (114.2 mm / 0.952 scrub)
 
 TITLES = {'robot': 'Tour A — robot-relative (encoder only)',
           'world': 'Tour B — world goToWorld (OTOS-guided)',
@@ -73,40 +69,16 @@ def record_tour(link, cam, name, timeout=120):
             else:
                 row = stream.feed(s)
                 if row is not None:
-                    # row['now'] is the DEVICE timestamp [ms] -- use it
-                    # for dt, not host arrival, which jitters badly over
-                    # the wireless link and fabricates speed spikes.
-                    enc = tlm.pose_cm(row)
-                    otos = tlm.otos_cm(row)
-                    wheels = tlm.wheels_mms(row)
-                    pose.append((time.time(), enc['x'], enc['y'], enc['h'],
-                                 otos['x'], otos['y'], otos['h'],
-                                 row['now'], wheels['vl'], wheels['vr']))
+                    # The decoded frame IS the pose row, kept in the
+                    # wire's own units for tlm.write_pose_csv(); it
+                    # carries row['now'], the DEVICE timestamp [ms],
+                    # which is what any dt must be taken from -- host
+                    # arrival jitters badly over the wireless link and
+                    # fabricates speed spikes.
+                    pose.append(dict(row, t_host=time.time()))
         if started and time.time() - t0 > timeout:
             break
     return t0, pose, fixes, started, stream
-
-
-def wheel_speeds(pose):
-    """Left/right wheel speed [cm/s] derived from the encoder pose
-    stream -- v +- omega*track/2. Telemetry is not polled during a run,
-    so this is the honest way to get them."""
-    out = []
-    for a, b in zip(pose, pose[1:]):
-        dt = b[0] - a[0]
-        if dt <= 0.001:
-            continue
-        ds = math.hypot(b[1] - a[1], b[2] - a[2])
-        # sign of travel: project onto the heading
-        h = math.radians(a[3])
-        fwd = (b[1] - a[1]) * math.cos(h) + (b[2] - a[2]) * math.sin(h)
-        if fwd < 0:
-            ds = -ds
-        dw = math.radians(wrap(b[3] - a[3]))
-        v = ds / dt
-        om = dw / dt
-        out.append((b[0], v - om * TRACK_CM / 2, v + om * TRACK_CM / 2))
-    return out
 
 
 def score(camrows):
@@ -136,19 +108,17 @@ def chart(name, run, pose, camrows, sc, path, stem):
     """Chart in a subprocess: the system matplotlib is broken here, so
     plotting runs under uv while this process keeps pyserial.
 
-    `pose` rows carry vl/vr in mm/s (tlm.py's wheels_mms() -- the wire's
-    own unit, no scale factor of this tool's own) under the `vl_mms`/
-    `vr_mms` header names; practice_chart.py already has a display-unit
-    conversion path (mm/s -> cm/s) keyed on that exact header pair.
+    `pose` rows are decoded telemetry frames, written through
+    tlm.write_pose_csv() -- the one pose-CSV schema (sprint 034 ticket
+    004), in the wire's own units, with the optional `vl_mms,vr_mms`
+    pair appended because practice_chart.py plots the frame's own wheel
+    speeds. This tool used to write its own cm/degree header, which
+    tour_chart.py would then read as wire units.
     """
     write_csv(stem + '_cam.csv', ['t', 'x_cm', 'y_cm', 'yaw_deg'],
               [[round(c[0], 3), round(c[1], 2), round(c[2], 2),
                 round(c[3], 2)] for c in camrows])
-    write_csv(stem + '_pose.csv',
-              ['t', 'enc_x', 'enc_y', 'enc_h', 'otos_x', 'otos_y', 'otos_h',
-               'dev_ms', 'vl_mms', 'vr_mms'],
-              [[round(p[0], 3)] + [round(v, 2) for v in p[1:7]]
-               + [p[7], round(p[8], 1), round(p[9], 1)] for p in pose])
+    tlm.write_pose_csv(pose, stem + '_pose.csv', wheels=True)
     subprocess.run(['uv', 'run', '--with', 'numpy', '--with', 'matplotlib',
                     'python3',
                     os.path.dirname(os.path.abspath(__file__))
@@ -172,7 +142,10 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
 
-    cam = Cam()
+    try:
+        cam = Cam()
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.err or cam.latest is None:
         raise SystemExit(f'camera not usable: {cam.err or "no tag"}')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
@@ -201,7 +174,14 @@ def main():
                 # The robot-relative tour has no world frame, so it must
                 # physically start on the dot facing west.
                 print('  repositioning to the NE dot:')
-                start = rep.go(*START)
+                # Repositioner.go() pre-flights the leg against the
+                # playfield margin and REFUSES rather than clamping --
+                # print it and skip the run, never drive anyway.
+                try:
+                    start = rep.go(*START)
+                except PathRefused as e:
+                    print(f'  {e}')
+                    continue
                 if start is None:
                     print('  camera lost the robot; skipping')
                     continue

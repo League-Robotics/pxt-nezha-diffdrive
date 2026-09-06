@@ -21,8 +21,9 @@ therefore gets checked in its OWN scratch copy (`--testrig`), generated
 from the same `pxt.json` `testFiles` list, never combined with the
 primary deploy.
 
-  uv run python tools/make_deploy.py            # build (vevov, ch 4)
-  uv run python tools/make_deploy.py --flash    # build, then flash vevov
+  uv run python tools/make_deploy.py            # build for DEFAULT_ROBOT,
+                                                 # on its configured channel
+  uv run python tools/make_deploy.py --flash    # build, then flash it
   uv run python tools/make_deploy.py --robot tovez --flash
                                                  # build for tovez's own
                                                  # radio channel, then
@@ -46,13 +47,17 @@ the scratch copy, this script reads the target robot's own
 config (`radio-robot-lib/config/robots/<robot>.json`) and substitutes
 it into the SCRATCH COPY's `src/comms/radio_transport.h` before
 `build()` runs -- see `_inject_radio_channel()` below. This repo's own
-checked-in source is never touched, so it keeps one fixed default
-(vevov's own channel, 4); a build invoked with no `--robot` is
-therefore byte-equivalent to a build invoked with `--robot vevov`, both
-before and after this behavior existed. No robot->channel table lives
-in this repo -- radio-robot-lib's JSON is the only place a channel
-number is read from, and a missing/unreadable/incomplete config fails
-the build loudly rather than falling back to any default.
+checked-in source is never touched: it keeps one fixed placeholder,
+whatever `src/comms/radio_transport.h` has checked in, which every
+build overwrites in its scratch copy from the target robot's own
+config. Do NOT read that checked-in number as any robot's channel --
+it is a legacy fleet default, and the boards moved off it (the fleet
+table lives in radio-robot-lib's per-robot JSON, mirrored for humans
+in `.claude/rules/playfield-testing.md`). No robot->channel table
+lives in this repo -- radio-robot-lib's JSON is the only place a
+channel number is read from, and a missing/unreadable/incomplete
+config fails the build loudly rather than falling back to any
+default.
 
 The same seam also carries the target robot's own NAME into the
 SCRATCH COPY's `src/comms/protocol.cpp` `kProfile` constant -- see
@@ -86,52 +91,14 @@ Two traps this script exists to avoid, both of which cost hours:
   an extension, where it is fine and skips a pointless V1 build); the
   deploy copy must not.
 * Packaging can still abort NONDETERMINISTICALLY (the `TS9283`/
-  `TS9043`/`TS9200` shape below), and when it does it DELETES the hex
+  `TS9043`/`TS9200` shape `classify_attempt()` treats as benign and
+  retries once), and when it does it DELETES the hex
   rather than leaving a stale one. The hex is removed up front and its
   existence checked afterwards, so a failed package can never be
   mistaken for a good build.
 
-**Build checkpoint triage (sprint 008).** `build()` used to only check
-"does a hex exist" -- no distinction between "a `.cpp` failed to
-compile" and "packaging aborted for an unrelated, retriable reason".
-Three real target-only defects escaped the host suite because nothing
-in the per-ticket/per-sprint flow required a real build
-(`clasi/issues/host-tests-compile-newer-standard-than-target.md`); this
-script is now the standing per-sprint build-checkpoint tool, and it
-judges on "did any `.cpp`/`.h` fail to compile" (a real GCC/Clang
-diagnostic naming a source file and a line), not on the packaging
-abort's error code, which varies run to run and is not the defect
-signal itself. One abort shape is known-benign and retried once,
-automatically, before being reported as anything:
-
-* The nondeterministic packaging abort, always after a pxt-core
-  cache-write `TypeError [ERR_INVALID_ARG_TYPE]`, seen as `TS9283`
-  ("program too big"), `TS9043` ("hex file is not available"), or
-  `TS9200` -- always succeeded on retry, every time it has been seen.
-
-The retry is bounded, not infinite: if the same benign shape recurs on
-the retry and still produces no hex, that IS reported as a failure --
-the shape is expected to be transient, not chronic.
-
-**Sprint 014: V1 is no longer built at all.**
-`PXT_COMPILE_SWITCHES=csv-mbcodal` (set unconditionally in
-`_run_pxt_build()`'s subprocess environment) selects
-`appTargetVariant=mbcodal` before any variant-dependency filtering
-runs, so the legacy V1 `bbc-microbit-classic-gcc` variant is never
-compiled under this script -- see
-`clasi/issues/never-build-the-v1-mbdal-variant.md` for the measured
-mechanism. Its old hex-merge failure (`srec_cat: ... contradictory ...
-value`) is therefore no longer a known-benign shape: if it is ever seen
-again, `classify_attempt()` reports it as `UNKNOWN` (a hard failure,
-no retry), because it can now only mean the switch silently failed to
-take effect, not an expected, transient trap. See
-`tools/DESIGN.md`'s "Build checkpoint triage" section for the full
-decision table (what is a hard failure, what is retried, and why), and
-`classify_attempt()` below, which is unit-tested against saved/
-synthetic build-log fixtures in
-`tests/tools/test_make_deploy_triage.py` -- this logic can fail loudly
-if someone breaks it later, the same theme sprint 008 applies
-everywhere else.
+Build verdicts: see classify_attempt() and tools/DESIGN.md
+"Build checkpoint triage".
 """
 import argparse
 import json
@@ -614,10 +581,12 @@ def _inject_radio_channel(deploy_dir, robot):
     `src/comms/radio_transport.h`'s `kChannel` constant with `robot`'s
     configured radio channel (`_read_robot_radio_channel()`, above).
     Mutates ONLY the scratch copy at `deploy_dir` -- the repo's own
-    checked-in `src/comms/radio_transport.h` is never touched, which is
-    what keeps a build invoked with no `--robot` byte-equivalent to
-    today's (`DEFAULT_ROBOT`, vevov, is already on channel 4, the
-    checked-in value)."""
+    checked-in `src/comms/radio_transport.h` is never touched. A build
+    invoked with no `--robot` is not a build with no injection: it
+    injects `DEFAULT_ROBOT`'s OWN configured channel and group, read
+    from the same per-robot JSON as any other robot's. The checked-in
+    constants are a placeholder that every build overwrites, not any
+    robot's address."""
     channel = _read_robot_radio_channel(robot)
     group = _read_robot_radio_group(robot)
     path = os.path.join(deploy_dir, 'src', 'comms', 'radio_transport.h')

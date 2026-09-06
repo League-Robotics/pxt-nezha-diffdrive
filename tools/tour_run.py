@@ -25,9 +25,14 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
-from camproc import Cam
-from field import ORDER, wrap, score_corners, path_deviation
+from camlink import Cam, CamDown
+from field import (ORDER, PathRefused, clears_margin, path_deviation,
+                   score_corners, usable_half_extent, wrap)
+from reposition import Repositioner
 import tlm
+
+# The start dot and the heading a tour begins from: NE, facing west.
+START = (50.0, 30.0, 180.0)
 
 
 def analyse(cam_rows):
@@ -37,10 +42,11 @@ def analyse(cam_rows):
         return None
     t0 = cam_rows[0][0]
     span = cam_rows[-1][0] - t0
-    # DEDUPLICATE first. camlink polls at 20 Hz but the daemon only
-    # produces ~4 Hz, so ~70% of rows repeat the previous position
-    # exactly. Left in, every repeat scores as a stationary sample and
-    # the duty cycle reports the CAMERA's frame rate rather than the
+    # DEDUPLICATE first. `Cam` publishes one sample per REAL frame now,
+    # so this is a belt-and-braces guard rather than the load-bearing
+    # fix it was when a 20 Hz poll over a ~4 Hz camera made ~70% of rows
+    # exact repeats. Left in, every repeat scores as a stationary sample
+    # and the duty cycle reports the CAMERA's frame rate rather than the
     # robot's motion -- a genuinely good run read as "moving 24% of the
     # time, median speed 0 cm/s" while its own encoders said 197 mm/s.
     fresh = [cam_rows[0]]
@@ -77,50 +83,38 @@ def analyse(cam_rows):
             'dev_90': devs[int(len(devs) * 0.9)], 'dev_max': devs[-1]}
 
 
-def place(link, cam, x, y, h, tol_cm=2.5, tol_deg=4.0, tries=3):
-    """Put the robot back on the start dot, camera-verified.
+def make_repositioner(link, cam) -> Repositioner:
+    """The repositioner a tour run stages with.
 
-    This runs BETWEEN tours, never inside one. Repositioning is setup:
-    it is the only way successive practice runs start from the same
-    place and their scores mean the same thing.
+    There is ONE repositioning loop in this repo and it lives in
+    `reposition.Repositioner` (sprint 034 ticket 009). This module used
+    to carry a second one, `place()`, whose ordering -- position first,
+    then heading, never a re-checking loop -- was the correct one and
+    is the ordering `Repositioner.go()` now has; the "98 and 94 degrees
+    instead of west" measurement that justifies it moved into
+    `Repositioner.go()`'s docstring with the code. `place()` is gone.
+
+    The tolerances are this caller's, not the class defaults: **1.5
+    deg, not 4** -- an open-loop tour turns start heading error
+    straight into corner error (leg x sin theta), so 4 deg on a 100 cm
+    leg is already 7 cm.
     """
-    # POSITION first, then heading, and never the other way round. An
-    # in-place pivot walks the centre of rotation a centimetre or so,
-    # which is enough to push the position error back over tolerance --
-    # so a loop that re-checks both and picks one will answer a good
-    # heading with another goto and undo it. Two runs started facing
-    # 98 and 94 degrees instead of west that way.
-    for _ in range(tries):
-        p = cam.fix()
-        if p is None:
-            print('    camera cannot see the robot'); return False
-        if math.hypot(p[0] - x, p[1] - y) <= tol_cm:
-            break
-        link.send_until(f'RUN:seedxy:{p[0]:.1f}:{p[1]:.1f}:{p[2]:.1f}',
-                        'OCAL:seeded', tries=3, wait=5, echo=False)
-        link.send_until(f'RUN:goto:{x:.0f}:{y:.0f}', 'GOTO:end',
-                        tries=2, wait=30, echo=False)
-        time.sleep(0.7)
-    # Heading LAST, from a fresh seed, so nothing can disturb it after.
-    for _ in range(tries):
-        p = cam.fix()
-        if p is None:
-            print('    camera cannot see the robot'); return False
-        if abs(wrap(p[2] - h)) <= tol_deg:
-            break
-        link.send_until(f'RUN:seedxy:{p[0]:.1f}:{p[1]:.1f}:{p[2]:.1f}',
-                        'OCAL:seeded', tries=3, wait=5, echo=False)
-        link.send_until(f'RUN:face:{h:.0f}', 'FACE:end',
-                        tries=2, wait=30, echo=False)
-        time.sleep(0.7)
-    p = cam.fix()
-    if p:
-        derr = math.hypot(p[0] - x, p[1] - y)
-        herr = abs(wrap(p[2] - h))
-        flag = '' if (derr <= tol_cm * 2 and herr <= tol_deg * 2) else '  <-- OFF'
-        print(f'    start: ({p[0]:.1f},{p[1]:.1f}) {p[2]:.0f} deg  '
-              f'({derr:.1f} cm, {herr:.0f} deg off){flag}')
-    return True
+    return Repositioner(link, cam, tol_cm=2.5, tol_deg=1.5)
+
+
+def report_start_pose(rep: Repositioner, pose, target) -> None:
+    """Print where the repositioner actually left the robot, flagging a
+    result outside twice its own tolerances -- a staging error is a
+    silent corner error later, so it belongs on the console."""
+    if not pose:
+        return
+    x, y, h = target
+    derr = math.hypot(pose[0] - x, pose[1] - y)
+    herr = abs(wrap(pose[2] - h))
+    flag = ('' if (derr <= rep.tol_cm * 2 and herr <= rep.tol_deg * 2)
+            else '  <-- OFF')
+    print(f'    start: ({pose[0]:.1f},{pose[1]:.1f}) {pose[2]:.0f} deg  '
+          f'({derr:.1f} cm, {herr:.1f} deg off){flag}')
 
 
 def main():
@@ -140,7 +134,10 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
-    cam = Cam()
+    try:
+        cam = Cam()
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.latest is None:
         raise SystemExit('camera cannot see the robot')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
@@ -158,11 +155,16 @@ def main():
             break
         if a.reposition:
             print('  repositioning onto the NE dot (setup, not the tour)')
-            # 1.5 deg, not 4: an open-loop tour turns start heading
-            # error straight into corner error (leg x sin theta), so
-            # 4 deg on a 100 cm leg is already 7 cm.
-            if not place(link, cam, 50.0, 30.0, 180.0, tol_deg=1.5):
+            rep = make_repositioner(link, cam)
+            try:
+                start = rep.go(*START)
+            except PathRefused as e:
+                print(f'  {e}')
                 break
+            if start is None:
+                print('    camera cannot see the robot')
+                break
+            report_start_pose(rep, start, START)
         # --- camera use #1 of 2: seed the world pose, once ---
         p = cam.fix()
         if p is None:
@@ -216,6 +218,13 @@ def main():
         print(f'  path deviation from the rectangle: median '
               f'{r["dev_med"]:.1f} cm, 90th {r["dev_90"]:.1f}, '
               f'max {r["dev_max"]:.1f}')
+        # The geofence, scored after the fact on the rows the recorder
+        # already holds: the pre-flight check refuses a bad PLAN, this
+        # says whether the run as driven stayed inside the margin.
+        hx, hy = usable_half_extent()
+        print(f'  geofence: '
+              f'{"clear" if clears_margin(cam_rows) else "LEFT THE MARGIN"}'
+              f' (usable +/-{hx:.2f} x +/-{hy:.2f} cm)')
         # Achieved wheel speed, from the robot's own encoders. This is
         # the number that says whether a leg ran at its commanded rate
         # or sat on the taper floor -- the fault that used to make the

@@ -16,7 +16,7 @@ the moment of closest approach. See
 issues/tools-link-layer-consolidation.md` (code review R-24/R-26).
 
 **`latest`/camera-sample tuple order (this module's documented
-convention, followed by `tools/camproc.py`'s `Cam`): a single fix is
+convention, followed by `tools/camlink.py`'s `Cam`): a single fix is
 `(x_cm, y_cm, yaw_deg)`; a timestamped sample is
 `(t, x_cm, y_cm, yaw_deg)`.** This unifies `tour_run.py`'s original
 `(x, y, yaw)` with `tour_practice.py`'s `(yaw, x, y)` -- every function
@@ -42,10 +42,46 @@ RECT = [DOTS['NE'], DOTS['NW'], DOTS['SW'], DOTS['SE'], DOTS['NE']]
 LIMITS = (67.15, 44.65)
 MARGIN = 12.0
 
+# How near the NEXT dot a sample must come before `score_corners()`
+# closes the CURRENT corner's search window -- "the robot has plainly
+# arrived somewhere else, stop scoring the corner it left". Comfortably
+# under half the 60 cm short side of the dot rectangle (and well under
+# half the 100 cm long side), so the window can only close on a genuine
+# arrival at the next dot, never on a pass down the middle of the field.
+CORNER_WINDOW_RADIUS = 15.0  # [cm]
+
+
+class PathRefused(Exception):
+    """A planner refused to arm a move because its projected path left
+    the usable field. Raised by `require_clear_path()`; never caught
+    and turned into a clamp -- a silently shortened move is worse than
+    no check at all, because the operator believes the commanded
+    geometry ran."""
+
+
+def usable_half_extent() -> tuple:
+    """`(x, y)` half-extents [cm] a planned path must stay inside --
+    `LIMITS` reduced by `MARGIN`, DERIVED here and nowhere else.
+
+    This is the ONE place that subtraction happens. It exists because
+    it had already been done twice, by hand, against two different
+    fields: `tests/host/test_run_tour_programs.py` carried its own
+    `_FIELD_MM = (600.0, 400.0)` / `_MARGIN_MM = 50.0` (a 120 x 80 cm
+    envelope, 55.0 x 35.0 cm usable) while this module's `LIMITS`
+    (cited to `.claude/rules/playfield-testing.md`) gives 55.15 x
+    32.65 cm. x agreed to 1.5 mm; y did not, and the private pair was
+    the LOOSER of the two by 2.35 cm -- so a `.tour` figure could pass
+    its own sizing gate and still be planned outside the geofence
+    every other tool enforces. Sprint 034 ticket 007 deleted the
+    private pair and pointed that test here.
+    """
+    lx, ly = LIMITS
+    return lx - MARGIN, ly - MARGIN
+
 
 def _within_margin(x, y):
-    lx, ly = LIMITS
-    return abs(x) <= lx - MARGIN and abs(y) <= ly - MARGIN
+    lx, ly = usable_half_extent()
+    return abs(x) <= lx and abs(y) <= ly
 
 
 def clears_margin(rows):
@@ -85,13 +121,129 @@ def check_path(waypoints, samples_per_segment=20):
     return offenders
 
 
-def wrap(d):
-    """Wrap an angle in degrees into (-180, 180]."""
+def require_clear_path(waypoints, what: str = 'this move',
+                       samples_per_segment: int = 20) -> None:
+    """Pre-flight gate for a PLANNER: return quietly if `waypoints`
+    (and every segment between them) clears the margin, else raise
+    `PathRefused` naming the offending points.
+
+    This is the callable form of `.claude/rules/playfield-testing.md`'s
+    "before sending ANY commanded motion, compute the full projected
+    path from a measured start pose ... and confirm every waypoint
+    clears the margin". Callers put it before the first byte they send,
+    not after the seed: refusing a move that has already been half
+    armed still leaves the robot somewhere it was not asked to be.
+
+    It **refuses**; it never clamps, never shortens, never picks a
+    nearer point. Driving off the playfield is a failure, and so is
+    quietly driving somewhere else instead: both end with an operator
+    who believes the commanded geometry ran.
+
+    `what` names the move in the message ("reposition onto (50, 30)"),
+    so a refusal read off a console says which command was refused as
+    well as where it would have gone.
+    """
+    offenders = check_path(waypoints, samples_per_segment)
+    if not offenders:
+        return
+    hx, hy = usable_half_extent()
+    shown = ', '.join(f'({x:.1f}, {y:.1f})' for x, y in offenders[:4])
+    more = '' if len(offenders) <= 4 else f' +{len(offenders) - 4} more'
+    plan = ' -> '.join(f'({x:.1f}, {y:.1f})' for x, y in waypoints)
+    raise PathRefused(
+        f'REFUSING {what}: the projected path leaves the usable field '
+        f'(+/-{hx:.2f} x +/-{hy:.2f} cm -- LIMITS {LIMITS[0]:.2f}/'
+        f'{LIMITS[1]:.2f} less the {MARGIN:.0f} cm margin) at '
+        f'{shown}{more}. Planned path: {plan}. Nothing was sent; '
+        f'reposition the robot or re-plan -- the margin is not a knob.')
+
+
+def wrap(d: float) -> float:
+    """Wrap an angle in degrees into **(-180, 180]** -- the repo's ONE
+    angle-wrap, and the only one any tool under `tools/` or
+    `tests/calibration/` may use.
+
+    **The convention, stated so it cannot drift again: the UPPER end is
+    closed.** `wrap(180) == +180` and `wrap(-180) == +180`; exactly
+    half a revolution is reported as a LEFT (positive) turn, never as a
+    right one. Just past either end flips sign the way the interval
+    demands -- `wrap(180.0001) == -179.9999`, `wrap(-180.0001) ==
+    +179.9999` -- and every multiple of 360 lands on 0. Pinned by
+    `tests/tools/test_field.py::test_wrap_boundary_values`, which is
+    the check a future consolidation has to argue with.
+
+    **Why the upper end and not the lower.** The alternative, closed at
+    the bottom, is what the idiom `(d + 180) % 360 - 180` produces:
+    `[-180, 180)`, where `wrap(180)` is `-180`. Four copies of this
+    function survived the sprint-005 consolidation and they did NOT
+    agree -- `field.wrap()` was `(-180, 180]` while
+    `leg_analysis._wrap_deg()` (whose own docstring CLAIMED
+    `(-180, 180]`), `linefollow/stage.py`'s `wrap()` and
+    `turn_calibration.py`'s `wrap()` were all the `%` idiom, i.e. the
+    opposite closed end. On this fleet that is not academic: +/-180 is
+    in the standard `PIVOTS` list, so a 180 deg command is a value the
+    boundary is actually asked about. `(-180, 180]` wins because it is
+    the convention the ONE caller that can see an exact +/-180 already
+    depends on -- `turn_total(commanded, measured)` is
+    `commanded + wrap(measured - commanded)`, and a commanded +180 with
+    a measured +180 must report +180 (a left half-turn), not -180 (a
+    right one). It is also `math.atan2()`'s own range, which is what
+    every circular mean in this module returns before wrapping.
+
+    Sprint 034 ticket 009 retired the other three definitions and the
+    inline `%` idiom everywhere; `tests/tools/test_angle_wrap_ownership.py`
+    is the source-level guard that no fifth copy appears. Note the
+    single behaviour change that made: code that used the `%` idiom now
+    reports +180 where it used to report -180 at exactly half a
+    revolution. No caller in the tree can reach that input from a
+    camera or encoder reading (a float difference is never exactly
+    180.0); it is reachable only from an integer COMMANDED angle, and
+    the callers that combine a commanded angle with a measurement
+    (`turn_total()`, `field_dance.turn()`, `turn_calibration`'s
+    rest-to-rest snap) are all sign-symmetric about it.
+    """
     while d <= -180.0:
         d += 360.0
     while d > 180.0:
         d -= 360.0
     return d
+
+
+def turn_total(commanded: float, measured: float) -> float:
+    """Total physical turn of a pivot, in degrees -- the one owner of
+    this arithmetic for every bench tool that scores a commanded pivot
+    against a measured heading change.
+
+    `commanded` is the angle asked for [deg]; `measured` is the
+    after-minus-before heading difference [deg], wrapped or not. The
+    result is `measured` unwrapped onto the revolution `commanded`
+    names, so a 183 deg physical turn against a 180 deg command reports
+    +183 and `turn_total(...) / commanded` keeps the sign of the turn.
+
+    **The failure this replaces.** `rotation_check.py` and a second
+    bench tool (deleted by sprint 034 ticket 003) each carried::
+
+        revs = round(commanded / 360.0)
+        revs * 360.0 + wrap(after - before - revs * 360.0)
+
+    which asks `round()` to guess the revolution count. For
+    `commanded = +/-180`, `round(+/-0.5)` is **0** under banker's
+    rounding, so the whole expression collapses to `wrap(after -
+    before)` -- and a 183 deg turn (over-rotation is the norm on this
+    fleet) came back as **-177 deg**, flipping the sign of
+    `gyro / commanded` to -0.98 and poisoning any mean taken over a
+    mixed `[360, 180, -180]` pivot set. Anchoring the unwrap on the
+    commanded angle needs no `revs` term and no `round()`, and is
+    correct for every commanded angle uniformly -- including the
+    +/-180 boundary, which is why callers no longer need a special
+    case for it.
+
+    The one assumption: the robot turned closer to `commanded` than to
+    `commanded +/- 360`, i.e. the error is under half a revolution.
+    That is the same assumption the `revs` form was reaching for, made
+    explicit instead of delegated to rounding.
+    """
+    return commanded + wrap(measured - commanded)
 
 
 def robot_heading_from_tag_yaw(tag_yaw_deg, residual_deg=0.0):
@@ -188,7 +340,19 @@ def registered_pose_distance(a, b):
     return math.hypot(b[0] - a[0], b[1] - a[1])
 
 
-def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
+def _first_approach(rows, start, dot, radius):
+    """First index >= `start` at which `rows` comes within `radius` of
+    `dot`, or `len(rows)` if it never does. Helper for
+    `score_corners()`'s per-corner window."""
+    dx, dy = dot
+    for i in range(start, len(rows)):
+        if math.hypot(rows[i][1] - dx, rows[i][2] - dy) <= radius:
+            return i
+    return len(rows)
+
+
+def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4,
+                  window_radius=CORNER_WINDOW_RADIUS):
     """Closest approach to each dot in `order`, scanning `rows` (each a
     `(t, x_cm, y_cm, yaw_deg)` tuple, timestamps non-decreasing)
     forward so a later corner cannot reclaim an earlier corner's
@@ -204,6 +368,31 @@ def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
     (<= 3 cm) right next to a gap is still trusted -- the robot was
     plainly there.
 
+    **Each corner searches a BOUNDED window, not the rest of the run.**
+    Of the two remedies the 2026-09-02 review offered for TL-08 (a
+    bounded window, or one monotone assignment over all four corners)
+    this takes the first: corner *k* is scored over
+    `rows[used : first_approach(k + 1)]`, where `first_approach` is the
+    first sample AFTER `used` within `window_radius` of the NEXT dot in
+    `order` -- i.e. the window closes the moment the robot has plainly
+    arrived somewhere else. The last corner in `order` has no next dot
+    and keeps the rest of the run. `window_radius` defaults to
+    `CORNER_WINDOW_RADIUS`.
+
+    The unbounded scan this replaces (08-26 C-16, still open as TL-08)
+    let one corner eat the whole run: a lap that starts on NE, passes
+    NW 4 cm off early and re-approaches NW 1.5 cm off on its closing
+    leg scored NW from the LATE sample, pushed `used` to the tail, and
+    left SW/SE/NE a handful of final samples to report tens of cm or
+    `None` from. One good run read as three bad corners. The
+    first-approach bound is searched from `used + 1`, never `used`, so
+    the current corner always keeps at least its own first sample and
+    the window can never come back empty.
+
+    `used` advances to `besti + 1`, so two consecutive corners cannot
+    claim the same sample -- the reverse of the monotonicity the
+    docstring has always promised, and the other half of TL-08.
+
     This is the ONE corner-scoring algorithm every tour/ground-truth
     tool now calls -- previously 4 separate copies of it existed and
     disagreed for the same run (see module docstring).
@@ -214,10 +403,15 @@ def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
     gaps = [(a[0], b[0]) for a, b in zip(rows, rows[1:])
             if b[0] - a[0] > gap_s]
     used = 0
-    for tag in order:
+    for k, tag in enumerate(order):
+        if used >= len(rows):
+            break
         dx, dy = dots[tag]
+        nxt = dots[order[k + 1]] if k + 1 < len(order) else None
+        end = (len(rows) if nxt is None
+               else _first_approach(rows, used + 1, nxt, window_radius))
         best, besti = None, used
-        for i in range(used, len(rows)):
+        for i in range(used, end):
             d = math.hypot(rows[i][1] - dx, rows[i][2] - dy)
             if best is None or d < best:
                 best, besti = d, i
@@ -226,7 +420,7 @@ def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
         t = rows[besti][0]
         blind = any(g0 - 0.5 <= t <= g1 + 0.5 for g0, g1 in gaps)
         res[tag] = None if (blind and best > 3.0) else best
-        used = besti
+        used = besti + 1
     return res
 
 

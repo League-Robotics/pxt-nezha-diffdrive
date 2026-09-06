@@ -9,7 +9,7 @@ simulation cannot supply.
 Also watches for a dead drive channel (speed stuck at 0 while duty
 saturates), the fault gopiv showed on 2026-08-31.
 """
-import argparse, json, re, sys, time, socket
+import argparse, json, re, time, socket
 
 HOST, PORT = '192.168.1.147', 38493
 TRAVEL_CALIB = 0.7878          # engine default mm/deg

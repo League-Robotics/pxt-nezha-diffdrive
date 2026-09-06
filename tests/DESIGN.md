@@ -1,6 +1,6 @@
 # tests — Python-run test root
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-09-01 · **Status:** stable
+**Owner:** Eric Busboom · **Last reviewed:** 2026-09-06 · **Status:** stable
 
 Every test in this tree lives in a subdirectory named for its **type**,
 and the type answers one question: *what does it need, and does CI run
@@ -9,14 +9,27 @@ it?*
 | directory | needs | run by `uv run pytest` | lifetime |
 |---|---|---|---|
 | [`host/`](host/DESIGN.md) | a C++ compiler | yes | permanent |
-| [`tools/`](tools/DESIGN.md) | nothing | yes | permanent |
+| [`tools/`](tools/DESIGN.md) | nothing (bar the lint gate's `ruff`) | yes | permanent |
+| [`calibration/`](calibration/DESIGN.md) | a robot, the playfield and its camera | its **programs** no; its two pure-logic unit tests yes | permanent |
 | [`system/`](system/DESIGN.md) | a real robot | **no** — run by hand | permanent |
-| `dev/` | a real robot | **no** | disposable |
+| [`dev/`](dev/DESIGN.md) | a real robot | **no** | disposable |
 
-`uv run pytest` from the repo root runs `host/` and `tools/` and nothing
-else. That is deliberate: the other two need hardware that is not
-present in a clean checkout, and a suite that cannot run everywhere is
-not a suite.
+The mechanism is the `test_` prefix, not a directory list:
+`pyproject.toml` sets `testpaths = ["tests"]`, so `uv run pytest`
+descends the whole tree and collects whatever is named like a test.
+`system/`, `dev/` and every measurement program in `calibration/` are
+named for what they do (`run_tour.py`, `turn_calibration.py`,
+`closure.py`, `consolidation_acceptance.py`), so nothing collects them
+— they need hardware that is not present in a clean checkout, and a
+suite that cannot run everywhere is not a suite.
+`calibration/test_turn_calibration_gates.py` and
+`calibration/test_consolidation_acceptance.py` are the two exceptions
+and both are deliberate: the pass/fail logic of a gate, and the
+argument parsing, pre-flight checks and refusal paths of an acceptance
+program, are pure, so they are named as tests and run in the ordinary
+suite while the programs around them stay a person's tools. Both drive
+their subject through injected fakes — a fake link, a fake camera, a
+fake HTTP getter — and neither touches hardware.
 
 ## The two permanent pytest suites
 
@@ -25,11 +38,62 @@ not a suite.
   system compiler and driven from pytest through `ctypes`, against fake
   ports. No micro:bit, PXT, or CODAL anywhere in the link.
 - **`tools/`** — plain-Python unit tests over `tools/` scripts' own
-  logic, no shim compilation and no hardware or network.
+  logic, no shim compilation and no hardware or network. It also holds
+  the repo's **lint gate**, `test_ruff_clean.py` (sprint 034 ticket
+  010): `ruff check tools tests`, run as a test rather than as a CI
+  workflow because `uv run pytest` is this project's developer signal.
+  Note its scope is `tools/` and `tests/` entire, not just what pytest
+  collects — which is the point: the findings it first caught were in
+  `dev/` and `system/`, where nothing else looks.
   `test_make_deploy_triage.py` pins `tools/make_deploy.py`'s
   `classify_attempt()` against saved/synthetic build logs;
   `test_tlm.py` pins `tools/tlm.py`'s `TlmStream` parser against the
   shared golden fixture in `tests/host/golden_telemetry.py`.
+
+## Translation units nothing on the host compiles
+
+Eight `.cpp` files under `src/` reach `pxt.h` — directly, or
+transitively through `platform/platform_ports.h`, `platform/nezha_port.h`
+or `platform/otos_port.h`. `pxt.h` ships with the `core` dependency
+declared in `pxt.json`, brings CODAL's whole type set (`uBit`, fibers,
+`NRF52Serial`, `MicroBitRadio`) and PXT's `//%` annotation machinery,
+and none of it exists on the host. **No host test compiles these
+eight, at any standard.** They are gated by other means instead, and
+that is a decision (sprint 034 ticket 011), not an oversight:
+
+| file | what binds it to the target | what gates it |
+|---|---|---|
+| `shims.cpp` | the PXT `//%` block surface itself, plus the real `Rig` composition and watchdog | hex checkpoint; the extracted math is host-tested (`motion/odometry.h`, `core/bus_guard.h`, `core/fiber_identity.h`) |
+| `comms/protocol.cpp` | the serial/radio fiber loop, via `platform_ports.h` | hex checkpoint; `test_wire_constants_drift.py` pins the RX drain bound as source text; the cleartext RUN rules were extracted to `comms/run_bridge.cpp`, which **is** in the C++11 gate |
+| `comms/radio_transport.cpp` | `MicroBitRadio`, `uBit.radio` datagram callbacks | hex checkpoint; the RX accept/drop decision and counters live in `radio_transport.h` and are host-tested (`radio_rx_classify_syntax_check.cpp`, `test_radio_transport_rx_capacity.py`) |
+| `comms/serial_transport.cpp` | `uBit.serial` ring sizing and writes | hex checkpoint (the real build's own `-Woverflow`); the `Wire::Sink` half is `comms/transport_sink.h`, host-tested |
+| `comms/wifi_uart.cpp` | `new NRF52Serial(uBit.io.P8, uBit.io.P1, NRF_UARTE1)` — one CODAL-facing byte pipe | hex checkpoint; the whole AT state machine is `comms/wifi_link.cpp`, which **is** in the C++11 gate and host-tested (`test_wifi_link.py`) |
+| `platform/nezha_port.cpp` | Nezha I²C brick transactions, via `nezha_port.h` | hex checkpoint; the rebaseline-on-discontinuity decision is `core/encoder_glitch_armor.h`, host-tested |
+| `platform/otos_port.cpp` | SparkFun OTOS I²C transactions, via `otos_port.h` | hex checkpoint; the heading-wrap math is `core/heading_wrap.h`, host-tested |
+| `platform/vfp_guard.cpp` | `fiber_sleep()` | hex checkpoint; `test_vfp_guard_source_pin.py` |
+
+Two things cover all eight regardless:
+`host/test_include_paths_match_target.py` checks every `#include`
+under `src/` with no compiler at all, these files included, and the
+**hex checkpoint** — a real PXT build for a real target — is the only
+thing that compiles them as the robot will. `host/test_cxx11_syntax_gate.py`
+covers a deliberate list that excludes all eight.
+
+**Why no stub `pxt.h`.** A stub would only re-prove that these files
+parse, which the include gate plus the hex checkpoint already cover
+between them, and it could not be honest: `serial_transport.cpp:40`'s
+`uBit.serial.setRxBufferSize(kRingBytes)` shipped a silent `uint8_t`
+truncation (sprint 004 ticket 007, Defect B) that the real build's
+`-Woverflow` caught — a stub has to invent that parameter's type, so
+it would only catch the bug if it already encoded the fact under test.
+The project's standing remedy for "logic in a `pxt.h`-bound TU is
+untested" is the pattern in the right-hand column above: move the
+decision into a host-portable header and test it there.
+
+**Adding a ninth.** `host/test_pxt_bound_exclusion_is_current.py`
+re-derives this list from the tree and fails if it and the table
+disagree, so a new `pxt.h`-bound `.cpp` cannot land silently
+uncovered.
 
 ## `system/` — the hardware tour suite
 

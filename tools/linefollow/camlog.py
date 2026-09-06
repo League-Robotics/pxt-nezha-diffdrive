@@ -3,8 +3,10 @@
 host-side with tools/field_calibration.json) to a CSV at the daemon's rate.
 Diagnostic only: nothing here reaches the robot.  Usage: camlog.py out.csv"""
 import sys, time, math, json, pathlib
-from aprilcam.mcp import connection as _conn
 REPO = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO / 'tools'))
+from field import wrap          # noqa: E402  the repo's one angle-wrap, (-180, 180]
+from aprilcam.mcp import connection as _conn  # noqa: E402
 CAL = json.loads((REPO / 'tools/field_calibration.json').read_text())
 _ROBOT = 'vevov'; _E = CAL['robots'][_ROBOT]  # these tools are vevov-on-the-KIPR-mat tools; sprint 029 robots: schema
 HOFF = 90.0 + _E['mount_yaw_residual_deg']  # robot heading = raw tag yaw + 90 (fixed AprilCam convention) + residual
@@ -26,7 +28,7 @@ try:
             t = r.yaw_rad
             cx = r.world.x - (math.cos(t)*LEVER[0] - math.sin(t)*LEVER[1])
             cy = r.world.y - (math.sin(t)*LEVER[0] + math.cos(t)*LEVER[1])
-            h = (math.degrees(t) + HOFF + 180) % 360 - 180
+            h = wrap(math.degrees(t) + HOFF)
             out.write('%.3f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n' % (time.time(), cx, cy, h, r.world.x, r.world.y, math.degrees(t), NADIR[0]+(cx-NADIR[0])/K, NADIR[1]+(cy-NADIR[1])/K))
             n += 1; out.flush()
 except KeyboardInterrupt:

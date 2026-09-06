@@ -20,6 +20,7 @@ Run with::
 
     uv run pytest tests/tools/test_field.py
 """
+import inspect
 import math
 import pathlib
 import sys
@@ -64,6 +65,114 @@ def test_wrap_result_always_in_range():
     for d in (-1000.0, -725.3, -1.0, 0.0, 1.0, 359.0, 1000.0):
         w = field.wrap(d)
         assert -180.0 < w <= 180.0
+
+
+# The boundary, asserted as a CONVENTION rather than as arithmetic
+# (sprint 034 ticket 009). Three of the four wrap() copies this repo
+# carried used `(d + 180) % 360 - 180`, which closes `[-180, 180)` --
+# the opposite end -- so at exactly half a revolution they returned
+# -180 where this one returns +180. That is the single value the
+# consolidation could have changed, and +/-180 is in the standard
+# `PIVOTS` list, so it is a value this fleet actually commands. These
+# tests exist so the next consolidation has to argue with a failing
+# assertion rather than quietly pick the other interval.
+
+@pytest.mark.parametrize('d', [180.0, -180.0, 540.0, -540.0, 900.0])
+def test_wrap_reports_half_a_revolution_as_positive_180(d):
+    """The upper end is CLOSED: exactly half a turn is a left turn."""
+    assert field.wrap(d) == 180.0
+
+
+def test_wrap_never_returns_negative_180():
+    """The `[-180, 180)` convention's signature value. If this ever
+    fires, a caller somewhere has adopted the modulo idiom's interval
+    and `turn_total(180, 180)` now reports a right half-turn."""
+    for d in (180.0, -180.0, 180.0 + 360.0, -180.0 - 360.0):
+        assert field.wrap(d) != -180.0
+
+
+def test_turn_total_at_the_boundary_keeps_the_commanded_sign():
+    """Why the upper end was chosen: `turn_total()` is
+    `commanded + wrap(measured - commanded)`, so a commanded +/-180 met
+    by an exact +/-180 measurement must come back as the SAME half-turn
+    that was asked for, not its mirror."""
+    assert field.turn_total(180.0, 180.0) == pytest.approx(180.0)
+    assert field.turn_total(-180.0, -180.0) == pytest.approx(-180.0)
+
+
+# --- turn_total() (sprint 034 ticket 001, TL-03) -------------------------
+#
+# The defect this replaces: `rotation_check.py` and a second bench
+# tool (deleted outright by sprint 034 ticket 003) each unwrapped a
+# pivot with `revs = round(commanded / 360.0)`, and
+# `round(0.5)` is 0 under banker's rounding. So for a commanded +/-180
+# the whole expression collapsed to `wrap(after - before)`, a 183 deg
+# physical turn read -177, and `gyro / commanded` came out NEGATIVE --
+# which then went into a mean taken over [360, 180, -180]. turn_total()
+# anchors the unwrap on the commanded angle instead, with no `revs`
+# term and no `round()`, so every angle (the +/-180 boundary included)
+# goes through the same one line.
+
+@pytest.mark.parametrize('commanded, measured, expected', [
+    # The regression itself: over-rotation on the wrap boundary. The
+    # OTOS reports the wrapped delta, -177, for a real +183 deg turn.
+    (180.0, -177.0, 183.0),
+    (-180.0, 177.0, -183.0),
+    # Under-rotation on the same boundary still works.
+    (180.0, 177.0, 177.0),
+    (-180.0, -177.0, -177.0),
+    # Exactly on the command.
+    (180.0, 180.0, 180.0),
+    (-180.0, -180.0, -180.0),
+    # A full revolution, which a wrapped heading cannot show at all.
+    (360.0, 3.0, 363.0),
+    (360.0, 0.0, 360.0),
+    (-360.0, -3.0, -363.0),
+    # Small commanded angles, where no unwrapping is needed.
+    (90.0, 92.0, 92.0),
+    (-90.0, -88.0, -88.0),
+    (0.5, 0.7, 0.7),
+    # A commanded 0 with a small measured drift reports the drift.
+    (0.0, 2.5, 2.5),
+    (0.0, -2.5, -2.5),
+])
+def test_turn_total_unwraps_onto_the_commanded_revolution(
+        commanded, measured, expected):
+    assert field.turn_total(commanded, measured) == pytest.approx(expected)
+
+
+def test_turn_total_accepts_an_already_unwrapped_measurement():
+    # A caller summing per-sample wrapped deltas (tools/pivot_truth.py's
+    # _yaw_mark()) hands in a total that is already unwrapped. It must
+    # pass through, not get re-wrapped onto some other revolution.
+    assert field.turn_total(180.0, 183.0) == pytest.approx(183.0)
+    assert field.turn_total(360.0, 363.0) == pytest.approx(363.0)
+    assert field.turn_total(-360.0, -363.0) == pytest.approx(-363.0)
+
+
+@pytest.mark.parametrize('commanded, measured', [
+    (180.0, -177.0),    # +183 physical
+    (-180.0, 177.0),    # -183 physical
+])
+def test_turn_total_ratio_keeps_the_sign_of_an_overrotating_pivot(
+        commanded, measured):
+    # The defect's user-visible symptom: `gyro / commanded` was -0.98
+    # for a pivot that over-rotated by 3 deg, and that sign-flipped
+    # term was averaged in with the others.
+    ratio = field.turn_total(commanded, measured) / commanded
+    assert ratio > 0.0
+    assert ratio == pytest.approx(183.0 / 180.0)
+
+
+def test_turn_total_does_not_use_round_or_a_revs_term():
+    # Pins the fix itself, not just its outputs: the `revs` form is
+    # what could not resolve the +/-180 boundary, and re-introducing it
+    # would pass the numeric cases above only until someone commanded
+    # a half-revolution again.
+    src = inspect.getsource(field.turn_total)
+    body = src.split('"""')[-1]
+    assert 'round(' not in body
+    assert 'revs' not in body
 
 
 # --- robot_heading_from_tag_yaw() (sprint 029 ticket 006, TL-11) ---------
@@ -304,6 +413,85 @@ def test_score_corners_forward_scan_ignores_a_pre_visit_near_approach():
         'numerically-closer but pre-A spurious pass (row0)')
 
 
+# --- score_corners(): the TL-08 bounded window ---------------------------
+
+def _tl08_lap_rows(dt=0.25):
+    """The TL-08 scenario, written out as an explicit leg list: a lap
+    that starts on NE, passes NW 4 cm off at t = 5 s, touches SW / SE /
+    NE 1 cm off at t = 15 / 25 / 35 s, and then OVER-CLOSES -- its
+    closing leg drifts back along the north edge and ends 1.5 cm from
+    NW at t = 38 s.
+
+    Sampled every `dt` s so no interval exceeds `score_corners()`'s
+    0.4 s `gap_s`; a gap would make the blind-stretch rule, not the
+    window, decide the answer and the fixture would stop testing what
+    it is here to test.
+    """
+    nw, sw, se, ne = (field.DOTS['NW'], field.DOTS['SW'],
+                      field.DOTS['SE'], field.DOTS['NE'])
+    legs = [
+        # (t_start, t_end, from_xy, to_xy)
+        (0.0, 5.0, ne, (nw[0] + 4.0, nw[1])),    # NE start -> 4 cm off NW
+        (5.0, 15.0, (nw[0] + 4.0, nw[1]), (sw[0], sw[1] + 1.0)),
+        (15.0, 25.0, (sw[0], sw[1] + 1.0), (se[0] - 1.0, se[1])),
+        (25.0, 35.0, (se[0] - 1.0, se[1]), (ne[0], ne[1] - 1.0)),
+        # the over-close: back west along the north edge, ending 1.5 cm
+        # from NW -- NW's GLOBAL closest approach over the whole run.
+        (35.0, 38.0, (ne[0], ne[1] - 1.0), (nw[0] + 1.5, nw[1])),
+    ]
+    rows = [_row(0.0, ne[0], ne[1])]
+    for t0, t1, (x0, y0), (x1, y1) in legs:
+        n = int(round((t1 - t0) / dt))
+        for k in range(1, n + 1):
+            f = k / n
+            rows.append(_row(t0 + f * (t1 - t0),
+                             x0 + f * (x1 - x0), y0 + f * (y1 - y0)))
+    return rows
+
+
+def test_score_corners_bounds_each_corner_to_its_own_window():
+    """TL-08 (08-26 C-16). The unbounded scan let NW take the late
+    1.5 cm over-close at t = 38 s, which pushed `used` to the tail and
+    left SW / SE / NE a handful of final samples -- one good run read
+    as three bad corners. With a per-corner window NW is scored from
+    its real 4 cm pass at t = 5 s and every corner keeps its own
+    approach."""
+    rows = _tl08_lap_rows()
+
+    res = field.score_corners(rows)
+
+    assert res['NW'] == pytest.approx(4.0, abs=0.2), (
+        "NW must be scored from its own approach (4 cm at t=5 s), not "
+        "from the closing leg's 1.5 cm re-approach at t=38 s")
+    for tag in ('SW', 'SE', 'NE'):
+        assert res[tag] is not None, (
+            f'{tag} was starved by an earlier corner claiming the tail '
+            f'of the run')
+        assert res[tag] == pytest.approx(1.0, abs=0.2), (
+            f'{tag} must score its own ~1 cm touch, not a leftover '
+            f'tail sample tens of cm away')
+
+
+def test_score_corners_two_corners_cannot_claim_the_same_sample():
+    """`used = besti` (the old code) let the NEXT corner start its scan
+    AT the sample the previous corner just claimed, so two consecutive
+    corners could both be scored from one row. Here row0 is A's exact
+    hit and is also the closest row to B; `used = besti + 1` forces B
+    onto row1."""
+    dots = {'A': (0.0, 0.0), 'B': (0.5, 0.0)}
+    rows = [
+        _row(0.0, 0.0, 0.0),     # A's exact hit -- and B's closest row
+        _row(0.1, 20.0, 0.0),    # the only row left for B
+    ]
+
+    res = field.score_corners(rows, order=['A', 'B'], dots=dots)
+
+    assert res['A'] == pytest.approx(0.0, abs=1e-9)
+    assert res['B'] == pytest.approx(19.5), (
+        'B must be scored from row1; scoring it 0.5 cm means it '
+        'reclaimed row0, the sample A already used')
+
+
 # --- path_deviation(): the PY-08 unguarded-divide guard -------------------
 
 def test_path_deviation_on_the_rectangle_is_near_zero():
@@ -446,3 +634,133 @@ def test_check_path_flags_the_whole_unsafe_stretch_of_a_segment_not_just_its_end
         'segment-walking from an endpoints-only check')
 
 
+
+
+# --- usable_half_extent(): ONE field size, derived ------------------------
+
+def test_usable_half_extent_is_derived_from_limits_and_margin():
+    """Derived, never a second hand-typed pair -- that is the whole
+    point of the accessor. Recomputing it here from `LIMITS` and
+    `MARGIN` (which the rule-file drift guard above pins to
+    `.claude/rules/playfield-testing.md`) means a typo'd literal in
+    `field.py` fails here rather than shrinking the field silently."""
+    hx, hy = field.usable_half_extent()
+    assert hx == pytest.approx(field.LIMITS[0] - field.MARGIN)
+    assert hy == pytest.approx(field.LIMITS[1] - field.MARGIN)
+    assert (hx, hy) == pytest.approx((55.15, 32.65))
+
+
+def test_within_margin_is_expressed_in_terms_of_the_accessor():
+    """`clears_margin()` / `check_path()` must agree with
+    `usable_half_extent()` exactly -- a point one millimetre inside
+    clears, one millimetre outside does not, on BOTH axes. If the
+    predicate ever grew its own copy of the subtraction, one of these
+    four would drift."""
+    hx, hy = field.usable_half_extent()
+    assert field.clears_margin([_row(0.0, hx - 0.1, 0.0)]) is True
+    assert field.clears_margin([_row(0.0, hx + 0.1, 0.0)]) is False
+    assert field.clears_margin([_row(0.0, 0.0, hy - 0.1)]) is True
+    assert field.clears_margin([_row(0.0, 0.0, hy + 0.1)]) is False
+
+
+def test_the_tour_sizing_test_no_longer_carries_its_own_field_size():
+    """Drift guard for the OTHER half of "one field size".
+
+    `tests/host/test_run_tour_programs.py` used to hold `_FIELD_MM =
+    (600.0, 400.0)` and `_MARGIN_MM = 50.0` -- a 55.0 x 35.0 cm usable
+    field against this module's 55.15 x 32.65, i.e. 2.35 cm LOOSER in
+    y. A figure could pass its sizing gate there and still be refused
+    by the geofence every driving tool pre-flights against. Sprint 034
+    ticket 007 deleted the pair; this fails if anyone reintroduces one.
+    """
+    src = (_REPO_ROOT / 'tests' / 'host' /
+           'test_run_tour_programs.py').read_text()
+    for line in src.splitlines():
+        code = line.split('#', 1)[0]
+        assert '_FIELD_MM =' not in code and '_MARGIN_MM =' not in code, (
+            'the tour sizing test has grown a private field size again; '
+            'it must derive from field.usable_half_extent()')
+    assert 'usable_half_extent' in src, (
+        'the tour sizing test no longer derives its limits from field.py')
+
+
+# --- require_clear_path(): the planners' loud refusal ---------------------
+
+def test_require_clear_path_returns_quietly_for_a_path_that_clears():
+    assert field.require_clear_path(field.RECT, what='the tour') is None
+
+
+def test_require_clear_path_refuses_and_names_the_offending_points():
+    """A refusal must say WHERE the path left the field. A bare
+    "refused" sends the operator back to the geometry with nothing to
+    go on, and is the shape of message people learn to ignore."""
+    with pytest.raises(field.PathRefused) as exc:
+        field.require_clear_path([(0.0, 0.0), (60.0, 0.0)],
+                                 what='drive to (60.0, 0.0)')
+    msg = str(exc.value)
+    assert 'drive to (60.0, 0.0)' in msg, 'the refused move is not named'
+    assert '60.0' in msg, 'no offending point named'
+    assert '55.15' in msg and '32.65' in msg, (
+        'the refusal does not state the usable extent it applied')
+
+
+def test_require_clear_path_refuses_a_legal_TARGET_reached_by_an_illegal_path():
+    """The target itself clears the margin; the path to it does not,
+    because the robot is currently OUTSIDE the margin and the first
+    part of the leg is spent getting back in.
+
+    This is the case that makes the check a PATH check rather than a
+    target check, and it is the one a reposition actually hits: the
+    dots are all legal points, so a tool that only validated its
+    destination would arm every one of these. (A leg between two legal
+    points cannot itself leave the margin -- the usable field is a
+    rectangle, hence convex -- so an out-of-margin START is exactly
+    where a two-waypoint path goes wrong.)"""
+    with pytest.raises(field.PathRefused) as exc:
+        field.require_clear_path([(60.0, 0.0), (0.0, 0.0)],
+                                 what='drive to (0.0, 0.0)')
+    msg = str(exc.value)
+    assert 'drive to (0.0, 0.0)' in msg
+    assert '60.0' in msg, (
+        'the offending START of the leg must be named, not just the '
+        'destination -- the destination is fine')
+
+
+def test_require_clear_path_walks_multi_leg_routes_not_just_their_ends():
+    """A route whose first and last waypoints both clear but whose
+    middle leg does not. `check_path()` already walks the segments;
+    this pins that the planners' gate inherits that and does not
+    shortcut to first/last."""
+    with pytest.raises(field.PathRefused):
+        field.require_clear_path([(0.0, 0.0), (60.0, 0.0), (10.0, 0.0)])
+
+
+def test_require_clear_path_never_clamps_the_waypoints():
+    """It raises; it does not hand back a shortened path. Nothing in
+    the signature offers a corrected route, deliberately: a silently
+    re-planned move is the failure this check exists to prevent."""
+    waypoints = [(0.0, 0.0), (60.0, 0.0)]
+    with pytest.raises(field.PathRefused):
+        field.require_clear_path(waypoints)
+    assert waypoints == [(0.0, 0.0), (60.0, 0.0)]
+
+
+# --- field.py imports nothing that does I/O ------------------------------
+
+def test_field_imports_nothing_that_does_io():
+    """The invariant that lets `tests/calibration/*` and `tests/host/*`
+    both import this module on a machine with no robot, no camera and
+    no relay attached. The geofence is wired in by having the PLANNERS
+    call `check_path()` -- never by teaching `field.py` about a link.
+    """
+    src = (_TOOLS_DIR / 'field.py').read_text()
+    imported = set()
+    for line in src.splitlines():
+        line = line.strip()
+        if line.startswith('import '):
+            imported.update(n.strip().split(' as ')[0].split('.')[0]
+                            for n in line[len('import '):].split(','))
+        elif line.startswith('from ') and ' import ' in line:
+            imported.add(line[len('from '):].split(' import ')[0].split('.')[0])
+    assert imported == {'math'}, (
+        f'tools/field.py must import nothing but math; found {sorted(imported)}')

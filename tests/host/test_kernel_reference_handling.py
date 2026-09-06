@@ -48,10 +48,7 @@ from test_kernel_harness import (  # noqa: F401 -- kernel_lib re-exported as a f
     Kernel,
     kernel_lib,
 )
-from test_profile_probe import (  # noqa: F401 -- motion_lib re-exported as a fixture
-    LaggedRig,
-    motion_lib,
-)
+from test_profile_probe import LaggedRig
 
 _DT_S = 0.024  # [s] one kernel cycle -- matches Config::cyclePeriod's own
                # 24 ms default; DifferentialDrive::step() derives its own

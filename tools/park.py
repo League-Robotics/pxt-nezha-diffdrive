@@ -35,10 +35,15 @@ whole thing testable without a robot.
 """
 import math
 
-# One wrap() for the whole repo. Sprint 005 consolidated eight
-# functionally-identical copies of this into field.py; adding a ninth
-# here -- with its own half-open-interval convention, at that -- is
-# exactly the drift that cleanup existed to stop.
+# One wrap() for the whole repo, and `field.wrap()` is it -- (-180, 180],
+# upper end closed, documented on the function itself. Sprint 005
+# consolidated eight functionally-identical copies into field.py and
+# FOUR grew back (three of them the modulo idiom, which closes the
+# OTHER end); sprint 034 ticket 009 retired those and added
+# `tests/tools/test_angle_wrap_ownership.py` so a fifth cannot appear
+# quietly. Adding one here -- with its own half-open-interval
+# convention, at that -- is exactly the drift both cleanups existed to
+# stop.
 from field import wrap
 
 # A move is ('pivot', degrees) or ('drive', cm). Negative cm is reverse.

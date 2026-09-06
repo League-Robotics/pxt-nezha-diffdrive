@@ -1,52 +1,21 @@
-"""tests/host/test_cxx11_syntax_gate.py -- a narrow recurrence guard for
-the exact defect that broke sprint 004 ticket 005's bench checkpoint
-(sprint 004 ticket 007: "Wire::Column C++11 compile fix and
-SerialTransport ring-size correction").
+"""Both real targets compile at -std=c++11; the host suite uses c++20.
+Syntax-check the host-portable sources at c++11 so a C++14+ construct
+fails here, not at the hex checkpoint.
 
-**What broke, and why the rest of this suite didn't catch it**:
-tests/host/'s own compile_shared_lib() (test_kernel_harness.py) compiles
-this project's portable C++ at -std=c++20, but BOTH real embedded build
-targets (legacy mbed-classic/yotta bbc-microbit-classic-gcc and
-codal-microbit-v2) compile at -std=c++11, baked into the pxt-microbit
-target's own yotta/CMake toolchain files and not overridable from this
-project's pxt.json. `Wire::Column`'s default member initializers
-(src/comms/wire_handler.h, ticket 004) are legal C++20 but disqualify it from
-being a C++11 aggregate -- so the ~20 `columns_[i++] = {...}`
-brace-assignment sites in WireAdapter::buildSnapshot()
-(src/comms/wire_adapter.cpp) compiled clean against 253 passing host tests
-while being uncompilable for the actual robot. This test would have
-caught that before it cost a bench checkpoint to surface.
+The list below is deliberate, not "everything under src/": a file
+qualifies only if it reaches no `pxt.h` (directly or transitively via
+platform_ports.h). A header with no natural `.cpp` of its own is
+covered through a dedicated `*_syntax_check.cpp` translation unit in
+this directory. The eight `pxt.h`-bound `.cpp` files nothing here can
+compile, and what gates them instead, are named in tests/DESIGN.md
+"Translation units nothing on the host compiles"; that list is held
+against the tree by test_pxt_bound_exclusion_is_current.py.
 
-**Scope, deliberately narrow**: originally exactly the four production
-files already known to have no pxt.h/CODAL dependency (confirmed by
-repo grep and by their own header comments) -- the same four files
-test_kernel_harness.py's own compile_shared_lib() already compiles
-successfully at -std=c++20. This only adds a SECOND, syntax-only
-compile of the identical files at the target's real standard:
-`-fsyntax-only` needs no `-shared -fPIC -o`, no shim, and no link step.
-Do NOT extend this to protocol.{h,cpp}, radio_transport.{h,cpp},
-serial_transport.{h,cpp}, shims.cpp, nezha_port.{h,cpp}, or
-otos_port.{h,cpp} -- all of those include pxt.h (directly or
-transitively via platform_ports.h) and cannot be syntax-checked without
-the CODAL toolchain, which this repo's host suite does not have.
-
-**Sprint 006** widens this scope in one specific way: new host-portable
-*helper headers* extracted from an otherwise pxt.h-bound module (the
-same extraction pattern `EncoderGlitchArmor`/`heading_wrap.h` use --
-see src/DESIGN.md S1/S11) get covered here too, each via its own small
-dedicated syntax-check translation unit under tests/host/ (a header has
-no natural .cpp of its own the way motion_engine.h rides along with
-motion_engine.cpp). `heading_wrap.h` (ticket 004) is the first of
-these, via `heading_wrap_syntax_check.cpp`. This does not narrow the
-gap above: the actual call sites (`otos_port.cpp`, `nezha_port.cpp`,
-`shims.cpp`) still include pxt.h and stay outside this gate entirely --
-only the extracted, dependency-free math is covered.
-
-This is a partial, non-systemic down payment on
-host-tests-compile-newer-standard-than-target.md (filed against sprint
-008, which owns the real fix: compiling the whole host suite at
--std=c++11, or gating a real build into CI/sprint-close). It does not
-attempt that broader fix.
+Include policy matches compile_shared_lib() (test_kernel_harness.py):
+production `src/` files get NO `-I`, exactly as the real PXT build
+resolves them; only this directory's own syntax-check TUs -- host-only
+scaffolding the real build never sees -- get `-I src` so they can reach
+into `src/` at all.
 
 Run with::
 
@@ -170,14 +139,20 @@ def test_host_portable_source_compiles_at_cxx11(source):
     file must succeed -- the exact standard both real embedded build
     targets use, and nine language-standard versions below
     tests/host/'s own -std=c++20. No -shared/-fPIC/-o and no shim: a
-    syntax-only check needs neither a link step nor fake ports."""
-    cmd = [
-        "/usr/bin/c++",
-        "-std=c++11",
-        "-fsyntax-only",
-        "-I", str(_SRC_DIR),
-        str(source),
-    ]
+    syntax-only check needs neither a link step nor fake ports.
+
+    A production `src/` source is compiled with NO `-I`, the way the
+    real PXT build resolves it (compile_shared_lib() draws the same
+    line, and test_include_paths_match_target.py enforces the rule
+    over the whole tree). Only this directory's own syntax-check TUs
+    get `-I src`: they are host-only scaffolding nothing under `src/`
+    includes, and without a search path they cannot name a `src/`
+    header at all."""
+    is_production_source = source.resolve().is_relative_to(_SRC_DIR.resolve())
+    cmd = ["/usr/bin/c++", "-std=c++11", "-fsyntax-only"]
+    if not is_production_source:
+        cmd += ["-I", str(_SRC_DIR)]
+    cmd += [str(source)]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0, (
         f"{source.name} fails to compile at -std=c++11 (the real "

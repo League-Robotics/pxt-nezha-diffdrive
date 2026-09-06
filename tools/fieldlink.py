@@ -19,15 +19,39 @@ the `#id` sequencing contract stay identical either way -- a lossless
 transport still benefits from the same retry-until-ack shape, it just
 needs fewer retries in practice.
 """
+import os
 import re
 import socket
+import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import link as linklib  # noqa: E402  (tools/link.py -- the one sequencer)
 
 
 class _SequencedLink:
     """Shared unseq/seqd/hello/close protocol logic. Subclasses provide
-    `__init__` (how the socket gets opened/tuned) and must set
-    `s.sock`, `s.buf = b''`, `s._seq = 0` before returning."""
+    `__init__` (how the socket gets opened/tuned) and must call
+    `s._init_protocol()` before returning.
+
+    The sequencing and the line reassembly are `tools/link.py`'s since
+    sprint 034 ticket 006; what stays here is the retry shape (this
+    carrier can be lossy) and the socket."""
+
+    def _init_protocol(s):
+        s.sequencer = linklib.Sequencer()
+        s.buf = linklib.LineBuffer()
+
+    # `_seq` is this class's tested surface (test_fieldlink.py sets it to
+    # simulate a prior session and asserts hello() zeroes it); it is now
+    # a view onto the shared Sequencer's counter.
+    @property
+    def _seq(s):
+        return s.sequencer.seq
+
+    @_seq.setter
+    def _seq(s, value):
+        s.sequencer.seq = value
 
     def read(s, sec):
         end = time.time() + sec
@@ -40,14 +64,7 @@ class _SequencedLink:
                 continue
             if not c:
                 break
-            s.buf += c
-            while b'\n' in s.buf:
-                r, s.buf = s.buf.split(b'\n', 1)
-                t = r.decode('ascii', 'replace').strip()
-                if t.startswith('< '):
-                    t = t[2:]
-                if t:
-                    got.append(t)
+            got.extend(s.buf.feed(c))
         return got
 
     def send_raw(s, line):
@@ -63,10 +80,11 @@ class _SequencedLink:
         return None
 
     def seqd(s, cmd, tries=6, sec=2.0):
-        """Sequenced verb. The id is fixed for all retries of THIS call."""
-        s._seq += 1
-        wire = f'{cmd} #{s._seq}'
-        rx = re.compile(r'^(ack|err)\s+%d\b' % s._seq)
+        """Sequenced verb. The id is fixed for all retries of THIS call --
+        `format()` runs ONCE, outside the loop, and the identical string
+        is resent (a fresh id would present as a numeric gap)."""
+        wire = s.sequencer.format(cmd, force=True)
+        rx = re.compile(r'^(ack|err)\s+%d\b' % s.sequencer.seq)
         for _ in range(tries):
             s.send_raw(wire)
             for t in s.read(sec):
@@ -76,7 +94,7 @@ class _SequencedLink:
 
     def hello(s):
         r = s.unseq('HELLO', r'^device ')
-        s._seq = 0          # HELLO resets the robot's expectedNext_ to 1
+        s.sequencer.reset()   # HELLO resets the robot's expectedNext_ to 1
         return r
 
     def close(s):
@@ -87,15 +105,22 @@ class _SequencedLink:
 
 
 class FieldLink(_SequencedLink):
-    def __init__(s, channel, group, host='torture', port=8760):
+    def __init__(s, channel, group,
+                 host=linklib.RELAY_HOST, port=linklib.RELAY_PORT):
         s.sock = socket.create_connection((host, port), timeout=15)
-        s.buf = b''
-        s._seq = 0
+        s._init_protocol()
         time.sleep(1.0)
         s.read(1.5)
-        s.send_raw(f'!CG {channel} {group}')
-        time.sleep(0.4)
-        s.read(0.8)
+        # The FULL relay setup, not just `!CG` -- sprint 034 ticket 006.
+        # This carrier used to send `!CG`/`!GO` alone on the reasoning
+        # that a relay boots at RAW250/power 7/echo off; the relay
+        # PERSISTS its config across resets (`!DEFAULTS` exists for
+        # exactly that), so a previous session's setting is inherited in
+        # silence. See linklib.relay_setup_lines().
+        for cmd in linklib.relay_setup_lines(channel, group):
+            s.send_raw(cmd)
+            time.sleep(0.4)
+            s.read(0.8)
         s.send_raw('!GO')
         time.sleep(0.4)
         s.read(0.8)
@@ -112,7 +137,6 @@ class TcpFieldLink(_SequencedLink):
     def __init__(s, hostport):
         host, _, port = hostport.rpartition(':')
         s.sock = socket.create_connection((host, int(port)), timeout=15)
-        s.buf = b''
-        s._seq = 0
+        s._init_protocol()
         time.sleep(0.5)
         s.read(0.5)

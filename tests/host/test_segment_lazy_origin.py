@@ -38,13 +38,7 @@ Run with::
 
 import ctypes
 
-from test_motion_engine_reductions import (  # noqa: F401 -- motion_lib re-exported as a fixture
-    LEFT,
-    RIGHT,
-    Engine,
-    _ready,
-    motion_lib,
-)
+from test_motion_engine_reductions import LEFT, RIGHT, Engine, _ready
 
 _START_POSITION_COUNTS = 500.0  # [counts] simulates prior wheel travel
 

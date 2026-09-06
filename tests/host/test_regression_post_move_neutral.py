@@ -89,13 +89,7 @@ Run with::
 
 import pytest
 
-from test_motion_engine_reductions import (  # noqa: F401 -- motion_lib re-exported as a fixture
-    LEFT,
-    RIGHT,
-    Engine,
-    _ready,
-    motion_lib,
-)
+from test_motion_engine_reductions import LEFT, RIGHT, Engine, _ready
 
 # shims.cpp tickDrive()'s own settle-loop constants, restated here (not
 # hidden in a helper) so a reader can compare them against

@@ -121,7 +121,8 @@ def _kv(tokens, allowed, line_no):
         try:
             out[k] = float(v)
         except ValueError:
-            raise TourParseError(f'line {line_no}: {k}={v!r} is not a number')
+            raise TourParseError(
+                f'line {line_no}: {k}={v!r} is not a number') from None
     return out
 
 

@@ -6,12 +6,8 @@ tools/tlm.py (device-timestamped pose, in wire units: mm/cdeg),
 writing the pose and wheel-speed CSVs tools/tour_chart.py plots plus
 tlm.py's own <out-prefix>_tlm.csv/.meta.json capture-quality sidecar.
 
-**Named RUN verbs, never numeric.** `test.ts` dispatches `onRun()` on
-a STRING key, so `RUN:1` matches no handler and is a silent no-op: the
-tool runs to completion, prints numbers, and the robot never moved.
-Sprint 005 ticket 006 retargeted five tools off that dead vocabulary
-(see tests/tools/test_run_verbs.py) but did not reach this one, which
-was still sending `RUN:<n>`. Tours are `RUN:tour:<name>`.
+RUN verbs are string-keyed (test.ts `onRun`); a numeric `RUN:<n>` is a
+silent no-op. Tours are `RUN:tour:<name>`.
 
 **Wheel speeds come from the telemetry frame, not from DIAG.** DIAG
 was retired in the v6 cutover, so polling it produced an empty
@@ -111,11 +107,13 @@ def main():
             s = s[2:]          # relay control-plane prefix
         row = stream.feed(s)
         if row is not None:
-            # x/y/ox/oy already mm, h/oh already cdeg on the wire -- no
-            # scale factor of this tool's own (tlm.py owns the one place
-            # any wire-to-engineering-unit conversion happens).
-            pose.append((round(now, 3), row['now'], row['x'], row['y'],
-                         row['h'], row['ox'], row['oy'], row['oh']))
+            # The decoded frame IS the pose row: tlm.write_pose_csv()
+            # takes a frame plus the host arrival time and writes the
+            # wire's own units under the wire's own column names, so no
+            # scale factor of this tool's own appears anywhere (tlm.py
+            # owns the one place any wire-to-engineering-unit
+            # conversion happens).
+            pose.append(dict(row, t_host=now))
             w = tlm.wheels_mms(row)
             vel.append((round(now, 3), w['vl'], w['vr']))
             vals = (row['x'], row['y'], row['h'])
@@ -128,11 +126,10 @@ def main():
                 end = time.time() + 1.5   # test done; short tail
     link.close()
 
-    with open(a.out_prefix + '_pose.csv', 'w') as f:
-        w = csv.writer(f)
-        w.writerow(['t_host', 't_dev_ms', 'x_mm', 'y_mm', 'h_cdeg',
-                    'ox_mm', 'oy_mm', 'oh_cdeg'])
-        w.writerows(pose)
+    # tlm.py owns the pose-CSV schema (sprint 034 ticket 004) -- this
+    # tool's header used to be written here and read by three different
+    # consumers, one of which picked its reader by counting columns.
+    tlm.write_pose_csv(pose, a.out_prefix + '_pose.csv')
     with open(a.out_prefix + '_vel.csv', 'w') as f:
         w = csv.writer(f)
         # mm/s straight off the wire -- NOT encoder counts. The
@@ -145,7 +142,14 @@ def main():
     # require_stream() above guarantees `stream` already has at least
     # one frame, so this cannot raise EmptyCaptureError here.
     meta = tlm.write_tlm_csv(stream, a.out_prefix + '_tlm.csv')
-    final = pose[-1] if pose else None
+    # The console line reports the pose quantities only, not the whole
+    # last frame (which also carries seq/flags/i2cf and, on a FULL
+    # header, eight more columns nobody reads here).
+    final = None
+    if pose:
+        last = pose[-1]
+        final = (last['x'], last['y'], last['h'],
+                 last['ox'], last['oy'], last['oh'])   # [mm] [mm] [cdeg]
     print(f"captured {len(pose)} pose / {len(vel)} vel rows; "
           f"final {final}; {gap}; "
           f"telemetry {meta['frames']} frames, {meta['dropped']} dropped "

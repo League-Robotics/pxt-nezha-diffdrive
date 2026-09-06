@@ -41,23 +41,10 @@ Run with::
     uv run pytest tests/host/test_profile_probe.py
 """
 
-import ctypes
 import math
-import pathlib
 
 import pytest
 
-from test_kernel_harness import compile_shared_lib
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
 
 LEFT = 0
 RIGHT = 1
@@ -73,100 +60,6 @@ TICK_MS = 24.0
 FULL_DUTY_VELOCITY = 5000.0  # [counts/s]
 
 _KPI = 3.14159265358979323846
-
-
-def _bind(lib):
-    lib.meCreate.argtypes = []
-    lib.meCreate.restype = ctypes.c_void_p
-    lib.meDestroy.argtypes = [ctypes.c_void_p]
-    lib.meDestroy.restype = None
-
-    lib.meSetMaxDuty.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetMaxDuty.restype = None
-    lib.meSetFullDutyVelocity.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetFullDutyVelocity.restype = None
-    lib.meBegin.argtypes = [ctypes.c_void_p]
-    lib.meBegin.restype = ctypes.c_int
-    lib.meStep.argtypes = [ctypes.c_void_p]
-    lib.meStep.restype = None
-    lib.meClockSetNow.argtypes = [ctypes.c_void_p, ctypes.c_uint64]
-    lib.meClockSetNow.restype = None
-
-    lib.meMotorLastStagedDuty.argtypes = [ctypes.c_void_p, ctypes.c_int]
-    lib.meMotorLastStagedDuty.restype = ctypes.c_float
-    lib.meMotorArmPosition.argtypes = [
-        ctypes.c_void_p, ctypes.c_int, ctypes.c_float, ctypes.c_uint64,
-    ]
-    lib.meMotorArmPosition.restype = None
-
-    lib.meCountsPerMm.argtypes = [ctypes.c_void_p]
-    lib.meCountsPerMm.restype = ctypes.c_float
-    lib.meEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
-    lib.meEffectiveTrackWidth.restype = ctypes.c_float
-
-    lib.meMoveX.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-        ctypes.c_uint32,
-    ]
-    lib.meMoveX.restype = None
-    lib.meWheelsV.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32,
-    ]
-    lib.meWheelsV.restype = None
-    lib.meServiceMove.argtypes = [ctypes.c_void_p]
-    lib.meServiceMove.restype = ctypes.c_int
-    lib.meIsMoveActive.argtypes = [ctypes.c_void_p]
-    lib.meIsMoveActive.restype = ctypes.c_int
-    lib.meIsDriving.argtypes = [ctypes.c_void_p]
-    lib.meIsDriving.restype = ctypes.c_int
-
-    lib.meLimitsAccel.argtypes = [ctypes.c_void_p]
-    lib.meLimitsAccel.restype = ctypes.c_float
-    lib.meLimitsVFloor.argtypes = [ctypes.c_void_p]
-    lib.meLimitsVFloor.restype = ctypes.c_float
-    lib.meLimitsSetVMax.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meLimitsSetVMax.restype = None
-    # Ticket 009 (design S4.1/S10.2): the drivetrain's own first-order
-    # response lag, [s] -- set on MotionLimits so the shaper's braking
-    # plan/arrival test (velocity_shaper.cpp) can credit the LaggedRig's
-    # own simulated coast.
-    lib.meLimitsSetLag.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meLimitsSetLag.restype = None
-    # LaggedRig's own PID/adaptation/stall Config, matching
-    # stiction_probe.cpp's Rig exactly -- see motion_engine_shim.cpp's
-    # own comment.
-    lib.meApplyStictionProbeKernelConfig.argtypes = [ctypes.c_void_p]
-    lib.meApplyStictionProbeKernelConfig.restype = None
-    # Sprint 031 ticket 006: overrides just kp/ki/kaff on top of
-    # whatever meApplyStictionProbeKernelConfig() already staged --
-    # lets a test try a candidate gain set against the LaggedRig model.
-    lib.meSetPidGains.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
-    ]
-    lib.meSetPidGains.restype = None
-    # Sprint 029 ticket 010: lets a test override the twist-hold gain
-    # meApplyStictionProbeKernelConfig() bakes in (2.0) -- e.g. to 0.0
-    # for a servo-off comparison run. Mirrors kernel_shim.cpp's own
-    # kdSetTwistHoldGain.
-    lib.meSetTwistHoldGain.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetTwistHoldGain.restype = None
-    lib.meTwistReferenceCounts.argtypes = [ctypes.c_void_p]
-    lib.meTwistReferenceCounts.restype = ctypes.c_float
-    lib.meSetTrackWidth.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetTrackWidth.restype = None
-    lib.meSetRotationalSlip.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meSetRotationalSlip.restype = None
-
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libmotion_engine_profile_probe_shim.so",
-    )
-    return _bind(ctypes.CDLL(str(lib_path)))
 
 
 class Rig:

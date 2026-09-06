@@ -1334,11 +1334,17 @@ def test_colon_form_legacy_run_is_not_v6_grammar(wg):
 
 
 def test_kernel_harness_still_importable():
-    """Smoke check that this file's own import of test_kernel_harness
-    (for compile_shared_lib()) doesn't break that module's collection --
-    the real regression coverage is running both files together, e.g.
-    `uv run pytest tests/host/ -k "kernel_harness or wire_grammar"`."""
-    import test_kernel_harness  # noqa: F401
+    """This file imports test_kernel_harness for compile_shared_lib().
+    Assert the symbol this file actually depends on is there and
+    callable -- a bare `import` passes even if compile_shared_lib() has
+    been renamed or moved out, which is the only way this import can
+    break us."""
+    import test_kernel_harness
+
+    assert callable(getattr(test_kernel_harness, "compile_shared_lib", None)), (
+        "test_kernel_harness.compile_shared_lib() is the one symbol this "
+        "file imports from that module; it is gone or is no longer callable."
+    )
 
 
 def test_unsequenced_verbs_remind_when_the_stream_is_stalled(wg):

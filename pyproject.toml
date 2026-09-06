@@ -1,6 +1,6 @@
 [project]
 name = "pxt-nezha-diffdrive-host-tests"
-version = "1.20260906.1"
+version = "0.20260906.2"
 description = "Native host test harness for this extension's portable C++ (DiffDrive kernel, and the sprint 003 wire/motion modules it grows into). No Python package of its own -- every module under test is C++, compiled on demand into a throwaway shared library and driven through ctypes; see tests/host/README.md."
 requires-python = ">=3.10"
 dependencies = [
@@ -64,6 +64,18 @@ ignore = ["B905"]
 [tool.ruff.lint.per-file-ignores]
 # Pytest fixture redefinition is idiomatic (a test module importing a
 # fixture by name to use it looks, to pyflakes, like shadowing an
-# unused import) -- not a real defect. 94 instances as of this ticket,
-# all of this shape.
-"tests/**" = ["F811"]
+# unused import) -- not a real defect.
+#
+# NARROWED from "tests/**" to "tests/host/**" by sprint 034 ticket 010.
+# That ticket asked whether the silence existed for the thirteen
+# duplicated `motion_lib` fixtures it deleted, and it did not: with the
+# ignore removed entirely, `ruff check tools tests` reports 115 F811,
+# all of them in tests/host/ and none of them about `motion_lib`. They
+# are the `kernel_lib` / `wa` / `wg` / `wire_lib` /
+# `motion_verb_lib` cross-module fixture imports (heaviest in
+# test_wire_reliability.py, test_wire_telemetry_frame.py and
+# test_wire_telemetry_projection.py), which the native harness uses
+# deliberately -- see tests/host/DESIGN.md. tests/tools/, tests/dev/
+# and tests/system/ have zero, so the silence does not need to cover
+# them and no longer does.
+"tests/host/**" = ["F811"]

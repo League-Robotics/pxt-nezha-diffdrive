@@ -32,6 +32,7 @@ import math
 import sys
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
+from field import wrap
 from robotlink import open_link
 
 
@@ -156,8 +157,14 @@ def main():
         dist = math.hypot(x1 - x0, y1 - y0)
         if dist > 20.0:
             course = math.atan2(y1 - y0, x1 - x0)
-            yaw = math.atan2(math.sin(course - h0), math.cos(course - h0))
-            yaw_deg = math.degrees(yaw)
+            # `atan2(sin(x), cos(x))` was a fourth spelling of the same
+            # wrap -- and it agrees with `field.wrap()` exactly, since
+            # `atan2`'s own range is (-pi, pi] (sprint 034 ticket 009).
+            # Folded in rather than left as a lookalike: the whole point
+            # of one owner is that a reader never has to re-derive which
+            # boundary a private spelling uses.
+            yaw_deg = wrap(math.degrees(course - h0))
+            yaw = math.radians(yaw_deg)
             print(f'straight leg {dist:.1f} mm, course '
                   f'{math.degrees(course):.1f} deg vs heading '
                   f'{math.degrees(h0):.1f} deg')

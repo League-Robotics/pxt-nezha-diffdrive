@@ -45,54 +45,9 @@ Run with::
     uv run pytest tests/host/test_motion_engine_default_cruise_for_distance.py
 """
 
-import ctypes
 import math
-import pathlib
 
 import pytest
-
-from test_kernel_harness import compile_shared_lib
-
-_TEST_DIR = pathlib.Path(__file__).resolve().parent
-_SRC_DIR = _TEST_DIR.parent.parent / "src"
-
-_SHIM_SOURCES = [
-    _SRC_DIR / "core" / "diffdrive.cpp",
-    _SRC_DIR / "motion" / "motion_engine.cpp",
-    _SRC_DIR / "motion" / "velocity_shaper.cpp",
-    _TEST_DIR / "motion_engine_shim.cpp",
-]
-
-
-def _bind(lib):
-    lib.meCreate.argtypes = []
-    lib.meCreate.restype = ctypes.c_void_p
-    lib.meDestroy.argtypes = [ctypes.c_void_p]
-    lib.meDestroy.restype = None
-
-    lib.meLimitsSetDecel.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meLimitsSetDecel.restype = None
-    lib.meLimitsSetVMax.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meLimitsSetVMax.restype = None
-    lib.meDefaultCruiseForDistance.argtypes = [ctypes.c_void_p, ctypes.c_float]
-    lib.meDefaultCruiseForDistance.restype = ctypes.c_float
-    lib.meDominantAxisTravelMm.argtypes = [
-        ctypes.c_void_p, ctypes.c_float, ctypes.c_float,
-    ]
-    lib.meDominantAxisTravelMm.restype = ctypes.c_float
-    lib.meEffectiveTrackWidth.argtypes = [ctypes.c_void_p]
-    lib.meEffectiveTrackWidth.restype = ctypes.c_float
-
-    return lib
-
-
-@pytest.fixture(scope="session")
-def motion_lib(tmp_path_factory):
-    lib_path = compile_shared_lib(
-        tmp_path_factory, sources=_SHIM_SOURCES,
-        out_name="libmotion_engine_default_cruise_shim.so",
-    )
-    return _bind(ctypes.CDLL(str(lib_path)))
 
 
 class Engine:

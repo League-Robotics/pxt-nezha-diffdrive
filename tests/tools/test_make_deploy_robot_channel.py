@@ -94,30 +94,57 @@ def scratch_repo(tmp_path, monkeypatch):
 
 
 # --- the acceptance criteria's own three builds -----------------------
+#
+# The channel numbers below are FIXTURE values, deliberately NOT any
+# board's real assignment. Every test here writes its own synthetic
+# config and then asserts the tool injected whatever that config said,
+# so a real number here would be decorative -- and a decorative real
+# number is worse than an obviously arbitrary one, because it reads as
+# a fleet fact while nothing can ever fail when it goes stale. That is
+# not hypothetical: this file carried a test *named*
+# `test_vevov_build_carries_channel_4` long after vevov moved off 4,
+# passing the whole time (sprint 034 ticket 010, TL-18). The fleet's
+# real assignments live in radio-robot-lib/config/robots/<robot>.json,
+# mirrored for humans in .claude/rules/playfield-testing.md; this file
+# is not a third copy of them.
+
+# Even, so `_read_robot_radio_group()`'s "a name-derived channel with
+# no radio_group is an address nothing listens on" guard does not fire
+# on a config that deliberately omits radio_group (that guard has its
+# own tests below).
+_FIXTURE_CHANNEL = 62
+_FIXTURE_CHANNEL_B = 64
 
 
-def test_vevov_build_carries_channel_4(scratch_repo):
+def test_a_named_robots_build_carries_its_configured_channel(scratch_repo):
     deploy, robots_dir = scratch_repo
-    _write_robot_config(robots_dir, "vevov", 4)
+    _write_robot_config(robots_dir, "vevov", _FIXTURE_CHANNEL)
     make_deploy._inject_radio_channel(str(deploy), "vevov")
-    assert _kchannel(deploy) == 4
+    assert _kchannel(deploy) == _FIXTURE_CHANNEL
 
 
-def test_tovez_build_carries_channel_3(scratch_repo):
+def test_a_different_robot_gets_its_own_configured_channel(scratch_repo):
+    """Same tool, different robot, different config -- the point is that
+    the injected value tracks the named robot's config, not a table in
+    this repo."""
     deploy, robots_dir = scratch_repo
-    _write_robot_config(robots_dir, "tovez", 3)
+    _write_robot_config(robots_dir, "tovez", _FIXTURE_CHANNEL_B)
     make_deploy._inject_radio_channel(str(deploy), "tovez")
-    assert _kchannel(deploy) == 3
+    assert _kchannel(deploy) == _FIXTURE_CHANNEL_B
 
 
-def test_unspecified_robot_default_carries_channel_4(scratch_repo):
-    """main()'s own --robot default is DEFAULT_ROBOT ('vevov'), whose
-    configured channel is 4 -- the same value radio_transport.h already
-    carries checked in, so a build with no --robot is unchanged."""
+def test_unspecified_robot_carries_the_default_robots_configured_channel(
+        scratch_repo):
+    """main()'s own --robot default is DEFAULT_ROBOT, and a build with no
+    --robot is not a build with no injection: it injects DEFAULT_ROBOT's
+    OWN configured channel, read from the same per-robot JSON as any
+    other robot's. Which robot that is, and what channel it is on, are
+    both deliberately left unnamed here."""
     deploy, robots_dir = scratch_repo
-    _write_robot_config(robots_dir, make_deploy.DEFAULT_ROBOT, 4)
+    _write_robot_config(robots_dir, make_deploy.DEFAULT_ROBOT,
+                        _FIXTURE_CHANNEL)
     make_deploy._inject_radio_channel(str(deploy), make_deploy.DEFAULT_ROBOT)
-    assert _kchannel(deploy) == 4
+    assert _kchannel(deploy) == _FIXTURE_CHANNEL
 
 
 def test_group_is_injected_from_config_alongside_channel(scratch_repo):

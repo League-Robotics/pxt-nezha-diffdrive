@@ -26,7 +26,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
-from camproc import Cam
+from camlink import Cam, CamDown
 from field import wrap
 
 
@@ -35,7 +35,7 @@ def _yaw_mark(cam):
     computed fresh from `cam`'s own recorded samples each call,
     mirroring the old CamStream.mark()'s (total, n, err) shape so
     one_turn() below needs no other change. `cam` is a
-    tools/camproc.py Cam.
+    tools/camlink.py Cam.
 
     Unwrapping this way is what makes turns beyond 180 deg (and
     multi-turn 360s) measurable at all: a before/after pair cannot
@@ -109,7 +109,10 @@ def main():
     ap.add_argument('--csv', default=None)
     a = ap.parse_args()
 
-    cam = Cam()
+    try:
+        cam = Cam()
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.err or not cam.samples:
         raise SystemExit(f'camera not usable: {cam.err or "no tag seen"}')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
