@@ -1717,3 +1717,12 @@ Baseline = the two discriminator runs. Camera dh per leg [deg]:
 Physical ramp (peak frame-to-frame wheel accel) was ~850 mm/s^2 at BOTH
 accel 300 and 800, so 800 is not "a faster ramp". Mechanism UNVERIFIED;
 result replicated. Baked for tovez by ticket 020.
+
+**Where the running `accel 300` comes from** (source reading, not a
+measurement): `test/test.ts:336` -- `diffDrive.setLimits(300, 300, 200, 90)`
+at boot of the test program (accel, decel, vMax, omegaMax). The fleet
+default in `src/motion/motion_limits.h` is 400/400. So a firmware bake
+of `accel` would be overridden by this call whenever test.ts is the
+program; ticket 020 must change the literal there (accel -> 800, decel
+stays 300, which is exactly what the sweep did) as well as adding the
+per-robot bake for student programs that never call `setLimits`.
