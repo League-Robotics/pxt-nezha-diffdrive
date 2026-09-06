@@ -42,3 +42,6 @@ captures/*
 # --- pipx/setuptools build droppings under tools/rogo ---
 tools/rogo/build/
 tools/rogo/*.egg-info/
+
+# --- reports: local measurement write-ups, kept on disk but out of git ---
+reports/
