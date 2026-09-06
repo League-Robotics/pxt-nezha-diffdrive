@@ -2,9 +2,11 @@
 id: '006'
 title: RadioTransport enable/enabled, routeLine() + one TransportSink, delete vestigial
   two-writer guards
-status: open
-use-cases: [SUC-003]
-depends-on: ["005"]
+status: in-progress
+use-cases:
+- SUC-003
+depends-on:
+- '005'
 github-issue: ''
 issue: protocol-diet-runbridge-radio-enable-routeline.md
 completes_issue: true
