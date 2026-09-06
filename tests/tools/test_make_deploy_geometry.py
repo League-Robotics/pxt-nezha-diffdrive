@@ -270,6 +270,70 @@ def test_fails_loudly_when_the_lag_declaration_moves(tmp_path, monkeypatch):
         make_deploy._inject_geometry(str(deploy), "vevov")
 
 
+def test_tovez_rotational_slip_bakes_0962(tmp_path, monkeypatch):
+    """Sprint 031 ticket 018: tovez's rotational_slip was MEASURED at
+    0.962 on 2026-09-05 (captures/session-b-20260905/ticket016/
+    g1-slip0962/, 12 alternating +-90 deg pivots, mean|err| 1.531 deg
+    vs 4.604 deg uncalibrated) and radio-robot-lib/config/robots/
+    tovez.json's geometry.firmware_bake.rotational_slip was updated
+    from the earlier 1.01 to 0.962. Pins that the existing opt-in
+    _inject_geometry() mechanism bakes exactly that value into the
+    scratch copy's motion_engine.h with no `SET` needed at boot."""
+    deploy = _deploy(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "tovez", {"firmware_bake": {
+                            "rotational_slip": 0.962,
+                        }})))
+    applied = make_deploy._inject_geometry(str(deploy), "tovez")
+    assert dict(applied) == {"rotational_slip": 0.962}
+    assert "float rotationalSlip_ = 0.962f;" in _read_engine(deploy)
+
+
+def test_other_robots_rotational_slip_unaffected_by_tovez_bake(tmp_path, monkeypatch):
+    """Sprint 031 ticket 018 acceptance criterion: baking tovez's
+    0.962 must not change any other robot's rotational_slip. tigez's
+    own independently measured 0.9617 (tigez-turn-calibration-20260903.md)
+    and vevov's own bake are each read from THAT robot's own config
+    file -- tovez's presence in the same config tree must not leak
+    into either."""
+    deploy_tovez = _deploy(tmp_path / "a")
+    deploy_tigez = _deploy(tmp_path / "b")
+    lib_root = tmp_path / "lib" / "config" / "robots"
+    lib_root.mkdir(parents=True)
+    (lib_root / "tovez.json").write_text(json.dumps({"geometry": {
+        "firmware_bake": {"rotational_slip": 0.962},
+    }}))
+    (lib_root / "tigez.json").write_text(json.dumps({"geometry": {
+        "firmware_bake": {"rotational_slip": 0.9617},
+    }}))
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB", str(tmp_path / "lib"))
+
+    applied_tovez = make_deploy._inject_geometry(str(deploy_tovez), "tovez")
+    applied_tigez = make_deploy._inject_geometry(str(deploy_tigez), "tigez")
+
+    assert dict(applied_tovez) == {"rotational_slip": 0.962}
+    assert dict(applied_tigez) == {"rotational_slip": 0.9617}
+    assert "float rotationalSlip_ = 0.962f;" in _read_engine(deploy_tovez)
+    assert "float rotationalSlip_ = 0.9617f;" in _read_engine(deploy_tigez)
+
+
+def test_robot_without_the_key_keeps_the_fleet_default(tmp_path, monkeypatch):
+    """A robot with no rotational_slip in its firmware_bake block (or
+    no firmware_bake block at all) must keep motion_engine.h's tracked
+    fleet default (0.952) byte-identical -- this ticket deliberately
+    does NOT touch that default, since tigez (0.9617) and vevov differ
+    from tovez's 0.962 and a shared default would be wrong for at
+    least one other board the moment it's read."""
+    deploy = _deploy(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "togov", {"firmware_bake": {
+                            "travel_calib": 0.71,
+                        }})))
+    applied = make_deploy._inject_geometry(str(deploy), "togov")
+    assert "rotational_slip" not in dict(applied)
+    assert "float rotationalSlip_ = 0.952f;" in _read_engine(deploy)
+
+
 def test_measured_zero_is_a_legal_bake_for_the_motion_limits_keys(tmp_path, monkeypatch):
     """stop_distance_mm 0 / lag_s 0 are MEASURED values (tovez 2026-09-04),
     not absent ones; the geometry scales stay strictly positive."""
