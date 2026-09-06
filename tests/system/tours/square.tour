@@ -1,17 +1,10 @@
-# The square tour: 600 mm sides, CCW, axis-aligned, with planned stops
-# mid-leg on legs 1 and 3.
+# The square tour: 600 mm sides, CCW, axis-aligned -- four legs driven
+# straight through, four 90 deg pivots.
 #
 # AXIS-ALIGNED means each leg runs along one axis of the tour's own
-# start frame: leg 1 all +x, leg 2 all +y, and so on. It always did --
-# but until 2026-09-01 the chart drew it as a DIAMOND, because the plot
-# was in the robot's raw odometry frame and nothing on the wire can
-# rebase that frame between tours (see the issue
-# no-wire-verb-reaches-rebaseposition-...). MEASURED gopiv 2026-09-01,
-# reports/tours-20260901/square.json: the run started at (-1154, -208)
-# mm with a cumulative heading of 4909.66 deg = 229.66 deg, and the
-# first leg travelled at -130.19 deg -- the same direction. Re-rendered
-# in the start frame it is a 30.4 x 30.2 cm square with its first leg
-# at +0.15 deg. run_tour.py now always charts in the start frame.
+# start frame: leg 1 all +x, leg 2 all +y, and so on. Until 2026-09-01
+# the chart drew it as a DIAMOND, because the plot was in the robot's
+# raw odometry frame; run_tour.py now always charts in the start frame.
 # For a figure that is genuinely turned 45 deg, see diamond.tour.
 #
 # SIZING. 600 mm sides span 600 x 600 mm; the usable field is
@@ -20,45 +13,42 @@
 # Stage the robot at (-300, -300) facing East to sit centred -- driven
 # from the field CENTRE this square reaches +600 mm and does not fit.
 #
-# PIVOT SPEED. omega=180 deg/s, not the 45 deg/s this file was ported
-# with. 45 deg/s works out to 47 mm/s at the wheel, which is at the
-# stiction floor: MEASURED gopiv 2026-09-01 the pivots took 4.5-5.0 s
-# each, ran a median 46 mm/s, and chattered raggedly between 0 and
-# 75 mm/s while the straights held a clean 144 mm/s. 180 deg/s is
-# ~188 mm/s at the wheel, matching the straights -- and it also turns
-# out to be the accurate speed, not just the clean-sounding one (see
-# the pivot tuning note below).
+# PIVOT SPEED. omega=180 deg/s (~188 mm/s at the wheel), not the
+# 45 deg/s this file was ported with: MEASURED gopiv 2026-09-01, 45 deg/s
+# is 47 mm/s at the wheel, at the stiction floor -- pivots took 4.5-5.0 s
+# and chattered between 0 and 75 mm/s while the straights held a clean
+# 144 mm/s. 188 mm/s also measured MORE accurate than 300 (excess
+# +1.34 deg sd 0.35 vs +6.88 sd 1.03, n=8 each, interleaved A/B).
+#
+# NO SET BLOCK, NO MID-LEG STOPS (removed 2026-09-06). Until then this
+# file carried `SET speed_floor/yaw_taper/pivot_overrun` -- all RETIRED
+# ordinals after the config consolidation, answered `err` and silently
+# no-ops -- plus `SET twist_hold_gain 8`, a retune field_dance.py had
+# already dropped as harmful on this engine. It also split legs 1 and 3
+# with a `STOP dwell=0.6`: that was radio-robot-elite's test fixture for
+# ITS planned-`STOP` wire verb ("the umbrella issue's two stops on
+# opposite legs"), ported verbatim; here STOP is a host-side sleep and
+# every TWIST is already its own MOVE_X, so the split tested nothing and
+# added two accel/decel cycles per lap. A tour is a benchmark of the
+# firmware's defaults; it must not retune the robot.
+#
+# MEASURED tovez 2026-09-06, bench, pure odometry, firmware 1.20260906.6
+# (reports/square-hw-vs-sim-20260906/bench-demo/square_clean-floorcredit.json):
+# closure 11.0 mm at the baked lag 0.13. Same tour, same bench, on the
+# full-coast-credit arrival predicate an hour earlier: 387.4 mm.
+# Reference: gopiv 2026-09-01, pre-029 engine, 5.0 mm
+# (reports/tours-20260901.md).
 
-# PIVOT TUNING (MEASURED gopiv 2026-09-01, interleaved A/B so battery
-# drift hits both arms equally). Pivot cruise 188 mm/s (omega 180 deg/s)
-# beats 300 mm/s (286 deg/s) decisively: excess +1.34 deg sd 0.35 versus
-# +6.88 deg sd 1.03, n=8 each. pivot_overrun was then swept AT 188 mm/s
-# and 0.68 -- the value the closure sweep found at 300 mm/s -- leaves
-# +1.44 deg on the table; 2.0 is the zero crossing (1.8 -> +0.29,
-# 2.2 -> -0.25). pivot_overrun is speed-dependent: retune it whenever
-# the pivot cruise changes.
-
-SET twist_hold_gain 8
-SET speed_floor 512
-SET yaw_taper 800
-SET pivot_overrun 2.0
-
-MARK leg1a
-TWIST vx=250 dist=300 timeout=6
-STOP dwell=0.6
-MARK leg1b
-TWIST vx=250 dist=300 timeout=6
+MARK leg1
+TWIST vx=250 dist=600 timeout=8
 TWIST omega=180 angle=90 timeout=6
 
 MARK leg2
 TWIST vx=250 dist=600 timeout=8
 TWIST omega=180 angle=90 timeout=6
 
-MARK leg3a
-TWIST vx=250 dist=300 timeout=6
-STOP dwell=0.6
-MARK leg3b
-TWIST vx=250 dist=300 timeout=6
+MARK leg3
+TWIST vx=250 dist=600 timeout=8
 TWIST omega=180 angle=90 timeout=6
 
 MARK leg4
