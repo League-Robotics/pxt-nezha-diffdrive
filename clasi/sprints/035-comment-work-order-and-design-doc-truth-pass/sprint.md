@@ -1,7 +1,7 @@
 ---
 id: '035'
 title: Comment work order and design-doc truth pass
-status: ticketing
+status: executing
 branch: sprint/035-comment-work-order-and-design-doc-truth-pass
 use-cases:
 - SUC-001

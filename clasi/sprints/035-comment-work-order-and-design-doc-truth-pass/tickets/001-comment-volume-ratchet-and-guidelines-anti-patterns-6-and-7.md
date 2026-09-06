@@ -1,10 +1,11 @@
 ---
-id: "001"
-title: "Comment-volume ratchet and guidelines anti-patterns 6 and 7"
-status: open
-use-cases: [SUC-002]
+id: '001'
+title: Comment-volume ratchet and guidelines anti-patterns 6 and 7
+status: in-progress
+use-cases:
+- SUC-002
 depends-on: []
-github-issue: ""
+github-issue: ''
 issue: code-review/comment-work-order-factual-fixes-untracked-citations.md
 completes_issue: false
 ---
