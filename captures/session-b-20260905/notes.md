@@ -1112,3 +1112,93 @@ press anywhere in that window would have been visible. n=1.
 shared `lineBuf_`" requires a live RUN JOB, and motion `RUN:` verbs are
 refused by their own dispatch (ticket 017). It cannot be staged until
 017 lands. Blocked, not outstanding.
+
+## Ticket 017 built, flashed, resident -- but NOT behaviourally verified
+
+`src/core/motion_owner.h` gains `tryTakeMotionOwnership(owner,
+isDispatchingFiber)`: if the caller is on Protocol's own fiber AND the
+owner is already `kJob`, the call proceeds unchanged -- it is that job's
+own move, so there is nothing to take and nothing to release
+(`dispatchJob()` already brackets the whole span). Every other caller
+falls through to the ORIGINAL, unchanged `tryTakeBlockOwnership()` rule,
+so a genuine block-side call (button, student script) colliding with a
+live `kWire`/`kJob` move is still refused -- the behaviour measured on
+hardware in Item 2(b), structurally preserved.
+
+`Protocol::tryTakeMotionOwnership()` computes `isDispatchingFiber` as
+`currentFiberFn_() == protocolFiberId_`, the same comparison
+`serviceHookEntry()` already uses for the tick-service-hook gate, and
+only a genuine `kBlock` take now touches
+`wireAdapter_.setExternalOwner()`.
+
+1283 host+tools tests pass (run in the foreground by both the
+implementing agent and independently by me). Commit `38808e1`.
+
+Flashed to tovez and confirmed resident: `HELLO` -> `device NEZHA2 robot
+tovez 2314287040`, `GET twist_hold_gain -> 4.000000` (ticket 015's bake
+survived the rebuild).
+
+**Still UNVERIFIED on hardware.** The whole point is that a dispatched
+`RUN:` motion verb now drives, and that can only be shown on the floor
+with the camera. `RUN:straight:8` from a measured pose: **0.02 cm means
+the fix did not take, ~8 cm means it works.** tovez went back to the
+farm with its battery on charge before that could run. Ticket 017's
+own acceptance did not require hardware -- 014 exercises `RUN:tour` and
+confirms it incidentally -- but the sprint record should not read as
+though this was demonstrated on the robot. It was not.
+
+## TWO FLASH HAZARDS FOUND TODAY
+
+### 1. Two different firmwares report the SAME version string
+
+The ticket-015 bake and the ticket-017 fix BOTH carry
+`kVersion = "1.20260904.5"`, because `pyproject.toml`'s version did not
+change between them -- only the code did. `ID` therefore CANNOT
+distinguish them, and **any capture citing "1.20260904.5" is ambiguous
+between two functionally different builds**.
+
+The implementing agent compounded this by naming its artifact
+`tovez-1.20260904.4-ticket017.hex` -- a version the build does not
+contain. Renamed here to `tovez-1.20260904.5-ticket017.hex`; the
+contents were always right, the filename was wrong.
+
+**Bump the version before any flash that changes behaviour**, or the
+one field that is supposed to identify a build silently stops doing so.
+The three hexes in this directory that share `1.20260904.5` differ in
+size (1721681 plain / 1722851 twist4-bake / 1726631 ticket017), which is
+currently the only way to tell them apart -- and size is not readable
+off the board.
+
+### 2. A remote farm flash can fail AFTER the mass erase
+
+MEASURED 2026-09-05, first attempt at flashing the 017 build to tovez on
+the farm:
+
+```
+flash failed -- attempting CTRL-AP mass erase to recover a locked device, then retrying.
+Mass erase complete
+Erasing...     [========================================]
+Programming... [---|---|---|---|---|---|---|---|---|----]     <- never completed
+Error: no response from tovez (192.168.1.147:45579) (connection closed or timed out)
+       before the flash finished.
+```
+
+The board survived and still answered `HELLO`/`ID`, but that sequence --
+successful mass erase, then a network drop mid-programming -- is exactly
+how a board is left blank. **A remote flash that reports a timeout
+during `Programming...` must be treated as indeterminate, not as
+failed-and-rolled-back.** Re-flashing is the cure and is idempotent; the
+second attempt programmed 418816 bytes cleanly.
+
+Note this is the SECOND flash today that needed a CTRL-AP mass erase to
+recover a locked device (ticket 015's did too), so that recovery path is
+routine on this board, not exceptional.
+
+## Why `otos=0` on the farm
+
+`STATUS` on the farm reads `otos=0 connL=0 connR=0`. Stakeholder
+confirms: the battery is charging, so the Nezha brick is off. Both the
+wheel encoders and the OTOS sit downstream of it, which is why all three
+report absent together. Not a sensor fault -- the same root cause
+Session A eventually traced (correction v2), here with the cause known
+in advance rather than inferred after the fact.
