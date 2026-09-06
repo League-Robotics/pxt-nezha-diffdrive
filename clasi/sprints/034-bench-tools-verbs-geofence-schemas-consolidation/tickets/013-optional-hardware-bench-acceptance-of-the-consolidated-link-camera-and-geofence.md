@@ -2,7 +2,7 @@
 id: '013'
 title: 'OPTIONAL, HARDWARE: bench acceptance of the consolidated link, camera and
   geofence'
-status: open
+status: in-progress
 use-cases:
 - SUC-001
 - SUC-002
