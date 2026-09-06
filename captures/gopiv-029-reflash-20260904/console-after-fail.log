@@ -1,0 +1,12 @@
+port 36133: 284 lines
+   status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=89 cyc=723 tlm=pose next=1 done=13 reason=timeout
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   thdr seq now flags x y h ox oy oh vl vr i2cf
+   telemetry frames: 268
