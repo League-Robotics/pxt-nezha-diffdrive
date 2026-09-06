@@ -225,6 +225,30 @@ robot-is-switched-OFF check, where it used to raise
 Run: `uv run pytest tests/tools/test_run_verbs.py`, or as part of the
 whole suite.
 
+### `test_link.py` (sprint 034 ticket 006)
+
+Pins `tools/link.py`, the one sequenced-wire protocol every carrier
+shares. Three groups: `LineBuffer` (a line split across `recv()`
+boundaries reassembles; a trailing partial is held, not emitted; the
+relay's `'< '` receive prefix is stripped; blank lines drop),
+`Sequencer` (the first id is 1; a resend reuses its id and a re-format
+of an already-numbered line takes no fresh one; `ack N` → N while
+`nack N` → N−1; unsequenced verbs and the cleartext `RUN:` form go out
+bare; `reset()` is HELLO's counterpart), and `relay_setup_lines()` (all
+four lines, in `robotlink`'s order, `!GO` excluded).
+
+Everything is driven through an injected `FakeSocket` handing back
+canned byte chunks — no robot, no relay, no network, and therefore no
+MEASURED claim anywhere in the file. Four source-level assertions close
+the loop on the ticket's consolidation: that all four callers import
+`link.py`; that no `!CG` string is BUILT in `wire_acceptance.py` any
+more (parsed via `ast`, docstrings excluded, so a comment may still
+quote the defect); that `turn_calibration.py`'s `radio_group` fallback
+to 10 is gone; and that `tools/rogo/rogo.py` imports nothing from
+`tools/` — its duplicate is deliberate (`tools/rogo/DESIGN.md`).
+
+Run: `uv run pytest tests/tools/test_link.py`.
+
 ## 3. Constraints and Invariants
 
 - **A real compile diagnostic wins, unconditionally.**

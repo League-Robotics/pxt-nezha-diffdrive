@@ -10,6 +10,35 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
 
 ## Link layer — what everything talks through
 
+- **`link.py`** (sprint 034 ticket 006) — the one sequenced-wire
+  protocol: `Sequencer` (id allocation, resend-with-the-same-id,
+  `ack N` → N / `nack N` → N−1, the sequenced/unsequenced split),
+  `LineBuffer` (newline reassembly across arbitrary read boundaries,
+  with the relay's `'< '` receive prefix stripped), and
+  `relay_setup_lines()` / `RELAY_HOST` / `RELAY_PORT`. It was
+  implemented four times before this (`robotlink.Link`,
+  `fieldlink._SequencedLink`, `wire_acceptance`'s link family,
+  `tests/calibration/turn_calibration.Link`), so a fix landed in some
+  of them. **Transports stay with their carriers** — how a socket or a
+  serial port is opened, tuned and closed genuinely differs, and
+  pretending otherwise is how the four copies started. Stdlib-only, so
+  `tests/host/` and `tests/calibration/` can import it on a machine
+  with no pyserial and no robot. Pinned by `tests/tools/test_link.py`.
+  The relay setup is settled as **all four lines on every relay
+  carrier** (`!ECHO OFF`, `!MODE RAW250`, `!CG <ch> <grp>`, `!P 7`,
+  then `!GO` at the call site): the relay PERSISTS its config across
+  resets (`!DEFAULTS` exists for exactly that), so the "a fresh board
+  already defaults to RAW250/power 7" reasoning that let two carriers
+  skip them inherits a previous session's setting in silence — and
+  `!ECHO` is a radio TRANSPONDER, not terminal echo.
+  **`tools/rogo/` is a deliberate duplicate of these rules and must
+  never import this module** — see `tools/rogo/DESIGN.md` and sprint
+  034's Design Rationale 3. `wire_acceptance.py` uses `LineBuffer` and
+  `relay_setup_lines()` but deliberately NOT `Sequencer`: its job is to
+  probe the sequencing contract from outside, so it hand-writes the ids
+  its cases need (`#0`, a `#9` gap, the reserved ceiling
+  `#4294967295`) and tracks the robot's counter from what the robot
+  actually says.
 - **`wifilink.py`** (2026-09-02) — the robot over its own WiFi
   transport: `TcpLink` (the robot's TCP server on `:7654`, a plain line
   stream, the default carrier) and the UDP `WifiLink` bound on the
@@ -24,7 +53,10 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   whole protocol. `publish_wiki.py` renders a repo Markdown doc onto
   the Robot Garage DokuWiki (re-run after editing a published doc).
 - **`robotlink.py`** — one `Link` object that talks to the robot over
-  USB serial or the zavaz radio relay (`--radio`). **Sprint 029**: the
+  USB serial or the zavaz radio relay (`--radio`); the sequencing and
+  the line rules are `link.py`'s, and `_V6_VERBS` stays a literal here
+  because `tests/host/test_wire_constants_drift.py` reads it as source
+  text against `wire_handler.cpp`'s `kCommandTable`. **Sprint 029**: the
   channel/group are no longer a hardcoded constant
   (`ZAVAZ_CHANNEL`/`ZAVAZ_GROUP`, stale since vevov's 2026-08-30 move to
   37/43) — the relay address is derived from the board name (the same
@@ -45,6 +77,9 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   socket: `just rogo tovez`, `just rogo tovez PING STATUS`,
   `just rogo --browse`, `just rogo --discover tovez`. Standard library
   only, no `#<id>` help — it is a raw pipe, the wire rules apply.
+  **Its line handling duplicates `link.py`'s deliberately** (sprint 034
+  Design Rationale 3): rogo's premise is `pipx install` with nothing
+  but Python, so it must never import anything from `tools/`.
   Pinned by `tests/tools/test_rogo.py` against captured `dns-sd` output;
   MEASURED tovez 2026-09-03, `captures/rogo-tovez-20260903/notes.md`.
 - **`camlink.py`** — persistent gRPC stream to the aprilcam overhead-

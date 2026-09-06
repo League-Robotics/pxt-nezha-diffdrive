@@ -39,6 +39,33 @@ TCP server, pipe lines.
 - Not dependent on this repo at run time: `pipx install` copies only
   `rogo.py`, so it must never import from `tools/`.
 
+## The duplication is deliberate
+
+`tools/link.py` (sprint 034 ticket 006) is the one owner of the
+sequenced-wire protocol for everything else in `tools/` — `Sequencer`,
+`LineBuffer`, `relay_setup_lines()`. **rogo does not use it and must
+not.** Its socket reading and line splitting stay its own.
+
+That is a decision, not an oversight (sprint 034 Design Rationale 3).
+The alternatives were considered and rejected:
+
+- *rogo imports `tools/link.py`* — breaks the whole premise outright.
+  `pipx install tools/rogo` (or straight from git) copies `rogo.py` and
+  nothing else; an import of a sibling directory that is not in the
+  package makes the installed command fail on first run.
+- *package `tools/link.py` so rogo can depend on it* — a published
+  package to version, release and keep compatible, for one consumer,
+  to save a few dozen lines.
+
+So the copy stands, and this note stands with it: a future
+consolidation pass that re-files rogo's line handling as an
+unintentional duplicate should stop here. What keeps the two honest is
+that rogo shares almost none of the surface — it deliberately does not
+sequence at all (`rogo` sends lines verbatim; a sequenced verb must be
+typed with its `#<id>`), so there is no id-allocation rule to drift.
+`tests/tools/test_link.py::test_rogo_imports_nothing_from_tools` pins
+the constraint from the other side.
+
 ## Versioning
 
 `pyproject.toml`'s `version` follows the firmware's `0.YYYYMMDD.n`

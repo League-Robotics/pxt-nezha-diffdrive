@@ -31,6 +31,7 @@ import time
 
 import serial
 
+import link as linklib
 from make_deploy import derive_radio_from_name
 
 _HERE = pathlib.Path(__file__).resolve().parent
@@ -145,108 +146,65 @@ _V6_VERBS = frozenset((
 
 
 class Link:
+    """A serial (or serial-shaped) port plus the shared protocol.
+
+    The transport stays here -- `self.p` is a pyserial port, or
+    `WifiSerial` wearing the three methods this class calls. The
+    sequencing and the line reassembly are `tools/link.py`'s
+    (sprint 034 ticket 006).
+    """
+
     def __init__(self, port, radio):
         self.radio = radio
         self.p = port
-        # Next id to allocate. expectedNext_ starts at 1 on the robot,
-        # so 0 is the correct starting point here too -- open_link()
-        # (sprint 024 ticket 002) reaffirms this explicitly via hello()
-        # right after connecting, since HELLO's own contract resets the
-        # robot to expectedNext_ = 1 unconditionally. sync_seq() (below)
-        # can still correct this against a LIVE ack/nack line for any
-        # caller that has one to read outside the connect path; a stale
-        # counter here opens a numeric GAP, which stalls the stream ON
-        # PURPOSE until the missing id arrives.
-        self._seq = 0
+        self._sequencer = linklib.Sequencer(_V6_VERBS)
+        self._lines = linklib.LineBuffer()
+
+    # `_seq` is the tested, written-to surface of this class (tests set
+    # it to simulate a prior session, and read it to assert HELLO's
+    # reset). It is now a view onto the shared Sequencer's counter
+    # rather than a field of its own.
+    @property
+    def _seq(self):
+        return self._sequencer.seq
+
+    @_seq.setter
+    def _seq(self, value):
+        self._sequencer.seq = value
 
     def _is_wire(self, line):
-        return line.split(' ', 1)[0] in _V6_VERBS
+        return self._sequencer.is_sequenced(line)
 
     def _format(self, line):
-        """Attach a sequence id to a v6 wire verb; pass cleartext through.
-
-        Allocates AT MOST ONE id per logical command -- a retransmit must
-        reuse its original id, never take a fresh one, or it reads as a
-        gap rather than as the resend it is. That is why send_until()
-        formats once and resends the identical string.
-        """
-        if not self._is_wire(line) or '#' in line:
-            return line
-        self._seq += 1
-        return f'{line} #{self._seq}'
+        """Attach a sequence id to a v6 wire verb; pass cleartext through."""
+        return self._sequencer.format(line)
 
     def sync_seq(self, timeout=1.5):
-        """Learn the robot's expectedNext_ from a live ack/nack line.
-
-        `ack N` means "N was accepted" -- the next id we may legally
-        allocate is N + 1, and `_format()`'s `self._seq += 1` handles
-        that increment, so `_seq` itself must land on N. `nack N` means
-        something different: "send me N next" -- the next id to
-        allocate must BE N, so `_seq` must land on N - 1 (this was
-        sprint 024 ticket 002's bug: reading a `nack N` line used to set
-        `_seq = N` too, so the next `_format()` call allocated `#(N+1)`,
-        a fresh gap on the same wound the `nack` was reporting).
-
-        NOTE (sprint 024 ticket 002): `open_link()` no longer calls this
-        method. Once firmware ticket 001 removed the free-running
-        reliability beacon, there is normally nothing periodic left for
-        a passive read to find immediately after connecting --
-        `open_link()` resyncs via `hello()` instead (below), which is
-        deterministic and does not block waiting on a keepalive line
-        that no longer exists. This method's ack/nack fix stands on its
-        own merits regardless: it is still wrong today for any other
-        caller that reads a live ack/nack line outside the connect path
-        (sprint.md's Design Rationale, alternative (b)), so the fix and
-        the method both stay.
+        """Set _seq from a live reply: `ack N` -> N, `nack N` -> N-1
+        ("send me N next"). Not used by open_link(); nothing streams
+        passively to read.
         """
-        import re
         end = time.time() + timeout
         while time.time() < end:
             raw = self.p.readline()
             if not raw:
                 continue
-            t = raw.decode('ascii', errors='replace').strip()
-            if t.startswith('< '):
-                t = t[2:]
-            m = re.match(r'^(ack|nack)\s+(\d+)', t)
-            if m:
-                n = int(m.group(2))
-                self._seq = n if m.group(1) == 'ack' else n - 1
-                return self._seq
+            text = self._lines.line(raw)
+            if text is None:
+                continue
+            got = self._sequencer.observe_reply(text)
+            if got is not None:
+                return got
         return None
 
     def hello(self, timeout=1.0):
-        """Send HELLO and consume its banner reply -- the reconnect resync.
+        """Session RESET, not a liveness probe: HELLO sets the robot to
+        expectedNext_=1 and answers the boot banner. _seq becomes 0
+        whether or not the banner is read.
 
-        `handleHello()` (`src/comms/wire_handler.cpp:640-652`) is the
-        protocol's own designated escape hatch: receiving HELLO
-        unconditionally resets whichever handler got it to
-        `expectedNext_ = 1`, `gapOutstanding_ = False` (without touching
-        motion-completion state), and replies with the same banner as
-        the unsolicited boot line (`"device NEZHA2 <name> <serial>"`).
-        HELLO is unsequenced (protocol.md S8.3) -- `_format()` never
-        appends a `#<id>` to it, matching the firmware's strict
-        zero-field arity for this verb.
-
-        That reset happens on the robot the moment it receives the
-        line, regardless of whether the host manages to read the banner
-        back -- so `_seq` is set to 0 (the correct counterpart to a
-        robot now at `expectedNext_ = 1`) unconditionally, not only when
-        a banner is actually seen within `timeout`. This is deliberately
-        NOT a call to `sync_seq()`: once sprint 024 ticket 001 removed
-        the free-running reliability beacon, there is nothing periodic
-        left to passively read right after a HELLO, and `sync_seq()`'s
-        full default 1.5 s timeout would be a dead wait on every single
-        connect. `timeout` here only bounds how long this method waits
-        for HELLO's OWN reply -- which, unlike the vanished beacon, the
-        robot always sends exactly once in direct response to this
-        line -- so it is deliberately shorter than `sync_seq()`'s
-        default.
-
-        Returns the banner line, or None if nothing matching arrived
-        within `timeout` (e.g. no robot on the other end). Does not
-        raise on a miss -- `open_link()` does not treat a missing banner
-        as fatal, since the sequence state is established either way.
+        `timeout` bounds only the wait for HELLO's OWN reply, so it is
+        deliberately shorter than `sync_seq()`'s default -- the two are
+        not interchangeable and `open_link()` uses this one.
         """
         self.send('HELLO')
         banner = None
@@ -254,10 +212,7 @@ class Link:
             if line.startswith('device '):
                 banner = line
                 break
-        # HELLO's contract guarantees expectedNext_ = 1 on the robot,
-        # unconditionally -- the correct host-side counterpart, matching
-        # a freshly constructed Link, is _seq = 0.
-        self._seq = 0
+        self._sequencer.reset()
         return banner
 
     def send(self, line, repeat=1):
@@ -303,18 +258,20 @@ class Link:
         return seen
 
     def lines(self, timeout, until=None):
-        """Yield stripped lines until `timeout` s, or `until` matches."""
+        """Yield stripped lines until `timeout` s, or `until` matches.
+
+        `self.p.readline()` already delivers one line at a time, so the
+        shared buffer is used for its decode/strip/'< '-prefix rules
+        rather than for reassembly -- one definition of "what a line
+        is", shared with every socket carrier.
+        """
         end = time.time() + timeout
         while time.time() < end:
             raw = self.p.readline()
             if not raw:
                 continue
-            s = raw.decode('ascii', errors='replace').strip()
-            # The relay prefixes received frames with '< ' on its
-            # control plane; strip it so callers see the robot's line.
-            if s.startswith('< '):
-                s = s[2:]
-            if not s:
+            s = self._lines.line(raw)
+            if s is None:
                 continue
             yield s
             if until and s.startswith(until):
@@ -413,9 +370,8 @@ def open_link(port=None, radio=False, wifi=None, robot=None):
         p = serial.Serial(path, 115200, timeout=0.3)
         time.sleep(1.8)          # DTR reset -> clean control plane
         p.reset_input_buffer()
-        for cmd in (b'!ECHO OFF', b'!MODE RAW250',
-                    f'!CG {channel} {group}'.encode(), b'!P 7'):
-            p.write(cmd + b'\n')
+        for cmd in linklib.relay_setup_lines(channel, group):
+            p.write(cmd.encode() + b'\n')
             time.sleep(0.3)
             p.reset_input_buffer()
         p.write(b'!GO\n')
@@ -437,9 +393,10 @@ def open_link(port=None, radio=False, wifi=None, robot=None):
     p.reset_input_buffer()
     link = Link(p, False)
     # Resync via HELLO before anything else robot-directed (sprint 024
-    # ticket 002) -- not sync_seq(): see Link.hello()'s own docstring
-    # for why calling the old passive-read sync_seq() here would, once
-    # the firmware beacon is gone, degrade into a dead wait on every
-    # connect.
+    # ticket 002) -- deliberately NOT sync_seq(): sync_seq reads
+    # passively, and since ticket 001 removed the firmware's
+    # free-running reliability beacon there is nothing periodic left for
+    # it to find, so it would degrade into a dead wait on every connect.
+    # tests/tools/test_robotlink.py pins this.
     link.hello()
     return link
