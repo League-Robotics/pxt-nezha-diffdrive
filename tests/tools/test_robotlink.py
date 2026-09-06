@@ -289,7 +289,7 @@ def test_hello_timeout_default_is_shorter_than_sync_seq_default():
 # ---- unsequenced verbs (sprint-024 follow-up, 2026-08-27) ----------------
 
 def test_unsequenced_verbs_are_not_given_ids():
-    """HELLO/PING/ESTOP/HELP are the firmware's four unsequenced
+    """HELLO/PING/ESTOP/HELP/ID/VER/STATUS are the firmware's seven
     exemptions (wire_handler.cpp dispatch()). If robotlink appended an
     id to any of them, _format() would allocate an id the robot never
     consumes -- it neither acks nor advances expectedNext_ -- so the
@@ -387,3 +387,47 @@ def test_zavaz_channel_and_group_constants_are_gone():
 def test_open_link_radio_true_without_robot_raises():
     with pytest.raises(ValueError, match='robot'):
         robotlink.open_link('/dev/fake', radio=True)
+
+
+# ---- the firmware's motion verbs (sprint 034 ticket 005, TL-04) ----------
+
+def test_motion_verbs_are_sequenced_and_get_an_id():
+    """MOVE_X/MOVE_V/GO_TO_R were missing from _V6_VERBS, so `Link` sent
+    them BARE: they parsed on the robot as `#0`, fell below
+    expectedNext_ (which starts at 1) and were silently dropped -- a
+    commanded move that never runs while the odometry reports nothing
+    amiss. Each one must now carry an id."""
+    for verb in ('MOVE_X', 'MOVE_V', 'GO_TO_R', 'GO_TO_W',
+                 'WHEELS_X', 'WHEELS_V', 'RUN'):
+        link = robotlink.Link(FakePort(), False)
+        assert link._format(f'{verb} 200 0 150 5000') == \
+            f'{verb} 200 0 150 5000 #1', verb
+        assert link._seq == 1, verb
+
+
+def test_move_x_is_written_to_the_port_with_its_id():
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    link.send('MOVE_X 200 0 150 5000')
+    assert port.writes[-1] == b'MOVE_X 200 0 150 5000 #1\n'
+
+
+def test_phantom_verbs_are_gone_from_v6_verbs():
+    """MOVE/PIVOT/GO_TO/ARC are not firmware verbs. Listing one burns an
+    id the robot never consumes, so the next real command presents as a
+    numeric gap and stalls the stream."""
+    for verb in ('MOVE', 'PIVOT', 'GO_TO', 'ARC'):
+        assert verb not in robotlink._V6_VERBS, verb
+
+
+def test_cleartext_run_line_is_not_sequenced():
+    """`RUN` the v6 verb is sequenced; the cleartext `RUN:` vocabulary
+    goes through a different parser on the robot and must stay bare --
+    `RUN:tour:wheels` unsequenced returns its DBG:tour= receipt normally
+    (.claude/rules/playfield-testing.md)."""
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    link._seq = 4
+    link.send('RUN:tour:wheels')
+    assert port.writes[-1] == b'RUN:tour:wheels\n'
+    assert link._seq == 4

@@ -135,54 +135,12 @@ def probe_port(name, tries=8):
     return None
 
 
-# v6 wire verbs (protocol.md S6.1). These are SEQUENCED: the handler
-# compares each line's `#<id>` against its own expectedNext_, and an id
-# BELOW that is classified as a stale retransmit and deliberately NOT
-# executed. An unsequenced line therefore parses as `#0`, which is
-# unconditionally < expectedNext_ (it starts at 1 and never goes below),
-# so it is silently dropped.
-#
-# MEASURED on vevov, 2026-08-25, v6 firmware over USB. PRE-SPRINT-024:
-# this capture predates sprint 024 ticket 001, which deleted the
-# firmware's free-running reliability beacon (the unconditional
-# `emitReliability()` call `Protocol::run()` used to make every 50 ms
-# on a non-subscribed transport). The "72 keepalive acks" below came
-# from that now-removed periodic call, not from any reply to the line
-# actually sent -- read this capture as describing pre-024 firmware,
-# not re-measured against current firmware:
-#     'TLM POSE'      -> 0 telemetry frames (72 keepalive acks only)
-#     'TLM POSE #1'   -> 72 `t` frames + 4 `thdr` frames
-# i.e. every v6 command sent through this link without an id was a
-# silent no-op. The cleartext `RUN:`/`DIAG` vocabulary is a DIFFERENT
-# parser path and is NOT sequenced -- `RUN:tour:wheels` unsequenced
-# returns its DBG:tour= receipt normally -- so only these verbs get an
-# id appended.
-# Verbs that carry a mandatory trailing `#<id>`. This set must match the
-# firmware's SEQUENCED plane exactly -- a verb listed here that the robot
-# treats as unsequenced silently DESYNCS the link: _format() allocates an
-# id the robot never consumes (it neither acks nor advances
-# expectedNext_), so the very next command presents as a numeric gap and
-# stalls the stream on purpose.
-#
-# The rule (agreed with radio-robot-lib-85, protocol.md's owner,
-# 2026-08-27): a verb is SEQUENCED iff its correctness depends on its
-# position in the stream -- either executing it twice changes the robot,
-# or answering it out of order yields a wrong answer.
-#
-# HELLO/PING/ESTOP/HELP/ID/VER/STATUS are the firmware's seven
-# unsequenced exemptions and are deliberately ABSENT here. ID/VER answer
-# session constants (chip-burned name, compile-time version); STATUS is
-# the out-of-band diagnostic a DESYNCED host must be able to send -- it
-# reports next=/done=/reason=, and gating it behind knowing the right id
-# made the one verb that recovers from desync require not being
-# desynced. ESTOP was already unsequenced in firmware but was wrongly
-# listed here, so every ESTOP a host ever sent silently burned an id.
-#
-# GET stays sequenced despite being read-only: it is ORDER-dependent,
-# because the sequenced plane (SET) mutates what it reads.
+# Verbs the firmware sequences (wire_handler.cpp kCommandTable).
+# An unsequenced line parses as #0 and is dropped; a verb listed here
+# that the robot does NOT sequence burns an id and stalls the stream.
 _V6_VERBS = frozenset((
-    'GET', 'SET', 'TLM', 'STOP',
-    'MOVE', 'PIVOT', 'WHEELS_V', 'WHEELS_X', 'GO_TO', 'GO_TO_W', 'ARC',
+    'GET', 'SET', 'TLM', 'STOP', 'RUN',
+    'WHEELS_X', 'WHEELS_V', 'MOVE_X', 'MOVE_V', 'GO_TO_R', 'GO_TO_W',
 ))
 
 

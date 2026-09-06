@@ -109,6 +109,7 @@ Run with::
     uv run pytest tests/host/test_wire_constants_drift.py
 """
 
+import ast
 import json
 import pathlib
 import re
@@ -121,6 +122,7 @@ _SRC_DIR = _REPO_ROOT / "src"
 _PXT_JSON = _REPO_ROOT / "pxt.json"
 _DOCS_DESIGN_DIR = _REPO_ROOT / "docs" / "design"
 _TEST_DIR = pathlib.Path(__file__).resolve().parent
+_TOOLS_DIR = _REPO_ROOT / "tools"
 
 
 def _read(name):
@@ -1286,3 +1288,225 @@ def test_every_protocol_diag_accessor_is_forward_declared_in_shims():
     assert not missing, (
         f"shims.cpp calls {missing} without forward-declaring them"
     )
+
+
+# ---------------------------------------------------------------------------
+# 11. tools/robotlink.py's _V6_VERBS vs comms/wire_handler.cpp's
+#     kCommandTable and dispatch()'s unsequenced early returns.
+#     Sprint 034 ticket 005 (code review 2026-09-02, TL-04). The same
+#     "hand-mirrored constant with nothing but a comment enforcing
+#     agreement" shape as every case above, with a nastier failure mode
+#     in BOTH directions: a verb missing from _V6_VERBS goes out with no
+#     `#<id>`, parses on the robot as `#0`, falls below expectedNext_
+#     (which starts at 1) and is SILENTLY DROPPED -- a command that looks
+#     sent and never runs; a verb wrongly LISTED there burns an id the
+#     robot never consumes, so the next real command presents as a
+#     numeric gap and stalls the stream on purpose. The set had drifted
+#     to name four verbs the firmware does not have (MOVE, PIVOT, GO_TO,
+#     ARC) while omitting three it does (MOVE_X, MOVE_V, GO_TO_R).
+#
+#     The cleartext `RUN:`/`DIAG` vocabulary is a DIFFERENT parser path
+#     and is NOT sequenced. `RUN` the v6 verb (space form, `RUN <name>`)
+#     is in kCommandTable and IS sequenced; `RUN:tour:wheels` is one
+#     token containing no space, so robotlink's first-token test never
+#     matches it. Both facts are pinned below.
+# ---------------------------------------------------------------------------
+
+# The firmware's unsequenced exemptions, PARSED rather than typed: each
+# one is a `std::strcmp(verb, "X") == 0` early return in dispatch()'s
+# prologue, above the "everything else is on the sequenced plane"
+# marker comment. Parsing beats a hand-typed list here because the thing
+# that can drift is exactly the membership of that block -- moving a
+# verb across the boundary in the firmware is a one-line edit that a
+# Python literal would happily keep agreeing with. The literal below is
+# therefore a SECOND pin on the parse, not the source of truth: it fails
+# if the firmware moves a verb across the boundary, while the parse
+# fails if the firmware stops expressing the boundary this way at all.
+_PINNED_UNSEQUENCED_VERBS = frozenset(
+    ("HELLO", "PING", "ID", "VER", "STATUS", "HELP", "ESTOP")
+)
+
+# Verbs the drifted set named that the firmware has never had. Pinned by
+# name so a copy-paste from an older tool cannot quietly reintroduce one.
+_PHANTOM_VERBS = ("MOVE", "PIVOT", "GO_TO", "ARC")
+
+_SEQUENCED_PLANE_MARKER = "everything else is on the sequenced plane"
+
+
+def _wire_handler_cpp():
+    return _read("comms/wire_handler.cpp")
+
+
+def _wire_handler_command_table_verbs():
+    """Every verb name in kCommandTable[]'s initialiser, in table order."""
+    text = _wire_handler_cpp()
+    match = re.search(
+        r"WireHandler::kCommandTable\[\]\s*=\s*\{(.*?)\n\};", text, re.DOTALL
+    )
+    assert match, "wire_handler.cpp's kCommandTable[] initialiser was not found"
+    verbs = re.findall(r'\{\s*"(\w+)"\s*,', match.group(1))
+    assert verbs, 'kCommandTable[] yielded no {"VERB", ...} rows'
+    return verbs
+
+
+def _wire_handler_command_table_static_assert_count():
+    """The count the firmware's own static_assert pins kCommandTable at."""
+    text = _wire_handler_cpp()
+    match = re.search(
+        r"static_assert\(\s*sizeof\(kCommandTable\)\s*/\s*"
+        r"sizeof\(kCommandTable\[0\]\)\s*==\s*(\d+)",
+        text,
+    )
+    assert match, "wire_handler.cpp's kCommandTable static_assert was not found"
+    return int(match.group(1))
+
+
+def _wire_handler_unsequenced_verbs():
+    """The verbs dispatch() answers BEFORE reaching the sequenced plane.
+
+    Structural: the region of dispatch() above the "everything else is
+    on the sequenced plane" comment, scanned for the
+    `std::strcmp(verb, "X") == 0` early-return comparisons (which is
+    also how the query-verb block ID/VER/STATUS is written).
+    """
+    text = _wire_handler_cpp()
+    start = text.find("void WireHandler::dispatch(")
+    assert start >= 0, "wire_handler.cpp's dispatch() definition was not found"
+    end = text.find(_SEQUENCED_PLANE_MARKER, start)
+    assert end > start, (
+        f"wire_handler.cpp's dispatch() no longer carries the "
+        f"{_SEQUENCED_PLANE_MARKER!r} marker comment that separates its "
+        f"unsequenced prologue from the sequenced plane -- this parser "
+        f"has no other boundary to key on"
+    )
+    verbs = re.findall(
+        r'std::strcmp\(\s*verb\s*,\s*"(\w+)"\s*\)\s*==\s*0', text[start:end]
+    )
+    assert verbs, "dispatch()'s prologue yielded no strcmp(verb, \"...\") tests"
+    return verbs
+
+
+def _robotlink_v6_verbs():
+    """tools/robotlink.py's _V6_VERBS, read as source text.
+
+    Text (via ast), not an import: this file's whole technique is
+    reading the sources it compares as text, and robotlink imports
+    pyserial at module scope -- a dependency tests/host/ has no other
+    reason to carry.
+    """
+    tree = ast.parse((_TOOLS_DIR / "robotlink.py").read_text())
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(t, ast.Name) and t.id == "_V6_VERBS" for t in node.targets
+        ):
+            continue
+        call = node.value
+        assert isinstance(call, ast.Call), "_V6_VERBS is no longer a frozenset(...) call"
+        assert getattr(call.func, "id", None) == "frozenset", (
+            "_V6_VERBS is no longer built with frozenset(...)"
+        )
+        return frozenset(ast.literal_eval(call.args[0]))
+    raise AssertionError(
+        "tools/robotlink.py no longer defines a module-level _V6_VERBS -- "
+        "ticket 006 and this drift test both key on that name"
+    )
+
+
+def test_command_table_row_count_matches_its_own_static_assert():
+    """Sanity-check the parser against the firmware's own compile-time
+    count before trusting anything derived from it. A disagreement means
+    this file's regex is wrong, not that the firmware is."""
+    verbs = _wire_handler_command_table_verbs()
+    pinned = _wire_handler_command_table_static_assert_count()
+    assert len(verbs) == pinned, (
+        f"this test parsed {len(verbs)} kCommandTable rows ({verbs}) but "
+        f"wire_handler.cpp's own static_assert pins the table at {pinned} "
+        f"-- the parser above is wrong"
+    )
+
+
+def test_command_table_verbs_are_unique():
+    verbs = _wire_handler_command_table_verbs()
+    assert len(set(verbs)) == len(verbs), f"kCommandTable has duplicate rows: {verbs}"
+
+
+def test_dispatch_unsequenced_prologue_matches_the_pinned_seven():
+    """The unsequenced set parsed out of dispatch() must be exactly the
+    seven exemptions, and every one of them must also be a kCommandTable
+    row (they are reachable by name from HELP's listing even though the
+    early returns mean the table walk never runs for them)."""
+    parsed = _wire_handler_unsequenced_verbs()
+    assert len(set(parsed)) == len(parsed), (
+        f"dispatch()'s prologue tests the same verb twice: {parsed}"
+    )
+    assert frozenset(parsed) == _PINNED_UNSEQUENCED_VERBS, (
+        f"the firmware's unsequenced verbs changed: parsed {sorted(parsed)}, "
+        f"pinned {sorted(_PINNED_UNSEQUENCED_VERBS)}. A verb moved across "
+        f"the sequenced/unsequenced boundary must be moved in "
+        f"tools/robotlink.py's _V6_VERBS in the same commit"
+    )
+    table = frozenset(_wire_handler_command_table_verbs())
+    assert _PINNED_UNSEQUENCED_VERBS <= table, (
+        f"unsequenced verbs missing from kCommandTable: "
+        f"{sorted(_PINNED_UNSEQUENCED_VERBS - table)}"
+    )
+
+
+def test_v6_verbs_equal_the_firmware_sequenced_plane():
+    """_V6_VERBS == kCommandTable minus the unsequenced exemptions.
+
+    Fails whether a verb is added, removed or renamed in the firmware,
+    and whether robotlink gains a verb the robot does not sequence or
+    loses one it does.
+    """
+    table = frozenset(_wire_handler_command_table_verbs())
+    expected = table - _PINNED_UNSEQUENCED_VERBS
+    actual = _robotlink_v6_verbs()
+    assert actual == expected, (
+        f"tools/robotlink.py's _V6_VERBS has drifted from "
+        f"src/comms/wire_handler.cpp: missing {sorted(expected - actual)}, "
+        f"unknown to the firmware {sorted(actual - expected)}"
+    )
+
+
+def test_v6_verbs_count_is_the_table_count_less_the_exemptions():
+    """The arithmetic, stated separately: a verb added to kCommandTable
+    trips this even if someone also adds it to _PINNED_UNSEQUENCED_VERBS
+    without touching robotlink."""
+    table = _wire_handler_command_table_verbs()
+    actual = _robotlink_v6_verbs()
+    assert len(table) - len(_PINNED_UNSEQUENCED_VERBS) == len(actual), (
+        f"{len(table)} kCommandTable rows - "
+        f"{len(_PINNED_UNSEQUENCED_VERBS)} unsequenced != "
+        f"{len(actual)} verbs in _V6_VERBS"
+    )
+
+
+def test_v6_verbs_names_no_phantom_verb():
+    """MOVE/PIVOT/GO_TO/ARC are not firmware verbs and never were. The
+    real ones are MOVE_X/MOVE_V/GO_TO_R/GO_TO_W."""
+    table = frozenset(_wire_handler_command_table_verbs())
+    actual = _robotlink_v6_verbs()
+    for phantom in _PHANTOM_VERBS:
+        assert phantom not in table, (
+            f"{phantom} is now a real kCommandTable verb -- update "
+            f"_PHANTOM_VERBS, this test is stale"
+        )
+        assert phantom not in actual, (
+            f"tools/robotlink.py's _V6_VERBS names {phantom}, which the "
+            f"firmware has no handler for"
+        )
+
+
+def test_run_is_sequenced_as_a_verb_and_cleartext_run_is_not():
+    """`RUN <name>` is a kCommandTable row and is sequenced. The
+    cleartext `RUN:tour:wheels` vocabulary goes through a different
+    parser and carries no id (.claude/rules/playfield-testing.md);
+    robotlink's first-token test must keep them apart."""
+    assert "RUN" in _wire_handler_command_table_verbs()
+    actual = _robotlink_v6_verbs()
+    assert "RUN" in actual
+    for cleartext in ("RUN:tour:wheels", "RUN:straight:4", "DIAG"):
+        assert cleartext.split(" ", 1)[0] not in actual, cleartext

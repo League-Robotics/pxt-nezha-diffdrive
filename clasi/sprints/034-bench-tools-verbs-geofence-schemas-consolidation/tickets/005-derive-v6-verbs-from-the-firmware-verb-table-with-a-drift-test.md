@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: Derive _V6_VERBS from the firmware verb table, with a drift test
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on: []
@@ -58,19 +58,19 @@ carry no id -- `.claude/rules/playfield-testing.md` records that
 
 ## Acceptance Criteria
 
-- [ ] `_V6_VERBS` matches the firmware's sequenced set exactly: the four
+- [x] `_V6_VERBS` matches the firmware's sequenced set exactly: the four
       phantom verbs are gone, `MOVE_X`/`MOVE_V`/`GO_TO_R` are present.
-- [ ] A drift test fails when `_V6_VERBS` and `kCommandTable` diverge --
+- [x] A drift test fails when `_V6_VERBS` and `kCommandTable` diverge --
       whether a verb is added, removed or renamed in the firmware.
-- [ ] The drift test also pins the seven unsequenced verbs, so moving a
+- [x] The drift test also pins the seven unsequenced verbs, so moving a
       verb across that boundary in the firmware fails here.
-- [ ] `link.send('MOVE_X ...')` is formatted with a `#<id>`; a test
+- [x] `link.send('MOVE_X ...')` is formatted with a `#<id>`; a test
       asserts it for all three previously-missing verbs.
-- [ ] `PING`, `HELLO`, `ID`, `VER`, `STATUS`, `HELP`, `ESTOP` are still
+- [x] `PING`, `HELLO`, `ID`, `VER`, `STATUS`, `HELP`, `ESTOP` are still
       sent bare -- the existing `test_robotlink.py` assertions on the
       unsequenced seven stay green.
-- [ ] A cleartext `RUN:tour:wheels` still goes out unsequenced.
-- [ ] The 45-line pre-sprint-024 narrative comment above `_V6_VERBS` is
+- [x] A cleartext `RUN:tour:wheels` still goes out unsequenced.
+- [x] The 45-line pre-sprint-024 narrative comment above `_V6_VERBS` is
       replaced. The review supplies the replacement verbatim; use it:
       `# Verbs the firmware sequences (wire_handler.cpp kCommandTable).
       An unsequenced line parses as #0 and is dropped; a verb listed here
