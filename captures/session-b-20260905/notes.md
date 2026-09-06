@@ -1751,3 +1751,7 @@ So: the 300/300 RUN profile (`openLoopProfile()`, entered by my own
 deg legs. The fleet default that student programs actually run under
 gives ~1 deg. Ticket 020's 800 bake is withdrawn in favour of fixing the
 RUN profile's literals; tovez keeps the fleet default.
+Replication `accel400b/`: +0.51 / -0.09 / -2.33 / +2.55. Combined n=8:
+mean|dh| 1.06 deg, max 2.55, sd 1.27 -- every leg under 3 deg. Ranking
+over 8-leg sets: fleet default 400/400 (1.06) < accel 800 (1.35) <
+RUN profile 300/300 (3.62).

@@ -360,7 +360,9 @@ so the 800 bake is defended against the real default.
 | accel 800 (run 1) | +3.45 | +1.86 | +1.39 | +0.38 | 1.77 | 3.45 |
 | accel 800 (run 2) | +1.62 | -0.95 | -0.72 | +0.45 | 0.94 | 1.62 |
 | **accel 800, both runs (8 legs)** | | | | | **1.35** | **3.45** |
-| **accel 400 / decel 400 -- the FLEET DEFAULT** (run 1) | +0.58 | +0.87 | +0.58 | +1.01 | **0.76** | **1.01** |
+| accel 400 / decel 400 -- the FLEET DEFAULT (run 1) | +0.58 | +0.87 | +0.58 | +1.01 | 0.76 | 1.01 |
+| accel 400 / decel 400 (run 2) | +0.51 | -0.09 | -2.33 | +2.55 | 1.37 | 2.55 |
+| **fleet default, both runs (8 legs)** | | | | | **1.06** | **2.55** |
 
 - **Gain 20 is destabilising**: leg 0's encoder twist ran to +125 counts
   and the ground to +17 deg -- the hold overshoots the breakaway instead
