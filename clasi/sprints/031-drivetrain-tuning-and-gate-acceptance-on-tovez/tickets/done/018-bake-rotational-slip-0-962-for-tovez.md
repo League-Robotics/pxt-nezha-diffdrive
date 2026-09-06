@@ -1,7 +1,7 @@
 ---
 id: 018
 title: Bake rotational_slip 0.962 for tovez
-status: in-progress
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
