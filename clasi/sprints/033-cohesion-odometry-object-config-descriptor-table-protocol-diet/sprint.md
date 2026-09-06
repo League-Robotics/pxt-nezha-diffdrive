@@ -391,7 +391,7 @@ four hand-synced tables (softStop, go-to deadline — ticket 004).
 | `Odometry` (new, `src/motion/` or `src/platform/`) | Turns kernel wheel-position deltas into a dead-reckoned `(x, y, heading)`. | Inside: `update()`/`reset()`/`seed()`, the one epoch guard, the midpoint-heading integration math moved unchanged from `odomUpdate()`. Outside: how a caller decides *when* to call `update()` (still `shims.cpp`'s tick/pose-read call sites); the kernel's own `Output` type. | SUC-001 |
 | `ConfigDescriptorTable` (new, inside `shims.cpp`; consumed by `wire_adapter.cpp`, generated into `blocks/motion.ts`) | Maps one config field's wire name to its ordinal, getter, setter, and unit. | Inside: the ~24 non-shaping config ordinals' `{name, ordinal, get, set, unit}` rows. Outside: the 10 shaping fields (already `kLimitsFields`' concern, sprint 029, untouched); diag ordinals (`diagValue()`, a different, read-only namespace this sprint does not fold in — see Design Rationale). | SUC-002 |
 | `Rig::softStop()` (new method on the existing `Rig`, `shims.cpp`) | Delivers the kernel-neutral-plus-port-zero stop sequence exactly once. | Inside: the triplet itself. Outside: *when* to call it (unchanged call sites: `stopAll`, `endMove`, the watchdog, `updateMove`'s completion branch). | SUC-002 |
-| `RunBridge` (new, `src/comms/run_bridge.h/.cpp`, host-portable like `RunQueue`) | Parks, dedupes, and hands off one cleartext RUN command at a time. | Inside: `offer()`, `dispatchOne()`, `currentText()`, the 3 s dedupe, the abort/clearestop bypass rule. Outside: dispatching the dequeued text into TypeScript (`Protocol::dispatchJob()` keeps that call), the ring's storage (`run_queue.h`, unchanged). | SUC-003 |
+| `RunBridge` (new, `src/comms/run_bridge.h/.cpp`, host-portable like `RunQueue`) | Parks, dedupes, and hands off one cleartext RUN command at a time. | Inside: `offer()`, `dispatchOne()`, `currentText()`, the 400 ms dedupe, the abort/clearestop bypass rule. Outside: dispatching the dequeued text into TypeScript (`Protocol::dispatchJob()` keeps that call), the ring's storage (`run_queue.h`, unchanged). | SUC-003 |
 | `RadioTransport` (existing, gains `enable()`/`enabled()`) | Decides, by itself, whether it is allowed to transmit or receive. | Inside: the enable/disable state and the lazy bring-up it already owned. Outside: who calls `enable()` (unchanged: `Protocol`'s own lazy-enable-on-first-use call site moves onto the transport, not away from any caller). | SUC-003 |
 | `Protocol` (existing, shrinks) | Plumbs bytes between the transports and the v6 wire stack. | Inside, after this sprint: composition, `run()`'s poll/dispatch loop calling `routeLine()`, ownership arbitration (`motionOwner_`, unchanged). Outside: the RUN bridge's own state (moved to `RunBridge`), the radio-enable gates (moved to `RadioTransport`), per-transport line framing (unchanged, `SerialTransport`/`RadioTransport`'s own concern). | SUC-003 |
 | `WireAdapter`/`WireHandler` (existing, five small fixes) | Decode/encode the v6 grammar and dispatch verbs. | Unchanged boundary; five internal correctness fixes (terminator, RX drain, refusal counting, seq wrap, `GET rebase`). | SUC-004 |
@@ -633,6 +633,97 @@ below):
   defect class the host suite (`-std=c++20`) cannot catch (`src/
   DESIGN.md` §11).
 
+### Revision (as-built, 2026-09-06)
+
+All nine tickets are done. The following implementation details diverged
+from the plan above, deliberately and for reasons each ticket's own
+record states — left here so a future reader of this Architecture
+section does not take the planned shape as what shipped.
+
+- **Ticket 001**: no alternative reader was wired up. `r.tickOverrunCount`,
+  `simCycleCount`, and `simTickOverrunCount` were deleted outright, per
+  the plan's own stated default.
+- **Ticket 002**: `Odometry` landed in `src/motion/odometry.h` (the
+  plan's other candidate location, `src/platform/`, was not used). It
+  takes a `const MotionEngine&` at construction and reads
+  `countsPerMm()`/`effectiveTrackWidth()` from it fresh on every call
+  rather than owning geometry itself; `selectPoseSource()` moved into
+  the same header. Open Question 1 was resolved exactly as recommended
+  ("reads mutate odometry") and is documented on the class.
+- **Ticket 003**: the plan's single `{name, ordinal, get, set, unit}`
+  table split into two, along a portability seam the plan did not
+  anticipate: `src/comms/config_fields.h` holds the host-portable
+  `kConfigFields[]` (`{name, ordinal, unit}`, each row carrying a
+  `// ConfigField.<Name>: "<label>"` annotation for the generator), and
+  `src/shims.cpp` holds `kConfigAccessors[]` (`{ordinal, get, set}`)
+  beside the untouched sprint-029 `kLimitsFields` — the behaviour half
+  needs `pxt.h` and could not move to the header. `WireAdapter::kFields`
+  was deleted outright. The generator is `tools/gen_config_field_enum.py`
+  (`--check` for drift). Satisfying "same length, name-for-name" required
+  the TS `ConfigField` enum to gain `Rebase = 32` and `EstopClear = 33`,
+  reversing an earlier "wire-only, not in the block dropdown" comment for
+  those two names — on the `StallClear = 17` precedent.
+- **Ticket 004**: `Rig::softStop()` landed as a member function
+  absorbing the former free function `deliverStopNow()`, rather than a
+  new free function alongside it. `updateMove()`'s completion branch now
+  also runs `engine.endMove()` + `kernel.neutral()`, documented in the
+  source as inert at that call site (the port write already delivers the
+  stop within the same tick). The go-to deadline is wire field
+  `goto_timeout`, ordinal 39, unit ms, stored as `Rig::goToDeadline`.
+- **Ticket 005**: `RunBridge::offer(data, len, now)` returns an `Offer`
+  enum (`kMalformed`/`kSuppressed`/`kBypass`/`kQueued`/`kDropped`), not a
+  bool; the clock is a parameter, not a member, so a host test can land
+  timestamps on the window's edges. **The dedupe window is 400 ms, not
+  the 3 s this Architecture section and `src/DESIGN.md` §8 stated** — the
+  3 s figure was already stale before this sprint (the 2026-09-02 code
+  review had flagged it); the code had been 400 ms, for a reason recorded
+  in its own comment, and the ticket preserved that behavior exactly
+  rather than "restoring" the stale documented figure. `src/DESIGN.md`
+  §8 and this sprint.md's own Solution/Use Cases sections are corrected
+  to 400 ms.
+- **Ticket 006**: the one sink is a template, `TransportSink<Transport>`,
+  plus a free function `wireLineContentLength()`, in a new host-portable
+  `src/comms/transport_sink.h`. `routeLine()` landed as a private
+  `Protocol` method; the WiFi inbound path's own copy of the
+  strip-and-`RUN:`-carve-out logic (a third copy the plan did not
+  separately name) was folded through the same path. The clock helper is
+  `Protocol::clockNow()` (`// [ms]` trailing comment), not the plan's
+  `nowMs()` spelling — the no-units-in-identifiers rule postdated this
+  ticket's own text. `RadioTransport::enabled()` is still consulted at
+  the two `emitTelemetry()` call sites, deliberately, so a disabled
+  radio's handler does not advance header state — narrower than the
+  plan's "the three gates move onto `RadioTransport`, full stop" framing.
+  `sending_`, the serial retry loop, `kMaxSendAttempts`, and
+  `emitLineNow()`'s sleep-and-retry were deleted as planned; drop
+  counters were kept.
+- **Ticket 007**: new wire error code 12, `ERR_WRITE_ONLY`/
+  `Wire::kErrWriteOnly`, resolves Open Question 2 as "keep refusing,
+  distinguishably," via `Adapter::onGet()` returning `Wire::Result`
+  instead of `bool`. `estop_clear` keeps its existing real read path,
+  unaffected. Open Question 3 (RX counters) resolved as "wire up," not
+  delete: `RadioRxCounters{frames, accepted, oversizeDropped,
+  overrunDropped}` via a new host-portable `radioRxClassify()`, at diag
+  ordinals 31-34; the RUN-malformed counter landed at diag ordinal 30.
+  `Protocol::kRxDrainPerPass = 4` for all three transports — the number
+  came from serial's ~276 B/24 ms into a 255 B ring and WiFi's existing
+  bound, not a figure the plan named. The sequence-id wrap is handled by
+  reserving `kMaxSequenceId` (`UINT32_MAX`) as an always-invalid id — a
+  line carrying it is a decode failure (`nack` + `err 3`) — rather than a
+  wrap guard directly on `expectedNext_`.
+- **Ticket 008**: 16 identifiers, 90 occurrences, renamed in
+  `wifi_link.{h,cpp}`; `wifi_uart.*` needed no change. `onMoveX()`'s
+  local landed as `engineRotation`, not the plan's suggested `rotation`,
+  because `rotation` would have shadowed the function's existing
+  parameter of that name. `yawRadPerS` had already been renamed to
+  `yawRateFloored` by sprint 032 ticket 007, before this ticket opened.
+  `WireAdapter::NowMsFn` and the shim-local `gNowMs` were left
+  unrenamed — recorded in the ticket as known remaining misses, not
+  claimed as done.
+- **Ticket 009**: desk build only, as planned; hex from commit
+  `8af1326` kept at `captures/sprint-033-build-checkpoint-20260906/`.
+  Intermediate desk builds after tickets 002-007 also passed on the
+  first attempt.
+
 ## Use Cases
 
 This is a cohesion/correctness refactor sprint with (by design) almost
@@ -734,7 +825,7 @@ Parent: UC-007 (Start a Move Without Blocking and Poll It), UC-011 (Stop and Eme
 - **Acceptance Criteria**:
   - [ ] `Protocol` is composition plus `run()`; `RunBridge` has its own
         host tests independent of `Protocol` (Success Criteria's bar).
-  - [ ] The existing 3 s same-text dedupe and abort/clearestop bypass
+  - [ ] The existing 400 ms same-text dedupe and abort/clearestop bypass
         behave identically before and after (host test where possible,
         code-review-verified where not, per Test Strategy).
   - [ ] `radioEnabled_`'s three call sites are gone from `protocol.cpp`;
@@ -844,11 +935,11 @@ Parent: N/A — internal diagnostic hygiene; the counter itself has no student-f
 
 Before tickets can be created, all of the following must be true:
 
-- [ ] Sprint planning document is complete (sprint.md, including its
+- [x] Sprint planning document is complete (sprint.md, including its
       Architecture and Use Cases sections)
-- [ ] Architecture review passed (or skipped, for changes with no
+- [x] Architecture review passed (or skipped, for changes with no
       architectural impact)
-- [ ] Stakeholder has approved the sprint plan
+- [x] Stakeholder has approved the sprint plan
 
 ## Tickets
 
