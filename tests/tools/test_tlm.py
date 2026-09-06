@@ -543,3 +543,432 @@ def test_read_meta_sidecar_zero_frames_is_returned_not_raised(tmp_path):
 
     assert meta is not None
     assert meta['frames'] == 0
+
+
+# --- sprint 034 ticket 004: the pose-CSV codec ---------------------------
+# `write_pose_csv()`/`read_pose_csv()` -- ONE on-disk pose schema, bound
+# by column NAME.
+#
+# The defect being pinned against: three tools wrote three pose-CSV
+# schemas (wire units; cm/deg; cm/deg + wheel speeds) and `tour_chart.py`
+# chose its reader by COUNTING COLUMNS while assuming wire units. The
+# cm/deg schema also has eight columns, so it was accepted and plotted
+# 10x too small, heading divided by 100, OTOS series read off the wrong
+# columns, under a confident "closure N mm" title -- and nothing raised.
+# Every test below is written to fail if that behaviour comes back:
+# `test_legacy_tour_watch_header_is_converted_not_silently_mis_scaled`
+# asserts the ACTUAL numbers, and asserts against the 1/10-scale figure
+# by name; `test_read_pose_csv_binds_by_name_not_position` shuffles the
+# header so a positional reader cannot pass it; and the consumer tests
+# at the end assert the tools route through this codec rather than
+# re-deriving the schema.
+
+def _frame(seq, x, y, h, ox=0, oy=0, oh=0, vl=0, vr=0, now=None):
+    """One decoded-telemetry-frame-shaped dict, the exact shape
+    `TlmStream.feed()` returns and `write_pose_csv()` takes. Carries
+    `seq`/`flags`/`i2cf` too, so the "extra frame keys are ignored, not
+    written" contract is exercised by every writer test rather than by
+    one special case."""
+    return {'seq': seq, 'now': 1000 + seq * 50 if now is None else now,
+            'flags': 0x31, 'x': x, 'y': y, 'h': h,
+            'ox': ox, 'oy': oy, 'oh': oh, 'vl': vl, 'vr': vr, 'i2cf': 0}
+
+
+def _header_of(path):
+    with open(path, newline='') as f:
+        return next(csv.reader(f))
+
+
+def test_write_pose_csv_writes_the_one_wire_unit_header(tmp_path):
+    """The surviving schema is `tour_capture.py`'s -- wire units, one
+    column per wire quantity, no cm/deg anywhere."""
+    path = tmp_path / 'run_pose.csv'
+
+    n = tlm.write_pose_csv([dict(_frame(1, 500, -300, 1234), t_host=0.5)],
+                           str(path))
+
+    assert n == 1
+    assert _header_of(path) == list(tlm.POSE_CSV_COLUMNS)
+    assert _header_of(path) == ['t_host', 't_dev_ms', 'x_mm', 'y_mm',
+                                'h_cdeg', 'ox_mm', 'oy_mm', 'oh_cdeg']
+
+
+def test_pose_csv_round_trip_preserves_wire_units_exactly(tmp_path):
+    """Write frames, read them back: same numbers, same units, in the
+    same frame shape `pose_cm()`/`otos_cm()` already take -- so the CSV
+    path reuses this module's scale factors instead of growing a second
+    set of its own."""
+    path = tmp_path / 'run_pose.csv'
+    frames = [dict(_frame(1, 500, -300, 1234, 10, 20, 500), t_host=0.5),
+              dict(_frame(2, 505, -299, 1240, 11, 21, 505), t_host=0.55)]
+
+    tlm.write_pose_csv(frames, str(path))
+    rows, schema = tlm.read_pose_csv(str(path))
+
+    assert schema == tlm.POSE_CSV_SCHEMA
+    assert [r['x'] for r in rows] == [500, 505]
+    assert [r['y'] for r in rows] == [-300, -299]
+    assert [r['h'] for r in rows] == [1234, 1240]
+    assert [r['ox'] for r in rows] == [10, 11]
+    assert [r['oh'] for r in rows] == [500, 505]
+    assert [r['now'] for r in rows] == [1050, 1100]
+    assert rows[0]['t_host'] == pytest.approx(0.5)
+    # ...and the unit helpers apply to a CSV row exactly as to a frame
+    assert tlm.pose_cm(rows[0])['x'] == pytest.approx(50.0)
+    assert tlm.otos_cm(rows[0])['h'] == pytest.approx(5.0)
+
+
+def test_pose_csv_round_trip_with_the_optional_wheel_pair(tmp_path):
+    """`wheels=True` appends `vl_mms,vr_mms` -- the recorder that plots
+    the frame's own wheel speeds (`tour_practice.py`) keeps them, and
+    they come back under the frame's own vl/vr keys."""
+    path = tmp_path / 'run_pose.csv'
+    frames = [dict(_frame(1, 500, -300, 1234, vl=-122, vr=126),
+                   t_host=0.5)]
+
+    tlm.write_pose_csv(frames, str(path), wheels=True)
+    rows, _schema = tlm.read_pose_csv(str(path))
+
+    assert _header_of(path)[-2:] == ['vl_mms', 'vr_mms']
+    assert tlm.wheels_mms(rows[0]) == {'vl': -122, 'vr': 126}
+
+
+def test_pose_csv_without_the_wheel_pair_reports_it_absent(tmp_path):
+    """Optional means optional: a file written without the pair comes
+    back WITHOUT vl/vr keys, so a chart can tell "no wheel-speed data"
+    from "wheel speeds that happened to be zero" -- never a fabricated
+    flat line at 0."""
+    path = tmp_path / 'run_pose.csv'
+    tlm.write_pose_csv([dict(_frame(1, 1, 2, 3), t_host=0.1)], str(path))
+
+    rows, _schema = tlm.read_pose_csv(str(path))
+
+    assert 'vl' not in rows[0] and 'vr' not in rows[0]
+
+
+def test_write_pose_csv_ignores_extra_frame_keys(tmp_path):
+    """A FULL-header frame carries eight more columns than a pose CSV
+    has; they are dropped, not written into a wider file that would
+    then disagree with the schema every reader binds against."""
+    frame = dict(_frame(1, 1, 2, 3), t_host=0.1, cyc=101, posl=286,
+                 dutl=-1300)
+    path = tmp_path / 'run_pose.csv'
+
+    tlm.write_pose_csv([frame], str(path))
+
+    assert _header_of(path) == list(tlm.POSE_CSV_COLUMNS)
+
+
+def test_write_pose_csv_refuses_a_row_missing_a_required_key(tmp_path):
+    """Fail loud, in write_tlm_csv()'s style: a blank cell would read
+    downstream as a real zero, so the row is refused by name instead."""
+    frame = dict(_frame(1, 1, 2, 3), t_host=0.1)
+    del frame['oh']
+    path = tmp_path / 'run_pose.csv'
+
+    with pytest.raises(tlm.PoseCsvSchemaError) as e:
+        tlm.write_pose_csv([frame], str(path))
+
+    assert "'oh'" in str(e.value) and 'oh_cdeg' in str(e.value)
+
+
+def test_write_pose_csv_zero_rows_is_a_header_only_file_not_a_raise(
+        tmp_path):
+    """Deliberately NOT write_tlm_csv()'s zero-frame refusal: this file
+    is a derived view of a stream whose emptiness that guard (and the
+    `.meta.json` sidecar read back by read_meta_sidecar()) already
+    refuses loudly, in one place. Duplicating the refusal here would
+    give one run two different "no data" errors."""
+    path = tmp_path / 'run_pose.csv'
+
+    assert tlm.write_pose_csv([], str(path)) == 0
+    assert _header_of(path) == list(tlm.POSE_CSV_COLUMNS)
+    assert tlm.read_pose_csv(str(path)) == ([], tlm.POSE_CSV_SCHEMA)
+
+
+def test_read_pose_csv_binds_by_name_not_position(tmp_path):
+    """The whole point of the ticket. The header below carries the
+    required columns in a SHUFFLED order: a reader that binds by
+    position (or by counting columns) reads x out of the h column and
+    passes anyway; only a name-bound reader gets these numbers right."""
+    path = tmp_path / 'shuffled_pose.csv'
+    path.write_text(
+        'h_cdeg,x_mm,oh_cdeg,t_dev_ms,ox_mm,y_mm,oy_mm,t_host\n'
+        '1234,500,500,1050,10,-300,20,0.5\n')
+
+    rows, schema = tlm.read_pose_csv(str(path))
+
+    assert schema == tlm.POSE_CSV_SCHEMA
+    assert rows[0]['x'] == 500
+    assert rows[0]['y'] == -300
+    assert rows[0]['h'] == 1234
+    assert rows[0]['ox'] == 10 and rows[0]['oy'] == 20
+    assert rows[0]['oh'] == 500
+
+
+def test_read_pose_csv_ignores_an_unrecognised_extra_column(tmp_path):
+    """A complete required set plus one column this codec does not know
+    is READ, with the extra ignored -- the same "a new column is handled
+    for free" property TlmStream's header binding already has. It is an
+    unknown HEADER (nothing to bind), not an unknown extra, that is
+    refused."""
+    path = tmp_path / 'extra_pose.csv'
+    path.write_text(
+        ','.join(tlm.POSE_CSV_COLUMNS) + ',battery_mv\n'
+        '0.5,1050,500,-300,1234,10,20,500,7400\n')
+
+    rows, schema = tlm.read_pose_csv(str(path))
+
+    assert schema == tlm.POSE_CSV_SCHEMA
+    assert rows[0]['x'] == 500
+    assert 'battery_mv' not in rows[0]
+
+
+# --- the regression that motivates the ticket ----------------------------
+
+#: `tour_watch.py`'s pre-ticket-004 header: eight columns, like the
+#: wire-unit schema, but cm and degrees -- the file `tour_chart.py`'s
+#: column-count branch accepted and plotted 10x too small.
+_LEGACY_WATCH_HEADER = ('t,dev_ms,enc_x_cm,enc_y_cm,enc_h_deg,'
+                        'otos_x_cm,otos_y_cm,otos_h_deg')
+
+#: `tour_practice.py`'s pre-ticket-004 header: ten columns, cm/deg,
+#: with the device clock in the EIGHTH position rather than the second.
+_LEGACY_PRACTICE_HEADER = ('t,enc_x,enc_y,enc_h,otos_x,otos_y,otos_h,'
+                           'dev_ms,vl_mms,vr_mms')
+
+
+def test_legacy_tour_watch_header_is_converted_not_silently_mis_scaled(
+        tmp_path):
+    """A cm/degree capture written by the old `tour_watch.py`: 50.0 cm,
+    -30.0 cm, 12.34 deg. It must come back as the wire integers a
+    tour_capture recording of the same motion would have carried --
+    500 mm, -300 mm, 1234 cdeg -- and explicitly NOT as 50/-30/12,
+    which is the 1/10-and-1/100 mis-scale the column-count branch
+    produced while plotting a confident closure figure."""
+    path = tmp_path / '01-world_pose.csv'
+    path.write_text(_LEGACY_WATCH_HEADER + '\n'
+                    '0.5,1050,50.0,-30.0,12.34,1.0,2.0,5.0\n')
+
+    rows, schema = tlm.read_pose_csv(str(path))
+
+    assert 'tour_watch' in schema
+    assert rows[0]['x'] == 500
+    assert rows[0]['y'] == -300
+    assert rows[0]['h'] == 1234
+    assert rows[0]['ox'] == 10 and rows[0]['oy'] == 20
+    assert rows[0]['oh'] == 500
+    assert rows[0]['now'] == 1050
+    # The defect, named: the cm/deg numbers must NOT survive as if they
+    # were already wire units.
+    assert rows[0]['x'] != 50
+    assert rows[0]['h'] != 12
+    # ...and the engineering-unit view agrees with the original capture
+    assert tlm.pose_cm(rows[0])['x'] == pytest.approx(50.0)
+    assert tlm.pose_cm(rows[0])['h'] == pytest.approx(12.34)
+
+
+def test_legacy_tour_practice_header_is_converted_including_wheels(
+        tmp_path):
+    """The ten-column legacy schema, whose device clock sits in the
+    EIGHTH column -- a reader that assumed the wire schema's positions
+    would read `dev_ms` as an OTOS heading. Wheel speeds were already
+    mm/s there and pass through unscaled."""
+    path = tmp_path / 'robot-run1_pose.csv'
+    path.write_text(_LEGACY_PRACTICE_HEADER + '\n'
+                    '0.5,50.0,-30.0,12.34,1.0,2.0,5.0,1050,-122.0,126.0\n')
+
+    rows, schema = tlm.read_pose_csv(str(path))
+
+    assert 'tour_practice' in schema
+    assert rows[0]['x'] == 500 and rows[0]['h'] == 1234
+    assert rows[0]['now'] == 1050
+    assert rows[0]['oh'] == 500
+    assert tlm.wheels_mms(rows[0]) == {'vl': -122, 'vr': 126}
+
+
+def test_unknown_header_is_refused_naming_the_file_and_the_header(
+        tmp_path):
+    """An unrecognised header is refused, not guessed at -- and the
+    message names the file and what it found, so the operator is not
+    sent hunting for a camera or a robot fault."""
+    path = tmp_path / 'mystery_pose.csv'
+    path.write_text('t,x,y,h\n0.5,1.0,2.0,3.0\n')
+
+    with pytest.raises(tlm.PoseCsvSchemaError) as e:
+        tlm.read_pose_csv(str(path))
+
+    message = str(e.value)
+    assert 'mystery_pose.csv' in message
+    assert 't,x,y,h' in message
+    assert 'x_mm' in message          # the schema it expected
+
+
+def test_empty_file_is_refused_naming_the_file(tmp_path):
+    """No header at all: there is no schema to bind to, so this is a
+    refusal, not an empty list that reads downstream as a real run that
+    recorded nothing."""
+    path = tmp_path / 'empty_pose.csv'
+    path.write_text('')
+
+    with pytest.raises(tlm.PoseCsvSchemaError) as e:
+        tlm.read_pose_csv(str(path))
+
+    assert 'empty_pose.csv' in str(e.value)
+
+
+def test_a_blank_cell_is_refused_naming_the_row_and_column(tmp_path):
+    """A blank cell would read downstream as a real zero -- a robot
+    parked at the origin, or an OTOS reporting nothing."""
+    path = tmp_path / 'holes_pose.csv'
+    path.write_text(','.join(tlm.POSE_CSV_COLUMNS) + '\n'
+                    '0.5,1050,500,-300,1234,10,20,\n')
+
+    with pytest.raises(tlm.PoseCsvSchemaError) as e:
+        tlm.read_pose_csv(str(path))
+
+    assert 'oh_cdeg' in str(e.value) and 'holes_pose.csv' in str(e.value)
+
+
+def test_a_non_numeric_cell_is_refused_naming_the_value(tmp_path):
+    path = tmp_path / 'junk_pose.csv'
+    path.write_text(','.join(tlm.POSE_CSV_COLUMNS) + '\n'
+                    '0.5,1050,nan_x,-300,1234,10,20,500\n')
+
+    with pytest.raises(tlm.PoseCsvSchemaError) as e:
+        tlm.read_pose_csv(str(path))
+
+    assert 'nan_x' in str(e.value) and 'x_mm' in str(e.value)
+
+
+# --- the consumers actually route through the codec ----------------------
+# Text-level, deliberately: `tour_chart.py` and `practice_chart.py`
+# import matplotlib at module scope and this project's test venv has no
+# matplotlib (it is supplied per-run by `uv run --with matplotlib`), so
+# importing them here is not available -- the same constraint
+# `tests/tools/test_travel_calib_drift.py` already works within. What
+# these can still prove is the thing that was silently false before:
+# that no tool re-derives the pose-CSV schema for itself.
+
+def _tool_source(name):
+    return (_TOOLS_DIR / name).read_text()
+
+
+def _tool_code(name):
+    """`_tool_source()` with whole-line comments dropped.
+
+    Needed because the tools DOCUMENT the schema defect they were
+    migrated off -- `tour_chart.py`'s replacement comment quotes the
+    deleted `len(pose_all[0]) >= 5` branch by name, which is exactly the
+    kind of "why this is not here any more" note this repo wants kept.
+    A guard that cannot tell a citation from a live call would force
+    that note to be deleted to stay green."""
+    return '\n'.join(line for line in _tool_source(name).splitlines()
+                     if not line.lstrip().startswith('#'))
+
+
+@pytest.mark.parametrize('name', ['tour_capture.py', 'tour_watch.py',
+                                  'tour_practice.py'])
+def test_every_pose_csv_writer_writes_through_the_codec(name):
+    source = _tool_source(name)
+
+    assert 'tlm.write_pose_csv(' in source
+    # None of the three legacy headers may be written from a tool again
+    for column in ('enc_x_cm', 'otos_h_deg', "'enc_x'", "'otos_h'"):
+        assert column not in source
+
+
+@pytest.mark.parametrize('name', ['tour_chart.py', 'practice_chart.py',
+                                  'leg_analysis.py'])
+def test_every_pose_csv_reader_reads_through_the_codec(name):
+    source = _tool_source(name)
+
+    assert 'tlm.read_pose_csv(' in source
+    # ...and no reader restates the schema's column names for itself
+    assert "'x_mm'" not in source and "'h_cdeg'" not in source
+
+
+def test_tour_chart_has_no_column_count_branch_left():
+    """The specific line that accepted a cm/degree CSV: `if pose_all and
+    len(pose_all[0]) >= 5:` / `wide = len(pose_all[0]) >= 8`."""
+    code = _tool_code('tour_chart.py')
+
+    assert 'len(pose_all[0])' not in code
+    assert 'wide' not in code
+
+
+def test_tour_chart_meta_start_world_heading_is_documented_degrees():
+    """TL-17: `--meta`'s `start_world_cm[2]` had no documented unit and
+    was consumed as radians, while every camera sample in this repo is
+    `yaw_deg`. One unit, converted in the code, stated in --help."""
+    source = _tool_source('tour_chart.py')
+
+    assert 'math.radians(sw[2])' in source
+    assert 'heading_DEG' in source        # the --help text
+
+
+def test_legacy_tour_practice_header_without_the_wheel_pair_still_reads(
+        tmp_path):
+    """The same recorder wrote with and without wheel speeds (both
+    shapes exist in this tree's own `.tmp/` recordings). The wheel pair
+    is OPTIONAL in the legacy entry too, so one entry reads both --
+    otherwise the eight-column recordings would be refused for want of
+    two columns nothing in the pose track needs."""
+    path = tmp_path / 'nowheels_pose.csv'
+    path.write_text('t,enc_x,enc_y,enc_h,otos_x,otos_y,otos_h,dev_ms\n'
+                    '0.5,50.0,-30.0,12.34,1.0,2.0,5.0,1050\n')
+
+    rows, schema = tlm.read_pose_csv(str(path))
+
+    assert 'tour_practice' in schema
+    assert rows[0]['x'] == 500 and rows[0]['now'] == 1050
+    assert 'vl' not in rows[0]
+
+
+def test_legacy_tour_practice_cm_per_second_wheels_are_scaled_to_mm(
+        tmp_path):
+    """An older spelling of the same pair: `vl_cms`/`vr_cms`, in cm/s.
+    Read as mm/s it would be a 10x under-report on the wheel-speed
+    panel -- the same class of silent mis-scale as the pose columns."""
+    path = tmp_path / 'cms_pose.csv'
+    path.write_text(
+        't,enc_x,enc_y,enc_h,otos_x,otos_y,otos_h,dev_ms,vl_cms,vr_cms\n'
+        '0.5,50.0,-30.0,12.34,1.0,2.0,5.0,1050,15.0,15.0\n')
+
+    rows, _schema = tlm.read_pose_csv(str(path))
+
+    assert tlm.wheels_mms(rows[0]) == {'vl': 150, 'vr': 150}
+
+
+def test_legacy_unsuffixed_otos_columns_are_read_as_wire_units(tmp_path):
+    """The variant that actually sits in this repo's `captures/`:
+    `t_host,t_dev_ms,x_mm,y_mm,h_cdeg,ox,oy,oh` -- already wire units,
+    only the OTOS column NAMES differ. A name-bound reader converts it
+    by renaming, with no scale factor at all; refusing it would have
+    cost seven recorded runs for a suffix."""
+    path = tmp_path / 'unsuffixed_pose.csv'
+    path.write_text('t_host,t_dev_ms,x_mm,y_mm,h_cdeg,ox,oy,oh\n'
+                    '0.5,1050,500,-300,1234,10,20,500\n')
+
+    rows, schema = tlm.read_pose_csv(str(path))
+
+    assert 'unsuffixed' in schema
+    assert rows[0]['x'] == 500 and rows[0]['h'] == 1234
+    assert rows[0]['ox'] == 10 and rows[0]['oh'] == 500
+
+
+def test_the_pre_otos_five_column_header_is_refused_not_zero_filled(
+        tmp_path):
+    """`t_host,t_dev_ms,x_mm,y_mm,h_cdeg`, written before the OTOS
+    columns existed. Its OTOS quantities are ABSENT, not zero; filling
+    them in would draw a sensor that said nothing as a boundary fix at
+    the world origin. Refused, naming the file -- the outcome ticket
+    004 permits for a header the codec will not convert."""
+    path = tmp_path / 'preotos_pose.csv'
+    path.write_text('t_host,t_dev_ms,x_mm,y_mm,h_cdeg\n'
+                    '0.5,1050,500,-300,1234\n')
+
+    with pytest.raises(tlm.PoseCsvSchemaError) as e:
+        tlm.read_pose_csv(str(path))
+
+    assert 'preotos_pose.csv' in str(e.value)

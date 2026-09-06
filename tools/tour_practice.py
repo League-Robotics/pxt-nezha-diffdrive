@@ -69,15 +69,13 @@ def record_tour(link, cam, name, timeout=120):
             else:
                 row = stream.feed(s)
                 if row is not None:
-                    # row['now'] is the DEVICE timestamp [ms] -- use it
-                    # for dt, not host arrival, which jitters badly over
-                    # the wireless link and fabricates speed spikes.
-                    enc = tlm.pose_cm(row)
-                    otos = tlm.otos_cm(row)
-                    wheels = tlm.wheels_mms(row)
-                    pose.append((time.time(), enc['x'], enc['y'], enc['h'],
-                                 otos['x'], otos['y'], otos['h'],
-                                 row['now'], wheels['vl'], wheels['vr']))
+                    # The decoded frame IS the pose row, kept in the
+                    # wire's own units for tlm.write_pose_csv(); it
+                    # carries row['now'], the DEVICE timestamp [ms],
+                    # which is what any dt must be taken from -- host
+                    # arrival jitters badly over the wireless link and
+                    # fabricates speed spikes.
+                    pose.append(dict(row, t_host=time.time()))
         if started and time.time() - t0 > timeout:
             break
     return t0, pose, fixes, started, stream
@@ -110,19 +108,17 @@ def chart(name, run, pose, camrows, sc, path, stem):
     """Chart in a subprocess: the system matplotlib is broken here, so
     plotting runs under uv while this process keeps pyserial.
 
-    `pose` rows carry vl/vr in mm/s (tlm.py's wheels_mms() -- the wire's
-    own unit, no scale factor of this tool's own) under the `vl_mms`/
-    `vr_mms` header names; practice_chart.py already has a display-unit
-    conversion path (mm/s -> cm/s) keyed on that exact header pair.
+    `pose` rows are decoded telemetry frames, written through
+    tlm.write_pose_csv() -- the one pose-CSV schema (sprint 034 ticket
+    004), in the wire's own units, with the optional `vl_mms,vr_mms`
+    pair appended because practice_chart.py plots the frame's own wheel
+    speeds. This tool used to write its own cm/degree header, which
+    tour_chart.py would then read as wire units.
     """
     write_csv(stem + '_cam.csv', ['t', 'x_cm', 'y_cm', 'yaw_deg'],
               [[round(c[0], 3), round(c[1], 2), round(c[2], 2),
                 round(c[3], 2)] for c in camrows])
-    write_csv(stem + '_pose.csv',
-              ['t', 'enc_x', 'enc_y', 'enc_h', 'otos_x', 'otos_y', 'otos_h',
-               'dev_ms', 'vl_mms', 'vr_mms'],
-              [[round(p[0], 3)] + [round(v, 2) for v in p[1:7]]
-               + [p[7], round(p[8], 1), round(p[9], 1)] for p in pose])
+    tlm.write_pose_csv(pose, stem + '_pose.csv', wheels=True)
     subprocess.run(['uv', 'run', '--with', 'numpy', '--with', 'matplotlib',
                     'python3',
                     os.path.dirname(os.path.abspath(__file__))

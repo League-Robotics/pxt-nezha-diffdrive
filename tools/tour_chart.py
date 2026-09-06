@@ -40,7 +40,13 @@ MAX_SPEED_CM_S = 60.0     # robot tops out ~20 cm/s
 
 
 def read_csv(path):
-    """-> (rows, header). The header is DATA: the vel CSV names its units."""
+    """-> (rows, header). The header is DATA: the vel CSV names its units.
+
+    For the VEL and CAM CSVs only. The pose CSV goes through
+    `tlm.read_pose_csv()` (sprint 034 ticket 004), which binds its
+    columns by name -- this positional reader is exactly what used to
+    let a cm/degree pose CSV through as if it were wire units.
+    """
     with open(path) as f:
         r = csv.reader(f)
         head = next(r)
@@ -77,7 +83,10 @@ def main():
     # rigid transform needed.
     ap.add_argument('--meta', default=None,
                     help='capture meta JSON; aligns odometry into the '
-                         'world frame using its camera start fix')
+                         'world frame using its camera start fix. Its '
+                         'start_world_cm is [x_cm, y_cm, heading_DEG] -- '
+                         'the heading is DEGREES, the unit every camera '
+                         'sample in this repo is written in (yaw_deg)')
     a = ap.parse_args()
 
     # SUC-002: refuse to plot a run whose capture recorded zero telemetry
@@ -92,7 +101,6 @@ def main():
             f'sidecar reports frames=0 -- no telemetry was recorded for '
             f'this run')
 
-    pose_all, _ = read_csv(a.pose_csv)
     vel_all, vel_head = read_csv(a.vel_csv)
     # Units are READ, never assumed. vl/vr off the v6 wire are already
     # mm/s; DIAG's retired `vel=` was encoder counts/s and needed
@@ -103,22 +111,27 @@ def main():
     else:
         k, unit_note = a.travel_calib / 100.0, 'counts/s'
 
-    # Pose CSV shapes: legacy 4-col (t, x, y, h), device-timestamped
-    # 5-col (t_host, t_dev_ms, x, y, h), or dual-pose 8-col with the
-    # OTOS world fix appended (ox, oy, oh). Prefer device time: host
-    # arrival carries serial-buffering jitter. Normalized here to
-    # [t, x, y, h] (+ [ox, oy, oh] when present).
-    otos_all = []
-    if pose_all and len(pose_all[0]) >= 5:
-        t0d = next((r[1] for r in pose_all if r[1] >= 0), 0.0)
-        wide = len(pose_all[0]) >= 8
-        rows = []
-        for r in pose_all:
-            t = (r[1] - t0d) / 1000.0 if r[1] >= 0 else r[0]
-            rows.append([t, r[2], r[3], r[4]])
-            if wide:
-                otos_all.append([t, r[5], r[6], r[7]])
-        pose_all = rows
+    # The pose CSV is decoded BY HEADER NAME, never by counting its
+    # columns. The column-count branch this replaced (`len(pose_all[0])
+    # >= 5`, `>= 8`) accepted a cm/degree pose CSV -- eight columns,
+    # like the wire-unit one -- and plotted it 10x too small with its
+    # heading divided by 100 and the OTOS series read off the wrong
+    # columns, under a confident "closure N mm" title. tlm.py owns the
+    # schema now: it converts a known legacy header and refuses an
+    # unknown one, naming the file (sprint 034 ticket 004).
+    try:
+        frames, pose_schema = tlm.read_pose_csv(a.pose_csv)
+    except tlm.PoseCsvSchemaError as e:
+        raise SystemExit(str(e)) from e
+    # Prefer the device clock: host arrival carries serial-buffering
+    # jitter. Normalized to [t, x_mm, y_mm, h_cdeg] (+ the same for the
+    # OTOS columns), the shape the rest of this tool plots.
+    t0d = next((r['now'] for r in frames if r['now'] >= 0), 0.0)
+    pose_all, otos_all = [], []
+    for r in frames:
+        t = (r['now'] - t0d) / 1000.0 if r['now'] >= 0 else r['t_host']
+        pose_all.append([t, r['x'], r['y'], r['h']])
+        otos_all.append([t, r['ox'], r['oy'], r['oh']])
 
     # Truncate at end of motion: after a move ends nothing ticks the
     # kernel, so wheel-speed DIAG polls repeat the last tick's values
@@ -182,7 +195,16 @@ def main():
         if sw and pose:
             ox0, oy0 = pose[0][1], pose[0][2]
             oh0 = math.radians(pose[0][3] / 100.0)
-            wx0, wy0, wh0 = sw[0] * 10.0, sw[1] * 10.0, sw[2]
+            # start_world_cm is [x_cm, y_cm, heading_deg]: ONE
+            # documented unit for the heading, converted here rather
+            # than assumed. It used to be consumed as radians against
+            # an `oh0` that had gone through math.radians(), while
+            # every camera sample this repo writes (`yaw_deg`) is in
+            # degrees -- a future writer using the tools' own unit
+            # would have got a 57x rotation and a plausible-looking
+            # overlay (sprint 034 ticket 004, TL-17).
+            wx0, wy0 = sw[0] * 10.0, sw[1] * 10.0
+            wh0 = math.radians(sw[2])   # [deg] on disk -> [rad] here
             rot = wh0 - oh0
             c, sn = math.cos(rot), math.sin(rot)
             pose = [[t,
@@ -322,6 +344,10 @@ def main():
     print(f"wrote {a.out_png}  (closure {closure:.0f} mm, end heading "
           f"{end_h:.1f} deg, wheel speeds from {unit_note}, "
           f"{n_bad} corrupt samples excluded)")
+    # Name the schema that was read. A converted legacy capture plots
+    # correctly, but the operator should still be told which file shape
+    # they handed over rather than having to infer it.
+    print(f"  pose CSV schema: {pose_schema}")
 
 
 if __name__ == '__main__':

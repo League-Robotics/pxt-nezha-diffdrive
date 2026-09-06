@@ -30,26 +30,26 @@ def rd(path):
         return hdr, [[float(v) for v in row] for row in r if row]
 
 
-def wheel_speeds(pose, hdr):
-    """MEASURED wheel speeds, straight from telemetry.
+def wheel_speeds(pose):
+    """MEASURED wheel speeds, straight from telemetry, in cm/s.
 
     Deriving speed by differencing the pose does NOT work at this frame
     rate: odometry advances only on a 24 ms control tick while frames go
     out every ~56 ms (2.33 ticks), so each frame catches 2 or 3 ticks in
     a 2-2-3 pattern and a steady 44 cm/s leg reads as 55/55/84. The
     kernel measures each wheel per tick; those values now ride the
-    frame. A recording whose header carries neither column charts no
-    wheel-speed panel -- the differencing fallback that used to cover
-    that case is gone, because it produced the 55/55/84 sawtooth above
-    and labelled it "measured".
+    frame. A recording that did not carry the optional wheel-speed pair
+    charts no wheel-speed panel -- the differencing fallback that used
+    to cover that case is gone, because it produced the 55/55/84
+    sawtooth above and labelled it "measured".
+
+    `pose` rows come from `tlm.read_pose_csv()`, so the wheel columns
+    arrive under the frame's own `vl`/`vr` keys in mm/s and the one
+    display conversion (mm/s -> cm/s) is written here.
     """
-    if 'vl_cms' in hdr:
-        a, b = hdr.index('vl_cms'), hdr.index('vr_cms')
-        return [(p[0], p[a], p[b]) for p in pose]
-    if 'vl_mms' in hdr:      # tour_run.py records mm/s; plot in cm/s
-        a, b = hdr.index('vl_mms'), hdr.index('vr_mms')
-        return [(p[0], p[a] / 10.0, p[b] / 10.0) for p in pose]
-    return []
+    if not pose or 'vl' not in pose[0]:
+        return []
+    return [(p['t_host'], p['vl'] / 10.0, p['vr'] / 10.0) for p in pose]
 
 
 def score(cam):
@@ -90,7 +90,13 @@ def main():
             f'this run')
 
     _, cam = rd(campath)
-    phdr, pose = rd(posepath)
+    # The pose CSV is decoded by name, by the one codec that owns that
+    # schema (sprint 034 ticket 004) -- never by the positional reader
+    # above, which is for the camera CSV only.
+    try:
+        pose, _pose_schema = tlm.read_pose_csv(posepath)
+    except tlm.PoseCsvSchemaError as e:
+        raise SystemExit(str(e)) from e
     sc = score(cam) if cam else None
 
     fig = plt.figure(figsize=(12.6, 5.6), facecolor=BG)
@@ -113,7 +119,12 @@ def main():
                 label=(f'end — closure {sc["closure"]:.1f} cm'
                        if sc else 'end'))
     if pose:
-        ax.plot([p[4] for p in pose], [p[5] for p in pose], lw=1.5,
+        # Wire units on disk, cm on this panel: tlm.otos_cm() is the one
+        # place that scale factor is written. Read positionally (p[4],
+        # p[5]) before ticket 004, which is precisely what silently
+        # moved to the wrong columns whenever the schema did.
+        otos = [tlm.otos_cm(p) for p in pose]
+        ax.plot([o['x'] for o in otos], [o['y'] for o in otos], lw=1.5,
                 color=S1, zorder=3, label='robot-reported (OTOS)')
     # Closure rides the 'end' legend entry rather than a floating label:
     # it names the marker it describes, and the title already carries
@@ -133,7 +144,7 @@ def main():
 
     ax2 = fig.add_subplot(1, 2, 2)
     ax2.set_facecolor(BG)
-    ws = wheel_speeds(pose, phdr)
+    ws = wheel_speeds(pose)
     if ws:
         t0 = ws[0][0]
         ax2.plot([w[0] - t0 for w in ws], [w[1] for w in ws], lw=1.5,

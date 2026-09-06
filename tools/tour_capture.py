@@ -111,11 +111,13 @@ def main():
             s = s[2:]          # relay control-plane prefix
         row = stream.feed(s)
         if row is not None:
-            # x/y/ox/oy already mm, h/oh already cdeg on the wire -- no
-            # scale factor of this tool's own (tlm.py owns the one place
-            # any wire-to-engineering-unit conversion happens).
-            pose.append((round(now, 3), row['now'], row['x'], row['y'],
-                         row['h'], row['ox'], row['oy'], row['oh']))
+            # The decoded frame IS the pose row: tlm.write_pose_csv()
+            # takes a frame plus the host arrival time and writes the
+            # wire's own units under the wire's own column names, so no
+            # scale factor of this tool's own appears anywhere (tlm.py
+            # owns the one place any wire-to-engineering-unit
+            # conversion happens).
+            pose.append(dict(row, t_host=now))
             w = tlm.wheels_mms(row)
             vel.append((round(now, 3), w['vl'], w['vr']))
             vals = (row['x'], row['y'], row['h'])
@@ -128,11 +130,10 @@ def main():
                 end = time.time() + 1.5   # test done; short tail
     link.close()
 
-    with open(a.out_prefix + '_pose.csv', 'w') as f:
-        w = csv.writer(f)
-        w.writerow(['t_host', 't_dev_ms', 'x_mm', 'y_mm', 'h_cdeg',
-                    'ox_mm', 'oy_mm', 'oh_cdeg'])
-        w.writerows(pose)
+    # tlm.py owns the pose-CSV schema (sprint 034 ticket 004) -- this
+    # tool's header used to be written here and read by three different
+    # consumers, one of which picked its reader by counting columns.
+    tlm.write_pose_csv(pose, a.out_prefix + '_pose.csv')
     with open(a.out_prefix + '_vel.csv', 'w') as f:
         w = csv.writer(f)
         # mm/s straight off the wire -- NOT encoder counts. The
@@ -145,7 +146,14 @@ def main():
     # require_stream() above guarantees `stream` already has at least
     # one frame, so this cannot raise EmptyCaptureError here.
     meta = tlm.write_tlm_csv(stream, a.out_prefix + '_tlm.csv')
-    final = pose[-1] if pose else None
+    # The console line reports the pose quantities only, not the whole
+    # last frame (which also carries seq/flags/i2cf and, on a FULL
+    # header, eight more columns nobody reads here).
+    final = None
+    if pose:
+        last = pose[-1]
+        final = (last['x'], last['y'], last['h'],
+                 last['ox'], last['oy'], last['oh'])   # [mm] [mm] [cdeg]
     print(f"captured {len(pose)} pose / {len(vel)} vel rows; "
           f"final {final}; {gap}; "
           f"telemetry {meta['frames']} frames, {meta['dropped']} dropped "

@@ -303,6 +303,32 @@ camera-in-the-loop — were kept "for reference" until sprint 034 ticket
 one demonstrated the doctrine this repo now forbids (it left the robot
 stationary 73% of a run).
 
+**One pose-CSV schema, bound by name (sprint 034 ticket 004).** The
+three recorders above used to write three different `<stem>_pose.csv`
+headers — wire units, cm/degrees, and cm/degrees plus wheel speeds —
+and `tour_chart.py` chose its reader by COUNTING COLUMNS while assuming
+wire units throughout. The cm/degree header also has eight columns, so
+it was accepted: plotted 10x too small, heading divided by 100, OTOS
+series read off the wrong columns, under a confident "closure N mm"
+title, with nothing raised. `tlm.py` now owns the schema
+(`write_pose_csv()`/`read_pose_csv()`, beside the `thdr`-keyed
+telemetry parser that already binds by name — see this sprint's Design
+Rationale 8):
+
+    t_host,t_dev_ms,x_mm,y_mm,h_cdeg,ox_mm,oy_mm,oh_cdeg
+
+in the wire's own units, plus the optional `vl_mms,vr_mms` pair for a
+recorder whose chart plots the frame's own wheel speeds
+(`tour_practice.py`). A row on either side of the codec is a decoded
+telemetry frame, so `pose_cm()`/`otos_cm()`/`wheels_mms()` apply to a
+CSV row exactly as they do to a live frame and no tool carries a scale
+factor of its own. The reader binds every column by NAME, converts the
+legacy headers this repo's own tools wrote (they are listed, with their
+factors, in `tlm.py`'s `_LEGACY_POSE_SCHEMAS`), and REFUSES anything
+else with a message naming the file and the header it found — a
+header-count guess is never made. Existing recordings under
+`captures/` were not rewritten; they read through the legacy path.
+
 ## Camera-parallax correction: one owner, never two (sprint 031 ticket 002)
 
 A tag mounted above the field plane makes the camera report a

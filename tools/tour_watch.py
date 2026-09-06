@@ -67,7 +67,11 @@ def chart(name, pose, fixes, cam, path):
         ax.plot([c[1] for c in cam], [c[2] for c in cam], lw=2,
                 color=S2, label='camera (truth)', zorder=4)
     if pose:
-        ax.plot([p['ox'] for p in pose], [p['oy'] for p in pose], lw=1.6,
+        # `pose` rows are decoded telemetry frames, in wire units; this
+        # panel is drawn in cm, so the conversion goes through
+        # tlm.otos_cm() -- the one place that scale factor is written.
+        otos = [tlm.otos_cm(p) for p in pose]
+        ax.plot([o['x'] for o in otos], [o['y'] for o in otos], lw=1.6,
                 color=S1, label='robot-reported (OTOS)', zorder=3)
 
     closure = None
@@ -167,12 +171,15 @@ def main():
             else:
                 row = stream.feed(s)
                 if row is not None:
-                    enc = tlm.pose_cm(row)
-                    otos = tlm.otos_cm(row)
-                    pose.append({'t': time.time(), 'dev': row['now'],
-                                 'x': enc['x'], 'y': enc['y'], 'h': enc['h'],
-                                 'ox': otos['x'], 'oy': otos['y'],
-                                 'oh': otos['h']})
+                    # Recorded in the WIRE's own units, unconverted:
+                    # the decoded frame is the pose row this tool
+                    # writes (tlm.write_pose_csv()), and chart() below
+                    # converts for display through tlm.otos_cm(). This
+                    # tool used to record cm/degrees and write its own
+                    # cm/degree header, which tour_chart.py then read as
+                    # wire units -- the 10x mis-scale sprint 034 ticket
+                    # 004 exists to kill.
+                    pose.append(dict(row, t_host=time.time()))
 
         if name is None:
             continue
@@ -190,13 +197,9 @@ def main():
             print('watching for the next tour...')
             continue
         camrows = cam.since(t0)
-        with open(stamp + '_pose.csv', 'w') as f:
-            w = csv.writer(f)
-            w.writerow(['t', 'dev_ms', 'enc_x_cm', 'enc_y_cm', 'enc_h_deg',
-                        'otos_x_cm', 'otos_y_cm', 'otos_h_deg'])
-            for p in pose:
-                w.writerow([round(p['t'], 3), p['dev'], p['x'], p['y'],
-                            p['h'], p['ox'], p['oy'], p['oh']])
+        # tlm.py owns the pose-CSV schema (sprint 034 ticket 004): one
+        # header, in wire units, that every reader binds by name.
+        tlm.write_pose_csv(pose, stamp + '_pose.csv')
         with open(stamp + '_cam.csv', 'w') as f:
             w = csv.writer(f)
             w.writerow(['t', 'x_cm', 'y_cm', 'yaw_deg'])

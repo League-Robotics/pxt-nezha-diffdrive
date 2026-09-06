@@ -118,6 +118,25 @@ captured `thdr`/`t` lines, no serial/radio link involved:
   `write_tlm_csv()` raises on zero accumulated frames and leaves no
   file on disk, and writes normally (with a matching `.meta.json`
   sidecar) otherwise.
+- **The pose-CSV codec** (sprint 034 ticket 004) — `write_pose_csv()`/
+  `read_pose_csv()`, the one on-disk pose schema. Round-trip in wire
+  units (with and without the optional `vl_mms,vr_mms` pair); a header
+  whose columns are SHUFFLED still binds correctly, which a positional
+  or column-counting reader cannot do; each legacy header this repo
+  wrote is converted to the wire integers it came from, asserted
+  against the 1/10-scale figure BY NAME (the regression that motivates
+  the ticket: a cm/degree CSV has eight columns too, so the old
+  column-count branch accepted it and plotted it 10x too small under a
+  confident closure figure); an unknown header, an empty file, a blank
+  cell and a non-numeric cell are each refused naming the file. The
+  consumer checks at the end of the file are TEXT-level on purpose:
+  `tour_chart.py`/`practice_chart.py` import matplotlib at module
+  scope and this project's test venv has none (it is supplied per-run
+  by `uv run --with matplotlib`), the same constraint
+  `test_travel_calib_drift.py` works within — what they can still prove
+  is that no tool re-derives the schema for itself, that the
+  column-count branch is gone, and that `--meta`'s `start_world_cm[2]`
+  is converted from its one documented unit (degrees).
 
 Run: `uv run pytest tests/tools/test_tlm.py`, or as part of the whole
 suite.
