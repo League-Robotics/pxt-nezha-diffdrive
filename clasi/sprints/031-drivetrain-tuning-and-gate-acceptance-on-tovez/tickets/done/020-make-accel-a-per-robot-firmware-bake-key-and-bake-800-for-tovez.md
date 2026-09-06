@@ -10,7 +10,7 @@ completes_issue: true
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
-# Make accel a per-robot firmware_bake key and bake 800 for tovez
+# Make accel a per-robot firmware_bake key and bake the fleet default (400, corrected from an initial 800) for tovez
 
 Type (b): programmer-implementable, no hardware.
 
@@ -131,10 +131,11 @@ record that as the resolution instead. Either way, acceptance criterion
 - [x] `accel` is added to `_GEOMETRY_BAKE_RES` and `_GEOMETRY_BAKE_FILES`
       (targeting `motion_limits.h`), following the exact pattern of
       `lag_s`/`stop_distance_mm`. A tovez deploy scratch copy of
-      `motion_limits.h` has `float accel = 800.0f;` after
-      `_inject_geometry()` runs; a robot with no `firmware_bake.accel`
-      key produces a byte-identical `motion_limits.h` (keeps the
-      compiled 400.0f default). Extend
+      `motion_limits.h` has `float accel = 400.0f;` after
+      `_inject_geometry()` runs (CORRECTED from the originally-accepted
+      800.0f — see "Implementation Notes, correction" below); a robot
+      with no `firmware_bake.accel` key produces a byte-identical
+      `motion_limits.h` (keeps the compiled 400.0f default). Extend
       `tests/tools/test_make_deploy_geometry.py` in its existing style
       (see its `_LIMITS_HEADER` fixture and the `lag_s`/
       `stop_distance_mm` test cases as the template) to pin both
@@ -152,13 +153,19 @@ record that as the resolution instead. Either way, acceptance criterion
       call site stating precisely why the dance intentionally
       overrides a per-robot baked `accel`, in place of the fix.
 - [x] `radio-robot-lib/config/robots/tovez.json`'s
-      `geometry.firmware_bake.accel` is `800`, with an
-      `_accel_provenance` note (matching the file's existing provenance
-      entries' style) that cites both accel-800 capture directories and
-      both baseline capture directories, states the n=8 mean/max
-      numbers above, and states in its own words that the mechanism is
-      UNVERIFIED (ramp unchanged; leading hypothesis is early PID
-      saturation / twist-hold windup; not explained).
+      `geometry.firmware_bake.accel` is `400` (CORRECTED from the
+      originally-accepted `800` — see "Implementation Notes,
+      correction" below), with an `_accel_provenance` note (matching
+      the file's existing provenance entries' style) that cites all
+      four accel-sweep capture directories (`accel400/`, `accel400b/`,
+      `accel800/`, `accel800b/`) and both accel-300 baseline capture
+      directories, states the n=8 mean/max numbers for all three
+      configurations, and states in its own words that the mechanism is
+      UNVERIFIED (ramp unchanged across 300/800; leading hypothesis is
+      early PID saturation / twist-hold windup; not explained) — and
+      that the 800 result, while real relative to the 300 baseline, was
+      never checked against the actual fleet default until the
+      follow-up sweep.
 - [x] Scoped tests pass: `uv run pytest tests/tools/ -k make_deploy`,
       plus whatever new test module covers the `field_dance.py` change
       (the full suite runs once at `close_sprint`, not per ticket).
@@ -237,3 +244,99 @@ record that as the resolution instead. Either way, acceptance criterion
   breakaway on direction reversal, not a constant curvature, so
   tovez's `straight_trim` stays 0 and is not to be sized from a warm
   run.
+
+## Implementation Notes, correction
+
+**Reopened 2026-09-05, same day, after a further measurement.** The
+work above (bake `accel: 800` for tovez, raise `openLoopProfile()` to
+`setLimits(800, 300, 200, 90)`) was completed as written and committed
+(`4acbaa3` in this repo, `0f7c5c8` in `radio-robot-lib`). It is now
+superseded by this correction — not reverted to the pre-ticket state,
+but redirected to a different target value.
+
+**What changed.** A follow-up sweep at the fleet default, `accel: 400 /
+decel: 400`, over the same protocol (8 alternating ±600 mm legs,
+camera heading change per leg at rest, cruise 100, `rotational_slip`
+0.962 already baked) — captured in
+`captures/session-b-20260905/gain-sweep-20260905/accel400/` and
+`.../accel400b/` — read mean|dh| **1.06 deg**, max **2.55**. That beats
+the accel-800 result this ticket had baked (mean|dh| 1.35 / max 3.45,
+`accel800/` + `accel800b/`), which in turn had beaten the accel-300
+baseline (mean|dh| 3.62 / max 7.61, `discriminator-20260905/` +
+`discriminator-20260905-v2/`). Ranked: **400/400 (1.06/2.55) < 800/300
+(1.35/3.45) << 300/300 (3.62/7.61)**.
+
+**Why the 800 result was real but wrong to bake.** 800 genuinely beat
+300 — that measurement was not an error. But 300 was never the fleet
+default; it was `openLoopProfile()`'s own `setLimits(300, 300, ...)`,
+left in place by a live `RUN:straight:8` check from an earlier session
+that was never cleared (see `docs/sprint-031-postmortem.md` §3a,
+"Where the baseline's `accel 300` came from"). Every RUN-driven gate in
+that sweep — which is what both the original ticket and this
+correction's sweep exercised — ran on that stuck 300/300 profile, not
+on the fleet's compiled 400/400 default that a student's block program
+actually gets. So 800 was compared against the wrong baseline: it is a
+real fix for "worse than the RUN profile's accidental 300," but the
+comparison that matters is against the actual default, and against
+that default 400 wins outright. The mechanism for accel's effect on
+the breakaway-yaw defect is UNVERIFIED at any of the three settings
+tried — the postmortem's own ramp check (§3a) shows the physical wheel
+ramp does not track any of 300/800/etc (759-955 mm/s² at 300 vs
+873-894 at 800; the drivetrain already outruns every commanded ceiling
+tried) — this correction does not resolve that; it only changes which
+value is baked.
+
+**What was changed in this correction:**
+- `radio-robot-lib/config/robots/tovez.json`: `geometry.firmware_bake.accel`
+  set from `800` to `400`; `_accel_provenance` rewritten to state 400
+  is the fleet default kept explicit (not removed, so the bake path
+  stays exercised), cite all four `accel400{,b}`/`accel800{,b}` capture
+  directories plus both baseline directories, give the n=8 mean/max for
+  all three configurations, and preserve the prior 800-only provenance
+  text verbatim, labeled as history, for the record. Committed
+  separately in the `radio-robot-lib` repo (commit only, not pushed).
+- `test/test.ts`'s `openLoopProfile()`: `setLimits(800, 300, 200, 90)`
+  changed to `setLimits(400, 400, 200, 90)` — accel AND decel now both
+  at the fleet default — with the citation comment above it rewritten
+  to the accel400/accel400b captures and the corrected reasoning: a RUN
+  verb must not leave the robot in a worse shaping profile than the
+  default for every later `MOVE_X`.
+- `tests/tools/test_make_deploy_geometry.py`: `test_tovez_accel_bakes_800`
+  renamed to `test_tovez_accel_bakes_the_fleet_default_explicitly` and
+  its fixture/assertions changed to bake and expect `400.0f` instead of
+  `800.0f` (the fixture's compiled default is already `400.0f`, so this
+  now pins that the bake mechanism explicitly injects 400 rather than
+  the value being present only because nothing overrode the default).
+  Every other test in the file (the generic `test_accel_bakes_only_
+  motion_limits`, the no-bake test, and the cross-robot isolation test)
+  is unchanged — those exercise the mechanism generically and were
+  never tied to tovez's real value.
+- `tests/tools/test_field_dance_accel_bake.py`: the two tests that used
+  a tovez-shaped config with `firmware_bake.accel: 800`
+  (`test_tovez_shaped_bake_returns_baked_accel_and_fallback_decel` and
+  `test_other_robots_unaffected_by_tovez_bake`) now use `400` and
+  assert `(400, 400)`, with a docstring note that
+  `test_both_accel_and_decel_baked_are_both_returned` (gopiv, 600/350)
+  is what actually pins that a baked value distinct from the fallback
+  is read rather than silently defaulted, since tovez's corrected bake
+  now happens to equal the fallback. The module docstring and
+  `tools/field_dance.py`'s own comments (in `_dance_accel_decel()` and
+  in `main()`) were updated so they no longer assert, as current fact,
+  that tovez bakes `accel: 800` — the `_dance_accel_decel(robot)`
+  mechanism itself (added in the original ticket 020 work) is
+  unaffected and remains correct and tested independent of which value
+  any robot bakes.
+- This ticket: title line's "bake 800" wording corrected in the body
+  (filename unchanged per instruction), acceptance criteria re-checked
+  against the corrected values, and this section added.
+
+**What did NOT change:** `tools/make_deploy.py`'s `_GEOMETRY_BAKE_RES`/
+`_GEOMETRY_BAKE_FILES`/`_inject_geometry()` accel-key wiring, and
+`tools/field_dance.py`'s `_dance_accel_decel()` extraction and its
+call site in `main()` — both are value-independent and remain exactly
+as implemented in the original pass (`4acbaa3`).
+
+Verification: `uv run pytest tests/tools/ -k "make_deploy or
+field_dance"` and `uv run pytest tests/host/test_cxx11_syntax_gate.py`,
+run in the foreground this session; see the commit for the exact pass
+counts.

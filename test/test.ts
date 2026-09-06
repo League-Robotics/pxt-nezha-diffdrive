@@ -333,23 +333,32 @@ function logFix(tag: string) {
 // move()/goTo() blocks' own default cruise speed/yaw rate, unrelated to
 // MotionLimits shaping) and are unaffected by this ticket.
 //
-// Sprint 031 ticket 020: accel raised 300 -> 800 (decel, vMax, omegaMax
-// unchanged -- the measured result was accel-only). MEASURED tovez
-// 2026-09-05, captures/session-b-20260905/gain-sweep-20260905/accel800/
-// and .../accel800b/ (n=8 alternating +-600 mm legs) vs the accel-300
-// baseline captures/session-b-20260905/discriminator-20260905{,-v2}/
-// (n=8): mean|dh| 3.62 deg -> 1.35 deg, max 7.61 -> 3.45, the
-// forward-after-reverse leg (worst case) +4.59/+7.61 -> +1.39/-0.72.
-// The MECHANISM is UNVERIFIED -- docs/sprint-031-postmortem.md S3a's
-// own ramp check shows the physical wheel ramp did NOT change (759-955
+// Sprint 031 ticket 020, CORRECTED 2026-09-05: accel/decel set to
+// 400/400, the FLEET DEFAULT -- not the 800/300 this comment used to
+// argue for. MEASURED tovez, captures/session-b-20260905/gain-sweep-
+// 20260905/: accel400/ + accel400b/ (n=8 alternating +-600 mm legs)
+// mean|dh| 1.06 deg / max 2.55, beating accel800/ + accel800b/ (n=8)
+// mean|dh| 1.35 / max 3.45, both far beating the accel-300 baseline
+// discriminator-20260905{,-v2}/ (n=8) mean|dh| 3.62 / max 7.61. The
+// 800 result was real (it beat 300) but was never checked against the
+// actual fleet default until this second sweep -- 400 wins outright.
+// Root cause: this function had been left at setLimits(300, 300, ...)
+// by a live RUN:straight:8 check that was never cleared, so every
+// RUN-driven gate (tour/straight/goto/face/pivot/arc all dispatch
+// through this profile) ran on 300/300 instead of the compiled 400/400
+// default that student block programs actually get -- a RUN verb must
+// not leave the robot in a worse shaping profile than the default for
+// every later MOVE_X. The MECHANISM for accel's effect on the
+// breakaway-yaw defect is still UNVERIFIED at any setting --
+// docs/sprint-031-postmortem.md S3a's own ramp check shows the
+// physical wheel ramp does not track any of 300/800/etc (759-955
 // mm/s^2 at 300 vs 873-894 at 800; the drivetrain already outruns
-// either commanded ceiling), so this is not "a faster ramp." This
-// literal must agree with radio-robot-lib/config/robots/tovez.json's
-// geometry.firmware_bake.accel (which this profile's callers are baked
-// against on tovez); ticket 020's provenance note there carries the
-// full citation.
+// every commanded ceiling tried). This literal agrees with
+// radio-robot-lib/config/robots/tovez.json's geometry.firmware_bake.accel
+// (kept explicit at 400, matching the compiled default); ticket 020's
+// provenance note there carries the full citation and history.
 function openLoopProfile() {
-    diffDrive.setLimits(800, 300, 200, 90)
+    diffDrive.setLimits(400, 400, 200, 90)
     diffDrive.setDefaultSpeed(20)
     diffDrive.setDefaultYawRate(90)
 }

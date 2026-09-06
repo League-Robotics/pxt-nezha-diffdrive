@@ -7,13 +7,17 @@ ticket 020).
 on the playfield) used to hardcode `SET accel 400` / `SET decel 400`
 on every run, regardless of what the connected robot's firmware was
 built with. The dance's own comment says "it must not retune the
-robot" -- but a hardcoded 400 does exactly that on any robot baking a
-different value via `make_deploy.py`'s opt-in
-`geometry.firmware_bake` (ticket 020 bakes `accel: 800` for tovez).
+robot" -- but a hardcoded value does exactly that on any robot baking a
+different value via `make_deploy.py`'s opt-in `geometry.firmware_bake`.
 Every mandatory pre-flight run would otherwise silently reset a baked
 accel back to the fleet default for the rest of that session (a live
-`SET` persists until power-cycle), defeating the bake at exactly the
-moment the project's own safety rule requires the dance to run.
+`SET` persists until power-cycle), defeating a per-robot bake at
+exactly the moment the project's own safety rule requires the dance to
+run. (Ticket 020 initially baked `accel: 800` for tovez as the
+motivating case; a same-day follow-up measurement corrected that to
+`accel: 400` -- the fleet default, kept explicit -- but the helper this
+module tests is general-purpose and independent of which value any one
+robot happens to bake.)
 
 `_dance_accel_decel(robot)` reads `robot`'s own baked accel/decel via
 `make_deploy._read_robot_firmware_bake()`, falling back to 400 (the
@@ -52,14 +56,20 @@ def _robot_config(tmp_path, robot, geometry):
 
 def test_tovez_shaped_bake_returns_baked_accel_and_fallback_decel(
         tmp_path, monkeypatch):
-    """A tovez-shaped config with firmware_bake.accel: 800 and no decel
-    key returns (800, 400) -- the baked accel, and 400 as the fallback
-    for the unbaked decel."""
+    """A tovez-shaped config with firmware_bake.accel: 400 (the real,
+    corrected tovez value -- see radio-robot-lib/config/robots/
+    tovez.json's _accel_provenance) and no decel key returns (400, 400):
+    400 read explicitly from the bake, and 400 as the fallback for the
+    unbaked decel. The two 400s land on the same number here because
+    tovez's corrected bake happens to equal the compiled default;
+    test_both_accel_and_decel_baked_are_both_returned below (gopiv,
+    600/350) is what pins that a baked value distinct from the fallback
+    is actually read rather than silently defaulted."""
     monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
                         str(_robot_config(tmp_path, "tovez", {
-                            "firmware_bake": {"accel": 800},
+                            "firmware_bake": {"accel": 400},
                         })))
-    assert field_dance._dance_accel_decel("tovez") == (800, 400)
+    assert field_dance._dance_accel_decel("tovez") == (400, 400)
 
 
 def test_robot_with_no_firmware_bake_block_returns_400_400(
@@ -94,12 +104,12 @@ def test_other_robots_unaffected_by_tovez_bake(tmp_path, monkeypatch):
     root = tmp_path / "lib" / "config" / "robots"
     root.mkdir(parents=True)
     (root / "tovez.json").write_text(json.dumps({"geometry": {
-        "firmware_bake": {"accel": 800},
+        "firmware_bake": {"accel": 400},
     }}))
     (root / "tigez.json").write_text(json.dumps({"geometry": {
         "firmware_bake": {"rotational_slip": 0.9617},
     }}))
     monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB", str(tmp_path / "lib"))
 
-    assert field_dance._dance_accel_decel("tovez") == (800, 400)
+    assert field_dance._dance_accel_decel("tovez") == (400, 400)
     assert field_dance._dance_accel_decel("tigez") == (400, 400)

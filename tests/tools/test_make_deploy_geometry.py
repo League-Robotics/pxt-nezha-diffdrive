@@ -214,24 +214,29 @@ def test_accel_bakes_only_motion_limits(tmp_path, monkeypatch):
     assert "float stopDistance = 0.0f;" in _read_limits(deploy)
 
 
-def test_tovez_accel_bakes_800(tmp_path, monkeypatch):
-    """Sprint 031 ticket 020: tovez's accel was MEASURED at 800 on
-    2026-09-05 (captures/session-b-20260905/gain-sweep-20260905/
-    accel800/ and .../accel800b/, n=8 alternating +-600 mm legs, mean
-    |dh| 3.62 -> 1.35 deg vs the accel-300 baseline) and
-    radio-robot-lib/config/robots/tovez.json's
-    geometry.firmware_bake.accel was set to 800. Pins that the
-    existing opt-in _inject_geometry() mechanism bakes exactly that
-    value into the scratch copy's motion_limits.h with no `SET` needed
-    at boot."""
+def test_tovez_accel_bakes_the_fleet_default_explicitly(tmp_path, monkeypatch):
+    """Sprint 031 ticket 020, CORRECTED 2026-09-05: an initial 2026-09-05
+    sweep favoured accel 800 (captures/session-b-20260905/gain-sweep-
+    20260905/accel800/ and .../accel800b/, n=8 alternating +-600 mm
+    legs, mean|dh| 3.62 -> 1.35 deg vs the accel-300 baseline), but a
+    same-day follow-up sweep (accel400/ and .../accel400b/, n=8) showed
+    the FLEET DEFAULT of 400 beats 800 outright (mean|dh| 1.06 deg / max
+    2.55 vs 800's 1.35 / 3.45) -- the 800 result was real but only
+    relative to the RUN profile's stuck-at-300 baseline, not the actual
+    default. radio-robot-lib/config/robots/tovez.json's
+    geometry.firmware_bake.accel was corrected to 400 and kept as an
+    explicit key (matching the compiled default) rather than removed,
+    so the bake path stays exercised. Pins that the existing opt-in
+    _inject_geometry() mechanism bakes exactly that value into the
+    scratch copy's motion_limits.h with no `SET` needed at boot."""
     deploy = _deploy(tmp_path)
     monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
                         str(_config(tmp_path, "tovez", {"firmware_bake": {
-                            "accel": 800,
+                            "accel": 400,
                         }})))
     applied = make_deploy._inject_geometry(str(deploy), "tovez")
-    assert dict(applied) == {"accel": 800.0}
-    assert "float accel = 800.0f;" in _read_limits(deploy)
+    assert dict(applied) == {"accel": 400.0}
+    assert "float accel = 400.0f;" in _read_limits(deploy)
 
 
 def test_no_accel_key_keeps_motion_limits_byte_identical(tmp_path, monkeypatch):

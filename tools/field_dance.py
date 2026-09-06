@@ -146,8 +146,12 @@ def _dance_accel_decel(robot):
     (see the comment above its `SET accel`/`SET decel` call in main()) --
     but hardcoding 400 for both did exactly that on any robot baking a
     different value via make_deploy.py's opt-in
-    `geometry.firmware_bake` (sprint 031 ticket 020: tovez bakes
-    `accel: 800`). Every mandatory pre-flight dance
+    `geometry.firmware_bake` (sprint 031 ticket 020 originally baked
+    `accel: 800` for tovez as the motivating case; a same-day follow-up
+    measurement corrected that to `accel: 400` -- the fleet default,
+    kept explicit -- but this helper is general-purpose regardless of
+    which value any one robot happens to bake). Every mandatory
+    pre-flight dance
     (.claude/rules/field-dance-first.md) would otherwise silently
     live-`SET` a baked accel back to the fleet default for the rest of
     that session, defeating the bake at exactly the moment it matters
@@ -211,11 +215,13 @@ def main(tcp=None):
     #
     # Sprint 031 ticket 020: accel/decel used to be hardcoded to 400
     # here regardless of what the connected robot's firmware was built
-    # with -- itself a retune, and one that would silently defeat
-    # ticket 020's own tovez accel:800 bake on every mandatory
-    # pre-flight run. `_dance_accel_decel()` reads the dance's target
-    # robot's own baked values instead, falling back to 400 only when
-    # unbaked.
+    # with -- itself a retune, and one that would silently defeat a
+    # per-robot bake on every mandatory pre-flight run.
+    # `_dance_accel_decel()` reads the dance's target robot's own baked
+    # values instead, falling back to 400 only when unbaked. (tovez's
+    # own bake, corrected same day, is 400 -- the fleet default, kept
+    # explicit -- so this call is currently a no-op for tovez, but the
+    # lookup stays in place for any robot/value that does diverge.)
     accel, decel = _dance_accel_decel(ROBOT)
     for f, v in (('accel', accel), ('decel', decel)):
         L.seqd(f'SET {f} {v}')
