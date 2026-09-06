@@ -1,0 +1,14 @@
+{
+    "name": "blocktest",
+    "dependencies": {
+        "core": "*",
+        "nezha-diffdrive": "file:../nezha-diffdrive-patched",
+        "microphone": "*"
+    },
+    "files": [
+        "main.blocks",
+        "main.ts",
+        "README.md"
+    ],
+    "preferredEditor": "blocksprj"
+}

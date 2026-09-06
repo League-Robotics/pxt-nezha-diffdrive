@@ -1,0 +1,12 @@
+{
+    "name": "plain",
+    "dependencies": {
+        "core": "*",
+        "microphone": "*"
+    },
+    "files": [
+        "main.blocks",
+        "main.ts"
+    ],
+    "preferredEditor": "blocksprj"
+}
