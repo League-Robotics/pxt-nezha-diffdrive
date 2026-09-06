@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: blocks and test-program boil-down and factual fixes
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
@@ -132,21 +132,25 @@ assume either way.
 
 ## Acceptance Criteria
 
-- [ ] Annex rows 1-8 and 10 applied, re-anchored by quoted content;
+- [x] Annex rows 1-8 and 10 applied, re-anchored by quoted content;
       row 9 handled per its note; every no-op recorded with its reason.
 - [ ] All five factual fixes applied; BT-08 verified and either fixed
-      or recorded.
-- [ ] `git diff` touches **no** `//%` line and **no** `/** ... */`
+      or recorded. **Four of five applied; BT-08 verified and recorded
+      as a no-op. Factual fix 3 NOT applied — its only anchor is a
+      `/** ... */` JSDoc line, which the third criterion below forbids
+      touching. See "Completion notes" -> "Factual fix 3: blocked, not
+      done".**
+- [x] `git diff` touches **no** `//%` line and **no** `/** ... */`
       JSDoc block in any `src/blocks/*.ts` file.
-- [ ] `tests/host/test_block_toolbox_order.py` passes.
-- [ ] `tests/host/test_typescript_typecheck.py` passes.
-- [ ] `world.ts` distinguishes the cache reads from the five bus-touching
+- [x] `tests/host/test_block_toolbox_order.py` passes.
+- [x] `tests/host/test_typescript_typecheck.py` passes.
+- [x] `world.ts` distinguishes the cache reads from the five bus-touching
       functions, and the same-fiber constraint survives, scoped to the
       latter.
-- [ ] `setupRadio`'s `group: number = 10` default is unchanged.
-- [ ] Every surviving `MEASURED` / `Capture:` claim names an artifact;
+- [x] `setupRadio`'s `group: number = 10` default is unchanged.
+- [x] Every surviving `MEASURED` / `Capture:` claim names an artifact;
       any that does not resolve is reported to ticket 007, not deleted.
-- [ ] No trailing `// [unit]` deleted, no identifier renamed, no line
+- [x] No trailing `// [unit]` deleted, no identifier renamed, no line
       of code changed.
 
 ## Testing
@@ -179,3 +183,195 @@ Foreground only.
   boil-down (worst ten, plus factual errors)".
 - Read `sprint.md`'s "Verification pass" section first.
 - Do not run the full repo suite.
+
+## Completion notes
+
+### Pre-edit suite state
+
+`tests/host/test_typescript_typecheck.py` was **GREEN before any edit**
+in this checkout (`git stash push -- src test`, then
+`uv run pytest tests/host/test_typescript_typecheck.py -q` -> `2 passed
+in 0.58s`, then `git stash pop`). `node_modules/.bin/tsc` is present, so
+`test_tsc_noemit_is_clean` ran for real rather than skipping. The
+2026-09-02 review's note about it being the suite's one pre-existing
+failure does **not** apply here — nothing red was inherited, and nothing
+red was left.
+
+### Annex items (blocks-and-test, "Comment boil-down (worst ten)")
+
+| # | verdict | what was done |
+|---|---|---|
+| 1 | **applied** | `sim.ts` `_setGoToDeadline` preamble is now the annex's two-shim line, pointing at `shims.cpp`'s `engineSetGoToDeadline()` for the full TS9200 account (ticket 003's copy). `_goToR`'s preamble keeps the bearing/short-arc reduction and the annex's "sim reaches (x, y) as one blended arc; hardware's >=50 deg split lands at the same point, so no split is modelled" line. The TS9256 int32/decompiler rule and the two-rate-ceiling reconciliation survive, boiled down. `motion.ts`'s pointer is kept as a one-line cross-reference. |
+| 2 | **applied** | `_setWheels`: 26 lines -> 7. Keeps the formula, `effectiveTrackWidth = trackWidth / rotationalSlip` with its `motion_engine.h` citation, and the fact that `_driveTwist()` inverts the same divisor (so it needs no divisor of its own). The "previously divided by 115 / by 10 first" archaeology and R-12/BLK-06 are gone. |
+| 3 | **applied** | `_tickDrive` return-value history -> the annex's `commandLooksActive()` sentence. The `tests/host/test_continuous_drive_command_looks_active.py` pointer survives. |
+| 4 | **applied, with one JSDoc survivor** | HEAD had **seven** `native-only` occurrences in `sim.ts`, not the annex's six. One canonical note now sits at the top of the file (`sim.ts:5-7`). Five plain-`//` copies deleted. The **seventh sits inside the retired-shims `/** ... */` JSDoc at `sim.ts:445-457`** ("real (if trivial) bodies below, not bare `{}`, so pxt doesn't treat them as native-only shims") and was **left untouched** — JSDoc is explicitly out of scope for this ticket. Net: the rule survives stated clearly twice (once at the top of the file, once in that JSDoc), not seven times. |
+| 5 | **applied at the reduced scope the ticket describes** | The `sprint 015 ticket 006` narrative was already largely gone; what remained was the TS9200 retelling plus the `moveX()` reissue essay. Now: `goToR()` owns the pivot-vs-arc split, never reduce to (distance, yaw) through `startMove()` which would land elsewhere above 50 deg, plus the one-line `shims.cpp` cross-reference. 12 lines -> 4. |
+| 6 | **applied at the reduced scope the ticket describes** | The positive claim (dispatched inline by the protocol fiber via `_registerRunDispatch()`) was already correct and is kept, now stating the nested abort/clearestop consequence directly. The "not raised as a MessageBus event", "no second fiber to wait for" and "unlike the old event-value-as-slot-number scheme" archaeology is deleted. 13 lines -> 8. This discharges the `run.ts` half of review §5's "handlers run on their own fiber" row. (`run.ts:1-20`'s argument-snapshot-stack header and `onRun()`'s JSDoc were already corrected by earlier sprints and were not touched.) |
+| 7 | **applied** | See factual fix 1 below. |
+| 8 | **applied** | Verified against the constants the code actually uses before choosing: `armX = -5.27` cm / `armY = -0.12` cm match the **2026-08-28** fit (x -52.7 mm, y -1.2 mm), not the superseded 38.2 mm figure. Kept: the 2026-08-28 measurement, its `Capture:` path, the method, the independent camera tag-53 cross-check (53.4 mm, agreeing to 0.7 mm), and the `UNVERIFIED` note on `armYaw`. Deleted: the 2026-08-20 38.2 mm narrative the following lines already said was invalidated. |
+| 9 | **boil-down half applied; factual half a recorded no-op** | The abort/clearestop header already read `dispatches abort/clearestop reentrantly, NESTED inside the running` — correct since sprints 028/032, so there was no factual error left to fix. The block was 17 lines (two stacked headers), above the annex's four-line target, so the boil-down half was applied: 17 -> 12, keeping the reentrant-dispatch fact, why neither guards on `touring`, the flag-only/non-blocking constraint, and why `clearestop` is its own verb rather than folded into `STOP`. |
+| 10 | **applied** | `stop.ts`'s five-line group-layout archaeology deleted. The `//% group=` / `//% weight=` pragmas it described are byte-identical (`stop.ts` `//%` count 10 -> 10); `test_block_toolbox_order.py` passes. |
+
+### Factual fixes
+
+1. **applied.** `test.ts`'s boot-OTOS block no longer claims "ANY
+   `uBit.i2c` transaction issued from a RUN handler hangs the board" — a
+   claim the same file's RUN handlers disprove. It now says: the OTOS is
+   begun once at boot so `STATUS`'s `otos=` flag is meaningful; the real
+   hazard is the No-ACK case that spins CODAL's `waitForStop()` forever,
+   citing `clasi/issues/high/first-i2c-command-can-wedge-the-program-with-no-recovery.md`
+   (**verified: resolves**); the lever arm applied at boot is pure
+   software, no I2C. The `Capture:
+   captures/otos-run-handler-i2c-hang-20260828.md` citation is kept —
+   **verified: the file exists AND is git-tracked**
+   (`git ls-files --error-unmatch` succeeds), so nothing needs reporting
+   to ticket 007 on that path.
+2. **applied.** `test.ts:47-49`'s "still lands on channel 3 rather than
+   vevov's 4" is gone. No new numbers were baked in: the text now says
+   the channel **and** the group are deploy-injected per robot, naming
+   `tools/make_deploy.py` and `kChannel`/`kGroup` in
+   `src/comms/radio_transport.h`, and says why naming either here would
+   override the injection. Verified against the source rather than the
+   rule alone: `make_deploy.py:575-576,594-595` rewrites both constants,
+   and `radio_transport.h:289-290` holds them (`= 4` / `= 10`) with its
+   own "DO NOT reformat" note about those exact regexes.
+3. **BLOCKED — not applied.** See "Factual fix 3: blocked, not done"
+   below.
+4. **applied.** `test.ts`'s `RUN:arc` block no longer cites the
+   cleartext-RUN link hang as a live hazard at a dead path. The
+   on-fiber-sampling rationale now stands on `probe()`'s own hazard
+   (the 197.5 mm leg that collapsed to 0.3 mm), and the link hang is
+   recorded as **history with a fix**, citing the archived path
+   `clasi/sprints/done/027-.../issues/done/cleartext-run-hangs-the-link-under-active-telemetry.md`
+   (**verified: resolves**). The behaviour is still documented, as the
+   ticket asked.
+5. **applied.** `world.ts`'s header no longer says "Every read here is a
+   live I2C burst". Confirmed against the current file:
+   `worldX/worldY/worldHeading/worldTrackingReady` are `otosGet` cache
+   reads; `startWorldTracking`, `readWorld`, `seedPose`,
+   `calibrateWorldSensor`, `setWorldSensorOffset` touch the bus. The
+   same-fiber constraint — and the reason for it (an OTOS transaction
+   inside the Nezha encoder's select->read window destroys that sample)
+   — is kept and **scoped to those five**.
+
+### Factual fix 3: blocked, not done
+
+Factual fix 3's only anchor in `src/blocks/run.ts` is
+`     * time -- and group 10.` (line 174) — a `*` continuation line
+**inside the `/** ... */` JSDoc block above `enableRadioLink()`**. The
+same claim's only other instance, `The group defaults to 10, the relay's
+listen group.` (line 158), is likewise inside `setupRadio`'s JSDoc.
+There is no plain `//` comment anywhere in `run.ts` making the claim.
+
+This ticket's third acceptance criterion — and the dispatch — forbid any
+`/** ... */` change in `src/blocks/*.ts`, because that JSDoc is the
+student-facing text PXT renders into the toolbox. The fix and the
+constraint are in direct conflict, and the constraint is the one with a
+test behind it, so **the constraint won and no edit was made**. Nothing
+was routed around: no guard blocked anything; this is a scope decision.
+
+`setupRadio`'s `group: number = 10` default is untouched, as required
+(it is code, and a block signature).
+
+**For the team-lead:** this needs a follow-up with JSDoc explicitly in
+scope. The correct text is that `enableRadioLink()` uses the channel
+**and group** `tools/make_deploy.py` injected for this board, not a
+fixed "group 10"; `setupRadio`'s "The group defaults to 10, the relay's
+listen group" is a separate, still-true statement about the block's own
+default and needs no change.
+
+### BT-08 verdict: RESOLVED — recorded as a no-op
+
+The annex's BT-08 says `motion.ts`'s `goTo` claims the pivot uses
+`defaultYawRate` when it does not. Verified against the current code:
+`startGoTo()` (`motion.ts:361`) calls
+`_setGoToYawRate(Math.round(defaultYawRate * 100))  // [cdeg/s]`
+immediately before `_goToR()`, so the pivot's rate ceiling **is** the
+default turn rate, and the `pivotS = 180 / defaultYawRate` worst-case
+term in the timeout budget is no longer a rate the engine ignores.
+`setDefaultYawRate`'s "Default turn rate for move/goTo blocks" is
+therefore correct as written.
+
+Fixed by **sprint 032 ticket 007**, commit `c39f85d` ("fix(032-007):
+goTo pivot honors default turn rate, reconciled with startMove") —
+`git log -S"_setGoToYawRate" -- src/blocks/motion.ts`. No text change
+made. (The relevant text is JSDoc in any case.)
+
+### Citations reported to ticket 007
+
+Both are `MEASURED` claims in `test/test.ts` that name **no artifact**.
+Neither had one in HEAD either — **no path was stripped by this ticket**
+— and both were left in place rather than deleted, per
+`.claude/rules/measurement-citations.md` and the ticket's instruction:
+
+- `test/test.ts:320` — `MEASURED BUG, vevov 2026-08-25 ... four
+  uncorrected corners cost 58 mm of tour closure that the robot scored
+  as 22 mm`. Boiled down from a longer unartifacted block; the numbers
+  are carried through unchanged, still with no capture path.
+- `test/test.ts:941` — `MEASURED 2026-08-28 on vevov ... every one of
+  153 frames read ox=oy=oh=0 while the encoders logged 246 mm of
+  travel`. **Untouched by this ticket** (outside every annex range);
+  flagged only because the verification pass reads it.
+
+Every other surviving `MEASURED` / `Capture:` claim in the files this
+ticket owns names an artifact that resolves:
+`captures/otos-run-handler-i2c-hang-20260828.md` (tracked),
+`captures/session-b-20260905/gain-sweep-*` (`test.ts:376`, untouched).
+
+### Volume
+
+`test/test.ts`, the one file here with real volume, cut on the merits:
+
+| | lines | `//` comment lines | ratio vs 548 code lines |
+|---|---|---|---|
+| before | 1193 | 645 | 1.18 |
+| after | 1167 | 619 | 1.13 |
+
+`src/blocks/*.ts` plain-`//` comment lines (already clean before this
+ticket, so these are the named boil-downs only): `sim.ts` 236 -> 165,
+`motion.ts` 81 -> 74, `world.ts` 70 -> 71 (fix 5 is one line longer —
+it now distinguishes two cases where it used to state one), `run.ts`
+61 -> 56, `stop.ts` 6 -> 1, `pose.ts` 1 -> 1 (untouched).
+
+### Mechanical proof: pragmas, JSDoc and code untouched
+
+Run over `git diff -U0 -- src/blocks test/test.ts` (348 changed lines):
+
+- **No `//%` line touched.** `grep -E '^[+-]\s*//%'` over the diff
+  returns nothing. Pragma-line counts (`^\s*//%`) per file are
+  identical HEAD -> now, **202 total across `src/blocks/*.ts`**, exactly
+  the count this ticket's Description states.
+  (A naive `grep -c '//%'` shows `motion.ts` 89 -> 88; the one lost
+  occurrence is the *substring* `//%` inside the deleted prose line
+  `// Calls goToR() directly (the //%-exposed engineGoToRArmed/`, not a
+  pragma. Verified by re-counting with `^\s*//%`.)
+- **No JSDoc line touched.** `grep -E '^[+-]\s*(/\*\*|\*/|\*( |$))'`
+  over the diff returns nothing — no `/**`, no `*/`, no ` * `
+  continuation line is added or removed anywhere.
+- **No code line changed.** For each of the seven owned files, stripping
+  every plain-`//` comment line (keeping `//%`) from HEAD and from the
+  working tree gives **byte-identical** files: `motion.ts` 455 lines,
+  `run.ts` 259, `sim.ts` 435, `world.ts` 173, `pose.ts` 42,
+  `test.ts` 548. `stop.ts` is the single exception and it is **one blank
+  line**, not code — deleting the archaeology block that sat between two
+  blank lines left one behind.
+- **No trailing `// [unit]` deleted.** Every line in HEAD matching
+  `\S.*//\s*\[` is still present: `motion.ts` 9, `sim.ts` 26,
+  `world.ts` 1, `test.ts` 7, `run.ts`/`stop.ts` 0.
+- **Nothing renamed**, no identifier changed (implied by the
+  byte-identical code-line proof above).
+
+### Tests (foreground, observed passing)
+
+    uv run pytest tests/host/test_typescript_typecheck.py \
+                  tests/host/test_block_toolbox_order.py \
+                  tests/host/test_archaeology_marker_budget.py -q
+    -> 8 passed in 0.47s
+
+    uv run pytest tests/host/ -k source_pin -q
+    -> 85 passed, 1082 deselected in 0.40s
+
+    uv run pytest tests/host -q
+    -> 1167 passed in 38.10s
+
+No version bump (sprint cadence: `close_sprint` bumps once).
