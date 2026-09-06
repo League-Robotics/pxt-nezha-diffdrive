@@ -577,6 +577,140 @@ achieved ratio is barely under its seed, ticket 008 records that rather
 than inventing a stretch target — a ratchet set below what the tree
 actually achieves fails the next unrelated sprint for no reason.
 
+### Revision (as-built, 2026-09-06)
+
+All eight tickets closed. Every item below is verified against the
+ticket's own Completion notes and `git log --oneline master..HEAD`.
+
+- **Ticket 001** — planned: install the comment-volume ratchet and add
+  anti-patterns 6-7. Landed: a 46-entry `_RATIO_BASELINE`, one more
+  than the Verification-pass table's 45 rows — `src/comms/wifi_link.cpp`
+  was a dropped display row, seeded at its measured 0.13 — plus a new
+  `_RATIO_TOLERANCE = 0.005`, needed because two-decimal baselines round
+  both ways (20 of the 46 files sat fractionally above their own
+  printed value at seed time; a bare `<=` would have failed on the tree
+  it was measured from). `docs/code-review/guidelines.md` now lists
+  seven anti-patterns, its intro attributing 1-5 to the 2026-08-23 audit
+  and 6-7 to the 2026-09-02 review, exactly as planned.
+- **Ticket 002** — planned: `motion/` and `core/` boil-down against the
+  annex. Landed: annex items 1, 2, 3, 5 and 18b applied as planned; item
+  4 applied at the reduced scope sprint 031 left (the seven shaping
+  knobs had already moved to `motion_limits.h`); items 6, 7 and 18a were
+  no-ops, moot because sprint 031 rewrote `motion/` and sprint 033
+  deleted `platform/encoder_pose_source.h`. `motion_engine.h` 4.75→3.70,
+  `heading_wrap.h` 4.00→2.82. The one permitted vendored-kernel edit
+  (`core/diffdrive.{h,cpp}`) touched only each file's line-1 self-name,
+  as scoped. `core/fiber_identity.h` was judged and left essentially as
+  is (its length is contract, not archaeology); `motion/segment.h`,
+  `motion/motion_limits.h` and `motion/odometry.h` were judged and left
+  untouched.
+- **Ticket 003** — planned: `platform/` and `shims.cpp` boil-down
+  against the annex. Landed: annex rows 8-15 applied, row 11 against the
+  sprint-033 narration actually present rather than the pre-033 text the
+  annex quoted, row 15 at reduced scope. `shims.cpp` 1.71→1.42,
+  `nezha_port.cpp` 0.96→0.74. The tigez citation was repointed at
+  `captures/tigez-cal-20260830/notes.md` (resolves once ticket 007
+  tracks that file). The ordinal-27 claim was verified correct and left
+  alone, with the optional 21/22 clarity line added. Beyond the annex:
+  `vfp_guard.h` and `platform_ports.h`'s pre-existing unartifacted
+  `MEASURED` claims were given the tracked
+  `docs/knowledge/2026-09-01-codal-does-not-save-fpu-registers-across-fibers.md`
+  citation.
+- **Ticket 004** — planned: comms transports, queues and Protocol
+  boil-down against the annex. Landed: annex rows 1, 2, 4, 5 and 10
+  applied; row 12 applied to three of its four blocks — the fourth,
+  `kRunDedupeMs`, had moved to `run_bridge.h::kDedupe` and was boiled
+  down there instead. The annex's literal `kMaxPayloadBytes` replacement
+  text was **not** pasted: `test_radio_transport_doc_comment_states_equality_not_tighter`
+  requires "equal" and forbids "tighter", and the four wire caps have
+  been equal at 240 since sprint 010, so the annex's stale
+  "tighter"-framing was overridden rather than followed. Five further
+  stale claims were found and fixed while re-anchoring (group-10 in
+  `enableRadio()`, a closed issue cited as live, a wrong issue path, and
+  two dangling cross-references). `radio_transport.h` 5.29→3.69,
+  `serial_transport.h` 5.17→3.89, `protocol.h` 4.43→3.58. The
+  DO-NOT-REFORMAT regex block stayed byte-identical and all four
+  `make_deploy.py` injection regexes still match exactly once.
+- **Ticket 005** — planned: comms wire-layer boil-down against the
+  annex. Landed: all six annex rows applied. `gapOutstanding_` was
+  confirmed **live** (set on a numeric gap or a decode failure, cleared
+  on an in-order line or `HELLO`, read only by
+  `emitReminderIfStalled()`) — the two comments claiming it had been
+  deleted were corrected; the field itself was untouched. The `kVersion`
+  comment was corrected to describe the "unbaked" placeholder injected
+  at deploy, matching the drift test; the 24-char version budget holds,
+  the injected form being 12 characters. `wire_adapter.h` 5.46→3.74,
+  `wire_handler.h` 2.64→2.07; markers across the four owned files
+  173→63. Two unartifacted `MEASURED` claims in `wire_handler.cpp`
+  (disagreeing 66-75% vs 66-83% figures) were recorded for triage, not
+  fixed — no artifact to cite and out of this ticket's scope.
+- **Ticket 006** — planned: blocks and test-program boil-down against
+  the annex. Landed: annex rows 1-8 and 10 applied; row 9's factual half
+  was a no-op (already correct since sprints 028/032), its boil-down
+  half applied. Seven `native-only` copies were found in `sim.ts` (the
+  annex expected six) and collapsed to one plain-comment note plus the
+  one instance inside the retired-shims JSDoc, left untouched because
+  JSDoc is out of this ticket's scope. Factual fixes 1, 2, 4 and 5 were
+  applied; fix 3 (`run.ts`'s "group 10" claim) was **blocked** — its
+  only anchor is inside a JSDoc block, which this ticket forbade
+  touching — and deferred to
+  `clasi/issues/run-ts-jsdoc-still-says-radio-group-10.md`. BT-08 was
+  confirmed resolved by sprint 032 ticket 007 (`c39f85d`). `test/test.ts`
+  645→619 comment lines; `test_typescript_typecheck.py` was green both
+  before and after this ticket's edits. The working tree was found
+  already edited by an interrupted earlier dispatch of this same
+  ticket; the programmer that completed it verified and committed that
+  prior work rather than redoing it.
+- **Ticket 007** — planned: track the cited capture directories and
+  finish the tools/tests hygiene items. Landed: 37 files force-tracked
+  (197 KB) — 31 under A1, 2 under A2, 4 small evidence files under A3;
+  A4 had nothing to track. Every `captures/` path cited from `src/` now
+  resolves in a fresh clone. The annex's row-6 replacement text for
+  `camlink.py`'s module docstring was **rejected** — it cites the
+  deleted `ensure_registered()` — and the docstring was instead boiled
+  down with an explicit REGISTERED-vs-RAW paragraph. The "not persisted
+  across a daemon restart" claim was found already fixed in the tool;
+  the `MOUNTS` table no longer exists at all, and `field_calibration.json`
+  already carries tigez. `tests/host/test_kernel_harness.py`'s docstring
+  went 28→13 lines.
+- **Ticket 008** — planned: `src/DESIGN.md` truth pass, re-measure and
+  tighten both ratchets. Landed: seven corrections to `src/DESIGN.md` —
+  the §6/§8 `kMaxPayloadBytes` history recast so the present tense
+  states 240 with all four caps equal, not "tighter"; the dangling
+  `captures/tovez-wifi-20260902/` path dropped in favor of the tracked
+  `docs/knowledge/2026-09-02-wifi-transport-tovez.md`; the MessageBus
+  RUN bridge description replaced with `RunBridge`/`dispatchJob()`; the
+  4/10 placeholder's "vevov's fleet assignment" mischaracterization
+  corrected to "un-baked, deploy-injected per robot"; the WireHandler
+  instance count corrected from two to three (naming
+  `wireHandlerWifi_`); and a present-tense "ordinal 30 does not exist"
+  claim recast as history, since sprint 033 gave `diagValue()` an
+  ordinal 30 of its own. §2's upstream-provenance line was re-verified
+  and confirmed a no-op — not touched, as the ticket required.
+  `_BUDGET` 388→173; the project-owned aggregate 1.126→0.943;
+  `_RATIO_BASELINE` was re-seeded to the achieved values with no
+  invented headroom, leaving three files within `_RATIO_TOLERANCE`'s
+  slack of their ceiling. This ticket's own re-seeding is what the
+  "Verification pass" table above already shows in its `achieved`
+  column.
+
+**Beyond the ticket list.** The team-lead ran the desk firmware build
+twice, not once — after ticket 003 (the first ticket to touch
+`pxt.h`-bound platform files) and again after ticket 008 (the gate the
+Tickets section below originally planned as the sprint's sole
+build-checkpoint) — rather than deferring every build to the end. Two
+follow-up issues were filed by the team-lead from this sprint's
+findings: `clasi/issues/run-ts-jsdoc-still-says-radio-group-10.md`
+(ticket 006's blocked JSDoc fix) and
+`clasi/issues/measured-claims-without-artifacts-outside-sprint-035-scope.md`
+(the unartifacted `MEASURED` claims tickets 005-007 found and could not
+fix in scope). `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`'s
+"Why this kept happening" items 2 and 3 were updated by the team-lead
+after close, since both described a `tools/camlink.py` that ticket 007
+has since corrected: the docstring no longer makes the stale
+"not persisted across a daemon restart" claim, and the `MOUNTS` table
+those items referenced no longer exists.
+
 ## Use Cases
 
 ### SUC-001: A reader trusts a comment in `src/`
@@ -632,7 +766,7 @@ Before tickets can be created, all of the following must be true:
 - [x] Architecture review passed (or skipped, for changes with no
       architectural impact) — **passed** 2026-09-06; Compact sizing,
       self-review scoped to the one changed module
-- [ ] Stakeholder has approved the sprint plan — not recorded by the
+- [x] Stakeholder has approved the sprint plan — not recorded by the
       planner; the team-lead owns this gate
 
 ## Tickets

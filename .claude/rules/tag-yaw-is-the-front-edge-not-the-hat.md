@@ -86,16 +86,20 @@ rotation"). It still got re-derived. Three causes, all fixed:
    *learn* it. Report it pass/fail against +90°. A probe returning
    +91.12° found nothing but its own noise; one returning +1° or +181°
    means the plate is rotated, and that is the finding.
-2. **`tools/camlink.py`'s docstring says mount registrations are "NOT
-   persisted across a daemon restart."** Stale — AprilCam now writes
-   them to `state_dir/mounts/registry.json` and reloads at startup
-   (agent guide §6). Registrations survive; only annotations are still
-   per-session. The stale claim tells every reader that nothing is known
-   until they establish it.
-3. **`tools/camlink.py`'s `MOUNTS` table knows tags 53 (vevov), 52
+2. **`tools/camlink.py`'s docstring used to say mount registrations are
+   "NOT persisted across a daemon restart."** That was stale — AprilCam
+   writes them to `state_dir/mounts/registry.json` and reloads at
+   startup (agent guide §6). Registrations survive; only annotations are
+   still per-session. The docstring now says so (fixed before sprint
+   035; re-verified 2026-09-06 by sprint 035 ticket 007). The lesson
+   stands: a stale "nothing is known" claim sends every reader off to
+   re-establish it.
+3. **`tools/camlink.py`'s `MOUNTS` table knew tags 53 (vevov), 52
    (tovez), 10 and 11 — but not 57 (tigez)**, the board on the field
-   since 2026-08-30. A tigez session finds no entry, concludes nothing
-   is known, and probes.
+   since 2026-08-30. A tigez session found no entry, concluded nothing
+   was known, and probed. The table is gone: `tools/field_calibration.json`
+   is the one calibration of record and carries tigez (tag 57, mount
+   solved 2026-09-05).
 
 (2) and (3) are tracked in
 `clasi/issues/camlink-mounts-table-is-stale-for-tigez.md`.
