@@ -379,6 +379,85 @@ def test_score_corners_forward_scan_ignores_a_pre_visit_near_approach():
         'numerically-closer but pre-A spurious pass (row0)')
 
 
+# --- score_corners(): the TL-08 bounded window ---------------------------
+
+def _tl08_lap_rows(dt=0.25):
+    """The TL-08 scenario, written out as an explicit leg list: a lap
+    that starts on NE, passes NW 4 cm off at t = 5 s, touches SW / SE /
+    NE 1 cm off at t = 15 / 25 / 35 s, and then OVER-CLOSES -- its
+    closing leg drifts back along the north edge and ends 1.5 cm from
+    NW at t = 38 s.
+
+    Sampled every `dt` s so no interval exceeds `score_corners()`'s
+    0.4 s `gap_s`; a gap would make the blind-stretch rule, not the
+    window, decide the answer and the fixture would stop testing what
+    it is here to test.
+    """
+    nw, sw, se, ne = (field.DOTS['NW'], field.DOTS['SW'],
+                      field.DOTS['SE'], field.DOTS['NE'])
+    legs = [
+        # (t_start, t_end, from_xy, to_xy)
+        (0.0, 5.0, ne, (nw[0] + 4.0, nw[1])),    # NE start -> 4 cm off NW
+        (5.0, 15.0, (nw[0] + 4.0, nw[1]), (sw[0], sw[1] + 1.0)),
+        (15.0, 25.0, (sw[0], sw[1] + 1.0), (se[0] - 1.0, se[1])),
+        (25.0, 35.0, (se[0] - 1.0, se[1]), (ne[0], ne[1] - 1.0)),
+        # the over-close: back west along the north edge, ending 1.5 cm
+        # from NW -- NW's GLOBAL closest approach over the whole run.
+        (35.0, 38.0, (ne[0], ne[1] - 1.0), (nw[0] + 1.5, nw[1])),
+    ]
+    rows = [_row(0.0, ne[0], ne[1])]
+    for t0, t1, (x0, y0), (x1, y1) in legs:
+        n = int(round((t1 - t0) / dt))
+        for k in range(1, n + 1):
+            f = k / n
+            rows.append(_row(t0 + f * (t1 - t0),
+                             x0 + f * (x1 - x0), y0 + f * (y1 - y0)))
+    return rows
+
+
+def test_score_corners_bounds_each_corner_to_its_own_window():
+    """TL-08 (08-26 C-16). The unbounded scan let NW take the late
+    1.5 cm over-close at t = 38 s, which pushed `used` to the tail and
+    left SW / SE / NE a handful of final samples -- one good run read
+    as three bad corners. With a per-corner window NW is scored from
+    its real 4 cm pass at t = 5 s and every corner keeps its own
+    approach."""
+    rows = _tl08_lap_rows()
+
+    res = field.score_corners(rows)
+
+    assert res['NW'] == pytest.approx(4.0, abs=0.2), (
+        "NW must be scored from its own approach (4 cm at t=5 s), not "
+        "from the closing leg's 1.5 cm re-approach at t=38 s")
+    for tag in ('SW', 'SE', 'NE'):
+        assert res[tag] is not None, (
+            f'{tag} was starved by an earlier corner claiming the tail '
+            f'of the run')
+        assert res[tag] == pytest.approx(1.0, abs=0.2), (
+            f'{tag} must score its own ~1 cm touch, not a leftover '
+            f'tail sample tens of cm away')
+
+
+def test_score_corners_two_corners_cannot_claim_the_same_sample():
+    """`used = besti` (the old code) let the NEXT corner start its scan
+    AT the sample the previous corner just claimed, so two consecutive
+    corners could both be scored from one row. Here row0 is A's exact
+    hit and is also the closest row to B; `used = besti + 1` forces B
+    onto row1."""
+    dots = {'A': (0.0, 0.0), 'B': (0.5, 0.0)}
+    rows = [
+        _row(0.0, 0.0, 0.0),     # A's exact hit -- and B's closest row
+        _row(0.1, 20.0, 0.0),    # the only row left for B
+    ]
+
+    res = field.score_corners(rows, order=['A', 'B'], dots=dots)
+
+    assert res['A'] == pytest.approx(0.0, abs=1e-9)
+    assert res['B'] == pytest.approx(19.5), (
+        'B must be scored from row1; scoring it 0.5 cm means it '
+        'reclaimed row0, the sample A already used')
+
+
 # --- path_deviation(): the PY-08 unguarded-divide guard -------------------
 
 def test_path_deviation_on_the_rectangle_is_near_zero():

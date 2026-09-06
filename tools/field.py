@@ -42,6 +42,14 @@ RECT = [DOTS['NE'], DOTS['NW'], DOTS['SW'], DOTS['SE'], DOTS['NE']]
 LIMITS = (67.15, 44.65)
 MARGIN = 12.0
 
+# How near the NEXT dot a sample must come before `score_corners()`
+# closes the CURRENT corner's search window -- "the robot has plainly
+# arrived somewhere else, stop scoring the corner it left". Comfortably
+# under half the 60 cm short side of the dot rectangle (and well under
+# half the 100 cm long side), so the window can only close on a genuine
+# arrival at the next dot, never on a pass down the middle of the field.
+CORNER_WINDOW_RADIUS = 15.0  # [cm]
+
 
 def _within_margin(x, y):
     lx, ly = LIMITS
@@ -225,7 +233,19 @@ def registered_pose_distance(a, b):
     return math.hypot(b[0] - a[0], b[1] - a[1])
 
 
-def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
+def _first_approach(rows, start, dot, radius):
+    """First index >= `start` at which `rows` comes within `radius` of
+    `dot`, or `len(rows)` if it never does. Helper for
+    `score_corners()`'s per-corner window."""
+    dx, dy = dot
+    for i in range(start, len(rows)):
+        if math.hypot(rows[i][1] - dx, rows[i][2] - dy) <= radius:
+            return i
+    return len(rows)
+
+
+def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4,
+                  window_radius=CORNER_WINDOW_RADIUS):
     """Closest approach to each dot in `order`, scanning `rows` (each a
     `(t, x_cm, y_cm, yaw_deg)` tuple, timestamps non-decreasing)
     forward so a later corner cannot reclaim an earlier corner's
@@ -241,6 +261,31 @@ def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
     (<= 3 cm) right next to a gap is still trusted -- the robot was
     plainly there.
 
+    **Each corner searches a BOUNDED window, not the rest of the run.**
+    Of the two remedies the 2026-09-02 review offered for TL-08 (a
+    bounded window, or one monotone assignment over all four corners)
+    this takes the first: corner *k* is scored over
+    `rows[used : first_approach(k + 1)]`, where `first_approach` is the
+    first sample AFTER `used` within `window_radius` of the NEXT dot in
+    `order` -- i.e. the window closes the moment the robot has plainly
+    arrived somewhere else. The last corner in `order` has no next dot
+    and keeps the rest of the run. `window_radius` defaults to
+    `CORNER_WINDOW_RADIUS`.
+
+    The unbounded scan this replaces (08-26 C-16, still open as TL-08)
+    let one corner eat the whole run: a lap that starts on NE, passes
+    NW 4 cm off early and re-approaches NW 1.5 cm off on its closing
+    leg scored NW from the LATE sample, pushed `used` to the tail, and
+    left SW/SE/NE a handful of final samples to report tens of cm or
+    `None` from. One good run read as three bad corners. The
+    first-approach bound is searched from `used + 1`, never `used`, so
+    the current corner always keeps at least its own first sample and
+    the window can never come back empty.
+
+    `used` advances to `besti + 1`, so two consecutive corners cannot
+    claim the same sample -- the reverse of the monotonicity the
+    docstring has always promised, and the other half of TL-08.
+
     This is the ONE corner-scoring algorithm every tour/ground-truth
     tool now calls -- previously 4 separate copies of it existed and
     disagreed for the same run (see module docstring).
@@ -251,10 +296,15 @@ def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
     gaps = [(a[0], b[0]) for a, b in zip(rows, rows[1:])
             if b[0] - a[0] > gap_s]
     used = 0
-    for tag in order:
+    for k, tag in enumerate(order):
+        if used >= len(rows):
+            break
         dx, dy = dots[tag]
+        nxt = dots[order[k + 1]] if k + 1 < len(order) else None
+        end = (len(rows) if nxt is None
+               else _first_approach(rows, used + 1, nxt, window_radius))
         best, besti = None, used
-        for i in range(used, len(rows)):
+        for i in range(used, end):
             d = math.hypot(rows[i][1] - dx, rows[i][2] - dy)
             if best is None or d < best:
                 best, besti = d, i
@@ -263,7 +313,7 @@ def score_corners(rows, order=ORDER, dots=DOTS, gap_s=0.4):
         t = rows[besti][0]
         blind = any(g0 - 0.5 <= t <= g1 + 0.5 for g0, g1 in gaps)
         res[tag] = None if (blind and best > 3.0) else best
-        used = besti
+        used = besti + 1
     return res
 
 

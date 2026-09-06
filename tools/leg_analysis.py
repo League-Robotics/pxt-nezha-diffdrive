@@ -107,6 +107,15 @@ import tlm
 ON_TARGET = 'on-target'
 STRAIGHT_OVERRUN = 'straight-overrun'
 MID_LEG_TRUNCATION = 'mid-leg-truncation'
+# A leg that got the DISTANCE right and the heading wrong. Without this
+# class the distance-sign branch below labelled such a leg by the sign of
+# a sub-tolerance distance error, so `believed = (100.5 cm, 30 deg)`
+# against `commanded = (100 cm, 0 deg)` read as `straight-overrun` with
+# `distance_error_cm = +0.5` -- a 30 deg heading miss reported as a 5 mm
+# overrun (2026-09-02 review, TL-10). The two error columns were always
+# separate; it was the verdict, the column the table sorts on, that
+# collapsed them.
+HEADING_MISS = 'heading-miss'
 
 # 60 mm is the tour-closure "near-miss" threshold the residual-fault
 # issue itself quotes ("tours complete ~70% with near-misses at the
@@ -223,20 +232,30 @@ def classify_leg(commanded, believed, ground_truth=None,
 
     `distance_error_cm` is signed: positive means the leg traveled
     FARTHER than commanded (an overrun tendency), negative means it
-    fell SHORT (a truncation tendency). A leg counts `on-target` only
-    when BOTH distance and heading are within tolerance; otherwise the
-    classification is decided by the sign of the distance error alone
-    -- `heading_error_deg` is still reported either way, which is what
-    lets a caller see "distance missed, heading still closed" (the
-    residual signature) as distinct from "both missed" (the
-    already-fixed class) rather than as one flattened bit.
+    fell SHORT (a truncation tendency). The branch order is: a leg
+    counts `on-target` only when BOTH distance and heading are within
+    tolerance; a leg whose DISTANCE is within tolerance but whose
+    heading is not is `heading-miss`; only then is the verdict decided
+    by the sign of the distance error. `distance_error_cm` and
+    `heading_error_deg` are reported in full either way -- the new
+    class changes the verdict, not the data -- which is what lets a
+    caller see "distance missed, heading still closed" (the residual
+    signature) as distinct from "both missed" (the already-fixed class)
+    rather than as one flattened bit.
     """
     distance_error_cm = believed.distance_cm - commanded.distance_cm
     heading_error_deg = _wrap_deg(believed.heading_deg - commanded.heading_deg)
 
-    if (abs(distance_error_cm) <= distance_tol_cm
-            and abs(heading_error_deg) <= heading_tol_deg):
+    distance_ok = abs(distance_error_cm) <= distance_tol_cm
+    heading_ok = abs(heading_error_deg) <= heading_tol_deg
+
+    if distance_ok and heading_ok:
         classification = ON_TARGET
+    elif distance_ok:
+        # Distance inside tolerance, heading outside it -- a heading-only
+        # miss, which the distance-sign branch below would otherwise
+        # label by the sign of a sub-tolerance distance error (TL-10).
+        classification = HEADING_MISS
     elif distance_error_cm > 0:
         classification = STRAIGHT_OVERRUN
     else:

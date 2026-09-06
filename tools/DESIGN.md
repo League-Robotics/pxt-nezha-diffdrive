@@ -285,8 +285,13 @@ and record what comes back.
 - **`leg_analysis.py`** (sprint 011, ticket 002, done) — turns a `tour_capture.py`
   recording into a per-leg believed-vs-target table: commanded target,
   believed pose at move end, AprilCam ground truth where available, and
-  a classification (on-target / straight-overrun / mid-leg-truncation)
-  per leg. A new leaf consumer of `tools/tlm.py`'s `TlmStream`/
+  a classification (on-target / heading-miss / straight-overrun /
+  mid-leg-truncation) per leg. `heading-miss` (sprint 034 ticket 002)
+  is the "distance inside tolerance, heading outside it" case, and is
+  tested BEFORE the distance-sign split; without it a 30° heading miss
+  on a leg that overran by 5 mm was reported as `straight-overrun`
+  (2026-09-02 review, TL-10). It changes the verdict only — both error
+  figures are still reported separately, in their own columns. A new leaf consumer of `tools/tlm.py`'s `TlmStream`/
   `pose_cm`/`otos_cm` — the same relationship the six tools above already
   have, one more instance of it, not a new kind of dependency.
 - **`tour_practice.py`** — repeated camera-scored runs from the start
@@ -400,6 +405,26 @@ rather than raising `ZeroDivisionError` and losing the report at the
 moment it had the most to say. Odometry reports the full commanded turn
 on a robot with no motor power; the camera is the only instrument that
 can contradict it.
+
+### Scoring a corner: one bounded window each (sprint 034 ticket 002)
+
+`field.score_corners()` scores corner *k* over
+`rows[used : first_approach(k + 1)]` — the samples between the previous
+corner's claim and the first sample within `field.CORNER_WINDOW_RADIUS`
+(15 cm) of the NEXT dot in `order`. The last corner keeps the rest of
+the run. The bound is searched from `used + 1`, so a window can never
+come back empty, and `used` advances to `besti + 1`, so two consecutive
+corners cannot claim one sample.
+
+Of the two remedies the 2026-09-02 review offered for TL-08 (bounded
+window, or one monotone assignment across all four corners) this is the
+first — it keeps the existing forward-scan shape and its monotonicity
+guarantee rather than replacing the algorithm. What it fixes: the
+unbounded scan let corner 0 search to the END of the recording, so a lap
+that passes NW early and re-approaches it on its closing leg scored NW
+from the LATE sample, pushed `used` to the tail, and left SW/SE/NE a
+handful of final samples — one good run read as three bad corners
+(08-26 C-16, reopened as TL-08).
 
 ## OTOS rig console
 

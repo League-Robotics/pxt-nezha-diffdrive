@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Per-corner score_corners() window, and a heading-miss leg class
-status: in-progress
+status: done
 use-cases:
 - SUC-006
 depends-on: []
@@ -42,18 +42,18 @@ the table sorts on, collapses it anyway.
 
 ## Acceptance Criteria
 
-- [ ] `score_corners()` searches corner *k* only within a bounded
+- [x] `score_corners()` searches corner *k* only within a bounded
       window, not to the end of the run.
-- [ ] The TL-08 scenario above scores all four corners; no corner is
+- [x] The TL-08 scenario above scores all four corners; no corner is
       starved by an earlier corner's late re-approach.
-- [ ] Two consecutive corners cannot claim the same sample
+- [x] Two consecutive corners cannot claim the same sample
       (`used = besti + 1`).
-- [ ] The existing `test_field.py` corner tests still pass -- the
+- [x] The existing `test_field.py` corner tests still pass -- the
       monotonicity guarantee they pin is preserved, not traded away.
-- [ ] `leg_analysis.py` has a `HEADING_MISS` classification for
+- [x] `leg_analysis.py` has a `HEADING_MISS` classification for
       "distance within tolerance, heading outside it", and it is used in
       preference to the distance-sign branch.
-- [ ] Both errors continue to be reported separately in their own
+- [x] Both errors continue to be reported separately in their own
       columns; the new class changes the verdict, not the data.
 
 ## Implementation Plan

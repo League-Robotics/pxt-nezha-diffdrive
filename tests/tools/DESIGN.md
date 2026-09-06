@@ -160,7 +160,15 @@ Imports `tools/field.py` directly:
   (one corner scored from a nearby-but-gap-blind sample, the other
   correctly reported unobserved) — this file proves the shared
   implementation reproduces the *correct* outcome for both halves of
-  that disagreement, not just that it runs without raising.
+  that disagreement, not just that it runs without raising. Sprint 034
+  ticket 002 adds the **per-corner window** (TL-08): the TL-08 lap is
+  written out as an explicit leg list — NE start, NW passed 4 cm off at
+  t = 5 s, SW/SE/NE touched 1 cm off, then a closing leg that
+  re-approaches NW 1.5 cm off at t = 38 s — and all four corners must
+  score their own approach, where the unbounded scan gave
+  `NW 1.5 / SW 60.0 / SE 115.3 / NE 98.5`. A second test pins
+  `used = besti + 1` by giving two corners one shared closest row and
+  requiring the second to take the next one.
 - **`path_deviation()`** — the PY-08 degenerate-zero-length-segment
   divide guard.
 
