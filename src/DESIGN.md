@@ -1814,11 +1814,15 @@ lives in):
 - **Sprint 032 ticket 008**: `cycleStat()` (`shims.cpp`) and its
   simulator stand-in `_cycleStat()` (`sim.ts`) are deleted outright —
   grepped repo-wide, neither had a caller anywhere in `src/`, `test/`,
-  `tests/`, or `tools/`. `r.tickOverrunCount`/`simTickOverrunCount`/
-  `simCycleCount`, the counters `cycleStat()` used to read, are left
-  in place: they are still written every tick by
-  `tickDrive()`/`_tickDrive()`'s own pacing logic, independent of
-  `cycleStat()` ever existing.
+  `tests/`, or `tools/`. **Sprint 033 ticket 001** finished the job:
+  `r.tickOverrunCount`/`simTickOverrunCount`/`simCycleCount`, the
+  counters `cycleStat()` used to read, had gone write-only (still
+  incremented every tick by `tickDrive()`/`_tickDrive()`'s own pacing
+  logic, read by nothing) — they are deleted too, along with their
+  per-tick increments. The kernel's own missed-deadline count
+  (`out.cycleOverrunCount`, `diagValue()` case 19,
+  `src/core/diffdrive.h`/`.cpp`) is a distinct, real quantity with a
+  real reader (`probe(19)`) and is untouched.
 - Continuous-mode commands (`setWheelSpeeds`/`driveTwist`, `motion.ts`)
   only move the robot while a `while (diffDrive.driveTick())` loop
   ticks; blocking moves tick internally. **Sprint 007**: this is now

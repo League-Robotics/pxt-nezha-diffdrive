@@ -190,11 +190,6 @@ struct Rig {
   // still writes immediately -- this flag is never touched for that
   // path.
   bool pendingStop_ = false;
-  uint32_t tickOverrunCount = 0; // Rig-level: tickDrive() calls that ran
-                                  // past their own paced deadline.
-                                  // Distinct from the kernel's own
-                                  // cycleOverrunCount_, which only its
-                                  // unused run() ever increments.
 
   // Plain, no-capture function pointer the protocol fiber registers
   // (registerTickServiceHook(), below) once it starts. tickDrive() calls
@@ -932,7 +927,6 @@ bool tickDrive() {
         static_cast<uint32_t>((deadline - now + 999) / 1000);
     r.sleeper.sleepMillis(shortfall);
   } else {
-    ++r.tickOverrunCount;
     r.sleeper.yield();
   }
 
