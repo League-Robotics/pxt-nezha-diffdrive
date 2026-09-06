@@ -1,8 +1,9 @@
 ---
 id: '003'
 title: Delete the dead tools and dead blocks, with a reference sweep
-status: open
-use-cases: [SUC-004]
+status: in-progress
+use-cases:
+- SUC-004
 depends-on: []
 github-issue: ''
 issue: tools-consolidation-inprocess-aprilcam-wrap-link-layer.md
