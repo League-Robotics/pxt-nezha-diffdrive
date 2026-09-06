@@ -1,7 +1,7 @@
 ---
 id: '007'
 title: Track the cited capture directories and finish the tools/tests hygiene items
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
@@ -124,26 +124,26 @@ narration.
 
 ## Acceptance Criteria
 
-- [ ] A1 and A2: both directories force-tracked in full, no
+- [x] A1 and A2: both directories force-tracked in full, no
       `__pycache__` added. `git ls-files` confirms.
-- [ ] A3: `notes.md`, `log.jsonl`, `radio-txcount-diagnostic.patch` and
+- [x] A3: `notes.md`, `log.jsonl`, `radio-txcount-diagnostic.patch` and
       `fieldtour5.log.jsonl` tracked; the large JSON blobs are **not**.
-- [ ] A4: verified there is nothing to track; ticket 008's edit
+- [x] A4: verified there is nothing to track; ticket 008's edit
       confirmed (or flagged as still outstanding if 008 has not run).
-- [ ] Every `captures/` path cited from `src/` (including
+- [x] Every `captures/` path cited from `src/` (including
       `src/DESIGN.md`) resolves against `git ls-files` — demonstrate
       with the check below and paste its output into the completion
       notes.
-- [ ] B1: `tools/camlink.py`'s module docstring boiled down; the annex's
+- [x] B1: `tools/camlink.py`'s module docstring boiled down; the annex's
       own replacement recorded as rejected with its reason; no
       behaviour change in the file.
-- [ ] B2: `tests/host/test_kernel_harness.py`'s `compile_shared_lib`
+- [x] B2: `tests/host/test_kernel_harness.py`'s `compile_shared_lib`
       docstring replaced; the no-`-I` vs `include_dirs` distinction
       survives.
-- [ ] The ten already-applied tools-and-tests items and the one moot
+- [x] The ten already-applied tools-and-tests items and the one moot
       item are recorded as no-ops in the completion notes, naming
       sprint 034 and the `camproc.py` deletion.
-- [ ] The three out-of-scope untracked citations outside `src/` are
+- [x] The three out-of-scope untracked citations outside `src/` are
       recorded as a follow-up, not fixed.
 
 ## Testing
@@ -183,3 +183,157 @@ Foreground only.
 - Read `sprint.md`'s "Verification pass" section first; its
   "Capture citations" table is the authority for Part A.
 - Do not run the full repo suite.
+
+## Completion notes
+
+### Part A — 37 files force-tracked, 197 KB total
+
+| # | directory | files added | bytes | notes |
+|---|---|---|---|---|
+| A1 | `captures/gopiv-profile-sweep-20260901/` | 31 | 240K on disk | whole directory, added file-by-file from `find -type f`; no `__pycache__` present and none added |
+| A2 | `captures/motion-profile-probe-20260901/` | 2 | 12K | `measured.txt`, `profile_probe.py` |
+| A3 | `captures/tigez-cal-20260830/` | 4 | 28K | `notes.md`, `log.jsonl`, `radio-txcount-diagnostic.patch`, `fieldtour5.log.jsonl` only. The 17 remaining files (77K–462K JSON/JSONL blobs, 2.6M total) stay **untracked**, as specified |
+| A4 | `captures/tovez-wifi-20260902/` | 0 | — | confirmed still absent from disk. **Ticket 008 has not run yet** — `src/DESIGN.md`'s dangling `captures/tovez-wifi-20260902/` path is still there, so this row is **outstanding until 008**. The same sentence's `docs/knowledge/2026-09-02-wifi-transport-tovez.md` is tracked, verified with `git ls-files` |
+
+`git ls-files captures/ | grep -c __pycache__` → `0`. Total tracked
+under `captures/` went 464 → 501. New bytes: `202150` (197 KB) across
+the 37 files.
+
+**Citation-resolution check** (the acceptance demonstration), run from
+the repo root after the `git add -f`:
+
+    captures/bench-acceptance-029-20260904c/             tracked=20
+    captures/bench-acceptance-029-20260904d/             tracked=69
+    captures/bench-acceptance-029-20260904d/heading-probe.log tracked=69
+    captures/bench-acceptance-029-20260904d/notes.md     tracked=69
+    captures/gopiv-floor70-20260829/                     tracked=14
+    captures/gopiv-frozen-encoder-fix-20260902/notes.md  tracked=11
+    captures/gopiv-profile-sweep-20260901/tour_tight.json tracked=31
+    captures/motion-profile-probe-20260901/measured.txt  tracked=2
+    captures/session-b-20260905/                         tracked=134
+    captures/session-b-20260905/discriminator-20260905   tracked=134
+    captures/session-b-20260905/discriminator-20260905/  tracked=134
+    captures/session-b-20260905/discriminator-20260905/legs.json tracked=134
+    captures/tigez-cal-20260830/notes.md                 tracked=4
+    captures/tigez-radio-retest-20260902/                tracked=7
+    captures/tovez-taper-20260829/variants.json          tracked=17
+    captures/tovez-wifi-20260902/                        tracked=0
+
+Every line is nonzero except `tovez-wifi-20260902/`, which is A4 — the
+path ticket 008 drops in favour of the tracked
+`docs/knowledge/2026-09-02-wifi-transport-tovez.md`. The check counts
+per *directory*; a stricter per-*file* pass on the nine citations that
+name a specific file (rather than a directory) shows all nine resolving
+individually, including ticket 003's repointed
+`captures/tigez-cal-20260830/notes.md`
+(`src/platform/nezha_port.cpp` lines 23 and 85).
+
+### Part B
+
+**B1 — `tools/camlink.py` module docstring: boiled down, annex text
+REJECTED.** The annex's row-6 replacement text was **not** pasted. Its
+premise is gone: it prescribes a docstring for `ensure_registered()`,
+and that function no longer exists in the file (the API is
+`Cam.register()` / `Cam._register_one()`); its proposed text also
+describes the `MOUNTS` table as the calibration of record, which is the
+exact behaviour sprint 029 removed and which
+`field_calibration.json` replaced. Pasting it would have re-introduced
+a false statement. Recorded as **"replaced with different text, annex
+text rejected because it cites a deleted function"**, per the ticket's
+rules of engagement.
+
+What was written instead — the current truth only:
+`field_calibration.json` is the one calibration of record (TL-02);
+constructing `Cam` registers nothing; registration is explicit via
+`register()` / `--register`, once, when a mount actually changed;
+an unregistered tag reports RAW while a **registered** tag's `yaw_rad`
+IS the robot's heading already corrected (the REGISTERED-vs-RAW
+distinction from `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`
+§"Registered vs raw", now stated explicitly as its own paragraph — it
+was previously only implicit). Also dropped the sprint-034-ticket-008
+narration of the deleted subprocess wrapper, keeping the live facts it
+carried (in-interpreter daemon access, the background reader thread,
+the `latest`/`fix()` stale-pose contract). Kept unchanged: the units
+block, the fixed-convention paragraph and its rules-file path, the
+6.4 cm parallax + 3.6 cm lever figure and its 2026-08-23 NE-orange-dot
+ground truth, and the 2026-09-02 tag-53 remount incident (compressed,
+not deleted). **No behaviour change** — docstring text only; TL-02's
+registration semantics untouched.
+`tests/tools/test_camlink.py::test_real_calibration_file_has_no_mounts_table_leftovers`
+passed **before** and **after** the edit.
+
+The two claims `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`
+flags against this file:
+
+- **(a) "NOT persisted across a daemon restart" — already fixed, a
+  no-op.** The docstring now reads "THE DAEMON DOES THE CORRECTING, AND
+  IT REMEMBERS. Tag mount registrations persist across a daemon restart
+  -- they are written to the daemon's mounts registry on disk and
+  reload automatically at daemon startup." Nothing to fix. (The rules
+  file's own description of camlink is therefore itself stale on this
+  point; not edited — rules files are outside this ticket.)
+- **(b) tag 57 (tigez) missing from `MOUNTS` — recorded, not fixed, and
+  doubly moot.** There is no `MOUNTS` table in `camlink.py` any more
+  (sprint 029 deleted it; the only surviving occurrence of the word is
+  inside the docstring paragraph this ticket rewrote, and that mention
+  is now gone too). And the calibration of record already carries
+  tigez: `tools/field_calibration.json` has a `"tigez"` robot entry with
+  `"tag_number": 57`, mount solved 2026-09-05
+  (`reports/pf2-recal-20260905/08-mount-tigez/mount.json`). Data gap
+  closed elsewhere; no action here.
+
+**B2 — `tests/host/test_kernel_harness.py::compile_shared_lib`.** The
+19-line `Sprint 017 ticket 009
+(host-harness-masks-include-path-errors.md):` paragraph is gone,
+replaced by the annex's row-8 one-liner expanded to keep the mechanism:
+per-file `-c` compiles exist so the include path can differ per file —
+production `src/` files compile with **NO** `-I` (as PXT does, so a
+wrongly-spelled `src/`-internal include fails here exactly as it fails
+the real build); `tests/host` shims get `include_dirs`. Docstring is
+28 lines → 13. No behaviour change; `tests/host/test_kernel_harness.py`
+5 passed.
+
+### tools-and-tests annex: the eleven no-ops
+
+Recorded, not re-applied. **Sprint 034** applied items **1, 2, 3, 4, 7,
+9, 10, 11, 12, 13** (`robotlink.py` ×4, `tlm.py`, `leg_analysis.py`,
+`tour_capture.py`/`test_tour_capture.py`, `make_deploy.py`,
+`arc_capture.py`, `test_cxx11_syntax_gate.py`). Item **5** is **moot**:
+`tools/camproc.py` was deleted, so its R-24/R-26 narrative has no host.
+That leaves items **6** and **8** — B1 and B2 above — as the only live
+ones, matching the sprint plan's verification pass (13 items, 2 live,
+11 resolved-or-moot).
+
+### Follow-up findings (recorded, NOT fixed here)
+
+1. **Three capture citations outside `src/` still do not resolve** —
+   out of scope, this sprint's acceptance is scoped to citations from
+   `src/`:
+   - `captures/vevov-cal-20260902` — present on disk, untracked.
+   - `captures/vevov-line-20260902/deskew-clean.jpeg` — present on
+     disk, untracked.
+   - `captures/consolidation-acceptance-tigez-20260906` — **not
+     present** on disk; needs repointing or the artifact producing.
+2. **Two `MEASURED` claims in `test/test.ts` name no artifact**
+   (reported by ticket 006; `test.ts` not edited here). Both are
+   `.claude/rules/measurement-citations.md` defects of the same class
+   this ticket serves:
+   - line ~320: "MEASURED BUG, vevov 2026-08-25, against
+     overhead-camera truth: four uncorrected corners cost 58 mm of tour
+     closure that the robot scored as 22 mm" — no capture path.
+   - line ~941: "MEASURED 2026-08-28 on vevov ... every one of 153
+     frames read ox=oy=oh=0 while the encoders logged 246 mm of travel"
+     — no capture path.
+   (For contrast, the adjacent OTOS lever-arm claim at line ~282 *does*
+   cite `captures/otos-run-handler-i2c-hang-20260828.md`, which is
+   tracked — so the file is not uniformly deficient, only these two.)
+
+### Tests (foreground, this turn)
+
+    uv run pytest tests/tools/test_camlink.py::test_real_calibration_file_has_no_mounts_table_leftovers -q
+      1 passed in 0.46s   (BEFORE the B1 edit)
+      1 passed in 0.26s   (AFTER the B1 edit)
+    uv run pytest tests/host/test_kernel_harness.py -q      → 5 passed in 1.80s
+    uv run pytest tests/tools -q                            → 608 passed in 28.46s
+    uv run pytest tests/host -q                             → 1167 passed in 32.12s
+    uv run pytest tests/tools/test_ruff_clean.py -q         → 1 passed in 0.09s

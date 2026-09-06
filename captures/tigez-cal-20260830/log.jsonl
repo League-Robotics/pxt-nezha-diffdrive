@@ -1,0 +1,57 @@
+{"t": 1788120496.9555898, "kind": "open", "banner": "device NEZHA2 robot tigez 3527777815"}
+{"t": 1788120499.040523, "kind": "status", "line": "status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none"}
+{"t": 1788120499.6051981, "kind": "seqd", "line": "TLM FULL #1", "reply": "ack 1 0 none"}
+{"t": 1788120499.718722, "kind": "seqd", "line": "TLM OFF #2", "reply": "ack 2 0 none"}
+{"t": 1788120499.719101, "kind": "tlm", "frame": [2, 1422123, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}
+{"t": 1788120500.316402, "kind": "cam", "x": 35.1, "y": -0.5, "yaw": -1.531}
+{"t": 1788120500.373931, "kind": "seqd", "line": "TLM OFF #3", "reply": "ack 3 0 none"}
+{"t": 1788120526.2089128, "kind": "open", "banner": "device NEZHA2 robot tigez 3527777815"}
+{"t": 1788120526.913755, "kind": "cam", "x": 35.1, "y": -0.6, "yaw": -1.509}
+{"t": 1788120526.973118, "kind": "seqd", "line": "MOVE_X 80 0 100 20000 #1", "reply": "ack 1 0 none"}
+{"t": 1788120535.089767, "kind": "status", "line": null}
+{"t": 1788120543.614899, "kind": "status", "line": null}
+{"t": 1788120552.1201, "kind": "status", "line": null}
+{"t": 1788120560.611137, "kind": "status", "line": null}
+{"t": 1788120569.133562, "kind": "status", "line": null}
+{"t": 1788120577.729423, "kind": "status", "line": null}
+{"t": 1788120586.273034, "kind": "status", "line": null}
+{"t": 1788120594.810261, "kind": "status", "line": null}
+{"t": 1788120595.221117, "kind": "move", "dist": 80, "rot": 0, "status": null}
+{"t": 1788120595.926548, "kind": "cam", "x": 35.1, "y": -0.5, "yaw": -1.537}
+{"t": 1788120604.0645251, "kind": "status", "line": null}
+{"t": 1788120619.268826, "kind": "seqd", "line": "TLM OFF #2", "reply": null}
+{"t": 1788120923.845641, "kind": "open", "banner": "device NEZHA2 robot tigez 3527777815"}
+{"t": 1788120925.941727, "kind": "status", "line": "status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none"}
+{"t": 1788120926.709633, "kind": "cam", "x": 35.0, "y": -0.6, "yaw": -1.493}
+{"t": 1788120929.769921, "kind": "seqd", "line": "MOVE_X 80 0 100 20000 #1", "reply": "ack 1 0 none"}
+{"t": 1788120937.87582, "kind": "status", "line": null}
+{"t": 1788120946.3896892, "kind": "status", "line": null}
+{"t": 1788120954.900973, "kind": "status", "line": null}
+{"t": 1788120963.399051, "kind": "status", "line": null}
+{"t": 1788120971.955789, "kind": "status", "line": null}
+{"t": 1788120980.466741, "kind": "status", "line": null}
+{"t": 1788120988.9780219, "kind": "status", "line": null}
+{"t": 1788120997.491405, "kind": "status", "line": null}
+{"t": 1788120997.893057, "kind": "move", "dist": 80, "rot": 0, "status": null}
+{"t": 1788120998.53684, "kind": "cam", "x": 35.0, "y": -0.6, "yaw": -1.494}
+{"t": 1788121013.662661, "kind": "seqd", "line": "TLM OFF #2", "reply": null}
+{"t": 1788122556.348347, "kind": "open", "banner": "device NEZHA2 robot tigez 3527777815"}
+{"t": 1788122556.404147, "kind": "status", "line": "status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=0 cyc=360 tlm=off next=1 done=2 reason=stop"}
+{"t": 1788122557.315291, "kind": "cam", "x": 14.0, "y": 4.2, "yaw": -1.498}
+{"t": 1788122560.412158, "kind": "seqd", "line": "MOVE_X 80 0 100 20000 #1", "reply": "ack 1 2 stop"}
+{"t": 1788122568.5674398, "kind": "status", "line": null}
+{"t": 1788122577.083641, "kind": "status", "line": null}
+{"t": 1788122585.570268, "kind": "status", "line": null}
+{"t": 1788122594.0850701, "kind": "status", "line": null}
+{"t": 1788122602.56783, "kind": "status", "line": null}
+{"t": 1788122611.059912, "kind": "status", "line": null}
+{"t": 1788122619.5953238, "kind": "status", "line": null}
+{"t": 1788122628.0973408, "kind": "status", "line": null}
+{"t": 1788122628.503107, "kind": "move", "dist": 80, "rot": 0, "status": null}
+{"t": 1788122629.067629, "kind": "cam", "x": 14.0, "y": 4.2, "yaw": -1.488}
+{"t": 1788122644.1418939, "kind": "seqd", "line": "TLM OFF #2", "reply": null}
+{"t": 1788122688.121239, "kind": "open", "banner": null}
+{"t": 1788123419.26592, "kind": "open", "banner": "device NEZHA2 robot tigez 3527777815"}
+{"t": 1788123421.346345, "kind": "status", "line": "status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none"}
+{"t": 1788123430.042818, "kind": "cam", "lost": true}
+{"t": 1788123430.096722, "kind": "seqd", "line": "TLM OFF #1", "reply": "ack 1 0 none"}
