@@ -1755,3 +1755,35 @@ Replication `accel400b/`: +0.51 / -0.09 / -2.33 / +2.55. Combined n=8:
 mean|dh| 1.06 deg, max 2.55, sd 1.27 -- every leg under 3 deg. Ranking
 over 8-leg sets: fleet default 400/400 (1.06) < accel 800 (1.35) <
 RUN profile 300/300 (3.62).
+
+## Release build 1.20260905.1 on the field -- and the 180 deg pivot
+
+`captures/session-b-20260905/release-verify/`. Wire check PASS with no
+SET sent (slip 0.962, straight_trim 0, accel 400 all from power-on).
+Four 600 mm legs, no live SETs: +0.44 / -2.08 / +2.38 / -0.92 deg.
+
+**The dance failed its +180 turn identically twice** (`dance.log`,
+`dance2.log`): +90 -> +86.5 / +88.7, **+180 -> -171.9 both runs (+8.1
+over)**, +90 -> +89.5 / +89.5; drives within 0.8 cm, bearings within
+2 deg, home closure 1.2 / 1.8 cm. Convention correct in every step.
+
+**The pivot error is affine, not proportional.** Earlier tonight at
+slip 1.01 (`ticket017-verify/dance6.log`): 90 -> 83.9-87.7, 180 ->
+177.8. Fit actual = k*cmd + c through the 90 and 180 points at 1.01:
+k ~ 1.027, c ~ -7 deg. Apply the 0.962 correction (x1.05 on the
+command): 90 -> 90.0 (matches G1's 1.53 deg mean), 180 -> 187.1
+(matches the -171.9 read, i.e. 188.1). So `rotational_slip` 0.962
+zeroes the error AT 90 deg by trading a constant ~7 deg shortfall for a
+2.7% over-scale; at 180 the over-scale wins. This is the same affine
+law radio-robot-lib's tovez.json `_rotation_calibration_note` recorded
+on 2026-07-29 ("actual = gain*commanded + offset ... ~-6 deg offset").
+The constant term is what `stop_distance` / a pivot-fitted `lag` exist
+to model (design S10.2); neither is measured on tovez. For students,
+90 deg is the common turn and is on the bar; 180 over-rotates ~8 deg
+on this build. Recorded, not fixed.
+
+**BrokenPipe after the dance.** G1 launched immediately after
+`field_dance.py` exited died with `BrokenPipeError` twice; zilch's
+serial daemon drops the next client for a moment after a disconnect.
+A 10 s pause before reconnecting cures it. Chain scripts should not
+open a second `Link` within a few seconds of closing one.

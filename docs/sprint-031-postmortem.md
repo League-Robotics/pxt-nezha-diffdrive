@@ -430,3 +430,24 @@ being redirected accordingly. Replication of the 400 run to n=8 is in
 setting that physically changed the start of the leg (ramp x1.7, time
 to speed halved) and it reduced breakaway EVENTS without reducing the
 worst-case ground yaw.
+
+---
+
+## 3b. Release build on the field, and the pivot law (added last)
+
+`captures/session-b-20260905/release-verify/`. Build 1.20260905.1 from
+clean, bakes proven in the scratch source, flashed over the LAN, wire
+check PASS with no `SET` sent (slip 0.962 / trim 0 / accel 400 from
+power-on). Four 600 mm legs with no live SETs: +0.44 / -2.08 / +2.38 /
+-0.92 deg -- mean 1.46, max 2.38, every leg inside the student bar.
+
+**The 180 deg pivot over-rotates by +8.1 deg, twice identically.** With
+the 1.01-slip dance earlier tonight (90 -> ~85, 180 -> 177.8) this fits
+an AFFINE pivot law, actual = 1.027 * cmd - 7 deg, which
+radio-robot-lib's own 2026-07-29 note on this chassis already recorded.
+`rotational_slip` is a pure scale, so 0.962 can zero the error at one
+angle only; it was fitted at 90 and is exact there (G1: 1.53 deg mean)
+and 8 deg over at 180. The constant term is design S10.2's
+`stop_distance` / pivot-fitted `lag`, still unmeasured on tovez -- the
+first item for the next sprint, and now with a clean two-point
+measurement to start from.
