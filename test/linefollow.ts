@@ -1,30 +1,25 @@
 // linefollow.ts -- the smallest on-robot program that follows a line.
 //
-// Sensor: ElecFreaks PlanetX Trackbit, a four-channel reflectance array on
-// I2C address 0x1A, mounted ahead of the wheels (channel 0 on the robot's
-// left). Protocol as in PlanetX_Basic.Trackbit* of
-// https://github.com/elecfreaks/pxt-planetx basic.ts: write a register
-// byte, read one byte back. Register 4 is the line bitmask, bit i set when
-// channel i sees the line. That one byte is all the follower needs.
+// Sensor: ElecFreaks PlanetX Trackbit, a four-channel reflectance array
+// mounted ahead of the wheels, channel 0 on the robot's left. Protocol
+// and build/flash instructions: test/DESIGN.md.
 //
-// Build and flash (this file replaces test.ts in the hex):
-//   uv run python tools/make_deploy.py --program linefollow.ts --robot vevov
-//   mbdeploy deploy --remote vevov --hex .tmp/deploy-linefollow/built/binary.hex
-//
-// Start it with button A, or over the radio / serial with
-//   RUN:line[:speed_cm_s[:max_s[:kp]]]      defaults 8, 90, 60
+//   button A                                 follow, with the defaults
+//   RUN:line[:speed_cm_s[:max_s[:kp]]]       defaults 8, 90, 60
 //   RUN:abort                                stop
 //   RUN:linesense                            print 20 sensor samples
 
-// Everything lives in its own namespace so this file can sit next to
-// test.ts in the repo type-check without name collisions; PXT runs a
-// namespace body at start-up exactly like top-level code.
+// Its own namespace so this file can sit next to test.ts in the repo
+// type-check without name collisions; PXT runs a namespace body at
+// start-up exactly like top-level code.
 namespace linefollow {
     const BOOT_VERSION = "00.00"        // both substituted by make_deploy
     const BOOT_ROBOT = "unknown"
 
     diffDrive.enableRadioLink()
 
+    // Register 4 is the line bitmask, bit i set when channel i sees the
+    // line. That one byte is all the follower needs.
     const TRACKBIT = 0x1a
     function lineBits(): number {
         pins.i2cWriteNumber(TRACKBIT, 4, NumberFormat.Int8LE)

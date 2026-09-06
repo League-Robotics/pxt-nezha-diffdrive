@@ -490,7 +490,15 @@ def test_abort_preamble_in_test_ts_no_longer_says_its_own_fiber():
         "tour's handler is on its own fiber -- it is nested, reentrant "
         "dispatch on the SAME protocol fiber"
     )
-    assert "dispatches abort/clearestop reentrantly, NESTED inside" in src, (
+    # Pinned on the MECHANISM, not one exact sentence: test.ts's comments
+    # were cut back on 2026-09-06 (the long form now lives in
+    # test/DESIGN.md), and this preamble was rewrapped in the process.
+    # Normalising away the `//` and the line breaks keeps the guard --
+    # reentrant, nested, on the SAME fiber -- without pinning the wrap.
+    flat = re.sub(r"\s+", " ", src.replace("//", " "))
+    assert re.search(
+        r"reentrantly,? nested inside whatever handler is mid-tick, "
+        r"on the same fiber", flat), (
         "test.ts's RUN:abort preamble must describe the actual "
         "mechanism: reentrant, nested dispatch on one fiber"
     )
