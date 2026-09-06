@@ -1,0 +1,48 @@
+{
+ "robot": "gopiv",
+ "mode": "shaped_wide",
+ "accel": 500,
+ "decel": 300,
+ "dist_taper": 5000,
+ "runs": [
+  {
+   "cruise": 200,
+   "pred_brake_mm": 66.7,
+   "peak": 249.5,
+   "accel": 627,
+   "decel": 14751,
+   "ticks_decel": 5,
+   "brake_mm": 209.4,
+   "v_end": 0.0,
+   "travel_mm": 398.9,
+   "frames": 33,
+   "dead_channel": null
+  },
+  {
+   "cruise": 300,
+   "pred_brake_mm": 150.0,
+   "peak": 331.5,
+   "accel": 740,
+   "decel": 305,
+   "ticks_decel": 13,
+   "brake_mm": 153.8,
+   "v_end": 0.0,
+   "travel_mm": 402.2,
+   "frames": 27,
+   "dead_channel": null
+  },
+  {
+   "cruise": 400,
+   "pred_brake_mm": 266.7,
+   "peak": 396.0,
+   "accel": 616,
+   "decel": 330,
+   "ticks_decel": 14,
+   "brake_mm": 196.6,
+   "v_end": 0.0,
+   "travel_mm": 398.8,
+   "frames": 24,
+   "dead_channel": null
+  }
+ ]
+}

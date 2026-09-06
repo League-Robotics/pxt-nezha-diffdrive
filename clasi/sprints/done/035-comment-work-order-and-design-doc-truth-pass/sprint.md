@@ -1,7 +1,7 @@
 ---
 id: '035'
 title: Comment work order and design-doc truth pass
-status: ticketing
+status: done
 branch: sprint/035-comment-work-order-and-design-doc-truth-pass
 use-cases:
 - SUC-001
@@ -208,59 +208,64 @@ aggregate. This rule reproduces the review's own table closely where
 the file has not changed since (`platform/nezha_port.cpp` 0.96 exact,
 `comms/wire_adapter.cpp` 1.31 vs 1.29).
 
-**Project-owned `src/` aggregate: 7866 comment / 6987 code = 1.126.**
-(The review measured ~1.4 under a rule that counted JSDoc and `//%`.)
+**Project-owned `src/` aggregate: 7866 comment / 6987 code = 1.126 at
+the seed, 6585 / 6987 = 0.943 after tickets 002-006.** (The review
+measured ~1.4 under a rule that counted JSDoc and `//%`.) The 6987
+code-line total is IDENTICAL before and after: the whole sprint deleted
+comment lines and nothing else. Ticket 008 re-seeded
+`_RATIO_BASELINE` from the "achieved" column below.
 
-| file | cmt | code | ratio |
+| file | code | cmt before → after | baseline → achieved |
 |---|---|---|---|
-| `comms/wire_adapter.h` | 382 | 70 | **5.46** |
-| `comms/radio_transport.h` | 370 | 70 | **5.29** |
-| `comms/serial_transport.h` | 93 | 18 | **5.17** |
-| `motion/motion_engine.h` | 508 | 107 | **4.75** |
-| `comms/protocol.h` | 434 | 98 | **4.43** |
-| `core/fiber_identity.h` | 29 | 7 | **4.14** |
-| `core/bus_guard.h` | 72 | 18 | **4.00** |
-| `core/heading_wrap.h` | 44 | 11 | **4.00** |
-| `platform/vfp_guard.h` | 50 | 13 | **3.85** |
-| `core/motion_owner.h` | 66 | 18 | **3.67** |
-| `core/encoder_glitch_armor.h` | 125 | 44 | **2.84** |
-| `comms/wire_handler.h` | 580 | 220 | **2.64** |
-| `comms/run_bridge.h` | 84 | 34 | **2.47** |
-| `comms/transport_sink.h` | 54 | 24 | **2.25** |
-| `motion/velocity_shaper.h` | 43 | 20 | **2.15** |
-| `comms/config_fields.h` | 101 | 59 | 1.71 |
-| `shims.cpp` | 1215 | 710 | 1.71 |
-| `comms/wifi_uart.h` | 30 | 19 | 1.58 |
-| `motion/segment.h` | 90 | 65 | 1.38 |
-| `motion/odometry.h` | 76 | 57 | 1.33 |
-| `comms/wire_adapter.cpp` | 522 | 397 | 1.31 |
-| `comms/protocol.cpp` | 431 | 338 | 1.28 |
-| `motion/motion_limits.h` | 73 | 58 | 1.26 |
-| `motion/velocity_shaper.cpp` | 65 | 54 | 1.20 |
-| `comms/emit_queue.h` | 50 | 49 | 1.02 |
-| `platform/platform_ports.h` | 27 | 27 | 1.00 |
-| `platform/nezha_port.cpp` | 244 | 255 | 0.96 |
-| `comms/wire_handler.cpp` | 717 | 834 | 0.86 |
-| `comms/serial_transport.cpp` | 43 | 52 | 0.83 |
-| `platform/nezha_port.h` | 59 | 74 | 0.80 |
-| `platform/otos_port.h` | 52 | 69 | 0.75 |
-| `motion/motion_engine.cpp` | 224 | 299 | 0.75 |
-| `comms/wifi_link.h` | 145 | 226 | 0.64 |
-| `comms/run_queue.h` | 39 | 61 | 0.64 |
-| `blocks/sim.ts` | 236 | 379 | 0.62 |
-| `platform/vfp_guard.cpp` | 7 | 12 | 0.58 |
-| `comms/radio_transport.cpp` | 65 | 112 | 0.58 |
-| `comms/run_bridge.cpp` | 34 | 61 | 0.56 |
-| `blocks/world.ts` | 70 | 157 | 0.45 |
-| `comms/wifi_uart.cpp` | 11 | 31 | 0.35 |
-| `platform/otos_port.cpp` | 44 | 163 | 0.27 |
-| `blocks/run.ts` | 61 | 243 | 0.25 |
-| `blocks/motion.ts` | 81 | 423 | 0.19 |
-| `blocks/stop.ts` | 6 | 49 | 0.12 |
-| `blocks/pose.ts` | 1 | 38 | 0.03 |
-| *(vendored, excluded)* `core/diffdrive.h` | 71 | 303 | 0.23 |
-| *(vendored, excluded)* `core/diffdrive.cpp` | 100 | 851 | 0.12 |
-| *(not in `src/`)* `test/test.ts` | 645 | 482 | 1.34 |
+| `comms/wire_adapter.h` | 70 | 382 → 262 | **5.46** → **3.74** |
+| `comms/radio_transport.h` | 70 | 370 → 258 | **5.29** → **3.69** |
+| `comms/serial_transport.h` | 18 | 93 → 70 | **5.17** → **3.89** |
+| `motion/motion_engine.h` | 107 | 508 → 396 | **4.75** → **3.70** |
+| `comms/protocol.h` | 98 | 434 → 351 | **4.43** → **3.58** |
+| `core/fiber_identity.h` | 7 | 29 → 28 | **4.14** → **4.00** |
+| `core/bus_guard.h` | 18 | 72 → 48 | **4.00** → **2.67** |
+| `core/heading_wrap.h` | 11 | 44 → 31 | **4.00** → **2.82** |
+| `platform/vfp_guard.h` | 13 | 50 → 46 | **3.85** → **3.54** |
+| `core/motion_owner.h` | 18 | 66 → 64 | **3.67** → **3.56** |
+| `core/encoder_glitch_armor.h` | 44 | 125 → 108 | **2.84** → **2.45** |
+| `comms/wire_handler.h` | 220 | 580 → 455 | **2.64** → **2.07** |
+| `comms/run_bridge.h` | 34 | 84 → 79 | **2.47** → **2.32** |
+| `comms/transport_sink.h` | 24 | 54 → 46 | **2.25** → **1.92** |
+| `motion/velocity_shaper.h` | 20 | 43 → 38 | **2.15** → **1.90** |
+| `comms/config_fields.h` | 59 | 101 → 95 | 1.71 → 1.61 |
+| `shims.cpp` | 710 | 1215 → 1007 | 1.71 → 1.42 |
+| `comms/wifi_uart.h` | 19 | 30 → 30 | 1.58 → 1.58 |
+| `motion/segment.h` | 65 | 90 → 90 | 1.38 → 1.38 |
+| `motion/odometry.h` | 57 | 76 → 76 | 1.33 → 1.33 |
+| `comms/wire_adapter.cpp` | 397 | 522 → 474 | 1.31 → 1.19 |
+| `comms/protocol.cpp` | 338 | 431 → 389 | 1.28 → 1.15 |
+| `motion/motion_limits.h` | 58 | 73 → 73 | 1.26 → 1.26 |
+| `motion/velocity_shaper.cpp` | 54 | 65 → 65 | 1.20 → 1.20 |
+| `comms/emit_queue.h` | 49 | 50 → 39 | 1.02 → 0.80 |
+| `platform/platform_ports.h` | 27 | 27 → 20 | 1.00 → 0.74 |
+| `platform/nezha_port.cpp` | 255 | 244 → 189 | 0.96 → 0.74 |
+| `comms/wire_handler.cpp` | 834 | 717 → 565 | 0.86 → 0.68 |
+| `comms/serial_transport.cpp` | 52 | 43 → 43 | 0.83 → 0.83 |
+| `platform/nezha_port.h` | 74 | 59 → 58 | 0.80 → 0.78 |
+| `platform/otos_port.h` | 69 | 52 → 52 | 0.75 → 0.75 |
+| `motion/motion_engine.cpp` | 299 | 224 → 218 | 0.75 → 0.73 |
+| `comms/wifi_link.h` | 226 | 145 → 145 | 0.64 → 0.64 |
+| `comms/run_queue.h` | 61 | 39 → 36 | 0.64 → 0.59 |
+| `blocks/sim.ts` | 379 | 236 → 165 | 0.62 → 0.44 |
+| `platform/vfp_guard.cpp` | 12 | 7 → 7 | 0.58 → 0.58 |
+| `comms/radio_transport.cpp` | 112 | 65 → 64 | 0.58 → 0.57 |
+| `comms/run_bridge.cpp` | 61 | 34 → 34 | 0.56 → 0.56 |
+| `blocks/world.ts` | 157 | 70 → 71 | 0.45 → 0.45 |
+| `comms/wifi_uart.cpp` | 31 | 11 → 11 | 0.35 → 0.35 |
+| `platform/otos_port.cpp` | 163 | 44 → 44 | 0.27 → 0.27 |
+| `blocks/run.ts` | 243 | 61 → 56 | 0.25 → 0.23 |
+| `blocks/motion.ts` | 423 | 81 → 74 | 0.19 → 0.17 |
+| `comms/wifi_link.cpp` | 844 | 113 → 113 | 0.13 → 0.13 |
+| `blocks/stop.ts` | 49 | 6 → 1 | 0.12 → 0.02 |
+| `blocks/pose.ts` | 38 | 1 → 1 | 0.03 → 0.03 |
+| *(vendored, excluded)* `core/diffdrive.h` | 303 | 71 → 71 | 0.23 → 0.23 |
+| *(vendored, excluded)* `core/diffdrive.cpp` | 851 | 100 → 100 | 0.12 → 0.12 |
+| *(not in `src/`)* `test/test.ts` | 482 | 645 → 619 | 1.34 → 1.28 |
 
 Two facts this table changes about the brief: the **`blocks/*.ts` files
 are already clean** (0.03–0.62) — the review's 1.58 for them was JSDoc
@@ -268,9 +273,11 @@ and `//%` — so the blocks work in this sprint is factual fixes and a
 handful of named boil-downs, not volume; and the volume is concentrated
 in `comms/` headers, `motion/motion_engine.h` and `shims.cpp`.
 
-Existing archaeology-marker ratchet: **356** today against `_BUDGET =
-388` (32 lines of slack). `platform/encoder_pose_source.h`, which the
-review's table listed at 4.10, no longer exists (deleted in 033).
+Existing archaeology-marker ratchet: **356** at detail-planning time
+against `_BUDGET = 388` (32 lines of slack), **173** after tickets
+002-006; ticket 008 lowered `_BUDGET` 388 → 173.
+`platform/encoder_pose_source.h`, which the review's table listed at
+4.10, no longer exists (deleted in 033).
 
 ### Boil-down work order: live / resolved / moot
 
@@ -570,6 +577,140 @@ achieved ratio is barely under its seed, ticket 008 records that rather
 than inventing a stretch target — a ratchet set below what the tree
 actually achieves fails the next unrelated sprint for no reason.
 
+### Revision (as-built, 2026-09-06)
+
+All eight tickets closed. Every item below is verified against the
+ticket's own Completion notes and `git log --oneline master..HEAD`.
+
+- **Ticket 001** — planned: install the comment-volume ratchet and add
+  anti-patterns 6-7. Landed: a 46-entry `_RATIO_BASELINE`, one more
+  than the Verification-pass table's 45 rows — `src/comms/wifi_link.cpp`
+  was a dropped display row, seeded at its measured 0.13 — plus a new
+  `_RATIO_TOLERANCE = 0.005`, needed because two-decimal baselines round
+  both ways (20 of the 46 files sat fractionally above their own
+  printed value at seed time; a bare `<=` would have failed on the tree
+  it was measured from). `docs/code-review/guidelines.md` now lists
+  seven anti-patterns, its intro attributing 1-5 to the 2026-08-23 audit
+  and 6-7 to the 2026-09-02 review, exactly as planned.
+- **Ticket 002** — planned: `motion/` and `core/` boil-down against the
+  annex. Landed: annex items 1, 2, 3, 5 and 18b applied as planned; item
+  4 applied at the reduced scope sprint 031 left (the seven shaping
+  knobs had already moved to `motion_limits.h`); items 6, 7 and 18a were
+  no-ops, moot because sprint 031 rewrote `motion/` and sprint 033
+  deleted `platform/encoder_pose_source.h`. `motion_engine.h` 4.75→3.70,
+  `heading_wrap.h` 4.00→2.82. The one permitted vendored-kernel edit
+  (`core/diffdrive.{h,cpp}`) touched only each file's line-1 self-name,
+  as scoped. `core/fiber_identity.h` was judged and left essentially as
+  is (its length is contract, not archaeology); `motion/segment.h`,
+  `motion/motion_limits.h` and `motion/odometry.h` were judged and left
+  untouched.
+- **Ticket 003** — planned: `platform/` and `shims.cpp` boil-down
+  against the annex. Landed: annex rows 8-15 applied, row 11 against the
+  sprint-033 narration actually present rather than the pre-033 text the
+  annex quoted, row 15 at reduced scope. `shims.cpp` 1.71→1.42,
+  `nezha_port.cpp` 0.96→0.74. The tigez citation was repointed at
+  `captures/tigez-cal-20260830/notes.md` (resolves once ticket 007
+  tracks that file). The ordinal-27 claim was verified correct and left
+  alone, with the optional 21/22 clarity line added. Beyond the annex:
+  `vfp_guard.h` and `platform_ports.h`'s pre-existing unartifacted
+  `MEASURED` claims were given the tracked
+  `docs/knowledge/2026-09-01-codal-does-not-save-fpu-registers-across-fibers.md`
+  citation.
+- **Ticket 004** — planned: comms transports, queues and Protocol
+  boil-down against the annex. Landed: annex rows 1, 2, 4, 5 and 10
+  applied; row 12 applied to three of its four blocks — the fourth,
+  `kRunDedupeMs`, had moved to `run_bridge.h::kDedupe` and was boiled
+  down there instead. The annex's literal `kMaxPayloadBytes` replacement
+  text was **not** pasted: `test_radio_transport_doc_comment_states_equality_not_tighter`
+  requires "equal" and forbids "tighter", and the four wire caps have
+  been equal at 240 since sprint 010, so the annex's stale
+  "tighter"-framing was overridden rather than followed. Five further
+  stale claims were found and fixed while re-anchoring (group-10 in
+  `enableRadio()`, a closed issue cited as live, a wrong issue path, and
+  two dangling cross-references). `radio_transport.h` 5.29→3.69,
+  `serial_transport.h` 5.17→3.89, `protocol.h` 4.43→3.58. The
+  DO-NOT-REFORMAT regex block stayed byte-identical and all four
+  `make_deploy.py` injection regexes still match exactly once.
+- **Ticket 005** — planned: comms wire-layer boil-down against the
+  annex. Landed: all six annex rows applied. `gapOutstanding_` was
+  confirmed **live** (set on a numeric gap or a decode failure, cleared
+  on an in-order line or `HELLO`, read only by
+  `emitReminderIfStalled()`) — the two comments claiming it had been
+  deleted were corrected; the field itself was untouched. The `kVersion`
+  comment was corrected to describe the "unbaked" placeholder injected
+  at deploy, matching the drift test; the 24-char version budget holds,
+  the injected form being 12 characters. `wire_adapter.h` 5.46→3.74,
+  `wire_handler.h` 2.64→2.07; markers across the four owned files
+  173→63. Two unartifacted `MEASURED` claims in `wire_handler.cpp`
+  (disagreeing 66-75% vs 66-83% figures) were recorded for triage, not
+  fixed — no artifact to cite and out of this ticket's scope.
+- **Ticket 006** — planned: blocks and test-program boil-down against
+  the annex. Landed: annex rows 1-8 and 10 applied; row 9's factual half
+  was a no-op (already correct since sprints 028/032), its boil-down
+  half applied. Seven `native-only` copies were found in `sim.ts` (the
+  annex expected six) and collapsed to one plain-comment note plus the
+  one instance inside the retired-shims JSDoc, left untouched because
+  JSDoc is out of this ticket's scope. Factual fixes 1, 2, 4 and 5 were
+  applied; fix 3 (`run.ts`'s "group 10" claim) was **blocked** — its
+  only anchor is inside a JSDoc block, which this ticket forbade
+  touching — and deferred to
+  `clasi/issues/run-ts-jsdoc-still-says-radio-group-10.md`. BT-08 was
+  confirmed resolved by sprint 032 ticket 007 (`c39f85d`). `test/test.ts`
+  645→619 comment lines; `test_typescript_typecheck.py` was green both
+  before and after this ticket's edits. The working tree was found
+  already edited by an interrupted earlier dispatch of this same
+  ticket; the programmer that completed it verified and committed that
+  prior work rather than redoing it.
+- **Ticket 007** — planned: track the cited capture directories and
+  finish the tools/tests hygiene items. Landed: 37 files force-tracked
+  (197 KB) — 31 under A1, 2 under A2, 4 small evidence files under A3;
+  A4 had nothing to track. Every `captures/` path cited from `src/` now
+  resolves in a fresh clone. The annex's row-6 replacement text for
+  `camlink.py`'s module docstring was **rejected** — it cites the
+  deleted `ensure_registered()` — and the docstring was instead boiled
+  down with an explicit REGISTERED-vs-RAW paragraph. The "not persisted
+  across a daemon restart" claim was found already fixed in the tool;
+  the `MOUNTS` table no longer exists at all, and `field_calibration.json`
+  already carries tigez. `tests/host/test_kernel_harness.py`'s docstring
+  went 28→13 lines.
+- **Ticket 008** — planned: `src/DESIGN.md` truth pass, re-measure and
+  tighten both ratchets. Landed: seven corrections to `src/DESIGN.md` —
+  the §6/§8 `kMaxPayloadBytes` history recast so the present tense
+  states 240 with all four caps equal, not "tighter"; the dangling
+  `captures/tovez-wifi-20260902/` path dropped in favor of the tracked
+  `docs/knowledge/2026-09-02-wifi-transport-tovez.md`; the MessageBus
+  RUN bridge description replaced with `RunBridge`/`dispatchJob()`; the
+  4/10 placeholder's "vevov's fleet assignment" mischaracterization
+  corrected to "un-baked, deploy-injected per robot"; the WireHandler
+  instance count corrected from two to three (naming
+  `wireHandlerWifi_`); and a present-tense "ordinal 30 does not exist"
+  claim recast as history, since sprint 033 gave `diagValue()` an
+  ordinal 30 of its own. §2's upstream-provenance line was re-verified
+  and confirmed a no-op — not touched, as the ticket required.
+  `_BUDGET` 388→173; the project-owned aggregate 1.126→0.943;
+  `_RATIO_BASELINE` was re-seeded to the achieved values with no
+  invented headroom, leaving three files within `_RATIO_TOLERANCE`'s
+  slack of their ceiling. This ticket's own re-seeding is what the
+  "Verification pass" table above already shows in its `achieved`
+  column.
+
+**Beyond the ticket list.** The team-lead ran the desk firmware build
+twice, not once — after ticket 003 (the first ticket to touch
+`pxt.h`-bound platform files) and again after ticket 008 (the gate the
+Tickets section below originally planned as the sprint's sole
+build-checkpoint) — rather than deferring every build to the end. Two
+follow-up issues were filed by the team-lead from this sprint's
+findings: `clasi/issues/run-ts-jsdoc-still-says-radio-group-10.md`
+(ticket 006's blocked JSDoc fix) and
+`clasi/issues/measured-claims-without-artifacts-outside-sprint-035-scope.md`
+(the unartifacted `MEASURED` claims tickets 005-007 found and could not
+fix in scope). `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`'s
+"Why this kept happening" items 2 and 3 were updated by the team-lead
+after close, since both described a `tools/camlink.py` that ticket 007
+has since corrected: the docstring no longer makes the stale
+"not persisted across a daemon restart" claim, and the `MOUNTS` table
+those items referenced no longer exists.
+
 ## Use Cases
 
 ### SUC-001: A reader trusts a comment in `src/`
@@ -625,7 +766,7 @@ Before tickets can be created, all of the following must be true:
 - [x] Architecture review passed (or skipped, for changes with no
       architectural impact) — **passed** 2026-09-06; Compact sizing,
       self-review scoped to the one changed module
-- [ ] Stakeholder has approved the sprint plan — not recorded by the
+- [x] Stakeholder has approved the sprint plan — not recorded by the
       planner; the team-lead owns this gate
 
 ## Tickets

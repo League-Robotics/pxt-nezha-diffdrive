@@ -194,7 +194,11 @@ What "keep" looks like in practice, concretely:
 
 A 2026-08-23 audit of ~854 comment blocks across this repo (`docs/code-
 review/2026-08-23/raw/comment-audit.md`) found the noise clustered into
-five repeatable shapes. Watch for these when writing or reviewing:
+five repeatable shapes — 1-5 below. The 2026-09-02 review
+(`docs/code-review/2026-09-02/review.md`) added two more, 6 and 7:
+between the 08-26 and 09-02 reviews the comment volume regrew in a
+shape none of the first five names, which is why it went unnoticed.
+Watch for all seven when writing or reviewing:
 
 1. **Sprint/ticket archaeology as file headers.** A header that narrates
    which ticket added what, in order, instead of stating the current
@@ -232,6 +236,44 @@ five repeatable shapes. Watch for these when writing or reviewing:
    `setTaperWindows()`'s, `main.ts`'s `_startProtocol()` doc parked over
    unrelated run-state variables. Rule: a comment moves with its code,
    or dies with it, and sits immediately above what it describes.
+6. **Dated UPDATE paragraphs stacked on one comment.** A comment that
+   keeps its original conclusion and appends one or more
+   `UPDATE <date> — …` paragraphs correcting it, instead of being
+   rewritten. Each update is honest in isolation; together they make the
+   third reader reconcile a chain of superseded theories to extract the
+   one fact that is true now, and there is nothing in the text marking
+   where reading can stop. Example, present at the time of writing:
+   `platform/nezha_port.cpp`'s fault-handler block carries the original
+   forensics plus **two** dated updates — `UPDATE 2026-09-01 -- the
+   "memory corruption" above is probably not …` and `UPDATE 2026-09-02
+   -- RESOLVED. The VFP-register-clobber theory above …`. The reader
+   must reach the second update to learn both what the cause was and
+   that it is fixed. Rule: rewrite the comment to state the current
+   truth, keeping any measured value and its citation; the sequence of
+   theories is in `git log`. An UPDATE paragraph is a fine way to
+   *record* a correction in a hurry, and a defect once it lands — fold
+   it in on the next edit to that file.
+7. **Citations to untracked artifacts.** A `MEASURED` claim naming a
+   capture directory, log or file that is gitignored and not
+   force-tracked, so a fresh clone cannot follow it.
+   `.claude/rules/measurement-citations.md` requires a citation to name
+   its artifact; this is the case where it names one that cannot be
+   reached, which fails the rule's whole purpose — the citation is
+   checkable only by whoever still has the file locally. Examples, both
+   verified untracked at the time of writing:
+   `captures/gopiv-profile-sweep-20260901/` and
+   `captures/motion-profile-probe-20260901/`, cited from `src/DESIGN.md`;
+   and `captures/tovez-wifi-20260902/`, cited from the same document and
+   not present on disk at all. Rule: `git add -f` the artifact —
+   `captures/` is gitignored, and 464 files under it are already
+   force-tracked, so that is the established precedent — or repoint the
+   citation at something that is tracked (a `docs/knowledge/` write-up,
+   a smaller `notes.md` inside the same capture). Note that
+   **`reports/` is not an option in this repo**: it is gitignored in
+   full, so a citation moved there is no more reachable than one left
+   in `captures/`. For a large capture, track the small evidence — the
+   notes, the JSONL, the patch — and cite that rather than the
+   multi-megabyte blobs beside it.
 
 #### Applying a comment audit or cleanup work order safely
 

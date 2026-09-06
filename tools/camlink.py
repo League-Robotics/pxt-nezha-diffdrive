@@ -2,18 +2,12 @@
 interpreter.
 
 `Cam` is the ONE camera class every bench tool uses, and it reads the
-aprilcam daemon directly. There is no camera subprocess and no second
-interpreter to bridge: `aprilcam[daemon]` is a declared dependency of
-this project's own venv (`pyproject.toml`), so `import aprilcam` and
-`import serial` both work here. Sprint 034 ticket 008 deleted the
-wrapper that used to spawn this file under a hardcoded venv path and
-parse its printed lines, along with the second `Cam` class, the
-`ERR`/`NOTAG` line vocabulary and the `APRILTAGS_VENV` override that
-selected the interpreter to spawn.
-
-What that wrapper was for survives here instead: a background reader
-thread publishing one sample per real camera frame, and the
-stale-pose-invalidation contract on `latest`/`fix()` (see `Cam`).
+aprilcam daemon directly -- no camera subprocess, no second interpreter
+to bridge: `aprilcam[daemon]` is a declared dependency of this
+project's own venv (`pyproject.toml`), so `import aprilcam` and
+`import serial` both work here. A background reader thread publishes
+one sample per real camera frame, and `latest`/`fix()` carry the
+stale-pose-invalidation contract (see `Cam`).
 
 THE DAEMON DOES THE CORRECTING, AND IT REMEMBERS.
 Tag mount registrations persist across a daemon restart -- they are
@@ -21,19 +15,21 @@ written to the daemon's mounts registry on disk and reload
 automatically at daemon startup. Only an explicit unregister_tag call
 removes one.
 
-**Sprint 029 (TL-02): `field_calibration.json` is the one calibration
-of record.** Constructing `Cam` never registers anything -- the old
-`MOUNTS` table and `Cam.__init__`'s unconditional `ensure_registered()`
-call used to overwrite the daemon's PERSISTENT registry with a stale
-table on every single tool start, silently discarding a fresh remount
-(the 2026-09-02 tag-53 remount was overwritten this way before this
-fix). Registration is now `register()` (or `--register` from the CLI),
-called explicitly, once, when a mount has actually changed. An
-unregistered tag is reported RAW: no parallax, no lever arm, no mount
-yaw. For vevov's tag that is 6.4 cm of parallax plus 3.6 cm of lever,
-and it looks perfectly plausible -- it is a position on the field, just
-the wrong one. Verified against ground truth 2026-08-23 with the robot
-parked on the NE orange dot.
+**`field_calibration.json` is the one calibration of record (TL-02).**
+Constructing `Cam` registers nothing. Registration is explicit --
+`register()`, or `--register` from the CLI -- called once, when a mount
+has actually changed. Registering on every tool start would overwrite
+the daemon's persistent registry with a stale mount and silently
+discard a fresh remount (a 2026-09-02 tag-53 remount was lost that way).
+
+REGISTERED vs RAW -- settle which one you are reading before trusting a
+heading. A REGISTERED tag's `yaw_rad` IS the robot's heading, already
+corrected: read it straight, add nothing. An UNREGISTERED tag is
+reported RAW -- no parallax, no lever arm, no mount yaw. For vevov's
+tag that is 6.4 cm of parallax plus 3.6 cm of lever, and it looks
+perfectly plausible -- it is a position on the field, just the wrong
+one. Verified against ground truth 2026-08-23 with the robot parked on
+the NE orange dot.
 
 Units the daemon wants, all learned the hard way against that truth:
   mount_x / mount_y   CENTIMETRES (mm gives a 32 cm error)

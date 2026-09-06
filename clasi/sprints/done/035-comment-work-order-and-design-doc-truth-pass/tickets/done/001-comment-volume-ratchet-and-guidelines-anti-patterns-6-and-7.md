@@ -1,10 +1,11 @@
 ---
-id: "001"
-title: "Comment-volume ratchet and guidelines anti-patterns 6 and 7"
-status: open
-use-cases: [SUC-002]
+id: '001'
+title: Comment-volume ratchet and guidelines anti-patterns 6 and 7
+status: done
+use-cases:
+- SUC-002
 depends-on: []
-github-issue: ""
+github-issue: ''
 issue: code-review/comment-work-order-factual-fixes-untracked-citations.md
 completes_issue: false
 ---
@@ -140,28 +141,28 @@ present on disk at all.
 
 ## Acceptance Criteria
 
-- [ ] `tests/host/test_archaeology_marker_budget.py` contains a second
+- [x] `tests/host/test_archaeology_marker_budget.py` contains a second
       test function asserting a per-file comment-volume ratio against a
       `_RATIO_BASELINE` dict seeded from the `sprint.md` table.
-- [ ] The counting rule is implemented as specified (`//` and not
+- [x] The counting rule is implemented as specified (`//` and not
       `//%`; JSDoc uncounted; trailing comments uncounted; vendored
       kernel excluded via the existing `_EXCLUDED`).
-- [ ] The module docstring states the counting rule **and** why `//%`,
+- [x] The module docstring states the counting rule **and** why `//%`,
       JSDoc and trailing unit comments are excluded, and why the
       baseline is per-file rather than a blanket cap.
-- [ ] The new test's failure message names the file, its baseline, its
+- [x] The new test's failure message names the file, its baseline, its
       current value, and the two legitimate responses.
-- [ ] A `src/` source file absent from `_RATIO_BASELINE` does not fail
+- [x] A `src/` source file absent from `_RATIO_BASELINE` does not fail
       the test but is reported in the message.
-- [ ] The existing `test_archaeology_marker_count_is_within_budget`
+- [x] The existing `test_archaeology_marker_count_is_within_budget`
       keeps its name, regex, exclusion set and semantics; `_BUDGET`
       stays at 388 (ticket 008 lowers it).
-- [ ] `docs/code-review/guidelines.md` lists **seven** anti-patterns;
+- [x] `docs/code-review/guidelines.md` lists **seven** anti-patterns;
       6 and 7 match the descriptions above and carry the verified
       concrete examples.
-- [ ] Both tests pass against the current tree (they must, since the
+- [x] Both tests pass against the current tree (they must, since the
       baselines are seeded from it).
-- [ ] No file under `src/`, `test/` or `tools/` is modified.
+- [x] No file under `src/`, `test/` or `tools/` is modified.
 
 ## Testing
 
@@ -190,3 +191,85 @@ present on disk at all.
   trusting a copy, and reconcile against the `sprint.md` table before
   seeding. If your numbers differ from the table, say so in the
   completion notes rather than silently seeding different values.
+
+## Implementation record
+
+**Files changed:** `tests/host/test_archaeology_marker_budget.py`,
+`docs/code-review/guidelines.md`. Nothing under `src/`, `test/` or
+`tools/` (`git diff --name-only -- src test tools` is empty).
+
+### Baseline reconciliation
+
+The measurement was re-derived from scratch against the tree at
+`df596f8` (a ~20-line script applying the counting rule to
+`src/**/*.{h,cpp,ts}` outside `_EXCLUDED`), not copied from the table.
+It reproduces the `sprint.md` "Verification pass" table **row for row**
+— every comment count, every code count, every ratio, and the
+project-owned aggregate of 7866 / 6987 = 1.126 — with **one
+difference**:
+
+- **`src/comms/wifi_link.cpp` (113 / 844 = 0.13) is absent from the
+  table's rows.** The table lists 45 project-owned files; the rule
+  finds 46. The table's stated aggregate *does* include this file
+  (7866 / 6987 only balances with it), so this is a dropped display
+  row, not a measurement disagreement. Seeded at its measured 0.13 and
+  called out in the dict's header comment. `_RATIO_BASELINE` therefore
+  has **46 entries**, not 45.
+
+No other value differs, so nothing was silently re-seeded.
+
+### One design point not specified in the ticket: `_RATIO_TOLERANCE`
+
+Baselines are recorded to two decimals so they can be read against the
+`sprint.md` table by eye, as the ticket asks. Two-decimal rounding
+rounds *down* about as often as up: **20 of the 46 files** sit
+fractionally above their own printed baseline the moment they are
+seeded (`src/shims.cpp` is 1.711268, printed 1.71). A strict `<=`
+against the printed value would have failed on the very tree it was
+measured from. The test therefore compares against
+`baseline + _RATIO_TOLERANCE` with `_RATIO_TOLERANCE = 0.005` — half of
+the last printed digit — and the constant carries its reason and the
+bound on the slack it buys (under one comment line in every file here
+but the largest; ~4 lines in `comms/wire_handler.cpp`'s 834 code
+lines). The alternative, storing exact `(comment, code)` pairs, was
+rejected because it makes the dict unreadable against the table the
+ticket seeds it from; the counts are kept as a trailing comment on each
+row instead.
+
+### Failure paths exercised
+
+Verified out-of-tree (no repo files modified) by importing the module
+and perturbing a copy of the dict: a lowered baseline fails and names
+the file, its baseline, its current value and both legitimate
+responses; a file dropped from the dict is reported in the note and
+does **not** fail; a stale entry for a file that no longer exists
+(`platform/encoder_pose_source.h`, deleted in 033) is skipped rather
+than failing.
+
+### Untouched, as required
+
+`_BUDGET` stays at **388** (ticket 008 lowers it), and
+`test_archaeology_marker_count_is_within_budget` keeps its name,
+`_MARKERS` regex, `_EXCLUDED` set and semantics — the volume ratchet
+reuses `_EXCLUDED` and `_SOURCE_SUFFIXES` rather than re-declaring
+them.
+
+### Guidelines
+
+`docs/code-review/guidelines.md` now lists **seven** anti-patterns. The
+section's intro paragraph was amended too, since it previously said the
+noise "clustered into five repeatable shapes" — it now attributes 1-5
+to the 2026-08-23 audit and 6-7 to the 2026-09-02 review. Every
+concrete example was re-verified at `df596f8`: two dated `UPDATE`
+paragraphs in `src/platform/nezha_port.cpp` (2026-09-01 and
+2026-09-02); `captures/gopiv-profile-sweep-20260901/` and
+`captures/motion-profile-probe-20260901/` present on disk with zero
+tracked files; `captures/tovez-wifi-20260902/` absent from disk
+entirely; 464 files under `captures/` already force-tracked;
+`.gitignore` line 47 ignoring `reports/` in full.
+
+### Tests
+
+`uv run pytest tests/host/test_archaeology_marker_budget.py -v` — 3
+passed. `uv run pytest tests/host -q` — 1167 passed.
+`uv run pytest tests/tools/test_ruff_clean.py -q` — 1 passed.

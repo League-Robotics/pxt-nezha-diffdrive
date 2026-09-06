@@ -1,0 +1,101 @@
+diff --git a/src/comms/radio_transport.cpp b/src/comms/radio_transport.cpp
+index 4047ad5..55b63ff 100644
+--- a/src/comms/radio_transport.cpp
++++ b/src/comms/radio_transport.cpp
+@@ -55,6 +55,10 @@ void RadioTransport::ensureRadioReady() {
+   // it must be set explicitly, or a robot and the relay could sit on
+   // different frequencies and never hear each other.
+   uBit.radio.enable();
++  // DIAGNOSTIC (scratch build): force channel 81 (2481 MHz, above the
++  // WiFi band) to test whether the measured ~25% datagram loss at the
++  // torture relay site is 2.4 GHz interference on ch 55 (2455 MHz).
++  derivedChannel = 81;
+   uBit.radio.setFrequencyBand(derivedChannel);
+   uBit.radio.setGroup(group);
+   uBit.radio.setTransmitPower(kTransmitPower);
+@@ -107,6 +111,17 @@ void RadioTransport::onDatagram() {
+   rxReady_ = true;
+ }
+ 
++// DIAGNOSTIC (scratch build, never committed): count every radio TX
++// attempt and every failure mode, to localize the measured ~29% frame
++// loss (2026-08-30 bench, two-relay experiment: both relays miss the
++// SAME frames, so the drop is robot-side or on-air).
++extern "C" {
++volatile uint32_t g_radioTxOk = 0;       // datagram.send returned DEVICE_OK
++volatile uint32_t g_radioTxErr = 0;      // datagram.send returned != OK
++volatile uint32_t g_radioTxGuard = 0;    // sendLine guard-tripped (line dropped)
++volatile int32_t g_radioLastRc = 0;      // last non-OK return code
++}
++
+ void RadioTransport::sendFragmented(const uint8_t* payload,
+                                     size_t payloadLen) {
+   // MICROBIT_RADIO_MAX_PACKET_SIZE is whatever this build's CODAL
+@@ -144,8 +159,9 @@ void RadioTransport::sendFragmented(const uint8_t* payload,
+     if (chunk > 0) {
+       memcpy(frame + kFrameHeaderBytes, payload + off, chunk);
+     }
+-    uBit.radio.datagram.send(frame,
++    int rc = uBit.radio.datagram.send(frame,
+                              static_cast<int>(kFrameHeaderBytes + chunk));
++    if (rc == 0) { ++g_radioTxOk; } else { ++g_radioTxErr; g_radioLastRc = rc; }
+ 
+     off += chunk;
+     first = false;
+@@ -172,7 +188,7 @@ bool RadioTransport::sendLine(const uint8_t* data, size_t len) {
+   // A caller that finds sending_ already true returns immediately,
+   // WITHOUT touching either buffer -- the in-flight caller owns them
+   // until it clears sending_ on its own way out below.
+-  if (sending_) return false;
++  if (sending_) { ++g_radioTxGuard; return false; }
+   sending_ = true;
+ 
+   // `data`/`len` plus one trailing '\n' delimiter -- the ONE
+diff --git a/src/comms/wire_handler.cpp b/src/comms/wire_handler.cpp
+index ff0ff3c..d76e2a5 100644
+--- a/src/comms/wire_handler.cpp
++++ b/src/comms/wire_handler.cpp
+@@ -5,6 +5,16 @@
+ // vendored copy.
+ #include "wire_handler.h"
+ 
++// DIAGNOSTIC (scratch build): radio TX counters defined in
++// radio_transport.cpp, surfaced on the status line to localize the
++// measured ~29% radio frame loss.
++extern "C" {
++extern volatile uint32_t g_radioTxOk;
++extern volatile uint32_t g_radioTxErr;
++extern volatile uint32_t g_radioTxGuard;
++extern volatile int32_t g_radioLastRc;
++}
++
+ #include <cerrno>
+ #include <cmath>
+ #include <cstdio>   // plain snprintf, not std::snprintf: this ARM cross
+@@ -991,11 +1001,11 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
+   // " reason=" plus the longest wire name ("aborted", 7B) = 15B, i.e.
+   // 31B on top of the ~130B worst case documented above. 200 still
+   // holds it with room to spare.
+-  char buf[200];
++  char buf[220];
+   snprintf(buf, sizeof(buf),
+                 "status ready=%d active=%d connL=%d connR=%d otos=%d "
+                 "wedge=%d flags=%x i2cf=%ld cyc=%lu tlm=%s next=%lu "
+-                "done=%lu reason=%s\n",
++                "done=%lu reason=%s txok=%lu txe=%lu txg=%lu rc=%ld\n",
+                 status.ready ? 1 : 0, status.active ? 1 : 0,
+                 status.connLeft ? 1 : 0, status.connRight ? 1 : 0,
+                 status.otos ? 1 : 0, status.wedge ? 1 : 0,
+@@ -1004,7 +1014,11 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
+                 static_cast<unsigned long>(status.cyc), status.tlm,
+                 static_cast<unsigned long>(expectedNext_),
+                 static_cast<unsigned long>(adapter_.lastDone()),
+-                doneReasonWireName(adapter_.lastDoneReason()));
++                doneReasonWireName(adapter_.lastDoneReason()),
++                static_cast<unsigned long>(g_radioTxOk),
++                static_cast<unsigned long>(g_radioTxErr),
++                static_cast<unsigned long>(g_radioTxGuard),
++                static_cast<long>(g_radioLastRc));
+   writeLine(buf);
+ }
+ 

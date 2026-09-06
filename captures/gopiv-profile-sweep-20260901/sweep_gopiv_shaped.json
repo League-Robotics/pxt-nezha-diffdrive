@@ -1,0 +1,56 @@
+{
+ "robot": "gopiv",
+ "mode": "shaped",
+ "accel": 500,
+ "decel": 300,
+ "runs": [
+  {
+   "cruise": 100,
+   "peak": 110.0,
+   "accel": 483,
+   "decel": 373,
+   "ticks_decel": 3,
+   "brake_mm": 18.8,
+   "v_end": 0.0,
+   "travel_mm": 298.4,
+   "frames": 42,
+   "dead_channel": null
+  },
+  {
+   "cruise": 200,
+   "peak": 219.5,
+   "accel": 634,
+   "decel": 460,
+   "ticks_decel": 5,
+   "brake_mm": 27.9,
+   "v_end": 0.0,
+   "travel_mm": 298.2,
+   "frames": 25,
+   "dead_channel": null
+  },
+  {
+   "cruise": 300,
+   "peak": 320.0,
+   "accel": 718,
+   "decel": 22648,
+   "ticks_decel": 3,
+   "brake_mm": 152.6,
+   "v_end": 0.0,
+   "travel_mm": 300.3,
+   "frames": 19,
+   "dead_channel": null
+  },
+  {
+   "cruise": 400,
+   "peak": 421.5,
+   "accel": 675,
+   "decel": null,
+   "ticks_decel": 1,
+   "brake_mm": 29.7,
+   "v_end": 0.0,
+   "travel_mm": 307.3,
+   "frames": 14,
+   "dead_channel": null
+  }
+ ]
+}
