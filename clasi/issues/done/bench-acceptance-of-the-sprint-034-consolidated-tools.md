@@ -1,6 +1,7 @@
 ---
-title: "Bench acceptance of the sprint 034 consolidated link, camera and geofence (deferred from ticket 013)"
-status: pending
+title: Bench acceptance of the sprint 034 consolidated link, camera and geofence (deferred
+  from ticket 013)
+status: done
 created: 2026-09-06
 ---
 
