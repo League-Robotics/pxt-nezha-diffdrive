@@ -231,7 +231,10 @@ directly through its own new shim (not merely argued for by
 `test_regression_post_move_neutral.py`, which stays as the "why this
 matters" test); and `TLM AUTO`/`BUFFER` `thdr`/`err` pinning.
 
-Not covered, by design (CODAL-bound): `nezha_port`, `otos_port`, the
+Not covered, by design (CODAL-bound) — the canonical list, per file,
+with what gates each one instead, is `tests/DESIGN.md` "Translation
+units nothing on the host compiles", held against the tree by
+`test_pxt_bound_exclusion_is_current.py`. In summary: `nezha_port`, `otos_port`, the
 transports, `protocol.cpp`'s fiber loop and RUN bridge, and
 `shims.cpp`'s real Rig composition/watchdog — hardware sessions are
 their only test. Where a decision inside one of those has been pulled

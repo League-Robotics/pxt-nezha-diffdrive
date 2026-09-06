@@ -37,6 +37,51 @@ not a suite.
   `test_tlm.py` pins `tools/tlm.py`'s `TlmStream` parser against the
   shared golden fixture in `tests/host/golden_telemetry.py`.
 
+## Translation units nothing on the host compiles
+
+Eight `.cpp` files under `src/` reach `pxt.h` — directly, or
+transitively through `platform/platform_ports.h`, `platform/nezha_port.h`
+or `platform/otos_port.h`. `pxt.h` ships with the `core` dependency
+declared in `pxt.json`, brings CODAL's whole type set (`uBit`, fibers,
+`NRF52Serial`, `MicroBitRadio`) and PXT's `//%` annotation machinery,
+and none of it exists on the host. **No host test compiles these
+eight, at any standard.** They are gated by other means instead, and
+that is a decision (sprint 034 ticket 011), not an oversight:
+
+| file | what binds it to the target | what gates it |
+|---|---|---|
+| `shims.cpp` | the PXT `//%` block surface itself, plus the real `Rig` composition and watchdog | hex checkpoint; the extracted math is host-tested (`motion/odometry.h`, `core/bus_guard.h`, `core/fiber_identity.h`) |
+| `comms/protocol.cpp` | the serial/radio fiber loop, via `platform_ports.h` | hex checkpoint; `test_wire_constants_drift.py` pins the RX drain bound as source text; the cleartext RUN rules were extracted to `comms/run_bridge.cpp`, which **is** in the C++11 gate |
+| `comms/radio_transport.cpp` | `MicroBitRadio`, `uBit.radio` datagram callbacks | hex checkpoint; the RX accept/drop decision and counters live in `radio_transport.h` and are host-tested (`radio_rx_classify_syntax_check.cpp`, `test_radio_transport_rx_capacity.py`) |
+| `comms/serial_transport.cpp` | `uBit.serial` ring sizing and writes | hex checkpoint (the real build's own `-Woverflow`); the `Wire::Sink` half is `comms/transport_sink.h`, host-tested |
+| `comms/wifi_uart.cpp` | `new NRF52Serial(uBit.io.P8, uBit.io.P1, NRF_UARTE1)` — one CODAL-facing byte pipe | hex checkpoint; the whole AT state machine is `comms/wifi_link.cpp`, which **is** in the C++11 gate and host-tested (`test_wifi_link.py`) |
+| `platform/nezha_port.cpp` | Nezha I²C brick transactions, via `nezha_port.h` | hex checkpoint; the rebaseline-on-discontinuity decision is `core/encoder_glitch_armor.h`, host-tested |
+| `platform/otos_port.cpp` | SparkFun OTOS I²C transactions, via `otos_port.h` | hex checkpoint; the heading-wrap math is `core/heading_wrap.h`, host-tested |
+| `platform/vfp_guard.cpp` | `fiber_sleep()` | hex checkpoint; `test_vfp_guard_source_pin.py` |
+
+Two things cover all eight regardless:
+`host/test_include_paths_match_target.py` checks every `#include`
+under `src/` with no compiler at all, these files included, and the
+**hex checkpoint** — a real PXT build for a real target — is the only
+thing that compiles them as the robot will. `host/test_cxx11_syntax_gate.py`
+covers a deliberate list that excludes all eight.
+
+**Why no stub `pxt.h`.** A stub would only re-prove that these files
+parse, which the include gate plus the hex checkpoint already cover
+between them, and it could not be honest: `serial_transport.cpp:40`'s
+`uBit.serial.setRxBufferSize(kRingBytes)` shipped a silent `uint8_t`
+truncation (sprint 004 ticket 007, Defect B) that the real build's
+`-Woverflow` caught — a stub has to invent that parameter's type, so
+it would only catch the bug if it already encoded the fact under test.
+The project's standing remedy for "logic in a `pxt.h`-bound TU is
+untested" is the pattern in the right-hand column above: move the
+decision into a host-portable header and test it there.
+
+**Adding a ninth.** `host/test_pxt_bound_exclusion_is_current.py`
+re-derives this list from the tree and fails if it and the table
+disagree, so a new `pxt.h`-bound `.cpp` cannot land silently
+uncovered.
+
 ## `system/` — the hardware tour suite
 
 Not pytest. `system/run_tour.py` drives a **real robot** through a
