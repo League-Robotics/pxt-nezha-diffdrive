@@ -11,10 +11,9 @@ prints camera / gyro / wheels side by side. Camera yaw is sampled
 CONTINUOUSLY and unwrapped, because a single before/after pair cannot
 resolve a 180 deg turn -- it lands exactly on the wrap boundary.
 
-Run under the project's own venv (not the AprilTags one -- the camera
-runs as its own subprocess via tools/camproc.py, so this file only
-ever needs pyserial):
-  python3 tools/pivot_truth.py [--reps 3]
+Run under the project's own venv, which has both the camera
+(`aprilcam`) and the serial link (`pyserial`) in it:
+  uv run python tools/pivot_truth.py [--reps 3]
 """
 import argparse
 import math
@@ -24,7 +23,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
-from camproc import Cam
+from camlink import Cam, CamDown
 from field import turn_total, wrap
 
 # Below this, the camera saw no rotation at all and `gyro / camera` is
@@ -57,7 +56,7 @@ def _yaw_mark(cam):
     computed fresh from `cam`'s own recorded samples each call (cheap
     enough for a session's worth of pivot samples), mirroring the old
     CamStream.mark()'s shape so the rest of this file needs no other
-    change. `cam` is a tools/camproc.py Cam; its samples are already
+    change. `cam` is a tools/camlink.py Cam; its samples are already
     `(t, x_cm, y_cm, yaw_deg)`.
     """
     with cam.lock:
@@ -103,7 +102,10 @@ def main():
     ap.add_argument('--tag', type=int, default=53)
     a = ap.parse_args()
 
-    cam = Cam(tag=a.tag)
+    try:
+        cam = Cam(tag=a.tag)
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.latest is None:
         raise SystemExit(f'camera cannot see tag {a.tag}')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)
@@ -136,7 +138,7 @@ def main():
             # the camera) is gone, along with its dependence on the
             # camera being trustworthy to disambiguate the gyro.
             gyro = turn_total(commanded, o1[2] - o0[2])     # [deg]
-            # r0/r1 are camproc.Cam's (x_cm, y_cm, yaw_deg) -- x, y are
+            # r0/r1 are camlink.Cam's (x_cm, y_cm, yaw_deg) -- x, y are
             # indices 0, 1 (NOT 1, 2 -- that was the old CamStream's
             # (yaw, x, y) order this file used to read).
             drift = math.hypot(r1[0] - r0[0], r1[1] - r0[1])

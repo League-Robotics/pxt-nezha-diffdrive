@@ -28,10 +28,10 @@ class Repositioner:
 
     def fix(self, samples=8):
         """Median camera pose (x_cm, y_cm, yaw_deg), or None -- delegates
-        to tools/camproc.py's Cam.fix(), which already does exactly this
+        to tools/camlink.py's Cam.fix(), which already does exactly this
         median-of-N sampling (and, critically, already returns None once
         the stream has died rather than a frozen pre-death pose -- see
-        camproc.py's stale-pose-invalidation contract)."""
+        camlink.py's stale-pose-invalidation contract)."""
         return self.cam.fix(n=samples)
 
     def _seed(self, pose):

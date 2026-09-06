@@ -29,7 +29,7 @@ import time
 
 sys.path.insert(0, __file__.rsplit('/', 1)[0])
 from robotlink import open_link
-from camproc import Cam
+from camlink import Cam, CamDown
 from field import DOTS, RECT, clears_margin, usable_half_extent
 import tlm
 
@@ -121,9 +121,14 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
 
-    # camproc.Cam's own constructor already waits (up to 15s) for a
-    # first sample or an ERR, so no extra fixed sleep is needed here.
-    cam = Cam(tag=a.tag)
+    # Cam's own constructor already waits (up to 15s) for a first
+    # sample or a dead stream, so no extra fixed sleep is needed here.
+    # An unreachable daemon raises; a stream that dies after connecting
+    # lands in `err`.
+    try:
+        cam = Cam(tag=a.tag)
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.err:
         raise SystemExit(f'camera not usable: {cam.err}')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)

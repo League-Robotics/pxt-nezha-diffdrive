@@ -27,7 +27,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
 from reposition import Repositioner
-from camproc import Cam
+from camlink import Cam, CamDown
 from field import ORDER, PathRefused, closure, score_corners
 import tlm
 
@@ -142,7 +142,10 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
 
-    cam = Cam()
+    try:
+        cam = Cam()
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.err or cam.latest is None:
         raise SystemExit(f'camera not usable: {cam.err or "no tag"}')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)

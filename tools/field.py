@@ -16,7 +16,7 @@ the moment of closest approach. See
 issues/tools-link-layer-consolidation.md` (code review R-24/R-26).
 
 **`latest`/camera-sample tuple order (this module's documented
-convention, followed by `tools/camproc.py`'s `Cam`): a single fix is
+convention, followed by `tools/camlink.py`'s `Cam`): a single fix is
 `(x_cm, y_cm, yaw_deg)`; a timestamped sample is
 `(t, x_cm, y_cm, yaw_deg)`.** This unifies `tour_run.py`'s original
 `(x, y, yaw)` with `tour_practice.py`'s `(yaw, x, y)` -- every function

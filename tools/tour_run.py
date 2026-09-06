@@ -25,7 +25,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
-from camproc import Cam
+from camlink import Cam, CamDown
 from field import (ORDER, PathRefused, clears_margin, path_deviation,
                    require_clear_path, score_corners, usable_half_extent,
                    wrap)
@@ -39,10 +39,11 @@ def analyse(cam_rows):
         return None
     t0 = cam_rows[0][0]
     span = cam_rows[-1][0] - t0
-    # DEDUPLICATE first. camlink polls at 20 Hz but the daemon only
-    # produces ~4 Hz, so ~70% of rows repeat the previous position
-    # exactly. Left in, every repeat scores as a stationary sample and
-    # the duty cycle reports the CAMERA's frame rate rather than the
+    # DEDUPLICATE first. `Cam` publishes one sample per REAL frame now,
+    # so this is a belt-and-braces guard rather than the load-bearing
+    # fix it was when a 20 Hz poll over a ~4 Hz camera made ~70% of rows
+    # exact repeats. Left in, every repeat scores as a stationary sample
+    # and the duty cycle reports the CAMERA's frame rate rather than the
     # robot's motion -- a genuinely good run read as "moving 24% of the
     # time, median speed 0 cm/s" while its own encoders said 197 mm/s.
     fresh = [cam_rows[0]]
@@ -152,7 +153,10 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
 
-    cam = Cam()
+    try:
+        cam = Cam()
+    except CamDown as e:
+        raise SystemExit(f'camera not usable: {e}') from e
     if cam.latest is None:
         raise SystemExit('camera cannot see the robot')
     link = open_link(radio=not a.wifi, wifi=a.wifi, robot=a.robot)

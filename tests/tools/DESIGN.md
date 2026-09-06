@@ -1,6 +1,6 @@
 # tests/tools — unit tests for the repo's own Python tooling
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** stable (sprint 005 adds `test_tlm.py` pinning `tools/tlm.py`'s telemetry parser, `test_camproc.py`/`test_field.py` pinning ticket 003's link-layer consolidation, and `test_run_verbs.py` pinning ticket 006's RUN-string retargeting)
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-24 · **Status:** stable (sprint 005 adds `test_tlm.py` pinning `tools/tlm.py`'s telemetry parser, `test_camlink.py`/`test_field.py` pinning ticket 003's link-layer consolidation, and `test_run_verbs.py` pinning ticket 006's RUN-string retargeting; sprint 034 ticket 008 folded the camera subprocess, and its own test file, into `test_camlink.py`)
 
 ---
 
@@ -49,13 +49,17 @@ three fail-loud guards (`require_stream()`, `write_tlm_csv()`, the
 specifically to replace six tools' worth of scattered, silently-broken
 arity logic (`tour_watch.py:202`, `tour_capture.py:70`), so it is
 pinned here from day one rather than left to drift the same way.
-`test_camproc.py`/`test_field.py` (sprint 005 ticket 003) pin
-`tools/camproc.py`'s interpreter-resolution/`ERR`-surfacing/stale-pose-
-invalidation contract and `tools/field.py`'s playfield geometry
-(`wrap()`, the gap-aware `score_corners()`, `path_deviation()`)
-against a `Cam(_spawn=False)` double — the consolidation that replaced
-seven copied `Cam`/`CamStream`/`CamProc` scaffolds and four
-*disagreeing* corner-scoring implementations with one of each.
+`test_camlink.py`/`test_field.py` (sprint 005 ticket 003, sprint 034
+ticket 008) pin `tools/camlink.py`'s `Cam` — its stale-pose-invalidation
+contract, its dead-instrument-vs-tag-not-in-frame distinction, and its
+one-sample-per-real-frame property — and `tools/field.py`'s playfield
+geometry (`wrap()`, the gap-aware `score_corners()`,
+`path_deviation()`), against an injected fake daemon client. That is the
+consolidation that replaced seven copied `Cam`/`CamStream` scaffolds and
+four *disagreeing* corner-scoring implementations with one of each; ticket
+008 finished it by deleting the camera subprocess (a second `Cam`, a
+hardcoded venv path and an `ERR`/`NOTAG` line protocol, all bridging two
+interpreters that are now one) and folding its tests in here.
 `test_run_verbs.py` (sprint 005 ticket 006) pins the exact RUN string
 four bench tools (`otos_levercal.py`, `pivot_truth.py`,
 `rotation_check.py`, `turn_sweep.py`) send against a
@@ -141,24 +145,25 @@ captured `thdr`/`t` lines, no serial/radio link involved:
 Run: `uv run pytest tests/tools/test_tlm.py`, or as part of the whole
 suite.
 
-### `test_camproc.py` (sprint 005 ticket 003)
+### `test_camlink.py` (sprint 029 ticket 006, sprint 034 ticket 008)
 
-Imports `tools/camproc.py` directly (same `sys.path`-insert convention)
-and drives its `Cam` class through a `_spawn=False` constructor
-argument, so no real camera subprocess, thread, or interpreter is ever
-started:
+Imports `tools/camlink.py` directly (same `sys.path`-insert convention)
+and drives its `Cam` against an injected fake daemon client, so no real
+camera, daemon or thread of the daemon's is ever started. Two halves:
 
-- **`resolve_venv()`** — `APRILTAGS_VENV` set overrides the default;
-  unset, falls back to the historically-correct hardcoded path.
-- **`ERR` surfacing** — an `ERR` line fed to the double reaches the
-  calling tool (via a callback/attribute the double lets the test
-  inspect) instead of being discarded the way the old `stderr=DEVNULL`
-  scaffolds did.
-- **Stale-pose invalidation** — once the stream is marked dead,
-  `.latest`/`.fix()` both return `None` rather than a frozen pre-death
-  value, even if a pose was cached moments before.
+- **Registration (TL-02/TL-11)** — construction makes zero
+  `register_tag()` calls, `Cam.register()` is the only path that makes
+  any, and a robot mount's `mount_yaw_rad` is the fixed −90° AprilCam
+  convention plus the calibration file's sub-degree residual.
+- **The in-process reader (ticket 008)** — a dead instrument raises
+  `CamDown` (construction) or lands in `err` (mid-stream) and
+  invalidates the cached pose, while a tag merely absent from a frame
+  only advances `notag`; a detection with no world fix is skipped
+  rather than published as zeros; and two identical frames produce two
+  samples, because one sample per REAL frame is what keeps a duty-cycle
+  score measuring the robot rather than the camera's frame rate.
 
-Run: `uv run pytest tests/tools/test_camproc.py`, or as part of the
+Run: `uv run pytest tests/tools/test_camlink.py`, or as part of the
 whole suite.
 
 ### `test_field.py` (sprint 005 ticket 003)
@@ -315,11 +320,12 @@ Run: `uv run pytest tests/tools/test_link.py`.
   to emit) are fed to `TlmStream` as-is; a test that instead
   hand-wrote its own "plausible" `t` line could pass while silently
   disagreeing with what the firmware actually sends.
-- **`test_camproc.py`/`test_field.py`: no real subprocess, camera, or
-  thread, ever.** `Cam(_spawn=False)` is the one seam these tests use
-  to exercise interpreter resolution, `ERR` surfacing, and pose
-  invalidation without ever starting the real AprilTags process this
-  class normally spawns.
+- **`test_camlink.py`/`test_field.py`: no real camera or daemon,
+  ever.** `Cam(client=...)` is the one seam these tests use — a fake
+  daemon client scripted with a finite list of frames — to exercise
+  registration, pose invalidation and the reader loop without ever
+  connecting to a daemon (which needs a Terminal launch for camera
+  permission and will not come up from an agent process tree).
 - **`test_run_verbs.py`: asserts both the positive and the negative.**
   Every test checks the exact string sent AND that none of the old
   dead numeric forms appear in it — asserting only the positive half
@@ -348,9 +354,9 @@ granularity instead of a C++ vtable.
   file alone.
 - **`uv run pytest tests/tools/test_tlm.py`** (sprint 005) — this file
   alone.
-- **`uv run pytest tests/tools/test_camproc.py`**,
-  **`tests/tools/test_field.py`** (sprint 005 ticket 003) — each file
-  alone.
+- **`uv run pytest tests/tools/test_camlink.py`**,
+  **`tests/tools/test_field.py`** (sprint 005 ticket 003, sprint 034
+  ticket 008) — each file alone.
 - **`uv run pytest tests/tools/test_run_verbs.py`** (sprint 005 ticket
   006) — this file alone.
 - All also run as part of **`uv run pytest`** from the repo root, and
@@ -369,8 +375,9 @@ granularity instead of a C++ vtable.
   `tests/host/test_wire_telemetry_projection.py` uses as expected
   emitted bytes, so `test_tlm.py` cannot silently drift from what the
   firmware actually sends.
-- **`tools/camproc.py`**'s `Cam`/`resolve_venv()` and **`tools/field.py`**'s
-  `wrap()`/`score_corners()`/`path_deviation()` (sprint 005 ticket 003)
+- **`tools/camlink.py`**'s `Cam`/`mount_yaw_rad()` and
+  **`tools/field.py`**'s `wrap()`/`score_corners()`/`path_deviation()`
+  (sprint 005 ticket 003, sprint 034 ticket 008)
   — see [`tools/DESIGN.md`](../../tools/DESIGN.md)'s "Link layer" section.
 - **`otos_levercal.py`**, **`pivot_truth.py`**,
   **`rotation_check.py`**, **`turn_sweep.py`**'s own RUN-sending code
@@ -389,9 +396,10 @@ shape recurring on retry), and its no-retry-on-hard-failure path.
 re-emit), `seq`-gap loss counting and 7-bit wraparound, arity/malformed
 rejection, orphan-frame counting, the unit-conversion helpers against
 the shared golden frame, and both fail-loud guards' raising and
-non-raising paths. `camproc.py`'s `resolve_venv()` env-var override/
-default, `ERR` surfacing, and stale-pose invalidation against a
-`Cam(_spawn=False)` double. `field.py`'s `wrap()`, `score_corners()`'s
+non-raising paths. `camlink.py`'s registration guarantees, stale-pose
+invalidation, dead-instrument-vs-tag-not-in-frame distinction and
+one-sample-per-real-frame property, against an injected fake daemon
+client. `field.py`'s `wrap()`, `score_corners()`'s
 gap-aware scan (including the historical console-vs-chart
 disagreement), and `path_deviation()`'s degenerate-segment guard. The
 exact RUN string each of the five retargeted tools sends, and the
@@ -410,7 +418,7 @@ behavior is not exercised here either — that is the sprint's
 real-hardware end-to-end check (`tour_run.py --tour world` against a
 real robot), not a unit test; this file only pins the parsing/guard
 *logic* against synthetic and captured-but-replayed frames. For
-`test_camproc.py`/`test_field.py`/`test_run_verbs.py`: none of them
+`test_camlink.py`/`test_field.py`/`test_run_verbs.py`: none of them
 exercise a real camera daemon, a real robot, or a real radio link
 either — that is this sprint's own bench handoff checklist (ticket
 007), not a unit test.

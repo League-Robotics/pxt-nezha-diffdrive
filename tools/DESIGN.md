@@ -4,9 +4,10 @@
 
 Host-side Python scripts for building, deploying, driving, measuring,
 and charting the robot. Flat root, no subsystems. Run under `uv`
-(`uv run python tools/<script>.py`); `camlink.py` runs under the
-aprilcam pipx venv instead. Conventions (units, frames, camera
-doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
+(`uv run python tools/<script>.py`) — including `camlink.py`, which as
+of sprint 034 ticket 008 runs in that same venv like everything else
+(`aprilcam[daemon]` is a declared dependency of it). Conventions
+(units, frames, camera doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
 
 ## Link layer — what everything talks through
 
@@ -83,7 +84,15 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
   Pinned by `tests/tools/test_rogo.py` against captured `dns-sd` output;
   MEASURED tovez 2026-09-03, `captures/rogo-tovez-20260903/notes.md`.
 - **`camlink.py`** — persistent gRPC stream to the aprilcam overhead-
-  camera daemon. **Sprint 029**: `field_calibration.json` is now the one
+  camera daemon, and the ONE `Cam` class every bench tool uses.
+  **Sprint 034 ticket 008**: in-process, on a background reader thread
+  publishing one sample per REAL camera frame. The camera-subprocess
+  wrapper that used to sit in front of it — a second `Cam`, a hardcoded
+  interpreter path, an `ERR`/`NOTAG` line protocol and a respawn counter
+  — existed only to bridge two Python interpreters that are now one, and
+  is deleted; its consumer surface (`latest`, `fix()`, timestamped
+  `samples`/`since()`, `err`/`notag`) moved here unchanged.
+  **Sprint 029**: `field_calibration.json` is now the one
   calibration of record for tag mounts — `camlink.py` loads it and no
   longer re-registers a mount as a side effect of merely constructing
   `Cam` (the previous `MOUNTS` table and `ensure_registered()`'s

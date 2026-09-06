@@ -17,6 +17,16 @@ operator:
   URL, and one was the camera-in-the-loop experiment this repo's
   doctrine now forbids.
 
+Sprint 034 ticket 008 added a fourth, for a different reason: the
+camera-subprocess wrapper existed to bridge two Python interpreters
+that are now one (`aprilcam[daemon]` is a declared dependency of this
+venv), and it carried a hardcoded venv path, an `APRILTAGS_VENV`
+override, an `ERR`/`NOTAG` line protocol and a SECOND `Cam` class to do
+it. `tools/camlink.py`'s `Cam` reads the daemon in-process and serves
+the same surface. A file that resurrects the wrapper resurrects the
+second `Cam`, and two camera classes is how a correction gets applied
+twice.
+
 A deleted file is only half-deleted while a docstring, a DESIGN.md
 bullet or a test import still names it: the next session reads the
 reference as an instruction, runs a file that is not there, and the
@@ -48,7 +58,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 #: Stems of the deleted tools. Stems, not filenames: a reference in a
 #: docstring or a Python `import` line drops the `.py`, and those are
 #: exactly the references that read as live instructions.
-DELETED_STEMS = ('truth_check', 'tour_square', 'tour_closedloop')
+DELETED_STEMS = ('truth_check', 'tour_square', 'tour_closedloop', 'camproc')
 
 #: Only these two trees are scanned -- see the module docstring for why
 #: `docs/` and `clasi/sprints/done/` are excluded.

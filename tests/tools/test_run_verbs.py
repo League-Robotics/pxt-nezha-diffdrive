@@ -222,7 +222,7 @@ def test_rotation_check_pivots_are_bare_degrees_not_verb_pairs():
 # -> RUN:turnrate:<rate> then RUN:pivot:<deg> ------------------------------
 
 class _FakeCam:
-    """Just enough of tools/camproc.py's Cam surface for _yaw_mark():
+    """Just enough of tools/camlink.py's Cam surface for _yaw_mark():
     a lock and a (possibly empty) samples list. one_turn() sends BOTH
     RUN commands before it ever inspects camera sample counts, so an
     empty/static double is sufficient to observe what got sent -- the

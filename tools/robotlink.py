@@ -119,8 +119,11 @@ def probe_port(name, tries=8):
     present intermittently comes back CONN=no with no port -- MEASURED
     on 2026-08-26 at roughly 1 call in 5 for zavaz, which is enough to
     kill a tour on startup about as often. It is markedly WORSE while
-    the overhead camera's `camlink.py` subprocess is running -- that is
-    a USB device too, and every tour starts the camera before opening
+    the overhead camera is streaming -- that is a USB device too (the
+    measurement was taken against the camera-subprocess `camlink.py`
+    that sprint 034 ticket 008 folded in-process; the USB contention it
+    describes is the daemon holding the camera, which has not changed),
+    and every tour starts the camera before opening
     the radio link, so the flaky case is the normal case here. A single
     miss means nothing; only a run of them does.
 
