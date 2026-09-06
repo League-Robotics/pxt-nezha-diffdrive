@@ -267,30 +267,23 @@ Source edit in the tovez robot config / `shims.cpp` default, one host
 test pinning the value reads back over the wire. Measured 3x
 improvement; nothing else this sprint is as cheap or as certain.
 
-### P2 -- Add a per-robot straight-line trim. ~90 min, sim-validated, 5 min hardware.
+### P2 -- Add a per-robot straight-line trim. ~90 min, sim-validated. (SUPERSEDED for tovez by 2.2a)
 
-A new config field (working name `straight_trim`, [1], default 0):
-the fraction by which the twist REFERENCE is biased per unit of
-commanded forward travel, so the encoders are deliberately made to
-twist by the amount that cancels the ground-side mismatch. One
-constant, per robot, in the existing config surface.
+Ticket 019 adds `straight_trim` [1] (default 0): a bias on the twist
+REFERENCE so the encoders are deliberately made to twist by the amount
+that cancels a CONSTANT ground-side mismatch, with a host-harness
+plant-in-the-loop test proving twist hold is blind to an
+encoder-invisible curvature and that the trim cancels it.
 
-- Host-harness test (section 1a): with a 1.1% injected radius
-  mismatch, ground heading drifts 3.4 deg per 600 mm with trim 0 and
-  <0.3 deg with the matching trim; with no mismatch, trim 0 leaves the
-  leg straight (no regression).
-- tovez's value from tonight's G3: **+1.1%**, sign to be confirmed on
-  hardware.
-- Hardware acceptance: `--mode g3 --legs 6 --leg-mm 600` once. If mean
-  |dh| on the forward legs drops below 1 deg, bake it. If it does not,
-  the finding is hypothesis (B) in 2.2, the trim is set back to 0, and
-  it becomes next sprint's problem with a decisive data point in
-  hand.
-
-This fixes the forward-leg curvature under BOTH hypotheses in 2.2 --
-under (A) directly, under (B) by giving twist hold a reference it can
-actually reach. It will not fix the reverse-leg profile, which is
-different; students drive forward.
+**As written before the discriminator ran, this section planned to bake
+tovez's trim at +1.1%. That is withdrawn.** Section 2.2a shows tovez's
+leg yaw is a variable, sign-inconsistent breakaway event on direction
+reversal, not a constant curvature; a constant trim sized from one leg
+would make the next leg worse. The field ships (default 0 everywhere,
+harmless, and the right tool for a robot that DOES have a constant
+mismatch), the mechanism proof ships as a regression test, and tovez's
+value stays 0. Section 3a records what was tried against the real
+defect instead.
 
 ### P3 -- Restate the release criteria to what students need, and record the research bars as failed. ~30 min, no hardware.
 
@@ -299,7 +292,7 @@ Proposed release bars for the student firmware:
 | what | bar | status tonight |
 |---|---|---|
 | 90 deg pivot | mean\|err\| <= 3 deg | **met** (1.53) |
-| 600 mm forward leg | \|dh\| <= 1.5 deg | not met (3.4) -- P2 |
+| 600 mm forward leg | \|dh\| <= 1.5 deg | not met -- breakaway on reversal, see 2.2a / 3a; no P2 fix |
 | 500 mm square, 1 lap | closure <= 50 mm | 2 of 3 laps met |
 | `RUN` verbs / blocks drive | drives | **met** (ticket 017) |
 | G5 step | robot moves, no oscillation | **met** |
@@ -385,3 +378,22 @@ symmetric "settle" before a forward move that follows a reverse. None
 is a tonight change. The release ships with the baseline config plus
 the slip bake, and the student-facing bar is set from the baseline
 numbers below.
+
+**Ramp check on the accel result (before believing it).** Peak
+frame-to-frame wheel acceleration and time-to-90 mm/s from the kept
+telemetry, per leg:
+
+| config | peak ramp [mm/s^2] | time to 90 mm/s [s] |
+|---|---|---|
+| baseline, accel 300 | 759, 864, 955, 889 | 0.28, 0.29, 0.24, 0.29 |
+| v_floor 150 | 1719, 1519, 1394, 1333 | 0.17, 0.23, 0.13, 0.23 |
+| accel 800 (run 1) | 873, 894, 886, 843 | 0.25, 0.24, 0.24, 0.28 |
+
+`accel 800` did NOT change the physical ramp -- the drivetrain already
+ramps at ~850 mm/s^2 at accel 300 (which is also why G4's "<= 1.5 x
+accel" bar fails at 300: the limit is not what governs the ramp). So
+run 1's 1.77 deg mean has no mechanism behind it and is, until the
+second run says otherwise, a favourable n=4. `v_floor 150` is the only
+setting that physically changed the start of the leg (ramp x1.7, time
+to speed halved) and it reduced breakaway EVENTS without reducing the
+worst-case ground yaw.
