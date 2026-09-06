@@ -2,9 +2,11 @@
 id: '007'
 title: 'Wire minors: telemetry terminator, RX drain/counters, handleRun refusal counter,
   seq-id wrap, GET rebase'
-status: open
-use-cases: [SUC-004]
-depends-on: ["006"]
+status: in-progress
+use-cases:
+- SUC-004
+depends-on:
+- '006'
 github-issue: ''
 issue: wire-minors-telemetry-terminator-rx-counters-seq-wrap.md
 completes_issue: true
