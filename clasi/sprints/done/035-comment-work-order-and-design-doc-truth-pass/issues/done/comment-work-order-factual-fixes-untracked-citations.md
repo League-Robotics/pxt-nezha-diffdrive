@@ -1,8 +1,15 @@
 ---
-status: in-progress
+status: done
 sprint: '035'
 tickets:
-- 035-001
+- '001'
+- '002'
+- '003'
+- '004'
+- '005'
+- '006'
+- '007'
+- 008
 ---
 
 # Comment work order: 53 boil-downs, 16 factual fixes, track or relocate the untracked capture citations, ratchet volume
