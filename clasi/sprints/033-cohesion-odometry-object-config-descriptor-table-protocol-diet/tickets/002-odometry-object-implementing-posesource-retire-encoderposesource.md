@@ -1,8 +1,9 @@
 ---
 id: '002'
 title: Odometry object implementing PoseSource; retire EncoderPoseSource
-status: open
-use-cases: [SUC-001]
+status: in-progress
+use-cases:
+- SUC-001
 depends-on: []
 github-issue: ''
 issue: odometry-object-and-kernel-rearm-references.md
