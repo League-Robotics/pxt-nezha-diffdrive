@@ -153,6 +153,40 @@ host that owns its loop drives `step()` directly).
   Everything else in the kernel — the FF+I law, lambda, bias, stall/
   deficit latches, lease, e-stop, output publication — is untouched by
   this ticket.
+  - **straight_trim** (sprint 031 ticket 019,
+    `docs/sprint-031-postmortem.md` §2.2) — a new `Config::straightTrim`
+    field ([1], default 0, wire ordinal 38): every tick the twist-hold
+    block is active, `straightTrim · cmd.velocity · dt` is added to
+    `twistRef_.reference` directly, alongside (not instead of) K1's own
+    `scaledTwist · floorScale · dt` term — an independent additive bias,
+    not scaled by `floorScale` (it is not a commanded twist the speed
+    floor ever touches). **Positive `straightTrim` makes the RIGHT
+    wheel travel further than the LEFT in encoder space.** It exists
+    because tovez's forward legs curve by a per-robot amount that
+    §2.2's own re-analysis found splits roughly in half: MEASURED tovez
+    2026-09-05 (`captures/session-b-20260905/discriminator-20260905/
+    legs.json`, two 600 mm legs with `TLM FULL`), camera dh
+    −1.37/+1.65 deg vs encoder-integrated dh −0.75/+0.63 deg — so the
+    curvature is **not** purely encoder-invisible (§2.2's original
+    hypothesis (A)); roughly half reaches the encoders and is left as
+    steady-state error by a proportional-only twist hold (gain 4 [1/s])
+    against a constant disturbance (hypothesis (B)), and roughly half
+    never reaches the encoders at all (a ground-side wheel-radius/scrub
+    mismatch — twist hold's own measured error is genuinely zero for
+    this half, which is why retuning `twist_hold_gain` alone, sprint
+    031 tickets 012/015, could never close it). A single bias on the
+    REFERENCE (not the feedback) cancels the total of both components
+    in steady state: it deliberately drives the encoders to twist by
+    the fraction that cancels the invisible half, and the nonzero
+    target it gives the proportional hold also relieves that hold's own
+    residual on the visible half. Measured afterwards (postmortem §2.2a,
+    `captures/session-b-20260905/discriminator-20260905{,-v2}/`),
+    tovez's leg yaw turned out to be a variable, sign-inconsistent
+    breakaway on direction reversal, not a constant curvature, so
+    tovez's trim stays 0 and is NOT to be sized; the field is the right
+    tool only for a robot with a CONSTANT ground-side mismatch.
+    Host-proved (no hardware needed to validate the mechanism) in
+    `tests/host/test_straight_trim.py`.
 - Each `step()` runs split-phase encoder sampling:
   `requestSample()` → 4 ms settle sleep → `tick()` per wheel. Anything
   that lands other I2C traffic inside that settle window destroys the
@@ -205,7 +239,19 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   `goToW(pose, …)` (reads a caller-supplied `PoseSource` **once**,
   rotates world delta into the body frame, delegates to `goToR`) is
   unaffected by this change other than inheriting `goToR`'s corrected
-  geometry.
+  geometry. **Sprint 032 ticket 007**: `goToR`'s own bearing-then-chord
+  decomposition (the `atan2`/short-arc-wrap/`hypot`/split-decision
+  block above) is now a separate pure static method,
+  `decomposeGoToR(x, y)` (returns `bearingRaw`/`theta`/`chord`/
+  `arcLength`/`willSplit`), used by `goToR()` itself and by a second
+  caller — a shim-layer caller (below) that must make the identical
+  split decision before `goToR()` runs, without risking drift between
+  the two. A second new method, `reconcileDualRateCruise(distance,
+  rotation, speed, yawRate)`, is `startMove()`'s existing dual-rate
+  duration-budget algebra (see the shim layer below) relocated here
+  unchanged, so a second caller can share it instead of re-deriving it;
+  `MotionEngine::goToR()`'s own signature, and `queuePivotThenStraight()`,
+  are unchanged by either addition.
 - Move servicing: `service()` (renamed from `serviceMove()`, motion
   profile unification, sprint 029) — one ~40-line tick (design §5) that
   dispatches whichever of `seg_`/`hold_` is active through the ONE
@@ -1387,7 +1433,7 @@ graph TD
     Protocol -->|enqueue on RUN: prefix| RunQueue[run_queue.h ring]
     RunQueue -->|dropped counter| DiagValue[shims.cpp diagValue ordinal table]
     Protocol -->|dispatchJob: dequeue + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
-    TSDispatch -->|student onRun handler, own MessageBus fiber| StudentCode[Student RUN / button handler]
+    TSDispatch -->|student onRun handler, nested on protocol fiber -- not forked| StudentCode[Student RUN / button handler]
     StudentCode -->|startMove/driveTwist/startDrive: takes kBlock| MotionOwner
     Protocol -->|motionOwner_ arbitration: kNone/kWire/kJob/kBlock| MotionOwner{motionOwner_}
     MotionOwner -->|tickDrive, guard held only inside step| Rig[shims.cpp Rig / DifferentialDrive kernel]
@@ -1641,6 +1687,29 @@ Pieces the kernel deliberately does not contain:
   promise than the OTOS gives, which the ticket's own documentation
   update states plainly rather than leaving the two verbs looking
   identical.
+- **Move engine entry points, dual-rate reconciliation**: `startMove()`
+  (backs `move`/`startMove`) and `engineGoToRArmed()` (backs `goTo`/
+  `startGoTo`, via `engineSetGoToDeadline()`/`engineSetGoToYawRate()`
+  pre-arming its 5th/6th logical parameters — every `//%` shim stays
+  at ≤4 params, a real PXT-packager constraint measured sprint 015) are
+  the block API's own entry points onto `MotionEngine`, each exposing
+  TWO independent rate ceilings (a distance/chord speed, a yaw rate)
+  that the engine's own `moveX()`/`goToR()` take as a SINGLE `cruise`.
+  Both now reconcile via the shared `MotionEngine::reconcileDualRateCruise()`
+  (§3): whichever axis takes longer at its own ceiling governs a shared
+  duration, split-aware (the SUM of both phases' durations budgets the
+  deadline when a pivot-then-straight split will fire; the plain MAX
+  governs the non-split `cruise` itself either way). **Sprint 032
+  ticket 007** is the second of these two callers — before it,
+  `engineGoToRArmed()` passed `speed` straight through as `goToR()`'s
+  one cruise, so `goTo`'s pivot phase ran at whatever angular rate the
+  linear cruise implied through the chassis geometry, ignoring
+  `defaultYawRate` entirely (~143°/s at the 15 cm/s default, regardless
+  of the configured yaw rate). It now calls
+  `MotionEngine::decomposeGoToR(x, y)` (§3) first, to make the identical
+  split decision `goToR()` itself will, then reconciles the pivot phase
+  (`bearingRaw`, when splitting) or the single blended segment
+  (`theta`, when not) against the pre-armed yaw rate the same way.
 
 **The TypeScript side** owns the student units and the block API
 (groups Drive, Move, Pose, World, Setup), the browser-simulator
@@ -1657,17 +1726,44 @@ a single `main.ts` into six cohesion-sized modules. Current structure:
   `isMoving`, `moveProgress`, `stopMove`, `whileMoving`,
   `whileGoingTo` — Move group), and the namespace's one load-time
   side-effecting statement, the top-level `_startProtocol()` call.
+  **Sprint 032 ticket 008**: also owns the shared arrival-tolerance
+  state (`arriveTol`, an unexported `let` alongside `defaultSpeed`/
+  `defaultYawRate`) and its Setup-group setter, `setArrivalTolerance`
+  — moved here from `world.ts` (the lower layer both go-to blocks
+  depend on) — plus a `blockHidden` accessor, `arrivalTolerance()`,
+  for `world.ts`'s `goToWorld()` to read the same value across files
+  (an unexported `let` merges within one file only; TypeScript's
+  cross-file namespace merging shares EXPORTED members, so the cross-
+  file read goes through a one-line function, not the bare
+  variable). `startGoTo()` now threads `arriveTol` into `_goToR`'s
+  `arrive` parameter instead of a hardcoded `1` (mm), so one
+  `setArrivalTolerance()` call governs both go-to blocks. `stopMove()`
+  is now `//% blockHidden=true` — `stop.ts`'s `stop()` is the one
+  visible stop control; `stopMove()` stays exported and callable
+  (every internal caller, and any saved project already using the
+  "stop move" block, keeps working) since its native body
+  (`shims.cpp`'s `endMove()`) and `stop()`'s (`stopAll()`) are now
+  byte-identical.
 - **`pose.ts`** — `poseX`, `poseY`, `heading`, `resetPose` (Pose
   group). Reads local (encoder-odometry) pose only; never touches the
   world/OTOS sensor.
 - **`stop.ts`** — `stop`, `emergencyStop`, `clearEmergencyStop`,
   `isStalled`, `clearStallLatch` (Drive group). Owns the two
-  independent fault latches (e-stop, stall) and nothing else.
+  independent fault latches (e-stop, stall) and nothing else. The one
+  VISIBLE stop control since sprint 032 ticket 008 (above) hid
+  `motion.ts`'s `stopMove()` alias.
 - **`world.ts`** — OTOS world-pose tracking (`startWorldTracking`,
   `worldTrackingReady`, `seedPose`, `readWorld`, `worldX`/`Y`/
   `Heading`, `calibrateWorldSensor`, `setWorldSensorOffset`) and
-  `goToWorld` with its own tuning state (`arriveTolCm`,
-  `turnFirst`) and private `tickedMove()` runner (World group).
+  `goToWorld`, which pivots first beyond `turnFirst` — a `const` since
+  sprint 032 ticket 008 (nothing ever wrote it) — and ticks both of
+  its own legs by calling `motion.ts`'s exported `move()`/`goTo()`
+  directly (World group). Before that ticket this file carried private
+  `tickedMove()`/`tickedGoTo()` runners, byte-for-byte the same
+  `start*(...); while (_tickDrive());` shape as `motion.ts`'s exported
+  versions — pure duplication, deleted with no behavior change. Its
+  own arrival pre-check reads `motion.ts`'s shared `arrivalTolerance()`
+  (this section's `motion.ts` bullet) instead of an independent copy.
 - **`run.ts`** — the RUN command dispatcher: the no-initialiser state
   block (`runParts`/`runNames`/`runHandlers`/`runAnyHandlers`/
   `runWired`), `ensureRunState()`, `wireRunDispatch()`, `onRun`/
@@ -1694,9 +1790,13 @@ a single `main.ts` into six cohesion-sized modules. Current structure:
   motion/pose/stop behaviour (`_setWheels`, `_driveTwist`,
   `_startMove`, `_updateMove`, `_tickDrive`, `_progress`, `_endMove`,
   `_stopAll`, `_estopAll`, `_estopClear`, `_poseX`/`Y`/`Heading`,
-  `_resetPose`, `_seedPose`), and the no-op stand-ins for shim-only
-  surface with no browser model at all (`_clearStallLatch`,
-  `_isStalled`, `_setGeometry`, `_setKernelValue`, `_startProtocol`,
+  `_resetPose`, `_seedPose`, and `_setGeometry`/`_setKernelValue`'s
+  field-16 case, which update the live `simTrackWidth`/
+  `simRotationalSlip` state `_setWheels()`'s divisor reads instead of
+  discarding their arguments), and the no-op
+  stand-ins for shim-only surface with no browser model at all
+  (`_clearStallLatch`, `_isStalled`, `_setGeometry`'s `calib` argument
+  and every `_setKernelValue` field other than 16, `_startProtocol`,
   `probe`, `setTaperWindows`/`Floors`/`RampMs` (retired no-ops, sprint
   029 ticket 004), `setLimits` (their replacement, same ticket),
   `otosBegin`/`Read`/
@@ -1711,6 +1811,14 @@ Notable design points, all measured the hard way and unchanged by the
 sprint 012 split (module attribution updated to the file each now
 lives in):
 
+- **Sprint 032 ticket 008**: `cycleStat()` (`shims.cpp`) and its
+  simulator stand-in `_cycleStat()` (`sim.ts`) are deleted outright —
+  grepped repo-wide, neither had a caller anywhere in `src/`, `test/`,
+  `tests/`, or `tools/`. `r.tickOverrunCount`/`simTickOverrunCount`/
+  `simCycleCount`, the counters `cycleStat()` used to read, are left
+  in place: they are still written every tick by
+  `tickDrive()`/`_tickDrive()`'s own pacing logic, independent of
+  `cycleStat()` ever existing.
 - Continuous-mode commands (`setWheelSpeeds`/`driveTwist`, `motion.ts`)
   only move the robot while a `while (diffDrive.driveTick())` loop
   ticks; blocking moves tick internally. **Sprint 007**: this is now

@@ -525,10 +525,12 @@ sessions.
 worktree the sprint was PLANNED from (`robot-circular-movement-e0358d`,
 recorded as absolute paths in `design/_sources.json`), not into this
 branch. That write was reverted there and `_sources.json` repointed at
-this worktree. The overlay was NOT merged into this branch's
-`src/DESIGN.md` / `tests/playfield/DESIGN.md`: the diff was cut against
-that other worktree's older files and would have removed sections
-tickets 019 and 020 wrote during the sprint. The sprint's design record
-lives intact in `design/`; the branch's DESIGN.md files carry the
-per-ticket updates. Reconciling the two is a documentation task for the
-next planner, not a silent overwrite at close.
+this worktree. A first close attempt then applied the overlay as a whole-file
+overwrite and deleted the `straightTrim` section tickets 019/020 had
+written. Resolved (commit after `ca57a95`) as a proper three-way merge:
+base = the canonical docs at the overlay's seed commit `75594d9`, ours
+= the branch's ticket-written docs (with master's sprint-032 changes),
+theirs = the planner's overlay. Both files merged with zero conflicts;
+the result is now BOTH the canonical `src/DESIGN.md` /
+`tests/playfield/DESIGN.md` and this sprint's `design/` overlay files,
+so the close's `apply()` is a byte-identical no-op.
