@@ -99,6 +99,13 @@ _CXX11_PORTABLE_SOURCES = [
     # when Odometry absorbed EncoderPoseSource (sprint 033 ticket 002).
     _TEST_DIR / "odometry_syntax_check.cpp",
     _TEST_DIR / "run_queue_syntax_check.cpp",
+    # comms/run_bridge.cpp has no pxt.h dependency (the cleartext RUN
+    # bridge's sanitize/dedupe/park rules, extracted out of the
+    # pxt.h-bound protocol.cpp -- see src/comms/run_bridge.h's own
+    # header comment) and, like velocity_shaper.cpp below, has a natural
+    # .cpp of its own, so it is compiled directly rather than through a
+    # dedicated syntax-check translation unit.
+    _SRC_DIR / "comms" / "run_bridge.cpp",
     # emit_queue.h has no pxt.h dependency (a host-portable outbound-
     # line ring for the protocol's single-serial/radio-producer
     # restructuring -- see src/comms/emit_queue.h's own header comment)

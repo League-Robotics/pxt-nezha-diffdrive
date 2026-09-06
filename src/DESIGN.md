@@ -1494,9 +1494,10 @@ motion owner):
 graph TD
     Wire[Serial / Radio transport] --> Protocol
     Protocol -->|drainEmitQueue, then serviceOnce: read/telemetry| Protocol
-    Protocol -->|enqueue on RUN: prefix| RunQueue[run_queue.h ring]
-    RunQueue -->|dropped counter, diag ordinal 28| DiagValue[shims.cpp diagValue ordinal table]
-    Protocol -->|dispatchJob: dequeue + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
+    Protocol -->|offer on RUN: prefix| RunBridge[comms/run_bridge.h -- sanitize, dedupe, park]
+    RunBridge -->|run_queue.h ring| RunQueue[8 x 48 slot ring]
+    RunBridge -->|dropped counter, diag ordinal 28| DiagValue[shims.cpp diagValue ordinal table]
+    Protocol -->|dispatchJob: dispatchOne + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
     TSDispatch -->|student onRun handler, nested on protocol fiber -- not forked| StudentCode[Student RUN / button handler]
     StudentCode -->|startMove/driveTwist/startDrive: takes kBlock| MotionOwner
     Protocol -->|motionOwner_ arbitration: kNone/kWire/kJob/kBlock| MotionOwner{motionOwner_}
@@ -1512,18 +1513,31 @@ graph TD
     NezhaPort -->|EncoderGlitchArmor: raw==0 rejected explicitly| Kernel
 ```
 
-**RUN bridge.** `RUN:<name>[:<arg>…]` parks the payload in an 8-slot
-ring (sprint 026 ticket 002's `run_queue.h`, superseding the original
-4-slot MessageBus-events ring this paragraph used to describe — a real
-queue with occupancy and a saturating drop counter, diag ordinal 28,
-rather than a fixed cursor that could silently overwrite a still-live
-slot). **Sprint 028**: dequeuing no longer raises a MessageBus event at
-all — see the fiber-loop paragraph above for `dispatchJob()`'s direct
-call into `run.ts`'s dispatcher via `_registerRunDispatch()`. 3 s same-
-text dedupe (at arrival, not at handling, so it is immune to any
-queueing) still absorbs hosts repeating commands to survive the
-single-slot radio buffer (measured pre-028: one 3×-repeated RUN ran
-three consecutive pivots) — unchanged by this sprint. **Sprint 008's
+**RUN bridge.** `RUN:<name>[:<arg>…]` is handled by **`RunBridge`**
+(`comms/run_bridge.h/.cpp`), a host-portable object composed into
+`Protocol` — the same extraction shape `run_queue.h` itself already
+has, and host-tested on its own by `tests/host/test_run_bridge.py` with
+no `Protocol`, no fiber and no radio in the link. Its surface is
+`offer(data, len, now)` → one of `kMalformed`/`kSuppressed`/`kBypass`/
+`kQueued`/`kDropped`, `dispatchOne()` (stage the oldest parked payload
+and release its slot), and `currentText()` (what is staged right now).
+It owns sanitizing, repeat suppression, and the 8-slot ring
+(`run_queue.h`, superseding the original 4-slot MessageBus-events ring
+this paragraph used to describe — a real queue with occupancy and a
+saturating drop counter, diag ordinal 28, rather than a fixed cursor
+that could silently overwrite a still-live slot). It does **not** call
+TypeScript and does **not** arbitrate the drivetrain: `Protocol` keeps
+both, because only `Protocol` can see a wire request, a dispatched job
+and a block-program move together. **Sprint 028**: dequeuing no longer
+raises a MessageBus event at all — see the fiber-loop paragraph above
+for `dispatchJob()`'s direct call into `run.ts`'s dispatcher via
+`_registerRunDispatch()`. A **400 ms** same-text dedupe (at arrival,
+not at handling, so it is immune to any queueing) absorbs hosts
+repeating commands to survive the single-slot radio buffer (measured
+pre-028: one 3×-repeated RUN ran three consecutive pivots). The window
+was 3000 ms until it was cut: that was far wider than any retransmit
+burst and made sending one command twice in a row impossible, which is
+exactly the shape a parameter sweep sends. **Sprint 008's
 own note here is now historical**: the literal event source `0x2001`
 this paragraph used to describe, and `run.ts`'s matching
 `RUN_EVENT_SOURCE` constant, along with the drift test that pinned the

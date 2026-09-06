@@ -23,7 +23,7 @@ bool tickDrive();
 
 // Runs the ONE registered RUN dispatch action (test.ts's onRun()/
 // onRunCommand() handlers all share it), on the caller's own fiber --
-// see invokeRunDispatch() below. Returns false with nothing registered
+// see handleRun()/dispatchJob() below. Returns false with nothing registered
 // yet (no onRun() handler has ever been called), a silent no-op.
 bool runDispatch();
 
@@ -141,21 +141,6 @@ constexpr size_t kOldRunPrefixLen = 4;
 // against an idle UART between bytes.
 constexpr uint32_t kTelemetryEmitPeriod = 50;  // [ms]
 constexpr uint32_t kPollInterval = 5;  // [ms]
-
-// Bypass names for handleRun() below: these two skip runQueue_ entirely
-// and dispatch immediately, regardless of what else is running -- see
-// handleRun()'s own comment. `name` is the payload up to (not including)
-// its first ':', or the whole payload if there is none, matching how
-// the TS dispatcher itself splits a command into name + arguments.
-bool isBypassRunName(const char* text) {
-  size_t nameLen = 0;
-  while (text[nameLen] != '\0' && text[nameLen] != ':') ++nameLen;
-  auto matches = [&](const char* name) {
-    return std::strlen(name) == nameLen &&
-           std::memcmp(text, name, nameLen) == 0;
-  };
-  return matches("abort") || matches("clearestop");
-}
 
 }  // namespace
 
@@ -355,86 +340,33 @@ void Protocol::serviceWifi() {
 // ---- the old-style cleartext RUN bridge ------------------------------
 
 void Protocol::handleRun(const uint8_t* data, size_t dataLen) {
-  if (data == nullptr || dataLen == 0) return;
-  // Strip one trailing '\r' (raw-terminal artifact, same tolerance the
-  // old cleartext line parser gave colon-less lines), then copy the payload
-  // verbatim. Anything outside printable ASCII -- or too long for a
-  // slot -- is malformed: drop silently. The name/argument split is NOT
-  // done here: this layer stays a transport for the text, and the TS
-  // layer owns the vocabulary.
-  if (data[dataLen - 1] == '\r') --dataLen;
-  if (dataLen == 0 || dataLen >= kRunTextBytes) return;
-  char text[kRunTextBytes];
-  for (size_t i = 0; i < dataLen; ++i) {
-    const uint8_t c = data[i];
-    if (c < 0x20 || c > 0x7E) return;
-    text[i] = static_cast<char>(c);
-  }
-  text[dataLen] = '\0';
-  if (text[0] == ':') return;   // empty name -- nothing to dispatch on
-
-  // Dedupe repeats of the SAME command. The robot's inbound wireless
-  // path is a single-slot buffer, so hosts repeat commands to survive
-  // loss -- a repeated RUN does not hit the test programs' own re-entry
-  // guard (which has already cleared by the time a retransmit lands):
-  // measured on vevov, one 3x-repeated RUN:4 ran three consecutive
-  // 180 deg pivots.
-  //
-  // Suppression is by (text, arrival time) here at the point of
-  // arrival, NOT at handling time, which is what makes it immune to
-  // that queueing. Two commands that differ only in their arguments
-  // are different text, so they are not each other's repeats. A
-  // deliberate re-run of the same command just needs to be spaced past
-  // the window.
+  // Sanitizing, repeat suppression and parking all live in runBridge_
+  // (run_bridge.h/.cpp, host-portable and host-tested there). This
+  // fiber supplies the clock reading and makes the one call the bridge
+  // cannot: the dispatch into TypeScript.
   const uint32_t now = static_cast<uint32_t>(clock_.nowMicros() / 1000ull);  // [ms]
-  if (std::strcmp(lastRunText_, text) == 0 &&
-      static_cast<int32_t>(now - lastRun_) < kRunDedupe) {
-    lastRun_ = now;   // extend across a burst of repeats
-    return;
-  }
-  std::memcpy(lastRunText_, text, dataLen + 1);
-  lastRun_ = now;
+  if (runBridge_.offer(data, dataLen, now) != RunBridge::Offer::kBypass) return;
 
-  // Abort/clearestop bypass runQueue_ entirely and dispatch RIGHT NOW,
-  // on whatever fiber called handleRun() -- run()'s own loop normally,
-  // but (crucially) also the service hook nested inside a running job's
-  // own tick loop, which is the ONLY way an abort sent while a job is
-  // mid-tour can ever be noticed: dispatchJob() refuses to start a
-  // SECOND job while motionOwner_ is not kNone, so if abort went through
-  // the same queued path as everything else it would sit behind the
-  // very job it is meant to stop. Ungated on motionOwner_ deliberately
-  // -- both handlers this dispatches to (test.ts's "abort"/"clearestop")
-  // are trivial, non-blocking, and safe to invoke reentrant from inside
-  // a job's own call chain.
-  if (isBypassRunName(text)) {
-    invokeRunDispatch(text);
-    return;
-  }
-
-  if (runQueue_.enqueue(text, static_cast<int>(dataLen)) < 0) {
-    // Every slot is still in flight. Refusing is the point: the old
-    // cursor would have overwritten one, and the handler holding it
-    // would then have run a command nobody sent. The refusal is
-    // counted and readable rather than silent, so a host that
-    // out-runs the robot can find out.
-    return;
-  }
-  // dispatchJob() drains runQueue_ itself, in arrival order -- nothing
-  // else to do here once the enqueue above has accepted the command.
+  // "abort"/"clearestop" dispatch RIGHT NOW, on whatever fiber called
+  // handleRun() -- run()'s own loop normally, but (crucially) also the
+  // service hook nested inside a running job's own tick loop, which is
+  // the ONLY way an abort sent while a job is mid-tour can ever be
+  // noticed: dispatchJob() refuses to start a SECOND job while
+  // motionOwner_ is not kNone, so if abort went through the same queued
+  // path as everything else it would sit behind the very job it is
+  // meant to stop. Ungated deliberately -- both handlers this
+  // dispatches to (test.ts's "abort"/"clearestop") are trivial,
+  // non-blocking, and safe to invoke reentrant from inside a job's own
+  // call chain. The payload is already staged in runBridge_ for
+  // runCommandText() to read back at the handler's own entry.
+  runDispatch();
 }
 
 void Protocol::dispatchJob() {
   if (motionOwner_ != MotionOwner::kNone) return;
-  const int slot = runQueue_.peek();
-  if (slot < 0) return;  // nothing queued
-
-  // Copy the text out and release the slot BEFORE dispatching -- the
-  // call below can run for as long as the job itself does (a whole
-  // tour), and releasing first frees runQueue_'s capacity for a burst
-  // arriving during that whole span instead of holding one slot hostage
-  // for it.
-  setCurrentRunText(runQueue_.at(slot));
-  runQueue_.release(slot);
+  // Stages the oldest parked payload for currentRunText() and frees its
+  // slot; false means nothing is queued.
+  if (!runBridge_.dispatchOne()) return;
 
   motionOwner_ = MotionOwner::kJob;
   wireAdapter_.setExternalOwner(MotionOwner::kJob);
@@ -489,17 +421,9 @@ void protocolReleaseBlockOwnership() {
   protocol().releaseBlockOwnership();
 }
 
-void Protocol::invokeRunDispatch(const char* text) {
-  setCurrentRunText(text);
-  runDispatch();
+const char* Protocol::currentRunText() const {
+  return runBridge_.currentText();
 }
-
-void Protocol::setCurrentRunText(const char* text) {
-  std::strncpy(currentRunText_, text, kRunTextBytes - 1);
-  currentRunText_[kRunTextBytes - 1] = '\0';
-}
-
-const char* Protocol::currentRunText() const { return currentRunText_; }
 
 void Protocol::serviceHookEntry() {
   Protocol& p = protocol();
@@ -556,7 +480,7 @@ void Protocol::paintStackCanary() {
 void Protocol::paintStackCanary() {}
 #endif
 
-uint32_t Protocol::runDropCount() const { return runQueue_.dropped(); }
+uint32_t Protocol::runDropCount() const { return runBridge_.dropCount(); }
 uint32_t Protocol::emitDropCount() const { return emitQueue_.dropped(); }
 
 // Same boundary, opposite direction: shims.cpp's runCommandText shim

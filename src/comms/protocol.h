@@ -6,7 +6,7 @@
 //
 // One exception, preserved deliberately: the OLD cleartext
 // "RUN:<name>[:<arg>...]" bridge (handleRun()/dispatchJob()/the
-// runQueue_ ring below) coexists with v6 on the same wire -- detected
+// runBridge_ object below) coexists with v6 on the same wire -- detected
 // directly by its literal "RUN:" prefix before a line ever reaches the
 // v6 stack (no verb registry involved -- see run()'s own comment). It
 // is the ONLY path that feeds the by-name test-trigger dispatch
@@ -47,7 +47,7 @@
 #include "wifi_link.h"        // WiFi transport (host-portable AT state machine)
 #include "wifi_uart.h"        // ...over NRF_UARTE1 (CODAL-free header)
 #include "wire_adapter.h"
-#include "run_queue.h"
+#include "run_bridge.h"
 #include "emit_queue.h"
 #include "wire_handler.h"
 
@@ -89,7 +89,7 @@ class Protocol {
   // the whole payload after `RUN:`, e.g. "pivot:180". Valid only while
   // dispatchJob()'s (or the abort/clearestop bypass's) own call into the
   // registered RUN dispatch callback is executing, on THIS fiber -- see
-  // invokeRunDispatch()'s own comment for why a nested reentrant
+  // RunBridge::currentText()'s own comment for why a nested reentrant
   // dispatch (abort arriving mid-job) can never corrupt an outer job's
   // already-consumed text. Called from the TS layer (shims.cpp's
   // now-zero-argument runCommandText() -- the old
@@ -251,25 +251,6 @@ class Protocol {
   // is dispatched exactly once per queued command, never re-entered.
   void dispatchJob();
 
-  // Copies `text` into currentRunText_ and invokes the one registered
-  // RUN dispatch callback (shims.cpp's runDispatch(), which runs
-  // whichever `onRun()`/`onRunCommand()` handler test.ts bound to this
-  // command's name) -- the single path both dispatchJob() (a queued job,
-  // gated on motionOwner_) and handleRun()'s abort/clearestop bypass
-  // (ungated, see that method's own comment) funnel through. Safe to
-  // call reentrantly (an abort dispatched from inside a running job's own
-  // tick loop): the callback reads currentRunText_ back via
-  // runCommandText() at its OWN entry, before doing anything else, so a
-  // nested call's overwrite can never corrupt an outer, still-running
-  // job's own already-consumed text -- every onRun() handler in this
-  // package reads its arguments only at entry (test/test.ts), never
-  // later during a long-running tick loop.
-  void invokeRunDispatch(const char* text);
-
-  // Copies `text` into currentRunText_, bounded to kRunTextBytes and
-  // always NUL-terminated. The one place that buffer is written.
-  void setCurrentRunText(const char* text);
-
   // One pass of this fiber's OWN servicing: drains emitQueue_, dispatches
   // one queued RUN job if the drivetrain is free, polls serial and radio
   // for new lines (the old-style cleartext RUN: bridge or the v6
@@ -355,58 +336,29 @@ class Protocol {
   // emitQueue_'s slot text bytes: RadioTransport::kMaxPayloadBytes (the
   // cap emitLine() already clips to) plus one for the NUL this ring
   // adds itself -- a clipped line always fits. Slot count matches
-  // runQueue_'s own: generous enough for a burst of result lines
+  // RunBridge's own ring: generous enough for a burst of result lines
   // between drain passes without becoming a large static allocation.
   static constexpr size_t kEmitTextBytes = RadioTransport::kMaxPayloadBytes + 1;
   static constexpr int kEmitSlots = 8;
   EmitQueue<kEmitSlots, static_cast<int>(kEmitTextBytes)> emitQueue_;
 
-  // ---- the old-style cleartext RUN bridge, preserved unchanged from
-  // before the v5 retirement (see this file's own top-of-file comment)
-  // except for HOW a dequeued command reaches TypeScript: not a
-  // MessageBus event to a second, forked fiber (deleted) but
-  // dispatchJob() dequeuing and calling invokeRunDispatch() directly, on
-  // THIS fiber. -----------------------
-  // RUN:<name>[:<arg>...] (cleartext, e.g. "RUN:pivot:180") normally
-  // parks the payload text in runQueue_ below for dispatchJob() to drain
-  // in arrival order. "abort"/"clearestop" bypass that queue entirely --
-  // see this method's own definition (protocol.cpp) for why: a queued
-  // abort would sit behind the very job it is meant to stop.
+  // ---- the old-style cleartext RUN bridge --------------------------
+  // RUN:<name>[:<arg>...] (cleartext, e.g. "RUN:pivot:180") goes to
+  // runBridge_ below, which sanitizes it, suppresses a host's own
+  // retransmits, and either parks it for dispatchJob() to drain in
+  // arrival order or -- for "abort"/"clearestop" -- stages it straight
+  // back for immediate dispatch. This method is the thin seam between
+  // that object and the transports: read the clock, offer the payload,
+  // and make the one TypeScript call a bypass asks for.
   void handleRun(const uint8_t* data, size_t dataLen);
 
-  // RUN payload storage: a real ring with occupancy (run_queue.h), not a
-  // bare write cursor -- a slot stays in flight from enqueue() until
-  // dispatchJob() reads and releases it, so a burst arriving during a
-  // long job's dispatch can no longer overwrite payload not yet
-  // consumed. Overflow is counted and readable (diagValue ordinal 28)
-  // instead of silent. Ordinal 28 is diagValue()'s own numbering, which
-  // is a SEPARATE namespace from the config ordinals SET/GET use -- 28
-  // there is `jerk`, and diagValue() has no ordinal 30 at all.
-  static constexpr size_t kRunTextBytes = 48;  // name + args + NUL
-  static constexpr int kRunSlots = 8;
-  RunQueue<kRunSlots, static_cast<int>(kRunTextBytes)> runQueue_;
-
-  // The text of whichever RUN command dispatchJob()/invokeRunDispatch()
-  // most recently copied in, for currentRunText() (public, above) to
-  // return. The one buffer both call sites write, always through
-  // setCurrentRunText().
-  char currentRunText_[kRunTextBytes] = {};
-
-  // RUN repeat suppression -- see handleRun's own comment. Hosts repeat
-  // commands to survive the single-slot inbound buffer, and without
-  // this a repeated RUN runs the test once per copy. Compared on the
-  // whole payload, so RUN:pivot:180 does not suppress RUN:pivot:-180.
-  // Suppress a host's own RETRANSMITS, not deliberate repeats. The
-  // queue below fixes loss; this fixes duplicate EXECUTION, which is a
-  // different failure -- a host repeating a command over a lossy radio
-  // would otherwise run the tour once per copy. 3000 ms was far wider
-  // than any retransmit burst and made sending one command twice in a
-  // row impossible, which is exactly the shape a parameter sweep
-  // sends. 400 ms still swallows a burst and gives deliberate repeats
-  // back.
-  static constexpr int32_t kRunDedupe = 400;  // [ms]
-  char lastRunText_[kRunTextBytes] = {};
-  uint32_t lastRun_ = 0;   // [ms] arrival time of the last accepted RUN
+  // Parking, dedupe and hand-off for the cleartext RUN bridge, with the
+  // run_queue.h ring inside it -- host-portable and host-tested on its
+  // own (run_bridge.h). Its overflow count is readable as diagValue
+  // ordinal 28. Ordinal 28 is diagValue()'s own numbering, which is a
+  // SEPARATE namespace from the config ordinals SET/GET use -- 28 there
+  // is `jerk`, and diagValue() has no ordinal 30 at all.
+  RunBridge runBridge_;
 
   // ---- identity, assembled once the fiber actually runs ---------------
   // WireAdapter must stay CODAL-free (host-testable), so this CODAL-

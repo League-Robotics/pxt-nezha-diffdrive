@@ -35,11 +35,18 @@ Three kinds of file, one pattern:
   exactly what each port method should report, then advances the code
   under test one step at a time.
 - **Shims** (`kernel_shim.cpp`, `motion_engine_shim.cpp`,
-  `odometry_shim.cpp`, `wire_grammar_shim.cpp`,
-  `wire_motion_verb_shim.cpp`) — the
+  `odometry_shim.cpp`, `run_queue_shim.cpp`, `run_bridge_shim.cpp`,
+  `wire_grammar_shim.cpp`, `wire_motion_verb_shim.cpp`) — the
   `extern "C"` surfaces ctypes can bind: each bundles the class under
   test with its private fakes behind an opaque handle plus free
-  functions. `odometry_shim.cpp` (sprint 033) bundles a real
+  functions. `run_bridge_shim.cpp` (sprint 033) exposes
+  `diffDrive::RunBridge` — the cleartext `RUN:` bridge's sanitize/
+  dedupe/park/bypass rules, extracted out of the `pxt.h`-bound
+  `protocol.cpp` and therefore executable here for the first time.
+  Its clock is an `offer()` argument rather than a member, which is
+  what lets `test_run_bridge.py` land timestamps exactly on the dedupe
+  window's edges instead of sleeping. `odometry_shim.cpp` (sprint 033)
+  bundles a real
   `diffDrive::Odometry` over a real `MotionEngine`/kernel and
   synthesizes the kernel `Output`s it integrates, so
   `test_odometry.py` can script an exact wheel-count path with no
