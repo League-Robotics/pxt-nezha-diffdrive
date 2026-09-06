@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: One sequencer in tools/link.py; one relay address
-status: open
+status: in-progress
 use-cases:
 - SUC-001
 - SUC-004
