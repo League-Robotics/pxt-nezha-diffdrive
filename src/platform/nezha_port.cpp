@@ -2,11 +2,34 @@
 // nezha_motor.cpp; the shaping-stage ORDER is load-bearing.
 #include "nezha_port.h"
 
+// Declaration only (`void vfpSafeSleep(uint32_t)`); the pxt-bound
+// definition is vfp_guard.cpp, which the host harness replaces with its
+// own no-op -- there are no fibers to yield to on the host.
 #include "vfp_guard.h"
 
 #include <cmath>
 
+// DIFFDRIVE_HOST_BUILD guards the two things in this file that are
+// genuinely ARM-only: CODAL itself, and the naked-asm fault handlers
+// below. Everything else -- the whole shaping pipeline and the encoder
+// path -- is portable, and compiling it on the host is the entire point
+// of the `I2CBus` seam (see platform/i2c_bus.h). Defined only by the
+// host harness's own compile; the real PXT build never sees it, so the
+// target build is unchanged.
+//
+// It deliberately does NOT wrap the `#ifdef DIFFDRIVE_FAULT_SPIN`
+// branch inside `diffdriveFaultReport()` below: `tools/make_deploy.py`
+// (`--fault-spin`) verifies that branch is present in THIS file by text
+// search and exits if it is not, and `tests/tools/
+// test_make_deploy_fault_spin.py` pins that. Extracting the handlers to
+// their own translation unit would have broken both.
+#ifndef DIFFDRIVE_HOST_BUILD
+#include "pxt.h"
+#endif
+
 namespace diffDrive {
+
+#ifndef DIFFDRIVE_HOST_BUILD
 
 // ---- fault-context emergency stop -----------------------------------
 //
@@ -135,6 +158,8 @@ __attribute__((naked)) void UsageFault_Handler() {
 
 }  // extern "C"
 
+#endif  // DIFFDRIVE_HOST_BUILD -- fault handlers are ARM-only
+
 
 namespace {
 float clampf(float value, float lo, float hi) {
@@ -146,25 +171,15 @@ float clampf(float value, float lo, float hi) {
 
 bool NezhaMotorPort::writeFrame(uint8_t arg, uint8_t reg, uint8_t val) {
   uint8_t frame[8] = {0xFF, 0xF9, port_, arg, reg, val, 0xF5, 0x00};
-  // codal-microbit-v2 (V2) I2C takes uint8_t*; classic DAL (V1) takes char*.
-#if MICROBIT_CODAL
-  int status = uBit.i2c.write(kAddress << 1, frame, 8);
-#else
-  int status = uBit.i2c.write(kAddress << 1,
-                              reinterpret_cast<char*>(frame), 8);
-#endif
-  return status == MICROBIT_OK;
+  // The V1/V2 signature split this used to switch on lives in the bus
+  // implementation now (platform/microbit_i2c_bus.cpp); 0 is CODAL's
+  // MICROBIT_OK, which `I2CBus` adopts as its own success convention.
+  return bus_.write(kAddress << 1, frame, 8) == 0;
 }
 
 bool NezhaMotorPort::readEncoderRaw(int32_t* raw) {
   uint8_t data[4] = {0, 0, 0, 0};
-#if MICROBIT_CODAL
-  int status = uBit.i2c.read(kAddress << 1, data, 4);
-#else
-  int status = uBit.i2c.read(kAddress << 1,
-                             reinterpret_cast<char*>(data), 4);
-#endif
-  if (status != MICROBIT_OK) return false;
+  if (bus_.read(kAddress << 1, data, 4) != 0) return false;
   *raw = static_cast<int32_t>(
       static_cast<uint32_t>(data[0]) |
       (static_cast<uint32_t>(data[1]) << 8) |

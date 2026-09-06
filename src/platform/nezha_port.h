@@ -26,7 +26,9 @@
 // device-reset -- software offset rebaseline only.
 #pragma once
 
-#include "pxt.h"
+#include <cstdint>
+
+#include "i2c_bus.h"
 #include "../core/diffdrive.h"
 #include "../core/encoder_glitch_armor.h"
 
@@ -36,8 +38,17 @@ class NezhaMotorPort final : public DiffDrive::Motor {
  public:
   // port: 1-based Nezha motor port (M1..M4). fwdSign: +1/-1 so that
   // positive duty is robot-forward for a mirror-mounted wheel pair.
-  NezhaMotorPort(uint8_t port, int8_t fwdSign)
-      : port_(port), fwdSign_(fwdSign) {}
+  //
+  // `bus` defaults to `defaultI2CBus()` so this two-argument form still
+  // parses exactly as it always did -- `tools/make_deploy.py`'s
+  // per-robot motor bake matches the `NezhaMotorPort left{1, -1}`
+  // literals in shims.cpp by regex (`_MOTOR_BAKE_RES`), and a changed
+  // signature would silently break that bake on the day it is next
+  // needed. The host harness passes its simulated bus explicitly
+  // instead; see `i2c_bus.h`.
+  NezhaMotorPort(uint8_t port, int8_t fwdSign,
+                 I2CBus& bus = defaultI2CBus())
+      : port_(port), fwdSign_(fwdSign), bus_(bus) {}
 
   // ---- DiffDrive::Motor ----
   void begin() override;
@@ -83,6 +94,7 @@ class NezhaMotorPort final : public DiffDrive::Motor {
 
   uint8_t port_;
   int8_t fwdSign_;
+  I2CBus& bus_;  // the wire; never owned
 
   // shaping config [defaults = firmware shipped values]
   float outputDeadband_ = 0.03f;   // [-1,1]

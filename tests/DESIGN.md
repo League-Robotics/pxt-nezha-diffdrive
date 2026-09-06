@@ -52,14 +52,26 @@ fake HTTP getter — and neither touches hardware.
 
 ## Translation units nothing on the host compiles
 
-Eight `.cpp` files under `src/` reach `pxt.h` — directly, or
-transitively through `platform/platform_ports.h`, `platform/nezha_port.h`
-or `platform/otos_port.h`. `pxt.h` ships with the `core` dependency
+Nine `.cpp` files under `src/` reach `pxt.h` — directly, or
+transitively through `platform/platform_ports.h` or
+`platform/otos_port.h`. `pxt.h` ships with the `core` dependency
 declared in `pxt.json`, brings CODAL's whole type set (`uBit`, fibers,
 `NRF52Serial`, `MicroBitRadio`) and PXT's `//%` annotation machinery,
-and none of it exists on the host. **No host test compiles these
-eight, at any standard.** They are gated by other means instead, and
-that is a decision (sprint 034 ticket 011), not an oversight:
+and none of it exists on the host. They are gated by other means
+instead, and that is a decision (sprint 034 ticket 011), not an
+oversight.
+
+**One caveat this table's own guard cannot express.**
+`platform/nezha_port.cpp` still appears below because
+`test_pxt_bound_exclusion_is_current.py` matches `#include` lines with
+a regex and cannot evaluate a preprocessor condition — but that file's
+`#include "pxt.h"` now sits inside `#ifndef DIFFDRIVE_HOST_BUILD`,
+guarding only CODAL and the naked-asm fault handlers. Compiled with
+`-DDIFFDRIVE_HOST_BUILD` the rest of it — the entire shaping pipeline
+and encoder path — builds and runs on the host, and IS host-tested
+(`tests/host/sim_tour.py`). It is the one row here whose right-hand
+column names a real host test rather than only the hex checkpoint.
+`platform/nezha_port.h` is no longer a route to `pxt.h` at all:
 
 | file | what binds it to the target | what gates it |
 |---|---|---|
@@ -68,7 +80,8 @@ that is a decision (sprint 034 ticket 011), not an oversight:
 | `comms/radio_transport.cpp` | `MicroBitRadio`, `uBit.radio` datagram callbacks | hex checkpoint; the RX accept/drop decision and counters live in `radio_transport.h` and are host-tested (`radio_rx_classify_syntax_check.cpp`, `test_radio_transport_rx_capacity.py`) |
 | `comms/serial_transport.cpp` | `uBit.serial` ring sizing and writes | hex checkpoint (the real build's own `-Woverflow`); the `Wire::Sink` half is `comms/transport_sink.h`, host-tested |
 | `comms/wifi_uart.cpp` | `new NRF52Serial(uBit.io.P8, uBit.io.P1, NRF_UARTE1)` — one CODAL-facing byte pipe | hex checkpoint; the whole AT state machine is `comms/wifi_link.cpp`, which **is** in the C++11 gate and host-tested (`test_wifi_link.py`) |
-| `platform/nezha_port.cpp` | Nezha I²C brick transactions, via `nezha_port.h` | hex checkpoint; the rebaseline-on-discontinuity decision is `core/encoder_glitch_armor.h`, host-tested |
+| `platform/nezha_port.cpp` | the ARM fault handlers (naked `__asm`) and `diffdrive_emergency_motor_stop()`'s CODAL write — **both inside `#ifndef DIFFDRIVE_HOST_BUILD`** | hex checkpoint for the guarded half; everything else compiles and runs on the host over a simulated brick (`tests/host/sim_nezha_bus.h`, driven by `sim_tour.py`), which is what finally put the shaping layer — quantizer, deadband, slew, write throttle, **reversal dwell** — under simulation |
+| `platform/microbit_i2c_bus.cpp` | `uBit.i2c` itself: the codebase's entire CODAL I²C dependency, deliberately concentrated here so `nezha_port.cpp` need not carry it | hex checkpoint; there is no logic to test — every line forwards to `uBit.i2c`, and the interface it implements (`platform/i2c_bus.h`) is host-compiled by every `sim_tour.py` build |
 | `platform/otos_port.cpp` | SparkFun OTOS I²C transactions, via `otos_port.h` | hex checkpoint; the heading-wrap math is `core/heading_wrap.h`, host-tested |
 | `platform/vfp_guard.cpp` | `fiber_sleep()` | hex checkpoint; `test_vfp_guard_source_pin.py` |
 
