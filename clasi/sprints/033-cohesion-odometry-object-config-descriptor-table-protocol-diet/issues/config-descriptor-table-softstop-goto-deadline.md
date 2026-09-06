@@ -1,6 +1,9 @@
 ---
-status: pending
-sprint: '032'
+status: in-progress
+sprint: '033'
+tickets:
+- 033-003
+- 033-004
 ---
 
 # One config descriptor table replacing five ordinal switches; one softStop(); go-to deadline as a config field

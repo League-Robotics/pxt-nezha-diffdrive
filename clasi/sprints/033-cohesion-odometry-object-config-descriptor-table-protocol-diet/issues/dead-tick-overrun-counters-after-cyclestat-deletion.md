@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '033'
+tickets:
+- 033-001
 ---
 
 # Three tick-overrun counters are write-only since `cycleStat()` was deleted

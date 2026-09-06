@@ -1,6 +1,9 @@
 ---
-status: pending
-sprint: '032'
+status: in-progress
+sprint: '033'
+tickets:
+- 033-005
+- 033-006
 ---
 
 # Protocol diet: RunBridge object, radio enable on the transport, one routeLine, one sink, one owner flag; delete vestigial two-writer guards
