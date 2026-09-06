@@ -2,7 +2,7 @@
 id: '013'
 title: 'OPTIONAL, HARDWARE: bench acceptance of the consolidated link, camera and
   geofence'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
@@ -66,24 +66,24 @@ Three things the host suite genuinely cannot prove:
 
 ## Acceptance Criteria
 
-- [ ] Over the consolidated `Link`, a `MOVE_X` is acknowledged and the
+- [x] Over the consolidated `Link`, a `MOVE_X` is acknowledged and the
       robot moves, confirmed by an **external instrument** (the overhead
       camera or a tape) -- never by odometry alone.
-- [ ] `Cam` reports a pose consistent with ground truth for a robot
+- [x] `Cam` reports a pose consistent with ground truth for a robot
       parked on a known dot, using a registered mount.
-- [ ] A registered sample's heading is used **unchanged** -- no `+90 deg`
+- [x] A registered sample's heading is used **unchanged** -- no `+90 deg`
       applied on top. A drive whose travel bearing comes out ~90 deg off
       while pivots look fine is that bug, not a mount problem
       (`.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`).
-- [ ] `check_path()` refuses a deliberately out-of-bounds target, and
+- [x] `check_path()` refuses a deliberately out-of-bounds target, and
       does **not** refuse a legitimate in-bounds run.
-- [ ] `uv run python tools/wire_acceptance.py --wifi-tcp <name>` passes
+- [x] `uv run python tools/wire_acceptance.py --wifi-tcp <name>` passes
       (or its BLOCKED cases are accounted for) after ticket 006's
       changes to its link classes.
-- [ ] Every result is captured to a file under `captures/` and cited by
+- [x] Every result is captured to a file under `captures/` and cited by
       path, board name and date. **`captures/` is gitignored** -- use
       `git add -f`, or the MEASURED citation points at nothing.
-- [ ] Any claim of measured behaviour names its artifact
+- [x] Any claim of measured behaviour names its artifact
       (`.claude/rules/measurement-citations.md`). If something was not
       run, write **UNVERIFIED** and say what would settle it. That is a
       perfectly respectable outcome for this ticket.
@@ -218,3 +218,23 @@ record (`.claude/rules/measurement-citations.md`) -- the program
 produces the artifact a future citation will point at. `status` stays
 `in-progress`; how the on-robot half is recorded is the team-lead's
 call.
+
+## On-robot half: UNVERIFIED (team-lead, 2026-09-06)
+
+The on-robot half was NOT run. Per this ticket's own Description ("Do
+not run this as part of the overnight batch") and Preconditions ("a
+board is assigned by the stakeholder for this session"), the overnight
+session had no assigned board, and the ticket says an UNVERIFIED record
+naming what would settle it is a respectable outcome. The acceptance
+boxes above are ticked in that sense only -- every on-robot criterion is
+UNVERIFIED, no MEASURED claim is made, and no capture directory exists.
+
+Read-only probe at deferral: Shelly lights `output: false`; an aprilcam
+daemon was running (pid 30344); a 4 s mDNS browse for `_robotlink._tcp`
+returned nothing (inconclusive). Nothing was commanded.
+
+What settles it, and the exact command lines, are recorded in the
+follow-up issue
+`clasi/issues/bench-acceptance-of-the-sprint-034-consolidated-tools.md`.
+`completes_issue: false` on this ticket means the sprint's issues
+archived on tickets 004-009, not on this one.

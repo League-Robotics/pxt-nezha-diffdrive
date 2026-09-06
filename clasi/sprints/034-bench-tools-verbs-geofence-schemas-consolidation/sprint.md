@@ -624,13 +624,207 @@ I/O goes into `field.py`.**
    than one tour fails, stop and throw a ticket exception — that would
    mean the 120 x 80 cm envelope was not conservative and the
    stakeholder's 2026-09-01 direction needs revisiting.
+   **Resolved (as-built):** ZERO tours failed the tighter y limit
+   (ticket 007) — every sized `.tour` and referenced spline path fit
+   under 551.5 x 326.5 mm half-extent; no re-size, no `_UNSIZED`
+   addition, no exception thrown.
 2. **Does `wire_acceptance.RadioLink`'s hard-coded group 10 have a live
    user who depends on it?** It cannot be right — the fleet table has
    groups 43, 60, 108, 114. Ticket 006 replaces it with
    `robotlink.radio_address(robot)`. Flagged so a reviewer notices the
    behaviour change rather than reading it as a refactor.
+   **Resolved (as-built):** replaced as planned (ticket 006). This is a
+   real behaviour change, not a refactor: `--radio` now takes a robot
+   NAME instead of a channel int, and the host moved from the bare IP
+   `192.168.1.12` to `torture`; an old `--radio 4` invocation now fails
+   loudly instead of silently tuning to 4/10.
 3. **`tests/DESIGN.md` is outside the design overlay** (see Migration
    Concerns). Team-lead action at close, not a programmer's.
+   **Resolved (as-built):** `tests/DESIGN.md` was edited canonically by
+   tickets 011 and 012 (the pxt.h-exclusion table and the design-doc
+   truth pass); the team-lead synced it into the design overlay by hand
+   at close, as flagged.
+
+### Revision (as-built, 2026-09-06)
+
+The twelve software tickets (001-012) closed as planned; ticket 013
+(optional, hardware) has its host half landed and its on-robot half
+deferred. This subsection records where implementation deviated from
+or sharpened the plan above; the Architecture prose above is kept as
+written. Per-ticket detail lives in each ticket's Implementation
+record / Decision record under `tickets/done/`.
+
+- **Ticket 001** — `field.turn_total(commanded, measured)` landed with
+  unit-free parameter names, per `.claude/rules/no-units-in-identifiers.md`
+  (the plan's own acceptance criteria used `_deg`-suffixed language
+  informally). `pivot_truth.py` additionally grew a `gyro_over_camera()`
+  helper and a `NO_ROTATION = 0.5 # [deg]` threshold — a chosen
+  constant, not a measured one — to guard the "camera saw no rotation"
+  case. `rotation_check.py`'s module docstring was rewritten (not just
+  the print deleted) so the guard reads as current rather than
+  retired-but-annotated.
+- **Ticket 002** — the bounded-window remedy used
+  `CORNER_WINDOW_RADIUS = 15.0 # [cm]` (the review's own suggested
+  figure), searched from `used + 1`; `used = besti + 1` closes the
+  double-claim gap named in the issue. `leg_analysis.HEADING_MISS` was
+  added as a class constant; since nothing enumerates the classification
+  set exhaustively, no `else` branch needed updating to avoid a silent
+  fallthrough.
+- **Ticket 003** — three whole files were deleted, not the roadmap's
+  original "five reference-only tools" figure (already corrected above,
+  under "Corrections to the roadmap text"): `truth_check.py`,
+  `tour_square.py`, `tour_closedloop.py`. Dead blocks were removed from
+  `tour_watch.py` (the whole second chart subplot went, not just the
+  `vel` list), `tour_practice.py`, and `practice_chart.py` (the
+  duplicate `TRACK_CM` now has no owner at all). `camlink.py`'s `--hz`
+  argument was removed here — and, as a forced consequence, `camproc.py`'s
+  matching `hz` plumbing was removed early in this ticket rather than
+  waiting for ticket 008, because leaving it would have made every
+  `Cam()` spawn a `camlink.py` that rejected an unrecognised argument.
+  New guard: `tests/tools/test_deleted_tools_stay_deleted.py`. The
+  sweep found and reported (but did not touch) a stale worktree,
+  `.claude/worktrees/sprint-20-work-tree-8741c7/`.
+- **Ticket 004** — `tlm.py` gained `POSE_CSV_COLUMNS`,
+  `write_pose_csv(rows, path, wheels=False)`, `read_pose_csv(path) ->
+  (rows, schema)` and `PoseCsvSchemaError`. The convert-or-refuse
+  question (left open by the ticket) resolved to **convert** every
+  legacy header this repo's own tools actually wrote — `tour_watch`
+  (cm/deg), `tour_practice` with and without the wheel pair including
+  the older `vl_cms` spelling, and a wire-unit variant with unsuffixed
+  OTOS columns found in seven `captures/` files that the ticket's own
+  table did not list — and **refuse** everything else by name. Of 35
+  pose CSVs surveyed under `captures/` and `.tmp/`, 23 read (every one
+  under `captures/`) and 12 were refused, all 12 `.tmp/` scratch files
+  missing a required column. `--meta`'s `start_world_cm[2]` is
+  documented and converted as degrees.
+- **Ticket 005** — `_V6_VERBS` stayed a literal in `robotlink.py`, per
+  Design Rationale 1 above (11 sequenced verbs). The drift test
+  (`tests/host/test_wire_constants_drift.py`, new section 11) parses
+  the firmware's `kCommandTable` (18 rows) and the seven unsequenced
+  early-return verbs structurally out of the source, pins that parse
+  against the literal as a second, independent check, and cross-checks
+  the firmware's own `static_assert(... == 18)`.
+- **Ticket 006** — `tools/link.py`'s surface is `RELAY_HOST`/`RELAY_PORT`,
+  `relay_setup_lines()`, `LineBuffer`, `Sequencer`. The relay-setup
+  disagreement named in the Architecture prose was settled toward
+  **all four lines** (`!ECHO OFF`/`!MODE RAW250`/`!CG`/`!P 7`) on
+  **every** relay carrier, because the relay persists its configuration
+  across resets and `!ECHO` is a radio transponder, not terminal echo.
+  `wire_acceptance.py` adopted `LineBuffer` but deliberately took **no**
+  `Sequencer` — its own job is to hand-write ids to probe the
+  sequencing contract, which a `Sequencer` would make untestable.
+  `GautiLink` and `WifiLink` were left untouched (out of scope; see the
+  ticket record for why). Behaviour changes beyond Open Question 2's
+  resolution above: `turn_calibration.robot_radio()`'s `radio_group`
+  default of 10 was removed (a missing key now raises rather than
+  silently defaulting).
+- **Ticket 007** — Open Question 1 resolved above (zero failing tours).
+  `field.require_clear_path()` / `PathRefused` wraps `check_path()`;
+  `Repositioner.check_path()` runs before the seed; `tour_run.main()`
+  catches `PathRefused` and abandons the run rather than tracebacking.
+  Tools that command only relative motion (`pivot_truth.py`,
+  `turn_sweep.py`, `rotation_check.py`, `arc_capture.py`,
+  `tour_capture.py`, `otos_levercal.py`, `otos_bench.py`, the
+  `linefollow/` and calibration `distance`/`mount`/`lag`/`dance`
+  programs) were deliberately left unwired — they carry no coordinate
+  to check. `field.usable_half_extent()` (a derived value) replaced
+  `test_run_tour_programs.py`'s private `_FIELD_MM`/`_MARGIN_MM` pair.
+- **Ticket 008** — the full option (Design Rationale 5) was taken:
+  `camlink.Cam(tag=None, cam=CAM, client=None, stream=True, wait=15.0)`
+  runs a background reader thread over the existing `frames()`
+  generator, publishing `latest`/`fix()`/`samples`/`since()`/`err`/
+  `notag`/`lock`/`close()` — the exact surface `camproc.Cam`'s five
+  consumers depended on. `deaths`/`respawn` were dropped, not carried
+  over (no live reader survived ticket 003's deletions). `test_camproc.py`
+  was deleted; its live behavioural pins moved into `test_camlink.py`.
+  `fix()`'s docstring was corrected in passing: stale-after is ~10 s at
+  the camera's ~4 Hz, not the ~2 s it previously claimed.
+- **Ticket 009** — `wrap()`'s boundary convention, `(-180, 180]` with
+  the upper end closed, was kept as `field.py`'s existing behaviour, not
+  flipped to the modulo idiom's `[-180, 180)` the other three copies
+  used — chosen because `turn_total()` needs the commanded sign
+  preserved at exactly ±180°. No caller's behaviour changed as a result
+  (no float measurement ever lands on exactly 180.0). One real
+  doc/code disagreement was found and closed: `leg_analysis._wrap_deg()`'s
+  docstring had claimed `(-180, 180]` while its body implemented
+  `[-180, 180)`. `otos_levercal.py`'s equivalent `atan2` form was folded
+  into the shared `wrap()`. `Repositioner.go()` now carries `place()`'s
+  two-phase ordering (position to completion, then heading);
+  `tour_run.py` gained `make_repositioner()`, `START`, and
+  `report_start_pose()`. Two `place()` behaviours were deliberately
+  **not** carried over: its `send_until()` retransmits and its
+  `sleep(0.7)` settle (superseded by `fix()`'s multi-sample median,
+  which settles longer than the sleep it replaces). The new
+  `tests/tools/test_angle_wrap_ownership.py` guard uses `ast` rather
+  than a text grep, since several converted files cannot be imported at
+  collection time (they open a daemon/serial connection at module
+  scope).
+- **Ticket 010** — the review's "eleven" `motion_lib` fixtures were
+  thirteen on the tree, all textually identical (including
+  `velocity_shaper.cpp`, which the review's three-file description
+  predates); collapsed into one `tests/host/conftest.py` fixture. Suite
+  wall time went from 75.3 s to ~58 s (`uv run pytest tests/host
+  tests/tools -q`, measured 2026-09-06). The `tsc` gate now skips with a
+  reason naming `npm ci`. The third `travelCalib` copy
+  (`tests/system/run_tour.py`) is pinned. The new ruff gate
+  (`tests/tools/test_ruff_clean.py`) found and fixed **ten** findings,
+  not the review's stale count of five. The repo-wide `F811` silence
+  was **narrowed**, not deleted — to `tests/host/**` only, where 115
+  legitimate cross-module fixture imports remain (the conftest removal
+  was not what the silence existed for). TL-18 (the stale "vevov, ch 4"
+  claim) was fixed in the affected tests, `make_deploy.py`,
+  `tools/DESIGN.md`, and one comment in `src/comms/radio_transport.h`.
+- **Ticket 011** — **Branch B** (documented exclusion) was chosen over
+  a stub `pxt.h`, per Design Rationale 7 above. The re-derived list is
+  8 pxt.h-bound translation units (`wifi_uart.cpp` having landed since
+  the review's count of seven): `protocol.cpp`, `nezha_port.cpp`,
+  `otos_port.cpp` (transitively), plus `shims.cpp`, `radio_transport.cpp`,
+  `serial_transport.cpp`, `wifi_uart.cpp`, `vfp_guard.cpp` (directly).
+  Criterion 4 ("what breaks if we do nothing") was answered concretely,
+  not left abstract: two historical breaks in exactly these files
+  (`setRxBufferSize`'s `uint8_t` truncation, sprint 004; the five-arg
+  `TS9200` shim crash, sprint 015) were caught by neither a real build
+  log nor anything a stub could have modelled. The exclusion table lives
+  in `tests/DESIGN.md`, guarded by
+  `tests/host/test_pxt_bound_exclusion_is_current.py` so a ninth such
+  file fails loudly. The `-I src` inconsistency the review flagged was
+  **fixed**, not merely recorded: the C++11 gate now compiles production
+  sources with no `-I`, matching `compile_shared_lib()` exactly.
+- **Ticket 012** — the tree-derived inventory count is **39 entries**
+  (38 `*.py` files plus `tools/field_calibration.json`), of which 26
+  were already named before this ticket — not the roadmap's stale
+  "11 of 30 missing" figure. New completeness guard:
+  `tests/tools/test_tools_design_inventory.py` (41 tests). Of the six
+  named comment-hygiene replacements, five were applied and #5
+  (`camproc.py`'s docstring) was a no-op because ticket 008 had already
+  deleted the file. The `otos_bench.py` "silent no-op" paragraph was
+  rewritten as a two-program table rather than a corrected sentence,
+  because the true answer differs by program: numeric `RUN:<n>` is live
+  against `test/testrig.ts` but genuinely a no-op against `test/test.ts`.
+  Two additional truth fixes surfaced during verification and were
+  corrected in place: `tests/DESIGN.md`'s claim that `uv run pytest`
+  collects only `host/` and `tools/` (it also collects
+  `tests/calibration/`), and `fieldlink.py`'s unartifacted "66-83%"
+  delivery figure, now marked **UNVERIFIED** in the design doc.
+- **Ticket 013** — the host half landed
+  (`tests/calibration/consolidation_acceptance.py`, registered in
+  `calibrate.py` as the `acceptance` subcommand, with 55 host-side
+  tests against injected fake links and cameras). The on-robot half is
+  **UNVERIFIED**: no board was assigned for the overnight session and
+  the ticket's own text says not to run hardware in that batch. Deferred
+  to `clasi/issues/bench-acceptance-of-the-sprint-034-consolidated-tools.md`,
+  which names the exact commands a future operator runs. Per
+  `completes_issue: false` on this ticket, the sprint's linked issues
+  archived on tickets 004-009's completion, not on this one.
+- **CLASI process notes.** The `tools/DESIGN.md` / `tests/DESIGN.md`
+  design-overlay slug collision predicted under Migration Concerns
+  materialised exactly as expected: `tests/DESIGN.md` was edited
+  canonically (tickets 011, 012) and synced into the overlay by hand at
+  close, per Open Question 3's resolution above. Separately, and as
+  anticipated under "Two items the roadmap implies and this sprint does
+  not need to do": sprint 033's new wire error code 12 needed no tool
+  change — `wire_acceptance.py` already asserted `err 12` before this
+  sprint, and no other tool carries an error-code lookup table.
 
 ## Use Cases
 
@@ -739,11 +933,11 @@ Parent: UC-005 (host test harness)
 
 Before tickets can be created, all of the following must be true:
 
-- [ ] Sprint planning document is complete (sprint.md, including its
+- [x] Sprint planning document is complete (sprint.md, including its
       Architecture and Use Cases sections)
-- [ ] Architecture review passed (or skipped, for changes with no
+- [x] Architecture review passed (or skipped, for changes with no
       architectural impact)
-- [ ] Stakeholder has approved the sprint plan
+- [x] Stakeholder has approved the sprint plan
 
 ## Tickets
 
