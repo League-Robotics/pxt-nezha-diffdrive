@@ -1,10 +1,19 @@
 ---
-id: "008"
-title: "src/DESIGN.md truth pass, re-measure and tighten both ratchets"
-status: open
-use-cases: [SUC-001, SUC-002]
-depends-on: ["001", "002", "003", "004", "005", "006", "007"]
-github-issue: ""
+id: 008
+title: src/DESIGN.md truth pass, re-measure and tighten both ratchets
+status: in-progress
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '001'
+- '002'
+- '003'
+- '004'
+- '005'
+- '006'
+- '007'
+github-issue: ''
 issue: code-review/comment-work-order-factual-fixes-untracked-citations.md
 completes_issue: true
 ---
