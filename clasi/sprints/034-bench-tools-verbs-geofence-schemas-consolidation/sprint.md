@@ -1,9 +1,16 @@
 ---
 id: '034'
 title: 'Bench tools: verbs, geofence, schemas, consolidation'
-status: ticketing
+status: executing
 branch: sprint/034-bench-tools-verbs-geofence-schemas-consolidation
-use-cases: [SUC-001, SUC-002, SUC-003, SUC-004, SUC-005, SUC-006, SUC-007]
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+- SUC-005
+- SUC-006
+- SUC-007
 issues:
 - code-review/tools-v6-verbs-geofence-pose-csv-schema.md
 - code-review/analysis-fixes-total-turn-score-corners-leg-analysis.md
