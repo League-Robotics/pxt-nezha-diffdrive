@@ -1,7 +1,7 @@
 ---
 id: '007'
 title: Wire the geofence into every planner; one field size
-status: open
+status: in-progress
 use-cases:
 - SUC-002
 depends-on:
