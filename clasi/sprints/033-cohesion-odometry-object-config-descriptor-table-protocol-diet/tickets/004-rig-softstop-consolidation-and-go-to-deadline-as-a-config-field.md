@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: Rig::softStop() consolidation and go-to deadline as a config field
-status: open
+status: in-progress
 use-cases:
 - SUC-002
 depends-on:
