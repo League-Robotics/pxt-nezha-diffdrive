@@ -474,3 +474,91 @@ def test_unsequenced_verbs_still_answer_after_an_id_zero_line(wg):
                           (b"PING", b"pong"), (b"VER", b"ver ")):
         wg.feed(verb + b"\n")
         assert wg.take_sink().startswith(prefix), verb
+
+
+# ---------------------------------------------------------------------------
+# The sequence space's OTHER illegal id: its ceiling
+# ---------------------------------------------------------------------------
+#
+# `expectedNext_ = id + 1` wraps to 0 at UINT32_MAX. Nothing recovers
+# from that on its own: 0 is a value no legal id can equal or fall
+# below, so every subsequent line nacks asking for id 0 -- which is not
+# legal either -- and `replyAck(expectedNext_ - 1)` underflows on top.
+# The session is unrecoverable except by HELLO, having said nothing
+# about why.
+#
+# The guard reserves the ceiling instead: expectedNext_ may REACH
+# UINT32_MAX (that is what "the last legal id has been accepted" looks
+# like) but no inbound line may carry it, so the addition cannot wrap.
+#
+# Testing it at the boundary needs the predicate itself. Walking a
+# handler's expectedNext_ up to the ceiling means actually sending four
+# billion accepted commands, and the alternative -- a shim that reaches
+# into private state -- would be testing a back door rather than the
+# path a line takes. WireHandler::sequenceIdIsExecutable() is public and
+# static precisely so this boundary is drivable, and the end-to-end
+# tests below prove the handler consults it.
+
+_UINT32_MAX = 0xFFFFFFFF
+
+
+def test_the_reserved_ceiling_is_uint32_max(wire_lib):
+    assert wire_lib.wgMaxSequenceId() == _UINT32_MAX
+
+
+@pytest.mark.parametrize("id_,executable", [
+    (1, True),
+    (2, True),
+    (0x7FFFFFFF, True),
+    (_UINT32_MAX - 2, True),
+    (_UINT32_MAX - 1, True),   # the LAST legal id
+    (_UINT32_MAX, False),      # reserved: accepting it would wrap
+])
+def test_sequence_id_executability_at_the_ceiling(wire_lib, id_, executable):
+    """Legal ids are [1, UINT32_MAX - 1]. One id is spent to make the
+    wrap unreachable by construction -- cheaper than a session that
+    stalls forever without saying why."""
+    assert bool(wire_lib.wgSequenceIdIsExecutable(id_)) is executable
+
+
+def test_the_ceiling_id_is_refused_rather_than_executed(wg):
+    """End-to-end: a line carrying the reserved id is answered as a
+    decode failure -- nack (the sequence does NOT advance) plus err 3
+    (ERR_RANGE: the line's shape is fine, the one number in it is
+    outside its declared bound). Before the guard this same line, sent
+    when it happened to be in order, executed the verb and left
+    expectedNext_ at 0."""
+    wg.feed(b"STOP #4294967295\n")
+    assert wg.take_sink() == _nack(1) + b"err 3 #4294967295\n"
+    assert wg.stop_calls == 0, "the reserved id must not reach the adapter"
+
+
+def test_the_ceiling_id_does_not_move_or_stall_the_sequence(wg):
+    """A refused ceiling id must leave the session exactly where it was
+    -- the next ordinary command still acks as #1."""
+    wg.feed(b"STOP #4294967295\n")
+    wg.take_sink()
+    wg.feed(b"STOP #1\n")
+    assert wg.take_sink() == _ack(1)
+    wg.feed(b"ID\n")
+    out = wg.take_sink()
+    assert out.startswith(b"id ") and b"nack" not in out, out
+
+
+def test_the_ceiling_id_counts_as_malformed(wg):
+    """It is a decode failure, so it takes the same malformed count
+    every other decode failure does -- the counter a bench operator
+    watches for "is this link feeding me garbage"."""
+    before = wg.malformed_count
+    wg.feed(b"STOP #4294967295\n")
+    wg.take_sink()
+    assert wg.malformed_count == before + 1
+
+
+def test_an_id_past_the_ceiling_is_still_an_unparseable_id(wg):
+    """#4294967296 does not fit uint32 at all, so it never reaches the
+    ceiling guard -- parseMandatoryId() rejects it first and the line is
+    answered as a missing/ill-formed id (bare nack, no err). Pinned so
+    the two neighbouring rejections are not confused for each other."""
+    wg.feed(b"STOP #4294967296\n")
+    assert wg.take_sink() == _nack(1)

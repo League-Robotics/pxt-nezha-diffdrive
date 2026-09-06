@@ -762,21 +762,28 @@ Wire::DoneReason WireAdapter::lastDoneReason() const {
   return lastDoneReason_;
 }
 
-bool WireAdapter::onGet(const char* name, float& out) const {
+Wire::Result WireAdapter::onGet(const char* name, float& out) const {
   const ConfigFieldDescriptor* entry = findConfigField(name);
-  if (entry == nullptr) return false;
+  if (entry == nullptr) return Wire::Result::kUnknown;
   // rebase has no stored value and no boolean latch worth reading back
   // (unlike estop_clear immediately below, whose GET mirrors the live
   // estop flag the same convenience-readback way the stall latch's own
-  // clear field already does) -- refuse outright (the same `false`
-  // this method already returns for an unrecognized name entirely, wire
-  // err 1) rather than manufacture a reading that would always answer 0
-  // with no information in it.
-  if (entry->ordinal == kOrdinalRebase) return false;
+  // clear field already does) -- refuse rather than manufacture a
+  // reading that would always answer 0 with no information in it.
+  //
+  // The refusal is kWriteOnly, NOT the kUnknown an absent name gets.
+  // Refusing was always the right call; answering it with the SAME code
+  // a typo produces was the defect -- `rebase` is advertised by
+  // fieldName(), so a host that reads the field list and then asks for
+  // one of its entries was being told the name does not exist.
+  // estop_clear is deliberately NOT given this treatment: it has a real
+  // read path (the live estop flag), so it answers kOk like any stored
+  // field.
+  if (entry->ordinal == kOrdinalRebase) return Wire::Result::kWriteOnly;
   // config values cross the shim boundary as x1000-scaled ints
   // (shims.cpp convention).
   out = static_cast<float>(getConfigValue(entry->ordinal)) * 0.001f;
-  return true;
+  return Wire::Result::kOk;
 }
 
 Wire::Result WireAdapter::onSet(const char* name, float value, uint32_t id) {

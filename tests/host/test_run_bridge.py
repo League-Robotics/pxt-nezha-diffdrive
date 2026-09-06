@@ -71,6 +71,8 @@ def lib(tmp_path_factory):
     loaded.rbCurrentText.restype = ctypes.c_char_p
     loaded.rbDropCount.argtypes = [ctypes.c_void_p]
     loaded.rbDropCount.restype = ctypes.c_uint
+    loaded.rbMalformedCount.argtypes = [ctypes.c_void_p]
+    loaded.rbMalformedCount.restype = ctypes.c_uint
     loaded.rbIsBypassName.argtypes = [ctypes.c_char_p]
     loaded.rbIsBypassName.restype = ctypes.c_int
     for name in ("rbSlots", "rbTextBytes", "rbDedupe",
@@ -112,6 +114,9 @@ class Bridge:
 
     def dropped(self):
         return self._l.rbDropCount(self.h)
+
+    def malformed(self):
+        return self._l.rbMalformedCount(self.h)
 
 
 @pytest.fixture
@@ -179,6 +184,55 @@ def test_malformed_payloads_are_refused_without_touching_the_queue(
         assert b.offer(payload, 1000) == codes["malformed"]
         assert b.queued() == 0
         assert b.dropped() == 0
+
+
+# ---------------------------------------------------------------------------
+# The malformed counter
+# ---------------------------------------------------------------------------
+#
+# Every refusal above used to be a bare return: the payload vanished
+# and nothing anywhere said so. From the relay that is indistinguishable
+# from radio loss, and a 48-character `RUN:tour:...` line with several
+# numeric arguments is a realistic way to hit it.
+
+
+@pytest.mark.parametrize("payload,shape", [
+    (b"x" * 48, "overlong -- exactly one byte too long for a slot"),
+    (b"pivot:\x01", "not printable ASCII"),
+    (b":180", "empty name"),
+    (b"", "empty payload"),
+    (b"\r", "empty once the CR is stripped"),
+])
+def test_every_refusal_shape_increments_the_malformed_counter(
+        lib, codes, payload, shape):
+    with Bridge(lib) as b:
+        assert b.malformed() == 0
+        assert b.offer(payload, 1000) == codes["malformed"], shape
+        assert b.malformed() == 1, shape
+        assert b.dropped() == 0, (
+            f"{shape}: a malformed line must not move the CAPACITY "
+            f"counter -- they answer different questions"
+        )
+
+
+def test_the_malformed_counter_accumulates_across_shapes(lib, codes):
+    """One counter for all the refusal shapes, per the remedy -- not one
+    each. The operator's question is "is this link feeding me garbage",
+    not which flavour."""
+    with Bridge(lib) as b:
+        for i, payload in enumerate((b"y" * 60, b"\x7f", b":a", b"")):
+            assert b.offer(payload, 1000 + i) == codes["malformed"]
+        assert b.malformed() == 4
+
+
+def test_accepted_and_suppressed_payloads_leave_the_counter_alone(lib, codes):
+    """A counter that also moved on ordinary traffic would be useless as
+    a "something is wrong" signal."""
+    with Bridge(lib) as b:
+        assert b.offer("pivot:90", 1000) == codes["queued"]
+        assert b.offer("pivot:90", 1001) == codes["suppressed"]
+        assert b.offer("abort", 1002) == codes["bypass"]
+        assert b.malformed() == 0
 
 
 # ---------------------------------------------------------------------------
@@ -318,17 +372,50 @@ def test_a_bypass_does_not_disturb_what_is_already_parked(lib, codes):
         assert b.dispatch_one() is False
 
 
-def test_a_repeated_bypass_inside_the_window_is_suppressed(lib, codes):
-    """Known, deliberate consequence of suppressing at arrival: the
-    bypass names go through the same window as everything else, so a
-    doubled `abort` dispatches once. Pinned so a change to it is a
-    decision, not a surprise."""
+def test_a_repeated_bypass_inside_the_window_still_executes(lib, codes):
+    """The bypass names are EXEMPT from the dedupe window.
+
+    The window's job is to stop a host's own retransmit executing
+    twice. An operator hammering `abort` is not retransmitting -- and
+    the entire reason these two names skip the queue is that nothing
+    may stand between them and the drivetrain, which a suppression
+    window did. It ate the second `abort` of a doubled press.
+
+    Safe because both bypass handlers are idempotent (stop what is
+    running; clear a latch that may already be clear) -- the same
+    property that made them safe to invoke reentrantly from inside a
+    running job."""
     with Bridge(lib) as b:
         assert b.offer("abort", 1000) == codes["bypass"]
-        assert b.offer("abort", 1100) == codes["suppressed"]
-        # ...and, like any other repeat, comes back once the window
-        # measured from that last suppressed copy has passed.
-        assert b.offer("abort", 1100 + lib.rbDedupe()) == codes["bypass"]
+        assert b.offer("abort", 1001) == codes["bypass"], (
+            "a repeated abort inside the window must still execute"
+        )
+        assert b.offer("abort", 1002) == codes["bypass"]
+        assert b.offer("clearestop", 1003) == codes["bypass"]
+        assert b.offer("clearestop", 1004) == codes["bypass"]
+        assert b.queued() == 0, "a bypass never parks"
+
+
+def test_the_bypass_exemption_does_not_leak_to_ordinary_names(lib, codes):
+    """Exempting the bypass names must not disturb suppression for
+    anything else -- including a name that merely starts with one of
+    them."""
+    with Bridge(lib) as b:
+        assert b.offer("abortive:1", 1000) == codes["queued"]
+        assert b.offer("abortive:1", 1001) == codes["suppressed"]
+
+
+def test_a_bypass_between_two_repeats_resets_the_compared_text(lib, codes):
+    """The bypass path still records itself as the last accepted text
+    (it takes the same `lastText_` update every accepted payload does),
+    so a repeat that straddles one is no longer a repeat of anything.
+    Pinned as observed behavior rather than argued for: it is what
+    "suppression compares against the MOST RECENT accepted payload"
+    already means."""
+    with Bridge(lib) as b:
+        assert b.offer("tour:1", 1000) == codes["queued"]
+        assert b.offer("abort", 1001) == codes["bypass"]
+        assert b.offer("tour:1", 1002) == codes["queued"]
 
 
 # ---------------------------------------------------------------------------

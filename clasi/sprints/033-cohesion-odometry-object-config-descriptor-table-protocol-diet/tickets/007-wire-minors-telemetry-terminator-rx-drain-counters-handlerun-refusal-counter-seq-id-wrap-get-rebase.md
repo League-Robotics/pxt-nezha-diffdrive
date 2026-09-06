@@ -2,7 +2,7 @@
 id: '007'
 title: 'Wire minors: telemetry terminator, RX drain/counters, handleRun refusal counter,
   seq-id wrap, GET rebase'
-status: in-progress
+status: done
 use-cases:
 - SUC-004
 depends-on:
@@ -69,23 +69,107 @@ untouched by any intervening sprint):
 
 ## Acceptance Criteria
 
-- [ ] The extended pathological-239-byte-frame test asserts the
+- [x] The extended pathological-239-byte-frame test asserts the
       terminator survives (sprint Success Criteria's own bar).
-- [ ] RX drop/accept counters actually increment (sprint Success
+- [x] RX drop/accept counters actually increment (sprint Success
       Criteria's own bar) — or are deleted, with that decision
       documented.
-- [ ] The sequence-id wrap is guarded (sprint Success Criteria's own
+- [x] The sequence-id wrap is guarded (sprint Success Criteria's own
       bar).
-- [ ] `GET rebase` answers with a documented `kWriteOnly`-shaped code
+- [x] `GET rebase` answers with a documented `kWriteOnly`-shaped code
       instead of the generic "unknown name" (sprint Success Criteria's
       own bar; real-read-path alternative rejected per Design
       Rationale — implementer may override with justification).
-- [ ] `handleRun()`'s refusal counter increments on each of the three
+- [x] `handleRun()`'s refusal counter increments on each of the three
       named refusal shapes; a repeated `abort` still executes despite
       the 400 ms dedupe.
-- [ ] `wire_adapter.cpp` changes are confirmed rebased against sprint
+- [x] `wire_adapter.cpp` changes are confirmed rebased against sprint
       031's actual commits if that branch was still unmerged when this
       ticket started.
+
+## Resolution
+
+Five independent fixes; the ordinals and codes they land on are named
+here so a later sprint does not have to rediscover them.
+
+**CM-07 — terminator (emit side).** `emitHeader()`/`emitFrame()` bound
+their content at `sizeof(emitBuf_) - 2` and hand the `'\n'` plus NUL to
+one shared `terminateEmitBuf()`, written unconditionally into the
+reserved bytes. Content truncates instead of the terminator being
+dropped — the same reserve-two shape `buildHelpLine()` already used;
+all three now match, and `buildHelpLine()`'s own doc comment says so.
+The sink half was already done by ticket 006. `test_wire_telemetry_
+frame.py` asserts the terminator on the pinned 239-byte pathological
+frame and adds three cases past the cliff (overflowing `t`, overflowing
+`thdr`, and a byte-by-byte sweep across the boundary) — the off-by-one
+is invisible at any single length.
+
+**CM-06 — RX drain and counters.** `Protocol::kRxDrainPerPass = 4`,
+used by all three transports. Four because: one per pass meant one per
+~24 ms tick while a job ran, and serial at 115200 puts ~276 bytes into
+a 255-byte ring in that window; four is what the WiFi branch already
+bounded itself at, so one constant now replaces three spellings; and
+unbounded would starve `drainEmitQueue()` and the telemetry cadence,
+which only run between passes. The counters were WIRED UP, not deleted
+(Architecture Open Question 3): `rxFrames_`/`rxAccepted_`/
+`rxOversizeDropped_` become `RadioRxCounters` (`frames`, `accepted`,
+`oversizeDropped`, `overrunDropped` — the last one new; it is the
+`if (rxReady_) return;` drop that was silent), all saturating, behind a
+read-only `rxCounters()` accessor. **Diag ordinals 31, 32, 33, 34** in
+that order. The decision and the bookkeeping are one host-portable free
+function, `radioRxClassify()`, in `radio_transport.h` beside
+`radioRxLineFits()` — host-tested in `test_radio_transport_rx_
+capacity.py` (dispositions, per-counter increments, and the
+`frames - accepted == oversize + overrun` invariant) and syntax-gated
+at C++11 by a new `radio_rx_classify_syntax_check.cpp`. The
+`onDatagram()` call site and the drain loops are review-verified
+(`pxt.h`), with source-text pins in `test_wire_constants_drift.py`.
+
+**CM-08 — RUN refusals.** `RunBridge::malformedCount()`, incremented
+through one `malformed()` helper at every sanitizer refusal (overlong,
+non-printable, empty name, plus the empty payload), saturating, kept
+separate from the ring's capacity count. **Diag ordinal 30.** Bypass
+names are now exempt from the 400 ms dedupe: a repeated `abort` inside
+the window executes. Both host-tested in `test_run_bridge.py`; the
+existing test that pinned the old suppression behaviour was rewritten
+to pin the new one, and two tests were added proving the exemption does
+not leak to ordinary names.
+
+**CM-15 — sequence-id wrap.** `WireHandler::kMaxSequenceId`
+(`UINT32_MAX`) is RESERVED: `expectedNext_` may reach it, no inbound
+line may carry it, so `expectedNext_ = id + 1` cannot wrap. A line
+carrying it is a decode failure — `nack` plus `err 3` (ERR_RANGE: the
+shape is fine, the number is out of bounds) — and does not advance the
+sequence. The guard is one public static, `sequenceIdIsExecutable()`,
+which is what makes the boundary drivable from a host test at all: no
+shim setter was added, because seeding `expectedNext_` through a back
+door would test the back door rather than the path a line takes, and
+with the guard at intake the seeded state is unreachable by
+construction. Covered in `test_wire_reliability.py` (predicate at six
+boundary values, plus four end-to-end cases through the real handler)
+and by two new `wire_acceptance.py` bench checks.
+
+**CM-16 — `GET rebase`.** Resolves Architecture Open Question 2 as
+recommended: keep refusing, but distinguishably. `Adapter::onGet()` now
+returns `Wire::Result` instead of `bool` — a bool structurally cannot
+tell "no such name" from "nothing to read" — and `rebase` answers
+`Wire::Result::kWriteOnly` → **wire code 12** (`Wire::kErrWriteOnly`).
+12 is the first number free of the reference grammar's own 1–11 range,
+deliberately not one of the 5/7/9 holes inside it. `estop_clear` does
+NOT get this treatment: it has a real read path (the live estop flag)
+and answers `kOk`, which a new test pins. Bare `GET` dumps are
+unchanged. `resultCode()` names the constant rather than re-typing 12,
+and `test_wire_constants_drift.py` pins the number across all three
+places it appears.
+
+**Sprint 031 rebase:** 031 is merged into this branch's base, so the
+coordination concern is moot — `wire_adapter.cpp`'s motion-completion
+section was read before editing and is untouched by this ticket
+(`onGet()`'s signature and the `rebase` arm are the only changes in
+that file).
+
+**Not measured on hardware.** Every claim above is host-executed or
+explicitly review-verified; nothing here was run on a robot.
 
 ## Testing
 

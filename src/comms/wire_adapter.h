@@ -196,7 +196,7 @@ class WireAdapter : public Wire::Adapter {
   // (WIRE-08): an unclamped `SET pid_kp 3000000` would overflow `long`'s
   // 32-bit range before lround() ever runs (see kWireBoundaryCastCeiling's
   // own doc comment above). ----
-  bool onGet(const char* name, float& out) const override;
+  Wire::Result onGet(const char* name, float& out) const override;
   Wire::Result onSet(const char* name, float value, uint32_t id) override;
   size_t fieldCount() const override;
   const char* fieldName(size_t index) const override;

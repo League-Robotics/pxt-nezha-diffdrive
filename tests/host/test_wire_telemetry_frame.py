@@ -347,3 +347,71 @@ def test_widest_pathological_int32_min_frame_confirms_open_question_2(wg):
     # wire_handler.h).
     assert len(t_line) == 239
     assert len(t_line) <= 240  # fits the new cap, 1 B of headroom -- thin
+    # The terminator is PRESENT, not merely assumed. At this exact
+    # length the old formatter dropped it: content and terminator shared
+    # one bound, so the '\n' was skipped once the content reached the
+    # last writable byte. Every sink downstream then stripped a byte on
+    # the assumption it was there, taking a real digit instead -- `t ...
+    # -12345` reaching the host as `t ... -1234`, a plausible wrong
+    # number rather than a visibly broken line. This frame sat one byte
+    # inside the cliff.
+    assert t_line.endswith(b"\n")
+
+
+# ---------------------------------------------------------------------------
+# Past the cliff: content that CANNOT fit truncates, and the terminator
+# still survives. This is the property the 239-byte case above can only
+# stand one byte away from.
+# ---------------------------------------------------------------------------
+
+
+def _overflowing_columns(count):
+    """More INT32_MIN columns than the 240-byte emit buffer can hold:
+    12 bytes each (" -2147483648"), so 30 of them ask for ~360."""
+    names = [f"c{i:02d}".encode() for i in range(count)]
+    return list(zip(names, [-2147483648] * count, [False] * count))
+
+
+def test_an_overflowing_frame_truncates_its_content_not_its_terminator(wg):
+    """A `t` line that runs out of buffer must lose CONTENT, visibly,
+    and keep its terminator -- never the reverse.
+
+    240 bytes of buffer, two of them reserved: at most 238 bytes of
+    content plus '\\n' plus the NUL. buildHelpLine() has always reserved
+    its terminator this way; emitHeader()/emitFrame() now do too."""
+    wg.emit_telemetry(_overflowing_columns(30))
+    _thdr_line, t_line = wg.take_sink_writes()
+
+    assert t_line.endswith(b"\n"), t_line[-16:]
+    assert len(t_line) == 239, "238 content bytes + the terminator"
+    assert t_line.startswith(b"t -2147483648 ")
+    # Truncation lands mid-value, which is exactly the point: a host
+    # reading this sees a short, malformed frame rather than a
+    # well-formed one carrying a silently altered number.
+    assert t_line.count(b" ") < 30
+
+
+def test_an_overflowing_header_truncates_its_content_not_its_terminator(wg):
+    """Same property for `thdr`. The two functions share the rule and
+    the helper that enforces it, so they cannot drift apart on it."""
+    names = [f"column_name_{i:02d}".encode() for i in range(30)]
+    wg.emit_telemetry(list(zip(names, [0] * 30, [False] * 30)))
+    thdr_line, t_line = wg.take_sink_writes()
+
+    assert thdr_line.endswith(b"\n"), thdr_line[-16:]
+    assert len(thdr_line) == 239
+    assert thdr_line.startswith(b"thdr column_name_00 ")
+    assert t_line.endswith(b"\n")
+
+
+def test_a_frame_landing_exactly_on_the_reserve_boundary_keeps_its_terminator(wg):
+    """Sweeps the frame length across the boundary one byte at a time --
+    the off-by-one this reserve exists to close is invisible at any
+    single length. Every line, at every width, ends in exactly one
+    terminator."""
+    for count in range(17, 26):
+        wg.emit_telemetry(_overflowing_columns(count))
+        for line in wg.take_sink_writes():
+            assert line.endswith(b"\n"), (count, line[-16:])
+            assert not line.endswith(b"\n\n"), (count, line[-16:])
+            assert len(line) <= 239, (count, len(line))

@@ -1158,6 +1158,11 @@ bool isStalled() { return ensure().kernel.output().stallHalted; }
 int protocolSerialDropCount();
 int protocolRunDropCount();
 int protocolEmitDropCount();
+int protocolRunMalformedCount();
+int protocolRadioRxFrameCount();
+int protocolRadioRxAcceptedCount();
+int protocolRadioRxOverrunDropCount();
+int protocolRadioRxOversizeDropCount();
 
 // Kernel Output accessor, one int per field: booleans 0/1, duty percent
 // x100 (10000 == full duty -- Output.appliedDutyLeft/Right already
@@ -1226,6 +1231,24 @@ int diagValue(int what) {
     // a nonzero value means a caller queued lines faster than this
     // fiber's own loop could drain them onto the wire.
     case 29: return protocolEmitDropCount();
+    // 30: cleartext RUN payloads refused by the bridge's SANITIZER --
+    // empty, overlong (>= 48 bytes), non-printable, or an empty name.
+    // Distinct from 28 above, which counts capacity refusals only: a
+    // command that vanished because it was one byte too long looked,
+    // from the relay, exactly like radio loss until this counter
+    // existed. Should read 0 unless a host is sending malformed lines.
+    case 30: return protocolRunMalformedCount();
+    // 31-34: the radio RX path, in the order "what arrived, what got
+    // through, and the two ways the rest did not". 31 counts complete
+    // single-fragment lines received; 32 those delivered into the RX
+    // slot; 33 those dropped because the previous line had not been
+    // drained yet; 34 those dropped for exceeding the 240-byte RX
+    // buffer (dropped whole, never truncated into a shorter still-
+    // parseable command). 31 - 32 == 33 + 34 on any healthy build.
+    case 31: return protocolRadioRxFrameCount();
+    case 32: return protocolRadioRxAcceptedCount();
+    case 33: return protocolRadioRxOverrunDropCount();
+    case 34: return protocolRadioRxOversizeDropCount();
     default: return 0;
   }
 }

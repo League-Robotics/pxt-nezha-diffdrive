@@ -330,7 +330,17 @@ def run_bad_cases(link):
     record(PASS if has(out, 'ack 2 ') and has(out, 'err 1 ') else FAIL,
            'SET unknown name -> ack AND err 1 (symmetric)', str(out))
 
-    out = link.ask('SET group.alpha notanumber #3')
+    # `rebase` is advertised by the field list but has nothing readable
+    # behind it. It must say so with its OWN code (12, ERR_WRITE_ONLY),
+    # not the err 1 a typo gets -- otherwise an operator reading the
+    # field list and asking for one of its entries is told the name does
+    # not exist.
+    out = link.ask('GET rebase #3')
+    record(PASS if has(out, 'ack 3 ') and has(out, 'err 12 ') else FAIL,
+           'GET rebase -> ack AND err 12 (write-only, not unknown)',
+           str(out))
+
+    out = link.ask('SET group.alpha notanumber #4')
     record(PASS if has(out, 'nack ') and has(out, 'err ') else FAIL,
            'SET unparseable value -> nack + err', str(out))
 
@@ -347,6 +357,19 @@ def run_bad_cases(link):
         ok = any(has(link.ask(verb), pre) for _ in range(4))
         record(PASS if ok else FAIL,
                f'`{verb}` still answers after a #0 line')
+
+    # The sequence space's other illegal id: its ceiling. Executing
+    # 4294967295 would leave expectedNext_ nowhere to go but 0, from
+    # which nothing recovers except HELLO -- so the id is reserved and
+    # refused (nack + err 3, ERR_RANGE), and #1 must still be next.
+    reset(link)
+    out = link.ask('STOP #4294967295')
+    record(PASS if has(out, 'nack ') and has(out, 'err 3 ') else FAIL,
+           '`#4294967295` (reserved ceiling) -> nack + err 3', str(out))
+    out = link.ask('STOP #1')
+    record(PASS if has(out, 'ack 1 ') else FAIL,
+           'sequence untouched by the reserved id -> #1 still next',
+           str(out))
 
     reset(link)
     link.ask('STOP #9')                       # gap: expectedNext_ is 1

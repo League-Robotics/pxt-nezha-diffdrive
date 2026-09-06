@@ -234,6 +234,21 @@ int protocolRunDropCount() {
 int protocolEmitDropCount() {
   return static_cast<int>(protocol().emitDropCount());
 }
+int protocolRunMalformedCount() {
+  return static_cast<int>(protocol().runMalformedCount());
+}
+int protocolRadioRxFrameCount() {
+  return static_cast<int>(protocol().radioRxFrameCount());
+}
+int protocolRadioRxAcceptedCount() {
+  return static_cast<int>(protocol().radioRxAcceptedCount());
+}
+int protocolRadioRxOverrunDropCount() {
+  return static_cast<int>(protocol().radioRxOverrunDropCount());
+}
+int protocolRadioRxOversizeDropCount() {
+  return static_cast<int>(protocol().radioRxOversizeDropCount());
+}
 
 void Protocol::setupRadio(uint8_t channel, uint8_t group) {
   // Order matters: configure, THEN enable. Both setters only store while
@@ -316,9 +331,12 @@ void Protocol::serviceWifi() {
     emitWifiDebug();
   }
 
-  // Inbound: one datagram is one line. Bounded per pass so a host
-  // blasting lines cannot starve the rest of serviceOnce().
-  for (int i = 0; i < WifiLink::kRxSlots; ++i) {
+  // Inbound: one datagram is one line. Bounded per pass by the same
+  // kRxDrainPerPass every transport uses, so a host blasting lines
+  // cannot starve the rest of serviceOnce(). (WifiLink parks at most
+  // kRxSlots datagrams, which is the same number today; the bound
+  // spelled here is the servicing budget, not the parking capacity.)
+  for (int i = 0; i < kRxDrainPerPass; ++i) {
     size_t len = 0;
     if (!wifiLink_.tryReceiveLine(wifiRxBuf_, WifiLink::kMaxLineBytes, &len)) break;
     routeLine(wireHandlerWifi_, wifiRxBuf_, len);
@@ -491,6 +509,21 @@ void Protocol::paintStackCanary() {}
 #endif
 
 uint32_t Protocol::runDropCount() const { return runBridge_.dropCount(); }
+uint32_t Protocol::runMalformedCount() const {
+  return runBridge_.malformedCount();
+}
+uint32_t Protocol::radioRxFrameCount() const {
+  return radioTransport_.rxCounters().frames;
+}
+uint32_t Protocol::radioRxAcceptedCount() const {
+  return radioTransport_.rxCounters().accepted;
+}
+uint32_t Protocol::radioRxOverrunDropCount() const {
+  return radioTransport_.rxCounters().overrunDropped;
+}
+uint32_t Protocol::radioRxOversizeDropCount() const {
+  return radioTransport_.rxCounters().oversizeDropped;
+}
 uint32_t Protocol::emitDropCount() const { return emitQueue_.dropped(); }
 
 // Same boundary, opposite direction: shims.cpp's runCommandText shim
@@ -562,8 +595,16 @@ void Protocol::serviceOnce() {
   // that is already dispatching.
   dispatchJob();
 
-  size_t len = 0;
-  if (transport_.tryReadLine(lineBuf_, sizeof(lineBuf_), &len)) {
+  // Serial: drain up to kRxDrainPerPass lines, not one. One per pass
+  // meant one per 24 ms while a job ran (the tick hook is the only
+  // caller then), and serial at 115200 delivers ~276 bytes into a
+  // 255-byte ring in that window -- so a host writing two commands
+  // back-to-back overflowed the ring, and CODAL drops those bytes with
+  // no signal at all. Draining what has already arrived is what keeps
+  // the ring from being the thing that fills.
+  for (int n = 0; n < kRxDrainPerPass; ++n) {
+    size_t len = 0;
+    if (!transport_.tryReadLine(lineBuf_, sizeof(lineBuf_), &len)) break;
     routeLine(wireHandler_, lineBuf_, len);
   }
 
@@ -586,9 +627,19 @@ void Protocol::serviceOnce() {
   // stays a single fragment slot with no multi-fragment reassembly: a
   // v6 line whose encoding does not fit one fragment is out of scope
   // here.
-  size_t radioLen = 0;
-  if (radioTransport_.tryReceiveLine(rxLineBuf_, sizeof(rxLineBuf_),
-                                     &radioLen)) {
+  //
+  // Bounded by the same kRxDrainPerPass as serial. Radio holds ONE
+  // inbound line at a time, so a second pass usually finds nothing --
+  // but the datagram handler fires on its own event, so a line can
+  // land between two iterations here, and consuming it now is a slot
+  // freed before the next one arrives to find it busy (that drop is
+  // counted, radioRxClassify()).
+  for (int n = 0; n < kRxDrainPerPass; ++n) {
+    size_t radioLen = 0;
+    if (!radioTransport_.tryReceiveLine(rxLineBuf_, sizeof(rxLineBuf_),
+                                        &radioLen)) {
+      break;
+    }
     routeLine(wireHandlerRadio_, rxLineBuf_, radioLen);
   }
 

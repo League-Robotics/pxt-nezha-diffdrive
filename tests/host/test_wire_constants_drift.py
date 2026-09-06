@@ -120,6 +120,7 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _SRC_DIR = _REPO_ROOT / "src"
 _PXT_JSON = _REPO_ROOT / "pxt.json"
 _DOCS_DESIGN_DIR = _REPO_ROOT / "docs" / "design"
+_TEST_DIR = pathlib.Path(__file__).resolve().parent
 
 
 def _read(name):
@@ -1125,4 +1126,163 @@ def test_shims_cpp_config_tables_cover_every_config_field_ordinal():
         f"that no ConfigField member (and therefore no comms/"
         f"config_fields.h row) names -- an ordinal no wire caller can "
         f"reach."
+    )
+
+
+# ---------------------------------------------------------------------------
+# ERR_WRITE_ONLY's wire code, spelled in three places
+# ---------------------------------------------------------------------------
+#
+# `Wire::kErrWriteOnly` (wire_handler.h) is the C++ definition;
+# `resultCode()` (wire_handler.cpp) must map `Result::kWriteOnly` to it
+# rather than to a re-typed literal; and the host tests that assert on
+# the wire reply carry their own copy of the number. The same
+# hand-mirrored-constant shape as the four original cases in this file.
+
+_ERR_WRITE_ONLY = 12
+
+
+def test_err_write_only_code_is_pinned_at_twelve():
+    """The reference grammar's own codes run 1-11 (11, ERR_DUPLICATE_ID,
+    is deleted but spent). 12 is the first number free of that range --
+    deliberately not one of the 5/7/9 holes inside it, which an older
+    host may already have an opinion about. Changing this number is a
+    wire-visible change: update this test and the reference's own code
+    table together, on purpose."""
+    text = _read("comms/wire_handler.h")
+    match = re.search(r"constexpr uint8_t kErrWriteOnly = (\d+);", text)
+    assert match, "wire_handler.h no longer defines kErrWriteOnly"
+    assert int(match.group(1)) == _ERR_WRITE_ONLY
+
+
+def test_result_code_maps_write_only_through_the_named_constant():
+    """resultCode()'s kWriteOnly arm must name kErrWriteOnly, not
+    re-type a bare 12 -- exactly the drift this file exists to stop
+    (case 2 above: a bare literal beside a comment claiming agreement)."""
+    text = _read("comms/wire_handler.cpp")
+    match = re.search(r"case Result::kWriteOnly:\s*return\s+([^;]+);", text)
+    assert match, "wire_handler.cpp's resultCode() no longer handles kWriteOnly"
+    assert match.group(1).strip() == "kErrWriteOnly", (
+        f"resultCode() spells kWriteOnly's code as {match.group(1).strip()!r} "
+        f"instead of naming kErrWriteOnly"
+    )
+
+
+def test_config_surface_test_agrees_with_the_cpp_write_only_code():
+    """test_config_surface_single_source.py asserts the literal reply
+    bytes for `GET rebase`, so it carries its own copy of the number.
+    Pin the two together."""
+    text = (_TEST_DIR / "test_config_surface_single_source.py").read_text()
+    match = re.search(r"^ERR_WRITE_ONLY = (\d+)$", text, re.M)
+    assert match, "test_config_surface_single_source.py no longer defines ERR_WRITE_ONLY"
+    assert int(match.group(1)) == _ERR_WRITE_ONLY
+
+
+# ---------------------------------------------------------------------------
+# The RX drain bound and the new diag ordinals
+# ---------------------------------------------------------------------------
+#
+# protocol.cpp, radio_transport.cpp and shims.cpp are all outside
+# tests/host/'s compile reach (pxt.h, transitively or directly), so the
+# wiring below is read as text -- the same technique this file's own
+# four original cases use, and the only coverage available for it.
+# What the wiring CONNECTS is host-tested elsewhere: the counters in
+# test_radio_transport_rx_capacity.py and test_run_bridge.py.
+
+_RX_DRAIN_PER_PASS = 4
+
+# diag ordinal -> the free function shims.cpp's diagValue() must call
+# for it. Ordinals 26/28/29 predate this and are pinned here alongside
+# the new ones so a future edit cannot renumber the block by accident.
+_DIAG_PROTOCOL_ACCESSORS = {
+    26: "protocolSerialDropCount",
+    28: "protocolRunDropCount",
+    29: "protocolEmitDropCount",
+    30: "protocolRunMalformedCount",
+    31: "protocolRadioRxFrameCount",
+    32: "protocolRadioRxAcceptedCount",
+    33: "protocolRadioRxOverrunDropCount",
+    34: "protocolRadioRxOversizeDropCount",
+}
+
+
+def test_rx_drain_per_pass_is_pinned_at_four():
+    """One line per pass meant one per 24 ms tick while a job ran, which
+    overflowed CODAL's 255-byte serial ring on two back-to-back commands
+    -- silently. Four is what the WiFi path already bounded itself at.
+    Unbounded would starve drainEmitQueue() and the telemetry cadence,
+    which only run between passes."""
+    text = _read("comms/protocol.h")
+    match = re.search(r"kRxDrainPerPass = (\d+);", text)
+    assert match, "protocol.h no longer defines kRxDrainPerPass"
+    assert int(match.group(1)) == _RX_DRAIN_PER_PASS
+
+
+def test_all_three_transports_drain_through_the_one_bound():
+    """Serial, radio and WiFi each drain a bounded loop, and all three
+    name the same constant -- three independently spelled numbers is the
+    drift this whole file exists to stop."""
+    text = _read("comms/protocol.cpp")
+    loops = re.findall(r"for \(int \w+ = 0; \w+ < kRxDrainPerPass; \+\+\w+\)", text)
+    assert len(loops) == 3, (
+        f"expected serial, radio and WiFi each to drain a "
+        f"kRxDrainPerPass-bounded loop; found {len(loops)}"
+    )
+    assert not re.search(r"for \([^)]*<\s*WifiLink::kRxSlots", text), (
+        "the WiFi loop should be bounded by kRxDrainPerPass (the "
+        "servicing budget), not by kRxSlots (its parking capacity) -- "
+        "they happen to be equal today, which is exactly how a second "
+        "spelling of one number survives"
+    )
+
+
+def test_on_datagram_routes_every_outcome_through_the_classifier():
+    """onDatagram()'s three outcomes must all go through
+    radioRxClassify(), which is what counts them. A bare `return` on any
+    of them is a silent drop -- the defect being closed here."""
+    text = _read("comms/radio_transport.cpp")
+    assert "radioRxClassify(" in text, (
+        "radio_transport.cpp no longer calls radioRxClassify()"
+    )
+    assert "if (rxReady_) return;" not in text, (
+        "the single-slot overrun drop is back to being an uncounted "
+        "bare return"
+    )
+    assert "++rxOversizeDropped_" not in text, (
+        "the oversize drop should be counted by radioRxClassify(), not "
+        "by a second hand-maintained increment"
+    )
+
+
+def test_diag_value_cases_call_the_expected_protocol_accessors():
+    """Each protocol-side diag ordinal must call ITS OWN accessor. Two
+    swapped case bodies keep every ordinal present while silently
+    reporting the wrong number -- the same failure this file's
+    kDiag* pair already guards for the telemetry ordinals."""
+    cases = _shims_cpp_diag_value_cases()
+    wrong = []
+    for ordinal, accessor in _DIAG_PROTOCOL_ACCESSORS.items():
+        if ordinal not in cases:
+            wrong.append((ordinal, accessor, "no such case"))
+        elif accessor not in cases[ordinal]:
+            wrong.append((ordinal, accessor, cases[ordinal].strip()))
+    assert not wrong, (
+        f"shims.cpp's diagValue() switch no longer reads the expected "
+        f"accessor at (ordinal, expected, actual): {wrong}"
+    )
+
+
+def test_every_protocol_diag_accessor_is_forward_declared_in_shims():
+    """shims.cpp reaches these through same-package forward
+    declarations rather than including protocol.h -- that header pulls
+    in radio_transport.h and PXT's dependency scan then demands the
+    `radio` package for this file. A missing declaration is a link
+    error at the very end of a long target build."""
+    text = _read("shims.cpp")
+    missing = [
+        name for name in _DIAG_PROTOCOL_ACCESSORS.values()
+        if f"int {name}();" not in text
+    ]
+    assert not missing, (
+        f"shims.cpp calls {missing} without forward-declaring them"
     )

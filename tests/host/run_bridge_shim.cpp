@@ -34,6 +34,9 @@ int rbDispatchOne(void* h) {
 }
 const char* rbCurrentText(void* h) { return static_cast<B*>(h)->currentText(); }
 unsigned int rbDropCount(void* h) { return static_cast<B*>(h)->dropCount(); }
+unsigned int rbMalformedCount(void* h) {
+  return static_cast<B*>(h)->malformedCount();
+}
 int rbQueued(void* h) { return static_cast<B*>(h)->queued(); }
 int rbIsBypassName(const char* text) { return B::isBypassName(text) ? 1 : 0; }
 

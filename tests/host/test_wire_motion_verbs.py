@@ -2138,7 +2138,7 @@ def test_set_value_large_but_sane_is_still_accepted(wa):
 #     here at all, deliberately -- it never appears in `names` in the
 #     first place, since its GET is refused outright rather than
 #     answering a convenience 0.0 (see wire_adapter.cpp's onGet() and
-#     test_rebase_get_is_refused).
+#     test_rebase_get_is_refused_as_write_only_not_as_unknown).
 # crawl_pulse's own documented range is [-1, 1] (diffdrive.h) -- 0.75
 # stays inside it rather than picking an arbitrary out-of-contract value.
 _KFIELDS_REPRESENTATIVE_VALUES = {
@@ -3194,7 +3194,8 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # sprint 028 ticket 002: ordinal 32 (rebase) is deliberately
         # ABSENT here -- its GET is refused (WireAdapter::onGet(),
         # wire_adapter.cpp), so it never appears in a bare dump; see
-        # test_rebase_get_is_refused below. Ordinal 33 (estop_clear) DOES
+        # test_rebase_get_is_refused_as_write_only_not_as_unknown
+        # below. Ordinal 33 (estop_clear) DOES
         # have a real GET (a convenience readback of the live estop
         # flag, same shape stall_clear's own GET already uses), so it is
         # appended here in ordinal order like every field above it.
@@ -3536,19 +3537,43 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     )
 
 
-def test_rebase_get_is_refused(wa):
+def test_rebase_get_is_refused_as_write_only_not_as_unknown(wa):
     """rebase has no stored value and no boolean latch worth reading
-    back (unlike estop_clear immediately below) -- WireAdapter::onGet()
-    refuses it outright, the identical `err 1` (ERR_UNKNOWN) reply an
-    unrecognized field name gets
-    (test_get_set_unknown_field_name_is_unknown above), and it is
-    absent from a bare GET dump
-    (test_get_bare_dumps_all_sixteen_fields_no_wheels_entry above)."""
+    back (unlike estop_clear immediately below), so WireAdapter::onGet()
+    refuses it -- but with ERR_WRITE_ONLY (12), its OWN code, not the
+    `err 1` a misspelled name gets
+    (test_get_set_unknown_field_name_is_unknown above).
+
+    Refusing was always right; refusing indistinguishably was the
+    defect. `rebase` is advertised by fieldName(), so a host that reads
+    the field list and then asks for one of its entries was being told
+    the name does not exist -- and its only recourse was to re-send it
+    hunting for a typo that was never there. It stays absent from a bare
+    GET dump (test_get_bare_dumps_all_sixteen_fields_no_wheels_entry
+    above): a dump lists what can be read."""
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(1000.0)
     assert wa.begin() == STATUS_OK
     wa.feed(b"GET rebase #1\n")
-    assert wa.take_sink() == _ack(1) + _err(1, 1)
+    assert wa.take_sink() == _ack(1) + _err(12, 1)  # ERR_WRITE_ONLY
+
+    # ...and the distinction is real: a genuine typo still answers 1.
+    wa.feed(b"GET rebasee #2\n")
+    assert wa.take_sink() == _ack(2) + _err(1, 2)  # ERR_UNKNOWN
+
+
+def test_estop_clear_get_is_not_write_only(wa):
+    """The write-only treatment is scoped to `rebase` alone.
+    `estop_clear` is the same write-triggered-action shape but DOES have
+    a real read path -- the live estop flag -- so it answers kOk with a
+    value like any stored field, and appears in a bare dump."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.feed(b"GET estop_clear #1\n")
+    reply = wa.take_sink()
+    assert reply.startswith(_ack(1) + b"get estop_clear "), reply
+    assert b"err " not in reply, reply
 
 
 def test_estop_clear_reaches_kernel_estop_clear_and_reads_back(wa):

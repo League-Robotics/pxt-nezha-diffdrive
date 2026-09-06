@@ -629,6 +629,55 @@ the host's own retransmit or poll. The **application** still supplies
 the frame cadence (protocol.cpp, 50 ms) for a TLM-subscribed host
 (see §8's Fiber loop).
 
+**Result codes and the write-only answer (sprint 033).** `Result` maps
+1:1 onto the wire's own error numbers: `kUnknown` 1, `kBadArg` 2,
+`kRange` 3, `kFull` 4, `kUnimplemented` 6, `kNotReady` 8, `kBusy` 10,
+and — new — **`kWriteOnly` 12** (`Wire::kErrWriteOnly`), "that name
+exists and cannot be read." The reference grammar numbers its own codes
+1–11 (11, `ERR_DUPLICATE_ID`, is deleted but spent), so 12 is the first
+number free of that range rather than one of the 5/7/9 holes inside it,
+which an older host may already have an opinion about. Its one producer
+today is `GET rebase` (§5). `Adapter::onGet()` returns a `Result`
+rather than a bool so the two refusals are distinguishable at all;
+`resultCode()` names `kErrWriteOnly` rather than re-typing the number,
+pinned by `test_wire_constants_drift.py`.
+
+**Telemetry lines reserve their terminator (sprint 033).**
+`emitHeader()`/`emitFrame()` stop appending content at
+`sizeof(emitBuf_) - 2` and write `'\n'` plus the NUL unconditionally,
+through one shared `terminateEmitBuf()`. They used to share a single
+bound between content and terminator, so once the content reached the
+last writable byte the `append("\n")` silently did nothing and the line
+went out unterminated. Every sink downstream then dropped a byte on the
+assumption a terminator was there, taking a real digit instead: `t …
+-12345` reaching the host as `t … -1234` — a plausible wrong number,
+not a parse error. The widest projected FULL frame this project emits
+is 239 bytes *including* the terminator, one byte inside the buffer, so
+the next column added to FULL would have crossed it. Content truncates
+instead, which is visibly wrong to a host. `buildHelpLine()` always did
+it this way; the two telemetry emitters now match it, and
+`test_wire_telemetry_frame.py` sweeps the boundary a byte at a time
+rather than pinning one length.
+
+**The sequence space reserves its ceiling (sprint 033).**
+`WireHandler::kMaxSequenceId` is `UINT32_MAX`; legal inbound ids are
+`[1, kMaxSequenceId − 1]`. `expectedNext_` may *reach* the ceiling —
+that is what "the last legal id has been accepted" looks like — but no
+line may *carry* it, so `expectedNext_ = id + 1` can never wrap.
+Without the reservation, accepting `#4294967295` set `expectedNext_`
+to 0: a value no id can equal or fall below, so every later line
+nacked asking for id 0 (not legal either) while
+`replyAck(expectedNext_ − 1)` underflowed on top — a session
+unrecoverable except by HELLO, having said nothing about why. A line
+carrying the reserved id is a decode failure (`nack` plus `err 3`,
+`ERR_RANGE`: the shape is fine, the one number in it is out of bounds)
+and does not advance the sequence. `sequenceIdIsExecutable()` is
+public and static so a host test can drive the boundary, since walking
+`expectedNext_` there for real means sending four billion commands.
+Reaching the ceiling legitimately is a terminal state for the session:
+every later line falls below it and re-acks without executing, and
+HELLO — the reset a reconnecting host already sends — is the cure.
+
 **`Adapter` seam.** The pure-virtual contract behind every verb:
 identity/now/status, the six motion verbs (angles arrive as float
 milliradians), estop/stop, GET/SET field delegation, TLM mode,
@@ -827,7 +876,28 @@ unsequenced, and coexists unchanged). Both are refused (not silently
 ignored) while a motion obligation or RUN job is live, the same
 commandable-state gate other state-changing SET actions already check
 — zeroing the frame or clearing e-stop out from under an active move
-would corrupt in-flight position-error math. STATUS
+would corrupt in-flight position-error math.
+
+**`GET rebase` answers `err 12` (`ERR_WRITE_ONLY`), not `err 1`
+(sprint 033).** `rebase` is the one name in `kConfigFields` with
+nothing readable behind it: no stored value, and no live latch worth
+mirroring the way `estop_clear`'s GET mirrors the estop flag and
+`stall_clear`'s mirrors `stallHalted`. `onGet()` refuses it rather
+than manufacture a reading that would always answer 0 — that part was
+always right. What was wrong was refusing it with the SAME code a
+misspelled name gets: `rebase` is advertised by `fieldName()`, so a
+host that read the field list and then asked for one of its entries
+was told the name does not exist, and its only recourse was to re-send
+it hunting for a typo that was never there. `Adapter::onGet()` now
+returns a `Wire::Result` instead of a bool for exactly this reason —
+a bool cannot distinguish "no such name" from "nothing to read" — and
+`Wire::Result::kWriteOnly` maps to wire code 12 (`Wire::kErrWriteOnly`,
+§4). A bare `GET` dump is unchanged: it lists what can be read, so
+`rebase` stays absent from it. `estop_clear` is deliberately NOT given
+this treatment; it has a real read path and answers `kOk` like any
+stored field.
+
+STATUS
 packs diag booleans into a local
 `flags` word and, since sprint 004 ticket 004, an honest `otos=`
 (`otosGet(7) != 0`, replacing a hardcoded `false` that predated any
@@ -1053,7 +1123,27 @@ set by the MICROBIT_RADIO_EVT_DATAGRAM handler — `datagram.recv()` is
 **only** called inside that handler because polling an empty queue
 kills the program within two polls (measured; CODAL EmptyPacket
 refcounting). Multi-fragment inbound reassembly is deliberately out of
-scope. Send-path scratch buffers are members, not stack locals — the
+scope.
+
+**RX counters (sprint 033).** `onDatagram()`'s remaining decision —
+accept this line, drop it as over-length, or drop it because the single
+RX slot is still full — is one call to `radioRxClassify()`, which also
+records it in `RadioRxCounters` (`frames`, `accepted`,
+`oversizeDropped`, `overrunDropped`; all saturating). Both live in
+`radio_transport.h` beside `radioRxLineFits()`, for the same reason:
+the header has no CODAL dependency, so the decision worth testing is
+host-testable (`test_radio_transport_rx_capacity.py`) even though its
+one call site is not. `frames − accepted == oversizeDropped +
+overrunDropped` on any healthy build. Before this, `rxFrames_` and
+`rxAccepted_` were public members nothing ever incremented and nothing
+ever read — "did the radio drop anything" had a permanent, confident
+answer of zero — and the single-slot drop, the one that actually
+happens whenever two datagrams land inside one servicing window, was
+not counted at all. The four are surfaced through `Protocol`'s
+`radioRx*Count()` at diag ordinals **31–34** (`probe(31..34)` /
+`diagValue(31..34)`, in that order). The raw fields are gone; a
+read-only `rxCounters()` accessor replaces them, since the fields that
+sat public were exactly the ones nothing maintained. Send-path scratch buffers are members, not stack locals — the
 protocol fiber's 2 KB stack overflowed and hard-faulted with them on
 the stack (measured). Those buffers are **single-fiber use**: the
 protocol fiber is `sendLine()`'s only writer, so they are shared in the
@@ -1431,7 +1521,24 @@ completes the line. Which `WireHandler` that is (`wireHandler_` /
 `wireHandlerRadio_` / `wireHandlerWifi_`, each with its own
 `expectedNext_`) is the ONLY thing that ever differed between the three
 poll branches — which is exactly why the `RUN:` carve-out used to be
-written out three times to stay true on all three wires. Then, every
+written out three times to stay true on all three wires.
+
+**Each transport drains up to `kRxDrainPerPass` = 4 lines per pass
+(sprint 033), not one.** One per pass meant one per ~24 ms while a
+dispatched job ran, because the tick hook is then this loop's only
+caller — and serial at 115200 delivers ~276 bytes into a 255-byte ring
+in that window, so a host writing two commands back-to-back overflowed
+CODAL's ring, which drops the overflow with no signal whatsoever.
+Four, not more: each routed line can emit several reply lines into an
+8-slot emit ring, and an unbounded drain would starve
+`drainEmitQueue()` and the telemetry cadence, both of which only run
+*between* passes. Four is also what the WiFi branch already bounded
+itself at, so all three transports now answer to one named constant
+instead of three independently spelled numbers. Radio holds a single
+inbound line at a time, so its second iteration usually finds nothing
+— but its datagram handler fires on its own event, so consuming
+promptly is a slot freed before the next arrival finds it busy (and
+that drop is now counted, §6). Then, every
 50 ms, if
 `wireAdapter_.telemetryEnabled()`, call `wireAdapter_.buildSnapshot()`
 **once** and hand that same `Snapshot` reference to both handlers'
@@ -1555,7 +1662,8 @@ graph TD
     Protocol -->|drainEmitQueue, then serviceOnce: read/telemetry| Protocol
     Protocol -->|offer on RUN: prefix| RunBridge[comms/run_bridge.h -- sanitize, dedupe, park]
     RunBridge -->|run_queue.h ring| RunQueue[8 x 48 slot ring]
-    RunBridge -->|dropped counter, diag ordinal 28| DiagValue[shims.cpp diagValue ordinal table]
+    RunBridge -->|dropped 28, malformed 30| DiagValue[shims.cpp diagValue ordinal table]
+    Radio -->|rx frames/accepted/overrun/oversize 31-34| DiagValue
     Protocol -->|dispatchJob: dispatchOne + runAction0| TSDispatch[run.ts dispatch via _registerRunDispatch]
     TSDispatch -->|student onRun handler, nested on protocol fiber -- not forked| StudentCode[Student RUN / button handler]
     StudentCode -->|startMove/driveTwist/startDrive: takes kBlock| MotionOwner
@@ -1596,7 +1704,28 @@ repeating commands to survive the single-slot radio buffer (measured
 pre-028: one 3×-repeated RUN ran three consecutive pivots). The window
 was 3000 ms until it was cut: that was far wider than any retransmit
 burst and made sending one command twice in a row impossible, which is
-exactly the shape a parameter sweep sends. **Sprint 008's
+exactly the shape a parameter sweep sends.
+
+**Sprint 033 — the bypass names are exempt from the dedupe, and every
+sanitizer refusal is counted.** `abort`/`clearestop` skip the window
+along with the queue. Suppression exists to stop a *host's own
+retransmit* executing twice; an operator hammering `abort` is not
+retransmitting, and the whole point of the bypass is that nothing may
+stand between those two names and the drivetrain — a window that ate
+the second press was the one drop this bridge must never make. It is
+safe because both bypass handlers are idempotent (stop what is
+running; clear a latch that may already be clear), the same property
+that made them safe to invoke reentrantly inside a running job. And
+`offer()`'s four refusal shapes (empty, overlong, non-printable, empty
+name) now increment `malformedCount()`, surfaced at diag ordinal
+**30** — deliberately separate from the ring's capacity count at
+ordinal 28, since a malformed line and a full ring are different
+failures calling for different fixes. Each refusal used to be a bare
+`return`: a 48-character `RUN:tour:…` line with several numeric
+arguments simply vanished, and from the relay that was
+indistinguishable from radio loss.
+
+**Sprint 008's
 own note here is now historical**: the literal event source `0x2001`
 this paragraph used to describe, and `run.ts`'s matching
 `RUN_EVENT_SOURCE` constant, along with the drift test that pinned the
@@ -2078,7 +2207,11 @@ lives in):
   own line ceiling (`tests/host/test_wire_constants_drift.py`). The
   239-byte pathological worst case that used to exceed the old 200
   now fits under 240 — with exactly 1 byte of headroom, thin, not
-  comfortable (`tests/host/test_wire_telemetry_frame.py`). Filed as
+  comfortable (`tests/host/test_wire_telemetry_frame.py`). Sprint 033
+  removed the sharp edge under that thin margin: the frame's
+  terminator is now reserved rather than sharing the content bound
+  (§4), so crossing 239 truncates visibly instead of silently
+  mis-terminating a line the sinks then take a real digit off. Filed as
   `clasi/issues/radio-rx-capacity-fragmentation.md`, closed by sprint
   010.
 - **(Resolved, sprint 008)** ~~The post-move settle loop is

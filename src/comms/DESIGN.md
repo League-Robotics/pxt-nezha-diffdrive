@@ -11,7 +11,11 @@ the `ConfigField` generator, with the matching behaviour in
 `shims.cpp`), `serial_transport.*` /
 `radio_transport.*` (byte framing over uBit.serial and the fleet
 radio relay — the radio owns its own opt-in gate, `enable()`/
-`enabled()`), `transport_sink.h` (`diffDrive::TransportSink`, the one
+`enabled()`, and its RX accept/drop decision plus the four counters
+recording it are host-portable free functions in the header,
+`radioRxLineFits()`/`radioRxClassify()`/`RadioRxCounters`, host-tested
+by `tests/host/test_radio_transport_rx_capacity.py`),
+`transport_sink.h` (`diffDrive::TransportSink`, the one
 `Wire::Sink` all three transports are reached through, plus the
 terminator decision it makes — host-portable, no `pxt.h`, host-tested
 by `tests/host/test_transport_sink.py`), `run_queue.h` /

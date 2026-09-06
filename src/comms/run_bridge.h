@@ -89,10 +89,21 @@ class RunBridge {
   // would read as "nothing was lost".
   uint32_t dropCount() const { return queue_.dropped(); }
 
+  // Payloads refused by offer()'s sanitizer: empty, overlong,
+  // non-printable, or an empty name. Deliberately SEPARATE from
+  // dropCount() above -- a malformed line is a parse problem and a
+  // dropped one is a capacity problem, and folding them together would
+  // make either number a lie about the other. Saturating, same reason.
+  uint32_t malformedCount() const { return malformedCount_; }
+
   // Payloads parked and not yet staged.
   int queued() const { return queue_.count(); }
 
-  // True for the two names that skip the queue entirely. A queued abort
+  // True for the two names that skip the queue entirely -- and the
+  // dedupe window with it: a repeated `abort` inside kDedupe still
+  // executes. See offer() for why suppression must not reach these two.
+  //
+  // A queued abort
   // would sit behind the very job it is meant to stop: a consumer
   // refuses to start a second job while one already owns the
   // drivetrain, so the abort would be dispatched only after the tour it
@@ -109,10 +120,16 @@ class RunBridge {
   // The one buffer both staging paths write.
   void stage(const char* text);
 
+  // Counts one sanitizer refusal and returns the outcome to hand back,
+  // so every `return Offer::kMalformed` site is a single call that
+  // cannot forget the counter.
+  Offer malformed();
+
   RunQueue<kSlots, static_cast<int>(kTextBytes)> queue_;
   char currentText_[kTextBytes] = {};
   char lastText_[kTextBytes] = {};
   uint32_t lastAccepted_ = 0;  // [ms] arrival time of the last accepted payload
+  uint32_t malformedCount_ = 0;
 };
 
 }  // namespace diffDrive

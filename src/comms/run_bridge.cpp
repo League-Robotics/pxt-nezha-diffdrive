@@ -23,26 +23,53 @@ bool RunBridge::isBypassName(const char* text) {
   return false;
 }
 
+RunBridge::Offer RunBridge::malformed() {
+  // Saturating, like the ring's own drop count: a refusal count that
+  // wrapped to zero would read as "nothing was refused".
+  if (malformedCount_ != UINT32_MAX) ++malformedCount_;
+  return Offer::kMalformed;
+}
+
 RunBridge::Offer RunBridge::offer(const uint8_t* data, size_t len,
                                   uint32_t now) {  // [ms]
-  if (data == nullptr || len == 0) return Offer::kMalformed;
+  if (data == nullptr || len == 0) return malformed();
 
   // Strip one trailing '\r' (raw-terminal artifact), then copy the
   // payload verbatim. Anything outside printable ASCII -- or too long
   // for a slot -- is malformed and dropped. The name/argument split is
   // NOT done here: this layer stays a transport for the text, and the
   // TypeScript layer owns the vocabulary.
+  //
+  // Every refusal below goes through malformed() and is COUNTED. It
+  // used to be a bare `return`, which made a payload that was one byte
+  // too long -- a plausible length for a real command with several
+  // numeric arguments -- indistinguishable, from the operator's seat,
+  // from radio loss: the command simply never happened and nothing
+  // anywhere said so. The ring's drop count answers a different
+  // question (capacity), so it cannot stand in for this one.
   if (data[len - 1] == '\r') --len;
-  if (len == 0 || len >= kTextBytes) return Offer::kMalformed;
+  if (len == 0 || len >= kTextBytes) return malformed();
   char text[kTextBytes];
   for (size_t i = 0; i < len; ++i) {
-    if (!isPrintable(data[i])) return Offer::kMalformed;
+    if (!isPrintable(data[i])) return malformed();
     text[i] = static_cast<char>(data[i]);
   }
   text[len] = '\0';
-  if (text[0] == ':') return Offer::kMalformed;  // empty name
+  if (text[0] == ':') return malformed();  // empty name
 
-  if (std::strcmp(lastText_, text) == 0 &&
+  // The bypass names are exempt from suppression. The window exists to
+  // stop a HOST'S OWN retransmit executing twice; an operator hammering
+  // `abort` is not retransmitting, and the whole reason these two names
+  // skip the queue is that nothing may stand between them and the
+  // drivetrain. A dropped second `abort` is the one drop this bridge
+  // must never make.
+  //
+  // Executing `abort` twice is harmless in a way an ordinary command's
+  // repeat is not: both bypass handlers are idempotent (stop what is
+  // running; clear a latch that may already be clear), which is what
+  // made them safe to invoke reentrantly in the first place.
+  const bool bypass = isBypassName(text);
+  if (!bypass && std::strcmp(lastText_, text) == 0 &&
       static_cast<int32_t>(now - lastAccepted_) < kDedupe) {
     lastAccepted_ = now;  // extend across a burst of repeats
     return Offer::kSuppressed;
@@ -50,7 +77,7 @@ RunBridge::Offer RunBridge::offer(const uint8_t* data, size_t len,
   std::memcpy(lastText_, text, len + 1);
   lastAccepted_ = now;
 
-  if (isBypassName(text)) {
+  if (bypass) {
     stage(text);
     return Offer::kBypass;
   }

@@ -140,6 +140,31 @@ class Protocol {
   // that rolls to zero reads as "nothing was lost".
   uint32_t runDropCount() const;
 
+  // Cleartext RUN payloads refused by RunBridge's own sanitizer --
+  // empty, overlong, non-printable, or an empty name -- surfaced for
+  // shims.cpp's diagValue(30)/probe(30). Kept apart from
+  // runDropCount() above on purpose: a malformed line and a full ring
+  // are different failures, and a bench operator seeing one climb
+  // needs to know which. From the relay, an uncounted malformed refusal
+  // is indistinguishable from radio loss.
+  uint32_t runMalformedCount() const;
+
+  // The radio RX path's four diagnostics, surfaced for
+  // diagValue(31..34)/probe(31..34) in that order: datagrams that
+  // arrived as a complete single-fragment line, lines actually
+  // delivered into the RX slot, lines dropped because the previous one
+  // was still unconsumed, and lines dropped because they were longer
+  // than the RX buffer.
+  //
+  // frames - accepted is the whole story of what the radio heard and
+  // could not keep. The first two used to exist as members nothing ever
+  // incremented, which answered that question with a permanent,
+  // confident zero.
+  uint32_t radioRxFrameCount() const;
+  uint32_t radioRxAcceptedCount() const;
+  uint32_t radioRxOverrunDropCount() const;
+  uint32_t radioRxOversizeDropCount() const;
+
   // emitLine() calls refused because emitQueue_ was already full,
   // surfaced for shims.cpp's diagValue(29)/probe(29). Same saturating
   // convention as runDropCount() above: should stay 0 across a normal
@@ -270,6 +295,27 @@ class Protocol {
   // itself) is already mid-tick when this fires, so doing either here
   // would be reentrant and wrong.
   void serviceOnce();
+
+  // How many complete inbound lines serviceOnce() drains from ONE
+  // transport before moving on. Four, for three reasons that agree:
+  //
+  //  - One was too few. While a dispatched job runs, the tick hook is
+  //    the only caller, so a pass happens once per ~24 ms tick; serial
+  //    at 115200 delivers ~276 bytes into a 255-byte ring in that
+  //    window, so a host that writes two commands back-to-back
+  //    overflowed CODAL's ring, which drops the overflow silently.
+  //  - Four is what the WiFi path already bounded itself at, so all
+  //    three transports now answer to one number instead of three
+  //    independent ones.
+  //  - Unbounded would be wrong. Each routed line can emit several
+  //    reply lines, and the emit ring holds kEmitSlots (8) of them; a
+  //    host blasting commands would starve drainEmitQueue() and the
+  //    telemetry cadence, both of which run only between passes.
+  //
+  // Not a per-transport tuning knob: if one transport ever needs its
+  // own budget, that is a reason to name a second constant here, not to
+  // spell a bare number at its call site.
+  static constexpr int kRxDrainPerPass = 4;
 
   // The ONE path an inbound line takes, whichever transport produced
   // it: `data`/`len` is one complete line, delimiter already stripped by

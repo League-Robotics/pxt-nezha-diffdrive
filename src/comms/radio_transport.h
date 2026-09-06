@@ -56,6 +56,70 @@ inline bool radioRxLineFits(size_t declaredLen, size_t bufferCapacity) {
   return declaredLen <= bufferCapacity;
 }
 
+// What the RX path did with one complete single-fragment line.
+enum class RadioRxDisposition : uint8_t {
+  kAccept,    // copy it into the RX slot and raise the ready flag
+  kOversize,  // longer than the RX buffer: dropped whole, never truncated
+  kOverrun,   // the previous line is still unconsumed: dropped
+};
+
+// Everything the radio RX path knows about what it heard. Saturating,
+// like every other diagnostic counter in this package: a count that
+// wrapped to zero would read as "nothing happened".
+//
+// `frames` and `accepted` existed here for a long time as members
+// nothing ever incremented and nothing ever read -- so the honest
+// answer to "did the radio drop anything" was unavailable while
+// LOOKING available. Both are live now, and the two drop reasons are
+// counted separately because they call for different fixes: an
+// oversize drop means a line that cannot fit at all, an overrun drop
+// means the drain is not keeping up.
+//
+// The default member initializers make this a non-aggregate under
+// C++11 (the target's standard) though not under the host suite's
+// C++20 -- the same trap Wire::Column already documents. Nothing
+// brace-initializes one with values, and nothing should: default-
+// construct it and let radioRxClassify() do the writing.
+struct RadioRxCounters {
+  uint32_t frames = 0;
+  uint32_t accepted = 0;
+  uint32_t oversizeDropped = 0;
+  uint32_t overrunDropped = 0;
+};
+
+// Classify one complete single-fragment inbound line and record it.
+// `declaredLen` is the line length after the trailing delimiter has
+// been stripped; `slotBusy` is whether the previous line is still
+// waiting to be consumed.
+//
+// Pure decision plus counter bookkeeping, deliberately OUTSIDE
+// RadioTransport: onDatagram() itself cannot be host-compiled (it needs
+// pxt.h's uBit.radio/PacketBuffer), and the part worth testing -- which
+// disposition each case gets, and which counter moves -- has no CODAL
+// in it at all. Same reason radioRxLineFits() above lives here.
+inline RadioRxDisposition radioRxClassify(size_t declaredLen,
+                                          size_t bufferCapacity, bool slotBusy,
+                                          RadioRxCounters& counters) {
+  // Counted first, and unconditionally: `frames` is "what arrived",
+  // which is only useful as the denominator the three outcomes below
+  // are read against.
+  if (counters.frames != UINT32_MAX) ++counters.frames;
+  if (!radioRxLineFits(declaredLen, bufferCapacity)) {
+    if (counters.oversizeDropped != UINT32_MAX) ++counters.oversizeDropped;
+    return RadioRxDisposition::kOversize;
+  }
+  // Capacity is checked BEFORE occupancy so an over-length line is
+  // reported as over-length even when it also happened to arrive on a
+  // busy slot -- the two are not equally fixable, and the length is the
+  // property of the line itself.
+  if (slotBusy) {
+    if (counters.overrunDropped != UINT32_MAX) ++counters.overrunDropped;
+    return RadioRxDisposition::kOverrun;
+  }
+  if (counters.accepted != UINT32_MAX) ++counters.accepted;
+  return RadioRxDisposition::kAccept;
+}
+
 class RadioTransport {
  public:
   // The v6 radio link is OPT-IN, and this class owns that decision --
@@ -378,22 +442,20 @@ class RadioTransport {
   uint8_t rxLine_[kMaxLineBytes];
 
  public:
-  // RX diagnostics (bench): datagrams polled with nonzero length, and
-  // frames accepted as complete single-fragment lines. Bench-only
-  // counters; the cleartext DIAG verb that used to read them
-  // (Protocol::formatDiag()) was retired, and nothing in the current
-  // tree consumes these.
-  uint32_t rxFrames_ = 0;
-  uint32_t rxAccepted_ = 0;
-  // Count of single-fragment datagrams REJECTED because their declared
-  // LEN exceeded rxLine_'s capacity (sprint 010 ticket 001,
-  // radio-rx-capacity-fragmentation.md) -- dropped whole, never
-  // truncated-and-accepted; see radioRxLineFits()'s own doc comment for
-  // why. Same bench-diagnostics convention as rxFrames_/rxAccepted_
-  // above.
-  uint32_t rxOversizeDropped_ = 0;
+  // What the RX path has heard and what it did with it, all four
+  // counters in one place (see RadioRxCounters above). Read through
+  // Protocol's radioRx*Count() accessors, which shims.cpp surfaces at
+  // diag ordinals 31-34.
+  //
+  // Public read-only accessor over a private member, rather than the
+  // public raw fields this replaces: onDatagram() and radioRxClassify()
+  // are the only writers, and the three fields that used to sit here
+  // exposed were exactly the ones nothing incremented.
+  const RadioRxCounters& rxCounters() const { return rxCounters_; }
 
  private:
+  RadioRxCounters rxCounters_;
+
   uint8_t txSeq_ = 0;  // rolling RadioRelay §5 sequence number
 };
 

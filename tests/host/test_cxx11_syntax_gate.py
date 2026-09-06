@@ -150,6 +150,15 @@ _CXX11_PORTABLE_SOURCES = [
     # gate something to compile. It instantiates the template, since a
     # class template that merely parses is not one that compiles.
     _TEST_DIR / "transport_sink_syntax_check.cpp",
+    # comms/radio_transport.h is otherwise a pxt.h-bound module's
+    # header, but two things in it are the extracted-helper exception
+    # above: radioRxLineFits() and radioRxClassify()/RadioRxCounters,
+    # the RX path's whole accept/drop decision and its counters. Their
+    # one real call site (onDatagram()) is CODAL-bound, so this
+    # translation unit is the only thing standing between them and a
+    # construct that is legal at the host suite's C++20 and not at the
+    # target's C++11.
+    _TEST_DIR / "radio_rx_classify_syntax_check.cpp",
 ]
 
 

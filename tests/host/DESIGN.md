@@ -61,6 +61,12 @@ Three kinds of file, one pattern:
   so `test_transport_sink.py` can drive the real sink, through the real
   `Wire::Sink&` the wire stack holds, over a recording fake transport.
   The transports those sinks write to are still out of reach here.
+  `radio_transport_rx_capacity_shim.cpp` follows the same rule on the
+  inbound side: `radioRxLineFits()` and, since sprint 033,
+  `radioRxClassify()` over an accumulating `RadioRxCounters` — the RX
+  path's whole accept/drop decision and its four counters, which have
+  no CODAL in them even though their one call site (`onDatagram()`)
+  cannot be compiled here at all.
   `wire_motion_verb_shim.cpp` carries two handles:
   `WvHandle` (WireHandler + mock adapter — decode/dispatch mechanics)
   and `WaHandle` (WireHandler + the **real** `WireAdapter` + a
@@ -205,7 +211,16 @@ matters" test); and `TLM AUTO`/`BUFFER` `thdr`/`err` pinning.
 Not covered, by design (CODAL-bound): `nezha_port`, `otos_port`, the
 transports, `protocol.cpp`'s fiber loop and RUN bridge, and
 `shims.cpp`'s real Rig composition/watchdog — hardware sessions are
-their only test. **Narrower again as of sprint 033**: the odometry
+their only test. Where a decision inside one of those has been pulled
+into a header with no CODAL in it, the decision IS covered and only
+its wiring is not: `radioRxClassify()`'s dispositions and counters are
+host-tested while the `onDatagram()` call and the diag ordinals
+surfacing them are review-verified, and `Protocol::serviceOnce()`'s
+per-pass RX drain bound is pinned as source text
+(`test_wire_constants_drift.py`) rather than executed. Text pins are
+weaker than execution and are used only where execution is impossible
+— they catch a renumbered ordinal or a second spelling of a bounded
+loop, not a behavioural regression. **Narrower again as of sprint 033**: the odometry
 *math* left `shims.cpp` for `motion/odometry.h` and is now host-tested
 directly (`test_odometry.py`); what stays hardware-only is the real
 encoder stream feeding it — `shims.cpp`'s `odomUpdate(r)` is now a

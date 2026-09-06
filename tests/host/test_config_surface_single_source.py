@@ -75,6 +75,12 @@ _SHIM_SOURCES = [
 # answers a GET.
 WRITE_ONLY_NAMES = {"rebase"}
 
+# ERR_WRITE_ONLY -- Wire::Result::kWriteOnly's wire code
+# (`Wire::kErrWriteOnly`, wire_handler.h). Refusing was always right;
+# refusing with ERR_UNKNOWN (1) was the defect, because a field the
+# robot itself advertises then answered exactly like a typo.
+ERR_WRITE_ONLY = 12
+
 # Names whose GET answers a live latch rather than the value just SET --
 # write-triggered actions wearing a config field's clothes. A round trip
 # through these proves the SET is accepted and the GET is well-formed,
@@ -344,9 +350,11 @@ def test_every_table_name_is_reachable_over_the_wire(wa, name, ordinal):
     wa.feed(f"GET {name} #2\n".encode())
     reply = wa.take_sink()
     if name in WRITE_ONLY_NAMES:
-        assert reply.endswith(b"err 1 #2\n"), (
-            f"{name} is documented write-only, so GET must refuse it "
-            f"exactly the way an unknown name is refused: {reply!r}"
+        assert reply.endswith(f"err {ERR_WRITE_ONLY} #2\n".encode()), (
+            f"{name} is documented write-only, so GET must refuse it with "
+            f"the write-only code -- NOT the err 1 a typo gets, which is "
+            f"what made an advertised field indistinguishable from a "
+            f"misspelled one: {reply!r}"
         )
         return
     prefix = _ack(2) + f"get {name} ".encode()

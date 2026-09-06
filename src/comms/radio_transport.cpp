@@ -86,17 +86,22 @@ void RadioTransport::onDatagram() {
   size_t len = d[2];
   if (static_cast<int>(kFrameHeaderBytes + len) > plen) return;
   if (len > 0 && d[kFrameHeaderBytes + len - 1] == kLineDelimiter) --len;
-  if (!radioRxLineFits(len, sizeof(rxLine_))) {
-    // Over-length: REJECT the whole frame -- never truncate it to a
-    // shorter, still-parseable prefix and deliver that prefix as if it
-    // were the complete line (radioRxLineFits()'s own doc comment,
-    // radio_transport.h, explains why truncate-and-accept was the
-    // actual hazard). rxReady_/rxLine_ are left untouched, exactly as
-    // an already-dropped MORE-flagged fragment above leaves them.
-    ++rxOversizeDropped_;
+  // One call decides the outcome and records it, so no path out of this
+  // handler can be a silent drop. radioRxClassify() is host-portable
+  // and host-tested (radio_transport.h); the wiring around it here is
+  // review-verified only, since this file needs pxt.h.
+  //
+  // Over-length: REJECT the whole frame -- never truncate it to a
+  // shorter, still-parseable prefix and deliver that prefix as if it
+  // were the complete line (radioRxLineFits()'s own doc comment).
+  // Slot busy: the previous line has not been drained yet. Both leave
+  // rxReady_/rxLine_ untouched, exactly as an already-dropped
+  // MORE-flagged fragment above leaves them -- the difference now is
+  // that a bench operator can see they happened.
+  if (radioRxClassify(len, sizeof(rxLine_), rxReady_, rxCounters_) !=
+      RadioRxDisposition::kAccept) {
     return;
   }
-  if (rxReady_) return;  // previous line unconsumed: drop (reference behavior)
   if (len > 0) memcpy(rxLine_, d + kFrameHeaderBytes, len);
   rxLen_ = len;
   rxReady_ = true;
