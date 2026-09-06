@@ -1,6 +1,6 @@
 ---
 status: pending
-sprint: '033'
+sprint: '034'
 ---
 
 # Tools: _V6_VERBS drift-tested against the firmware verb table; geofence wired into every driving tool; one pose-CSV schema

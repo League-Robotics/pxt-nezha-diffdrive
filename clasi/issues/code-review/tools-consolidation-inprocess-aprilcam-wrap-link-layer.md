@@ -1,6 +1,6 @@
 ---
 status: pending
-sprint: '033'
+sprint: '034'
 ---
 
 # Tools consolidation: in-process aprilcam, one wrap(), one link layer, one repositioner, delete dead tools, DESIGN.md truth pass

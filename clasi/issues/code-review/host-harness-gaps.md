@@ -1,6 +1,6 @@
 ---
 status: pending
-sprint: '033'
+sprint: '034'
 ---
 
 # Host harness: tsc gate skips with a reason, pin the run_tour travelCalib mirror, gate ruff, session-scope motion_lib, compile the uncovered TUs
