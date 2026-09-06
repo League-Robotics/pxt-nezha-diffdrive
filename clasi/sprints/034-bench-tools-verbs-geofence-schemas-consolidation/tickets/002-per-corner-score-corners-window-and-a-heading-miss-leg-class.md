@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Per-corner score_corners() window, and a heading-miss leg class
-status: open
+status: in-progress
 use-cases:
 - SUC-006
 depends-on: []
