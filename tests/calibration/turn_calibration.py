@@ -581,14 +581,14 @@ def one_turn(link, cam, deg, cruise, timeout_ms, cols, out_frames, turn_idx, set
     return row, None
 
 
-def _enable_tlm_full(link):
+def _enable_tlm_full(link, no_tlm=False):
     """Turn on `TLM FULL` and return its column list from the `thdr`
     line -- shared by every mode that needs per-frame wheel telemetry
     (the pivot sweep, G1, G3, G5). A lossy carrier drops the header
     occasionally; retried twice before giving up and continuing on the
     camera alone."""
     cols = None
-    for _attempt in range(0 if a.no_tlm else 2):
+    for _attempt in range(0 if no_tlm else 2):
         t0 = time.time() - 0.5
         link.seqd('TLM FULL', wait=2.0)
         for _ in range(60):          # a lossy carrier drops headers; they repeat every ~1 s
@@ -600,7 +600,7 @@ def _enable_tlm_full(link):
         if cols:
             break
     if not cols:
-        if a.no_tlm:
+        if no_tlm:
             print('telemetry OFF (--no-tlm): camera-only scoring, no wheel speeds or encoder heading')
         else:
             print('WARNING: no thdr after TLM FULL -- continuing on camera alone (no wheel speeds)')
@@ -644,7 +644,7 @@ def wire_get(link, field, default=None, tries=3):
 
 def run_sweep(link, cam, a, out):
     out.mkdir(parents=True, exist_ok=True)
-    cols = _enable_tlm_full(link)
+    cols = _enable_tlm_full(link, a.no_tlm)
 
     # interleaved, sign-alternating schedule
     plan = []
@@ -821,7 +821,7 @@ def run_g1(link, cam, a, out):
     noise = camera_noise_floor(cam, n=fix_n)
     print(f"camera heading at rest: n={noise['n']} sd={noise['sd']} deg, peak-to-peak {noise['ptp']} deg "
           f"-- this is why G1 is restated (mean|err|<={G1_MEAN_ABS_ERR_DEG}, sd<={G1_SD_DEG} deg)")
-    cols = _enable_tlm_full(link)
+    cols = _enable_tlm_full(link, a.no_tlm)
     n_pivots = a.reps * 2   # alternating +90/-90 pairs (sprint 029's g1_run.py: 6 pairs = 12)
     print(f'{n_pivots} alternating +-90 deg pivots, {fix_n}-sample rest fixes')
     rows, frames_out, sign = [], [], 1
@@ -860,7 +860,7 @@ def run_g2(link, cam, a, out):
     g2_run.py: `a.arcs` alternating +-`a.arc_deg` deg arcs of chord
     `a.arc_mm`."""
     out.mkdir(parents=True, exist_ok=True)
-    cols = _enable_tlm_full(link)
+    cols = _enable_tlm_full(link, a.no_tlm)
     theta = math.radians(a.arc_deg)
     print(f'{a.arcs} alternating +-{a.arc_deg} deg arcs, chord {a.arc_mm} mm')
     rows, frames_out = [], []
@@ -900,7 +900,7 @@ def run_g3(link, cam, a, out):
     out.mkdir(parents=True, exist_ok=True)
     accel = wire_get(link, 'accel', 400.0)
     v_floor = wire_get(link, 'v_floor', 70.0)
-    cols = _enable_tlm_full(link)
+    cols = _enable_tlm_full(link, a.no_tlm)
     print(f'{a.legs} alternating +-{a.leg_mm} mm legs at cruise {a.cruise} mm/s '
           f'(accel={accel}, v_floor={v_floor} live)')
     rows, frames_out, sign = [], [], 1
@@ -977,7 +977,7 @@ def run_g5(link, cam, a, out):
         offenders = fieldlib.check_path([(pose[0], pose[1]), end])
         if offenders:
             raise SystemExit(f'projected WHEELS_V travel leaves the margin near {offenders[0]}; reposition first')
-    cols = _enable_tlm_full(link)
+    cols = _enable_tlm_full(link, a.no_tlm)
     trials = []
     for k, sign in enumerate(([1, -1] * a.reps)):
         pre = cam.fix()
