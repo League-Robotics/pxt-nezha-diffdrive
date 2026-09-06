@@ -116,6 +116,12 @@ TRACKWIDTH_DEFAULT_MM = 114.2     # motion_engine.h default; overridden by GET i
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'tools'))
 import field as fieldlib  # noqa: E402  (tools/field.py -- path/margin checks, one owner)
 import link as linklib  # noqa: E402  (tools/link.py -- the one sequencer + line buffer)
+# Re-exported deliberately: `mount.py` and `distance.py` reach it as
+# `tc.wrap`, and this program's own gates call it ~15 times. It is
+# `field.wrap()` -- (-180, 180], upper end closed -- not the private
+# modulo-idiom copy that lived here until sprint 034 ticket 009, which
+# closed the OTHER end.
+from field import wrap  # noqa: E402
 
 # --------------------------------------------------- G1-G6 acceptance bars
 #
@@ -406,7 +412,7 @@ class Camera:
         if ts is not None and ts == self._last_ts:
             return None
         self._last_ts = ts
-        h = (math.degrees(r.yaw_rad) + self.off + 180) % 360 - 180
+        h = wrap(math.degrees(r.yaw_rad) + self.off)
         sp = r.speed or 0.0
         s = (time.time(), r.world.x, r.world.y, h, sp)
         with self.lock:
@@ -465,13 +471,9 @@ class Camera:
         total, prev = 0.0, None
         for h in hs:
             if prev is not None:
-                total += (h - prev + 180) % 360 - 180
+                total += wrap(h - prev)
             prev = h
         return total, len(hs)
-
-
-def wrap(d):
-    return (d + 180) % 360 - 180
 
 
 SPEED_SANE = 600  # [mm/s] a wheel never exceeds ~400; radio-corrupted frames carried 5567 (tigez 2026-09-04)

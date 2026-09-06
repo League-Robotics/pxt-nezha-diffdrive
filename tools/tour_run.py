@@ -27,9 +27,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from robotlink import open_link
 from camlink import Cam, CamDown
 from field import (ORDER, PathRefused, clears_margin, path_deviation,
-                   require_clear_path, score_corners, usable_half_extent,
-                   wrap)
+                   score_corners, usable_half_extent, wrap)
+from reposition import Repositioner
 import tlm
+
+# The start dot and the heading a tour begins from: NE, facing west.
+START = (50.0, 30.0, 180.0)
 
 
 def analyse(cam_rows):
@@ -80,60 +83,38 @@ def analyse(cam_rows):
             'dev_90': devs[int(len(devs) * 0.9)], 'dev_max': devs[-1]}
 
 
-def place(link, cam, x, y, h, tol_cm=2.5, tol_deg=4.0, tries=3):
-    """Put the robot back on the start dot, camera-verified.
+def make_repositioner(link, cam) -> Repositioner:
+    """The repositioner a tour run stages with.
 
-    This runs BETWEEN tours, never inside one. Repositioning is setup:
-    it is the only way successive practice runs start from the same
-    place and their scores mean the same thing.
+    There is ONE repositioning loop in this repo and it lives in
+    `reposition.Repositioner` (sprint 034 ticket 009). This module used
+    to carry a second one, `place()`, whose ordering -- position first,
+    then heading, never a re-checking loop -- was the correct one and
+    is the ordering `Repositioner.go()` now has; the "98 and 94 degrees
+    instead of west" measurement that justifies it moved into
+    `Repositioner.go()`'s docstring with the code. `place()` is gone.
 
-    Raises `field.PathRefused` -- before anything is sent -- if the
-    straight leg from the camera-measured pose to `(x, y)` leaves the
-    playfield margin. Same gate, same helper, as
-    `reposition.Repositioner.check_path()`; sprint 034 ticket 009 folds
-    this function into that class and the gate goes with it.
+    The tolerances are this caller's, not the class defaults: **1.5
+    deg, not 4** -- an open-loop tour turns start heading error
+    straight into corner error (leg x sin theta), so 4 deg on a 100 cm
+    leg is already 7 cm.
     """
-    # POSITION first, then heading, and never the other way round. An
-    # in-place pivot walks the centre of rotation a centimetre or so,
-    # which is enough to push the position error back over tolerance --
-    # so a loop that re-checks both and picks one will answer a good
-    # heading with another goto and undo it. Two runs started facing
-    # 98 and 94 degrees instead of west that way.
-    for _ in range(tries):
-        p = cam.fix()
-        if p is None:
-            print('    camera cannot see the robot'); return False
-        if math.hypot(p[0] - x, p[1] - y) <= tol_cm:
-            break
-        # Pre-flight BEFORE the seed -- the seed is already a command,
-        # and the goto that follows it is the one that drives.
-        require_clear_path([(p[0], p[1]), (x, y)],
-                           what=f'reposition onto ({x:.1f}, {y:.1f})')
-        link.send_until(f'RUN:seedxy:{p[0]:.1f}:{p[1]:.1f}:{p[2]:.1f}',
-                        'OCAL:seeded', tries=3, wait=5, echo=False)
-        link.send_until(f'RUN:goto:{x:.0f}:{y:.0f}', 'GOTO:end',
-                        tries=2, wait=30, echo=False)
-        time.sleep(0.7)
-    # Heading LAST, from a fresh seed, so nothing can disturb it after.
-    for _ in range(tries):
-        p = cam.fix()
-        if p is None:
-            print('    camera cannot see the robot'); return False
-        if abs(wrap(p[2] - h)) <= tol_deg:
-            break
-        link.send_until(f'RUN:seedxy:{p[0]:.1f}:{p[1]:.1f}:{p[2]:.1f}',
-                        'OCAL:seeded', tries=3, wait=5, echo=False)
-        link.send_until(f'RUN:face:{h:.0f}', 'FACE:end',
-                        tries=2, wait=30, echo=False)
-        time.sleep(0.7)
-    p = cam.fix()
-    if p:
-        derr = math.hypot(p[0] - x, p[1] - y)
-        herr = abs(wrap(p[2] - h))
-        flag = '' if (derr <= tol_cm * 2 and herr <= tol_deg * 2) else '  <-- OFF'
-        print(f'    start: ({p[0]:.1f},{p[1]:.1f}) {p[2]:.0f} deg  '
-              f'({derr:.1f} cm, {herr:.0f} deg off){flag}')
-    return True
+    return Repositioner(link, cam, tol_cm=2.5, tol_deg=1.5)
+
+
+def report_start_pose(rep: Repositioner, pose, target) -> None:
+    """Print where the repositioner actually left the robot, flagging a
+    result outside twice its own tolerances -- a staging error is a
+    silent corner error later, so it belongs on the console."""
+    if not pose:
+        return
+    x, y, h = target
+    derr = math.hypot(pose[0] - x, pose[1] - y)
+    herr = abs(wrap(pose[2] - h))
+    flag = ('' if (derr <= rep.tol_cm * 2 and herr <= rep.tol_deg * 2)
+            else '  <-- OFF')
+    print(f'    start: ({pose[0]:.1f},{pose[1]:.1f}) {pose[2]:.0f} deg  '
+          f'({derr:.1f} cm, {herr:.1f} deg off){flag}')
 
 
 def main():
@@ -174,15 +155,16 @@ def main():
             break
         if a.reposition:
             print('  repositioning onto the NE dot (setup, not the tour)')
-            # 1.5 deg, not 4: an open-loop tour turns start heading
-            # error straight into corner error (leg x sin theta), so
-            # 4 deg on a 100 cm leg is already 7 cm.
+            rep = make_repositioner(link, cam)
             try:
-                if not place(link, cam, 50.0, 30.0, 180.0, tol_deg=1.5):
-                    break
+                start = rep.go(*START)
             except PathRefused as e:
                 print(f'  {e}')
                 break
+            if start is None:
+                print('    camera cannot see the robot')
+                break
+            report_start_pose(rep, start, START)
         # --- camera use #1 of 2: seed the world pose, once ---
         p = cam.fix()
         if p is None:

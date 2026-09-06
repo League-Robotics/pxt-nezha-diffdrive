@@ -448,6 +448,47 @@ coordinates.
   (produced the 38.2 mm arm baked into `test/test.ts`).
 - **`reposition.py`** — put the robot on a world point, camera-
   verified, seeding from measured truth rather than assumed placement.
+  The **one** repositioning loop (sprint 034 ticket 009); `tour_run.py`
+  and `tour_practice.py` both stage through it.
+
+### One repositioning loop, and it is position-first (sprint 034 ticket 009)
+
+`reposition.Repositioner.go()` drives to the point, **then** faces the
+heading — two phases, never interleaved, so no `RUN:goto` is ever sent
+after a `RUN:face`.
+
+That ordering is not a stylistic choice. `tour_run.py` used to carry a
+second implementation, `place()`, whose comment recorded why: an
+in-place pivot walks the centre of rotation a centimetre or so, which
+is enough to push the position error back over tolerance, so a loop
+that re-checks both errors and picks one will answer a good heading
+with another goto and undo it — *two runs started facing 98 and 94
+degrees instead of west that way*. `Repositioner.go()` was exactly that
+re-checking loop. The merge kept `place()`'s ordering, `go()`'s
+signature and `check_path()`'s refusal; `place()` is gone, and the
+measurement moved into `go()`'s docstring with the code it justifies.
+`tour_run.make_repositioner()` supplies the one caller-specific
+number — **1.5° heading tolerance, not the class default 5°**, because
+an open-loop tour turns start-heading error straight into corner error
+(leg × sin θ) and 4° on a 100 cm leg is already 7 cm.
+
+### One `wrap()`, closed at the upper end (sprint 034 ticket 009)
+
+`field.wrap()` maps an angle into **(-180, 180]** — `wrap(180)` and
+`wrap(-180)` are both **+180**, i.e. half a revolution reads as a LEFT
+turn. Sprint 005 consolidated eight copies into `field.py` and four
+grew back, three of them written as the modulo idiom, which closes the
+*other* end (`[-180, 180)`); `leg_analysis._wrap_deg()`'s docstring
+claimed this module's interval while its body returned the other one.
+±180 is in the standard `PIVOTS` list, so the boundary is a value this
+fleet actually commands. The upper end wins because `turn_total()` is
+`commanded + wrap(measured − commanded)` and a commanded ±180 must come
+back as the half-turn that was asked for. Every other definition and
+every inline copy under `tools/` and `tests/calibration/` now imports
+it — including `otos_levercal.py`'s `atan2(sin, cos)` spelling, which
+already *agreed* and was folded in anyway, because a lookalike still
+costs the next reader a derivation.
+`tests/tools/test_angle_wrap_ownership.py` is the source-level guard.
 
 ### Unwrapping a pivot: `field.turn_total()` is the one owner (sprint 034 ticket 001)
 
@@ -522,8 +563,10 @@ Callers today, i.e. every surviving tool that commands motion to a
 COORDINATE:
 
 - **`reposition.py`** — `Repositioner.check_path()`, called by `go()`
-  ahead of the seed (the seed is already a command on the wire).
-- **`tour_run.py`** — `place()`, same gate, same helper; `main()`
+  ahead of the seed (the seed is already a command on the wire). Since
+  sprint 034 ticket 009 this is the only repositioning gate there is:
+  `tour_run.place()` carried a second copy and was merged in.
+- **`tour_run.py`** — inherits it through `Repositioner.go()`; `main()`
   catches `PathRefused` and abandons the run rather than tracebacking.
 - **`tour_practice.py`** — inherits it through `Repositioner.go()`;
   prints the refusal and skips the run.

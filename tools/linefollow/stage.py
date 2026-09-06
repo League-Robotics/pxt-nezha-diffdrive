@@ -7,6 +7,7 @@ import sys, time, math, json, pathlib, statistics
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / 'tools'))
 from fieldlink import FieldLink
+from field import wrap          # the repo's one angle-wrap, (-180, 180]
 from aprilcam.mcp import connection as _conn
 CAL = json.loads((REPO / 'tools/field_calibration.json').read_text())
 _ROBOT = 'vevov'; _E = CAL['robots'][_ROBOT]  # these tools are vevov-on-the-KIPR-mat tools; sprint 029 robots: schema
@@ -31,8 +32,7 @@ def pose(n=6):
         ax=r[0]-(math.cos(t)*LEVER[0]-math.sin(t)*LEVER[1]); ay=r[1]-(math.sin(t)*LEVER[0]+math.cos(t)*LEVER[1])
         xs.append(NADIR[0]+(ax-NADIR[0])/K); ys.append(NADIR[1]+(ay-NADIR[1])/K)
         s+=math.sin(t); c+=math.cos(t); time.sleep(0.08)
-    return statistics.median(xs), statistics.median(ys), (math.degrees(math.atan2(s,c))+HOFF+180)%360-180
-def wrap(d): return (d+180)%360-180
+    return statistics.median(xs), statistics.median(ys), wrap(math.degrees(math.atan2(s,c))+HOFF)
 x0,y0,h0 = pose(); print('now  (%.1f, %.1f) h=%.1f' % (x0,y0,h0))
 print('goal (%.1f, %.1f) h=%.1f' % (tx,ty,th))
 if not (abs(tx)<=XL and abs(ty)<=YL): raise SystemExit('goal outside the 12 cm margin -- refusing')
@@ -50,7 +50,7 @@ def pivot_to(target_h, label):
     """Pivot, then VERIFY with the camera; retry the residual once. Never
     trust an ack: a pivot that acked 'timeout' once did not turn at all and
     the following leg drove 27 cm the wrong way (03-stage-run2.txt)."""
-    for attempt in range(2):
+    for _attempt in range(2):
         _,_,h = pose(); d = wrap(target_h - h)
         if abs(d) <= 3.0: return True
         print(' %s pivot %+.1f:' % (label, d), go('MOVE_X 0 %d 188 9000' % int(round(math.radians(d)*1000)), 1.5 + abs(d)/60))

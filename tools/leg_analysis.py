@@ -102,6 +102,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import tlm
+# The one angle-wrap for the whole repo (sprint 034 ticket 009). This
+# module used to carry `_wrap_deg()`, whose docstring said "(-180, 180]"
+# while its modulo-idiom body returned "[-180, 180)" -- the doc and the
+# code disagreed about the boundary, and the code was the odd one out
+# against `field.wrap()`. Importing settles both.
+from field import wrap
 
 
 # --- classification verdicts --------------------------------------------
@@ -191,11 +197,6 @@ class LegResult:
     gt_heading_error_deg: float = None
 
 
-def _wrap_deg(delta):
-    """Wrap a heading difference to (-180, 180]."""
-    return (delta + 180.0) % 360.0 - 180.0
-
-
 def commanded_leg_spec(start_xy, target_xy):
     """The commanded leg: straight-line distance to `target_xy` from
     `start_xy`, and the bearing that points at it. Pure geometry -- see
@@ -248,7 +249,7 @@ def classify_leg(commanded, believed, ground_truth=None,
     rather than as one flattened bit.
     """
     distance_error_cm = believed.distance_cm - commanded.distance_cm
-    heading_error_deg = _wrap_deg(believed.heading_deg - commanded.heading_deg)
+    heading_error_deg = wrap(believed.heading_deg - commanded.heading_deg)
 
     distance_ok = abs(distance_error_cm) <= distance_tol_cm
     heading_ok = abs(heading_error_deg) <= heading_tol_deg
@@ -268,7 +269,7 @@ def classify_leg(commanded, believed, ground_truth=None,
     gt_distance_error_cm = gt_heading_error_deg = None
     if ground_truth is not None:
         gt_distance_error_cm = believed.distance_cm - ground_truth.distance_cm
-        gt_heading_error_deg = _wrap_deg(
+        gt_heading_error_deg = wrap(
             believed.heading_deg - ground_truth.heading_deg)
 
     return LegResult(
@@ -331,7 +332,7 @@ def detect_otos_staleness(encoder_believed, otos_start_pose, otos_end_pose,
 def _pose_close(a, b, motion_eps_cm, motion_eps_deg):
     return (abs(a[0] - b[0]) <= motion_eps_cm
             and abs(a[1] - b[1]) <= motion_eps_cm
-            and abs(_wrap_deg(a[2] - b[2])) <= motion_eps_deg)
+            and abs(wrap(a[2] - b[2])) <= motion_eps_deg)
 
 
 def _segment_leg_index_pairs(poses, motion_eps_cm=0.05, motion_eps_deg=0.1):

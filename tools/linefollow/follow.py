@@ -21,6 +21,7 @@ import sys, time, math, json, statistics, pathlib, argparse
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / 'tests/system')); sys.path.insert(0, str(REPO / 'tools'))
 from run_tour import Link, Path2D           # noqa: E402
+from field import wrap                      # noqa: E402  one angle-wrap, (-180, 180]
 from aprilcam.mcp import connection as _conn  # noqa: E402
 
 CAL = json.loads((REPO / 'tools/field_calibration.json').read_text())
@@ -56,7 +57,7 @@ def cam_pose(n=6):
         xs.append(NADIR[0] + (ax - NADIR[0]) / K); ys.append(NADIR[1] + (ay - NADIR[1]) / K)
         s += math.sin(t); c += math.cos(t); time.sleep(0.08)
     if not xs: return None
-    return statistics.median(xs), statistics.median(ys), (math.degrees(math.atan2(s, c)) + HOFF + 180) % 360 - 180
+    return statistics.median(xs), statistics.median(ys), wrap(math.degrees(math.atan2(s, c)) + HOFF)
 
 path = Path2D(a.path)
 log = {'path': a.path, 'speed': a.speed, 'lookahead': a.lookahead, 'interval': a.interval, 'iters': []}

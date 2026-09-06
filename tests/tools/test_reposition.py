@@ -1,7 +1,13 @@
-"""tests/tools/test_reposition.py -- pins `tools/reposition.py`'s
-geofence: `Repositioner.go()` refuses a move whose projected path
-leaves the playfield margin, and refuses it BEFORE anything reaches
-the wire.
+"""tests/tools/test_reposition.py -- pins `tools/reposition.py`, the
+repo's ONE repositioning loop (sprint 034 ticket 009), on two counts:
+
+1. its geofence -- `Repositioner.go()` refuses a move whose projected
+   path leaves the playfield margin, and refuses it BEFORE anything
+   reaches the wire (sprint 034 ticket 007);
+2. its ORDERING -- position first, then heading, never a re-checking
+   loop that can answer a good heading with another goto. This is the
+   "98 and 94 degrees instead of west" regression, and the tests that
+   name it are at the bottom of the file.
 
 **Why this exists.** Sprint 018 ticket 002 added `field.check_path()`
 and pinned it -- and then nothing called it. `grep -rn 'check_path' tools
@@ -109,9 +115,9 @@ def test_go_refuses_before_the_seed_not_after_it():
 
 
 def test_check_path_is_callable_on_the_repositioner_itself():
-    """The gate lives on the class, so the planner sprint 034 ticket
-    009 merges in here (`tour_run.place()`) keeps it rather than
-    re-deriving one."""
+    """The gate lives on the class, which is how the planner sprint 034
+    ticket 009 merged in here (`tour_run.place()`) kept it rather than
+    leaving a second copy behind."""
     rep = Repositioner(FakeLink(), FakeCam((0.0, 0.0, 0.0)))
     assert rep.check_path((0.0, 0.0, 0.0), 50.0, 30.0) is None
     with pytest.raises(field.PathRefused):
@@ -139,3 +145,67 @@ def test_a_target_already_within_tolerance_still_sends_nothing():
     rep = Repositioner(link, FakeCam((50.0, 30.0, 180.0)))
     assert rep.go(50.0, 30.0, 180.0, echo=False) == (50.0, 30.0, 180.0)
     assert link.sent == []
+
+
+# --- the ordering: "98 and 94 degrees instead of west" -------------------
+#
+# `tour_run.place()` -- the second repositioning loop, merged into this
+# class by sprint 034 ticket 009 -- carried this rationale in a comment,
+# and it is the reason the merge kept ITS ordering rather than `go()`'s:
+#
+#     POSITION first, then heading, and never the other way round. An
+#     in-place pivot walks the centre of rotation a centimetre or so,
+#     which is enough to push the position error back over tolerance --
+#     so a loop that re-checks both and picks one will answer a good
+#     heading with another goto and undo it. Two runs started facing
+#     98 and 94 degrees instead of west that way.
+#
+# `Repositioner.go()` WAS that re-checking loop. These two tests are
+# what stops it becoming one again. They assert on the command stream,
+# because that is where the defect was visible: both designs return a
+# plausible pose; only one of them stops commanding once the heading is
+# right.
+
+def test_heading_already_good_position_not_sends_no_face_command():
+    """The simple half: the robot is pointing the right way and only
+    needs to move. A loop that re-derives a heading command after the
+    drive can only make that heading worse -- so there must be no
+    `RUN:face` on the wire at all."""
+    link = FakeLink()
+    # correct heading throughout; position wrong, then right after the goto
+    cam = FakeCam((0.0, 0.0, 180.0), (50.0, 30.0, 180.0))
+    rep = Repositioner(link, cam)
+    rep.go(50.0, 30.0, 180.0, tries=2, echo=False)
+    assert not any(s.startswith('RUN:face') for s in link.sent), (
+        f'a good heading must not be re-commanded; sent {link.sent}')
+    assert _goto_lines(link) == ['RUN:goto:50.0:30.0']
+
+
+def test_a_pivot_that_walks_the_robot_never_triggers_another_goto():
+    """The "98 and 94 degrees" case itself.
+
+    The camera reports the physical effect the comment describes: after
+    the drive the position is good, and after the heading pivot the
+    centre of rotation has walked far enough to put the position error
+    back OVER tolerance. A loop that re-checks both errors sees that and
+    issues a fresh `RUN:goto` -- which drives, and leaves the robot
+    facing 98 degrees instead of 180. The two-phase ordering cannot:
+    once the heading phase has started, no goto follows.
+    """
+    link = FakeLink()
+    cam = FakeCam(
+        (0.0, 0.0, 90.0),        # start: position and heading both off
+        (50.0, 30.0, 90.0),      # after the goto: on the dot, facing wrong
+        (50.0, 30.0, 90.0),      # heading phase opens: still facing wrong
+        (46.0, 26.0, 180.0),     # after the pivot: facing west, walked 5.7 cm
+    )                            # (in bounds -- the walk must be a tolerance
+                                 #  failure, not a geofence refusal)
+    rep = Repositioner(link, cam)
+    rep.go(50.0, 30.0, 180.0, tries=3, echo=False)
+
+    face_at = [i for i, s in enumerate(link.sent) if s.startswith('RUN:face')]
+    goto_at = [i for i, s in enumerate(link.sent) if s.startswith('RUN:goto')]
+    assert face_at, 'the heading was 90 deg out; it must have been commanded'
+    assert all(g < face_at[0] for g in goto_at), (
+        'a goto was issued after the heading was set -- that is the '
+        f'loop that produced 98 and 94 degrees instead of west: {link.sent}')

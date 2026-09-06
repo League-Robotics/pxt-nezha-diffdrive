@@ -39,7 +39,7 @@ sys.path.insert(0, str(_TOOLS))
 from aprilcam.mcp import connection as _conn          # noqa: E402
 from fieldlink import FieldLink, TcpFieldLink            # noqa: E402
 from field import (pose_from_registered_samples,          # noqa: E402
-                    registered_pose_distance)
+                    registered_pose_distance, wrap)
 from make_deploy import (derive_radio_from_name,          # noqa: E402
                           _read_robot_firmware_bake)
 
@@ -240,8 +240,8 @@ def main(tcp=None):
         L.seqd(f'MOVE_X 0 {int(round(math.radians(deg)*1000))} 188 9000')
         settle()
         b = pose()
-        got = (b[2] - a[2] + 180) % 360 - 180
-        err = (got - deg + 180) % 360 - 180
+        got = wrap(b[2] - a[2])
+        err = wrap(got - deg)
         ok = abs(err) <= TOL_DEG
         note = '' if abs(got) > 1.0 else '  <- NO MOTION (estop? stall?)'
         print(f'{"turn %+d deg" % deg:22s} {deg:+9.1f}d {got:+9.1f}d {err:+7.1f}d  '
@@ -265,7 +265,7 @@ def main(tcp=None):
         brg = math.degrees(math.atan2(dy, dx))
         # forward means along the heading; backward means 180 from it
         want = a[2] if cm > 0 else (a[2] + 180)
-        dirn = (brg - want + 180) % 360 - 180
+        dirn = wrap(brg - want)
         signed = dist if abs(dirn) < 90 else -dist
         err = signed - abs(cm)
         ok = abs(err) <= TOL_CM and abs(dirn) < 25
@@ -281,7 +281,7 @@ def main(tcp=None):
 
     end = pose()
     back = registered_pose_distance(home, end)
-    dh = (end[2] - home[2] + 180) % 360 - 180
+    dh = wrap(end[2] - home[2])
     print()
     ok = back <= 5.0
     print(f'{"returned home":22s} {0.0:9.1f}c {back:9.1f}c {back:+7.1f}c  '

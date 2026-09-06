@@ -67,6 +67,39 @@ def test_wrap_result_always_in_range():
         assert -180.0 < w <= 180.0
 
 
+# The boundary, asserted as a CONVENTION rather than as arithmetic
+# (sprint 034 ticket 009). Three of the four wrap() copies this repo
+# carried used `(d + 180) % 360 - 180`, which closes `[-180, 180)` --
+# the opposite end -- so at exactly half a revolution they returned
+# -180 where this one returns +180. That is the single value the
+# consolidation could have changed, and +/-180 is in the standard
+# `PIVOTS` list, so it is a value this fleet actually commands. These
+# tests exist so the next consolidation has to argue with a failing
+# assertion rather than quietly pick the other interval.
+
+@pytest.mark.parametrize('d', [180.0, -180.0, 540.0, -540.0, 900.0])
+def test_wrap_reports_half_a_revolution_as_positive_180(d):
+    """The upper end is CLOSED: exactly half a turn is a left turn."""
+    assert field.wrap(d) == 180.0
+
+
+def test_wrap_never_returns_negative_180():
+    """The `[-180, 180)` convention's signature value. If this ever
+    fires, a caller somewhere has adopted the modulo idiom's interval
+    and `turn_total(180, 180)` now reports a right half-turn."""
+    for d in (180.0, -180.0, 180.0 + 360.0, -180.0 - 360.0):
+        assert field.wrap(d) != -180.0
+
+
+def test_turn_total_at_the_boundary_keeps_the_commanded_sign():
+    """Why the upper end was chosen: `turn_total()` is
+    `commanded + wrap(measured - commanded)`, so a commanded +/-180 met
+    by an exact +/-180 measurement must come back as the SAME half-turn
+    that was asked for, not its mirror."""
+    assert field.turn_total(180.0, 180.0) == pytest.approx(180.0)
+    assert field.turn_total(-180.0, -180.0) == pytest.approx(-180.0)
+
+
 # --- turn_total() (sprint 034 ticket 001, TL-03) -------------------------
 #
 # The defect this replaces: `rotation_check.py` and a second bench

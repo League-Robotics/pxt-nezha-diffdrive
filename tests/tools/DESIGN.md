@@ -170,7 +170,12 @@ whole suite.
 
 Imports `tools/field.py` directly:
 
-- **`wrap()`** — parametrized angle-wrap cases into `(-180, 180]`.
+- **`wrap()`** — parametrized angle-wrap cases into `(-180, 180]`, plus
+  (sprint 034 ticket 009) the boundary asserted as a **convention**:
+  exactly half a revolution is `+180`, never `−180`, at every multiple
+  of it. Three of the four copies the repo carried closed the other end
+  of the interval, so this is the one value the consolidation could
+  have changed and ±180 is a value the fleet commands.
 - **`turn_total()`** (sprint 034 ticket 001) — the ±180 wrap-boundary
   regression: 183° physical against a 180° command must report **+183**,
   not −177, and `turn / commanded` must stay POSITIVE for an
@@ -209,21 +214,54 @@ Imports `tools/field.py` directly:
 Run: `uv run pytest tests/tools/test_field.py`, or as part of the
 whole suite.
 
-### `test_reposition.py` / `test_tour_run_geofence.py` (sprint 034 ticket 007)
+### `test_reposition.py` / `test_tour_run_geofence.py` (sprint 034 tickets 007, 009)
 
-The two planners that command motion to a coordinate, each driven with
-an injected fake link and fake camera. They assert on **what the link
-received**, not on a return value: a refusal that has already sent
-`RUN:seedxy` has still changed the robot's world frame, so every
-refusal case checks `link.sent == []` and one test pins the ORDERING
-explicitly. Accept cases are pinned too (the NE staging dot must still
-drive) — a gate that refuses everything is as useless as one that
-refuses nothing. Two files rather than one because `place()` and
-`Repositioner.go()` are twins until sprint 034 ticket 009 merges them,
-and a gate only one twin has is how twins drift.
+Driven with an injected fake link and fake camera, asserting on **what
+the link received**, not on a return value: a refusal that has already
+sent `RUN:seedxy` has still changed the robot's world frame, so every
+refusal case checks `link.sent == []` and one test pins the refusal's
+position ahead of the seed explicitly. Accept cases are pinned too (the
+NE staging dot must still drive) — a gate that refuses everything is as
+useless as one that refuses nothing.
+
+Ticket 007 wrote these as two files because `tour_run.place()` and
+`Repositioner.go()` were twins and a gate only one twin has is how
+twins drift. Ticket 009 merged the twins, and the split changed
+meaning rather than disappearing:
+
+- **`test_reposition.py`** pins the surviving loop — the geofence, and
+  now the **ordering**: a good heading is never re-commanded, and no
+  `RUN:goto` follows a `RUN:face`. Those two tests name the "98 and 94
+  degrees instead of west" measurement they descend from, and they
+  discriminate: replaying the pre-merge interleaved loop against the
+  same fake camera issues a fresh `goto` after the pivot.
+- **`test_tour_run_geofence.py`** pins the `tour_run` half — that
+  `place()` is gone rather than renamed, that `tour_run.Repositioner`
+  **is** `reposition.Repositioner` (a copied loop would pass a name
+  check and fail this), that the geofence still holds through
+  `tour_run`'s own repositioner, and that its deliberate 1.5° heading
+  tolerance survived the merge.
 
 Run: `uv run pytest tests/tools/test_reposition.py
 tests/tools/test_tour_run_geofence.py`.
+
+### `test_angle_wrap_ownership.py` (sprint 034 ticket 009)
+
+Source-level, text- and `ast`-based (several audited files open a
+daemon connection or a serial link at module scope, so importing them
+here would hang or depend on the host). Scans `tools/` and
+`tests/calibration/` and asserts: no file but `tools/field.py` defines
+a `wrap`/`_wrap_deg`; nobody writes the modulo idiom inline; every file
+that used to carry a copy now actually imports the shared one; and
+`field.wrap()` states its interval and its ±180 result in its own
+docstring. The owner and this file are the only two allowed to *name*
+the retired idiom in prose — a guard that forbade the owner from
+explaining the convention would delete the documentation the ticket
+existed to write. `tests/host/`'s radians-domain `_wrap_to_pi` is out
+of scope by design: a different function against the C++ kernel's own
+convention, not a copy of this one.
+
+Run: `uv run pytest tests/tools/test_angle_wrap_ownership.py`.
 
 ### `test_run_verbs.py` (sprint 005 ticket 006)
 

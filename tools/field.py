@@ -158,8 +158,50 @@ def require_clear_path(waypoints, what: str = 'this move',
         f'reposition the robot or re-plan -- the margin is not a knob.')
 
 
-def wrap(d):
-    """Wrap an angle in degrees into (-180, 180]."""
+def wrap(d: float) -> float:
+    """Wrap an angle in degrees into **(-180, 180]** -- the repo's ONE
+    angle-wrap, and the only one any tool under `tools/` or
+    `tests/calibration/` may use.
+
+    **The convention, stated so it cannot drift again: the UPPER end is
+    closed.** `wrap(180) == +180` and `wrap(-180) == +180`; exactly
+    half a revolution is reported as a LEFT (positive) turn, never as a
+    right one. Just past either end flips sign the way the interval
+    demands -- `wrap(180.0001) == -179.9999`, `wrap(-180.0001) ==
+    +179.9999` -- and every multiple of 360 lands on 0. Pinned by
+    `tests/tools/test_field.py::test_wrap_boundary_values`, which is
+    the check a future consolidation has to argue with.
+
+    **Why the upper end and not the lower.** The alternative, closed at
+    the bottom, is what the idiom `(d + 180) % 360 - 180` produces:
+    `[-180, 180)`, where `wrap(180)` is `-180`. Four copies of this
+    function survived the sprint-005 consolidation and they did NOT
+    agree -- `field.wrap()` was `(-180, 180]` while
+    `leg_analysis._wrap_deg()` (whose own docstring CLAIMED
+    `(-180, 180]`), `linefollow/stage.py`'s `wrap()` and
+    `turn_calibration.py`'s `wrap()` were all the `%` idiom, i.e. the
+    opposite closed end. On this fleet that is not academic: +/-180 is
+    in the standard `PIVOTS` list, so a 180 deg command is a value the
+    boundary is actually asked about. `(-180, 180]` wins because it is
+    the convention the ONE caller that can see an exact +/-180 already
+    depends on -- `turn_total(commanded, measured)` is
+    `commanded + wrap(measured - commanded)`, and a commanded +180 with
+    a measured +180 must report +180 (a left half-turn), not -180 (a
+    right one). It is also `math.atan2()`'s own range, which is what
+    every circular mean in this module returns before wrapping.
+
+    Sprint 034 ticket 009 retired the other three definitions and the
+    inline `%` idiom everywhere; `tests/tools/test_angle_wrap_ownership.py`
+    is the source-level guard that no fifth copy appears. Note the
+    single behaviour change that made: code that used the `%` idiom now
+    reports +180 where it used to report -180 at exactly half a
+    revolution. No caller in the tree can reach that input from a
+    camera or encoder reading (a float difference is never exactly
+    180.0); it is reachable only from an integer COMMANDED angle, and
+    the callers that combine a commanded angle with a measurement
+    (`turn_total()`, `field_dance.turn()`, `turn_calibration`'s
+    rest-to-rest snap) are all sign-symmetric about it.
+    """
     while d <= -180.0:
         d += 360.0
     while d > 180.0:

@@ -113,6 +113,14 @@ reconciling the two; until then step 4 is the calibration.
 - Heading comes from the camera with the fixed +90 deg front-edge
   convention (`.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`);
   `--heading-offset` exists only for the sub-degree physical residual.
+- Angles wrap through `tools/field.py`'s `wrap()` and nothing else —
+  **(-180, 180]**, upper end closed, so exactly half a revolution reads
+  `+180`. `turn_calibration.py` and `field_dance.py` each carried a
+  private copy closing the *other* end until sprint 034 ticket 009;
+  ±180 is in the standard pivot set, so that was a real disagreement
+  about a commanded value. `turn_calibration` re-exports the shared
+  function, which is how `mount.py` and `distance.py` reach it as
+  `tc.wrap`.
 - Sample heading at REST, never windowed across a move (the windowing
   reverses the sign of the pivot error; project memory
   `odometry-closure-tuning-knobs`).
