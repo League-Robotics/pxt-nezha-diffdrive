@@ -1,9 +1,11 @@
 ---
 id: '004'
 title: 'One pose-CSV schema: a header-keyed codec in tlm.py'
-status: open
-use-cases: [SUC-003]
-depends-on: ['003']
+status: in-progress
+use-cases:
+- SUC-003
+depends-on:
+- '003'
 github-issue: ''
 issue: tools-v6-verbs-geofence-pose-csv-schema.md
 completes_issue: true
