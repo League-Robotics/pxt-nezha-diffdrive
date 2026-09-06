@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: done
 sprint: '031'
 tickets:
 - 031-006
@@ -67,3 +67,13 @@ not the profile:
 Related issues: `segment-moves-end-early-just-after-boot.md`,
 `wire-done-reason-is-resolved-lazily.md`,
 `parallax-k-and-registered-mount-z-correct-twice.md`.
+
+> **2026-09-05, team-lead, on archival:** closed by ticket 016. The
+> research-grade bars this issue restated (G1 sd <= 1.0 deg, G2 10 mm,
+> G6 10.8 mm, G3 peak x1.05) were NOT met -- every gate is recorded
+> FAILED in ticket 016's closing note with `docs/sprint-031-postmortem.md`
+> as the analysis. What was met is the student-release bar set in that
+> note (pivot 1.89 deg mean, legs <= 2.4 deg, RUN verbs drive, bakes
+> hold from power-on on build 1.20260905.1). The unmet research bars and
+> the affine pivot law are carried in
+> `clasi/issues/tovez-straight-legs-curve-and-twist-hold-cannot-see-it.md`.

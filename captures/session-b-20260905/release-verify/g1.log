@@ -1,16 +1,23 @@
 link: serial daemon 192.168.4.52:35249
-Traceback (most recent call last):
-  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 2016, in <module>
-    sys.exit(main())
-             ~~~~^^
-  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 1967, in main
-    banner = link.hello()
-  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 251, in hello
-    got = self.unseq('HELLO', r'^device ')
-  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 231, in unseq
-    self.send(cmd)
-    ~~~~~~~~~^^^^^
-  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 211, in send
-    self.sock.sendall((line + '\n').encode())
-    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
-BrokenPipeError: [Errno 32] Broken pipe
+robot: device NEZHA2 robot tovez 2314287040
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '139', 'cyc': '2452', 'tlm': 'off', 'next': '1', 'done': '8', 'reason': 'stop'}
+rotational_slip=0.962 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 52 at (-19.5, 1.2) cm heading 8.9 deg
+camera heading at rest: n=20 sd=0.651 deg, peak-to-peak 2.462 deg -- this is why G1 is restated (mean|err|<=1.0, sd<=1.0 deg)
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+12 alternating +-90 deg pivots, 20-sample rest fixes
+  0 cmd  +90 cam  +88.26 err  -1.74 peak 82/108 done stop
+  1 cmd  -90 cam  -90.35 err  -0.35 peak 82/121 done stop
+  2 cmd  +90 cam  +87.09 err  -2.91 peak 76/92 done stop
+  3 cmd  -90 cam  -91.65 err  -1.65 peak 76/112 done stop
+  4 cmd  +90 cam  +84.42 err  -5.58 peak 82/102 done stop
+  5 cmd  -90 cam  -90.53 err  -0.53 peak 89/102 done stop
+  6 cmd  +90 cam  +86.84 err  -3.16 peak 72/98 done stop
+  7 cmd  -90 cam  -88.90 err  +1.10 peak 92/112 done stop
+  8 cmd  +90 cam  +88.51 err  -1.49 peak 92/102 done stop
+  9 cmd  -90 cam  -88.34 err  +1.66 peak 82/112 done stop
+ 10 cmd  +90 cam  +89.57 err  -0.43 peak 92/118 done stop
+ 11 cmd  -90 cam  -87.90 err  +2.10 peak 82/102 done stop
+G1: mean|err| 1.892 deg, sd 2.091 deg, n=12 -- FAIL (bar: mean|err|<=1.0, sd<=1.0)
+wrote captures/session-b-20260905/release-verify/g1; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render captures/session-b-20260905/release-verify/g1
+CHAIN3-DONE
