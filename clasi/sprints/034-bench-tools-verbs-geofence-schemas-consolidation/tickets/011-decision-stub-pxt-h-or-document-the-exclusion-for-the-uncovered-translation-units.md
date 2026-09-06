@@ -2,7 +2,7 @@
 id: '011'
 title: 'Decision: stub pxt.h or document the exclusion for the uncovered translation
   units'
-status: open
+status: in-progress
 use-cases:
 - SUC-007
 depends-on:
