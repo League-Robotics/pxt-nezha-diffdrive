@@ -2,8 +2,9 @@
 id: '010'
 title: 'Host harness: skip the tsc gate with a reason, gate ruff, pin the third travelCalib,
   one motion_lib fixture'
-status: open
-use-cases: [SUC-007]
+status: in-progress
+use-cases:
+- SUC-007
 depends-on: []
 github-issue: ''
 issue: host-harness-gaps.md
