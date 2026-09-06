@@ -1,0 +1,17 @@
+{
+  "camera_start": [
+    -29.9,
+    -30.4,
+    -3.4393488845733695
+  ],
+  "camera_start_note": "pre-flight fix, heading from its projected first waypoint",
+  "camera_end": [
+    -28.591557493584823,
+    -29.412798891450674,
+    2.626485881545139
+  ],
+  "camera_closure_mm": 16.390813955734608,
+  "camera_net_heading_deg": 6.065834766118508,
+  "odometry_closure_mm": 7.211102550927978,
+  "odometry_net_heading_deg": 360.72
+}
