@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: Derive _V6_VERBS from the firmware verb table, with a drift test
-status: open
+status: in-progress
 use-cases:
 - SUC-001
 depends-on: []
