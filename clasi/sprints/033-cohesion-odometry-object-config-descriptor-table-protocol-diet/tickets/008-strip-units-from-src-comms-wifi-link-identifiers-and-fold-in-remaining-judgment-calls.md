@@ -2,9 +2,11 @@
 id: 008
 title: Strip units from src/comms/wifi_link.* identifiers and fold in remaining judgment
   calls
-status: open
-use-cases: [SUC-005]
-depends-on: ["007"]
+status: in-progress
+use-cases:
+- SUC-005
+depends-on:
+- '007'
 github-issue: ''
 issue: strip-units-from-wifi-link-identifiers.md
 completes_issue: true
