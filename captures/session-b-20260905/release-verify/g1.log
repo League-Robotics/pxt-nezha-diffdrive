@@ -1,0 +1,16 @@
+link: serial daemon 192.168.4.52:35249
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 2016, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 1967, in main
+    banner = link.hello()
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 251, in hello
+    got = self.unseq('HELLO', r'^device ')
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 231, in unseq
+    self.send(cmd)
+    ~~~~~~~~~^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.claude/worktrees/sprint-31-oop-fe4d5a/tests/playfield/turn_calibration.py", line 211, in send
+    self.sock.sendall((line + '\n').encode())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe
