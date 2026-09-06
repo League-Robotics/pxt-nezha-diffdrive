@@ -179,13 +179,14 @@ host that owns its loop drives `step()` directly).
     in steady state: it deliberately drives the encoders to twist by
     the fraction that cancels the invisible half, and the nonzero
     target it gives the proportional hold also relieves that hold's own
-    residual on the visible half. The magnitude is **not** a physical
-    constant — MEASURED tovez, the same curvature was 3.2 deg per
-    600 mm an hour before the discriminator run above and 1.5 deg on
-    that run itself, same robot, same firmware — so this is a per-robot
-    trim the stakeholder sizes from a warm run, not a value this ticket
-    bakes anywhere (default stays 0). Host-proved (no hardware needed
-    to validate the mechanism) in `tests/host/test_straight_trim.py`.
+    residual on the visible half. Measured afterwards (postmortem §2.2a,
+    `captures/session-b-20260905/discriminator-20260905{,-v2}/`),
+    tovez's leg yaw turned out to be a variable, sign-inconsistent
+    breakaway on direction reversal, not a constant curvature, so
+    tovez's trim stays 0 and is NOT to be sized; the field is the right
+    tool only for a robot with a CONSTANT ground-side mismatch.
+    Host-proved (no hardware needed to validate the mechanism) in
+    `tests/host/test_straight_trim.py`.
 - Each `step()` runs split-phase encoder sampling:
   `requestSample()` → 4 ms settle sleep → `tick()` per wheel. Anything
   that lands other I2C traffic inside that settle window destroys the

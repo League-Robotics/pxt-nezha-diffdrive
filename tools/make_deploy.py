@@ -1020,26 +1020,41 @@ def _inject_radio_link(deploy_dir, enabled):
 # this dict's own key order does not encode measurement order --
 # _inject_geometry() applies whatever keys a robot's own
 # firmware_bake block names, in no particular order.
+#
+# Sprint 031 ticket 020: `accel` -- MotionLimits::accel (motion_limits.h,
+# same file as lag_s/stop_distance_mm), fleet default 400.0f unchanged.
+# tovez bakes 800: MEASURED tovez 2026-09-05,
+# captures/session-b-20260905/gain-sweep-20260905/accel800/ and
+# .../accel800b/ (n=8) vs the accel-300 baseline
+# captures/session-b-20260905/discriminator-20260905{,-v2}/ (n=8) --
+# mean|dh| 3.62 -> 1.35 deg. See
+# radio-robot-lib/config/robots/tovez.json's own `_accel_provenance`
+# for the full numbers; the MECHANISM is UNVERIFIED (the physical wheel
+# ramp did not change between 300 and 800 -- docs/sprint-031-postmortem.md
+# S3a).
 _GEOMETRY_BAKE_RES = {
     'travel_calib': re.compile(r'(float travelCalib_ = )[-+0-9.eE]+(f;)'),
     'trackwidth': re.compile(r'(float trackWidth_ = )[-+0-9.eE]+(f;)'),
     'rotational_slip': re.compile(r'(float rotationalSlip_ = )[-+0-9.eE]+(f;)'),
     'lag_s': re.compile(r'(float lag = )[-+0-9.eE]+(f;)'),
     'stop_distance_mm': re.compile(r'(float stopDistance = )[-+0-9.eE]+(f;)'),
+    'accel': re.compile(r'(float accel = )[-+0-9.eE]+(f;)'),
 }
 
 # Which `src/motion/*.h` file each `_GEOMETRY_BAKE_RES` key's regex
 # targets. travel_calib/trackwidth/rotational_slip stay in
 # motion_engine.h (MotionEngine's own trackWidth_/travelCalib_/
 # rotationalSlip_ fields, untouched by this ticket); lag_s/
-# stop_distance_mm target motion_limits.h (MotionLimits::lag/
-# stopDistance) instead, per _GEOMETRY_BAKE_RES's own comment above.
+# stop_distance_mm/accel target motion_limits.h (MotionLimits::lag/
+# stopDistance/accel) instead, per _GEOMETRY_BAKE_RES's own comment
+# above.
 _GEOMETRY_BAKE_FILES = {
     'travel_calib': 'motion_engine.h',
     'trackwidth': 'motion_engine.h',
     'rotational_slip': 'motion_engine.h',
     'lag_s': 'motion_limits.h',
     'stop_distance_mm': 'motion_limits.h',
+    'accel': 'motion_limits.h',
 }
 
 # OLD bake key -> NEW bake key, for a robot config that has not yet been

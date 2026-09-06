@@ -39,7 +39,8 @@ from aprilcam.mcp import connection as _conn          # noqa: E402
 from fieldlink import FieldLink, TcpFieldLink            # noqa: E402
 from field import (pose_from_registered_samples,          # noqa: E402
                     registered_pose_distance)
-from make_deploy import derive_radio_from_name          # noqa: E402
+from make_deploy import (derive_radio_from_name,          # noqa: E402
+                          _read_robot_firmware_bake)
 
 # Sprint 029 ticket 006: field_calibration.json now carries several
 # robots under a `robots:` map (TL-02/TL-11) -- this script drives
@@ -140,6 +141,27 @@ def settle(timeout=9.0):
     return False
 
 
+def _dance_accel_decel(robot):
+    """The dance is a CONVENTION check, so it must not retune the robot
+    (see the comment above its `SET accel`/`SET decel` call in main()) --
+    but hardcoding 400 for both did exactly that on any robot baking a
+    different value via make_deploy.py's opt-in
+    `geometry.firmware_bake` (sprint 031 ticket 020: tovez bakes
+    `accel: 800`). Every mandatory pre-flight dance
+    (.claude/rules/field-dance-first.md) would otherwise silently
+    live-`SET` a baked accel back to the fleet default for the rest of
+    that session, defeating the bake at exactly the moment it matters
+    most.
+
+    Reads `robot`'s own baked accel/decel via
+    `make_deploy._read_robot_firmware_bake()`, falling back to 400 (the
+    compiled MotionLimits default, motion_limits.h) for either key the
+    robot's config does not name. Host-testable with no live robot
+    connection -- see tests/tools/test_field_dance_accel_bake.py."""
+    bake = _read_robot_firmware_bake(robot)
+    return (bake.get('accel', 400), bake.get('decel', 400))
+
+
 def main(tcp=None):
     # Sprint 029 ticket 007 (2026-09-04d): a robot with a lossless
     # on-robot serial daemon (e.g. tovez's `zilch` Pi) should be driven
@@ -186,7 +208,16 @@ def main(tcp=None):
     # made every cruise-100 pivot hunt until its 5 s deadline (peak wheel
     # speed 164-190 mm/s against a 100 mm/s command); at the compiled
     # default 2.0 the same pivots complete in 1.4 s within 0.9 deg.
-    for f, v in (('accel', 400), ('decel', 400)):
+    #
+    # Sprint 031 ticket 020: accel/decel used to be hardcoded to 400
+    # here regardless of what the connected robot's firmware was built
+    # with -- itself a retune, and one that would silently defeat
+    # ticket 020's own tovez accel:800 bake on every mandatory
+    # pre-flight run. `_dance_accel_decel()` reads the dance's target
+    # robot's own baked values instead, falling back to 400 only when
+    # unbaked.
+    accel, decel = _dance_accel_decel(ROBOT)
+    for f, v in (('accel', accel), ('decel', decel)):
         L.seqd(f'SET {f} {v}')
 
     home = pose()

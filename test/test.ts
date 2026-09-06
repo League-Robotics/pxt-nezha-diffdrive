@@ -332,8 +332,24 @@ function logFix(tag: string) {
 // setDefaultSpeed/setDefaultYawRate are a SEPARATE mechanism (the
 // move()/goTo() blocks' own default cruise speed/yaw rate, unrelated to
 // MotionLimits shaping) and are unaffected by this ticket.
+//
+// Sprint 031 ticket 020: accel raised 300 -> 800 (decel, vMax, omegaMax
+// unchanged -- the measured result was accel-only). MEASURED tovez
+// 2026-09-05, captures/session-b-20260905/gain-sweep-20260905/accel800/
+// and .../accel800b/ (n=8 alternating +-600 mm legs) vs the accel-300
+// baseline captures/session-b-20260905/discriminator-20260905{,-v2}/
+// (n=8): mean|dh| 3.62 deg -> 1.35 deg, max 7.61 -> 3.45, the
+// forward-after-reverse leg (worst case) +4.59/+7.61 -> +1.39/-0.72.
+// The MECHANISM is UNVERIFIED -- docs/sprint-031-postmortem.md S3a's
+// own ramp check shows the physical wheel ramp did NOT change (759-955
+// mm/s^2 at 300 vs 873-894 at 800; the drivetrain already outruns
+// either commanded ceiling), so this is not "a faster ramp." This
+// literal must agree with radio-robot-lib/config/robots/tovez.json's
+// geometry.firmware_bake.accel (which this profile's callers are baked
+// against on tovez); ticket 020's provenance note there carries the
+// full citation.
 function openLoopProfile() {
-    diffDrive.setLimits(300, 300, 200, 90)
+    diffDrive.setLimits(800, 300, 200, 90)
     diffDrive.setDefaultSpeed(20)
     diffDrive.setDefaultYawRate(90)
 }
