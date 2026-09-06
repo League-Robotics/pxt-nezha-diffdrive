@@ -11,10 +11,20 @@ needs its OWN deliberate fast path that bypasses the RUN queue instead
 
 So this file's pin moves from "an abort handler exists" (still checked
 below, since the bypass has nothing to dispatch to without one) to "the
-bypass is real": `Protocol::handleRun()` (protocol.cpp) recognizes
-"abort"/"clearestop" by name and dispatches them immediately, without
-going through `runQueue_.enqueue()` at all and without gating on
+bypass is real": the RUN bridge recognizes "abort"/"clearestop" by name
+and hands them straight back for dispatch, without going through the
+ring's `enqueue()` at all and without `Protocol` gating that dispatch on
 `motionOwner_`.
+
+**Re-anchored** when the parking/dedupe/bypass rules moved out of
+`protocol.cpp` into the host-portable `src/comms/run_bridge.{h,cpp}`:
+the ORDER half of the pin (bypass decided before the ring is consulted)
+now reads `RunBridge::offer()`, and the UNGATED half still reads
+`Protocol::handleRun()`, which is where the dispatch call itself
+remains. Same two assertions, two files. The behavior those source
+shapes stand in for is, for the first time, directly executable --
+`tests/host/test_run_bridge.py` drives the real object -- so this file
+is now the narrower of the two pins, not the only one.
 
 A later pass over `test.ts` itself found the wire-visible half of this
 had rotted: `aborted` was reset only by the three original tours, so
@@ -48,6 +58,7 @@ _TEST_TS = _REPO_ROOT / "test" / "test.ts"
 _WORLD_TS = _REPO_ROOT / "src" / "blocks" / "world.ts"
 _MOTION_TS = _REPO_ROOT / "src" / "blocks" / "motion.ts"
 _PROTOCOL_CPP = _REPO_ROOT / "src" / "comms" / "protocol.cpp"
+_RUN_BRIDGE_CPP = _REPO_ROOT / "src" / "comms" / "run_bridge.cpp"
 _SHIMS_CPP = _REPO_ROOT / "src" / "shims.cpp"
 
 # Every motion-issuing plain function that must run through
@@ -77,6 +88,10 @@ def _motion_ts_source() -> str:
 
 def _protocol_cpp_source() -> str:
     return _PROTOCOL_CPP.read_text(encoding="utf-8")
+
+
+def _run_bridge_cpp_source() -> str:
+    return _RUN_BRIDGE_CPP.read_text(encoding="utf-8")
 
 
 def _shims_cpp_source() -> str:
@@ -334,9 +349,22 @@ def test_motion_ts_tick_runners_have_no_local_abort_flag():
 
 
 # ---------------------------------------------------------------------------
-# protocol.cpp: abort/clearestop bypass the queue -- the property this
-# ticket actually moves the pin onto.
+# The RUN bridge: abort/clearestop bypass the queue -- the property this
+# ticket actually moves the pin onto. Split across two files since the
+# parking/dedupe/bypass rules moved to run_bridge.cpp: the ORDER lives in
+# RunBridge::offer(), the UNGATED dispatch call in Protocol::handleRun().
 # ---------------------------------------------------------------------------
+
+
+def _offer_body():
+    text = _run_bridge_cpp_source()
+    match = re.search(
+        r"RunBridge::Offer RunBridge::offer\(.*?\)\s*\{.*?\n\}",
+        text,
+        re.DOTALL,
+    )
+    assert match, "RunBridge::offer() was not found in run_bridge.cpp"
+    return match.group(0)
 
 
 def _handle_run_body():
@@ -348,66 +376,71 @@ def _handle_run_body():
     return match.group(1)
 
 
-def test_handle_run_recognizes_abort_and_clearestop_by_name():
+def test_run_bridge_recognizes_abort_and_clearestop_by_name():
     """A bypass has to name what it bypasses for. Both names test.ts
     binds to non-blocking handlers (clearing a flag / clearing a latch)
-    must be recognized somewhere in protocol.cpp's own RUN-bridge
-    machinery, not just in test.ts."""
-    text = _protocol_cpp_source()
+    must be recognized somewhere in the RUN bridge's own machinery, not
+    just in test.ts."""
+    text = _run_bridge_cpp_source()
     assert re.search(r'"abort"', text), (
-        "protocol.cpp no longer names \"abort\" anywhere -- the bypass "
+        "run_bridge.cpp no longer names \"abort\" anywhere -- the bypass "
         "this file pins has been removed or renamed."
     )
     assert re.search(r'"clearestop"', text), (
-        "protocol.cpp no longer names \"clearestop\" anywhere -- the "
+        "run_bridge.cpp no longer names \"clearestop\" anywhere -- the "
         "bypass this file pins has been removed or renamed."
     )
 
 
-def test_handle_run_dispatches_the_bypass_names_before_enqueueing():
-    """The bypass must be checked, and act, BEFORE handleRun() ever
-    reaches runQueue_.enqueue() -- if the bypass ran after an enqueue
-    attempt (or not at all), "abort"/"clearestop" would sit in the queue
-    behind whatever job is already running, exactly the queue-delay this
-    ticket exists to remove."""
-    body = _handle_run_body()
-    bypass_call = re.search(r"invokeRunDispatch\(", body)
-    enqueue_call = re.search(r"runQueue_\.enqueue\(", body)
-    assert bypass_call, (
-        "Protocol::handleRun() no longer calls invokeRunDispatch() -- "
-        "the direct-dispatch bypass this file pins is gone."
+def test_offer_returns_the_bypass_before_enqueueing():
+    """The bypass must be decided, and returned, BEFORE offer() ever
+    reaches the ring's enqueue() -- if the bypass were checked after an
+    enqueue attempt (or not at all), "abort"/"clearestop" would sit in
+    the queue behind whatever job is already running, exactly the
+    queue-delay this ticket exists to remove."""
+    body = _offer_body()
+    bypass_check = re.search(r"isBypassName\(", body)
+    enqueue_call = re.search(r"queue_\.enqueue\(", body)
+    assert bypass_check, (
+        "RunBridge::offer() no longer calls isBypassName() -- the "
+        "direct-dispatch bypass this file pins is gone."
     )
     assert enqueue_call, (
-        "Protocol::handleRun() no longer calls runQueue_.enqueue() at "
-        "all -- expected the bypass names to be the ONLY ones that skip "
-        "the queue, not for the queue itself to have been removed."
+        "RunBridge::offer() no longer calls queue_.enqueue() at all -- "
+        "expected the bypass names to be the ONLY ones that skip the "
+        "queue, not for the queue itself to have been removed."
     )
-    assert bypass_call.start() < enqueue_call.start(), (
-        "invokeRunDispatch() (the bypass) must be reached, and return, "
-        "BEFORE runQueue_.enqueue() in handleRun()'s own source order -- "
-        "found it AFTER the enqueue call instead, which means an abort "
-        "would be queued like any other command rather than bypassing "
-        "it."
+    assert bypass_check.start() < enqueue_call.start(), (
+        "isBypassName() (the bypass) must be reached, and return, "
+        "BEFORE queue_.enqueue() in offer()'s own source order -- found "
+        "it AFTER the enqueue call instead, which means an abort would "
+        "be queued like any other command rather than bypassing it."
     )
 
 
 def test_bypass_dispatch_does_not_gate_on_motion_owner():
-    """The bypass call itself (handleRun() invoking invokeRunDispatch()
-    directly) must not be wrapped in any motionOwner_ check -- unlike
-    dispatchJob() (which refuses to start a new job while something else
-    already owns the drivetrain), abort/clearestop must land regardless
-    of what motionOwner_ currently is. This checks the one line
-    handleRun() uses to reach the bypass, not the whole function body,
-    so an unrelated motionOwner_ check elsewhere in the file can't
-    produce a false failure here."""
+    """The bypass dispatch itself (handleRun() calling runDispatch()
+    straight off a kBypass offer) must not be wrapped in any
+    motionOwner_ check -- unlike dispatchJob() (which refuses to start a
+    new job while something else already owns the drivetrain),
+    abort/clearestop must land regardless of what motionOwner_ currently
+    is. This checks handleRun()'s whole body with its comments stripped
+    (the prose there legitimately EXPLAINS the motionOwner_ gate it does
+    not apply) -- the body is now short enough to read as one unit, so
+    any surviving motionOwner_ reference in it would be gating the
+    bypass, which is the only thing this function does."""
     body = _handle_run_body()
-    match = re.search(r"^.*invokeRunDispatch\([^\n]*$", body, re.MULTILINE)
-    assert match, "invokeRunDispatch() call site not found in handleRun()"
-    assert "motionOwner_" not in match.group(0), (
-        "handleRun()'s own invokeRunDispatch() call site mentions "
-        "motionOwner_ -- the bypass must be UNGATED; gating it on "
-        "motionOwner_ would reintroduce the queue-delay this ticket "
-        "removes."
+    assert re.search(r"Offer::kBypass", body), (
+        "Protocol::handleRun() no longer tests for RunBridge::Offer::"
+        "kBypass -- the direct-dispatch bypass this file pins is gone."
+    )
+    code = re.sub(r"//[^\n]*", "", body)
+    match = re.search(r"^.*\brunDispatch\(\)[^\n]*$", code, re.MULTILINE)
+    assert match, "runDispatch() call site not found in handleRun()"
+    assert "motionOwner_" not in code, (
+        "Protocol::handleRun() mentions motionOwner_ -- the bypass must "
+        "be UNGATED; gating it on motionOwner_ would reintroduce the "
+        "queue-delay this ticket removes."
     )
 
 

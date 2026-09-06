@@ -2,9 +2,9 @@
 half of sprint 030 ticket 004 (glitch-armor-reject-raw-zero-and-staged-
 cross-fiber-stop.md) across src/shims.cpp.
 
-**What this fixes.** `deliverStopNow()` and the starvation watchdog used
-to write the motor ports directly, from whichever fiber called them,
-with no relationship to `busGuard` at all -- exactly the cross-fiber
+**What this fixes.** The soft stop's port write and the starvation
+watchdog used to write the motor ports directly, from whichever fiber
+called them, with no relationship to `busGuard` at all -- exactly the cross-fiber
 I2C hazard `BusGuard` (sprint 030 ticket 001) exists to prevent for
 every OTHER I2C-touching call site. A stop requested while some other
 fiber is mid `kernel.step()` (holding the guard, possibly parked in its
@@ -90,67 +90,73 @@ def _function_body(source_text, signature_pattern, label):
 
 _SHIMS_STRIPPED = _strip_comments(_SHIMS_CPP.read_text())
 
-_DELIVER_STOP_NOW_SIG = r"static\s+void\s+deliverStopNow\s*\(\s*Rig&\s*r\s*\)\s*\{"
+# Sprint 033 ticket 004 folded the former free function
+# `deliverStopNow(Rig&)` into `Rig::softStop()`, which now also carries
+# the engine.endMove()/kernel.neutral() half of the same stop (see
+# test_soft_stop_source_pin.py for the consolidation itself). The staged
+# cross-fiber delivery this file pins is unchanged and lives in that
+# method's body.
+_SOFT_STOP_SIG = r"void\s+Rig::softStop\s*\(\s*\)\s*\{"
 _TICK_DRIVE_SIG = r"\bbool\s+tickDrive\s*\(\s*\)\s*\{"
 _WATCHDOG_SIG = r"static\s+void\s+watchdogEntry\s*\(\s*void\*\s*context\s*\)\s*\{"
 
-_DELIVER_STOP_NOW_BODY = _function_body(
-    _SHIMS_STRIPPED, _DELIVER_STOP_NOW_SIG, "deliverStopNow"
+_SOFT_STOP_BODY = _function_body(
+    _SHIMS_STRIPPED, _SOFT_STOP_SIG, "Rig::softStop"
 )
 _TICK_DRIVE_BODY = _function_body(_SHIMS_STRIPPED, _TICK_DRIVE_SIG, "tickDrive")
 _WATCHDOG_BODY = _function_body(_SHIMS_STRIPPED, _WATCHDOG_SIG, "watchdogEntry")
 
 
-def test_deliver_stop_now_stages_instead_of_writing_when_guard_is_held():
-    """`deliverStopNow()` must check `busGuard.held()` and, when true,
+def test_soft_stop_stages_instead_of_writing_when_guard_is_held():
+    """`Rig::softStop()` must check `busGuard.held()` and, when true,
     set `pendingStop_` and return WITHOUT writing the motor ports --
     the exact cross-fiber write this ticket closes."""
-    assert re.search(r"busGuard\.held\s*\(\s*\)", _DELIVER_STOP_NOW_BODY), (
-        f"deliverStopNow(): no busGuard.held() check:\n{_DELIVER_STOP_NOW_BODY}"
+    assert re.search(r"busGuard\.held\s*\(\s*\)", _SOFT_STOP_BODY), (
+        f"Rig::softStop(): no busGuard.held() check:\n{_SOFT_STOP_BODY}"
     )
     held_branch = re.search(
-        r"if\s*\(\s*r\.busGuard\.held\s*\(\s*\)\s*\)\s*\{([^}]*)\}",
-        _DELIVER_STOP_NOW_BODY,
+        r"if\s*\(\s*(?:r\.)?busGuard\.held\s*\(\s*\)\s*\)\s*\{([^}]*)\}",
+        _SOFT_STOP_BODY,
     )
     assert held_branch, (
-        "deliverStopNow(): could not isolate the busGuard.held() branch "
-        f"body:\n{_DELIVER_STOP_NOW_BODY}"
+        "Rig::softStop(): could not isolate the busGuard.held() branch "
+        f"body:\n{_SOFT_STOP_BODY}"
     )
     branch_body = held_branch.group(1)
     assert "pendingStop_ = true" in branch_body, (
-        f"deliverStopNow(): held()==true branch does not set pendingStop_:"
+        f"Rig::softStop(): held()==true branch does not set pendingStop_:"
         f"\n{branch_body}"
     )
     assert "emergencyStop" not in branch_body, (
-        "deliverStopNow(): held()==true branch still writes the motor "
+        "Rig::softStop(): held()==true branch still writes the motor "
         f"ports directly -- that is the exact race this ticket closes:"
         f"\n{branch_body}"
     )
 
 
-def test_deliver_stop_now_still_writes_immediately_when_guard_is_free():
+def test_soft_stop_still_writes_immediately_when_guard_is_free():
     """The common, uncontended path is unchanged: with the guard free,
-    `deliverStopNow()` still writes both motor ports directly, with no
+    `Rig::softStop()` still writes both motor ports directly, with no
     added staging or latency."""
-    assert re.search(r"\br\.left\.emergencyStop\s*\(\s*\)", _DELIVER_STOP_NOW_BODY), (
-        f"deliverStopNow(): no unconditional r.left.emergencyStop() call:"
-        f"\n{_DELIVER_STOP_NOW_BODY}"
+    assert re.search(r"\b(?:r\.)?left\.emergencyStop\s*\(\s*\)", _SOFT_STOP_BODY), (
+        f"Rig::softStop(): no unconditional left.emergencyStop() call:"
+        f"\n{_SOFT_STOP_BODY}"
     )
-    assert re.search(r"\br\.right\.emergencyStop\s*\(\s*\)", _DELIVER_STOP_NOW_BODY), (
-        f"deliverStopNow(): no unconditional r.right.emergencyStop() call:"
-        f"\n{_DELIVER_STOP_NOW_BODY}"
+    assert re.search(r"\b(?:r\.)?right\.emergencyStop\s*\(\s*\)", _SOFT_STOP_BODY), (
+        f"Rig::softStop(): no unconditional right.emergencyStop() call:"
+        f"\n{_SOFT_STOP_BODY}"
     )
 
 
-def test_deliver_stop_now_never_touches_the_estop_latch():
-    """`deliverStopNow()` must stay a resumable soft stop: it must never
+def test_soft_stop_never_touches_the_estop_latch():
+    """`Rig::softStop()` must stay a resumable soft stop: it must never
     call `kernel.estop()`, `kernel.emergencyStopMotors()`, or otherwise
     reach `estopLatch_` -- unchanged from before this ticket, and the
     staged path must not have introduced a new route to it."""
-    assert not re.search(r"\bestop\b", _DELIVER_STOP_NOW_BODY, re.IGNORECASE), (
-        f"deliverStopNow(): body now mentions estop in some form -- this "
+    assert not re.search(r"\bestop\b", _SOFT_STOP_BODY, re.IGNORECASE), (
+        f"Rig::softStop(): body now mentions estop in some form -- this "
         f"function must stay a resumable soft stop, never the latching "
-        f"e-stop:\n{_DELIVER_STOP_NOW_BODY}"
+        f"e-stop:\n{_SOFT_STOP_BODY}"
     )
 
 
@@ -197,12 +203,12 @@ def test_tick_drive_delivers_pending_stop_before_releasing_the_guard():
 def test_watchdog_routes_through_deliver_stop_now_instead_of_writing_directly():
     """The starvation watchdog is the OTHER caller that used to write
     the motor ports directly, unconditionally -- it must now go through
-    `deliverStopNow()` (which itself applies the busGuard.held() check)
+    `Rig::softStop()` (which itself applies the busGuard.held() check)
     rather than calling `emergencyStop()` on the ports itself."""
-    assert "deliverStopNow(r)" in _WATCHDOG_BODY, (
-        f"watchdogEntry(): does not call deliverStopNow(r):\n{_WATCHDOG_BODY}"
+    assert "r.softStop()" in _WATCHDOG_BODY, (
+        f"watchdogEntry(): does not call r.softStop():\n{_WATCHDOG_BODY}"
     )
     assert "emergencyStop" not in _WATCHDOG_BODY, (
         "watchdogEntry(): still calls emergencyStop() on a port directly "
-        f"-- it must go through deliverStopNow() instead:\n{_WATCHDOG_BODY}"
+        f"-- it must go through Rig::softStop() instead:\n{_WATCHDOG_BODY}"
     )

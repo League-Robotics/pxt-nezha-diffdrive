@@ -110,6 +110,11 @@ def _bind(lib):
         ctypes.c_int,
     ]
     lib.wgBuildHelpLine.restype = ctypes.c_int
+
+    lib.wgMaxSequenceId.argtypes = []
+    lib.wgMaxSequenceId.restype = ctypes.c_uint32
+    lib.wgSequenceIdIsExecutable.argtypes = [ctypes.c_uint32]
+    lib.wgSequenceIdIsExecutable.restype = ctypes.c_int
     # Ticket 003: emitTelemetry(snapshot) now takes a Column array as
     # three parallel arrays (name/value/hex) plus a count -- see
     # wire_grammar_shim.cpp's own wgEmitTelemetry() comment for why

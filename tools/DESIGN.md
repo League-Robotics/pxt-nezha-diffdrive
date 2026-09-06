@@ -70,6 +70,21 @@ doctrine) are in [`docs/design/design.md`](../docs/design/design.md).
 
 ## Build / deploy
 
+- **`gen_config_field_enum.py`** — the only code generator in this
+  directory, and the only script whose output is committed source.
+  Reads `src/comms/config_fields.h` (the wire's one config
+  name/ordinal/unit table) and writes `src/blocks/motion.ts`'s
+  `ConfigField` enum from it, because PXT compiles a fixed TypeScript
+  file set and cannot read a C++ table at build time. Run it —
+  `uv run python tools/gen_config_field_enum.py` — and commit both
+  files whenever a row in that header is added, renamed, renumbered, or
+  removed; `--check` reports drift without writing.
+  `tests/tools/test_gen_config_field_enum.py` regenerates and compares,
+  so a forgotten run fails the suite rather than shipping a block layer
+  that addresses a different field than the wire does. Not part of any
+  build step: nothing invokes it automatically, by design (a
+  pre-commit hook is a tooling change, not a cohesion one).
+
 - **`make_deploy.py`** — builds a flashable hex in a scratch copy of
   the repo with `test/test.ts` promoted into `files` (a `files`-listed
   test would run inside every student project). `--robot <name>`

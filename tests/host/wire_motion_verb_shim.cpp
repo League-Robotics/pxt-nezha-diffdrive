@@ -175,6 +175,19 @@ struct WaHandle {
   // 0, which the wire-level SET path deliberately cannot do).
   float defaultCruiseMmS = 150.0f;  // [mm/s]
 
+  // Sprint 033 ticket 004: mirrors shims.cpp's real Rig::goToDeadline
+  // -- the deadline the next go-to gets, an ordinary config row
+  // (`goto_timeout`, ordinal 39) rather than the private handoff field
+  // it used to be. Mirrored as a plain field for the same reason
+  // defaultCruiseMmS above is: this handle has no Rig, and the field
+  // is the whole of the real accessor's state. The block-layer half
+  // (engineSetGoToDeadline()/engineGoToRArmed()) has no test-double
+  // counterpart here at all -- wire_adapter.cpp reaches goToR()
+  // through the five-parameter engineGoToR() below, which carries its
+  // own timeout argument and never reads this field, exactly as in
+  // production.
+  uint32_t goToDeadline = 0;  // [ms]
+
   // A settable override for diagValue()'s otherwise kernel/engine-
   // derived ordinals (i2cf=8, lexc=9, posl=10, posr=11, dutl=12,
   // dutr=13, cyc=16, cycovr=19, wrng=25) -- lets a scale test or the
@@ -323,150 +336,231 @@ static bool waGetLimitsFieldIfKnown(int field, float& out) {
   }
 }
 
-// Mirrors shims.cpp's real setKernelValue() switch exactly (same field
-// ordinals, same x1000 scaling convention) -- see wire_adapter.cpp's own
-// kFields table for the wire-name mapping this ticket adds on top.
+// Mirrors shims.cpp's real kConfigAccessors table exactly: one row per
+// non-shaping config ordinal, each with its own get and set accessor, so
+// this double cannot answer a GET from one place and apply a SET to
+// another. The wire NAMES these ordinals answer to are not restated here
+// any more than they are in shims.cpp -- the REAL comms/config_fields.h
+// (compiled into this library through the real wire_adapter.cpp) is what
+// turns a wire name into one of these numbers, for the double exactly as
+// for production.
+//
+// `WaHandle` models what a host test can observe: a real kernel over
+// FakeMotor, a real MotionEngine, and a `defaultCruiseMmS` standing in
+// for Rig::defaultCruise_. Where the real accessor also touches Rig
+// state this handle has no equivalent of, that row's comment says so.
+static float waGetMaxDuty(WaHandle& h) { return h.kernel.config().maxDuty; }
+static void waSetMaxDuty(WaHandle& h, float v) { h.kernel.setMaxDuty(v); }
+
+static float waGetFullDutyVelocity(WaHandle& h) {
+  return h.kernel.config().fullDutyVelocity;
+}
+static void waSetFullDutyVelocity(WaHandle& h, float v) {
+  h.kernel.setFullDutyVelocity(v);
+}
+
+static float waGetKp(WaHandle& h) { return h.kernel.config().kp; }
+static void waSetKp(WaHandle& h, float v) { h.kernel.setKp(v); }
+
+static float waGetKi(WaHandle& h) { return h.kernel.config().ki; }
+static void waSetKi(WaHandle& h, float v) { h.kernel.setKi(v); }
+
+static float waGetIMax(WaHandle& h) { return h.kernel.config().iMax; }
+static void waSetIMax(WaHandle& h, float v) { h.kernel.setIMax(v); }
+
+static float waGetKaff(WaHandle& h) { return h.kernel.config().kaff; }
+static void waSetKaff(WaHandle& h, float v) { h.kernel.setKaff(v); }
+
+static float waGetPidMax(WaHandle& h) { return h.kernel.config().pidMax; }
+static void waSetPidMax(WaHandle& h, float v) { h.kernel.setPidMax(v); }
+
+static float waGetTwistHoldGain(WaHandle& h) {
+  return h.kernel.config().twistHoldGain;
+}
+static void waSetTwistHoldGain(WaHandle& h, float v) {
+  h.kernel.setTwistHoldGain(v);
+}
+
+static float waGetPosErrMax(WaHandle& h) {
+  return h.kernel.config().posErrMax;
+}
+static void waSetPosErrMax(WaHandle& h, float v) {
+  h.kernel.setPositionErrorMax(v);
+}
+
+static float waGetStallSpeed(WaHandle& h) {
+  return h.kernel.config().stallSpeed;
+}
+static void waSetStallSpeed(WaHandle& h, float v) {
+  const DiffDrive::DifferentialDrive::Config c = h.kernel.config();
+  h.kernel.setStall(v, c.stallDemand, c.stallWindow);
+}
+
+static float waGetStallDemand(WaHandle& h) {
+  return h.kernel.config().stallDemand;
+}
+static void waSetStallDemand(WaHandle& h, float v) {
+  const DiffDrive::DifferentialDrive::Config c = h.kernel.config();
+  h.kernel.setStall(c.stallSpeed, v, c.stallWindow);
+}
+
+static float waGetStallWindow(WaHandle& h) {
+  return h.kernel.config().stallWindow;
+}
+static void waSetStallWindow(WaHandle& h, float v) {
+  const DiffDrive::DifferentialDrive::Config c = h.kernel.config();
+  h.kernel.setStall(c.stallSpeed, c.stallDemand, v);
+}
+
+static float waGetLambdaEnabled(WaHandle& h) {
+  return h.kernel.config().lambdaEnabled ? 1.0f : 0.0f;
+}
+static void waSetLambdaEnabled(WaHandle& h, float v) {
+  h.kernel.setLambdaEnabled(v != 0.0f);
+}
+
+static float waGetCrawlPulse(WaHandle& h) {
+  return h.kernel.config().crawlPulse;
+}
+static void waSetCrawlPulse(WaHandle& h, float v) {
+  h.kernel.setCrawlPulse(v);
+}
+
+// default_cruise: same ">0" silent-ignore validation the real accessor
+// applies to Rig::defaultCruise_ -- see WaHandle::defaultCruiseMmS's own
+// comment for what stands in for that field here.
+static float waGetDefaultCruise(WaHandle& h) { return h.defaultCruiseMmS; }
+static void waSetDefaultCruise(WaHandle& h, float v) {
+  if (v > 0.0f) h.defaultCruiseMmS = v;
+}
+
+// rotational_slip: a thin forward to the REAL
+// MotionEngine::setRotationalSlip(), which owns its own ">0, else keep
+// the prior value" validation.
+static float waGetRotationalSlip(WaHandle& h) {
+  return h.engine.rotationalSlip();
+}
+static void waSetRotationalSlip(WaHandle& h, float v) {
+  h.engine.setRotationalSlip(v);
+}
+
+static float waGetStallClear(WaHandle& h) {
+  return h.kernel.output().stallHalted ? 1.0f : 0.0f;
+}
+static void waSetStallClear(WaHandle& h, float v) {
+  if (v != 0.0f) h.kernel.clearStallLatch();
+}
+
+// rebase: a PARTIAL mirror of the real accessor, by necessity -- the
+// real one also resets shims.cpp's own Odometry object and arms the
+// deferred OTOS zero, neither of which this handle has any equivalent of
+// (no Rig-shaped dead-reckoning state, no OtosPort -- see this file's
+// own header comment). What IS mirrored exactly is the one real,
+// host-observable side effect a test can hang an assertion on: the REAL
+// kernel's own rebasePosition() call, whose effect is visible through
+// kernel.output().positionEpochLeft/Right after the next step() -- see
+// waOutputPositionEpochLeft/Right below. The dropped halves are pinned
+// by a source-text check instead
+// (test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos).
+//
+// GET is refused by the real WireAdapter::onGet() before it can reach
+// here, exactly as in production.
+static float waGetRebase(WaHandle&) { return 0.0f; }
+static void waSetRebase(WaHandle& h, float v) {
+  if (v != 0.0f) h.kernel.rebasePosition();
+}
+
+static float waGetEstopClear(WaHandle& h) {
+  return h.kernel.output().estopped ? 1.0f : 0.0f;
+}
+static void waSetEstopClear(WaHandle& h, float v) {
+  if (v != 0.0f) h.kernel.estopClear();
+}
+
+static float waGetStraightTrim(WaHandle& h) {
+  return h.kernel.config().straightTrim;
+}
+static void waSetStraightTrim(WaHandle& h, float v) {
+  h.kernel.setStraightTrim(v);
+}
+
+// goto_timeout: mirrors shims.cpp's cfgGetGoToDeadline()/
+// cfgSetGoToDeadline() exactly, including the "0 is legal, negative is
+// refused" rule (see those accessors' own comment for why 0 has to
+// store).
+static float waGetGoToDeadline(WaHandle& h) {
+  return static_cast<float>(h.goToDeadline);
+}
+static void waSetGoToDeadline(WaHandle& h, float v) {
+  if (v < 0.0f) return;
+  h.goToDeadline = static_cast<uint32_t>(v);
+}
+
+struct WaConfigAccessor {
+  int ordinal;
+  float (*get)(WaHandle&);        // [unscaled]
+  void (*set)(WaHandle&, float);  // [unscaled]
+};
+
+static const WaConfigAccessor kWaConfigAccessors[] = {
+    {0, &waGetMaxDuty, &waSetMaxDuty},
+    {1, &waGetFullDutyVelocity, &waSetFullDutyVelocity},
+    {2, &waGetKp, &waSetKp},
+    {3, &waGetKi, &waSetKi},
+    {4, &waGetIMax, &waSetIMax},
+    {5, &waGetKaff, &waSetKaff},
+    {6, &waGetPidMax, &waSetPidMax},
+    {7, &waGetTwistHoldGain, &waSetTwistHoldGain},
+    {9, &waGetPosErrMax, &waSetPosErrMax},
+    {10, &waGetStallSpeed, &waSetStallSpeed},
+    {11, &waGetStallDemand, &waSetStallDemand},
+    {12, &waGetStallWindow, &waSetStallWindow},
+    {13, &waGetLambdaEnabled, &waSetLambdaEnabled},
+    {14, &waGetCrawlPulse, &waSetCrawlPulse},
+    {15, &waGetDefaultCruise, &waSetDefaultCruise},
+    {16, &waGetRotationalSlip, &waSetRotationalSlip},
+    {17, &waGetStallClear, &waSetStallClear},
+    {32, &waGetRebase, &waSetRebase},
+    {33, &waGetEstopClear, &waSetEstopClear},
+    {38, &waGetStraightTrim, &waSetStraightTrim},
+    {39, &waGetGoToDeadline, &waSetGoToDeadline},
+};
+
+static const WaConfigAccessor* waFindConfigAccessor(int ordinal) {
+  for (const auto& entry : kWaConfigAccessors) {
+    if (entry.ordinal == ordinal) return &entry;
+  }
+  return nullptr;
+}
+
+// Mirrors shims.cpp's real setKernelValue() exactly: the shaping gate
+// first, then the accessor table, then a silent no-op for anything else.
+// Same x1000 scaling convention on the way in.
 void setKernelValue(int field, int value) {
   if (g_activeWaHandle == nullptr) return;
   const float v = static_cast<float>(value) * 0.001f;
   if (waSetLimitsFieldIfKnown(field, v)) return;
-  DiffDrive::DifferentialDrive& k = g_activeWaHandle->kernel;
-  switch (field) {
-    case 0: k.setMaxDuty(v); break;
-    case 1: k.setFullDutyVelocity(v); break;
-    case 2: k.setKp(v); break;
-    case 3: k.setKi(v); break;
-    case 4: k.setIMax(v); break;
-    case 5: k.setKaff(v); break;
-    case 6: k.setPidMax(v); break;
-    case 7: k.setTwistHoldGain(v); break;
-    case 9: k.setPositionErrorMax(v); break;
-    case 10:
-      k.setStall(v, k.config().stallDemand, k.config().stallWindow);
-      break;
-    case 11:
-      k.setStall(k.config().stallSpeed, v, k.config().stallWindow);
-      break;
-    case 12:
-      k.setStall(k.config().stallSpeed, k.config().stallDemand, v);
-      break;
-    case 13: k.setLambdaEnabled(v != 0.0f); break;
-    case 14: k.setCrawlPulse(v); break;
-    // 15 (sprint 007 ticket 003): default_cruise, mirroring shims.cpp's
-    // real setKernelValue() case 15 exactly (same ">0" silent-ignore
-    // validation) -- see WaHandle::defaultCruiseMmS's own comment.
-    case 15:
-      if (v > 0.0f) g_activeWaHandle->defaultCruiseMmS = v;
-      break;
-    // 16 (sprint 007 ticket 005): rotational_slip, mirroring shims.cpp's
-    // real setKernelValue() case 16 exactly -- a thin forward to the
-    // REAL MotionEngine::setRotationalSlip(), which owns its own ">0,
-    // else keep the prior value" validation (motion_engine.h).
-    case 16: g_activeWaHandle->engine.setRotationalSlip(v); break;
-    // 17 (sprint 007 ticket 001): stall_clear -- a write-triggered
-    // ACTION wearing a config-field's clothes, mirroring shims.cpp's
-    // real setKernelValue() case 17 exactly (see that file's own
-    // comment). Only nonzero-vs-zero matters.
-    case 17: if (v != 0.0f) k.clearStallLatch(); break;
-    // 18-21, 28, 30, 34-37 (this ticket, extended by ticket 009's lag):
-    // all eleven routed through waSetLimitsFieldIfKnown() above, before
-    // this switch is ever reached -- mirrors shims.cpp's own
-    // kLimitsFields gate. 22-27, 29,
-    // 31 are REMOVED ordinals (brake_frac/dist_taper/yaw_taper/
-    // dist_floor/turn_floor/ramp_ms/plateau_min_s/profile_exit) -- no
-    // case for them here at all, same as shims.cpp's real switch.
-    // 32 (rebase): a PARTIAL mirror of shims.cpp's real case 32, by
-    // necessity -- the real handler also zeroes shims.cpp's own
-    // Rig::x/y/heading odometry accumulator and re-seeds OTOS, neither
-    // of which this handle has any equivalent of (no Rig-shaped
-    // dead-reckoning state, no OtosPort -- see this file's own header
-    // comment on what WaHandle does and does not model). What IS
-    // mirrored, exactly, is the one real, host-observable side effect a
-    // test can hang an assertion on: the REAL kernel's own
-    // rebasePosition() call, whose effect is visible through
-    // kernel.output().positionEpochLeft/Right after the next step()
-    // (diffdrive.h) -- see waOutputPositionEpochLeft/Right below.
-    case 32: if (v != 0.0f) k.rebasePosition(); break;
-    // 33 (estop_clear): mirrors shims.cpp's real case 33 exactly -- a
-    // write-triggered ACTION wearing a config-field's clothes, same
-    // shape as stall_clear's case 17 above, just calling
-    // kernel.estopClear() instead of clearStallLatch().
-    case 33: if (v != 0.0f) k.estopClear(); break;
-    // 38 (sprint 031 ticket 019): straight_trim, mirroring shims.cpp's
-    // real setKernelValue() case 38 exactly -- a thin forward to the
-    // REAL kernel's own setStraightTrim() (a real stored kernel Config
-    // field, unlike case 15/16's own Rig/MotionEngine fields above).
-    case 38: k.setStraightTrim(v); break;
-    default: break;
+  if (const WaConfigAccessor* entry = waFindConfigAccessor(field)) {
+    entry->set(*g_activeWaHandle, v);
   }
 }
 
-// Mirrors shims.cpp's real getConfigValue() switch exactly, for the
-// fields this ticket's field-name table actually reaches.
+// Mirrors shims.cpp's real getConfigValue() exactly, including the
+// `std::lround(v * 1000.0)` DOUBLE-precision product (`v` promotes
+// against the `1000.0` double literal, same as production) -- not
+// `static_cast<int>(v * 1000.0f)`, single-precision and truncating,
+// which is what this line used to read.
 int getConfigValue(int field) {
   if (g_activeWaHandle == nullptr) return 0;
-  float lv = 0.0f;
-  if (waGetLimitsFieldIfKnown(field, lv)) {
-    return static_cast<int>(std::lround(lv * 1000.0));
-  }
-  const DiffDrive::DifferentialDrive::Config c =
-      g_activeWaHandle->kernel.config();
   float v = 0.0f;
-  switch (field) {
-    case 0: v = c.maxDuty; break;
-    case 1: v = c.fullDutyVelocity; break;
-    case 2: v = c.kp; break;
-    case 3: v = c.ki; break;
-    case 4: v = c.iMax; break;
-    case 5: v = c.kaff; break;
-    case 6: v = c.pidMax; break;
-    case 7: v = c.twistHoldGain; break;
-    case 9: v = c.posErrMax; break;
-    case 10: v = c.stallSpeed; break;
-    case 11: v = c.stallDemand; break;
-    case 12: v = c.stallWindow; break;
-    case 13: v = c.lambdaEnabled ? 1.0f : 0.0f; break;
-    case 14: v = c.crawlPulse; break;
-    // 15 (sprint 007 ticket 003): default_cruise's GET side, mirroring
-    // shims.cpp's real getConfigValue() case 15 exactly -- deliberately
-    // NOT read from `c` (see case 15's own comment in setKernelValue()
-    // above).
-    case 15: v = g_activeWaHandle->defaultCruiseMmS; break;
-    // 16 (sprint 007 ticket 005): rotational_slip's GET side, mirroring
-    // shims.cpp's real getConfigValue() case 16 exactly -- a thin
-    // forward to the REAL MotionEngine::rotationalSlip().
-    case 16: v = g_activeWaHandle->engine.rotationalSlip(); break;
-    // 17 (sprint 007 ticket 001): stall_clear's GET side -- a
-    // convenience readback of Output.stallHalted, deliberately NOT
-    // read from `c` (this ordinal has no stored Config field), mirror
-    // of shims.cpp's real getConfigValue() case 17.
-    case 17:
-      v = g_activeWaHandle->kernel.output().stallHalted ? 1.0f : 0.0f;
-      break;
-    // 8, 18-21, 28, 30, 34-37: handled by waGetLimitsFieldIfKnown()
-    // above, before this switch is ever reached. 22-27, 29, 31 (removed
-    // ordinals) fall through to `default: break` below.
-    // 33: estop_clear's GET side, mirroring shims.cpp's real
-    // getConfigValue() case 33 exactly -- a convenience readback of
-    // Output.estopped, same shape as case 17's stallHalted readback
-    // above. No case 32 here on purpose: the real WireAdapter::onGet()
-    // refuses `rebase` before getConfigValue() is ever called (see
-    // wire_adapter.cpp), so this switch is never reached for it either.
-    case 33:
-      v = g_activeWaHandle->kernel.output().estopped ? 1.0f : 0.0f;
-      break;
-    // 38 (sprint 031 ticket 019): straight_trim's GET side, mirroring
-    // shims.cpp's real getConfigValue() case 38 exactly -- read straight
-    // from `c` (it IS a stored kernel Config field).
-    case 38: v = c.straightTrim; break;
-    default: break;
+  if (waGetLimitsFieldIfKnown(field, v)) {
+    return static_cast<int>(std::lround(v * 1000.0));
   }
-  // Sprint 008 ticket 003 (closes host-harness-double-drift.md/R-25,
-  // PY-03 item 3): matches shims.cpp's real getConfigValue() exactly --
-  // `std::lround(v * 1000.0)`, a DOUBLE-precision product (`v` promotes
-  // to double against the `1000.0` double literal, same as production),
-  // round-to-nearest -- not `static_cast<int>(v * 1000.0f)` (SINGLE-
-  // precision, truncating), which is what this line used to read.
+  if (const WaConfigAccessor* entry = waFindConfigAccessor(field)) {
+    v = entry->get(*g_activeWaHandle);
+  } else {
+    return 0;
+  }
   return static_cast<int>(std::lround(v * 1000.0));
 }
 

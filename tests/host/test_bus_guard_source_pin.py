@@ -204,22 +204,21 @@ def test_pending_otos_zero_is_consumed_after_release_inside_tick_drive():
 
 
 def test_set_rebase_defers_the_otos_write_instead_of_calling_it_synchronously():
-    """setKernelValue()'s case 32 body must SET the pendingOtosZero flag,
-    not call otosRef().setPose(...) directly -- the synchronous call is
-    exactly the hole this ticket closes."""
-    m = re.search(r"case 32:\s*\{?", _SHIMS_STRIPPED)
-    assert m, "case 32 (SET rebase) not found in shims.cpp"
-    # The case body runs from here to the next `case ` or `default:` at
-    # the same switch level (rebase has no nested braces of its own, so
-    # a plain scan to the next sibling label is enough).
-    tail = _SHIMS_STRIPPED[m.end():]
-    next_label = re.search(r"\n\s*(case \d+:|default:)", tail)
-    case_body = tail[: next_label.start()] if next_label else tail
+    """SET rebase's accessor body must SET the pendingOtosZero flag, not
+    call otosRef().setPose(...) directly -- the synchronous call is
+    exactly the hole this ticket closes. The body used to be
+    setKernelValue()'s `case 32:`; it is now the `cfgSetRebase()` row of
+    shims.cpp's kConfigAccessors table (same code, addressed by name
+    instead of by switch label)."""
+    m = re.search(r"void cfgSetRebase\(Rig& r, float v\) \{(.*?)\n\}",
+                  _SHIMS_STRIPPED, re.DOTALL)
+    assert m, "cfgSetRebase() (SET rebase) not found in shims.cpp"
+    case_body = m.group(1)
     assert "pendingOtosZero = true" in case_body, (
-        f"case 32 (SET rebase) does not set pendingOtosZero:\n{case_body}"
+        f"cfgSetRebase() (SET rebase) does not set pendingOtosZero:\n{case_body}"
     )
     assert "otosRef().setPose" not in case_body, (
-        "case 32 (SET rebase) still calls otosRef().setPose(...) "
+        "cfgSetRebase() (SET rebase) still calls otosRef().setPose(...) "
         f"synchronously instead of deferring it:\n{case_body}"
     )
 

@@ -26,4 +26,53 @@ int radioTransportRxLineFits(size_t declaredLen, size_t bufferCapacity) {
   return diffDrive::radioRxLineFits(declaredLen, bufferCapacity) ? 1 : 0;
 }
 
+// radioRxClassify() plus its RadioRxCounters, the RX path's OTHER
+// host-portable half: which disposition each inbound line gets, and
+// which counter moves for it. Same reasoning as radioRxLineFits()
+// above -- onDatagram() itself needs pxt.h, but the decision it makes
+// does not.
+//
+// The counters live in a heap-allocated struct behind an opaque handle
+// (the shape run_bridge_shim.cpp uses) so a test can run a whole
+// sequence of arrivals against one accumulating set, which is the only
+// way the "frames - accepted == the two drop counts" relationship is
+// observable at all.
+void* radioRxCountersNew() { return new diffDrive::RadioRxCounters(); }
+void radioRxCountersFree(void* h) {
+  delete static_cast<diffDrive::RadioRxCounters*>(h);
+}
+
+// Returns the RadioRxDisposition enumerator as an int -- see the
+// radioRxDispositionCode* accessors below for the values, exported
+// rather than duplicated on the Python side.
+int radioRxClassify(void* h, size_t declaredLen, size_t bufferCapacity,
+                    int slotBusy) {
+  return static_cast<int>(diffDrive::radioRxClassify(
+      declaredLen, bufferCapacity, slotBusy != 0,
+      *static_cast<diffDrive::RadioRxCounters*>(h)));
+}
+
+unsigned int radioRxFrames(void* h) {
+  return static_cast<diffDrive::RadioRxCounters*>(h)->frames;
+}
+unsigned int radioRxAccepted(void* h) {
+  return static_cast<diffDrive::RadioRxCounters*>(h)->accepted;
+}
+unsigned int radioRxOversizeDropped(void* h) {
+  return static_cast<diffDrive::RadioRxCounters*>(h)->oversizeDropped;
+}
+unsigned int radioRxOverrunDropped(void* h) {
+  return static_cast<diffDrive::RadioRxCounters*>(h)->overrunDropped;
+}
+
+int radioRxDispositionCodeAccept() {
+  return static_cast<int>(diffDrive::RadioRxDisposition::kAccept);
+}
+int radioRxDispositionCodeOversize() {
+  return static_cast<int>(diffDrive::RadioRxDisposition::kOversize);
+}
+int radioRxDispositionCodeOverrun() {
+  return static_cast<int>(diffDrive::RadioRxDisposition::kOverrun);
+}
+
 }  // extern "C"

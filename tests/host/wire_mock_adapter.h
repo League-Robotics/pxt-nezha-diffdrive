@@ -69,8 +69,9 @@ class WireMockAdapter : public Wire::Adapter {
   Wire::DoneReason lastDoneReasonToReturn = Wire::DoneReason::kNone;
 
   // A small fixed config table -- the source of truth for both a named
-  // GET and a bare GET's dump. A name not in this table is the "unknown
-  // field" case (onGet() returns false).
+  // GET and a bare GET's dump. A name not in this table (and not
+  // writeOnlyName below) is the "unknown field" case: onGet() answers
+  // Wire::Result::kUnknown.
   const char* fieldNames[kMaxFields] = {"group.alpha", "group.beta",
                                          "group.gamma", "group.delta"};
   float fieldValues[kMaxFields] = {1.5f, -2.25f, 0.0f, 100.0f};
@@ -81,6 +82,13 @@ class WireMockAdapter : public Wire::Adapter {
   // default) means no override is armed.
   const char* overrideName = nullptr;
   float overrideValue = 0.0f;
+
+  // A name this adapter DECLARES but refuses to read -- the
+  // write-triggered-action shape (`rebase` in production). Answers
+  // kWriteOnly, which a bare GET skips and a named GET reports as its
+  // own error code, distinct from an absent name's kUnknown. nullptr
+  // (the default) means no such field is armed.
+  const char* writeOnlyName = nullptr;
 
   // ---- call counts ----------------------------------------------------
   mutable int identityCalls = 0;
@@ -223,20 +231,23 @@ class WireMockAdapter : public Wire::Adapter {
     lastStopImmediate = immediate;
     return stopResult;
   }
-  bool onGet(const char* name, float& out) const override {
+  Wire::Result onGet(const char* name, float& out) const override {
     ++getCalls;
     std::snprintf(lastGetName, sizeof(lastGetName), "%s", name);
     if (overrideName != nullptr && std::strcmp(name, overrideName) == 0) {
       out = overrideValue;
-      return true;
+      return Wire::Result::kOk;
+    }
+    if (writeOnlyName != nullptr && std::strcmp(name, writeOnlyName) == 0) {
+      return Wire::Result::kWriteOnly;
     }
     for (size_t i = 0; i < numFields; ++i) {
       if (std::strcmp(name, fieldNames[i]) == 0) {
         out = fieldValues[i];
-        return true;
+        return Wire::Result::kOk;
       }
     }
-    return false;
+    return Wire::Result::kUnknown;
   }
   Wire::Result onSet(const char* name, float value, uint32_t id) override {
     ++setCalls;

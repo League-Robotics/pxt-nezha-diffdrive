@@ -49,24 +49,6 @@ _TEST_TS = _REPO_ROOT / "test" / "test.ts"
 # (fiber-yield-safety.md), so this ticket does not, and must not, touch it.
 _EXCLUDED_DIRS = {_SRC / "core"}
 
-# src/comms/wifi_link.{h,cpp} -- NOT this ticket's scope. The WiFi
-# transport (merged 2026-09-03, af74da8/99d72c5, AFTER the
-# strip-units-from-identifier-names issue's own ~520-occurrence
-# inventory was taken) carries ~70 of its own MmS/Ms-suffixed names
-# (kCommandTimeoutMs, nowMs_, lastPeerHeardMs_, ...) that this ticket's
-# dispatcher-given scope deliberately does not list alongside
-# wire_handler/wire_adapter/serial_transport/radio_transport/protocol/
-# run_queue/emit_queue. wifi_uart.{h,cpp} (the same transport's UART
-# half) is already clean and needs no exclusion. Tracked as follow-up
-# scope, not fixed here -- excluding it is what keeps this pin test
-# truthful about what THIS ticket actually cleaned up, rather than
-# quietly widening the ticket's own scope by relaxing the test instead
-# of the code.
-_EXCLUDED_FILES = {
-    _SRC / "comms" / "wifi_link.h",
-    _SRC / "comms" / "wifi_link.cpp",
-}
-
 # Suffixes, longest first so e.g. "MmS2" is reported as itself rather
 # than matching the shorter "Mm"/"Ms" alternatives one character short.
 _SUFFIXES = (
@@ -126,8 +108,6 @@ _ALLOWED = {
 def _sources():
     for path in sorted(_SRC.rglob("*")):
         if path.suffix not in (".h", ".cpp", ".ts"):
-            continue
-        if path in _EXCLUDED_FILES:
             continue
         if any(excluded in path.parents for excluded in _EXCLUDED_DIRS):
             continue

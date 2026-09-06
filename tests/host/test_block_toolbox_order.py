@@ -150,6 +150,19 @@ _BASELINE_GROUP_ORDER = {
     # appended after ArriveYaw (ordinal 37).
     # Sprint 031 ticket 019: StraightTrim is NEW, appended after Lag
     # (ordinal 38).
+    # Sprint 033 ticket 003: this enum is GENERATED from
+    # src/comms/config_fields.h by tools/gen_config_field_enum.py, so
+    # its order is that table's row order -- which is also the order a
+    # bare wire GET dumps the config surface in. Rebase (32) and
+    # EstopClear (33) join it: they were wire-only names with no enum
+    # member, the exact "same list, two lengths" drift the generated
+    # enum removes. They sit between OmegaMax and OmegaFloor because
+    # that is where they sit in the wire table; no existing member
+    # changed name or ordinal.
+    # Sprint 033 ticket 004: GoToTimeout is NEW, appended after
+    # StraightTrim (ordinal 39) -- the go-to deadline, which was a
+    # private field on the native Rig until it became an ordinary row
+    # of the same table.
     "ENUM": [
         "ConfigField.MaxDuty", "ConfigField.FullDutyVelocity",
         "ConfigField.Kp", "ConfigField.Ki", "ConfigField.IMax",
@@ -166,11 +179,14 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.VMax",          # ordinal 21
         "ConfigField.Jerk",          # ordinal 28
         "ConfigField.OmegaMax",      # ordinal 30
+        "ConfigField.Rebase",        # ordinal 32
+        "ConfigField.EstopClear",    # ordinal 33
         "ConfigField.OmegaFloor",    # ordinal 34
         "ConfigField.ArriveDist",    # ordinal 35
         "ConfigField.ArriveYaw",     # ordinal 36
         "ConfigField.Lag",           # ordinal 37
         "ConfigField.StraightTrim",  # ordinal 38
+        "ConfigField.GoToTimeout",   # ordinal 39
     ],
 }
 

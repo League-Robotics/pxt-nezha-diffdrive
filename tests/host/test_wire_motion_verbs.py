@@ -2138,7 +2138,7 @@ def test_set_value_large_but_sane_is_still_accepted(wa):
 #     here at all, deliberately -- it never appears in `names` in the
 #     first place, since its GET is refused outright rather than
 #     answering a convenience 0.0 (see wire_adapter.cpp's onGet() and
-#     test_rebase_get_is_refused).
+#     test_rebase_get_is_refused_as_write_only_not_as_unknown).
 # crawl_pulse's own documented range is [-1, 1] (diffdrive.h) -- 0.75
 # stays inside it rather than picking an arbitrary out-of-contract value.
 _KFIELDS_REPRESENTATIVE_VALUES = {
@@ -2201,6 +2201,14 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     # rationale as accel/decel/v_max above; also deliberately negative-
     # capable (sign is meaningful), unlike most of this table.
     "straight_trim": 0.0055,
+    # Sprint 033 ticket 004: NEW ordinal (39) -- the deadline the next
+    # go-to gets, in ms. It is only new to the WIRE: the value existed
+    # as a private handoff field on Rig (engineSetGoToDeadline() ->
+    # engineGoToRArmed()) and this ticket moved its storage into the
+    # config table, so a bench host can read and set it like any other
+    # field. Whole milliseconds, and deliberately not the field's own 0
+    # default, per the non-default-value rationale above.
+    "goto_timeout": 4500.0,
 }
 
 
@@ -3186,7 +3194,8 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # sprint 028 ticket 002: ordinal 32 (rebase) is deliberately
         # ABSENT here -- its GET is refused (WireAdapter::onGet(),
         # wire_adapter.cpp), so it never appears in a bare dump; see
-        # test_rebase_get_is_refused below. Ordinal 33 (estop_clear) DOES
+        # test_rebase_get_is_refused_as_write_only_not_as_unknown
+        # below. Ordinal 33 (estop_clear) DOES
         # have a real GET (a convenience readback of the live estop
         # flag, same shape stall_clear's own GET already uses), so it is
         # appended here in ordinal order like every field above it.
@@ -3201,6 +3210,13 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # ordinal 38 (straight_trim), NEW, declared after lag in
         # kFields.
         b"straight_trim",
+        # sprint 033 ticket 004: ordinal 39 (goto_timeout), NEW,
+        # declared after straight_trim. New to the WIRE only -- the
+        # value was already Rig state (the deadline the next go-to
+        # gets); this ticket moved its storage out of a private handoff
+        # field and into the one config table, which is what puts it in
+        # this dump.
+        b"goto_timeout",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 
@@ -3471,10 +3487,10 @@ def test_rebase_is_sequenced_and_reaches_kernel_rebase_position(wa):
 
 def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     """rebase's OTOS re-seed and encoder-frame zero (the acceptance
-    criterion behind wire_adapter.cpp's kFields comment: "the
+    criterion behind the config table's own rebase comment: "the
     platform-layer pose-seed path seedPose() already uses so both pose
     sources stay agreed at the zero point") live entirely in shims.cpp's
-    real setKernelValue() case 32 -- unlike every other case this file's
+    real cfgSetRebase() -- unlike every other row this file's
     WaHandle mirrors, OtosPort cannot be compiled into ANY host test at
     all (otos_port.h includes pxt.h unconditionally; wire_adapter.cpp's
     own forward-declaration comment documents this same gap for GO_TO_W's
@@ -3486,24 +3502,33 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     silently drop the OTOS half while the encoder half keeps passing
     every other (compiled) test in this file.
 
+    Sprint 033 ticket 002: the encoder-frame zero is now
+    `r.odometry.reset()` -- the pose state rebase used to write field by
+    field (`r.x`/`r.y`/`r.heading`) is one `Odometry` object
+    (`src/motion/odometry.h`), so the "zero the encoder frame" half of
+    this check reads that call instead of the three assignments. Same
+    substance, same "do not silently drop half of rebase" guard. Ticket
+    003 moved the body out of `setKernelValue()`'s `case 32:` and into
+    the named `cfgSetRebase()` row of the config accessor table; this
+    check follows it there unchanged.
+
     Sprint 030 ticket 001 (enforce-the-one-fiber-i2c-invariant.md): the
-    OTOS re-seed is now DEFERRED -- case 32 sets `r.pendingOtosZero =
+    OTOS re-seed is now DEFERRED -- rebase sets `r.pendingOtosZero =
     true` instead of calling `otosRef().setPose(0.0f, 0.0f, 0.0f)`
     synchronously on whichever fiber issued this SET. The actual I2C
     write happens inside tickDrive() after busGuard.release()
     (test_bus_guard_source_pin.py pins that half, which lives in
-    tickDrive()'s own body, not case 32's). This test's own assertion
+    tickDrive()'s own body, not rebase's). This test's own assertion
     changes from "the synchronous call is present" to "the deferred
     flag is armed, and the synchronous call is gone" -- the exact
     substance of the fix."""
     shims_text = (_SRC_DIR / "shims.cpp").read_text()
-    match = re.search(r"case 32:\s*\{?\s*if \(v != 0\.0f\) \{(.*?)\}\s*break;",
+    match = re.search(r"void cfgSetRebase\(Rig& r, float v\) \{(.*?)\n\}",
                       shims_text, re.DOTALL)
-    assert match, "shims.cpp's setKernelValue() case 32 (rebase) body was not found"
+    assert match, "shims.cpp's cfgSetRebase() (rebase) body was not found"
     body = match.group(1)
-    assert "k.rebasePosition();" in body, body
-    assert "r.x = 0.0f;" in body and "r.y = 0.0f;" in body and \
-        "r.heading = 0.0f;" in body, body
+    assert "r.kernel.rebasePosition();" in body, body
+    assert "r.odometry.reset();" in body, body
     assert "r.pendingOtosZero = true;" in body, body
     assert "otosRef().setPose" not in body, (
         "case 32 still calls otosRef().setPose(...) synchronously -- "
@@ -3512,19 +3537,43 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     )
 
 
-def test_rebase_get_is_refused(wa):
+def test_rebase_get_is_refused_as_write_only_not_as_unknown(wa):
     """rebase has no stored value and no boolean latch worth reading
-    back (unlike estop_clear immediately below) -- WireAdapter::onGet()
-    refuses it outright, the identical `err 1` (ERR_UNKNOWN) reply an
-    unrecognized field name gets
-    (test_get_set_unknown_field_name_is_unknown above), and it is
-    absent from a bare GET dump
-    (test_get_bare_dumps_all_sixteen_fields_no_wheels_entry above)."""
+    back (unlike estop_clear immediately below), so WireAdapter::onGet()
+    refuses it -- but with ERR_WRITE_ONLY (12), its OWN code, not the
+    `err 1` a misspelled name gets
+    (test_get_set_unknown_field_name_is_unknown above).
+
+    Refusing was always right; refusing indistinguishably was the
+    defect. `rebase` is advertised by fieldName(), so a host that reads
+    the field list and then asks for one of its entries was being told
+    the name does not exist -- and its only recourse was to re-send it
+    hunting for a typo that was never there. It stays absent from a bare
+    GET dump (test_get_bare_dumps_all_sixteen_fields_no_wheels_entry
+    above): a dump lists what can be read."""
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(1000.0)
     assert wa.begin() == STATUS_OK
     wa.feed(b"GET rebase #1\n")
-    assert wa.take_sink() == _ack(1) + _err(1, 1)
+    assert wa.take_sink() == _ack(1) + _err(12, 1)  # ERR_WRITE_ONLY
+
+    # ...and the distinction is real: a genuine typo still answers 1.
+    wa.feed(b"GET rebasee #2\n")
+    assert wa.take_sink() == _ack(2) + _err(1, 2)  # ERR_UNKNOWN
+
+
+def test_estop_clear_get_is_not_write_only(wa):
+    """The write-only treatment is scoped to `rebase` alone.
+    `estop_clear` is the same write-triggered-action shape but DOES have
+    a real read path -- the live estop flag -- so it answers kOk with a
+    value like any stored field, and appears in a bare dump."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.feed(b"GET estop_clear #1\n")
+    reply = wa.take_sink()
+    assert reply.startswith(_ack(1) + b"get estop_clear "), reply
+    assert b"err " not in reply, reply
 
 
 def test_estop_clear_reaches_kernel_estop_clear_and_reads_back(wa):

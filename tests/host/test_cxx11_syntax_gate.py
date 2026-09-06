@@ -91,13 +91,21 @@ _CXX11_PORTABLE_SOURCES = [
     # natural .cpp of its own, so this dedicated translation unit
     # exists solely to give this gate something to compile.
     _TEST_DIR / "encoder_glitch_armor_syntax_check.cpp",
-    # Sprint 006 ticket 007: encoder_pose_source.h has no pxt.h
-    # dependency (it depends only on motion_engine.h, itself already
-    # covered above via motion_engine.cpp) but no natural .cpp of its
-    # own, so this dedicated translation unit exists solely to give
-    # this gate something to compile.
-    _TEST_DIR / "encoder_pose_source_syntax_check.cpp",
+    # motion/odometry.h has no pxt.h dependency (it depends only on
+    # motion_engine.h, itself already covered above via
+    # motion_engine.cpp) but no natural .cpp of its own, so this
+    # dedicated translation unit exists solely to give this gate
+    # something to compile. Replaced encoder_pose_source_syntax_check.cpp
+    # when Odometry absorbed EncoderPoseSource (sprint 033 ticket 002).
+    _TEST_DIR / "odometry_syntax_check.cpp",
     _TEST_DIR / "run_queue_syntax_check.cpp",
+    # comms/run_bridge.cpp has no pxt.h dependency (the cleartext RUN
+    # bridge's sanitize/dedupe/park rules, extracted out of the
+    # pxt.h-bound protocol.cpp -- see src/comms/run_bridge.h's own
+    # header comment) and, like velocity_shaper.cpp below, has a natural
+    # .cpp of its own, so it is compiled directly rather than through a
+    # dedicated syntax-check translation unit.
+    _SRC_DIR / "comms" / "run_bridge.cpp",
     # emit_queue.h has no pxt.h dependency (a host-portable outbound-
     # line ring for the protocol's single-serial/radio-producer
     # restructuring -- see src/comms/emit_queue.h's own header comment)
@@ -129,6 +137,28 @@ _CXX11_PORTABLE_SOURCES = [
     # something to compile.
     _TEST_DIR / "motion_owner_syntax_check.cpp",
     _TEST_DIR / "fiber_identity_syntax_check.cpp",
+    # comms/config_fields.h has no pxt.h dependency (it is the wire's
+    # config-name/ordinal table and nothing else -- see its own header
+    # comment) but no natural .cpp of its own, so this dedicated
+    # translation unit exists solely to give this gate something to
+    # compile. wire_adapter.cpp, above, also includes it.
+    _TEST_DIR / "config_fields_syntax_check.cpp",
+    # comms/transport_sink.h has no pxt.h dependency (the one Wire::Sink
+    # every transport is reached through, plus the terminator decision
+    # it makes -- see its own header comment) but no natural .cpp of its
+    # own, so this dedicated translation unit exists solely to give this
+    # gate something to compile. It instantiates the template, since a
+    # class template that merely parses is not one that compiles.
+    _TEST_DIR / "transport_sink_syntax_check.cpp",
+    # comms/radio_transport.h is otherwise a pxt.h-bound module's
+    # header, but two things in it are the extracted-helper exception
+    # above: radioRxLineFits() and radioRxClassify()/RadioRxCounters,
+    # the RX path's whole accept/drop decision and its counters. Their
+    # one real call site (onDatagram()) is CODAL-bound, so this
+    # translation unit is the only thing standing between them and a
+    # construct that is legal at the host suite's C++20 and not at the
+    # target's C++11.
+    _TEST_DIR / "radio_rx_classify_syntax_check.cpp",
 ]
 
 

@@ -35,10 +35,39 @@ Three kinds of file, one pattern:
   exactly what each port method should report, then advances the code
   under test one step at a time.
 - **Shims** (`kernel_shim.cpp`, `motion_engine_shim.cpp`,
+  `odometry_shim.cpp`, `run_queue_shim.cpp`, `run_bridge_shim.cpp`,
   `wire_grammar_shim.cpp`, `wire_motion_verb_shim.cpp`) — the
   `extern "C"` surfaces ctypes can bind: each bundles the class under
   test with its private fakes behind an opaque handle plus free
-  functions. `wire_motion_verb_shim.cpp` carries two handles:
+  functions. `run_bridge_shim.cpp` (sprint 033) exposes
+  `diffDrive::RunBridge` — the cleartext `RUN:` bridge's sanitize/
+  dedupe/park/bypass rules, extracted out of the `pxt.h`-bound
+  `protocol.cpp` and therefore executable here for the first time.
+  Its clock is an `offer()` argument rather than a member, which is
+  what lets `test_run_bridge.py` land timestamps exactly on the dedupe
+  window's edges instead of sleeping. `odometry_shim.cpp` (sprint 033)
+  bundles a real
+  `diffDrive::Odometry` over a real `MotionEngine`/kernel and
+  synthesizes the kernel `Output`s it integrates, so
+  `test_odometry.py` can script an exact wheel-count path with no
+  encoder, clock or control loop in the link — the first host coverage
+  of the dead-reckoning math, which lived in `shims.cpp` (`pxt.h`-bound,
+  unlinkable here) until `Odometry` made it portable.
+  `transport_sink_shim.cpp` (sprint 033) exposes
+  `diffDrive::TransportSink` and the `wireLineContentLength()` decision
+  behind it — the outbound half of the same kind of extraction: three
+  hand-copied `Wire::Sink` subclasses inside the `pxt.h`-bound
+  `protocol.cpp` became one class in a header with no CODAL dependency,
+  so `test_transport_sink.py` can drive the real sink, through the real
+  `Wire::Sink&` the wire stack holds, over a recording fake transport.
+  The transports those sinks write to are still out of reach here.
+  `radio_transport_rx_capacity_shim.cpp` follows the same rule on the
+  inbound side: `radioRxLineFits()` and, since sprint 033,
+  `radioRxClassify()` over an accumulating `RadioRxCounters` — the RX
+  path's whole accept/drop decision and its four counters, which have
+  no CODAL in them even though their one call site (`onDatagram()`)
+  cannot be compiled here at all.
+  `wire_motion_verb_shim.cpp` carries two handles:
   `WvHandle` (WireHandler + mock adapter — decode/dispatch mechanics)
   and `WaHandle` (WireHandler + the **real** `WireAdapter` + a
   **real** kernel over FakeMotors — end-to-end verb effect), and
@@ -47,7 +76,17 @@ Three kinds of file, one pattern:
   production math field-for-field. `getConfigValue`/`setKernelValue`
   fix counts-per-mm at 1.0 (no wire ordinal they reach needs real
   geometry); **sprint 008** ends that shortcut for `setWheelsTimed`
-  specifically, below. `WaHandle`'s DIAG double is re-synced to read
+  specifically, below. Since sprint 033 ticket 003 those two doubles
+  mirror production's SHAPE as well as its math — one
+  `kWaConfigAccessors` row per ordinal, against production's
+  `kConfigAccessors` — and `test_config_surface_single_source.py`
+  fails if the two tables cover different ordinals. That matters more
+  here than symmetry usually does: every compiled `SET`/`GET` test in
+  this directory runs against the double, so a double covering a
+  different surface than the robot means those tests pass while
+  describing a machine that does not exist. The wire NAMES are not
+  doubled at all — the real `comms/config_fields.h` is compiled in
+  through the real `wire_adapter.cpp`. `WaHandle`'s DIAG double is re-synced to read
   `wedgeSuspectLeft/Right` (matching production's `diagValue()`, not
   the double's previous, different `wedgeLeft/Right` substitution —
   both field pairs exist on the kernel's `Output` struct and mean
@@ -171,15 +210,29 @@ matters" test); and `TLM AUTO`/`BUFFER` `thdr`/`err` pinning.
 
 Not covered, by design (CODAL-bound): `nezha_port`, `otos_port`, the
 transports, `protocol.cpp`'s fiber loop and RUN bridge, and
-`shims.cpp`'s real Rig composition/odometry/watchdog — hardware
-sessions are their only test. **Narrower than before sprint 008**:
+`shims.cpp`'s real Rig composition/watchdog — hardware sessions are
+their only test. Where a decision inside one of those has been pulled
+into a header with no CODAL in it, the decision IS covered and only
+its wiring is not: `radioRxClassify()`'s dispositions and counters are
+host-tested while the `onDatagram()` call and the diag ordinals
+surfacing them are review-verified, and `Protocol::serviceOnce()`'s
+per-pass RX drain bound is pinned as source text
+(`test_wire_constants_drift.py`) rather than executed. Text pins are
+weaker than execution and are used only where execution is impossible
+— they catch a renumbered ordinal or a second spelling of a bounded
+loop, not a behavioural regression. **Narrower again as of sprint 033**: the odometry
+*math* left `shims.cpp` for `motion/odometry.h` and is now host-tested
+directly (`test_odometry.py`); what stays hardware-only is the real
+encoder stream feeding it — `shims.cpp`'s `odomUpdate(r)` is now a
+one-line `kernel.output()` fetch. **Narrower than before sprint 008**:
 `tickDrive()`'s post-move settle loop is no longer entirely
 hardware-only — its bounded-iteration/break-on-rest *decision* is now a
-`MotionEngine` method, host-tested directly; what remains hardware-only
-is `odomUpdate(r)`'s actual encoder-driven pose fold and the loop's
-real `kernel.step()` calls against physical motors, which stay in
-`shims.cpp` unmoved (see `src/DESIGN.md` §9 for the exact boundary
-this extraction drew).
+`MotionEngine` method, host-tested directly; what remained hardware-only
+after that sprint was `odomUpdate(r)`'s actual encoder-driven pose fold
+and the loop's real `kernel.step()` calls against physical motors (see
+`src/DESIGN.md` §9 for the exact boundary that extraction drew; sprint
+033 moved the pose fold itself into `Odometry`, leaving only the real
+encoder stream and the real `step()` calls).
 
 **Target-viability reminder (sprint 008).** Every test in this
 directory, including everything this sprint adds, still only proves

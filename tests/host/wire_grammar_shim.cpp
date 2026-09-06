@@ -95,6 +95,18 @@ int wgBuildHelpLine(char* buf, int bufCap, const char* const* names,
   return static_cast<int>(written);
 }
 
+// The sequence space's ceiling and the predicate guarding it, both
+// static and both driven with no Handle -- the states around
+// kMaxSequenceId (expectedNext_ sitting at the ceiling) are otherwise
+// reachable only by actually sending four billion commands, which is
+// exactly why the guard is a named, public function rather than an
+// inline comparison buried in dispatch().
+unsigned int wgMaxSequenceId() { return Wire::WireHandler::kMaxSequenceId; }
+
+int wgSequenceIdIsExecutable(unsigned int id) {
+  return Wire::WireHandler::sequenceIdIsExecutable(id) ? 1 : 0;
+}
+
 // Ticket 003: emitTelemetry() now takes a Snapshot -- this shim builds
 // one from parallel C arrays ctypes can populate directly (a
 // POINTER(c_char_p)/POINTER(c_int32)/POINTER(c_int) triple plus a
