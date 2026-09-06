@@ -1,7 +1,7 @@
 ---
 id: '034'
 title: 'Bench tools: verbs, geofence, schemas, consolidation'
-status: executing
+status: done
 branch: sprint/034-bench-tools-verbs-geofence-schemas-consolidation
 use-cases:
 - SUC-001
