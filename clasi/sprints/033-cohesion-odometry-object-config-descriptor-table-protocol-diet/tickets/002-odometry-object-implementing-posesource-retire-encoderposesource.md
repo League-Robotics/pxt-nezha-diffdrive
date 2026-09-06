@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Odometry object implementing PoseSource; retire EncoderPoseSource
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on: []
@@ -74,22 +74,22 @@ declares `poseX`/`poseY`/`poseHeading`, whose signatures are unchanged).
 
 ## Acceptance Criteria
 
-- [ ] `grep -n positionEpoch src/motion src/shims.cpp` finds exactly
+- [x] `grep -n positionEpoch src/motion src/shims.cpp` finds exactly
       one reader (sprint Success Criteria's own bar).
-- [ ] A host test integrates a known wheel-count path through
+- [x] A host test integrates a known wheel-count path through
       `Odometry::update()` and matches `odomUpdate()`'s pre-refactor
       output within float tolerance.
-- [ ] `grep -rn EncoderPoseSource src/` finds nothing outside
+- [x] `grep -rn EncoderPoseSource src/` finds nothing outside
       `src/DESIGN.md`'s historical narrative (which stays, as a record
       — do not scrub sprint history).
-- [ ] `platform/encoder_pose_source.h` and its syntax-check
+- [x] `platform/encoder_pose_source.h` and its syntax-check
       (`tests/host/encoder_pose_source_syntax_check.cpp`) are deleted.
-- [ ] `Odometry`'s doc comment states the "reads mutate odometry as a
+- [x] `Odometry`'s doc comment states the "reads mutate odometry as a
       side effect" contract explicitly.
-- [ ] `MotionEngine::goToW()`'s `PoseSource` selection
+- [x] `MotionEngine::goToW()`'s `PoseSource` selection
       (`OtosPort` vs. encoder fallback) is unaffected — same selection
       rule, now selecting `Odometry` instead of `EncoderPoseSource`.
-- [ ] No change to `motion_engine.cpp`'s `service()`/`wrongWay()`,
+- [x] No change to `motion_engine.cpp`'s `service()`/`wrongWay()`,
       `segment.h`, or `wire_adapter.cpp` — confirm before committing
       that no edit touched those sprint-031-owned regions.
 

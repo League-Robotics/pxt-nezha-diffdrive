@@ -20,10 +20,10 @@
 #include <cstdint>
 
 #include "core/diffdrive.h"
-#include "platform/encoder_pose_source.h"
 #include "fake_ports.h"
 #include "fake_pose_source.h"
 #include "motion/motion_engine.h"
+#include "motion/odometry.h"
 
 namespace {
 
@@ -41,17 +41,16 @@ struct Handle {
   // order relative to `engine` above does not matter.
   FakePoseSource pose;
 
-  // Sprint 006 ticket 007: backing fields plus a REAL
-  // diffDrive::EncoderPoseSource bound to them by const reference --
-  // mirrors shims.cpp's own Rig::x/y/heading + Rig::encoderPose wiring
-  // exactly, so these tests exercise the production reference-binding
-  // shape rather than a stand-in. encoderPose binds to encX_/encY_/
-  // encHeading_ at CONSTRUCTION time -- it must therefore be declared
-  // AFTER them (members initialize in DECLARATION order regardless of
-  // the constructor's own initializer-list order, same rule
-  // encoder_pose_source.h's own header comment states).
-  float encX_ = 0.0f, encY_ = 0.0f, encHeading_ = 0.0f;
-  diffDrive::EncoderPoseSource encoderPose;
+  // The REAL diffDrive::Odometry (motion/odometry.h) -- GO_TO_W's
+  // no-OTOS PoseSource -- constructed over `engine` above, mirroring
+  // shims.cpp's own Rig::odometry wiring exactly, so these tests
+  // exercise the production class rather than a stand-in. It reads
+  // `engine`'s geometry by reference and must therefore be declared
+  // AFTER it (members initialize in DECLARATION order regardless of
+  // the constructor's own initializer-list order). These tests only
+  // ever seed() its frame directly; the wheel-path integration is
+  // test_odometry.py's own subject.
+  diffDrive::Odometry odometry;
 
   // meProbeRunToCompletion()'s own odometry accumulator [mm]/[mm]/[rad]
   // and its "last consumed" wheel positions [counts] -- same shape as
@@ -66,7 +65,7 @@ struct Handle {
   Handle()
       : kernel(left, right, clock, sleeper, launcher),
         engine(kernel, clock),
-        encoderPose(encX_, encY_, encHeading_) {}
+        odometry(engine) {}
 };
 
 FakeMotor& motorFor(Handle* h, int side) {
@@ -447,58 +446,56 @@ void meGoToW(void* handle, float x, float y, float speed, float arrive,
   h->engine.goToW(h->pose, x, y, speed, arrive, timeoutMs);
 }
 
-// ---- EncoderPoseSource (motion-api.md S3.6, sprint 006 ticket 007) -----
+// ---- Odometry as a PoseSource (motion-api.md S3.6, motion/odometry.h) -
 // Same "arm then read/dispatch" shape as FakePoseSource/meGoToW() above,
-// but through the REAL diffDrive::EncoderPoseSource bound to this
-// Handle's own encX_/encY_/encHeading_ fields -- proving the production
-// reference-binding class itself, not a test double standing in for it.
-// No otos_port.h anywhere in this file or its includes.
+// but through the REAL diffDrive::Odometry constructed over this
+// Handle's own engine -- proving the production class itself, not a test
+// double standing in for it. No otos_port.h anywhere in this file or its
+// includes. (Odometry's own wheel-path integration is covered by
+// tests/host/test_odometry.py over its own shim; this file only needs
+// its PoseSource face.)
 
-// Scripts the backing x/y/heading a following meEncoderPoseSourceX/Y/
-// Heading() read or meGoToWViaEncoder() dispatches with. [mm] [mm] [rad],
-// heading UNWRAPPED verbatim -- callers may pass values outside
-// (-pi, pi] on purpose (AC 2's own explicit no-wrap check).
-void meEncoderPoseSourceSetPose(void* handle, float x, float y,
-                                float heading) {
+// Seeds the frame a following meOdometryX/Y/Heading() read or
+// meGoToWViaOdometry() dispatch sees. [mm] [mm] [rad], heading
+// UNWRAPPED verbatim -- callers may pass values outside (-pi, pi] on
+// purpose (the no-wrap check reads exactly what was seeded).
+void meOdometrySetPose(void* handle, float x, float y, float heading) {
+  static_cast<Handle*>(handle)->odometry.seed(x, y, heading);
+}
+
+// Direct passthrough reads of Odometry's own x()/y()/heading() -- the
+// explicit check that heading() applies no wrap reads this back against
+// exactly the value seeded above.
+float meOdometryX(void* handle) {
+  return static_cast<Handle*>(handle)->odometry.x();
+}
+float meOdometryY(void* handle) {
+  return static_cast<Handle*>(handle)->odometry.y();
+}
+float meOdometryHeading(void* handle) {
+  return static_cast<Handle*>(handle)->odometry.heading();
+}
+
+// goToW() dispatched with Odometry as the `pose` argument -- no
+// OtosPort/otos_port.h anywhere in this link.
+void meGoToWViaOdometry(void* handle, float x, float y, float speed,
+                        float arrive, uint32_t timeoutMs) {
   Handle* h = static_cast<Handle*>(handle);
-  h->encX_ = x;
-  h->encY_ = y;
-  h->encHeading_ = heading;
+  h->engine.goToW(h->odometry, x, y, speed, arrive, timeoutMs);
 }
 
-// Direct passthrough reads of EncoderPoseSource's own x()/y()/heading() --
-// AC 2's own explicit check that heading() applies no wrap reads this
-// back against exactly the value armed above.
-float meEncoderPoseSourceX(void* handle) {
-  return static_cast<Handle*>(handle)->encoderPose.x();
-}
-float meEncoderPoseSourceY(void* handle) {
-  return static_cast<Handle*>(handle)->encoderPose.y();
-}
-float meEncoderPoseSourceHeading(void* handle) {
-  return static_cast<Handle*>(handle)->encoderPose.heading();
-}
-
-// goToW() dispatched with EncoderPoseSource as the `pose` argument --
-// AC 1: no OtosPort/otos_port.h anywhere in this link.
-void meGoToWViaEncoder(void* handle, float x, float y, float speed,
-                       float arrive, uint32_t timeoutMs) {
-  Handle* h = static_cast<Handle*>(handle);
-  h->engine.goToW(h->encoderPose, x, y, speed, arrive, timeoutMs);
-}
-
-// ---- selectPoseSource() (encoder_pose_source.h) -- the host-testable
+// ---- selectPoseSource() (motion/odometry.h) -- the host-testable
 // stand-in for engineGoToW()'s own selection rule (shims.cpp), since
 // OtosPort::connected() itself has no host-testable seam. Uses `pose`
-// (armed via mePoseSourceSetPose()) and `encoderPose` (armed via
-// meEncoderPoseSourceSetPose() above) as the two arms -- a caller sets
-// each to a distinguishable x() beforehand, then reads back which one
+// (armed via mePoseSourceSetPose()) and `odometry` (armed via
+// meOdometrySetPose() above) as the two arms -- a caller sets each to a
+// distinguishable x() beforehand, then reads back which one
 // selectPoseSource() actually returned via its x(). ------------------
 
 float meSelectPoseSourceX(void* handle, int primaryConnected) {
   Handle* h = static_cast<Handle*>(handle);
   return diffDrive::selectPoseSource(primaryConnected != 0, h->pose,
-                                     h->encoderPose)
+                                     h->odometry)
       .x();
 }
 // Shim name kept as meServiceMove (test scaffolding is not renamed)

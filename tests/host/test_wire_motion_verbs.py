@@ -3486,6 +3486,13 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     silently drop the OTOS half while the encoder half keeps passing
     every other (compiled) test in this file.
 
+    Sprint 033 ticket 002: the encoder-frame zero is now
+    `r.odometry.reset()` -- the pose state case 32 used to write field by
+    field (`r.x`/`r.y`/`r.heading`) is one `Odometry` object
+    (`src/motion/odometry.h`), so the "zero the encoder frame" half of
+    this check reads that call instead of the three assignments. Same
+    substance, same "do not silently drop half of rebase" guard.
+
     Sprint 030 ticket 001 (enforce-the-one-fiber-i2c-invariant.md): the
     OTOS re-seed is now DEFERRED -- case 32 sets `r.pendingOtosZero =
     true` instead of calling `otosRef().setPose(0.0f, 0.0f, 0.0f)`
@@ -3502,8 +3509,7 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     assert match, "shims.cpp's setKernelValue() case 32 (rebase) body was not found"
     body = match.group(1)
     assert "k.rebasePosition();" in body, body
-    assert "r.x = 0.0f;" in body and "r.y = 0.0f;" in body and \
-        "r.heading = 0.0f;" in body, body
+    assert "r.odometry.reset();" in body, body
     assert "r.pendingOtosZero = true;" in body, body
     assert "otosRef().setPose" not in body, (
         "case 32 still calls otosRef().setPose(...) synchronously -- "

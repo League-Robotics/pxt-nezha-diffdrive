@@ -34,8 +34,8 @@
 #include "pxt.h"
 #include "core/bus_guard.h"
 #include "core/diffdrive.h"
-#include "platform/encoder_pose_source.h"
 #include "motion/motion_engine.h"
+#include "motion/odometry.h"
 #include "platform/nezha_port.h"
 #include "platform/otos_port.h"
 #include "platform/platform_ports.h"
@@ -122,27 +122,21 @@ struct Rig {
   // member-initializer order.
   MotionEngine engine{kernel, clock};
 
-  // odometry [mm, rad], updated lazily from kernel Output
-  float x = 0.0f, y = 0.0f, heading = 0.0f;
-  float odomPosLeft = 0.0f, odomPosRight = 0.0f;  // [counts]
-  bool odomPrimed = false;
-  // Last-seen Output.positionEpochLeft/Right -- lets odomUpdate() (below)
-  // tell a rebase's intentional position discontinuity apart from
-  // ordinary wheel motion; see that function's own comment.
-  uint32_t odomPositionEpochLeft = 0, odomPositionEpochRight = 0;
-
-  // GO_TO_W's encoder-odometry fallback PoseSource (sprint 006 ticket
-  // 007, encoder_pose_source.h): binds to x/y/heading ABOVE by const
-  // reference, so it MUST be declared after them -- member references
-  // bind once, at construction, and members initialize in DECLARATION
+  // The dead-reckoned pose (motion/odometry.h): the kernel-Output
+  // integration, its wheel baseline, the rebase-epoch guard, and the
+  // PoseSource GO_TO_W falls back to when no OTOS is fitted -- one
+  // object, where this struct used to carry five loose fields, a free
+  // odomUpdate() over them, and a separate read-only adapter bound to
+  // them by const reference. Reads the geometry it integrates with
+  // (countsPerMm/effectiveTrackWidth) from `engine` above by reference,
+  // so it MUST be declared after it: members initialize in DECLARATION
   // order regardless of this struct's own (implicit) member-initializer
   // order, the same rule this file's header comment already states for
-  // `engine` above. Lives exactly as long as this Rig (a process-
-  // lifetime lazy singleton, see `rig`/`ensure()` below) -- see
-  // encoder_pose_source.h's own header comment for why a shorter-lived
-  // instance would dangle. engineGoToW() (below) is this project's one
-  // selection point between this and `otosRef()`'s OtosPort.
-  EncoderPoseSource encoderPose{x, y, heading};
+  // `engine` itself. Lives exactly as long as this Rig (a process-
+  // lifetime lazy singleton, see `rig`/`ensure()` below).
+  // engineGoToW() (below) is this project's one selection point between
+  // this and `otosRef()`'s OtosPort.
+  Odometry odometry{engine};
 
   // tick engine (sprint 002): caller-driven stepping replaces the
   // kernel's own now-unwired fiber pacer -- see ensure(), tickDrive(),
@@ -339,44 +333,13 @@ static Rig& ensure() {
 }
 
 // ---- odometry -------------------------------------------------------
-
-static void odomUpdate(Rig& r) {
-  const DiffDrive::DifferentialDrive::Output out = r.kernel.output();
-  // A rebase request (setKernelValue() case 32 below) re-anchors
-  // positionLeft/positionRight to a new software zero at the kernel's
-  // own NEXT step() -- an intentional discontinuity, not drift.
-  // positionEpochLeft/Right (diffdrive.h) change only alongside that
-  // re-anchor, so a change on either wheel since the last call means
-  // this sample cannot be diffed against the last one -- the same
-  // handling the very first call (`!r.odomPrimed`) already gets, for
-  // the same reason (there is no prior sample this one can be a
-  // continuation of).
-  const bool rebased = r.odomPrimed &&
-      (out.positionEpochLeft != r.odomPositionEpochLeft ||
-       out.positionEpochRight != r.odomPositionEpochRight);
-  if (!r.odomPrimed || rebased) {
-    r.odomPosLeft = out.positionLeft;
-    r.odomPosRight = out.positionRight;
-    r.odomPositionEpochLeft = out.positionEpochLeft;
-    r.odomPositionEpochRight = out.positionEpochRight;
-    r.odomPrimed = true;
-    return;
-  }
-  const float cpm = r.engine.countsPerMm();
-  const float dLeft = (out.positionLeft - r.odomPosLeft) / cpm;    // [mm]
-  const float dRight = (out.positionRight - r.odomPosRight) / cpm; // [mm]
-  r.odomPosLeft = out.positionLeft;
-  r.odomPosRight = out.positionRight;
-  r.odomPositionEpochLeft = out.positionEpochLeft;
-  r.odomPositionEpochRight = out.positionEpochRight;
-  const float dCenter = 0.5f * (dLeft + dRight);          // [mm]
-  const float dHeading =
-      (dRight - dLeft) / r.engine.effectiveTrackWidth();  // [rad]
-  const float midHeading = r.heading + 0.5f * dHeading;
-  r.x += dCenter * std::cos(midHeading);
-  r.y += dCenter * std::sin(midHeading);
-  r.heading += dHeading;
-}
+// The integration itself, its wheel baseline and the rebase-epoch guard
+// all live on Rig::odometry (motion/odometry.h) now. This helper is the
+// one thing that did NOT move: fetching the kernel's current Output.
+// Odometry deliberately does not hold the kernel -- it integrates
+// whatever Output it is handed, which is what makes it host-testable
+// against a scripted wheel path with no kernel in the link at all.
+static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 
 // ---- cross-fiber stop delivery (sprint 006 ticket 002) -----------------
 // Closes R-08/BLK-01 (code review 2026-08-23, independently re-derived in
@@ -1201,31 +1164,29 @@ int diagValue(int what) {
 //%
 int poseX() {  // [mm]
   Rig& r = ensure();
-  odomUpdate(r);
-  return static_cast<int>(std::lround(r.x));
+  odomUpdate(r);  // a pose read ADVANCES odometry -- see odometry.h
+  return static_cast<int>(std::lround(r.odometry.x()));
 }
 
 //%
 int poseY() {  // [mm]
   Rig& r = ensure();
   odomUpdate(r);
-  return static_cast<int>(std::lround(r.y));
+  return static_cast<int>(std::lround(r.odometry.y()));
 }
 
 //%
 int poseHeading() {  // [cdeg]
   Rig& r = ensure();
   odomUpdate(r);
-  return static_cast<int>(std::lround(r.heading * kRadToCdeg));
+  return static_cast<int>(std::lround(r.odometry.heading() * kRadToCdeg));
 }
 
 //%
 void resetPose() {
   Rig& r = ensure();
   odomUpdate(r);  // consume any pending deltas first
-  r.x = 0.0f;
-  r.y = 0.0f;
-  r.heading = 0.0f;
+  r.odometry.reset();
 }
 
 // ---- configuration --------------------------------------------------
@@ -1406,9 +1367,7 @@ void setKernelValue(int field, int value) {  // [x1000 scaled]
       if (v != 0.0f) {
         odomUpdate(r);        // consume pending deltas before the zero
         k.rebasePosition();
-        r.x = 0.0f;
-        r.y = 0.0f;
-        r.heading = 0.0f;
+        r.odometry.reset();
         r.pendingOtosZero = true;
       }
       break;
@@ -1643,9 +1602,9 @@ void engineGoToRArmed(float x, float y, float speed, float arrive) {
 
 // GO_TO_W's own PoseSource selection: the ONE place this project
 // decides which PoseSource serves a GO_TO_W call, via
-// selectPoseSource() (encoder_pose_source.h) -- this file's
+// selectPoseSource() (motion/odometry.h) -- this file's
 // `gOtos`/otosRef() lazy singleton when `connected()` (initialized AND
-// actually talking to the chip), the Rig-owned `encoderPose`
+// actually talking to the chip), the Rig-owned `odometry`
 // (dead-reckoned, drifting, but always available) otherwise. A robot
 // with no OTOS fitted, or one whose OTOS was never begun/matched, now
 // drives on encoder odometry instead of refusing the call outright --
@@ -1668,7 +1627,7 @@ bool engineGoToW(float x, float y, float speed, float arrive,
                 uint32_t timeout) {  // [ms]
   OtosPort& otos = otosRef();
   Rig& r = ensure();
-  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.encoderPose);
+  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.odometry);
   r.engine.goToW(pose, x, y, speed, arrive, timeout);
   return true;
 }
@@ -1680,18 +1639,19 @@ bool engineGoToW(float x, float y, float speed, float arrive,
 // origin (hypot(worldX, worldY) alone, which is wrong whenever the
 // robot is not sitting at the origin). Reuses the exact SAME
 // PoseSource selection engineGoToW() above applies -- OtosPort when
-// connected(), the Rig-owned encoderPose otherwise -- so this resolves
+// connected(), the Rig-owned odometry otherwise -- so this resolves
 // against the pose the move will actually run from. Both PoseSource
-// implementations (OtosPort, EncoderPoseSource) are plain read-only
-// accessors over already-cached state (otos_port.h/
-// encoder_pose_source.h) -- reading x()/y() here, a second time before
-// engineGoToW() reads them again for the real dispatch, mutates
-// nothing and cannot observe a different value than that dispatch
-// will.
+// implementations' reads are plain accessors over already-cached state
+// (otos_port.h / motion/odometry.h -- Odometry::x()/y() read the
+// current frame and do not themselves integrate; only update() does,
+// and this function does not call it) -- reading x()/y() here, a
+// second time before engineGoToW() reads them again for the real
+// dispatch, mutates nothing and cannot observe a different value than
+// that dispatch will.
 float engineGoToWChord(float worldX, float worldY) {
   OtosPort& otos = otosRef();
   Rig& r = ensure();
-  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.encoderPose);
+  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.odometry);
   return std::hypot(worldX - pose.x(), worldY - pose.y());
 }
 
@@ -1937,9 +1897,7 @@ void seedPose(int x, int y, int heading) {  // [mm] [mm] [cdeg]
   Rig& r = ensure();
   odomUpdate(r);  // consume pending deltas before overwriting
   const float h = static_cast<float>(heading) * kCdegToRad;
-  r.x = static_cast<float>(x);
-  r.y = static_cast<float>(y);
-  r.heading = h;
+  r.odometry.seed(static_cast<float>(x), static_cast<float>(y), h);
   r.busGuard.acquire(r.sleeper);
   otosRef().setPose(static_cast<float>(x), static_cast<float>(y), h);
   r.busGuard.release();

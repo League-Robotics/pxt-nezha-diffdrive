@@ -91,12 +91,13 @@ _CXX11_PORTABLE_SOURCES = [
     # natural .cpp of its own, so this dedicated translation unit
     # exists solely to give this gate something to compile.
     _TEST_DIR / "encoder_glitch_armor_syntax_check.cpp",
-    # Sprint 006 ticket 007: encoder_pose_source.h has no pxt.h
-    # dependency (it depends only on motion_engine.h, itself already
-    # covered above via motion_engine.cpp) but no natural .cpp of its
-    # own, so this dedicated translation unit exists solely to give
-    # this gate something to compile.
-    _TEST_DIR / "encoder_pose_source_syntax_check.cpp",
+    # motion/odometry.h has no pxt.h dependency (it depends only on
+    # motion_engine.h, itself already covered above via
+    # motion_engine.cpp) but no natural .cpp of its own, so this
+    # dedicated translation unit exists solely to give this gate
+    # something to compile. Replaced encoder_pose_source_syntax_check.cpp
+    # when Odometry absorbed EncoderPoseSource (sprint 033 ticket 002).
+    _TEST_DIR / "odometry_syntax_check.cpp",
     _TEST_DIR / "run_queue_syntax_check.cpp",
     # emit_queue.h has no pxt.h dependency (a host-portable outbound-
     # line ring for the protocol's single-serial/radio-producer

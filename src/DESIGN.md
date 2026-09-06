@@ -31,7 +31,7 @@ dependency), so treat them as invariants:
 | Motion engine | `motion/motion_engine.h/.cpp` | `diffdrive.h` + libc only — host-portable |
 | Heading wrap (sprint 006) | `core/heading_wrap.h` | libc only — host-portable, no project includes at all |
 | Encoder glitch armor (sprint 006) | `core/encoder_glitch_armor.h` | libc only — host-portable, no project includes at all |
-| Encoder pose source (sprint 006) | `platform/encoder_pose_source.h` | `motion_engine.h` + libc only — host-portable |
+| Odometry (sprint 033) | `motion/odometry.h` | `motion_engine.h` + libc only — host-portable |
 | Wire grammar | `comms/wire_handler.h/.cpp` | libc only — host-portable, no project includes at all |
 | Wire adapter | `comms/wire_adapter.h/.cpp` | `wire_handler.h` + libc — host-portable; reaches hardware only through forward-declared `shims.cpp` free functions |
 | Transports | `comms/serial_transport.*`, `comms/radio_transport.*` | CODAL (`pxt.h` in the .cpp) — know bytes and framing, **nothing** about verbs, grammar, or motion |
@@ -295,16 +295,17 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   one-time chassis-calibration constant for a non-reference kit, not a
   value tuned as routinely as `trackWidth`/`travelCalib`.
 - `PoseSource` — the three-read world-pose port (`x()/y()/heading()`),
-  implemented by `OtosPort` on hardware, `EncoderPoseSource` on
-  hardware without an OTOS (sprint 006, §7/§9), and `FakePoseSource`
-  in tests. `MotionEngine` holds no `PoseSource` of its own; it is
+  implemented by `OtosPort` on hardware, `Odometry`
+  (`motion/odometry.h`) on hardware without an OTOS (§9), and
+  `FakePoseSource` in tests. `MotionEngine` holds no `PoseSource` of its own; it is
   passed per `goToW()` call, which is what makes the class
   host-testable with no OTOS in the link. **Sprint 006**: the
   interface's `heading()` contract can no longer state a single wrap
   convention now that two hardware implementations disagree by
   construction — `OtosPort` reports heading wrapped to (−π, π] (the
-  chip's own int16 register), `EncoderPoseSource` reports the same
-  unwrapped heading `shims.cpp`'s odometry already carries. Both are
+  chip's own int16 register), the dead-reckoned source reports its
+  heading unwrapped (`EncoderPoseSource` then, `Odometry` since sprint
+  033). Both are
   contractually valid because `goToR()`/`goToW()` consume `heading()`
   only through `cos()`/`sin()` (wrap-invariant); the header comment now
   says so explicitly instead of asserting one universal convention —
@@ -688,8 +689,8 @@ least-controlled move the robot can make instead of a sane default.
 The four verb handlers' refusal-on-`<=0` logic above is **unchanged**;
 only the value it reads changed. **Sprint 006**:
 GO_TO_W no longer answers `kUnimplemented` for "no OTOS connected" —
-`engineGoToW()` now falls back to `EncoderPoseSource` on any robot
-without a live OTOS (§7/§9), so this handler always dispatches to
+`engineGoToW()` now falls back to the dead-reckoned `Odometry` on any
+robot without a live OTOS (§9), so this handler always dispatches to
 `MotionEngine::goToW()`. `mradToRad()`
 here is the **single** place wire milliradians become radians.
 GET/SET map snake_case wire names 1:1 onto the `ConfigField` ordinals
@@ -1194,28 +1195,20 @@ a host test exercises directly, proving the same LSB round-trip
 (350° → −10°) the real register write would produce without needing
 I2C in the link.
 
-**`EncoderPoseSource` (`encoder_pose_source.h`, sprint 006 — new
-host-portable module).** A second `PoseSource` implementation over
-`shims.cpp`'s existing dead-reckoned odometry (`Rig::x/y/heading`), for
-robots with no OTOS fitted — most of the fleet (the OTOS is on vevov
-only). Three-method port, same shape as `OtosPort`: holds const
-references to the Rig's already-computed `x`/`y`/`heading` floats and
-returns them verbatim — it does not compute odometry itself. It is
-constructed as a `Rig` member (or otherwise lifetime-tied to `Rig`'s
-own lazy-singleton, process-lifetime instance) so the references it
-holds never outlive their target — the same lifetime relationship
-`MotionEngine`'s own `kernel_`/`clock_` references already have to
-their `Rig`-owned targets; this is not a dangling-reference risk so
-long as no `EncoderPoseSource` is ever constructed with a shorter
-lifetime than `Rig` itself. It does not need its own epoch-tracking for the "epoch-guarded rebaseline"
-motion-api.md §3.6 calls for, because it reads the same Rig-local state
-`odomUpdate()` already produces, and `EncoderGlitchArmor` above already
-makes that state continuous across a detected brick-reset — the
-guarantee is inherited, not re-implemented. Heading is reported
-unwrapped, matching `shims.cpp`'s existing odometry contract (§3's
-`PoseSource` note on the two implementations' differing wrap
-conventions). Host-portable and host-tested the same way
-`FakePoseSource` already is.
+**`EncoderPoseSource` — RETIRED in sprint 033, replaced by `Odometry`
+(`motion/odometry.h`, §9).** Sprint 006 added it here as a second
+`PoseSource` implementation for robots with no OTOS fitted — most of the
+fleet (the OTOS is on vevov only). It computed nothing: it held `const
+float&` references to `shims.cpp`'s already-computed `Rig::x/y/heading`
+and returned them verbatim, which bought a ~45-line header comment
+explaining why those references could not dangle. Sprint 033 deleted it
+along with the loose fields it pointed at. The pose *is* an object now
+(`Odometry`), it integrates the kernel `Output` itself, and it
+implements `PoseSource` directly, so the fallback `goToW()` selects is
+the same object that computes the number — no adapter, no bound
+references, no lifetime essay. Its unwrapped-heading contract and its
+inherited `EncoderGlitchArmor` continuity guarantee carried over
+unchanged; see `motion/odometry.h`'s own header comment and §9.
 
 **Bus discipline (system invariant; structural as of sprint 030).** The
 Nezha brick and the OTOS share one I2C bus. Every OTOS transaction must
@@ -1543,10 +1536,29 @@ background fiber this file owns, the starvation watchdog.
 
 Pieces the kernel deliberately does not contain:
 
-- **Odometry** (`odomUpdate`): differential dead-reckoning from
-  kernel `Output` positions using the engine's geometry
-  (`countsPerMm`, `effectiveTrackWidth`), midpoint-heading
-  integration into Rig-local `x/y/heading`. **Sprint 006**: `tickDrive()`
+- **Odometry** (`Rig::odometry`, `motion/odometry.h`): differential
+  dead-reckoning from kernel `Output` positions using the engine's
+  geometry (`countsPerMm`, `effectiveTrackWidth`), midpoint-heading
+  integration into the object's own `x/y/heading`. **Sprint 033** made
+  this one object: the frame, the wheel baseline, the rebase-epoch
+  guard (the codebase's only reader of `Output.positionEpochLeft/Right`
+  now), `reset()`/`seed()`, and the `PoseSource` face `goToW()` falls
+  back to when no OTOS is fitted — where `Rig` used to carry five loose
+  fields, a free `odomUpdate()` over them, and a separate
+  `EncoderPoseSource` adapter bound to them by `const float&` (§7). The
+  integration math moved unchanged, and `shims.cpp` keeps a one-line
+  `odomUpdate(r)` helper that does nothing but hand
+  `kernel.output()` to `Odometry::update()` — the object deliberately
+  holds no kernel, which is what makes it host-testable against a
+  scripted wheel path (`tests/host/test_odometry.py`, the first host
+  coverage this math has ever had). **Reads mutate odometry**:
+  `poseX()`/`poseY()`/`poseHeading()` each call `update()` before
+  reading, and that is load-bearing — between moves nothing else
+  advances the frame, so a host's 50 ms telemetry poll is what keeps
+  pose current. Sprint 033 considered making the reads pure and
+  deliberately kept the contract, documenting it on `Odometry` itself
+  rather than leaving it implicit across three call sites.
+  **Sprint 006**: `tickDrive()`
   now folds `odomUpdate()` into **every** tick unconditionally, not
   only while a move-engine move is (was) active — continuous-mode
   driving (`setWheels`/`driveTwist` under a `while (tickDrive())` loop)
@@ -1678,7 +1690,7 @@ Pieces the kernel deliberately does not contain:
   correctly agreed at seed time for any heading, per §7's OTOS heading-
   wrap fix). **Sprint 006**: `engineGoToW()` no longer refuses when the
   OTOS is not connected — it now selects `OtosPort` when connected,
-  `EncoderPoseSource` otherwise (§7), in this one place, and always
+  the Rig's own `Odometry` otherwise (§9), in this one place, and always
   dispatches to `MotionEngine::goToW()`. This closes
   `no-encoder-odometry-posesource-fallback`: GO_TO_W (and the block
   API's world-pose moves that route through it) is no longer a no-op
@@ -1953,8 +1965,8 @@ lives in):
   revisiting if a sprint ever ships without its checkpoint ticket.
 - **(Resolved, sprint 006)** ~~The encoder-odometry `PoseSource`
   fallback for OTOS-less robots is explicitly not built; GO_TO_W
-  refuses on such robots.~~ `EncoderPoseSource` (§7) now serves that
-  role; GO_TO_W dispatches on every robot regardless of OTOS presence
+  refuses on such robots.~~ The dead-reckoned `Odometry` (§9) now
+  serves that role; GO_TO_W dispatches on every robot regardless of OTOS presence
   (§9). Remaining caveat: the fallback carries no drift/uncertainty
   signal back to the caller — a GO_TO_W served by encoders is silently
   a weaker promise than one served by the OTOS, distinguishable today

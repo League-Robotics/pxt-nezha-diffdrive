@@ -3,11 +3,13 @@ src/motion/motion_engine.h/.cpp's world-frame reduction, goToW(), and the
 PoseSource port it reads (a minimal x()/y()/heading() interface,
 implemented for tests by FakePoseSource -- tests/host/fake_pose_source.h).
 
-Sprint 006 ticket 007 extends this file with the production
-EncoderPoseSource implementation (src/platform/encoder_pose_source.h) and
-selectPoseSource(), the host-testable stand-in for engineGoToW()'s own
-OtosPort-vs-EncoderPoseSource selection rule (shims.cpp) -- see the
-"sprint 006 ticket 007" section near the end of this file.
+This file also exercises the production Odometry implementation
+(src/motion/odometry.h) in its PoseSource role, and selectPoseSource(),
+the host-testable stand-in for engineGoToW()'s own
+OtosPort-vs-Odometry selection rule (shims.cpp) -- see the "Odometry as
+a PoseSource" section near the end of this file. (Odometry's own
+wheel-path integration is tests/host/test_odometry.py's subject, not
+this file's.)
 
 Canonical spec (read-only, a different repo -- this project conforms to
 its grammar, it does not vendor its C++): radio-robot-lib/docs/design/
@@ -122,22 +124,22 @@ def _bind(lib):
     ]
     lib.meMotorArmPosition.restype = None
 
-    # ---- sprint 006 ticket 007: EncoderPoseSource / selectPoseSource ----
-    lib.meEncoderPoseSourceSetPose.argtypes = [
+    # ---- Odometry as a PoseSource / selectPoseSource --------------------
+    lib.meOdometrySetPose.argtypes = [
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
     ]
-    lib.meEncoderPoseSourceSetPose.restype = None
-    lib.meEncoderPoseSourceX.argtypes = [ctypes.c_void_p]
-    lib.meEncoderPoseSourceX.restype = ctypes.c_float
-    lib.meEncoderPoseSourceY.argtypes = [ctypes.c_void_p]
-    lib.meEncoderPoseSourceY.restype = ctypes.c_float
-    lib.meEncoderPoseSourceHeading.argtypes = [ctypes.c_void_p]
-    lib.meEncoderPoseSourceHeading.restype = ctypes.c_float
-    lib.meGoToWViaEncoder.argtypes = [
+    lib.meOdometrySetPose.restype = None
+    lib.meOdometryX.argtypes = [ctypes.c_void_p]
+    lib.meOdometryX.restype = ctypes.c_float
+    lib.meOdometryY.argtypes = [ctypes.c_void_p]
+    lib.meOdometryY.restype = ctypes.c_float
+    lib.meOdometryHeading.argtypes = [ctypes.c_void_p]
+    lib.meOdometryHeading.restype = ctypes.c_float
+    lib.meGoToWViaOdometry.argtypes = [
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
         ctypes.c_float, ctypes.c_uint32,
     ]
-    lib.meGoToWViaEncoder.restype = None
+    lib.meGoToWViaOdometry.restype = None
     lib.meSelectPoseSourceX.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.meSelectPoseSourceX.restype = ctypes.c_float
 
@@ -223,21 +225,21 @@ class Engine:
         self._lib.meMotorArmPosition(
             self._handle, side, position_counts, sample_time_us)
 
-    # ---- EncoderPoseSource / selectPoseSource (sprint 006 ticket 007) ----
-    def set_encoder_pose(self, x, y, heading):
-        self._lib.meEncoderPoseSourceSetPose(self._handle, x, y, heading)
+    # ---- Odometry as a PoseSource / selectPoseSource ----
+    def set_odometry_pose(self, x, y, heading):
+        self._lib.meOdometrySetPose(self._handle, x, y, heading)
 
-    def encoder_pose_x(self):
-        return self._lib.meEncoderPoseSourceX(self._handle)
+    def odometry_pose_x(self):
+        return self._lib.meOdometryX(self._handle)
 
-    def encoder_pose_y(self):
-        return self._lib.meEncoderPoseSourceY(self._handle)
+    def odometry_pose_y(self):
+        return self._lib.meOdometryY(self._handle)
 
-    def encoder_pose_heading(self):
-        return self._lib.meEncoderPoseSourceHeading(self._handle)
+    def odometry_pose_heading(self):
+        return self._lib.meOdometryHeading(self._handle)
 
-    def go_to_w_via_encoder(self, x, y, speed, arrive, timeout_ms):
-        self._lib.meGoToWViaEncoder(
+    def go_to_w_via_odometry(self, x, y, speed, arrive, timeout_ms):
+        self._lib.meGoToWViaOdometry(
             self._handle, x, y, speed, arrive, timeout_ms)
 
     def select_pose_source_x(self, primary_connected):
@@ -484,28 +486,29 @@ def test_go_to_w_target_equal_to_pose_is_a_no_op(motion_lib, heading_deg):
 
 
 # ---------------------------------------------------------------------------
-# sprint 006 ticket 007: EncoderPoseSource -- the encoder-odometry
-# PoseSource fallback for GO_TO_W on robots with no OTOS fitted (most of
-# the fleet -- motion-api.md S3.6: "OTOS when fitted, encoder odometry
-# otherwise"). encoder_pose_source.h's own header comment carries the
-# full design write-up; these tests exercise the REAL
-# diffDrive::EncoderPoseSource class (bound to Handle's own encX_/encY_/
-# encHeading_ fields, mirroring shims.cpp's Rig::x/y/heading +
-# Rig::encoderPose wiring), and selectPoseSource() -- the host-testable
+# Odometry as a PoseSource -- the encoder-odometry PoseSource fallback
+# for GO_TO_W on robots with no OTOS fitted (most of the fleet --
+# motion-api.md S3.6: "OTOS when fitted, encoder odometry otherwise").
+# src/motion/odometry.h's own header comment carries the full design
+# write-up; these tests exercise the REAL diffDrive::Odometry class
+# (constructed over Handle's own engine, mirroring shims.cpp's
+# Rig::odometry wiring), and selectPoseSource() -- the host-testable
 # stand-in for engineGoToW()'s own one-place selection rule (shims.cpp),
 # since OtosPort::connected() has no host-testable seam of its own
-# (otos_port.h includes pxt.h unconditionally).
+# (otos_port.h includes pxt.h unconditionally). Odometry's own wheel-path
+# integration and its rebase-epoch guard are test_odometry.py's subject.
 # ---------------------------------------------------------------------------
 
 
-def test_encoder_pose_source_reports_x_y_verbatim(motion_lib):
-    """x()/y() are a bare passthrough of the bound fields -- no transform,
-    no scaling, matching OtosPort's own x()/y() (only heading() differs in
-    wrap convention -- see the parametrized test below)."""
+def test_odometry_pose_source_reports_x_y_verbatim(motion_lib):
+    """x()/y() are a bare passthrough of the current frame -- no
+    transform, no scaling, matching OtosPort's own x()/y() (only
+    heading() differs in wrap convention -- see the parametrized test
+    below)."""
     with Engine(motion_lib) as e:
-        e.set_encoder_pose(123.5, -67.25, 0.0)
-        assert e.encoder_pose_x() == pytest.approx(123.5)
-        assert e.encoder_pose_y() == pytest.approx(-67.25)
+        e.set_odometry_pose(123.5, -67.25, 0.0)
+        assert e.odometry_pose_x() == pytest.approx(123.5)
+        assert e.odometry_pose_y() == pytest.approx(-67.25)
 
 
 @pytest.mark.parametrize("heading_rad", [
@@ -514,36 +517,34 @@ def test_encoder_pose_source_reports_x_y_verbatim(motion_lib):
     math.radians(-250.0),  # < -pi -- same, on the negative side
     4.0 * math.pi,         # two full turns -- nowhere near +-pi either
 ])
-def test_encoder_pose_source_heading_is_unwrapped_verbatim(
+def test_odometry_pose_source_heading_is_unwrapped_verbatim(
         motion_lib, heading_rad):
-    """AC 2 (this ticket's own acceptance criteria): EncoderPoseSource::
-    heading() returns the bound value EXACTLY, with no wrap applied --
-    easy to accidentally "fix" to match OtosPort's (-pi, pi] convention,
-    which would violate motion-api.md S3.6's explicit requirement for
-    this specific implementation (encoder_pose_source.h's own header
-    comment, and motion_engine.h's PoseSource comment on the two
+    """Odometry::heading() returns the seeded value EXACTLY, with no wrap
+    applied -- easy to accidentally "fix" to match OtosPort's (-pi, pi]
+    convention, which would violate motion-api.md S3.6's explicit
+    requirement for this implementation (src/motion/odometry.h's own
+    header comment, and motion_engine.h's PoseSource comment on the two
     contractually-valid-but-different wrap conventions). Every case here
     is chosen to be a magnitude an OtosPort-style wrap would visibly
     change, so a regression to "wrap it like OtosPort" fails loudly."""
     with Engine(motion_lib) as e:
-        e.set_encoder_pose(0.0, 0.0, heading_rad)
-        assert e.encoder_pose_heading() == pytest.approx(
+        e.set_odometry_pose(0.0, 0.0, heading_rad)
+        assert e.odometry_pose_heading() == pytest.approx(
             heading_rad, rel=1e-6, abs=1e-6)
 
 
 # ---- selectPoseSource(): the one-place selection rule engineGoToW() -------
-# ---- (shims.cpp) applies -- OtosPort when connected, EncoderPoseSource ----
-# ---- otherwise (AC 3) ------------------------------------------------------
+# ---- (shims.cpp) applies -- OtosPort when connected, Odometry otherwise ----
 
 
 def test_select_pose_source_picks_primary_when_connected(motion_lib):
-    """`pose` (FakePoseSource) stands in for OtosPort here, `encoderPose`
+    """`pose` (FakePoseSource) stands in for OtosPort here, `odometry`
     for the fallback -- selectPoseSource() itself has no OtosPort
-    dependency at all (encoder_pose_source.h), so this proves the RULE in
+    dependency at all (src/motion/odometry.h), so this proves the RULE in
     isolation from OtosPort's own non-host-testability."""
     with Engine(motion_lib) as e:
         e.set_pose(111.0, 0.0, 0.0)           # "OTOS-like" arm
-        e.set_encoder_pose(222.0, 0.0, 0.0)   # "encoder-like" arm
+        e.set_odometry_pose(222.0, 0.0, 0.0)   # "odometry-like" arm
 
         assert e.select_pose_source_x(True) == pytest.approx(111.0)
 
@@ -551,18 +552,18 @@ def test_select_pose_source_picks_primary_when_connected(motion_lib):
 def test_select_pose_source_picks_fallback_when_not_connected(motion_lib):
     with Engine(motion_lib) as e:
         e.set_pose(111.0, 0.0, 0.0)
-        e.set_encoder_pose(222.0, 0.0, 0.0)
+        e.set_odometry_pose(222.0, 0.0, 0.0)
 
         assert e.select_pose_source_x(False) == pytest.approx(222.0)
 
 
-# ---- goToW() dispatched THROUGH EncoderPoseSource, no OtosPort anywhere ---
-# ---- in this test file's link (AC 1) ---------------------------------------
+# ---- goToW() dispatched THROUGH Odometry, no OtosPort anywhere in ---------
+# ---- this test file's link -------------------------------------------------
 
 
-def test_go_to_w_through_encoder_pose_source_reaches_target(motion_lib):
+def test_go_to_w_through_odometry_pose_source_reaches_target(motion_lib):
     """The move dispatches and reaches its target when goToW() is called
-    with a REAL diffDrive::EncoderPoseSource as its `pose` argument (not
+    with a REAL diffDrive::Odometry as its `pose` argument (not
     FakePoseSource) and no otos_port.h anywhere in this file's own include
     chain -- i.e. GO_TO_W works with no OTOS anywhere in the link. First
     checks the dispatched first-tick duty against the same independently-
@@ -580,8 +581,8 @@ def test_go_to_w_through_encoder_pose_source_reaches_target(motion_lib):
         target_x, target_y = 500.0, 200.0
         speed = 120.0
 
-        e.set_encoder_pose(pose_x, pose_y, heading)
-        e.go_to_w_via_encoder(target_x, target_y, speed, 0.0, 5000)
+        e.set_odometry_pose(pose_x, pose_y, heading)
+        e.go_to_w_via_odometry(target_x, target_y, speed, 0.0, 5000)
         assert e.is_move_active()
         e.land_first_command()
 

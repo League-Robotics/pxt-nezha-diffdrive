@@ -35,10 +35,18 @@ Three kinds of file, one pattern:
   exactly what each port method should report, then advances the code
   under test one step at a time.
 - **Shims** (`kernel_shim.cpp`, `motion_engine_shim.cpp`,
-  `wire_grammar_shim.cpp`, `wire_motion_verb_shim.cpp`) — the
+  `odometry_shim.cpp`, `wire_grammar_shim.cpp`,
+  `wire_motion_verb_shim.cpp`) — the
   `extern "C"` surfaces ctypes can bind: each bundles the class under
   test with its private fakes behind an opaque handle plus free
-  functions. `wire_motion_verb_shim.cpp` carries two handles:
+  functions. `odometry_shim.cpp` (sprint 033) bundles a real
+  `diffDrive::Odometry` over a real `MotionEngine`/kernel and
+  synthesizes the kernel `Output`s it integrates, so
+  `test_odometry.py` can script an exact wheel-count path with no
+  encoder, clock or control loop in the link — the first host coverage
+  of the dead-reckoning math, which lived in `shims.cpp` (`pxt.h`-bound,
+  unlinkable here) until `Odometry` made it portable.
+  `wire_motion_verb_shim.cpp` carries two handles:
   `WvHandle` (WireHandler + mock adapter — decode/dispatch mechanics)
   and `WaHandle` (WireHandler + the **real** `WireAdapter` + a
   **real** kernel over FakeMotors — end-to-end verb effect), and
@@ -171,15 +179,20 @@ matters" test); and `TLM AUTO`/`BUFFER` `thdr`/`err` pinning.
 
 Not covered, by design (CODAL-bound): `nezha_port`, `otos_port`, the
 transports, `protocol.cpp`'s fiber loop and RUN bridge, and
-`shims.cpp`'s real Rig composition/odometry/watchdog — hardware
-sessions are their only test. **Narrower than before sprint 008**:
+`shims.cpp`'s real Rig composition/watchdog — hardware sessions are
+their only test. **Narrower again as of sprint 033**: the odometry
+*math* left `shims.cpp` for `motion/odometry.h` and is now host-tested
+directly (`test_odometry.py`); what stays hardware-only is the real
+encoder stream feeding it — `shims.cpp`'s `odomUpdate(r)` is now a
+one-line `kernel.output()` fetch. **Narrower than before sprint 008**:
 `tickDrive()`'s post-move settle loop is no longer entirely
 hardware-only — its bounded-iteration/break-on-rest *decision* is now a
-`MotionEngine` method, host-tested directly; what remains hardware-only
-is `odomUpdate(r)`'s actual encoder-driven pose fold and the loop's
-real `kernel.step()` calls against physical motors, which stay in
-`shims.cpp` unmoved (see `src/DESIGN.md` §9 for the exact boundary
-this extraction drew).
+`MotionEngine` method, host-tested directly; what remained hardware-only
+after that sprint was `odomUpdate(r)`'s actual encoder-driven pose fold
+and the loop's real `kernel.step()` calls against physical motors (see
+`src/DESIGN.md` §9 for the exact boundary that extraction drew; sprint
+033 moved the pose fold itself into `Odometry`, leaving only the real
+encoder stream and the real `step()` calls).
 
 **Target-viability reminder (sprint 008).** Every test in this
 directory, including everything this sprint adds, still only proves
