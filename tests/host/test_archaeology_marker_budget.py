@@ -92,9 +92,10 @@ at planning time and rejected. A cap of 2.0 would fail
 `src/core/fiber_identity.h` (7 code lines) and `src/core/heading_wrap.h`
 (11 code lines) forever -- a header that states a contract, a unit and
 one measured fact is above 2.0 no matter how tightly it is written --
-while letting `src/comms/wire_adapter.h`, measured at 5.46, sit at 1.99
-unchallenged. The ratio is only meaningful against the same file's own
-past, so the baseline is per-file and seeded from measurement.
+while letting `src/comms/wire_adapter.h`, 5.46 at the seed measurement,
+sit at 1.99 unchallenged. The ratio is only meaningful against the same
+file's own past, so the baseline is per-file and seeded from
+measurement.
 
 **A file absent from `_RATIO_BASELINE` is not failed.** A newly added
 `src/` file has no baseline and cannot regress against one. The test
@@ -132,90 +133,122 @@ _MARKERS = re.compile(
     re.I,
 )
 
-# Measured 2026-08-26 against the tree as of sprint 017 ticket 005
-# (this ticket's own predecessor in the same sprint) -- 388, not the
-# 2026-08-26 audit's original 363. The gap is real drift, not a
-# methodology difference: re-running the audit's own broader regex,
-# scoped the same way (excluding the vendored kernel), against the
-# CURRENT tree reproduces most per-file counts from the audit almost
-# exactly (e.g. `wire_handler.h` 47/47, `motion_engine.h` 37/37,
+# RE-SEEDED 2026-09-06 (sprint 035 ticket 008): 388 -> 173.
+#
+# The previous value, 388, was measured 2026-08-26 against the tree as
+# of sprint 017 ticket 005 -- not the 2026-08-26 audit's original 363.
+# That gap was real drift, not a methodology difference: re-running the
+# audit's own broader regex, scoped the same way (excluding the vendored
+# kernel), reproduced most per-file counts from the audit almost exactly
+# (e.g. `wire_handler.h` 47/47, `motion_engine.h` 37/37,
 # `radio_transport.h` 20/20 -- both exact) with the rest higher by a
 # handful of lines each, consistent with ordinary comment edits across
-# sprints 015-017 landing between the audit and this measurement, not
-# a scanning discrepancy. Ratchets DOWN only from here -- see the
-# module docstring.
-_BUDGET = 388
+# sprints 015-017.
+#
+# 173 is what the tree measures after sprint 035's comment work order
+# (tickets 002-006) deleted the archaeology those markers were sitting
+# in. It is the MEASURED post-cleanup count, not a stretch target: this
+# module was run against the tree at commit 8c3d801 with all six
+# comment tickets landed and Part A of ticket 008 applied (Part A edits
+# `src/DESIGN.md`, which no suffix in `_SOURCE_SUFFIXES` matches, so it
+# moves neither ratchet). The cleanup was concentrated: ticket 005's
+# pass over the four `comms/wire_*` files alone took those files
+# 173 -> 63 markers and the repo-wide total 292 -> 182.
+#
+# The four files still carrying the bulk are `src/shims.cpp` (33),
+# `comms/wire_handler.cpp` (24), `motion/motion_engine.h` (24) and
+# `comms/wire_handler.h` (22) -- 103 of the 173. What remains in them
+# is dominated by live spec citations (`protocol.md`, `motion-api.md`,
+# `src/DESIGN.md`), which this regex deliberately does not try to tell
+# apart from archaeology (see the module docstring), so 173 is NOT a
+# floor to drive to zero. Ratchets DOWN only from here.
+_BUDGET = 173
 
 # Comment-volume baselines, one per project-owned `src/` source file.
 #
-# MEASURED host-side against this repository at commit df596f8 (sprint
-# 035 ticket 001, 2026-09-06) by applying the counting rule in the
-# module docstring to every `src/**/*.{h,cpp,ts}` outside `_EXCLUDED`.
-# There is no hardware in this measurement -- it reads files as text.
-# The numbers reproduce sprint 035's "Verification pass" table in
-# `clasi/sprints/035-.../sprint.md` row for row, including its
-# project-owned aggregate of 7866 comment / 6987 code = 1.126; the one
-# difference is `src/comms/wifi_link.cpp`, measured here at 113 / 844 =
-# 0.13 and simply absent from that table's rows (the table's aggregate
-# does include it). Values are the table's two-decimal figures; see
-# `_RATIO_TOLERANCE` below for why that rounding needs a tolerance.
+# RE-SEEDED 2026-09-06 (sprint 035 ticket 008) from the post-cleanup
+# tree at commit 8c3d801, applying the counting rule in the module
+# docstring to every `src/**/*.{h,cpp,ts}` outside `_EXCLUDED`. There is
+# no hardware in this measurement -- it reads files as text. Same 46
+# files as the seed; none was added or removed by this sprint, and none
+# is missing a baseline (`test_comment_volume_ratio_is_within_per_file_baseline`
+# reports unbaselined files, and reported none).
+#
+# The seed came from the pre-cleanup tree at commit df596f8 (sprint 035
+# ticket 001) and its aggregate was 7866 comment / 6987 code = 1.126.
+# Tickets 002-006 then cut comments in 30 of these files, WITHOUT
+# touching a line of code: the aggregate is now 6585 / 6987 = 0.943,
+# and every one of the 6987 code-line counts is byte-identical to the
+# seed's. See `clasi/sprints/035-.../sprint.md`'s "Verification pass"
+# table for the per-file baseline-vs-achieved delta.
+#
+# Every entry below is the ACHIEVED value, rounded to two decimals.
+# No stretch target was invented and no file was given headroom: a
+# baseline set below what the tree actually achieves fails the next
+# unrelated sprint for no reason, and one set above it silently gives
+# back ground this sprint paid for. The consequence is that several
+# files now sit within a comment line or two of their ceiling
+# (`core/encoder_glitch_armor.h`, `motion/segment.h`, `blocks/motion.ts`
+# are the tightest, each under `_RATIO_TOLERANCE`'s slack) -- which is
+# the ratchet working as designed. Adding a load-bearing comment to one
+# of them is a reviewed raise of that entry, per the failure message.
 #
 # Sorted by ratio, descending, matching the sprint.md table. Ratchets
 # DOWN only -- raising an entry is its own reviewed edit.
 _RATIO_BASELINE = {
-    "src/comms/wire_adapter.h": 5.46,  # 382 / 70
-    "src/comms/radio_transport.h": 5.29,  # 370 / 70
-    "src/comms/serial_transport.h": 5.17,  # 93 / 18
-    "src/motion/motion_engine.h": 4.75,  # 508 / 107
-    "src/comms/protocol.h": 4.43,  # 434 / 98
-    "src/core/fiber_identity.h": 4.14,  # 29 / 7
-    "src/core/bus_guard.h": 4.00,  # 72 / 18
-    "src/core/heading_wrap.h": 4.00,  # 44 / 11
-    "src/platform/vfp_guard.h": 3.85,  # 50 / 13
-    "src/core/motion_owner.h": 3.67,  # 66 / 18
-    "src/core/encoder_glitch_armor.h": 2.84,  # 125 / 44
-    "src/comms/wire_handler.h": 2.64,  # 580 / 220
-    "src/comms/run_bridge.h": 2.47,  # 84 / 34
-    "src/comms/transport_sink.h": 2.25,  # 54 / 24
-    "src/motion/velocity_shaper.h": 2.15,  # 43 / 20
-    "src/comms/config_fields.h": 1.71,  # 101 / 59
-    "src/shims.cpp": 1.71,  # 1215 / 710
+    "src/core/fiber_identity.h": 4.00,  # 28 / 7
+    "src/comms/serial_transport.h": 3.89,  # 70 / 18
+    "src/comms/wire_adapter.h": 3.74,  # 262 / 70
+    "src/motion/motion_engine.h": 3.70,  # 396 / 107
+    "src/comms/radio_transport.h": 3.69,  # 258 / 70
+    "src/comms/protocol.h": 3.58,  # 351 / 98
+    "src/core/motion_owner.h": 3.56,  # 64 / 18
+    "src/platform/vfp_guard.h": 3.54,  # 46 / 13
+    "src/core/heading_wrap.h": 2.82,  # 31 / 11
+    "src/core/bus_guard.h": 2.67,  # 48 / 18
+    "src/core/encoder_glitch_armor.h": 2.45,  # 108 / 44
+    "src/comms/run_bridge.h": 2.32,  # 79 / 34
+    "src/comms/wire_handler.h": 2.07,  # 455 / 220
+    "src/comms/transport_sink.h": 1.92,  # 46 / 24
+    "src/motion/velocity_shaper.h": 1.90,  # 38 / 20
+    "src/comms/config_fields.h": 1.61,  # 95 / 59
     "src/comms/wifi_uart.h": 1.58,  # 30 / 19
+    "src/shims.cpp": 1.42,  # 1007 / 710
     "src/motion/segment.h": 1.38,  # 90 / 65
     "src/motion/odometry.h": 1.33,  # 76 / 57
-    "src/comms/wire_adapter.cpp": 1.31,  # 522 / 397
-    "src/comms/protocol.cpp": 1.28,  # 431 / 338
     "src/motion/motion_limits.h": 1.26,  # 73 / 58
     "src/motion/velocity_shaper.cpp": 1.20,  # 65 / 54
-    "src/comms/emit_queue.h": 1.02,  # 50 / 49
-    "src/platform/platform_ports.h": 1.00,  # 27 / 27
-    "src/platform/nezha_port.cpp": 0.96,  # 244 / 255
-    "src/comms/wire_handler.cpp": 0.86,  # 717 / 834
+    "src/comms/wire_adapter.cpp": 1.19,  # 474 / 397
+    "src/comms/protocol.cpp": 1.15,  # 389 / 338
     "src/comms/serial_transport.cpp": 0.83,  # 43 / 52
-    "src/platform/nezha_port.h": 0.80,  # 59 / 74
+    "src/comms/emit_queue.h": 0.80,  # 39 / 49
+    "src/platform/nezha_port.h": 0.78,  # 58 / 74
     "src/platform/otos_port.h": 0.75,  # 52 / 69
-    "src/motion/motion_engine.cpp": 0.75,  # 224 / 299
+    "src/platform/nezha_port.cpp": 0.74,  # 189 / 255
+    "src/platform/platform_ports.h": 0.74,  # 20 / 27
+    "src/motion/motion_engine.cpp": 0.73,  # 218 / 299
+    "src/comms/wire_handler.cpp": 0.68,  # 565 / 834
     "src/comms/wifi_link.h": 0.64,  # 145 / 226
-    "src/comms/run_queue.h": 0.64,  # 39 / 61
-    "src/blocks/sim.ts": 0.62,  # 236 / 379
+    "src/comms/run_queue.h": 0.59,  # 36 / 61
     "src/platform/vfp_guard.cpp": 0.58,  # 7 / 12
-    "src/comms/radio_transport.cpp": 0.58,  # 65 / 112
+    "src/comms/radio_transport.cpp": 0.57,  # 64 / 112
     "src/comms/run_bridge.cpp": 0.56,  # 34 / 61
-    "src/blocks/world.ts": 0.45,  # 70 / 157
+    "src/blocks/world.ts": 0.45,  # 71 / 157
+    "src/blocks/sim.ts": 0.44,  # 165 / 379
     "src/comms/wifi_uart.cpp": 0.35,  # 11 / 31
     "src/platform/otos_port.cpp": 0.27,  # 44 / 163
-    "src/blocks/run.ts": 0.25,  # 61 / 243
-    "src/blocks/motion.ts": 0.19,  # 81 / 423
+    "src/blocks/run.ts": 0.23,  # 56 / 243
+    "src/blocks/motion.ts": 0.17,  # 74 / 423
     "src/comms/wifi_link.cpp": 0.13,  # 113 / 844
-    "src/blocks/stop.ts": 0.12,  # 6 / 49
     "src/blocks/pose.ts": 0.03,  # 1 / 38
+    "src/blocks/stop.ts": 0.02,  # 1 / 49
 }
 
 # The baselines above are recorded to two decimals so they can be read
 # against the sprint.md table by eye. Rounding to two decimals rounds
-# DOWN as often as up -- 20 of the 46 files sit fractionally above their
-# printed baseline the moment they are seeded (`src/shims.cpp` is
-# 1.711268, printed 1.71) -- so a strict comparison against the printed
+# DOWN as often as up -- 25 of the 46 files sit fractionally above their
+# printed baseline the moment they are seeded (`src/blocks/motion.ts` is
+# 0.174941, printed 0.17) -- so a strict comparison against the printed
 # value would fail on the very tree it was measured from. Compare with
 # half of the last printed digit instead. The slack this buys an author
 # is bounded by the file's size: 0.005 is under one comment line in

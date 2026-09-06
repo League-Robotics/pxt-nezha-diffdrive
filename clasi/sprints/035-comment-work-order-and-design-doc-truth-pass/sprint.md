@@ -208,59 +208,64 @@ aggregate. This rule reproduces the review's own table closely where
 the file has not changed since (`platform/nezha_port.cpp` 0.96 exact,
 `comms/wire_adapter.cpp` 1.31 vs 1.29).
 
-**Project-owned `src/` aggregate: 7866 comment / 6987 code = 1.126.**
-(The review measured ~1.4 under a rule that counted JSDoc and `//%`.)
+**Project-owned `src/` aggregate: 7866 comment / 6987 code = 1.126 at
+the seed, 6585 / 6987 = 0.943 after tickets 002-006.** (The review
+measured ~1.4 under a rule that counted JSDoc and `//%`.) The 6987
+code-line total is IDENTICAL before and after: the whole sprint deleted
+comment lines and nothing else. Ticket 008 re-seeded
+`_RATIO_BASELINE` from the "achieved" column below.
 
-| file | cmt | code | ratio |
+| file | code | cmt before → after | baseline → achieved |
 |---|---|---|---|
-| `comms/wire_adapter.h` | 382 | 70 | **5.46** |
-| `comms/radio_transport.h` | 370 | 70 | **5.29** |
-| `comms/serial_transport.h` | 93 | 18 | **5.17** |
-| `motion/motion_engine.h` | 508 | 107 | **4.75** |
-| `comms/protocol.h` | 434 | 98 | **4.43** |
-| `core/fiber_identity.h` | 29 | 7 | **4.14** |
-| `core/bus_guard.h` | 72 | 18 | **4.00** |
-| `core/heading_wrap.h` | 44 | 11 | **4.00** |
-| `platform/vfp_guard.h` | 50 | 13 | **3.85** |
-| `core/motion_owner.h` | 66 | 18 | **3.67** |
-| `core/encoder_glitch_armor.h` | 125 | 44 | **2.84** |
-| `comms/wire_handler.h` | 580 | 220 | **2.64** |
-| `comms/run_bridge.h` | 84 | 34 | **2.47** |
-| `comms/transport_sink.h` | 54 | 24 | **2.25** |
-| `motion/velocity_shaper.h` | 43 | 20 | **2.15** |
-| `comms/config_fields.h` | 101 | 59 | 1.71 |
-| `shims.cpp` | 1215 | 710 | 1.71 |
-| `comms/wifi_uart.h` | 30 | 19 | 1.58 |
-| `motion/segment.h` | 90 | 65 | 1.38 |
-| `motion/odometry.h` | 76 | 57 | 1.33 |
-| `comms/wire_adapter.cpp` | 522 | 397 | 1.31 |
-| `comms/protocol.cpp` | 431 | 338 | 1.28 |
-| `motion/motion_limits.h` | 73 | 58 | 1.26 |
-| `motion/velocity_shaper.cpp` | 65 | 54 | 1.20 |
-| `comms/emit_queue.h` | 50 | 49 | 1.02 |
-| `platform/platform_ports.h` | 27 | 27 | 1.00 |
-| `platform/nezha_port.cpp` | 244 | 255 | 0.96 |
-| `comms/wire_handler.cpp` | 717 | 834 | 0.86 |
-| `comms/serial_transport.cpp` | 43 | 52 | 0.83 |
-| `platform/nezha_port.h` | 59 | 74 | 0.80 |
-| `platform/otos_port.h` | 52 | 69 | 0.75 |
-| `motion/motion_engine.cpp` | 224 | 299 | 0.75 |
-| `comms/wifi_link.h` | 145 | 226 | 0.64 |
-| `comms/run_queue.h` | 39 | 61 | 0.64 |
-| `blocks/sim.ts` | 236 | 379 | 0.62 |
-| `platform/vfp_guard.cpp` | 7 | 12 | 0.58 |
-| `comms/radio_transport.cpp` | 65 | 112 | 0.58 |
-| `comms/run_bridge.cpp` | 34 | 61 | 0.56 |
-| `blocks/world.ts` | 70 | 157 | 0.45 |
-| `comms/wifi_uart.cpp` | 11 | 31 | 0.35 |
-| `platform/otos_port.cpp` | 44 | 163 | 0.27 |
-| `blocks/run.ts` | 61 | 243 | 0.25 |
-| `blocks/motion.ts` | 81 | 423 | 0.19 |
-| `blocks/stop.ts` | 6 | 49 | 0.12 |
-| `blocks/pose.ts` | 1 | 38 | 0.03 |
-| *(vendored, excluded)* `core/diffdrive.h` | 71 | 303 | 0.23 |
-| *(vendored, excluded)* `core/diffdrive.cpp` | 100 | 851 | 0.12 |
-| *(not in `src/`)* `test/test.ts` | 645 | 482 | 1.34 |
+| `comms/wire_adapter.h` | 70 | 382 → 262 | **5.46** → **3.74** |
+| `comms/radio_transport.h` | 70 | 370 → 258 | **5.29** → **3.69** |
+| `comms/serial_transport.h` | 18 | 93 → 70 | **5.17** → **3.89** |
+| `motion/motion_engine.h` | 107 | 508 → 396 | **4.75** → **3.70** |
+| `comms/protocol.h` | 98 | 434 → 351 | **4.43** → **3.58** |
+| `core/fiber_identity.h` | 7 | 29 → 28 | **4.14** → **4.00** |
+| `core/bus_guard.h` | 18 | 72 → 48 | **4.00** → **2.67** |
+| `core/heading_wrap.h` | 11 | 44 → 31 | **4.00** → **2.82** |
+| `platform/vfp_guard.h` | 13 | 50 → 46 | **3.85** → **3.54** |
+| `core/motion_owner.h` | 18 | 66 → 64 | **3.67** → **3.56** |
+| `core/encoder_glitch_armor.h` | 44 | 125 → 108 | **2.84** → **2.45** |
+| `comms/wire_handler.h` | 220 | 580 → 455 | **2.64** → **2.07** |
+| `comms/run_bridge.h` | 34 | 84 → 79 | **2.47** → **2.32** |
+| `comms/transport_sink.h` | 24 | 54 → 46 | **2.25** → **1.92** |
+| `motion/velocity_shaper.h` | 20 | 43 → 38 | **2.15** → **1.90** |
+| `comms/config_fields.h` | 59 | 101 → 95 | 1.71 → 1.61 |
+| `shims.cpp` | 710 | 1215 → 1007 | 1.71 → 1.42 |
+| `comms/wifi_uart.h` | 19 | 30 → 30 | 1.58 → 1.58 |
+| `motion/segment.h` | 65 | 90 → 90 | 1.38 → 1.38 |
+| `motion/odometry.h` | 57 | 76 → 76 | 1.33 → 1.33 |
+| `comms/wire_adapter.cpp` | 397 | 522 → 474 | 1.31 → 1.19 |
+| `comms/protocol.cpp` | 338 | 431 → 389 | 1.28 → 1.15 |
+| `motion/motion_limits.h` | 58 | 73 → 73 | 1.26 → 1.26 |
+| `motion/velocity_shaper.cpp` | 54 | 65 → 65 | 1.20 → 1.20 |
+| `comms/emit_queue.h` | 49 | 50 → 39 | 1.02 → 0.80 |
+| `platform/platform_ports.h` | 27 | 27 → 20 | 1.00 → 0.74 |
+| `platform/nezha_port.cpp` | 255 | 244 → 189 | 0.96 → 0.74 |
+| `comms/wire_handler.cpp` | 834 | 717 → 565 | 0.86 → 0.68 |
+| `comms/serial_transport.cpp` | 52 | 43 → 43 | 0.83 → 0.83 |
+| `platform/nezha_port.h` | 74 | 59 → 58 | 0.80 → 0.78 |
+| `platform/otos_port.h` | 69 | 52 → 52 | 0.75 → 0.75 |
+| `motion/motion_engine.cpp` | 299 | 224 → 218 | 0.75 → 0.73 |
+| `comms/wifi_link.h` | 226 | 145 → 145 | 0.64 → 0.64 |
+| `comms/run_queue.h` | 61 | 39 → 36 | 0.64 → 0.59 |
+| `blocks/sim.ts` | 379 | 236 → 165 | 0.62 → 0.44 |
+| `platform/vfp_guard.cpp` | 12 | 7 → 7 | 0.58 → 0.58 |
+| `comms/radio_transport.cpp` | 112 | 65 → 64 | 0.58 → 0.57 |
+| `comms/run_bridge.cpp` | 61 | 34 → 34 | 0.56 → 0.56 |
+| `blocks/world.ts` | 157 | 70 → 71 | 0.45 → 0.45 |
+| `comms/wifi_uart.cpp` | 31 | 11 → 11 | 0.35 → 0.35 |
+| `platform/otos_port.cpp` | 163 | 44 → 44 | 0.27 → 0.27 |
+| `blocks/run.ts` | 243 | 61 → 56 | 0.25 → 0.23 |
+| `blocks/motion.ts` | 423 | 81 → 74 | 0.19 → 0.17 |
+| `comms/wifi_link.cpp` | 844 | 113 → 113 | 0.13 → 0.13 |
+| `blocks/stop.ts` | 49 | 6 → 1 | 0.12 → 0.02 |
+| `blocks/pose.ts` | 38 | 1 → 1 | 0.03 → 0.03 |
+| *(vendored, excluded)* `core/diffdrive.h` | 303 | 71 → 71 | 0.23 → 0.23 |
+| *(vendored, excluded)* `core/diffdrive.cpp` | 851 | 100 → 100 | 0.12 → 0.12 |
+| *(not in `src/`)* `test/test.ts` | 482 | 645 → 619 | 1.34 → 1.28 |
 
 Two facts this table changes about the brief: the **`blocks/*.ts` files
 are already clean** (0.03–0.62) — the review's 1.58 for them was JSDoc
@@ -268,9 +273,11 @@ and `//%` — so the blocks work in this sprint is factual fixes and a
 handful of named boil-downs, not volume; and the volume is concentrated
 in `comms/` headers, `motion/motion_engine.h` and `shims.cpp`.
 
-Existing archaeology-marker ratchet: **356** today against `_BUDGET =
-388` (32 lines of slack). `platform/encoder_pose_source.h`, which the
-review's table listed at 4.10, no longer exists (deleted in 033).
+Existing archaeology-marker ratchet: **356** at detail-planning time
+against `_BUDGET = 388` (32 lines of slack), **173** after tickets
+002-006; ticket 008 lowered `_BUDGET` 388 → 173.
+`platform/encoder_pose_source.h`, which the review's table listed at
+4.10, no longer exists (deleted in 033).
 
 ### Boil-down work order: live / resolved / moot
 
