@@ -1,0 +1,15 @@
+link: serial daemon 192.168.4.52:46011
+robot: device NEZHA2 robot tovez 2314287040
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '1158', 'cyc': '10334', 'tlm': 'off', 'next': '1', 'done': '4', 'reason': 'stop'}
+rotational_slip=0.962 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 52 at (-26.5, 0.3) cm heading -2.2 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+6 alternating +-45.0 deg arcs, chord 300 mm
+  0 d= +300 th=+0.785 endpoint_err   15.6 mm dh_err +2.51 deg reason=stop
+  1 d= -300 th=-0.785 endpoint_err  213.2 mm dh_err -55.81 deg reason=timeout
+  2 d= +300 th=+0.785 endpoint_err    7.5 mm dh_err -1.14 deg reason=stop
+  3 d= -300 th=-0.785 endpoint_err   31.5 mm dh_err -6.33 deg reason=stop
+  4 d= +300 th=+0.785 endpoint_err   26.3 mm dh_err +5.02 deg reason=stop
+  5 d= -300 th=-0.785 endpoint_err   34.6 mm dh_err -8.62 deg reason=stop
+G2: endpoint err mean 54.78 mm, max 213.2 mm, 1/6 within 10.0 mm -- FAIL (bar: mean<=10.0 mm)
+wrote captures/session-b-20260905/ticket016/g2; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render captures/session-b-20260905/ticket016/g2

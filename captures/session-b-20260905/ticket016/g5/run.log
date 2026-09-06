@@ -1,0 +1,16 @@
+link: serial daemon 192.168.4.52:46011
+robot: device NEZHA2 robot tovez 2314287040
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '1677', 'cyc': '12228', 'tlm': 'off', 'next': '1', 'done': '1', 'reason': 'stop'}
+rotational_slip=0.962 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 52 at (-0.6, -1.5) cm heading 2.7 deg
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+trial  0 sign +1: lag vl={'lag': 0.11, 'rms': 11.04, 'n': 24} vr={'lag': 0.05, 'rms': 15.15, 'n': 24} peak=220 max_accel=613.6363636363636 travel=23.12 cm
+trial  1 sign -1: lag vl={'lag': 0.17, 'rms': 18.8, 'n': 24} vr={'lag': 0.08, 'rms': 22.47, 'n': 24} peak=210 max_accel=230.76923076923077 travel=21.14 cm
+trial  2 sign +1: lag vl={'lag': 0.175, 'rms': 18.86, 'n': 24} vr={'lag': 0.115, 'rms': 15.6, 'n': 24} peak=226 max_accel=784.6153846153846 travel=22.09 cm
+trial  3 sign -1: lag vl={'lag': 0.19, 'rms': 17.71, 'n': 24} vr={'lag': 0.135, 'rms': 21.71, 'n': 24} peak=210 max_accel=425.9259259259259 travel=21.5 cm
+trial  4 sign +1: lag vl={'lag': 0.2, 'rms': 19.7, 'n': 24} vr={'lag': 0.135, 'rms': 14.02, 'n': 24} peak=220 max_accel=742.4242424242424 travel=21.95 cm
+trial  5 sign -1: lag vl={'lag': 0.165, 'rms': 16.05, 'n': 24} vr={'lag': 0.06, 'rms': 15.19, 'n': 24} peak=210 max_accel=345.45454545454544 travel=21.66 cm
+trial  6 sign +1: lag vl={'lag': 0.12, 'rms': 18.01, 'n': 24} vr={'lag': 0.07, 'rms': 16.27, 'n': 24} peak=210 max_accel=750.0 travel=22.24 cm
+trial  7 sign -1: lag vl={'lag': 0.225, 'rms': 29.24, 'n': 24} vr={'lag': 0.15, 'rms': 20.83, 'n': 24} peak=220 max_accel=212.96296296296296 travel=20.82 cm
+G5: peak 226 mm/s (bar <= 210) -- FAIL; max rise 784.6153846153846 mm/s^2 (bar <= 600.0) -- FAIL
+wrote captures/session-b-20260905/ticket016/g5; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render captures/session-b-20260905/ticket016/g5

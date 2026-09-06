@@ -1,0 +1,13 @@
+{
+  "gate": "G2",
+  "bar": {
+    "endpoint_mm": 10.0
+  },
+  "score": {
+    "n": 6,
+    "mean": 54.78,
+    "max": 213.2,
+    "n_within": 1,
+    "passed": false
+  }
+}

@@ -1,0 +1,22 @@
+link: serial daemon 192.168.4.52:46011
+robot: device NEZHA2 robot tovez 2314287040
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '508', 'cyc': '2667', 'tlm': 'off', 'next': '1', 'done': '16', 'reason': 'stop'}
+rotational_slip=0.962 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 52 at (-3.1, 4.8) cm heading 129.5 deg
+camera heading at rest: n=20 sd=0.162 deg, peak-to-peak 0.629 deg -- this is why G1 is restated (mean|err|<=1.0, sd<=1.0 deg)
+telemetry columns: ['seq', 'now', 'flags', 'x', 'y', 'h', 'ox', 'oy', 'oh', 'vl', 'vr', 'i2cf', 'cyc', 'posl', 'posr', 'dutl', 'dutr', 'lexc', 'wrng', 'cycovr']
+12 alternating +-90 deg pivots, 20-sample rest fixes
+  0 cmd  +90 cam  +88.76 err  -1.24 peak 26/128 done stop
+  1 cmd  -90 cam  -92.28 err  -2.28 peak 0/128 done stop
+  2 cmd  +90 cam  +91.30 err  +1.30 peak 56/102 done stop
+  3 cmd  -90 cam  -89.33 err  +0.67 peak 82/112 done stop
+  4 cmd  +90 cam  +87.10 err  -2.90 peak 66/118 done stop
+  5 cmd  -90 cam  -90.15 err  -0.15 peak 72/108 done stop
+  6 cmd  +90 cam  +90.70 err  +0.70 peak 66/118 done stop
+  7 cmd  -90 cam  -88.02 err  +1.98 peak 75/112 done stop
+  8 cmd  +90 cam  +89.44 err  -0.56 peak 0/138 done stop
+  9 cmd  -90 cam  -87.23 err  +2.77 peak 72/121 done stop
+ 10 cmd  +90 cam  +89.05 err  -0.95 peak 0/138 done stop
+ 11 cmd  -90 cam  -92.87 err  -2.87 peak 72/108 done stop
+G1: mean|err| 1.531 deg, sd 1.775 deg, n=12 -- FAIL (bar: mean|err|<=1.0, sd<=1.0)
+wrote captures/session-b-20260905/ticket016/g1-slip0962; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render captures/session-b-20260905/ticket016/g1-slip0962

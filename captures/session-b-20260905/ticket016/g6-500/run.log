@@ -1,0 +1,11 @@
+link: serial daemon 192.168.4.52:46011
+robot: device NEZHA2 robot tovez 2314287040
+status: {'ready': '1', 'active': '0', 'connL': '1', 'connR': '1', 'otos': '1', 'wedge': '0', 'flags': '31', 'i2cf': '916', 'cyc': '3864', 'tlm': 'off', 'next': '1', 'done': '7', 'reason': 'stop'}
+rotational_slip=0.962 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera: tag 52 at (-22.7, -27.0) cm heading 1.3 deg
+3 laps of a 500 mm square, left turns, from (-22.7, -27.0)
+lap 0: closure 48 mm, heading residual 1.9 deg, ok=True
+lap 1: closure 15 mm, heading residual 2.8 deg, ok=True
+lap 2: closure 103 mm, heading residual -2.0 deg, ok=True
+G6: closures [48, 15, 103] mm (bar <= 10.8 mm) -- FAIL
+wrote captures/session-b-20260905/ticket016/g6-500; render with: <plot venv>/bin/python tests/playfield/turn_calibration.py --render captures/session-b-20260905/ticket016/g6-500

@@ -1202,3 +1202,447 @@ wheel encoders and the OTOS sit downstream of it, which is why all three
 report absent together. Not a sensor fault -- the same root cause
 Session A eventually traced (correction v2), here with the cause known
 in advance rather than inferred after the fact.
+
+## Ticket 017 -- behavioural verification on the field (2026-09-05 evening)
+
+The board carries commit `38808e1`'s build (hex
+`ticket017-verify/../tovez-1.20260904.5-ticket017.hex`, 1726631 bytes,
+flashed via `mbdeploy deploy tovez --remote` after a CTRL-AP mass
+erase). Note `ID` reports `1.20260904.5` for BOTH the ticket-015 bake
+and this build -- the version does not discriminate them, so the check
+below is behavioural, which is the point.
+
+**Pre-flight.** Lights on (Shelly `output: true`). zilch serial daemon
+at `192.168.4.52:46011`; `HELLO -> device NEZHA2 robot tovez
+2314287040`. Tag 52 re-registered with `camlink.py --register tovez`.
+Camera recalibrated by the stakeholder immediately before this block;
+AprilTag 1 (field centre) read (0.20, 0.09) cm, `calibration stale?
+False`.
+
+**Field dance.** First attempt FAILED
+(`ticket017-verify/dance5.log`) -- pivot 1 lost 14.2 deg, pivot 2 lost
+4.9, pivot 3 lost 2.3, and home closure was 6.3 cm. That decaying
+series is the cold-first-move signature, not a convention error: every
+direction was right and every drive length was within 0.6 cm. A 2 mm
+`MOVE_X` kick is enough to set `ready=1` but is NOT a warm-up. After a
+net-zero warm-up (four cancelling 90 deg pivots plus a +/-100 mm
+there-and-back) the dance PASSED
+(`ticket017-verify/dance6.log`): pivots -6.1/-2.2/-3.8 deg, drives
+within 0.6 cm, home closure 4.9 cm.
+
+**The gate itself** (`ticket017-verify/verify017.py`, output in
+`ticket017-verify/verify.log`):
+
+MEASURED tovez 2026-09-05, `captures/session-b-20260905/ticket017-verify/verify.log`:
+
+```
+  before  ( +24.98,   -8.89) cm  heading +150.83 deg
+  RUN:straight:8 -> 'DBG:straight=8:profile=open'  (0.1 s)
+  after   ( +18.29,   -5.41) cm  heading +151.88 deg
+
+  travel  7.54 cm (commanded 8.0)
+  bearing +152.5 deg vs heading +150.8 -> off +1.6 deg
+```
+
+**PASS.** The same command on the pre-fix build moved 0.02 cm while
+returning the same `DBG:straight=8:profile=open` receipt -- the defect
+was invisible to the wire, which is why it needed the camera. Ticket
+017's `tryTakeMotionOwnership()` (a dispatching fiber may re-take its
+own `kJob` ownership) is live on hardware.
+
+## Ticket 016 -- G1 (rest-heading pivot accuracy), restated bar
+
+Bar: mean|err| <= 1.0 deg AND sd <= 1.0 deg over 12 alternating +-90 deg
+pivots, each rest fix averaged over >= 20 camera samples.
+
+MEASURED tovez 2026-09-05, firmware 1.20260904.5 (commit 38808e1),
+cruise 60 mm/s, `captures/session-b-20260905/ticket016/g1/`:
+
+```
+rotational_slip=1.01 pivot_overrun=0.0 (live), trackwidth assumed 114.2 mm
+camera heading at rest: n=20 sd=0.286 deg, peak-to-peak 0.939 deg
+G1: mean|err| 4.604 deg, sd 5.077 deg, n=12 -- FAIL
+```
+
+Errors, in order: -5.69 +2.78 -6.43 +3.28 -6.41 +2.69 -3.76 +5.79
+-8.13 +7.63 -1.97 +0.69.
+
+**Two separable defects, and the headline number hides the first.**
+
+**(a) A pure scale error -- the robot under-rotates 5.1%.** The error's
+SIGN tracks the commanded sign, so the signed mean is only -0.79 deg
+while mean|err| is 4.604. Mean |camera| over the twelve pivots is 85.40
+deg for a 90 deg command: actual/commanded = **0.9489**. The knob is
+`rotational_slip` -- `effectiveTrackWidth() = trackWidth /
+rotationalSlip` (`src/motion/motion_engine.h:152`, `DESIGN.md:239`), so
+turning FURTHER means a SMALLER slip. From 1.01 the correction is
+1.01 x 0.9489 = **0.958**, which lands next to tigez's independently
+baked 0.9617.
+
+**`stop_distance` cannot fix this and must not be reached for.** It is
+design S4.7's rename of the old `pivot_overrun` and is a per-wheel
+*coast* term (`src/motion/motion_limits.h:74`) -- it can only cancel
+rotation the robot already OVERSHOT. tovez undershoots, which would
+need a negative coast. Both `lag` and `stop_distance` read 0 on this
+board, i.e. neither of design S10.2's two bench measurements has ever
+been made for tovez.
+
+**(b) Trial-to-trial spread that the scale fix will NOT remove.**
+Removing the mean, the twelve |camera| values still have sd 2.38 deg
+(within-direction sd 2.19 deg for +90, 2.48 deg for -90 -- so the ~1.6
+deg direction asymmetry is not what drives it either). Against a camera
+noise floor of 0.286 deg this is real mechanical repeatability, and it
+is already 2.4x the restated sd <= 1.0 deg bar BEFORE any centring.
+Predicted consequence: correcting the slip should carry mean|err| to
+roughly 2 deg and sd to roughly 2.4 deg -- i.e. G1 goes from failing
+both halves to failing the sd half. Recorded here BEFORE the confirming
+run so the prediction is falsifiable.
+
+### Slip correction, and an instrument defect found doing it
+
+Re-running G1 with `--set rotational_slip=0.958`
+(`captures/session-b-20260905/ticket016/g1-slip0958/`):
+
+```
+G1: mean|err| 1.948 deg, sd 2.156 deg, n=12 -- FAIL
+```
+
+The prediction logged above (mean ~2 deg, sd ~2.4 deg) holds: mean|err|
+fell 2.4x, from 4.604 to 1.948, and the sd barely moved (5.077 -> 2.156,
+i.e. all the way down to the trial-to-trial floor and no further). G1
+still FAILS, and now it fails on the half a slip bake cannot reach.
+
+**`turn_calibration.py`'s `wire_get()` returns a STALE value.** It looks
+back 2.5 s and takes the FIRST match, so any second `GET` of the same
+field inside that window echoes the earlier reply:
+
+```python
+link.seqd(f'GET {field}', wait=2.0)
+t0 = time.time() - 2.5
+for _, s in link.since(t0, f'get {field} '):
+    return float(s.split()[2])
+```
+
+MEASURED tovez 2026-09-05, five writes read back through `wire_get()` in
+a tight loop:
+
+```
+SET  0.958 -> ack   GET -> 0.958
+SET  0.962 -> ack   GET -> 0.958
+SET    0.9 -> ack   GET -> 0.958
+SET  1.234 -> ack   GET -> 0.958
+SET    0.5 -> ack   GET -> 0.958
+```
+
+The FIRMWARE is not at fault. Reading the raw `get` line with the window
+defeated (3 s between write and read) round-trips exactly:
+
+```
+initial       ['get rotational_slip 0.500000']     <- the loop's last write DID land
+after SET  0.962 ack='ack 2 16 stop'  -> ['get rotational_slip 0.962000']
+after SET  0.900 ack='ack 4 16 stop'  -> ['get rotational_slip 0.900000']
+after SET  0.958 ack='ack 6 16 stop'  -> ['get rotational_slip 0.958000']
+```
+
+**Consequence, stated plainly: the `rotational_slip=... pivot_overrun=...
+(live)` banner every gate mode prints is not trustworthy, so neither
+G1 run's slip can be ATTRIBUTED to a specific number** -- run 1 printed
+1.01 and run 2 printed 0.952 after writing 0.958, and at most one of
+those can be right. What the pair does establish is a controlled
+comparison: some fixed slip A, versus A after writing 0.958, moved
+mean|err| from 4.604 to 1.948. The direction and the size of the effect
+are real; the axis label is not. A third run below fixes that by
+verifying the live value with a raw read before driving.
+
+Two further facts from the same probe, both new:
+
+- **`pivot_overrun` is no longer a wire field at all.** Design S4.7
+  renamed it `stop_distance`, so `wire_get(link, 'pivot_overrun', 0.0)`
+  gets an error and returns its DEFAULT. The banner's
+  `pivot_overrun=0.0` was never a reading. `GET stop_distance` really
+  does answer 0.000000 -- so the conclusion (no coast compensation
+  baked) survives, but it needed the right field name to establish.
+- **`lag` reads 0.130000, not 0.** So one of design S10.2's two bench
+  measurements HAS been made on tovez, and it is the 0.13 step lag that
+  `sprint-029-engine-calibration-facts` explicitly warns is the wrong
+  number for pivots (vevov's pivot-fitted value was 0.04).
+
+Both `wire_get()`'s staleness and the dead `pivot_overrun` name are
+defects in `tests/playfield/turn_calibration.py`, not in the robot.
+
+### G1 with a VERIFIED slip -- and the bake recommendation
+
+Third run, this time writing the slip and confirming it with a raw
+`get` read (3 s after the write, outside `wire_get()`'s stale window)
+before a wheel turned: `VERIFIED live slip: ['get rotational_slip
+0.962000']`.
+
+MEASURED tovez 2026-09-05, firmware 1.20260904.5 (commit 38808e1),
+cruise 60 mm/s, 12 alternating +-90 deg pivots each with a 20-sample
+rest fix:
+
+| run | `rotational_slip` | mean\|err\| | sd | capture |
+|---|---|---|---|---|
+| 1 | unknown -- banner unreliable | 4.604 deg | 5.077 deg | `ticket016/g1/` |
+| 2 | unknown + a write of 0.958 | 1.948 deg | 2.156 deg | `ticket016/g1-slip0958/` |
+| 3 | **0.962, verified by raw read** | **1.531 deg** | **1.775 deg** | `ticket016/g1-slip0962/` |
+
+Only run 3's axis label is trustworthy; runs 1 and 2 are a controlled
+before/after whose "before" value is not known. The trend is
+nevertheless unambiguous and monotone.
+
+**G1 verdict: FAIL, on both halves of the restated bar** (mean|err|
+<= 1.0 deg, sd <= 1.0 deg). Recording it as a fail rather than rounding
+1.531 up to "about 1 degree", per this ticket's own acceptance
+criterion.
+
+**The mean is fixable; the sd is not, by this knob.** Slip is a pure
+scale factor, so it can only move the mean. sd fell 5.077 -> 2.156 ->
+1.775 as a SIDE EFFECT (a proportional error shrinks with the
+systematic offset it multiplies) and is now close to the floor. Against
+a camera noise floor of 0.22-0.29 deg sd, the remaining ~1.8 deg is
+mechanical repeatability of an open-loop pivot. Reaching sd <= 1.0 deg
+needs a different mechanism -- closed-loop yaw termination, or the
+`lag`/`stop_distance` pair actually measured for pivots -- not a better
+slip.
+
+**Recommended bake: `rotational_slip = 0.962` for tovez.** Note this is
+within 0.0003 of tigez's independently measured 0.9617, which is
+reassuring for a constant that describes wheel-contact scrub on two
+robots of the same build.
+
+**Two calibration inputs are still unmeasured on tovez and should be
+called out rather than silently left at their defaults:**
+
+- `stop_distance` = 0. Never measured (design S10.2's second bench
+  measurement).
+- `lag` = 0.13. This is the step-response lag, and
+  `sprint-029-engine-calibration-facts` records that the pivot-fitted
+  value on vevov was 0.04, not the 0.13 step lag -- so tovez is
+  carrying the number that sprint explicitly warned is wrong for
+  pivots. UNVERIFIED whether refitting it would move G1's sd; it is the
+  first thing to try.
+
+## Ticket 016 -- G6, the 500 mm square, three laps
+
+MEASURED tovez 2026-09-05, firmware 1.20260904.5 (commit 38808e1),
+`rotational_slip` 0.962 (verified by raw read before AND after the run),
+cruise 60 mm/s, `captures/session-b-20260905/ticket016/g6-500/`:
+
+```
+3 laps of a 500 mm square, left turns, from (-22.7, -27.0)
+lap 0: closure  48 mm, heading residual  1.9 deg, ok=True
+lap 1: closure  15 mm, heading residual  2.8 deg, ok=True
+lap 2: closure 103 mm, heading residual -2.0 deg, ok=True
+G6: closures [48, 15, 103] mm (bar <= 10.8 mm) -- FAIL
+```
+
+**G6 verdict: FAIL.** Not one of the three laps met the bar; the best
+was 15 mm.
+
+**Closure does not track heading residual here.** It varies 7x (15 ->
+103 mm) while the heading residual stays inside +-3 deg the whole time,
+and lap 1 has the LARGEST heading error with the SMALLEST closure. So
+the error is not accumulating as net rotation; it is in leg length or
+per-corner translation. (I initially attributed lap 0's 48 mm to the
+per-pivot repeatability G1 measured -- sd 1.775 deg x sqrt(4) = 3.55 deg
+net, times the gopiv report's 13 mm/deg, gives 46 mm, a very close fit.
+Lap 1 refutes that model outright, so it is withdrawn: a single lap
+agreeing with an arithmetic guess is a coincidence, not a mechanism.)
+
+**The 10.8 mm bar is not a like-for-like comparison, and the ticket
+inherited that without noticing.** `G6_BASELINE_CLOSURE_MM = 10.8` cites
+`reports/gopiv-closure-20260901.md`, which is:
+
+- a different robot (**gopiv**, whose flexy wheels and kernel stop
+  timing differ from tovez -- see
+  `pivot-overshoot-by-drivetrain-20260904`),
+- on the **bench**, not the playfield,
+- at a **600 mm** side, not 500,
+- and critically, **with `pivot_overrun` tuned to ~0.7-0.8 mm**, which
+  is exactly the knob (now `stop_distance`) that reads **0** on tovez.
+
+That report's own tuning table says the untuned closure on gopiv was
+**75.6 mm**, falling to ~11 mm only once that knob was set. tovez's
+15-103 mm, untuned, sits right in the untuned regime the same report
+describes. So the honest reading is not "tovez is far worse than
+gopiv" -- it is "tovez has not had the tuning gopiv had when it set
+this bar."
+
+**What would move it**, in order of expected effect: measure
+`stop_distance` for tovez (design S10.2, the measurement that produced
+gopiv's 0.7-0.8 mm), then refit `lag` for pivots (it currently holds
+0.13, the step-response value sprint 029 warns is wrong for pivots).
+Neither was in this sprint's scope and neither is done -- recorded as
+**UNVERIFIED**, not attempted.
+
+## Ticket 016 -- G3/G4 and the 600 mm leg heading check (AC #4)
+
+MEASURED tovez 2026-09-05, firmware 1.20260904.5 (commit 38808e1),
+`rotational_slip` 0.962, cruise 100 mm/s, accel 300, v_floor 70,
+6 alternating +-600 mm legs, `captures/session-b-20260905/ticket016/g3-600/`:
+
+```
+  0 cmd  +600 cam 597.7 mm (err -2.3) peak 118 first 36.0 dh -2.40
+  1 cmd  -600 cam 596.4 mm (err -3.6) peak 112 first 10.0 dh +2.87
+  2 cmd  +600 cam 595.0 mm (err -5.0) peak 121 first 20.0 dh -5.02
+  3 cmd  -600 cam 594.0 mm (err -6.0) peak 118 first 10.0 dh +3.45
+  4 cmd  +600 cam 594.9 mm (err -5.1) peak 121 first 14.5 dh -2.80
+  5 cmd  -600 cam 593.9 mm (err -6.1) peak 121 first 11.5 dh +2.61
+G3: length err mean -4.7 mm (bar +-3.0) -- FAIL;
+    peak v max 121 mm/s (bar <= 105) -- FAIL
+G4: first-tick max 36.0 mm/s (bar <= v_floor 70.0) -- PASS;
+    max accel 787.9 (bar <= 1.5x accel = 450) -- FAIL;
+    max decel 490.7 (bar <= 2.0x accel = 600) -- PASS
+```
+
+**AC #4 ("six of six 600 mm legs hold heading within 1 deg on the
+REBUILT firmware"): FAIL, 0 of 6.** Per-leg |dh| is 2.40 / 2.87 / 5.02 /
+3.45 / 2.80 / 2.61 deg, mean 3.19 deg. Every leg is over the 1 deg bar,
+the best by 2.4x. Recorded as a fail; the twist-hold bake did not
+deliver 1 deg legs on the rebuilt firmware.
+
+**The heading error is a wheel-speed IMBALANCE, not drift.** `dh` flips
+sign exactly with the commanded direction (- + - + - +), so the signed
+mean is only -0.215 deg while the mean magnitude is 3.19 deg. A robot
+that drifts would accumulate; one whose left and right wheels differ by
+a constant factor curves one way in its own body frame and therefore the
+OPPOSITE way in the world when driven in reverse -- which is precisely
+this pattern. Corroborating it, G1's telemetry showed strongly
+asymmetric pivot peaks all session (left 56-89 mm/s against right
+102-138 mm/s for the same commanded magnitude).
+
+That points at per-wheel calibration or motor gain, NOT at
+`twist_hold_gain` -- which is where sprint 031 has been spending its
+effort. UNVERIFIED: no per-wheel measurement was made this session, and
+`travel_calib` is a single chassis-wide constant with no per-wheel
+split, so confirming it needs either a per-wheel `WHEELS_V` capture or
+a new config field. Flagged as the most promising lead for the next
+sprint.
+
+**Leg length runs consistently SHORT and gets worse within a run**
+(-2.3 -> -6.1 mm over six legs, monotone in magnitude). Mean -4.7 mm
+against a +-3.0 mm bar. Worth noting it is a 0.8% error on a chassis
+whose `travel_calib` was set for a different one.
+
+**G3's peak-velocity bar is arguably mis-stated, and this is the third
+sprint to trip on it.** The bar is `cruise x 1.05`; the drivetrain
+delivered 112-121 mm/s on a 100 mm/s command, i.e. 1.12-1.21x. The
+session notes above already record the same overshoot fraction at cruise
+200 in sprint 029 (226-256 on a 200 command, 1.13-1.28x) and at cruise
+100 earlier today (144 mm/s, 1.44x). A bar that no run at any speed on
+any board has ever met is measuring the bar, not the robot.
+
+## Ticket 016 -- G2 (arc endpoint accuracy), restated bar
+
+Bar: mean endpoint error <= 10.0 mm over 6 alternating +-45 deg arcs of
+300 mm chord.
+
+MEASURED tovez 2026-09-05, firmware 1.20260904.5 (commit 38808e1),
+`rotational_slip` 0.962, cruise 60 mm/s,
+`captures/session-b-20260905/ticket016/g2/`:
+
+```
+  0 d= +300 th=+0.785 endpoint_err   15.6 mm dh_err  +2.51 deg reason=stop
+  1 d= -300 th=-0.785 endpoint_err  213.2 mm dh_err -55.81 deg reason=TIMEOUT
+  2 d= +300 th=+0.785 endpoint_err    7.5 mm dh_err  -1.14 deg reason=stop
+  3 d= -300 th=-0.785 endpoint_err   31.5 mm dh_err  -6.33 deg reason=stop
+  4 d= +300 th=+0.785 endpoint_err   26.3 mm dh_err  +5.02 deg reason=stop
+  5 d= -300 th=-0.785 endpoint_err   34.6 mm dh_err  -8.62 deg reason=stop
+G2: endpoint err mean 54.78 mm, max 213.2 mm, 1/6 within 10.0 mm -- FAIL
+```
+
+**G2 verdict: FAIL.**
+
+**REVERSE arcs are far worse than forward arcs**, and the split is
+clean because the run alternates:
+
+| direction | endpoint errors | mean |
+|---|---|---|
+| forward (+300) | 15.6, 7.5, 26.3 | 16.5 mm |
+| reverse (-300) | 213.2, 31.5, 34.6 | 93.1 mm |
+
+Even discarding the timeout outright, reverse still averages 33.1 mm
+against forward's 16.5 -- 2x worse -- and every reverse arc's `dh_err`
+is negative (-55.81, -6.33, -8.62) while the forward ones straddle zero
+(+2.51, -1.14, +5.02). This is the SAME asymmetry the G3 legs show
+(`dh` flipping sign with drive direction) and points the same way: a
+constant left/right wheel-speed imbalance, which a reverse arc's
+geometry amplifies rather than cancels.
+
+**Arc 1 hit the 9000 ms timeout** (`reason=timeout`, 213 mm off,
+-55.8 deg). At the gate's default cruise of 60 mm/s a 300 mm chord is
+already 5 s of travel before the arc's rotation adds any wheel
+distance, so 9 s is a thin budget for the REVERSE arc, which by the
+table above is also the slower-converging one. Whether the timeout is
+a drivetrain stall or simply a too-short timeout is **UNVERIFIED** --
+the single clean discriminator (re-run the reverse arcs at
+`--timeout-ms 15000`) was not run, and I am not going to guess between
+them. Two of three reverse arcs finished with `reason=stop`, so it is
+not a reproducible hard failure.
+
+## Ticket 016 -- G5 (WHEELS_V step response)
+
+MEASURED tovez 2026-09-05, firmware 1.20260904.5 (commit 38808e1),
+`WHEELS_V +-200 mm/s` held 1500 ms, 8 trials alternating sign,
+`captures/session-b-20260905/ticket016/g5/`:
+
+```
+trial 0 +1: vl lag 0.110  vr lag 0.050  peak 220  max_accel 613.6  travel 23.12 cm
+trial 1 -1: vl lag 0.170  vr lag 0.080  peak 210  max_accel 230.8  travel 21.14 cm
+trial 2 +1: vl lag 0.175  vr lag 0.115  peak 226  max_accel 784.6  travel 22.09 cm
+trial 3 -1: vl lag 0.190  vr lag 0.135  peak 210  max_accel 425.9  travel 21.50 cm
+trial 4 +1: vl lag 0.200  vr lag 0.135  peak 220  max_accel 742.4  travel 21.95 cm
+trial 5 -1: vl lag 0.165  vr lag 0.060  peak 210  max_accel 345.5  travel 21.66 cm
+trial 6 +1: vl lag 0.120  vr lag 0.070  peak 210  max_accel 750.0  travel 22.24 cm
+trial 7 -1: vl lag 0.225  vr lag 0.150  peak 220  max_accel 213.0  travel 20.82 cm
+G5: peak 226 mm/s (bar <= 210) -- FAIL;
+    max rise 784.6 mm/s^2 (bar <= 600.0) -- FAIL
+```
+
+**G5 verdict: FAIL** on both halves.
+
+**The fail-closed fix made earlier today is confirmed working.** Every
+trial travelled 20.8-23.1 cm; the pre-fix version of this gate reported
+`passed: true` on 0.011-0.027 cm of camera noise because `WHEELS_V` was
+being sent UNSEQUENCED and silently dropped, and zero motion trivially
+clears a "peak <= 210" bar. Kept for contrast as
+`captures/session-b-20260905/g5-today-FALSEPASS-unsequenced/`.
+
+**Accel overshoot is direction-dependent**: the four forward trials
+gave 613.6 / 784.6 / 742.4 / 750.0 mm/s^2, the four reverse ones
+230.8 / 425.9 / 345.5 / 213.0. Forward is 2-3x the reverse figure and
+is what fails the bar; reverse would pass alone.
+
+# THE CROSS-GATE FINDING: tovez's wheels are not matched
+
+Four independent gates, measured this session, all say the same thing,
+and none of them was designed to look for it:
+
+| gate | observation | direction dependence |
+|---|---|---|
+| G5 | per-wheel step lag: **left 0.168 s mean vs right 0.096 s** (8/8 trials, left always slower, no exceptions) | left slower in both directions |
+| G3 | leg `dh` flips sign with drive direction, mean magnitude 3.19 deg, signed mean -0.215 deg | pure body-frame curve |
+| G2 | reverse arcs 93.1 mm mean endpoint error vs forward 16.5 mm; every reverse `dh_err` negative | reverse 5.6x worse |
+| G1 | pivot wheel-speed peaks left 56-89 mm/s against right 102-138 mm/s for equal commanded magnitude | -- |
+
+A single left/right response mismatch explains all four. It is not
+`twist_hold_gain`, which is where this sprint spent its tuning effort,
+and it is not `rotational_slip`, which is a scale factor and cannot
+produce a direction-dependent sign flip.
+
+**The blocking problem is that the firmware has no per-wheel knob.**
+`lag`, `stop_distance` and `travel_calib` are each ONE chassis-wide
+constant. `lag` is currently 0.13 -- almost exactly the average of the
+two measured wheels (0.168, 0.096), i.e. wrong for both by ~40%.
+
+**Recommended for the next sprint**, in priority order:
+
+1. Split `lag` (and probably `stop_distance`) into per-wheel fields.
+   The measurement to seed them already exists in this capture.
+2. Re-run G1/G2/G3/G6 after that split before touching any other knob.
+3. Only then revisit `twist_hold_gain`.
+
+UNVERIFIED: that a per-wheel split actually closes the gates. What IS
+measured is the asymmetry itself, on four independent gates, with the
+captures cited above.
