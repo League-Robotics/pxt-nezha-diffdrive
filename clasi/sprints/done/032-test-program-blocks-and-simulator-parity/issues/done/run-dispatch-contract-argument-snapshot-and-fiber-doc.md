@@ -1,9 +1,5 @@
 ---
-<<<<<<<< HEAD:clasi/sprints/032-test-program-blocks-and-simulator-parity/issues/run-dispatch-contract-argument-snapshot-and-fiber-doc.md
-status: in-progress
-========
 status: done
->>>>>>>> master:clasi/sprints/done/032-test-program-blocks-and-simulator-parity/issues/done/run-dispatch-contract-argument-snapshot-and-fiber-doc.md
 sprint: '032'
 tickets:
 - 032-004

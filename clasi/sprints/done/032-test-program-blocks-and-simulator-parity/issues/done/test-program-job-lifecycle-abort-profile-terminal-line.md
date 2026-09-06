@@ -1,9 +1,5 @@
 ---
-<<<<<<<< HEAD:clasi/sprints/032-test-program-blocks-and-simulator-parity/issues/test-program-job-lifecycle-abort-profile-terminal-line.md
-status: in-progress
-========
 status: done
->>>>>>>> master:clasi/sprints/done/032-test-program-blocks-and-simulator-parity/issues/done/test-program-job-lifecycle-abort-profile-terminal-line.md
 sprint: '032'
 tickets:
 - 032-001
