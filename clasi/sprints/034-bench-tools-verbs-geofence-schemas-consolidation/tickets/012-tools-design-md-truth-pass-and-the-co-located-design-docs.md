@@ -1,7 +1,7 @@
 ---
 id: '012'
 title: tools/DESIGN.md truth pass and the co-located design docs
-status: open
+status: in-progress
 use-cases:
 - SUC-004
 depends-on:
