@@ -1,8 +1,9 @@
 ---
 id: '005'
 title: Extract RunBridge from Protocol's inline RUN-command parking/dedupe/dispatch
-status: open
-use-cases: [SUC-003]
+status: in-progress
+use-cases:
+- SUC-003
 depends-on: []
 github-issue: ''
 issue: protocol-diet-runbridge-radio-enable-routeline.md
