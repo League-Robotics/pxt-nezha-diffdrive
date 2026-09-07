@@ -1,9 +1,13 @@
 ---
 id: '003'
 title: 'Host-level test: setupWifi() precedence, truncation, and late-call behavior'
-status: open
-use-cases: [SUC-001, SUC-002, SUC-003]
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+depends-on:
+- '001'
 github-issue: ''
 issue: wifi-credentials-are-set-in-code-from-the-project-s-own-secrets-ts.md
 completes_issue: false
@@ -78,23 +82,23 @@ actually verify the shipped code.
 
 ## Acceptance Criteria
 
-- [ ] New file `tests/host/test_setupwifi_precedence_source_pin.py`
+- [x] New file `tests/host/test_setupwifi_precedence_source_pin.py`
       (or similar name) exists, following
       `test_dispatched_job_motion_source_pin.py`'s structure: a module
       docstring explaining what this IS and IS NOT proving (a "What
       this is NOT" paragraph naming the `pxt.h` compile blocker, same
       as its precedent), `_strip_comments()`, then one test function
       per pinned shape above.
-- [ ] The test fails if `protocol.cpp` is edited to reintroduce the
+- [x] The test fails if `protocol.cpp` is edited to reintroduce the
       ternary-only precedence bug (verify by temporarily reverting the
       `serviceWifi()` branch to the old ternary locally and confirming
       the new test catches it, then restore the fix — do not leave the
       revert in the tree).
-- [ ] The test fails if the late-call guard is removed or checked
+- [x] The test fails if the late-call guard is removed or checked
       after the writes.
-- [ ] The test fails if `wifiDbgBuf_` shrinks back to 320 or the
+- [x] The test fails if `wifiDbgBuf_` shrinks back to 320 or the
       `credsrc=`/`trunc=` fields are removed from the format string.
-- [ ] `tests/tools/test_make_deploy_wifi.py` still passes untouched —
+- [x] `tests/tools/test_make_deploy_wifi.py` still passes untouched —
       this ticket does not touch `tools/make_deploy.py`.
 
 ## Testing
