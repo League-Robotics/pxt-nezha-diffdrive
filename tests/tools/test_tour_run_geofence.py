@@ -118,7 +118,7 @@ def test_the_refusal_lands_before_the_seed():
     rep = tour_run.make_repositioner(link, FakeCam((0.0, 0.0, 0.0)))
     with pytest.raises(field.PathRefused):
         rep.go(0.0, 60.0, 180.0, echo=False)
-    assert not any(s.startswith('RUN:seedxy') for s in link.sent)
+    assert not any(s.startswith('RUN seedxy') for s in link.sent)
 
 
 def test_a_legal_dot_is_still_driven():
@@ -127,8 +127,8 @@ def test_a_legal_dot_is_still_driven():
     link = FakeLink()
     rep = tour_run.make_repositioner(link, FakeCam((0.0, 0.0, 90.0)))
     rep.go(*tour_run.START, tries=1, echo=False)
-    assert 'RUN:goto:50.0:30.0' in link.sent
-    assert link.sent[0].startswith('RUN:seedxy')
+    assert 'RUN goto 50.0 30.0' in link.sent
+    assert link.sent[0].startswith('RUN seedxy')
 
 
 def test_report_start_pose_flags_a_staging_error(capsys):

@@ -51,7 +51,7 @@ def record_tour(link, cam, name, timeout=120):
     """
     stream = tlm.require_stream(link, timeout=3.0)
     t0 = time.time()
-    link.send(f'RUN:tour:{name}')
+    link.send(f'RUN tour {name}')
     pose, fixes = [], []
     started = False
     end = time.time() + timeout
@@ -164,7 +164,7 @@ def main():
                 if p is None:
                     print('  camera lost the robot; skipping')
                     continue
-                link.send(f'RUN:seedxy:{p[0]:.1f}:{p[1]:.1f}:{p[2]:.1f}')
+                link.send(f'RUN seedxy {p[0]:.1f} {p[1]:.1f} {p[2]:.1f}')
                 for s2 in link.lines(6):
                     if s2.startswith('OCAL:seeded'):
                         break

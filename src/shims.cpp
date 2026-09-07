@@ -1814,6 +1814,11 @@ void registerRunDispatch(Action cb) {
 // A null `signature` is normal, not an error: it is how a handler bound
 // with no declared signature reaches here, and the registry stores it
 // as the empty string, which makes execFuncs omit the field entirely.
+//
+// NOTE the layout below: PXT's shim scanner requires `//%` to sit
+// IMMEDIATELY above the declaration it annotates. A comment between the
+// two fails the build with "declaration not understood", naming the
+// comment line rather than the real problem.
 //%
 void registerRunName(String name, String signature) {
   if (name == nullptr) return;
@@ -1826,6 +1831,13 @@ void registerRunName(String name, String signature) {
   diffDrive::runRegistry().add(nameStr.toCharArray(),
                                signatureStr.toCharArray());
 }
+
+// Declares that a catch-all handler (run.ts's onRunCommand) is bound, so
+// EVERY name is dispatchable and WireAdapter::onRun must stop refusing
+// names the registry does not list. One-way: nothing unsets it, because
+// a handler cannot be unbound.
+//%
+void registerRunCatchAll() { diffDrive::runRegistry().acceptAnyName(); }
 
 // Invokes the registered callback, if one exists, on the CALLER's own
 // fiber -- protocol.cpp reaches this via the same same-package

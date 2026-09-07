@@ -69,8 +69,8 @@ need more than a line; a file with no section is fully described here.
 | `rotation_check.py` | commanded vs. gyro-measured rotation over the standard pivot set (floor and radio only; on the bench the body never rotates). |
 | `turn_sweep.py` | turn accuracy against commanded yaw rate, camera-scored. |
 | `otos_levercal.py` | fits the OTOS lever arm from pivot circles (produced the 38.2 mm arm baked into `test/test.ts`). |
-| `arc_capture.py` | captures the full on-device h(t) trajectory of a `RUN:arc` split move, for the phase-handoff question an endpoint heading cannot answer. |
-| `otos_bench.py` | the zeguz drum-rig console — chainable subcommands over `test/testrig.ts`'s numeric `RUN:<n>` vocabulary. |
+| `arc_capture.py` | captures the full on-device h(t) trajectory of a `RUN arc` split move, for the phase-handoff question an endpoint heading cannot answer. |
+| `otos_bench.py` | the zeguz drum-rig console — chainable subcommands over `test/testrig.ts`'s numeric `RUN <n>` vocabulary. |
 
 ### Acceptance
 
@@ -106,7 +106,7 @@ unregistered tag and applies its own parallax correction (see
 |---|---|
 | `linefollow/stage.py` | stages vevov at a target true world pose from ONE camera fix, refusing anything outside the margin. |
 | `linefollow/follow.py` | world-anchored pure pursuit along a field-frame path, on the robot's own odometry. |
-| `linefollow/sensor_run.py` | runs the on-robot Trackbit follower (`RUN:line`) over the farm serial daemon, with a camera watchdog that can only abort, never steer. |
+| `linefollow/sensor_run.py` | runs the on-robot Trackbit follower (`RUN line`) over the farm serial daemon, with a camera watchdog that can only abort, never steer. |
 | `linefollow/linerun.py` | one lossless session to a farm robot's serial daemon: send lines, log every reply with a timestamp. |
 | `linefollow/camlog.py` | logs the camera-measured centre of rotation to CSV at the daemon's rate. Diagnostic only. |
 | `linefollow/chart.py` | scores and charts a `follow.py` run: reference path, camera track, odometry track, cross-track error. |
@@ -483,7 +483,7 @@ them carries a scale factor of its own. Three responsibilities:
 
 ## Tour family — run, record, chart, score
 
-All drive the on-robot programs in `test/test.ts` via `RUN:` commands
+All drive the on-robot programs in `test/test.ts` via `RUN` commands
 and record what comes back.
 
 - **`tour_run.py`** — the canonical run: camera used exactly twice
@@ -492,8 +492,8 @@ and record what comes back.
 - **`tour_capture.py`** / **`tour_watch.py`** — telemetry recorders
   (triggered vs. button-watch); write the pose/wheel CSVs. Both select
   a tour by NAME (`--tour {world,robot,wheels}` →
-  `RUN:tour:<name>`), like everything else that drives `test.ts`; see
-  "The `RUN:` vocabulary" below for why a numeric selector against that
+  `RUN tour <name>`), like everything else that drives `test.ts`; see
+  "The `RUN` vocabulary" below for why a numeric selector against that
   program is a silent no-op.
 - **`tour_chart.py`** / **`practice_chart.py`** — the standard
   matplotlib plots of those CSVs. `tour_chart.py --meta` takes a
@@ -625,10 +625,10 @@ coordinates.
 - **`otos_levercal.py`** — fits the OTOS lever arm from pivot circles
   (produced the 38.2 mm arm baked into `test/test.ts`).
 - **`arc_capture.py`** — captures the whole on-device h(t) trajectory
-  of a `RUN:arc` split move. It samples on the robot and dumps
+  of a `RUN arc` split move. It samples on the robot and dumps
   afterwards rather than polling during the move: a request/reply round
   trip DURING a move is independently dangerous here, and subscribing
-  v6 telemetry and then sending a cleartext `RUN:` line hangs the link
+  v6 telemetry and then sending a `RUN` line hangs the link
   outright (`clasi/issues/cleartext-run-hangs-the-link-under-active-
   telemetry.md`).
 - **`reposition.py`** — put the robot on a world point, camera-
@@ -645,8 +645,8 @@ coordinates.
 ### One repositioning loop, and it is position-first (sprint 034 ticket 009)
 
 `reposition.Repositioner.go()` drives to the point, **then** faces the
-heading — two phases, never interleaved, so no `RUN:goto` is ever sent
-after a `RUN:face`.
+heading — two phases, never interleaved, so no `RUN goto` is ever sent
+after a `RUN face`.
 
 That ordering is not a stylistic choice. `tour_run.py` used to carry a
 second implementation, `place()`, whose comment recorded why: an
@@ -782,17 +782,22 @@ The RECORDERS score the fence after the fact on rows they already hold:
 robot attached, and it is why the geofence is wired in by having the
 PLANNERS call the check, never by teaching `field.py` about a link.
 
-## The `RUN:` vocabulary: named on the robot, numeric on the rig
+## The `RUN` vocabulary: named on the robot, numeric on the rig
 
-`RUN:` is a cleartext line, forwarded by `protocol.cpp` and dispatched
-by whichever on-robot program is flashed. The two programs answer it
-differently, and which one is on the board decides whether a numeric
-`RUN:<n>` means anything:
+`RUN <name> [<arg>...] #<id>` is an ordinary sequenced v6 verb. It
+decodes in `wire_handler.cpp`, is checked against the registry `FUNCS`
+lists, and is handed to whichever on-robot program is flashed. (Before
+2026-09-07 it was a cleartext `RUN:<name>` line matched by prefix ahead
+of the v6 grammar; that carve-out is gone, and with it the unsequenced
+spelling — an unsequenced `RUN` now parses as `#0` and is dropped.)
 
-| program | dispatch | numeric `RUN:<n>` |
+The two programs answer it differently, and which one is on the board
+decides whether a numeric `RUN <n>` means anything:
+
+| program | dispatch | numeric `RUN <n>` |
 |---|---|---|
-| `test/test.ts` — the playfield robot | `diffDrive.onRun("<name>", ...)`, matched on the exact string | **a silent no-op**: no numeric name is registered, so the tool runs to completion, prints numbers, and the robot never moves |
-| `test/testrig.ts` — the zeguz drum rig | one `diffDrive.onRunCommand()` catch-all | **works**: a bare `RUN:20` has no second colon-part, so the dispatcher's split puts `"20"` in `name`, and the handler parses the number from there and hands it to `rigExec()` |
+| `test/test.ts` — the playfield robot | `diffDrive.onRun("<name>", ...)`, matched on the exact string | **refused with `err 1`**: no numeric name is registered, and since 2026-09-07 an unregistered name is rejected at the wire instead of silently doing nothing. The old failure — tool runs to completion, prints numbers, robot never moved — is no longer reachable. |
+| `test/testrig.ts` — the zeguz drum rig | one `diffDrive.onRunCommand()` catch-all | **works**: the catch-all makes every name dispatchable (and tells the wire so, via `registerRunCatchAll`), so `RUN 20 #1` puts `"20"` in `name` and the handler parses the number from there for `rigExec()` |
 
 So `otos_bench.py`'s numeric vocabulary (probe, zero, stream,
 calibrate, servo pin/pulse, drum speed, lever arm) is **live**, not
@@ -801,8 +806,8 @@ numbers, because it is the one tool that drives `testrig.ts`. It is a
 console, not a bench-run recorder, and it is out of scope for
 everything the tour family does. Every tool that drives `test.ts` —
 the tours, the recorders, the ground-truth probes, `arc_capture.py` —
-speaks named verbs (`RUN:tour:world`, `RUN:pivot:<deg>`, `RUN:cal`,
-`RUN:arc:<deg>`, `RUN:fix`); `tests/tools/test_run_verbs.py` pins the
+speaks named verbs (`RUN tour world`, `RUN pivot <deg>`, `RUN cal`,
+`RUN arc <deg>`, `RUN fix`); `tests/tools/test_run_verbs.py` pins the
 exact strings against a fake link so a numeric regression fails on the
 host rather than on the field.
 

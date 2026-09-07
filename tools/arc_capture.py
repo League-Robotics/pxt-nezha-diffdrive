@@ -161,28 +161,30 @@ def main():
 
     # --- firmware-identity check (no motion) --------------------------
     # drop any ack/nack reply sharing the link
-    bogus = 'RUN:notarealverb'
-    seen = list(link.send_until(bogus, '\x00NEVER\x00', tries=1, wait=1.5,
+    # Since 2026-09-07 an unregistered name is REFUSED at the wire, with
+    # `err 1`, instead of being silently swallowed -- WireAdapter::onRun
+    # checks the same registry FUNCS lists. So the probe inverts: an
+    # `err 1` is the healthy answer, and silence now means the robot is
+    # not answering at all.
+    bogus = 'RUN notarealverb'
+    seen = list(link.send_until(bogus, 'err 1', tries=1, wait=1.5,
                                  echo=False))
-    reply = [s for s in seen if not s.startswith(('ack ', 'nack '))]
-    if reply:
-        print(f'  WARNING: bogus verb {bogus!r} drew a reply: {reply} -- '
-              f'the RUN: dispatcher is not behaving as string-keyed/'
-              f'silent-no-op as expected; identity check is inconclusive.')
+    if any(t.startswith('err 1') for t in seen):
+        print(f'  OK: unregistered verb {bogus!r} refused with err 1 '
+              f'(RUN dispatch confirmed alive and registry-checked).')
     else:
-        print(f'  OK: bogus verb {bogus!r} drew no reply (string-keyed '
-              f'RUN: dispatch confirmed alive; {len(seen)} keepalive '
-              f'line(s) filtered).')
+        print(f'  WARNING: unregistered verb {bogus!r} drew no err 1: '
+              f'{seen} -- either the flash predates the registry check or '
+              f'the robot is not answering; identity check inconclusive.')
 
     # --- the real, single-shot measurement -----------------------------
     # Deliberately NO telemetry subscription anywhere in this script --
-    # see the module docstring's "dead end" section. RUN:arc is sent
-    # cleartext exactly as verified standalone-safe.
+    # see the module docstring's "dead end" section.
     if abs(a.deg) < 50:
         print(f'  WARNING: |deg|={abs(a.deg)} < 50 -- this will NOT '
               f'exercise the split-move path (moveX() blends it into one '
               f'move instead).')
-    cmd = f'RUN:arc:{a.deg:g}'
+    cmd = f'RUN arc {a.deg:g}'
     ack = link.send_until(cmd, 'DBG:arc:', tries=2, wait=5.0)
     if not any(s.startswith('DBG:arc:') for s in ack):
         raise SystemExit(

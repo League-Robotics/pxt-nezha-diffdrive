@@ -169,7 +169,7 @@ def main():
         p = cam.fix()
         if p is None:
             print('  camera lost the robot before the start'); break
-        link.send(f'RUN:seedxy:{p[0]:.1f}:{p[1]:.1f}:{p[2]:.1f}')
+        link.send(f'RUN seedxy {p[0]:.1f} {p[1]:.1f} {p[2]:.1f}')
         for s in link.lines(6):
             if s.startswith('OCAL:seeded'):
                 break
@@ -177,7 +177,7 @@ def main():
 
         # --- the robot drives the whole tour alone from here ---
         t0 = time.time()
-        link.send(f'RUN:tour:{a.tour}')
+        link.send(f'RUN tour {a.tour}')
         ended = False
         fixes = []      # the robot's own corner fixes (OCAL:cN)
         for s in link.lines(120):

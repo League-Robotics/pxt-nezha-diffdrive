@@ -1417,7 +1417,7 @@ def run_busguard(link, cam, a, out):
         if interfere:
             time.sleep(a.busguard_delay)      # land it INSIDE the drive
             t0 = time.time()
-            link.send('RUN:fix')
+            link.send('RUN fix')
             # RUN:fix -> logFix("now") emits `OCAL:now:<x>:<y>:<h>`, and
             # `OERR:read-failed:now` first if the OTOS read itself failed
             # (test/test.ts:310-320). Both are the reply; a failed read

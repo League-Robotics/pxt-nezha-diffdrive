@@ -68,7 +68,7 @@ class Repositioner:
         return self.cam.fix(n=samples)
 
     def _seed(self, pose) -> bool:
-        self.link.send(f'RUN:seedxy:{pose[0]:.1f}:{pose[1]:.1f}:{pose[2]:.1f}')
+        self.link.send(f'RUN seedxy {pose[0]:.1f} {pose[1]:.1f} {pose[2]:.1f}')
         for s in self.link.lines(8):
             if s.startswith('OCAL:seeded'):
                 return True
@@ -138,7 +138,7 @@ class Repositioner:
             # Seed the robot with what the camera SEES, so its own
             # world frame matches the field before it plans anything.
             self._seed(pose)
-            self.link.send(f'RUN:goto:{x:.1f}:{y:.1f}')
+            self.link.send(f'RUN goto {x:.1f} {y:.1f}')
             self._wait('GOTO:end', 45)
 
         # --- phase 2: heading, LAST, from a fresh seed ---------------
@@ -153,7 +153,7 @@ class Repositioner:
             if abs(herr) <= self.tol_deg:
                 break
             self._seed(pose)
-            self.link.send(f'RUN:face:{heading:.1f}')
+            self.link.send(f'RUN face {heading:.1f}')
             self._wait('FACE:end', 25)
         return self.fix()
 

@@ -948,7 +948,7 @@ Two test surfaces (see `tests/DESIGN.md` and `test/DESIGN.md`):
   `testFiles`) — on-robot smoke/bench programs, not assertion suites.
   `test.ts` drives three playfield square tours (robot-relative,
   OTOS-guided `goToWorld`, open-loop wheels), triggered by buttons or
-  wire `RUN:` commands, each as an explicit `startMove` +
+  wire `RUN` commands, each as an explicit `startMove` +
   `driveTick()` loop; plus named commands for lever-arm calibration
   and probes. `testrig.ts` is the zeguz OTOS drum-rig console.
   Deployed via `tools/make_deploy.py`, which promotes them into

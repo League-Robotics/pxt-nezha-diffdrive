@@ -180,7 +180,7 @@ def main(tcp=None):
     # heading convention: each step measures zero motion. Clear it first,
     # and confirm the robot says it is ready, so a refusal can never be
     # misread as a geometry failure.
-    L.unseq('RUN:clearestop', r'^ESTOP:cleared', tries=3)
+    L.seqd('RUN clearestop', tries=3)
     st = L.unseq('STATUS', r'^status ')
     print('status:', st)
     if st and 'ready=0' in st:

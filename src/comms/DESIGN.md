@@ -1,6 +1,6 @@
 # src/comms — wire protocol, transports, and protocol composition
 
-**Owner:** Eric Busboom · **Last reviewed:** 2026-08-26 · **Status:** stable
+**Owner:** Eric Busboom · **Last reviewed:** 2026-09-07 · **Status:** stable
 
 The v6 ASCII wire stack and everything that gets it onto the wire:
 `wire_handler.h/.cpp` (`Wire::WireHandler`, grammar/decode),
@@ -20,9 +20,15 @@ by `tests/host/test_radio_transport_rx_capacity.py`),
 terminator decision it makes — host-portable, no `pxt.h`, host-tested
 by `tests/host/test_transport_sink.py`), `run_queue.h` /
 `run_bridge.h/.cpp`
-(`diffDrive::RunBridge`, the cleartext `RUN:` bridge's sanitize/dedupe/
+(`diffDrive::RunBridge`, the `RUN` bridge's sanitize/dedupe/
 park rules over that ring — host-portable, no `pxt.h`, host-tested by
-`tests/host/test_run_bridge.py`), and `protocol.h/.cpp`
+`tests/host/test_run_bridge.py`), `run_registry.h/.cpp`
+(`diffDrive::RunRegistry`, the C++ mirror of the names a block program
+bound with `onRun()`, which the `FUNCS` verb enumerates — written from
+`shims.cpp` as each handler binds, read back through the Adapter's
+`runCount()`/`runName()`/`runSignature()` seam; host-portable, no
+`pxt.h`, host-tested by `tests/host/test_run_registry.py`), and
+`protocol.h/.cpp`
 (`diffDrive::Protocol`, the CODAL fiber that plumbs transports into the
 wire stack, and the only thing here that calls TypeScript or arbitrates
 the drivetrain).

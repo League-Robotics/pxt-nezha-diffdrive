@@ -370,7 +370,7 @@ def _offer_body():
 def _handle_run_body():
     text = _protocol_cpp_source()
     match = re.search(
-        r"void Protocol::handleRun\([^)]*\)\s*\{(.*?)\n\}", text, re.DOTALL
+        r"bool Protocol::handleRun\([^)]*\)\s*\{(.*?)\n\}", text, re.DOTALL
     )
     assert match, "Protocol::handleRun() was not found in protocol.cpp"
     return match.group(1)

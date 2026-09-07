@@ -43,6 +43,8 @@
         "src/comms/run_queue.h",
         "src/comms/run_bridge.h",
         "src/comms/run_bridge.cpp",
+        "src/comms/run_registry.h",
+        "src/comms/run_registry.cpp",
         "src/comms/emit_queue.h",
         "src/comms/transport_sink.h",
         "src/comms/protocol.h",

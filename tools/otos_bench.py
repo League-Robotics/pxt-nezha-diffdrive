@@ -31,12 +31,19 @@ class Rig:
         self.p = serial.Serial(port, 115200, timeout=0.05)
         time.sleep(1.2)
         self.p.reset_input_buffer()
+        self._seq = 0           # v6 sequence id -- see send()
         self.rows = []          # (t_host, ms, x01mm, y01mm, hcdeg, vx, vy, om)
         self.csv_path = csv_path
         self.t0 = time.time()
 
     def send(self, n):
-        self.p.write(f'RUN:{n}\n'.encode())
+        # `RUN` is a sequenced v6 verb since 2026-09-07 -- an unsequenced
+        # line parses as #0 and is DROPPED, so this counter is not
+        # optional. Ids start at 1 and must strictly increase; this
+        # script is the only writer on its own port, so a plain counter
+        # is a correct sequencer.
+        self._seq += 1
+        self.p.write(f'RUN {n} #{self._seq}\n'.encode())
 
     def drain(self, seconds, quiet=False):
         end = time.time() + seconds

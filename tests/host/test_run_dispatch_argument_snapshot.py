@@ -30,7 +30,8 @@ bare module variable.
    `onRunCommand`) plus `runArg`/`runArgText`/`runArgCount` are
    extracted VERBATIM from `run.ts`, pasted into a throwaway harness
    alongside stub bodies for the two ambient shim functions this file
-   calls (`runCommandText()`, `_registerRunDispatch()` -- normally
+   calls (`runCommandText()`, `_registerRunDispatch()`,
+   `_registerRunName()` -- normally
    `sim.ts`/native code), and driven through a scripted NESTED
    dispatch: an "outer" handler reads its own arguments at entry,
    synchronously triggers a second dispatch (standing in for
@@ -43,7 +44,7 @@ bare module variable.
 
    **What this does NOT cover.** This harness is real TypeScript
    executed under `node`, but it is still a host-side STAND-IN for
-   `_registerRunDispatch`/`runCommandText` (normally backed by
+   `_registerRunDispatch`/`runCommandText`/`_registerRunName` (normally backed by
    `sim.ts`'s browser-simulator body or native `shims.cpp`/
    `protocol.cpp` code this file cannot compile or execute --
    `tests/host/`'s own limitation, stated in
@@ -192,7 +193,7 @@ _HARNESS_TEMPLATE = """
 declare const console: { log(msg: string): void; error(msg: string): void };
 declare const process: { exitCode: number; exit(code: number): void };
 
-// ---- stand-ins for the two ambient shim functions run.ts calls
+// ---- stand-ins for the ambient shim functions run.ts calls
 // (normally sim.ts's browser body or native shims.cpp/protocol.cpp,
 // neither of which tests/host/ can compile or execute) ----
 let _registeredCallback: (() => void) | undefined = undefined;
@@ -202,6 +203,19 @@ function _registerRunDispatch(cb: () => void): void {
 let _commandText: string = "";
 function runCommandText(): string {
     return _commandText;
+}
+// Publishes a name into the C++ mirror the FUNCS wire verb enumerates
+// (comms/run_registry.h). Recorded rather than ignored so the harness
+// stays honest about what onRun() calls, but nothing here asserts on it
+// -- this file's subject is the DISPATCH core's argument snapshotting,
+// and registration is tests/host/test_run_registry.py's.
+let _registeredNames: string[] = [];
+function _registerRunName(name: string, signature: string): void {
+    _registeredNames.push(name);
+}
+let _catchAllRegistered: boolean = false;
+function _registerRunCatchAll(): void {
+    _catchAllRegistered = true;
 }
 
 // ---- the REAL dispatch core + runArg family, extracted verbatim ----

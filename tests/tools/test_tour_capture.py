@@ -1,4 +1,4 @@
-"""tests/tools/test_tour_capture.py -- pins the `RUN:tour:<name>` verb
+"""tests/tools/test_tour_capture.py -- pins the `RUN tour <name>` verb
 `tools/tour_capture.py` sends.
 
 RUN verbs are string-keyed (test.ts `onRun`); a numeric `RUN:<n>` is a
@@ -9,7 +9,7 @@ This file cannot run the firmware, so it cannot prove the robot moves.
 What it CAN prove, with no robot and no serial port, is the one thing
 that was silently false before: that `tour_capture.py`'s own
 RUN-sending code path actually calls `link.send_until()` with the
-exact `RUN:tour:<name>` string current firmware's `onRun()` dispatch
+exact `RUN tour <name>` string current firmware's `onRun()` dispatch
 answers to -- not a numeric string no handler will ever match.
 
 The telemetry-parsing path (`tlm.require_stream`/`tlm.write_tlm_csv`)
@@ -93,7 +93,7 @@ def test_default_tour_sends_run_tour_world_not_bare_run_1(
         monkeypatch, tmp_path):
     fake = _run_main(monkeypatch, tmp_path, [])
 
-    assert fake.sent_until == ['RUN:tour:world']
+    assert fake.sent_until == ['RUN tour world']
 
 
 @pytest.mark.parametrize('tour', ['world', 'robot', 'wheels'])
@@ -101,10 +101,10 @@ def test_tour_flag_sends_the_matching_named_run_tour_verb(
         tour, monkeypatch, tmp_path):
     fake = _run_main(monkeypatch, tmp_path, ['--tour', tour])
 
-    assert fake.sent_until == [f'RUN:tour:{tour}']
+    assert fake.sent_until == [f'RUN tour {tour}']
     # the old numeric vocabulary must never resurface alongside the
     # named form
-    assert not any(s.startswith('RUN:') and s.split(':', 1)[1].isdigit()
+    assert not any(s.startswith('RUN ') and s.split(' ')[1].isdigit()
                    for s in fake.sent_until)
 
 

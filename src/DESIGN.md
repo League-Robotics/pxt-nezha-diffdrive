@@ -569,7 +569,7 @@ answer, the wire-visible shape of an empty allowlist. On THIS robot the
 names come from `run_registry.h`, the C++ mirror of what a block program
 bound with `onRun()` — not from the v6 `RUN` verb's own (empty)
 allowlist, which is unreachable here because `protocol.cpp` diverts the
-literal `RUN:` prefix before the v6 stack sees it (§8). **Sprint 007**:
+literal `RUN` prefix before the v6 stack sees it (§8). **Sprint 007**:
 `kCommandTable`'s size is now derived (`static const VerbEntry
 kCommandTable[];`, defined with a deduced size plus a `static_assert`
 pinning the expected count) instead of the size being hand-written
@@ -894,7 +894,7 @@ Reaching `rebasePosition()` over the wire closes the gap where a
 radio-driven tour could not zero its own pose/heading frame at leg 1
 and had to carry a host-side rotation to read every chart; reaching
 `estopClear()` over the wire closes the parallel gap where clearing an
-e-stop had no sequenced path (`RUN:clearestop` is cleartext-only,
+e-stop had no sequenced path (`RUN clearestop` is cleartext-only,
 unsequenced, and coexists unchanged). Both are refused (not silently
 ignored) while a motion obligation or RUN job is live, the same
 commandable-state gate other state-changing SET actions already check
@@ -929,7 +929,7 @@ count sourced from the same `diagValue(8)` call the telemetry `i2cf`
 column reads (see the Telemetry projection paragraph below), so the
 two can never disagree. `onRun()` is an honest `kUnknown` — there is no
 registration table here, because this project's real by-name test
-trigger is protocol.cpp's cleartext `RUN:` bridge, `RunBridge` plus
+trigger is protocol.cpp's `RUN` bridge, `RunBridge` plus
 `dispatchJob()` running the job on the protocol fiber itself (§8), a
 CODAL-side mechanism this host-portable class must never touch.
 
@@ -966,7 +966,7 @@ either one from protocol.cpp's own `run()` loop, which instead reads
 deadline, but never resolves a completed-but-unpolled motion first. A
 host that sends a timed verb, sees (by any means other than
 `STATUS`/`lastDone`) that it finished early, and immediately sends a
-cleartext `RUN:tour` gets it refused by `dispatchJob()`'s
+cleartext `RUN tour` gets it refused by `dispatchJob()`'s
 `motionOwner_ != kNone` gate for the rest of the original verb's
 declared duration, even though the kernel has been idle since the
 verb's own goal was reached. **Fix:** `hasLiveMotionObligation()` calls
@@ -1235,7 +1235,7 @@ already established that pattern in `WireHandler`) if the "commit
 before the adapter can refuse" ordering can't otherwise be avoided —
 whichever ticket 005 finds actually shrinks the pre-refusal high-water
 mark. **Measurement:** a `DIFFDRIVE_FAULT_SPIN` build with a
-stack-canary fill, one full `RUN:tour` plus a `RUN x #1` over radio
+stack-canary fill, one full `RUN tour` plus a `RUN x #1` over radio
 mid-tour, high-water mark read by pyOCD — hardware-only, no host-test
 substitute (this file, `protocol.cpp`, and the TS dispatch path all
 require `pxt.h`). The buffer relocation ships regardless of what the
@@ -1551,14 +1551,14 @@ nacking another's next command.
 (byte-identical to HELLO's reply), then forever: poll serial
 `tryReadLine()`, poll radio RX, poll WiFi — and hand whatever each one
 produced to **`routeLine(handler, data, len)`**, the one inbound path.
-A line carrying the literal `RUN:` prefix goes to the cleartext RUN
+A line carrying the literal `RUN` prefix goes to the cleartext RUN
 bridge; everything else — the full v6 grammar, including its own
 space-separated `RUN <name> … #<id>` verb — is `feed()`'d to the
 `handler` the caller passed, followed by the separate `"\n"` feed that
 completes the line. Which `WireHandler` that is (`wireHandler_` /
 `wireHandlerRadio_` / `wireHandlerWifi_`, each with its own
 `expectedNext_`) is the ONLY thing that ever differed between the three
-poll branches — which is exactly why the `RUN:` carve-out used to be
+poll branches — which is exactly why the `RUN` carve-out used to be
 written out three times to stay true on all three wires.
 
 **Each transport drains up to `kRxDrainPerPass` = 4 lines per pass
@@ -1614,7 +1614,7 @@ paired with, and everything below it, remains review-verified and
 bench-exercised.
 
 **Sprint 028: one execution model, not three.** Before this sprint,
-wire motion ticked on this fiber (above) while `RUN:` motion ticked on
+wire motion ticked on this fiber (above) while `RUN` motion ticked on
 a second, MessageBus-forked fiber holding its own `while
 (driveTick())` loop — the only place in the package where two fibers
 could do float work concurrently, which is what the VFP yield-hazard
@@ -1640,7 +1640,7 @@ would put `tourWorld()`'s between-move OTOS reads inside the encoder
 select-to-read settle window, trading the FPU hazard for an I2C one).
 A wire motion request arriving while `motionOwner_ == kJob` is refused
 with an error code rather than silently overwriting the job's move;
-`RUN:abort`/`RUN:clearestop` bypass the queue and take effect
+`RUN abort`/`RUN clearestop` bypass the queue and take effect
 immediately regardless of `motionOwner_`, preserving the
 already-working abort behavior (previously "by accident," per the
 issue, because the second fiber ran concurrently) as a deliberate fast
@@ -1656,7 +1656,7 @@ split never accounted for:
 1. `serviceHookEntry()` gated on `protocol().motionOwner_ ==
    MotionOwner::kJob` — a piece of STATE — not on which fiber was
    calling `tickDrive()`. A button-handler fiber calling `tickDrive()`
-   while a `RUN:tour` job is live on the protocol fiber satisfied that
+   while a `RUN tour` job is live on the protocol fiber satisfied that
    state check and ran `serviceOnce()` a second time, concurrently,
    corrupting the wire dispatcher's shared `lineBuf_` mid-yield (the ack
    write yields; the other fiber's `feed()` overwrote the buffer during
@@ -1698,7 +1698,7 @@ graph TD
     Sink --> Wire
     Radio[RadioTransport] -->|enable / enabled -- owns its own gate| Radio
     Protocol -->|drainEmitQueue, then serviceOnce: read/telemetry| Protocol
-    Protocol -->|offer on RUN: prefix| RunBridge[comms/run_bridge.h -- sanitize, dedupe, park]
+    WireAdapter -->|onRun -> protocolOfferRun| RunBridge[comms/run_bridge.h -- sanitize, park]
     RunBridge -->|run_queue.h ring| RunQueue[8 x 48 slot ring]
     RunBridge -->|dropped 28, malformed 30| DiagValue[shims.cpp diagValue ordinal table]
     Radio -->|rx frames/accepted/overrun/oversize 31-34| DiagValue
@@ -1718,7 +1718,7 @@ graph TD
     NezhaPort -->|EncoderGlitchArmor: raw==0 rejected explicitly| Kernel
 ```
 
-**RUN bridge.** `RUN:<name>[:<arg>…]` is handled by **`RunBridge`**
+**RUN bridge.** `RUN <name>[:<arg>…]` is handled by **`RunBridge`**
 (`comms/run_bridge.h/.cpp`), a host-portable object composed into
 `Protocol` — the same extraction shape `run_queue.h` itself already
 has, and host-tested on its own by `tests/host/test_run_bridge.py` with
@@ -1759,7 +1759,7 @@ name) now increment `malformedCount()`, surfaced at diag ordinal
 **30** — deliberately separate from the ring's capacity count at
 ordinal 28, since a malformed line and a full ring are different
 failures calling for different fixes. Each refusal used to be a bare
-`return`: a 48-character `RUN:tour:…` line with several numeric
+`return`: a 48-character `RUN tour …` line with several numeric
 arguments simply vanished, and from the relay that was
 indistinguishable from radio loss.
 

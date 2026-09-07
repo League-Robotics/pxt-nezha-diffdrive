@@ -12,7 +12,7 @@ repo's ONE repositioning loop (sprint 034 ticket 009), on two counts:
 **Why this exists.** Sprint 018 ticket 002 added `field.check_path()`
 and pinned it -- and then nothing called it. `grep -rn 'check_path' tools
 tests` returned `field.py` and its own test file, for three sprints,
-while `Repositioner.go()` sent `RUN:goto:{x}:{y}` to any caller-supplied
+while `Repositioner.go()` sent `RUN goto {x}:{y}` to any caller-supplied
 point. `.claude/rules/playfield-testing.md` is explicit that the check
 is mandatory and that driving off the playfield is a failure, not a
 synonym for driving. A test that only pinned the pure function was
@@ -72,7 +72,7 @@ class FakeCam:
 
 
 def _goto_lines(link):
-    return [s for s in link.sent if s.startswith('RUN:goto')]
+    return [s for s in link.sent if s.startswith('RUN goto')]
 
 
 # --- the refusal ---------------------------------------------------------
@@ -105,13 +105,13 @@ def test_go_refuses_a_legal_target_when_the_robot_starts_outside_the_margin():
 def test_go_refuses_before_the_seed_not_after_it():
     """Stated separately from the `sent == []` assertions because it is
     the ordering that matters, and ordering is what regresses: a check
-    dropped in just before `RUN:goto` would still refuse the drive, but
-    only after `RUN:seedxy` had rewritten the robot's world frame."""
+    dropped in just before `RUN goto` would still refuse the drive, but
+    only after `RUN seedxy` had rewritten the robot's world frame."""
     link = FakeLink()
     rep = Repositioner(link, FakeCam((0.0, 0.0, 0.0)))
     with pytest.raises(field.PathRefused):
         rep.go(0.0, 60.0, 0.0, echo=False)
-    assert not any(s.startswith('RUN:seedxy') for s in link.sent)
+    assert not any(s.startswith('RUN seedxy') for s in link.sent)
 
 
 def test_check_path_is_callable_on_the_repositioner_itself():
@@ -133,8 +133,8 @@ def test_go_drives_an_in_bounds_target():
     link = FakeLink()
     rep = Repositioner(link, FakeCam((0.0, 0.0, 0.0)))
     rep.go(50.0, 30.0, 180.0, tries=1, echo=False)
-    assert _goto_lines(link) == ['RUN:goto:50.0:30.0']
-    assert link.sent[0].startswith('RUN:seedxy'), (
+    assert _goto_lines(link) == ['RUN goto 50.0 30.0']
+    assert link.sent[0].startswith('RUN seedxy'), (
         'the seed must still precede the drive on an accepted move')
 
 
@@ -170,15 +170,15 @@ def test_heading_already_good_position_not_sends_no_face_command():
     """The simple half: the robot is pointing the right way and only
     needs to move. A loop that re-derives a heading command after the
     drive can only make that heading worse -- so there must be no
-    `RUN:face` on the wire at all."""
+    `RUN face` on the wire at all."""
     link = FakeLink()
     # correct heading throughout; position wrong, then right after the goto
     cam = FakeCam((0.0, 0.0, 180.0), (50.0, 30.0, 180.0))
     rep = Repositioner(link, cam)
     rep.go(50.0, 30.0, 180.0, tries=2, echo=False)
-    assert not any(s.startswith('RUN:face') for s in link.sent), (
+    assert not any(s.startswith('RUN face') for s in link.sent), (
         f'a good heading must not be re-commanded; sent {link.sent}')
-    assert _goto_lines(link) == ['RUN:goto:50.0:30.0']
+    assert _goto_lines(link) == ['RUN goto 50.0 30.0']
 
 
 def test_a_pivot_that_walks_the_robot_never_triggers_another_goto():
@@ -188,7 +188,7 @@ def test_a_pivot_that_walks_the_robot_never_triggers_another_goto():
     the drive the position is good, and after the heading pivot the
     centre of rotation has walked far enough to put the position error
     back OVER tolerance. A loop that re-checks both errors sees that and
-    issues a fresh `RUN:goto` -- which drives, and leaves the robot
+    issues a fresh `RUN goto` -- which drives, and leaves the robot
     facing 98 degrees instead of 180. The two-phase ordering cannot:
     once the heading phase has started, no goto follows.
     """
@@ -203,8 +203,8 @@ def test_a_pivot_that_walks_the_robot_never_triggers_another_goto():
     rep = Repositioner(link, cam)
     rep.go(50.0, 30.0, 180.0, tries=3, echo=False)
 
-    face_at = [i for i, s in enumerate(link.sent) if s.startswith('RUN:face')]
-    goto_at = [i for i, s in enumerate(link.sent) if s.startswith('RUN:goto')]
+    face_at = [i for i, s in enumerate(link.sent) if s.startswith('RUN face')]
+    goto_at = [i for i, s in enumerate(link.sent) if s.startswith('RUN goto')]
     assert face_at, 'the heading was 90 deg out; it must have been commanded'
     assert all(g < face_at[0] for g in goto_at), (
         'a goto was issued after the heading was set -- that is the '

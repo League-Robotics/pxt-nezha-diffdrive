@@ -40,7 +40,7 @@ Three kinds of file, one pattern:
   `extern "C"` surfaces ctypes can bind: each bundles the class under
   test with its private fakes behind an opaque handle plus free
   functions. `run_bridge_shim.cpp` (sprint 033) exposes
-  `diffDrive::RunBridge` — the cleartext `RUN:` bridge's sanitize/
+  `diffDrive::RunBridge` — the `RUN` bridge's sanitize/
   dedupe/park/bypass rules, extracted out of the `pxt.h`-bound
   `protocol.cpp` and therefore executable here for the first time.
   Its clock is an `offer()` argument rather than a member, which is

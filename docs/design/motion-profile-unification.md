@@ -838,7 +838,7 @@ applies: every number names its capture):
 | G3 straight | 6 × `MOVE_X 600 0 200 8000` | camera leg length 600 ± 3 mm; peak `vl/vr` ≤ 220 mm/s; no leg-end bump (`vl/vr` monotone in the last 10 ticks) |
 | G4 jerk | same as G3, differentiate `vl/vr` twice from `TLM FULL` | first tick ≤ floor; thereafter |Δv/Δt| ≤ 1.5 × `accel`; no tick above 2 × `decel` at the end |
 | G5 continuous | `WHEELS_V 200 200 2000` from rest | `vl/vr` rise from the floor at ≤ 1.5 × `accel`; no overshoot above 210 mm/s |
-| G6 square tour closure | `RUN:square` × 3, camera | closure ≤ the current baseline (`reports/gopiv-closure-20260901.md`); no regression is the bar, improvement is expected |
+| G6 square tour closure | `RUN square` × 3, camera | closure ≤ the current baseline (`reports/gopiv-closure-20260901.md`); no regression is the bar, improvement is expected |
 
 ### 10.2 The three measurements the limits need
 

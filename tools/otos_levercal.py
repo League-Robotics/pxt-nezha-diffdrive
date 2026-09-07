@@ -90,7 +90,7 @@ def main():
     # OCAL:begin is the delivery receipt -- resend only if it never
     # arrives, never blindly (a duplicate RUN:cal runs the whole
     # calibration again).
-    verb = 'RUN:cal:1' if a.verify else 'RUN:cal'
+    verb = 'RUN cal 1' if a.verify else 'RUN cal'
     started = link.send_until(verb, 'OCAL:begin', tries=3, wait=6.0)
     if not any(s.startswith('OCAL:begin') for s in started):
         raise SystemExit(f'robot never acknowledged {verb} -- is it awake '

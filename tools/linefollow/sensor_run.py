@@ -33,7 +33,16 @@ else:
     host, port = m.group(1).rstrip('.'), int(m.group(2)); print('serial daemon', host, port)
     s = socket.create_connection((host, port), timeout=10); s.settimeout(0.2)
 log = open(out + '.log', 'a'); lines = []; done = threading.Event(); aborted = [None]
+_seq = [0]
 def send(c):
+    # `RUN` is a sequenced v6 verb since 2026-09-07: unsequenced it
+    # parses as #0 and is dropped. The id is attached ONCE, outside the
+    # retransmit loop below -- the three radio copies must carry the
+    # SAME id, or copies 2 and 3 read as numeric gaps and stall the
+    # stream instead of being re-acked as retransmits.
+    if c.split(' ')[0] == 'RUN':
+        _seq[0] += 1
+        c = '%s #%d' % (c, _seq[0])
     for _ in range(3 if RADIO else 1):
         s.sendall((c + ('\n' if RADIO else '\r\n')).encode())
         if RADIO: time.sleep(0.15)
@@ -59,7 +68,7 @@ def watchdog():
             h = wrap(math.degrees(t) + HOFF)
             cam.append([time.time(), tx, ty, h])
             if (abs(tx) > XLIM or abs(ty) > YLIM) and aborted[0] is None:
-                aborted[0] = (tx, ty); send('RUN:abort'); time.sleep(0.3); send('RUN:abort')   # never ESTOP: the minimal program cannot clear it
+                aborted[0] = (tx, ty); send('RUN abort'); time.sleep(0.3); send('RUN abort')   # never ESTOP: the minimal program cannot clear it
                 print('!! GEOFENCE: camera true (%.1f, %.1f) -> RUN:abort' % (tx, ty))
 wd = threading.Thread(target=watchdog, daemon=True); wd.start()
 time.sleep(2.0)
@@ -82,9 +91,9 @@ def pump(sec):
         if got_end: return True
     return False
 send('STATUS'); pump(1.0)
-cmd = 'RUN:line:%s:%s:%s' % (speed, max_s, kp); print('>', cmd); t_start = time.time(); send(cmd)
+cmd = 'RUN line %s %s %s' % (speed, max_s, kp); print('>', cmd); t_start = time.time(); send(cmd)
 ok = pump(float(max_s) + 8)
-if not ok: print('no LINE:end within the limit -- sending RUN:abort'); send('RUN:abort'); pump(3)
+if not ok: print('no LINE:end within the limit -- sending RUN abort'); send('RUN abort'); pump(3)
 done.set(); time.sleep(1.5)
 trace = []
 for ts, t in lines:

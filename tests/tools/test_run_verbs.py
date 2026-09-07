@@ -11,10 +11,10 @@ tools was a silent no-op: it ran to completion, printed numbers, and
 measured nothing, because the robot never received a single command.
 Two of the four (`otos_levercal.py`'s `RUN:8`/`RUN:14`,
 `pivot_truth.py`/`rotation_check.py`'s `RUN:10`) had
-real named equivalents already on `test.ts` (`RUN:cal`/`RUN:cal:1`,
-`RUN:fix`) and needed only a Python-side rename. The remaining piece --
+real named equivalents already on `test.ts` (`RUN cal`/`RUN cal 1`,
+`RUN fix`) and needed only a Python-side rename. The remaining piece --
 a relative pivot and a settable turn rate -- needed two new `test.ts`
-verbs (`RUN:pivot:<deg>`, `RUN:turnrate:<rate>`), added by this same
+verbs (`RUN pivot <deg>`, `RUN turnrate <rate>`), added by this same
 ticket.
 
 This file cannot run the firmware, so it cannot prove the robot moves.
@@ -98,8 +98,9 @@ class FakeLink:
 # asserted ABSENT from every tool's sent lines below, not just that the
 # new named form is present. A test that only checks the new string
 # would still pass if a stray old one snuck back in alongside it.
-DEAD_NUMERIC_FORMS = ('RUN:8', 'RUN:14', 'RUN:10', 'RUN:2', 'RUN:4',
-                      'RUN:5')
+DEAD_NUMERIC_FORMS = ('RUN 8', 'RUN 14', 'RUN 10', 'RUN 2', 'RUN 4',
+                      'RUN 5', 'RUN:8', 'RUN:14', 'RUN:10', 'RUN:2',
+                      'RUN:4', 'RUN:5')
 
 
 def _assert_no_dead_numeric_forms(sent):
@@ -110,7 +111,7 @@ def _assert_no_dead_numeric_forms(sent):
             f'dead numeric turn-rate/pivot offset resurfaced: {line!r}')
 
 
-# --- otos_levercal.py: RUN:8/RUN:14 -> RUN:cal/RUN:cal:1 -----------------
+# --- otos_levercal.py: RUN:8/RUN:14 -> RUN cal/RUN cal 1 -----------------
 
 # Four pivot fixes on a clean 5 mm-radius circle (cx=cy=0, arm ox=50,
 # oy=0 in the OCAL wire's 0.1 mm units) at 0/90/180/270 deg -- enough
@@ -137,7 +138,7 @@ def test_otos_levercal_default_sends_run_cal_not_run8(monkeypatch):
 
     otos_levercal.main()
 
-    assert fake.sent == ['RUN:cal']
+    assert fake.sent == ['RUN cal']
     _assert_no_dead_numeric_forms(fake.sent)
 
 
@@ -149,11 +150,11 @@ def test_otos_levercal_verify_sends_run_cal_1_not_run14(monkeypatch):
 
     otos_levercal.main()
 
-    assert fake.sent == ['RUN:cal:1']
+    assert fake.sent == ['RUN cal 1']
     _assert_no_dead_numeric_forms(fake.sent)
 
 
-# --- pivot_truth.py / rotation_check.py: RUN:10 -> RUN:fix ---------------
+# --- pivot_truth.py / rotation_check.py: RUN:10 -> RUN fix ---------------
 # Both files define their own otos_fix()/fix()/send_pivot() (not shared
 # code), so both get their own tests -- a shared helper elsewhere could
 # drift out of sync with one of the two copies without either test
@@ -167,7 +168,7 @@ def test_pivot_truth_otos_fix_sends_run_fix_not_run10():
 
     result = pivot_truth.otos_fix(fake)
 
-    assert fake.sent == ['RUN:fix']
+    assert fake.sent == ['RUN fix']
     _assert_no_dead_numeric_forms(fake.sent)
     assert result == (12.3, 4.5, 67.89)
 
@@ -177,13 +178,13 @@ def test_rotation_check_fix_sends_run_fix_not_run10():
 
     result = rotation_check.fix(fake)
 
-    assert fake.sent == ['RUN:fix']
+    assert fake.sent == ['RUN fix']
     _assert_no_dead_numeric_forms(fake.sent)
     assert result == (12.3, 4.5, 67.89)
 
 
 # --- pivot_truth.py / rotation_check.py: the old
-# PIVOT_VERB={180:4,-180:5,360:2} lookup -> RUN:pivot:<deg> -----------
+# PIVOT_VERB={180:4,-180:5,360:2} lookup -> RUN pivot <deg> -----------
 
 @pytest.mark.parametrize('deg', [180, -180, 360, 45])
 def test_pivot_truth_send_pivot_sends_the_degree_value_directly(deg):
@@ -191,7 +192,7 @@ def test_pivot_truth_send_pivot_sends_the_degree_value_directly(deg):
 
     pivot_truth.send_pivot(fake, deg)
 
-    assert fake.sent == [f'RUN:pivot:{deg}']
+    assert fake.sent == [f'RUN pivot {deg}']
     _assert_no_dead_numeric_forms(fake.sent)
 
 
@@ -201,7 +202,7 @@ def test_rotation_check_send_pivot_sends_the_degree_value_directly(deg):
 
     rotation_check.send_pivot(fake, deg)
 
-    assert fake.sent == [f'RUN:pivot:{deg}']
+    assert fake.sent == [f'RUN pivot {deg}']
     _assert_no_dead_numeric_forms(fake.sent)
 
 
@@ -219,7 +220,7 @@ def test_rotation_check_pivots_are_bare_degrees_not_verb_pairs():
 
 
 # --- turn_sweep.py: RUN:{57000+rate}/RUN:{58360+deg} ---------------------
-# -> RUN:turnrate:<rate> then RUN:pivot:<deg> ------------------------------
+# -> RUN turnrate <rate> then RUN pivot <deg> ------------------------------
 
 class _FakeCam:
     """Just enough of tools/camlink.py's Cam surface for _yaw_mark():
@@ -244,7 +245,7 @@ def test_one_turn_sends_named_turnrate_then_pivot_not_numeric_offsets(
 
     turn_sweep.one_turn(fake, cam, deg=90, rate=45, settle=0)
 
-    assert fake.sent == ['RUN:turnrate:45', 'RUN:pivot:90']
+    assert fake.sent == ['RUN turnrate 45', 'RUN pivot 90']
     _assert_no_dead_numeric_forms(fake.sent)
 
 
@@ -256,7 +257,7 @@ def test_one_turn_negative_degrees_still_send_the_signed_value(
 
     turn_sweep.one_turn(fake, cam, deg=-90, rate=180, settle=0)
 
-    assert fake.sent == ['RUN:turnrate:180', 'RUN:pivot:-90']
+    assert fake.sent == ['RUN turnrate 180', 'RUN pivot -90']
     _assert_no_dead_numeric_forms(fake.sent)
 
 

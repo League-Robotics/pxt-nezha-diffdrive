@@ -19,7 +19,7 @@ both against the overhead camera.
 | `kipr_course.path.json` | the reference path, traced from a deskewed camera frame, field frame, mm |
 | `stage.py` | put the robot on the path start: camera fix, pivot, drive, re-fix |
 | `follow.py` | world-anchored pure pursuit on odometry; ONE camera fix before to seed the field→odometry transform, one after to score |
-| `sensor_run.py` | run the robot's own `RUN:line` sensor loop over the relay and log it |
+| `sensor_run.py` | run the robot's own `RUN line` sensor loop over the relay and log it |
 | `linerun.py` | one lossless session to a farm robot's serial daemon (dynamic `_mbserial._tcp` port), timestamped replies |
 | `camlog.py` | log the camera-measured centre of rotation to CSV at the daemon's rate — diagnostic only, nothing reaches the robot |
 | `chart.py`, `chart_sensor.py` | score and chart a run: reference path, camera track, odometry track, cross-track error |

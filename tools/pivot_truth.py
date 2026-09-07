@@ -70,7 +70,7 @@ def _yaw_mark(cam):
 
 
 def otos_fix(link):
-    for s in link.send_until('RUN:fix', 'OCAL:now', tries=2, wait=5.0,
+    for s in link.send_until('RUN fix', 'OCAL:now', tries=2, wait=5.0,
                              echo=False):
         if s.startswith('OCAL:now'):
             p = s.split(':')
@@ -85,7 +85,7 @@ def send_pivot(link, deg):
     unlike the old dead numeric PIVOT_VERB table, there is no fixed set
     of supported angles to look up.
     """
-    return link.send_until(f'RUN:pivot:{int(deg)}', 'GAP:', tries=1,
+    return link.send_until(f'RUN pivot {int(deg)}', 'GAP:', tries=1,
                            wait=abs(deg) / 45.0 + 12.0, echo=False)
 
 

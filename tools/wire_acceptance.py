@@ -16,7 +16,7 @@ Good cases, bad cases, and whether the robot actually MOVES.
 
 `--all-verbs` (default on) additionally exercises EVERY verb in the v6
 table -- HELLO PING ID VER STATUS HELP GET SET TLM WHEELS_X WHEELS_V
-MOVE_X MOVE_V GO_TO_R GO_TO_W STOP ESTOP RUN -- plus the cleartext
+MOVE_X MOVE_V GO_TO_R GO_TO_W STOP ESTOP FUNCS RUN -- plus the cleartext
 `RUN:` carve-out, so a transport port (the WiFi link, 2026-09-02) is
 judged against the whole protocol, not the handful of verbs the
 original bad/good/motion sections happened to touch.
@@ -526,7 +526,7 @@ def run_motion(link, distance_mm):
 
 ALL_VERBS = ('HELLO', 'PING', 'ID', 'VER', 'STATUS', 'HELP', 'GET', 'SET',
              'TLM', 'WHEELS_X', 'WHEELS_V', 'MOVE_X', 'MOVE_V', 'GO_TO_R',
-             'GO_TO_W', 'STOP', 'ESTOP', 'RUN')
+             'GO_TO_W', 'STOP', 'ESTOP', 'FUNCS', 'RUN')
 
 
 def _frames(lines, cols):
@@ -581,7 +581,23 @@ def run_all_verbs(link, motion=True, estop=True):
     listed = ' '.join(help_lines)
     missing = [v for v in ALL_VERBS if v not in listed.split()]
     record(PASS if help_lines and not missing else FAIL,
-           'HELP lists all 18 verbs', f'missing={missing} got={help_lines}')
+           'HELP lists all 19 verbs', f'missing={missing} got={help_lines}')
+
+    # --- FUNCS (sequenced -- the ack terminates a variable-length reply) --
+    #
+    # ZERO `funcs` lines is a PASS, not a failure: it is the wire-visible
+    # shape of an empty allowlist, and it is what a program that bound no
+    # onRun() handlers correctly reports. What this checks is the
+    # exchange -- acked, and every line that IS emitted well-formed --
+    # not that this particular robot's program registered anything.
+    out = link.ask(f'FUNCS #{seq}', 1.5)
+    funcs = [t for t in out if t.startswith('funcs ')]
+    shaped = all(1 <= len(t.split()) - 1 <= 2 and '#' not in t for t in funcs)
+    record(PASS if has(out, f'ack {seq} ') and not has(out, 'err ') and shaped
+           else FAIL,
+           'FUNCS -> ack + one `funcs <name> [<sig>]` line per registered name',
+           f'{len(funcs)} registered: {funcs[:6]}')
+    seq = next_id(out, seq)
 
     # --- GET / SET (sequenced, order-dependent) --------------------------
     out = link.ask(f'GET #{seq}', 2.0)
@@ -711,7 +727,7 @@ def run_all_verbs(link, motion=True, estop=True):
     seq = next_id(out, seq)
     out = None
     for _ in range(3):
-        out = link.ask('RUN:gap', 1.5)
+        out = link.ask('RUN gap', 1.5)
         if has(out, 'GAP:'):
             break
     record(PASS if has(out, 'GAP:') else FAIL,

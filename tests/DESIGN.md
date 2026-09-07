@@ -154,6 +154,6 @@ script that prints it answers nothing a failing test would not).
 
 Not to be confused with the sibling `test/` root (singular) — those are
 PXT `testFiles`, on-robot MakeCode programs with no assertions,
-documented in [`test/DESIGN.md`](../test/DESIGN.md). `RUN:square`,
-`RUN:infinity` and `RUN:spline` live there: the same three figures
+documented in [`test/DESIGN.md`](../test/DESIGN.md). `RUN square`,
+`RUN infinity` and `RUN spline` live there: the same three figures
 `system/tours/` drives from the host, but running on the robot itself.

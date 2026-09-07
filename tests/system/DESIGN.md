@@ -95,7 +95,7 @@ and the hard limits on each.
 
 ## The same figures, on the robot
 
-`test/test.ts` implements `RUN:square`, `RUN:infinity` and `RUN:spline`
+`test/test.ts` implements `RUN square`, `RUN infinity` and `RUN spline`
 as on-robot programs over `diffDrive.move(distance_cm, yaw_deg)`. Those
 need no host in the loop but also produce no chart; use them to drive a
 figure from a single wire command, and these `.tour` files to *measure*

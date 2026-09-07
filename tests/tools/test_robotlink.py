@@ -420,14 +420,14 @@ def test_phantom_verbs_are_gone_from_v6_verbs():
         assert verb not in robotlink._V6_VERBS, verb
 
 
-def test_cleartext_run_line_is_not_sequenced():
-    """`RUN` the v6 verb is sequenced; the cleartext `RUN:` vocabulary
-    goes through a different parser on the robot and must stay bare --
-    `RUN:tour:wheels` unsequenced returns its DBG:tour= receipt normally
-    (.claude/rules/playfield-testing.md)."""
+def test_run_line_is_sequenced_arguments_and_all():
+    """`RUN <name> [arg...]` is an ordinary sequenced verb since
+    2026-09-07: the cleartext `RUN:` carve-out that used to bypass the
+    grammar is gone, so there is no bare RUN spelling left to protect.
+    Unsequenced it would parse as #0 and be dropped."""
     port = FakePort()
     link = robotlink.Link(port, False)
     link._seq = 4
-    link.send('RUN:tour:wheels')
-    assert port.writes[-1] == b'RUN:tour:wheels\n'
-    assert link._seq == 4
+    link.send('RUN tour wheels')
+    assert port.writes[-1] == b'RUN tour wheels #5\n'
+    assert link._seq == 5

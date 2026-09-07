@@ -14,6 +14,7 @@
 // functions Python can bind by name.
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -62,6 +63,20 @@ struct Handle {
   RecordingSink sink;
   Wire::WireHandler handler;
   Handle() : handler(adapter, sink) {}
+
+  // Backing storage for the mock's RUN registry. The mock BORROWS the
+  // char* it is handed (its own documented contract), and a ctypes
+  // c_char_p is only guaranteed valid for the duration of the call, so
+  // the strings have to be owned on this side of the boundary and live
+  // as long as the handle does. Storing the std::strings here and
+  // pointing the mock at their c_str() is what makes that true.
+  //
+  // std::deque, not std::vector: a vector REALLOCATES as it grows,
+  // which would dangle every c_str() the mock is already holding from
+  // an earlier wgAddRunEntry() call on the same handle. deque never
+  // moves an element that is already in it.
+  std::deque<std::string> runNameStorage;
+  std::deque<std::string> runSignatureStorage;
 };
 
 }  // namespace
@@ -84,7 +99,7 @@ void wgSendBanner(void* handle) {
 
 // execHelp()'s terminator-guarantee helper, called directly with no
 // Handle at all -- lets a test drive it with a synthetic, arbitrarily
-// long name list, independent of kCommandTable (whose real 18 verbs
+// long name list, independent of kCommandTable (whose real 19 verbs
 // are too small to ever exercise the truncation path this proves
 // survives). Returns the byte count buildHelpLine() itself returns.
 int wgBuildHelpLine(char* buf, int bufCap, const char* const* names,
@@ -195,6 +210,26 @@ void wgSetIdentity(void* handle, const char* name, const char* serial,
   id.drivetrain = drivetrain;
   id.profile = profile;
   id.version = version;
+}
+
+// Arms one entry of the mock's RUN registry -- what FUNCS enumerates.
+// Unlike wgSetIdentity above, this COPIES both strings into the
+// handle's own storage (see Handle's own comment), so the caller need
+// not keep the Python bytes alive.
+//
+// `signature` may be null or "", which is how "this entry declares no
+// signature" is spelled -- execFuncs then omits the field entirely
+// rather than emitting a dangling separator.
+void wgAddRunEntry(void* handle, const char* name, const char* signature) {
+  Handle* h = static_cast<Handle*>(handle);
+  WireMockAdapter& adapter = h->adapter;
+  if (adapter.runRegistryCount >= WireMockAdapter::kMaxRunRegistry) return;
+  h->runNameStorage.emplace_back(name == nullptr ? "" : name);
+  h->runSignatureStorage.emplace_back(signature == nullptr ? "" : signature);
+  const size_t slot = adapter.runRegistryCount;
+  adapter.runNames[slot] = h->runNameStorage.back().c_str();
+  adapter.runSignatures[slot] = h->runSignatureStorage.back().c_str();
+  adapter.runRegistryCount = slot + 1;
 }
 
 void wgSetNow(void* handle, uint32_t now) {

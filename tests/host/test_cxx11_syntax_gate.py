@@ -75,6 +75,15 @@ _CXX11_PORTABLE_SOURCES = [
     # .cpp of its own, so it is compiled directly rather than through a
     # dedicated syntax-check translation unit.
     _SRC_DIR / "comms" / "run_bridge.cpp",
+    # comms/run_registry.cpp has no pxt.h dependency (the C++ mirror of
+    # the block program's own onRun() registrations, which the FUNCS
+    # wire verb enumerates -- see src/comms/run_registry.h's own header
+    # comment) and, like run_bridge.cpp above, has a natural .cpp of its
+    # own, so it is compiled directly. The dedicated syntax-check unit
+    # beside it covers the header's TEMPLATE, which that .cpp only
+    # instantiates once.
+    _SRC_DIR / "comms" / "run_registry.cpp",
+    _TEST_DIR / "run_registry_syntax_check.cpp",
     # emit_queue.h has no pxt.h dependency (a host-portable outbound-
     # line ring for the protocol's single-serial/radio-producer
     # restructuring -- see src/comms/emit_queue.h's own header comment)

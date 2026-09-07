@@ -179,14 +179,16 @@ def test_an_unknown_verb_is_left_alone_and_consumes_nothing():
     assert seq.seq == 0
 
 
-def test_cleartext_run_colon_is_not_sequenced_even_though_run_is():
-    # `RUN <name>` is a v6 verb and IS sequenced; `RUN:tour:wheels` is a
-    # single token with no space that goes through a different parser on
-    # the robot and must stay bare.
+def test_run_is_sequenced_including_its_arguments():
+    # `RUN <name> [arg...]` is an ordinary sequenced v6 verb. It has been
+    # since 2026-09-07, when the cleartext `RUN:<name>` carve-out -- a
+    # single token that used to reach a DIFFERENT parser on the robot and
+    # so had to stay bare -- was deleted. There is no unsequenced RUN
+    # spelling left; `RUN:tour:wheels` is now just an unknown verb.
     seq = linklib.Sequencer(_VERBS)
     assert seq.format('RUN tour') == 'RUN tour #1'
-    assert seq.format('RUN:tour:wheels') == 'RUN:tour:wheels'
-    assert seq.seq == 1
+    assert seq.format('RUN tour wheels') == 'RUN tour wheels #2'
+    assert seq.seq == 2
 
 
 def test_force_sequences_a_verb_the_sequencer_has_no_table_for():

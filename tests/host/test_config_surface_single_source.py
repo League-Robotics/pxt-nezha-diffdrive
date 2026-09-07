@@ -66,6 +66,10 @@ _SHIM_SOURCES = [
     _SRC_DIR / "motion" / "velocity_shaper.cpp",
     _SRC_DIR / "comms" / "wire_handler.cpp",
     _SRC_DIR / "comms" / "wire_adapter.cpp",
+    # wire_adapter.cpp's runName()/runSignature() delegate to the shared
+    # RunRegistry instance, which lives here -- without this TU the link
+    # fails on an undefined diffDrive::runRegistry().
+    _SRC_DIR / "comms" / "run_registry.cpp",
     _TEST_DIR / "wire_motion_verb_shim.cpp",
 ]
 

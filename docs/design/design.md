@@ -26,7 +26,7 @@ cadence, a motion engine that reduces every move to constant-ratio
 wheel segments, dead-reckoned pose plus an optional OTOS optical world
 sensor, student-facing blocks in cm/deg, and a protocol-v6 ASCII wire
 interface over both USB serial and radio (sprint 004; a legacy
-cleartext `RUN:` carve-out survives on both transports) for bench
+`RUN` carve-out survives on both transports) for bench
 hosts. Around the extension sit a Python bench-tool suite (`tools/`), a
 native host test harness that compiles the firmware C++ for the
 desktop and drives it from pytest (`tests/host/`), and on-robot PXT
@@ -150,12 +150,12 @@ canonical spec is `radio-robot-lib/docs/design/protocol.md` and
 vendor that library's C++. The entire binary v5 stack (COBS codec,
 CRC-16, binary verbs) was deleted in sprint 003, not merely disused.
 One legacy carve-out survives on both transports: the old cleartext
-`RUN:<name>[:<arg>…]` form is detected by literal prefix ahead of the
+`RUN <name>[:<arg>…]` form is detected by literal prefix ahead of the
 v6 parser and bridged to TypeScript handlers via MessageBus. Sprint
 004 closed the asymmetry this section used to describe: radio's
 receive side now speaks the full v6 grammar too, through its own
 `Wire::WireHandler` over the same shared adapter serial uses, with the
-old `RUN:` prefix preserved as a fallback on both transports rather
+old `RUN` prefix preserved as a fallback on both transports rather
 than a radio-only ceiling (see `src/DESIGN.md` §8). Radio's remaining
 limit is one of *capacity*, not grammar: a single 64-byte RX fragment
 slot with no multi-fragment reassembly
@@ -182,8 +182,8 @@ one place in the package where two fibers could do float work
 concurrently — the FPU yield-hazard the VFP guard (sprint 026) makes
 safe rather than eliminates. A `motionOwner_` field on the
 protocol fiber arbitrates a wire request arriving while a RUN job holds
-the drivetrain (refused, not silently overwritten); `RUN:abort`/
-`RUN:clearestop` bypass the queue and act immediately regardless.
+the drivetrain (refused, not silently overwritten); `RUN abort`/
+`RUN clearestop` bypass the queue and act immediately regardless.
 Exactly two background fibers exist: the protocol loop and a
 starvation watchdog that port-level-stops the motors ~100–150 ms after
 the last tick if something still looks like it is driving. "The robot

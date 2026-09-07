@@ -680,6 +680,26 @@ bool engineMoveActive() {
   return g_activeWaHandle->engine.isMoveActive();
 }
 
+// Stands in for protocol.cpp's own protocolOfferRun() -- the seam
+// WireAdapter::onRun() reaches the RunBridge (and thence TypeScript)
+// through. tests/host/ has no Protocol, no fiber and no TypeScript, so
+// this RECORDS the colon-joined text instead of dispatching it, which
+// is exactly what a wire-level test wants to assert on: that `RUN`
+// decoded, passed the registry check, and handed the right text down.
+//
+// Accepts by default; rbOfferRunShouldFail below lets a test arm the
+// refusal path (a full queue) and check it becomes an `err`, not an ack.
+static char g_lastOfferedRun[64] = {};
+static int g_offerRunCalls = 0;
+static bool g_offerRunAccepts = true;
+
+bool protocolOfferRun(const char* text) {
+  ++g_offerRunCalls;
+  std::snprintf(g_lastOfferedRun, sizeof(g_lastOfferedRun), "%s",
+                text == nullptr ? "" : text);
+  return g_offerRunAccepts;
+}
+
 // Mirrors shims.cpp's real engineMoveEndedByDeadline() exactly -- the
 // SECOND genuinely new read resolvePendingReason() (wire_adapter.cpp)
 // needs, alongside engineMoveActive() above. Reads this handle's OWN

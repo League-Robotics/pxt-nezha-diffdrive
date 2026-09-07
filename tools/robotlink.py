@@ -9,7 +9,7 @@ Both carriers deliver the same ASCII lines, so every tool here takes
 `--radio` and otherwise behaves identically.
 
   link = open_link(port, radio=True, robot='vevov')   # zavaz relay
-  link.send('RUN:probe')
+  link.send('RUN probe')
   for line in link.lines(timeout=60): ...
 
 **Sprint 029 (TL-01): the relay address is no longer a hardcoded
@@ -143,9 +143,13 @@ def probe_port(name, tries=8):
 # An unsequenced line parses as #0 and is dropped; a verb listed here
 # that the robot does NOT sequence burns an id and stalls the stream.
 _V6_VERBS = frozenset((
-    'GET', 'SET', 'TLM', 'STOP', 'RUN',
+    'GET', 'SET', 'TLM', 'STOP', 'RUN', 'FUNCS',
     'WHEELS_X', 'WHEELS_V', 'MOVE_X', 'MOVE_V', 'GO_TO_R', 'GO_TO_W',
 ))
+# FUNCS is here despite being a pure read-only query, unlike
+# ID/VER/STATUS/HELP which are NOT: it answers with a VARIABLE number of
+# `funcs` lines, and the ack is what tells the host it has them all.
+# Sending it unsequenced parses as #0 and is dropped.
 
 
 class Link:

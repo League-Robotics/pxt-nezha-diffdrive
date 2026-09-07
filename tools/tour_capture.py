@@ -72,7 +72,7 @@ def main():
     # is anywhere near done, and a repeat does NOT hit the firmware's
     # re-entry guard: MessageBus events queue and run one after another,
     # so each resend runs the whole tour again.
-    cmd = f'RUN:tour:{a.tour}'
+    cmd = f'RUN tour {a.tour}'
     seen = link.send_until(cmd, 'DBG:tour=', tries=3, wait=6.0)
     if not any(x.startswith('DBG:tour=') for x in seen):
         print(f'  WARNING: no DBG:tour= receipt for {cmd} -- the tour may '

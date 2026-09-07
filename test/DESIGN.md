@@ -6,7 +6,7 @@ MakeCode/PXT `testFiles` (declared in `pxt.json`): TypeScript programs
 compiled into a **deploy** build only — `tools/make_deploy.py` promotes
 them into `files` in a scratch copy; in the repo they must stay
 `testFiles` so they never run inside a student project that installs the
-extension. They are smoke/bench programs driven by buttons and `RUN:`
+extension. They are smoke/bench programs driven by buttons and `RUN`
 wire commands, not assertion suites — the assertion-style coverage lives
 in `tests/host/`.
 
@@ -17,8 +17,8 @@ default; `--program <basename>` selects another.
 
 | file | what it is |
 |---|---|
-| **`test.ts`** | the playfield test program: the tours and the `RUN:` vocabulary. Its own header comment is the vocabulary reference. |
-| **`testrig.ts`** | the zeguz OTOS validation rig: drum on M1 under the sensor, sensor on a servo, a numeric `RUN:<n>` vocabulary (probe/zero/stream/calibrate/servo/drum/lever-arm), driven by `tools/otos_bench.py`. One worker fiber does **all** I2C, per the shared-bus discipline in [`src/DESIGN.md`](../src/DESIGN.md) §7. |
+| **`test.ts`** | the playfield test program: the tours and the `RUN` vocabulary. Its own header comment is the vocabulary reference. |
+| **`testrig.ts`** | the zeguz OTOS validation rig: drum on M1 under the sensor, sensor on a servo, a numeric `RUN <n>` vocabulary (probe/zero/stream/calibrate/servo/drum/lever-arm), driven by `tools/otos_bench.py`. One worker fiber does **all** I2C, per the shared-bus discipline in [`src/DESIGN.md`](../src/DESIGN.md) §7. |
 | **`linefollow.ts`** | the smallest program that follows a line, using the PlanetX Trackbit reflectance array. |
 
 Design decisions owned elsewhere are documented elsewhere: the tick
@@ -83,7 +83,7 @@ instrumentable test code rather than something the block API hides.
 *on the protocol fiber itself* (nested, reentrant dispatch — see
 `src/comms/protocol.h`), so a `basic.pause()` anywhere in a handler's
 call tree stops that same fiber's wire-servicing loop for the pause's
-full duration and leaves `PING`/`ESTOP`/`RUN:abort` unanswered.
+full duration and leaves `PING`/`ESTOP`/`RUN abort` unanswered.
 `driveTick()` self-paces to one kernel cycle (`Config::cyclePeriod`,
 24 ms) and runs the wire's service hook exactly once per call whether or
 not a move is active, so looping it against the wall clock waits the
@@ -98,7 +98,7 @@ on-robot LED counter; that is the accepted trade.
 
 For the same reason the **boot banner is deliberately last** in
 `test.ts`: handler registration is synchronous and near-instant, while
-`showIcon`/`showString` block. A `RUN:` line landing in the first
+`showIcon`/`showString` block. A `RUN` line landing in the first
 couple of seconds after boot needs its handler already registered to be
 dispatched at all. (The protocol fiber's own wire-level `HELLO` reply
 runs on a separate CODAL fiber and is unaffected either way.)
@@ -132,20 +132,20 @@ the fact.
 
 This pair replaced a per-handler hand-rolled copy of the same thing that
 **most handlers skipped**. The failure it fixed: a stale `aborted` left
-by an earlier `RUN:abort` silently truncated the very next
-`RUN:pivot`/`straight`/`face`/`cal`/`arc` to one tick, and that handler's
+by an earlier `RUN abort` silently truncated the very next
+`RUN pivot`/`straight`/`face`/`cal`/`arc` to one tick, and that handler's
 own terminal line reported it as a normal end. Five newer tours plus
-`RUN:cal` also applied no shaping profile at all, silently inheriting
+`RUN cal` also applied no shaping profile at all, silently inheriting
 whatever the previous command left set.
 
 ### Abort scope
 
-`RUN:abort` and `RUN:clearestop` bypass the RUN queue — `protocol.cpp`
+`RUN abort` and `RUN clearestop` bypass the RUN queue — `protocol.cpp`
 dispatches them reentrantly, nested inside whatever handler is mid-tick,
 on the same fiber. So neither guards on `touring`, and both must stay
 flag-only and non-blocking.
 
-`RUN:abort` sets the flag **and** calls `diffDrive.stopMove()`.
+`RUN abort` sets the flag **and** calls `diffDrive.stopMove()`.
 That second call is what makes an abort reach a move already in flight:
 `stopMove()`'s native body (`shims.cpp`'s `endMove()`) stops
 unconditionally with **no ownership check**, so it ends whatever tick
@@ -180,7 +180,7 @@ hand-rolling its own reset fails the build.
 case: an I2C transaction that neither completes nor errors spins CODAL's
 `waitForStop()` forever and wedges the board with no recovery
 (`clasi/issues/high/first-i2c-command-can-wedge-the-program-with-no-recovery.md`).
-Doing it at boot keeps that risk off the `RUN:` path, where it once
+Doing it at boot keeps that risk off the `RUN` path, where it once
 bricked two robots. Capture:
 `captures/otos-run-handler-i2c-hang-20260828.md`. The boot line emits
 the product id so it can be checked against the value that produced it
@@ -210,7 +210,7 @@ robot sits idle. That is the ticket's own explicit trade
 ### The lever arm
 
 `armX`/`armY` are the sensor's position relative to the **centre of
-rotation**. MEASURED vevov 2026-08-28 (`RUN:cal` + `tools/otos_levercal.py`),
+rotation**. MEASURED vevov 2026-08-28 (`RUN cal` + `tools/otos_levercal.py`),
 after the chassis rebuild that moved the centre of rotation and
 invalidated the earlier figure. Capture:
 `captures/otos-run-handler-i2c-hang-20260828.md`.
@@ -231,7 +231,7 @@ at rest across several headings.
 
 **Why `worldReady()`'s fast path still arms the sensor:**
 `worldTrackingReady()` only asks whether the chip answers (`otosGet(7)`
-→ `connected_`), and *any* earlier `otosBegin()` — a bare `RUN:probe` is
+→ `connected_`), and *any* earlier `otosBegin()` — a bare `RUN probe` is
 enough — makes it true. An un-armed sensor reports its own path, so
 every in-place pivot injects a phantom `2·|arm|·sin(θ/2)` of
 translation. MEASURED BUG, vevov 2026-08-25, against overhead-camera
@@ -241,9 +241,9 @@ robot scored as 22 mm. The guard is `armApplied`, not the chip's state:
 applied the arm survives a re-begin, and the flag only stops the `ARM:`
 line being re-emitted.
 
-`RUN:fix` calls `worldReady()` before `logFix()` for the same reason —
-`logFix()` calls `readWorld()` directly, so a bare `RUN:probe` →
-`RUN:fix` used to report the sensor's position with no arm applied, off
+`RUN fix` calls `worldReady()` before `logFix()` for the same reason —
+`logFix()` calls `readWorld()` directly, so a bare `RUN probe` →
+`RUN fix` used to report the sensor's position with no arm applied, off
 by up to 38.2 mm and silently plausible. That is exactly the reading
 that sent a 2026-08-25 bench session chasing a drivetrain fault that did
 not exist.
@@ -264,7 +264,7 @@ tool watching the log.
 
 ## 5. Shaping profiles
 
-`beginJob()` selects one by verb name. `RUN:goto` gets
+`beginJob()` selects one by verb name. `RUN goto` gets
 `closedLoopProfile()` — a leg re-measured and re-planned every hop can
 afford faster shaping. **Everything else gets `openLoopProfile()`**,
 where every error is permanent.
@@ -275,10 +275,10 @@ Floors and `stop_distance` are per-robot (the deploy bake, or
 `setLimits()`'s `MotionLimits` shaping — the `move()`/`goTo()` blocks'
 own default cruise speed and yaw rate.
 
-`RUN:cal`, `RUN:pivot` and `RUN:face` each override one of the two
+`RUN cal`, `RUN pivot` and `RUN face` each override one of the two
 defaults for their own job, on top of the profile. The overrides are
-explicit rather than inherited, so a bare `RUN:pivot` with no preceding
-`RUN:turnrate` is still deterministic.
+explicit rather than inherited, so a bare `RUN pivot` with no preceding
+`RUN turnrate` is still deterministic.
 
 ### Why `openLoopProfile()` is `setLimits(400, 400, ...)`
 
@@ -296,7 +296,7 @@ argued down to. MEASURED tovez,
 The 800 result was real — it beat 300 — but was never checked against
 the actual fleet default until the second sweep. **Root cause of the
 whole episode:** this function had been left at `setLimits(300, 300,
-...)` by a live `RUN:straight:8` check that was never cleared, so every
+...)` by a live `RUN straight 8` check that was never cleared, so every
 RUN-driven gate ran on 300/300 instead of the compiled 400/400 default
 that student block programs actually get. *A RUN verb must not leave the
 robot in a worse shaping profile than the default for every later
@@ -334,13 +334,13 @@ NE (50, 30), SW (−50, −30), SE (50, −30).
 - **`tour:world`** — the sensor is consulted *before every move*, so each
   leg is planned from where the robot actually is. The move itself still
   runs on encoder odometry; the sensor never steers it in flight. No
-  seed: the host has already seeded the true world pose (`RUN:seedxy`),
+  seed: the host has already seeded the true world pose (`RUN seedxy`),
   so the robot can start anywhere on the field.
 - **`tour:wheels`** — open loop, and the **only** one meaningful on the
   bench stand, where the wheels are off the ground and neither the IMU
   nor the OTOS sees the body move.
 
-`RUN:straight` is **wheels only**: deliberately no `worldReady()`, no
+`RUN straight` is **wheels only**: deliberately no `worldReady()`, no
 `seedPose()`, no `logFix()`, and no steering. Consult the sensor and you
 are testing the sensor instead. It reports the encoder pose, where `x`
 is forward travel and `y` is sideways drift — `y` is the interesting
@@ -357,7 +357,7 @@ circle. Every `arcSegment()` call in `test.ts` is 45° for that reason,
 and `tests/host/test_run_tour_programs.py` pins it by reading
 `kTurnFirstAngle` out of the C++ header rather than hardcoding it.
 
-The same threshold is why **`RUN:arc` needs `|deg| >= 50` to mean
+The same threshold is why **`RUN arc` needs `|deg| >= 50` to mean
 anything**: below that it is a single blended move and never exercises
 the split-move path at all. Its shape (`move(20, deg)`) is the one that
 measured the sprint 015 ticket 005 phase-handoff defect (`twistRef_`
@@ -377,7 +377,7 @@ Firmware trusts the caller and does not enforce the bound.
   progress is sideways. Stage it facing the short axis.
 - It is **not a spline**, and the verb used to claim it was. A spline is
   a fitted curve followed with pure pursuit; the *host* drives that one,
-  because it needs the sampled path and a steering loop. `RUN:spline` is
+  because it needs the sampled path and a steering loop. `RUN spline` is
   pinned as absent.
 
 `tests/host/test_run_tour_programs.py` also simulates every `.tour` file
@@ -385,7 +385,7 @@ against `tools/field.py`'s usable half-extents, in either orientation,
 so a figure cannot pass its sizing gate here and still be refused by the
 geofence every driving tool pre-flights against.
 
-### `RUN:arc`'s trajectory dump
+### `RUN arc`'s trajectory dump
 
 The heading trajectory is **not** read live off the wire. A
 request/reply round trip *during* a move is dangerous — `shims.cpp`'s
@@ -408,8 +408,8 @@ wire's 240-byte line cap (`kMaxLineBytes` in both transports, and
 
 `circle`, `infinity` and `snake` take their radius through
 `runArgOr(0, <default>, 0)`, whose `minExclusive = 0` bound rejects an
-unparseable radius (`RUN:circle:abc`) and a non-positive one
-(`RUN:circle:0`, `:-5`) alike as `NaN`. Both are refused outright with
+unparseable radius (`RUN circle abc`) and a non-positive one
+(`RUN circle 0`, `:-5`) alike as `NaN`. Both are refused outright with
 an `ARGERR:` line rather than silently substituting 0 or the fallback:
 these are student-facing verbs, and a typo that quietly ran eight
 pivots-in-place used to look like a normal, if odd, completion. Every
@@ -419,7 +419,7 @@ other `runArg()` call site (`pivot`, `face`, `arc`, `straight`,
 
 ---
 
-## 7. `RUN:face` closes its loop on the robot
+## 7. `RUN face` closes its loop on the robot
 
 Bouncing "measure, turn, measure" over the wireless link made the host
 hunt: every round trip added latency and a fresh chance for a lost

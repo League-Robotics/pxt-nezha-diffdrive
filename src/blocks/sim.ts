@@ -514,6 +514,13 @@ namespace diffDrive {
         return
     }
 
+    // Declares that a catch-all handler is bound, so every name is
+    // dispatchable. Registration only, same as _registerRunName.
+    //% shim=diffDrive::registerRunCatchAll
+    export function _registerRunCatchAll(): void {
+        return
+    }
+
     //% shim=diffDrive::seedPose
     export function _seedPose(x: number, y: number, heading: number): void {
         simIntegrate()

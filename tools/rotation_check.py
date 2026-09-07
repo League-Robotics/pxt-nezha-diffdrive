@@ -42,7 +42,7 @@ PIVOTS = [360.0, 180.0, -180.0]
 def fix(link, tries=3):
     """Take one live OTOS fix -> (x_mm, y_mm, heading_deg) or None."""
     for _ in range(tries):
-        seen = link.send_until('RUN:fix', 'OCAL:now', tries=1, wait=5.0,
+        seen = link.send_until('RUN fix', 'OCAL:now', tries=1, wait=5.0,
                                echo=False)
         for s in seen:
             if s.startswith('OCAL:now'):
@@ -71,7 +71,7 @@ def encoder_heading(link, stream, wait=2.0):
 
 def send_pivot(link, deg):
     """Command a relative pivot of `deg` and wait for it to finish."""
-    return link.send_until(f'RUN:pivot:{int(deg)}', 'GAP:', tries=2,
+    return link.send_until(f'RUN pivot {int(deg)}', 'GAP:', tries=2,
                            wait=abs(deg) / 45.0 + 12.0, echo=False)
 
 

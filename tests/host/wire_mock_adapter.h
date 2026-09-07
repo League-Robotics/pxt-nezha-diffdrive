@@ -284,4 +284,35 @@ class WireMockAdapter : public Wire::Adapter {
     }
     return runResult;
   }
+
+  // ---- the RUN registry FUNCS discloses ---------------------------------
+  // A canned table a test fills before feed()ing `FUNCS`, in the same
+  // set-a-public-field style as every other canned response on this
+  // mock. Deliberately NOT the production WireAdapter's behaviour (that
+  // one mirrors the block program's own onRun() bindings via
+  // comms/run_registry.h) -- this is a generic double, so a test can
+  // arm an empty registry, a one-entry one, a name with no signature,
+  // or a name built to overrun the wire's line cap, independently of
+  // what any concrete adapter does.
+  //
+  // Both arrays are borrowed C strings with the same outlive-their-use
+  // contract runResultText above keeps.
+  static constexpr size_t kMaxRunRegistry = 8;
+  const char* runNames[kMaxRunRegistry] = {};
+  const char* runSignatures[kMaxRunRegistry] = {};
+  size_t runRegistryCount = 0;
+
+  size_t runCount() const override { return runRegistryCount; }
+
+  // "" rather than null for an out-of-range index, and "" for an entry
+  // whose signature was never armed -- the never-null contract
+  // Wire::Adapter documents for both.
+  const char* runName(size_t index) const override {
+    if (index >= runRegistryCount) return "";
+    return runNames[index] == nullptr ? "" : runNames[index];
+  }
+  const char* runSignature(size_t index) const override {
+    if (index >= runRegistryCount) return "";
+    return runSignatures[index] == nullptr ? "" : runSignatures[index];
+  }
 };

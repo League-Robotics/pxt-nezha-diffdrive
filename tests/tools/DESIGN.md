@@ -232,7 +232,7 @@ whole suite.
 
 Driven with an injected fake link and fake camera, asserting on **what
 the link received**, not on a return value: a refusal that has already
-sent `RUN:seedxy` has still changed the robot's world frame, so every
+sent `RUN seedxy` has still changed the robot's world frame, so every
 refusal case checks `link.sent == []` and one test pins the refusal's
 position ahead of the seed explicitly. Accept cases are pinned too (the
 NE staging dot must still drive) — a gate that refuses everything is as
@@ -245,7 +245,7 @@ meaning rather than disappearing:
 
 - **`test_reposition.py`** pins the surviving loop — the geofence, and
   now the **ordering**: a good heading is never re-commanded, and no
-  `RUN:goto` follows a `RUN:face`. Those two tests name the "98 and 94
+  `RUN goto` follows a `RUN face`. Those two tests name the "98 and 94
   degrees instead of west" measurement they descend from, and they
   discriminate: replaying the pre-merge interleaved loop against the
   same fake camera issues a fresh `goto` after the pivot.
@@ -287,9 +287,9 @@ asserts none of the old dead numeric forms (`RUN:8`, `RUN:14`,
 `RUN:10`, `RUN:2`, `RUN:4`, `RUN:5`, `RUN:{57000+rate}`,
 `RUN:{58360+deg}`) appear anywhere in what was sent — a regression back
 to the numeric vocabulary fails loudly instead of silently. Covers
-`otos_levercal.py` (`RUN:cal`/`RUN:cal:1`), `pivot_truth.py`/
-`rotation_check.py` (`RUN:fix`, `RUN:pivot:<deg>`),
-and `turn_sweep.py` (`RUN:turnrate:<rate>` then `RUN:pivot:<deg>`).
+`otos_levercal.py` (`RUN cal`/`RUN cal 1`), `pivot_truth.py`/
+`rotation_check.py` (`RUN fix`, `RUN pivot <deg>`),
+and `turn_sweep.py` (`RUN turnrate <rate>` then `RUN pivot <deg>`).
 Cannot prove the robot moves — no serial port, no robot — only that
 each tool's own RUN-sending code path targets a real handler.
 
@@ -354,7 +354,7 @@ boundaries reassembles; a trailing partial is held, not emitted; the
 relay's `'< '` receive prefix is stripped; blank lines drop),
 `Sequencer` (the first id is 1; a resend reuses its id and a re-format
 of an already-numbered line takes no fresh one; `ack N` → N while
-`nack N` → N−1; unsequenced verbs and the cleartext `RUN:` form go out
+`nack N` → N−1; unsequenced verbs and the `RUN` form go out
 bare; `reset()` is HELLO's counterpart), and `relay_setup_lines()` (all
 four lines, in `robotlink`'s order, `!GO` excluded).
 
