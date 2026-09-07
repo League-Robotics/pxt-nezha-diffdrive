@@ -1,9 +1,11 @@
 ---
 id: '002'
 title: 'Shim and TS/sim surface: setupWifi() entry point'
-status: open
-use-cases: [SUC-001]
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-001
+depends-on:
+- '001'
 github-issue: ''
 issue: wifi-credentials-are-set-in-code-from-the-project-s-own-secrets-ts.md
 completes_issue: false
@@ -124,20 +126,20 @@ module-locals declared alongside the existing `simRadioChannel` /
 
 ## Acceptance Criteria
 
-- [ ] `diffDrive.setupWifi(ssid, password = "")` is callable from
+- [x] `diffDrive.setupWifi(ssid, password = "")` is callable from
       TypeScript/JavaScript, matches the template's existing call
       site exactly (`setupWifi(WIFI_SSID, WIFI_PASSWORD)`), and does
       NOT appear in the toolbox (`blockHidden=true`).
-- [ ] `setupWifi("")` (single argument, relying on the default) type-
+- [x] `setupWifi("")` (single argument, relying on the default) type-
       checks and compiles — the default parameter must actually work,
       not just be documented.
-- [ ] The shim correctly treats an empty PXT `String` as `""` via
+- [x] The shim correctly treats an empty PXT `String` as `""` via
       `getUTF8Size()`, not via `toCharArray()`'s result at size 0.
-- [ ] `_setupWifi` in `sim.ts` records into sim-local variables and
+- [x] `_setupWifi` in `sim.ts` records into sim-local variables and
       performs no other action, matching `_setupRadio`'s shape.
-- [ ] `//%` annotations sit immediately above their declarations in
+- [x] `//%` annotations sit immediately above their declarations in
       `shims.cpp`, with no intervening comment line.
-- [ ] Existing shim/toolbox pin tests (`tests/host/test_block_toolbox_order.py`
+- [x] Existing shim/toolbox pin tests (`tests/host/test_block_toolbox_order.py`
       and neighbors) still pass, or are updated in ticket 004 to
       account for the new hidden block — check whether this ticket's
       change alone breaks anything before assuming ticket 004 covers
