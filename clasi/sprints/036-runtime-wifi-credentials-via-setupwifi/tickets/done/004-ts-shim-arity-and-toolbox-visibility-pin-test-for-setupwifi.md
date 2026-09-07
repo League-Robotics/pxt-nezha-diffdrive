@@ -1,9 +1,11 @@
 ---
 id: '004'
-title: 'TS/shim arity and toolbox-visibility pin test for setupWifi()'
-status: open
-use-cases: [SUC-001]
-depends-on: ['002']
+title: TS/shim arity and toolbox-visibility pin test for setupWifi()
+status: done
+use-cases:
+- SUC-001
+depends-on:
+- '002'
 github-issue: ''
 issue: wifi-credentials-are-set-in-code-from-the-project-s-own-secrets-ts.md
 completes_issue: false
@@ -72,17 +74,31 @@ introduce a new TS-parsing dependency for one test.
 
 ## Acceptance Criteria
 
-- [ ] `tests/host/test_block_toolbox_order.py` passes unmodified after
+- [x] `tests/host/test_block_toolbox_order.py` passes unmodified after
       ticket 002 lands (or, if it genuinely needs a baseline change,
       that change is justified in the ticket's own notes as
       intentional, not just "test failed so I updated the baseline").
-- [ ] New arity/adjacency pin test exists, asserts parameter count,
+      Confirmed: 3 passed, no baseline edit needed -- `setupWifi` has
+      no `block=` caption, so that file's existing scan already
+      excludes it (same as `enableRadioLink`/`runArg`).
+- [x] New arity/adjacency pin test exists, asserts parameter count,
       type, and order match between `run.ts`'s `setupWifi` and
       `sim.ts`'s `_setupWifi`, and asserts the call site passes
       arguments in the declared order.
-- [ ] The new test fails if `_setupWifi`'s parameters are reordered to
+      `tests/host/test_setupwifi_shim_arity_source_pin.py`; also
+      extended to the third layer (`src/shims.cpp`'s native
+      `setupWifi`), plus pins for the `//%` adjacency rule, `//%
+      blockHidden=true`, the `getUTF8Size()` emptiness guard, and
+      `sim.ts`'s `_setupWifi` recording its arguments -- the fuller
+      set the dispatch brief asked this ticket to catch.
+- [x] The new test fails if `_setupWifi`'s parameters are reordered to
       `(password, ssid)` while `setupWifi`'s call site is not updated
       to match (the actual bug class this ticket exists to catch).
+      Verified by temporarily breaking each of the 6 source shapes
+      this file pins (param reorder, call-site swap, `//%` adjacency,
+      missing `blockHidden`, reverted `toCharArray()` emptiness guard,
+      bare no-op `_setupWifi`), confirming each fails the matching
+      test, then `git checkout --` and a clean `git status` on `src/`.
 
 ## Testing
 
