@@ -198,6 +198,31 @@ def test_re_registering_an_existing_name_works_even_when_full(reg):
     assert reg.signature(0) == b"i->v"
 
 
+def test_non_printable_bytes_are_dropped_from_both_fields(reg):
+    """The alphabet rule RunBridge applies to a payload, applied to the
+    table's own cells: an entry may be wrong, but it may never be
+    unprintable.
+
+    MEASURED gopiv 2026-09-07, fw 1.20260907.1 over the farm USB serial
+    daemon: every line came back as `funcs <name> \\xef\\xbf\\xbdc` --
+    two junk bytes where the omitted signature belonged, because
+    `MSTR()` on a zero-length PXT String does not yield a clean "".
+    shims.cpp's registerRunName no longer asks that question of
+    ManagedString, and this filter means the answer could not have
+    reached the wire even if it did."""
+    assert reg.add(b"to\x01ur", b"i\x7f->v")
+    assert reg.name(0) == b"tour"
+    assert reg.signature(0) == b"i->v"
+
+
+def test_a_signature_of_only_junk_becomes_empty_not_a_dangling_field(reg):
+    """The exact gopiv shape: a signature that is ENTIRELY non-printable
+    must sanitize to "", so execFuncs omits the field rather than
+    emitting `funcs tour ` with a trailing separator and garbage."""
+    assert reg.add(b"tour", b"\x01\x02\x1f")
+    assert reg.signature(0) == b""
+
+
 def test_out_of_range_reads_return_empty_never_null(reg):
     """The never-null contract Wire::Adapter documents for runName()/
     runSignature(): the caller hands these straight to a string API, so
