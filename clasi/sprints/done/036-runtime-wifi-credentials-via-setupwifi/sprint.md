@@ -1,7 +1,7 @@
 ---
 id: '036'
 title: Runtime WiFi credentials via setupWifi()
-status: executing
+status: done
 branch: sprint/036-runtime-wifi-credentials-via-setupwifi
 use-cases: []
 issues:
