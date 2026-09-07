@@ -1,9 +1,14 @@
 ---
 id: '005'
 title: 'Docs: consumer-side secrets.ts convention, and pxt.json version bump'
-status: open
-use-cases: [SUC-001]
-depends-on: ['001', '002', '003', '004']
+status: done
+use-cases:
+- SUC-001
+depends-on:
+- '001'
+- '002'
+- '003'
+- '004'
 github-issue: ''
 issue: wifi-credentials-are-set-in-code-from-the-project-s-own-secrets-ts.md
 completes_issue: true
@@ -76,16 +81,16 @@ patch component following this repo's existing `1.YYYYMMDD.n` cadence
 
 ## Acceptance Criteria
 
-- [ ] `docs/robot-connections.md` documents the `secrets.ts` /
+- [x] `docs/robot-connections.md` documents the `secrets.ts` /
       `secrets.example.ts` convention, the `pxt.json` `files` listing
       requirement, the VS-Code-only secrecy caveat, and why
       `setupWifi()` is hidden from the toolbox.
-- [ ] `pxt.json`'s `version` field is bumped following this repo's
+- [x] `pxt.json`'s `version` field is bumped following this repo's
       existing `1.YYYYMMDD.n` convention, checked against a clean
       `git status --short pxt.json` immediately before the edit.
-- [ ] No change to `league-projects/scratch/nezha-robot-template` (out
+- [x] No change to `league-projects/scratch/nezha-robot-template` (out
       of scope, separate repo).
-- [ ] No change to `enableWifiLink()`'s behavior or to
+- [x] No change to `enableWifiLink()`'s behavior or to
       `tools/make_deploy.py::_inject_wifi_secrets()` (both explicitly
       out of scope for the whole sprint).
 
