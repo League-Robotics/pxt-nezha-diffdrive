@@ -1,7 +1,15 @@
 ---
-title: "WiFi credentials: a setupWifi(ssid, password) entry point, called from the student project's own secrets.ts"
-status: pending
+title: 'WiFi credentials: a setupWifi(ssid, password) entry point, called from the
+  student project''s own secrets.ts'
+status: in-progress
 created: 2026-09-07
+sprint: '036'
+tickets:
+- 036-001
+- 036-002
+- 036-003
+- 036-004
+- 036-005
 ---
 
 # WiFi credentials: a `setupWifi(ssid, password)` entry point, called from the student project's own `secrets.ts`
