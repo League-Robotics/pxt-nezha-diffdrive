@@ -129,6 +129,96 @@ telemetry-heavy sessions until that is understood. A USB round trip is
 
 Nothing authenticates the port: anyone on the LAN can drive the robot.
 
+### Setting credentials from your own project (`setupWifi()`)
+
+Everything above assumes the robot already knows which network to
+join -- for the fleet, `tools/make_deploy.py::_inject_wifi_secrets()`
+bakes `kWifiSsid`/`kWifiPassword` into a scratch copy of
+`protocol.cpp` at deploy time, from a gitignored
+`config/wifi_secrets.json`. That path is unchanged and is still what
+every fleet build uses.
+
+A student's own project never runs `make_deploy.py`, so the checked-in
+constants stay empty -- an empty SSID is `WifiLink`'s own "disabled"
+sentinel, and `enableWifiLink()` (see above) is a permanent no-op with
+nothing baked. `diffDrive.setupWifi(ssid, password)` is the entry point
+for that case: call it once, from `on start`, and it does both jobs
+that `enableWifiLink()` and the bake otherwise split between them --
+it stores the credentials AND brings the link up, in one call. There is
+no separate `enableWifiLink()` step to remember.
+
+```typescript
+diffDrive.setupWifi("Busboom Mesh", "correct horse battery staple")
+```
+
+`setupWifi("")` -- an empty SSID -- disables the link explicitly, the
+same zero-cost outcome as no WiFi module fitted at all. Useful for a
+program that wants to be certain WiFi never comes up, distinct from
+simply never calling `setupWifi()`.
+
+`setupWifi()` is **not in the toolbox** -- it is `//% blockHidden=true`,
+deliberately, the same as `enableWifiLink()` right above it. It is
+reachable from TypeScript/JavaScript but you will not find it by
+dragging blocks. That is on purpose: a visible, draggable block would
+invite a beginner to drop a real passphrase straight into a shared,
+tracked program -- exactly what the `secrets.ts` convention below
+exists to prevent. WiFi credentials are for advanced students working
+in VS Code, not a toolbox feature.
+
+If a passphrase or SSID is too long (over 32 characters for the SSID,
+63 for the password), `setupWifi()` clips it rather than overflowing --
+and that clip is never silent. The next `DBG:wifi ...` line carries
+`credsrc=` (0 = baked, 1 = set by `setupWifi()`) and `trunc=` (a
+bitmask: bit 0 SSID clipped, bit 1 password clipped), so "joins
+nothing, no reason" is diagnosable from the same status line you
+already read for everything else WiFi. A call made after the link has
+already come up is also not silent -- it changes nothing and prints
+`DBG:wifi late setupWifi() ignored`.
+
+#### The `secrets.ts` convention
+
+Keep credentials **in code, in a file that is not the tracked
+program** -- the same shape `config/wifi_secrets.json` already has in
+this repo, one level down, in the student's own project:
+
+- `secrets.ts` -- **gitignored**, holds the real SSID and password,
+  calls `diffDrive.setupWifi(...)` (or exports constants a tracked
+  `boot.ts`/`on start` block calls it with).
+- `secrets.example.ts` -- **tracked**, checked in beside it, same
+  shape with placeholder values. Setup for a fresh clone is one step:
+  copy `secrets.example.ts` to `secrets.ts` and fill in the real
+  network name and password.
+
+```typescript
+// secrets.example.ts -- TRACKED. Copy to secrets.ts and fill in real
+// values; secrets.ts itself is gitignored.
+const WIFI_SSID = "YourNetworkName"
+const WIFI_PASSWORD = "YourPassword"
+```
+
+```typescript
+// boot.ts -- TRACKED, calls into the gitignored secrets.ts.
+diffDrive.setupWifi(WIFI_SSID, WIFI_PASSWORD)
+```
+
+**The trap:** PXT compiles a *fixed* file set, read from the project's
+own `pxt.json` `files` array -- it does not discover files by scanning
+the directory. `secrets.ts` has to be listed there for the build to
+include it, but the moment it is listed *and* gitignored, anyone who
+clones the project without first creating `secrets.ts` has a build
+that fails outright, not a build that silently skips WiFi. List
+`secrets.example.ts` in `files` too (or leave it untracked-but-present
+via `.gitignore`) so the copy step above is the only thing a fresh
+clone needs.
+
+This convention is a **VS Code checkout** property only. The MakeCode
+web editor has no git and no filesystem of its own to `.gitignore` --
+a `secrets.ts` file there buys separation from the rest of the tracked
+program (so it is not accidentally read top-to-bottom with everything
+else) but not actual secrecy: anyone who opens or shares that web
+project sees it. Real secrecy needs the VS Code + git checkout, where
+`secrets.ts` genuinely never leaves the machine it was created on.
+
 ## Farm USB
 
 ```bash
