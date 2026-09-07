@@ -81,10 +81,38 @@ change did not touch:
 | bare `GET` (31 config fields) | 31 lines | 7 lines |
 
 Bare `GET` predates this work entirely, so this is the **WiFi transport**,
-not `FUNCS`. `DBG:wifi` names the mechanism directly — after one `GET`
-burst gopiv reported `state=5 ip=192.168.1.215 tcp=1/1 to=0 restarts=0
-sent=61 rx=11 **drop=76**`. The first FUNCS read showed `drop=14`, and
-21 - 7 = 14 exactly.
+not `FUNCS`. And it is not the network: the carrier is TCP, which does
+not lose data. The firmware throws the lines away itself.
+
+MECHANISM, proven rather than inferred. `WifiLink::enqueueSend()`
+(`wifi_link.cpp:775`) drops the NEWEST datagram once `txCount_ >=
+kTxSlots`, and `kTxSlots = 8` (`wifi_link.h:121`). The AT engine sends
+one CIPSEND per datagram over several fiber ticks while `execFuncs()`
+writes all 22 lines (1 ack + 21 funcs) into the ring in one synchronous
+loop, so lines 9..22 find it full.
+
+Bracketing ONE `FUNCS` between two `DBG:wifi` reads on gopiv:
+
+```
+drop before : 0
+drop after  : 14
+delivered   : 1 ack + 7 funcs = 8
+```
+
+8 delivered is exactly `kTxSlots`; 22 - 8 = 14 dropped, matching the
+counter to the unit.
+
+Serial made the opposite choice and serial is right:
+`SerialTransport::writeLine()` uses `SYNC_SLEEP`, which BLOCKS when
+CODAL's TX ring fills and then continues, losing nothing. "Drop, never
+block" is correct for a telemetry frame (a stale pose is worthless, and
+`purgeTelemetry()` exists for it) and wrong for a command reply, which
+is the answer to a question a host just asked.
+
+Note the naive fix DEADLOCKS: the protocol fiber both fills the ring
+(inside `execFuncs`) and drains it (`serviceWifi()`), so a blocking wait
+in the fill path waits on a drain that cannot run until it returns. The
+issue writes up the two viable directions.
 
 This matters more than a cosmetic truncation: `FUNCS` is an allowlist,
 and a host reading 7 of 21 names as the whole list is the precise failure
