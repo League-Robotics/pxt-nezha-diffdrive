@@ -129,7 +129,7 @@ program flow continues.
 
 | Block | Function | Params | Behavior |
 |---|---|---|---|
-| `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. Below ~50 deg of yaw, setting both at once produces one blended arc; at or above that (`kTurnFirstAngleRad`), it pivots to the new heading FIRST, then drives the distance straight — two sequential phases, not one arc (see the `goTo` split below for why this is NOT the same reduction that reaches a target point exactly). The browser simulator mirrors this same split, drift-tested against the firmware constant it shares. Internally: `startMove(distance, yaw)` then `while (_tickDrive())` — the blocking form ticks the control loop itself at the 24 ms cadence until the move ends. |
+| `move %distance cm turning %yaw degrees` | `move(distance, yaw)` | `distance`: cm to travel; `yaw`: degrees to turn, CCW+ | Drives a distance while turning a yaw angle, then stops. The two always blend into ONE constant-radius arc, R = distance / yaw, for any pair: a small distance with a large yaw runs the inner wheel backwards (R below half the track width), a negative distance drives the same arc in reverse, and a yaw past 360 keeps going round. There is no pivot-first threshold on `move` (there was one, borrowed from `goTo`'s 50 deg `kTurnFirstAngle`, until 2026-09-07: `reports/move-x-arc-space-20260906.md`). The browser simulator blends the same way. Internally: `startMove(distance, yaw)` then `while (_tickDrive())` — the blocking form ticks the control loop itself at the 24 ms cadence until the move ends. |
 | `go to x %x cm y %y cm` | `goTo(x, y)` | `x`: forward distance cm; `y`: leftward distance cm (robot frame) | Reaches a point in the robot's current coordinate frame exactly, then stops. Blocks the same way as `move`. |
 
 `goTo`'s reduction (in `startGoTo`, shared by the blocking and async
@@ -140,18 +140,18 @@ target `(x, y)` in the robot frame with the robot starting at heading
 0 along +x, `goToR()` (`motion_engine.cpp`) owns its own split:
 - turn angle `theta = 2 * atan2(y, x)` radians, signed, wrapped to the
   short arc `(-pi, pi]` before anything below uses it.
-- below the same ~50 deg pivot-first threshold `move`'s own reduction
-  uses (`kTurnFirstAngleRad`): one blended constant-curvature arc — if
+- below its own ~50 deg pivot-first threshold on the arc angle
+  (`kTurnFirstAngle`, `goTo`'s alone — `move` has none): one blended
+  constant-curvature arc — if
   `|y| < 0.01`: straight line, arc length `s = x`; else signed radius
   `radius = (x² + y²) / (2y)`, arc length `s = radius * theta`.
 - at or above that threshold: pivots to the line-of-sight bearing
   (`atan2(y, x)`) then drives the straight-line chord (`hypot(x, y)`)
-  — reaching `(x, y)` exactly either way. This is deliberately
-  different from `move`'s own >=50 deg split, which reissues an
-  arc's `(s, theta)` as pivot-then-straight and lands at a different
-  point than the arc it was computed for — correct for `move`, which
-  never claims to reach a specific `(x, y)`, but not something `goTo`
-  can inherit.
+  — reaching `(x, y)` exactly either way. The split is a policy
+  choice, not a correctness one: the tangent arc through `move` also
+  lands on `(x, y)`, but the long way round for a target behind the
+  robot, bulging `(chord/2)·tan(bearing/2)` sideways, and ending at
+  twice the bearing instead of on it.
 - `hypot(x, y) <= arrive` (the no-op radius passed by the caller —
   1 mm for `goTo`/`startGoTo`) issues no move at all.
 

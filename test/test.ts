@@ -34,7 +34,7 @@
 //     abort  clearestop
 //
 // Design notes -- the tick model, job lifecycle, abort scope, shaping
-// profiles, the 50 deg arc rule and the measured constants below --
+// profiles, the arc steps and the measured constants below --
 // live in test/DESIGN.md.
 
 // Substituted by tools/make_deploy.py in the scratch copy. Left as
@@ -399,10 +399,12 @@ function leverCal(verify: boolean) {
 }
 
 // ---- figure tours ----------------------------------------------------
-// ARC SEGMENT SIZE IS NOT FREE: moveX() splits any move with a nonzero
-// distance and |yaw| >= 50 deg into a pivot THEN a straight, so an arc
-// asked for in 90 deg pieces comes out as a SQUARE. Every arc here is
-// 45 deg for that reason.
+// ARC SEGMENT SIZE, HISTORY: moveX() used to split any move with a
+// nonzero distance and |yaw| >= 50 deg into a pivot THEN a straight, so
+// an arc asked for in 90 deg pieces came out as a SQUARE. That split is
+// gone (reports/move-x-arc-space-20260906.md): move() is one
+// constant-radius arc at any angle. The 45 deg steps are kept as
+// written, not required.
 
 // One constant-curvature arc of `deg` degrees on a circle of `rCm`. Arc
 // length = r * theta, which is what move()'s distance argument wants.
@@ -641,10 +643,10 @@ diffDrive.onRun("pivot", function (arg: number) {
     endJob(jobReason())
 })
 
-// One combined 20 cm + <deg> move, the shape that measured the sprint
-// 015 phase-handoff defect and its fix. Below |50| deg this is a single
-// blended move and never exercises the split-move path at all, so a
-// meaningful confirmation run needs |deg| >= 50. Encoder/gyro only.
+// One combined 20 cm + <deg> move: a single constant-radius arc at any
+// |deg| (HISTORY: this was the shape that measured the sprint 015
+// phase-handoff defect, when moveX() still split at |50| deg; the
+// handoff now belongs to goToR() alone). Encoder/gyro only.
 diffDrive.onRun("arc", function (arg: number) {
     if (touring) return
     beginJob("ARC")

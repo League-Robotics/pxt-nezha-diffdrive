@@ -13,12 +13,13 @@
 # (182, 376) mm, after which the next tour failed against the north
 # rail.
 #
-# ARC SEGMENTS ARE 45 DEG AND THAT IS NOT COSMETIC. moveX() splits any
-# move with a nonzero distance and |rotation| >= 50 deg into a pivot
-# THEN a straight, so the original single 360 deg arc drove the whole
-# circle as one 942 mm STRAIGHT LINE (MEASURED gopiv 2026-09-01,
-# closure 942.2 mm), and a 90 deg version drew a square. Eight 45 deg
-# arcs keep every segment a genuine constant-curvature move.
+# ARC SEGMENTS ARE 45 DEG BY HISTORY. moveX() used to split any move
+# with a nonzero distance and |rotation| >= 50 deg into a pivot THEN a
+# straight, so the original single 360 deg arc drove the whole circle
+# as one 942 mm STRAIGHT LINE (MEASURED gopiv 2026-09-01, closure
+# 942.2 mm), and a 90 deg version drew a square. That split is gone
+# (reports/move-x-arc-space-20260906.md, 2026-09-07): one 360 deg arc
+# is now a circle. The 45 deg steps are kept, not required.
 #
 #   v = omega * r, with omega = 47.75 deg/s = 0.8333 rad/s
 #   -> v = 0.8333 * 300 = 250 mm/s, matching the other tours' cruise.

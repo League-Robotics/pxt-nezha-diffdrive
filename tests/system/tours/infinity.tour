@@ -29,12 +29,12 @@
 #   v = omega * r, with omega = 57.3 deg/s = 1.0 rad/s
 #   -> v = 1.0 * 250 = 250 mm/s.
 #
-# SEGMENT SIZE IS NOT FREE. moveX() splits any move with a nonzero
-# distance and |rotation| >= 50 deg (kTurnFirstAngleRad) into a pivot
-# THEN a straight -- so 90 deg arcs come out as a SQUARE, which is
-# exactly what the first run of this tour drew. Each arc stays at
-# 45 deg: 8 arcs per circle, still a handful of shaped moves rather
-# than dozens of chords.
+# SEGMENT SIZE, HISTORY: moveX() used to split any move with a nonzero
+# distance and |rotation| >= 50 deg into a pivot THEN a straight, so
+# 90 deg arcs came out as a SQUARE, which is exactly what the first run
+# of this tour drew. Removed 2026-09-07
+# (reports/move-x-arc-space-20260906.md); any arc angle works now. Each
+# arc stays at 45 deg as written: 8 arcs per circle.
 
 # PIVOT TUNING (MEASURED gopiv 2026-09-01, interleaved A/B so battery
 # drift hits both arms equally). Pivot cruise 188 mm/s (omega 180 deg/s)

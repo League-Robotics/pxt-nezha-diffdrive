@@ -283,7 +283,7 @@ Responsibilities, stated as what each entry point now does:
 |---|---|---|
 | `wheelsV(l, r, ms)` | one `kernel.drive()` held on the lease; unshaped | sets `hold_` (target v, twist, deadline); `service()` slews toward it with the shaper every tick and issues `drive(…, 500 ms)`; the kernel lease still backstops an abandoned hold |
 | `wheelsX(l, r, cruise, ms)` | one dead-reckoned `drive()` | a `Segment` like `moveX`, closed-loop on encoders (the spec allows this: "timeout is a required backstop, not the stop condition") |
-| `moveX`, `goToR`, `goToW` | `startSegment()` + `serviceMove()` | build a `Segment` (split rule unchanged: `|rotation| ≥ 50°` with distance → pivot phase then straight phase); `service()` runs it |
+| `moveX`, `goToR`, `goToW` | `startSegment()` + `serviceMove()` | build a `Segment`; `service()` runs it. (`moveX`'s pivot-then-straight split at `|rotation| ≥ 50°` survived unification and was removed 2026-09-07, `reports/move-x-arc-space-20260906.md`; only `goToR` splits now, on its own bearing policy) |
 | `serviceMove()` | 360 lines, two algorithms | `service()`: ~40 lines, §5 |
 | `endMove()` | neutral if a move was active | neutral + `shaper_.reset()` + clear both states |
 

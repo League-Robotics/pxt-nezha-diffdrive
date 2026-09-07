@@ -385,7 +385,7 @@ def _harness_result(tmp_path_factory):
     js_path = tmp_dir / "harness.js"
     tsconfig_path = tmp_dir / "tsconfig.json"
     ts_path.write_text(harness_ts, encoding="utf-8")
-    # Same reasoning as test_sim_pivot_then_straight_split.py's own
+    # Same reasoning as test_sim_move_is_one_arc.py's own
     # harness: `types: []` keeps this project's PXT/browser-simulator
     # @types out of a bare script compile that wants neither; `strict:
     # false` matches this repo's own root tsconfig.json.

@@ -26,11 +26,11 @@ issue (see `test/test.ts::legToward()` and `::openLoopProfile()`):
   - a BLENDED leg whose rotation is itself >=50 deg
     (`legToward()`'s own arc branch can reach up to just under
     100 deg after its own <50 deg gate, e.g. bearing 45 deg -> theta
-    90 deg) -- this is the ONE shape that reaches
-    `MotionEngine::moveX()`'s OWN internal pivot-then-straight split
-    (motion_engine.cpp:166), where ONE `timeout` (set once, before the
-    split) must cover TWO sequential ramp/taper overheads instead of
-    one -- the shape most likely to exhaust the flat +1500 ms margin.
+    90 deg). HISTORY: `MotionEngine::moveX()` used to split this shape
+    into pivot-then-straight under ONE `timeout`, the shape most likely
+    to exhaust the flat +1500 ms margin; moveX() no longer splits at any
+    angle (reports/move-x-arc-space-20260906.md), so this is now one
+    wide blended arc and the budget is the plain max() again.
   - a PURE STRAIGHT leg (`legToward()`'s <0.01 rad branch, and
     goToWorld()'s own straight-continuation leg) -- single segment,
     `distFloor_`/`distTaper_`.
@@ -96,15 +96,6 @@ PRODUCTION_YAW_RATE_DEG_S = 90.0  # [deg/s] diffDrive.setDefaultYawRate(90)
 # shims.cpp::startMove()'s own flat backstop (src/shims.cpp:432-437's
 # own comment: "allows for the end-of-move taper... adding up to ~1 s").
 _SHIMS_TIMEOUT_MARGIN_MS = 1500
-
-# moveX()'s own pivot-then-straight split threshold
-# (MotionEngine::kTurnFirstAngle, motion_engine.h -- private, exposed
-# via the public turnFirstAngle() accessor sprint 015 ticket 004
-# added) -- mirrored here in degrees so this file's own budget formula
-# (_shim_move_params() below) decides the split the SAME way shims.cpp's
-# startMove() does, without a second unlinked copy of the raw radian
-# constant.
-_TURN_FIRST_ANGLE_DEG = 50.0
 
 # Effectively unbounded -- used for the "how long does this leg actually
 # take, left alone" baseline measurement. Real legs finish in low
@@ -191,30 +182,20 @@ def _shim_move_params(distance_mm, rotation_deg, speed_mm_s, yaw_rate_deg_s,
     Mirrors the C++ algebra term-for-term, including its `uint32_t`
     truncation of `duration*1000` before adding the flat backstop.
 
-    Sprint 015 ticket 004: the TIMEOUT budget is no longer always
-    max(dist_duration, yaw_duration) -- when moveX() will actually
-    SPLIT (nonzero distance, |rotation| at/above _TURN_FIRST_ANGLE_DEG),
-    the two segments run SEQUENTIALLY under one shared deadline
-    (motion_engine.h), so the budget is dist_duration + yaw_duration
-    instead. `duration` (the max-based value) is UNCHANGED by this and
-    still what derives `cruise_mm_s` -- that dual-rate reconciliation is
-    independent of which quantity bounds the deadline.
+    The TIMEOUT budget is max(dist_duration, yaw_duration): moveX() is
+    one blended segment whose two axes finish together. (Sprint 015
+    ticket 004 once made this dist_duration + yaw_duration for the
+    |rotation| >= 50 deg case, when moveX() split those into two
+    sequential phases under one deadline; that split is gone.)
+    `duration` is also what derives `cruise_mm_s` -- that dual-rate
+    reconciliation is the same reconciliation.
 
     Returns (cruise_mm_s, timeout_ms, duration_s, left_counts,
-    right_counts, budget_duration_s). `duration_s`/`left_counts`/
-    `right_counts` are unchanged from before this ticket -- the last two
-    are startSegment()'s own per-wheel targets (motion_engine.cpp:
-    112-113), used by callers to compute the expected FINAL absolute
-    encoder position regardless of whether moveX() ends up splitting
-    this into two phases: `max(|d-y|,|d+y|) == |d|+|y|` is a general
-    identity, so the pivot-then-straight split's two phases' own
-    per-wheel targets always sum back to exactly these same
-    (left_counts, right_counts). `budget_duration_s` is new: the
-    duration actually consumed by `timeout_ms` (== duration_s when the
-    split does NOT fire, == dist_duration + yaw_duration when it does)
-    -- exposed so a caller reconstructing "the naive, pre-margin
-    timeout" (e.g. the negative-control tests below) does not have to
-    re-derive the split decision by hand.
+    right_counts, budget_duration_s). `left_counts`/`right_counts` are
+    startSegment()'s own per-wheel targets (motion_engine.cpp), used by
+    callers to compute the expected FINAL absolute encoder position.
+    `budget_duration_s` == duration_s, kept as a separate return so the
+    callers' shape did not change.
     """
     rotation_rad = math.radians(rotation_deg)
     dist_target_counts = distance_mm * cpm
@@ -238,10 +219,7 @@ def _shim_move_params(distance_mm, rotation_deg, speed_mm_s, yaw_rate_deg_s,
     dominant_counts = max(abs(left_counts), abs(right_counts))
     cruise_mm_s = (dominant_counts / duration) / cpm
 
-    will_split = (distance_mm != 0.0
-                  and abs(rotation_deg) >= _TURN_FIRST_ANGLE_DEG)
-    budget_duration = ((dist_duration + yaw_duration) if will_split
-                        else duration)
+    budget_duration = duration
 
     timeout_ms = int(budget_duration * 1000.0) + _SHIMS_TIMEOUT_MARGIN_MS
     return (cruise_mm_s, timeout_ms, duration, left_counts, right_counts,
@@ -353,9 +331,9 @@ def test_deadline_boundary_pure_pivot_production_timeout_matches_unbounded(
     assert real_wrong_way == 0
 
 
-# ---- blended split leg (legToward()'s arc branch, theta >= 50 deg: -------
-# ---- the ONE shape that reaches moveX()'s OWN internal pivot-then- -------
-# ---- straight split, motion_engine.cpp:166, sharing ONE deadline) --------
+# ---- wide blended leg (legToward()'s arc branch, theta >= 50 deg) -------
+# ---- HISTORY: this used to be the ONE shape that reached moveX()'s -------
+# ---- internal pivot-then-straight split; it is one arc now.       -------
 
 
 def _split_leg_params():
@@ -363,12 +341,10 @@ def _split_leg_params():
     >=50 deg -- e.g. legToward()'s own arc branch with bearing 45 deg
     (theta = 2*bearing = 90 deg) reaching for a ~300 mm residual. Round
     numbers chosen directly as moveX()'s own (distance, rotation) args
-    rather than re-deriving from a bearing/offset pair -- what matters
-    for this file is the (distance, rotation, cruise, timeout) tuple
-    moveX() actually receives, not which upstream TS geometry produced
-    it. 70 deg comfortably clears kTurnFirstAngle (50 deg,
-    motion_engine.h's own constant) so this is unambiguously the
-    split path, not the blended-below-threshold one."""
+    rather than re-deriving from a bearing/offset pair. 70 deg is well
+    past goToR()'s 50 deg kTurnFirstAngle, which moveX() used to borrow
+    as its own split; the name is kept so the three tests below still
+    read against their history."""
     return 350.0, 70.0  # [mm] [deg]
 
 
@@ -453,16 +429,13 @@ def test_deadline_boundary_split_leg_truncates_without_the_margin(
     reports "clean" no matter what would be worthless as a regression
     guard).
 
-    Sprint 015 ticket 004: this 70 deg leg's OWN sum-based bare duration
-    (`budget_s`, no +1500 ms margin at all) is now enough on its own to
-    cover this leg's actual completion (the fix widened the budget
-    exactly because the split runs sequentially) -- stripping only the
-    margin off `timeout_ms` no longer truncates it, unlike before this
-    ticket. The probe value here is `duration_s` instead: the OLD
-    max()-based bare duration, still returned unchanged (see
-    _shim_move_params()'s own docstring) and unaffected by this ticket's
-    fix -- guaranteed short of this leg's real two-phase need, so it
-    still serves the same negative-control role."""
+    HISTORY: this used to strip only the +1500 ms margin, and later
+    (sprint 015 ticket 004, when moveX() split this leg into two phases
+    and the budget became a sum) probe with the max()-based bare
+    duration instead. moveX() no longer splits and the budget is the
+    max()-based duration again, which on ideal wheels covers this leg
+    on its own -- so the deliberately insufficient timeout is now HALF
+    the bare duration, unambiguously short of any completion."""
     distance_mm, rotation_deg = _split_leg_params()
     with Engine(motion_lib) as e:
         _ready(e)
@@ -471,7 +444,7 @@ def test_deadline_boundary_split_leg_truncates_without_the_margin(
     cruise, timeout_ms, duration_s, left_counts, right_counts, _ = (
         _shim_move_params(distance_mm, rotation_deg, PRODUCTION_SPEED_MM_S,
                           PRODUCTION_YAW_RATE_DEG_S, cpm, b))
-    stripped_timeout_ms = int(duration_s * 1000.0)
+    stripped_timeout_ms = int(0.5 * duration_s * 1000.0)
     assert stripped_timeout_ms < timeout_ms - _SHIMS_TIMEOUT_MARGIN_MS
 
     truncated_ms, truncated_pos, _ = _run_leg(
@@ -490,8 +463,8 @@ def test_deadline_boundary_split_leg_truncates_without_the_margin(
 
 
 # ---- move(30 cm, 180 deg): sprint 015 ticket 004's own repro shape -------
-# ---- (arc-moves-abort-distance-never-driven.md) -- max()'s budget -------
-# ---- truncates this leg; the fixed sum-based budget does not. -----------
+# ---- (arc-moves-abort-distance-never-driven.md). HISTORY: max()'s -------
+# ---- budget truncated the old two-phase split; it is one arc now. -------
 
 
 def _split_leg_30cm_180deg_params():
@@ -518,83 +491,39 @@ def _split_leg_30cm_180deg_params():
     return 300.0, 180.0, 150.0, 15.0  # [mm] [deg] [mm/s] [deg/s]
 
 
-def test_deadline_boundary_split_leg_30cm_180deg_needs_sequential_budget(
+def test_deadline_boundary_wide_arc_30cm_180deg_completes_within_max_budget(
         motion_lib):
-    """shims.cpp's own max()-vs-sum() budget choice for a SPLIT moveX()
-    call is untouched by sprint 029 ticket 003 (`_shim_move_params()`'s
-    `duration`/`budget_duration` math below is a pre-existing,
-    unmodified mirror of startMove()) -- but this ticket's engine
-    rewrite changes what that budget actually needs to cover.
-
-    MEASURED against this ticket's own engine (this test, all seven
-    leg shapes tried in a throwaway parameter sweep before landing this
-    version): for every (distance, rotation, yaw-rate) combination
-    tried, the pivot-then-straight split now completes WITHIN the OLD
-    max()-based budget, not past it -- the historical defect this test
-    used to pin (arc-moves-abort-distance-never-driven.md: the split's
-    two SEQUENTIAL phases could take longer than a budget sized for one)
-    no longer reproduces on this ideal-wheels model. The reason is
-    structural, not a property of any one leg shape: the legacy taper's
-    own slow, needless ramp-and-crawl (the exact waste design
-    motion-profile-unification.md's whole S1 problem statement is about)
-    was what made the split's REAL two-phase duration exceed
-    max(dist_duration, yaw_duration) in the first place; VelocityShaper's
-    accel-to-cruise-and-hold profile (design S6.1) does not waste that
-    time, so the split's actual duration now tracks max() closely enough
-    that the sum-based budget's extra margin is never needed to reach
-    the target -- both formulas land at (approximately) the same,
-    unforced completion time. This does not mean the sum-based fix
-    (shims.cpp's own startMove(), unchanged by this ticket) is now
-    wrong to keep; it means this test's own NEGATIVE-CONTROL assertion
-    (the old formula truncating the move) is no longer something this
-    ideal-wheels harness can demonstrate. The POSITIVE assertion (the
-    fixed, sum-based budget still comfortably reaches the target) is
-    kept below, unchanged in spirit."""
+    """HISTORY: this leg (30 cm with a 180 deg rotation at a slow 15
+    deg/s yaw rate) was the reproduction for arc-moves-abort-distance-
+    never-driven.md -- moveX()'s old pivot-then-straight split ran two
+    SEQUENTIAL phases under a deadline sized for one, and shims.cpp
+    widened its budget to dist_duration + yaw_duration for the split
+    case. moveX() no longer splits: this is one blended arc (R = 300 /
+    pi = 95 mm), both axes finish together, and the plain max()-based
+    budget shims.cpp now computes must cover it with the same unforced
+    completion an unbounded run reaches."""
     distance_mm, rotation_deg, speed_mm_s, yaw_rate_deg_s = (
         _split_leg_30cm_180deg_params())
     with Engine(motion_lib) as e:
         _ready(e)
         cpm = e.counts_per_mm()
         b = e.effective_track_width()
-    cruise, fixed_timeout_ms, duration_s, left_counts, right_counts, _ = (
+    cruise, timeout_ms, duration_s, left_counts, right_counts, budget_s = (
         _shim_move_params(distance_mm, rotation_deg, speed_mm_s,
                           yaw_rate_deg_s, cpm, b))
-    assert abs(rotation_deg) >= 50.0  # sanity: this must be the split path
-
-    # Today's (pre-fix) formula: max(dist_duration, yaw_duration) + the
-    # flat margin. `duration_s` is still max-based (this ticket leaves
-    # its meaning unchanged -- it also drives `cruise`), so this
-    # reconstructs exactly what startMove() computed before the fix.
-    todays_timeout_ms = int(duration_s * 1000.0) + _SHIMS_TIMEOUT_MARGIN_MS
-    assert todays_timeout_ms < fixed_timeout_ms  # the fix must widen the budget here
+    assert budget_s == duration_s  # one segment, one max()-based budget
 
     baseline_ms, baseline_pos, baseline_wrong_way = _run_leg(
         motion_lib, distance_mm, rotation_deg, cruise, _UNBOUNDED_TIMEOUT_MS)
     _assert_reached_target(baseline_pos, left_counts, right_counts)
     assert baseline_wrong_way == 0
 
-    # MEASURED (see this test's own docstring): under this ticket's
-    # engine, today's max()-based budget no longer truncates this leg --
-    # it reaches the same unforced completion the sum-based budget does,
-    # well inside todays_timeout_ms. This replaces the old negative
-    # control (which asserted a truncation this engine no longer
-    # produces) with the honest, opposite finding.
-    todays_ms, todays_pos, todays_wrong_way = _run_leg(
-        motion_lib, distance_mm, rotation_deg, cruise, todays_timeout_ms)
-    assert todays_ms < todays_timeout_ms - TICK_MS
-    assert todays_ms == pytest.approx(baseline_ms, abs=TICK_MS)
-    _assert_reached_target(todays_pos, left_counts, right_counts)
-    assert todays_wrong_way == 0
-
-    # Fixed formula: reaches the unforced completion time/position, the
-    # same standard test_deadline_boundary_split_leg_production_timeout_
-    # matches_unbounded already holds the 70 deg split leg to.
-    fixed_ms, fixed_pos, fixed_wrong_way = _run_leg(
-        motion_lib, distance_mm, rotation_deg, cruise, fixed_timeout_ms)
-    assert fixed_ms == pytest.approx(baseline_ms, abs=TICK_MS)
-    assert fixed_ms < fixed_timeout_ms
-    _assert_reached_target(fixed_pos, left_counts, right_counts)
-    assert fixed_wrong_way == 0
+    real_ms, real_pos, real_wrong_way = _run_leg(
+        motion_lib, distance_mm, rotation_deg, cruise, timeout_ms)
+    assert real_ms < timeout_ms - TICK_MS
+    assert real_ms == pytest.approx(baseline_ms, abs=TICK_MS)
+    _assert_reached_target(real_pos, left_counts, right_counts)
+    assert real_wrong_way == 0
 
 
 # ---- pure straight leg (legToward()'s <0.01 rad branch, and -------------

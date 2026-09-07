@@ -2499,7 +2499,7 @@ def _go_to_r_theta_s(x, y):
 
 
 def test_go_to_r_real_effect_arc_solve(wa):
-    """A representative (x, y) target chosen to stay off moveX()'s
+    """A representative (x, y) target chosen to stay off goToR()'s
     pivot-first split (turn angle well under 50 deg) -- proves x/y/speed
     reach MotionEngine::goToR()'s own arc-solve and then moveX()'s
     first-tick segment (0.25 ramp scale), via the SAME hand-computed

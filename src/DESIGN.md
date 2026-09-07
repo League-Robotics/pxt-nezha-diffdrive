@@ -217,9 +217,12 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   like `moveX`, instead of the old one-shot dead-reckoned `drive()` —
   the two primitives no longer differ in kind, only in how their
   targets are expressed (design §12's recorded decision).
-- Reductions: `moveX(distance, rotation, cruise, timeout)` (a
-  |rotation| ≥ 50° with nonzero distance splits into pivot-then-
-  straight, one caller-visible call, one shared deadline);
+- Reductions: `moveX(distance, rotation, cruise, timeout)` (ONE
+  blended constant-radius segment for any pair — no angle threshold;
+  HISTORY: until 2026-09-07 a |rotation| ≥ 50° with nonzero distance
+  split into pivot-then-straight, `reports/move-x-arc-space-20260906.md`
+  — that rule was `goToR`'s go-to-a-point policy misapplied to `move`,
+  and it replaced the requested arc with a different figure);
   `moveV(vx, omega, duration)`; `goToR(x, y, speed, arrive, timeout)`
   (single-shot, no supervisory re-solve). **Sprint 006**: `goToR` now
   owns its own split decision instead of inheriting `moveX`'s generic
@@ -535,7 +538,12 @@ independent of kernel stepping). Owns **no odometry** — pose stays a
 - Only a **pure turn** tapers on yaw — restated, motion profile
   unification (sprint 029): `Segment::remaining()` (`motion/segment.h`)
   reads `distTarget` OR `yawTarget` depending on `dominantAxis`, never
-  both, so a second, independent yaw taper is not just avoided but
+  both (and, since 2026-09-07, scales the result by
+  `Segment::dominantScale()` into the dominant WHEEL's frame — the
+  frame the shaper's command, brake budget and arrival window live in;
+  a blended arc's outer wheel travels `dominant/|distTarget|` times
+  farther than the mean axis, and measuring `remain` on the axis made a
+  tight arc brake on its second tick and stop short, report fig. 5), so a second, independent yaw taper is not just avoided but
   architecturally unrepresentable — an arc's own remaining-distance
   computation never even looks at its yaw target's size (the old bug's
   exact mechanism: legs pinned at a 25% floor by a fixed yaw-count
@@ -549,9 +557,19 @@ the reliability layer. `feed()` reassembles arbitrary byte blocks into
 lines (240-byte ceiling; overlong lines are discarded whole, never
 truncated into a parseable prefix), tokenizes in place on spaces (no
 allocation, no `std::string`), enforces case-as-direction (commands
-UPPERCASE, replies lowercase), and dispatches an 18-entry verb table:
+UPPERCASE, replies lowercase), and dispatches a 19-entry verb table:
 HELLO, PING, ID, VER, STATUS, HELP, GET, SET, TLM, WHEELS_X, WHEELS_V,
-MOVE_X, MOVE_V, GO_TO_R, GO_TO_W, STOP, ESTOP, RUN. **Sprint 007**:
+MOVE_X, MOVE_V, GO_TO_R, GO_TO_W, STOP, ESTOP, FUNCS, RUN. **FUNCS**
+(2026-09-07, protocol.md's own FUNCS section) enumerates the RUN
+registry: one `funcs <name> [<signature>]` line per registered name,
+terminated by the ack — bare GET's dump shape, and the reason FUNCS is
+sequenced while the other pure queries are not (a variable-length reply
+needs a terminator; a one-line reply does not). Zero lines is a valid
+answer, the wire-visible shape of an empty allowlist. On THIS robot the
+names come from `run_registry.h`, the C++ mirror of what a block program
+bound with `onRun()` — not from the v6 `RUN` verb's own (empty)
+allowlist, which is unreachable here because `protocol.cpp` diverts the
+literal `RUN:` prefix before the v6 stack sees it (§8). **Sprint 007**:
 `kCommandTable`'s size is now derived (`static const VerbEntry
 kCommandTable[];`, defined with a deduced size plus a `static_assert`
 pinning the expected count) instead of the size being hand-written
@@ -593,7 +611,9 @@ adapter refused) ack-and-advance plus `err <code> #<id>` — kept
 sharply distinct from decode failures. `lastDone`/`lastDoneReason` are
 polled fresh off the Adapter on every ack/nack, never cached.
 HELLO/PING/ESTOP/HELP/ID/VER/STATUS are unsequenced, intercepted before
-id resolution. The rule (agreed with radio-robot-lib, protocol.md's
+id resolution. FUNCS is the one read-only query that is NOT: it answers
+with a variable number of lines, and the ack is what tells a host it has
+them all. The rule (agreed with radio-robot-lib, protocol.md's
 owner, 2026-08-27): **a verb is sequenced iff its correctness depends on
 its position in the stream** -- either executing it twice changes the
 robot, or answering it out of order yields a wrong answer. ID/VER/HELP

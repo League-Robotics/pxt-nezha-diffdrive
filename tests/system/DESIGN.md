@@ -33,12 +33,15 @@ engine shapes end to end. Chopping a circle into chords instead would
 put an accel ramp and an end taper inside every chord, and the robot
 would stutter through a polygon.
 
-**Arc segments must stay under 50°.** `moveX()` splits any move with a
-nonzero distance and |rotation| ≥ `kTurnFirstAngleRad` (0.8726 rad =
-50°) into a pivot *then* a straight. MEASURED 2026-09-01, gopiv,
-`reports/tours-20260901/`: `circle.tour` written as one 360° arc drove
-a **942 mm straight line** (closure 942.2 mm), and 90° arcs drew a
-square. Every circular figure here is therefore built from 45° arcs.
+**Arc segments are 45° by history, not by necessity.** `moveX()` used
+to split any move with a nonzero distance and |rotation| ≥ 50°
+(`kTurnFirstAngle`) into a pivot *then* a straight. MEASURED
+2026-09-01, gopiv, `reports/tours-20260901/`: `circle.tour` written as
+one 360° arc drove a **942 mm straight line** (closure 942.2 mm), and
+90° arcs drew a square. That split was removed on 2026-09-07
+(`reports/move-x-arc-space-20260906.md`): `moveX()` is one
+constant-radius arc at any angle, so a 360° `TWIST` is now a circle.
+The figures still use 45° arcs; nothing depends on it any more.
 
 ## The figures
 

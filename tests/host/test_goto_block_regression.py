@@ -8,28 +8,28 @@ compare two different ways of turning a target into a move on the SAME
 final position, not just their first commanded duty.
 
 Two probe geometries, both measured in block-go-to-misses-its-target.md
-against the real firmware C++ and both ABOVE MotionEngine's own 50 deg
-pivot-vs-blend split threshold (kTurnFirstAngle) when run through the
-OLD, now-historical reduction below:
+against the real firmware C++:
 
   block goTo(10, 10) cm   -> bearing 45 deg, a 141.4 mm hop
   block goTo(-10, 1) cm   -> a target behind the robot, theta wraps short
 
-MotionEngine::goToR() (already correct) reaches both within a few mm.
-blocks/motion.ts's startGoTo() (sprint 015 ticket 002) now calls goToR()
-directly instead of computing its own (arc-length, arc-angle) pair and
-handing it to MotionEngine::moveX() -- moveX()'s own >=50 deg
-pivot-then-straight split used to reissue that pair as a DIFFERENT
-physical path than the arc it was computed for, missing by the margins
-the issue measured. This file restates BOTH reductions directly in
+MotionEngine::goToR() reaches both within a few mm. blocks/motion.ts's
+startGoTo() (sprint 015 ticket 002) calls goToR() directly instead of
+computing its own (arc-length, arc-angle) pair and handing it to
+MotionEngine::moveX(). HISTORY: at the time, moveX() had its own
+>= 50 deg pivot-then-straight split, which reissued that pair as a
+DIFFERENT physical path than the arc it was computed for, missing by the
+margins the issue measured -- that was the defect. moveX() no longer
+splits at any angle (reports/move-x-arc-space-20260906.md), so the same
+(s, theta) pair through moveX() now lands ON the target too; the tests
+below pin that, and pin why startGoTo() still goes through goToR()
+anyway: it is a POLICY difference, not a correctness one. goToR() wraps
+theta to the short arc and pivots-then-chords above its threshold, so a
+target behind the robot is a bounded pivot plus a straight, where the
+raw arc reduction is a 3 m loop the long way round ending at a
+different heading. This file restates BOTH reductions directly in
 Python (motion.ts is TypeScript, out of reach of a host build) and
-drives each through the real firmware's own move engine, on the SAME two
-geometries, to prove the gap end-to-end rather than at a single tick:
-the OLD reduction is kept as a frozen negative control (pinned to the
-measured miss, so the historical defect stays documented and a
-regression back to it would be caught), and the NEW reduction --
-transcribing startGoTo()'s actual post-fix arithmetic -- is asserted to
-land within tolerance.
+drives each through the real firmware's own move engine to completion.
 
 Run with::
 
@@ -138,23 +138,21 @@ def _ready(e):
     assert e.begin() == 0  # STATUS_OK
 
 
-def _old_broken_block_arc_reduction_to_move_x(e, x_cm, y_cm, speed_mm_s,
-                                               timeout_ms):
-    """HISTORICAL / negative control only -- restates blocks/motion.ts's
-    PRE-fix startGoTo() reduction exactly as it shipped before sprint 015
-    ticket 002: theta = 2*atan2(y,x), s = R*theta (computed in the
-    student's own cm), then issued through moveX() in mm. This was the
-    ONLY entry point reachable from a block before that ticket; motion.ts
+def _arc_reduction_to_move_x(e, x_cm, y_cm, speed_mm_s, timeout_ms):
+    """blocks/motion.ts's PRE-sprint-015 startGoTo() reduction, restated
+    exactly as it shipped: theta = 2*atan2(y,x), s = R*theta (computed in
+    the student's own cm), then issued through moveX() in mm. motion.ts
     no longer computes this pair or calls moveX() from startGoTo() at
-    all. Frozen here as a regression pin -- see
-    test_old_broken_block_arc_reduction_misses_probe_targets_above_threshold
-    below. `x_cm`/`y_cm` are the block's own units (student cm), matching
-    what a `go to (x, y)` block used to pass into this reduction."""
+    all; it is kept here because it is the plain tangent-arc route to a
+    point, which moveX() now drives faithfully -- see
+    test_arc_reduction_through_move_x_now_lands_on_target below.
+    `x_cm`/`y_cm` are the block's own units (student cm)."""
     x, y = float(x_cm), float(y_cm)
     theta = 2.0 * math.atan2(y, x)
     radius = (x * x + y * y) / (2.0 * y)
     s_mm = radius * theta * 10.0  # cm -> mm
     e.move_x(s_mm, theta, speed_mm_s, timeout_ms)
+    return s_mm, theta
 
 
 def _fixed_start_go_to_to_go_to_r(e, x_cm, y_cm):
@@ -200,45 +198,42 @@ def test_go_to_r_reaches_probe_targets_above_threshold(motion_lib, x_mm, y_mm):
         assert miss < _LANDING_TOLERANCE_MM
 
 
-# ---- Negative control: the OLD, now-historical block reduction ------------
+# ---- The raw tangent-arc reduction through moveX() ------------------------
 
 
-@pytest.mark.parametrize("x_cm,y_cm,x_mm,y_mm,measured_miss_mm", [
+@pytest.mark.parametrize("x_cm,y_cm,x_mm,y_mm,historical_miss_mm", [
     (10.0, 10.0, 100.0, 100.0, 112.5),
     (-10.0, 1.0, -100.0, 10.0, 3172.4),
 ])
-def test_old_broken_block_arc_reduction_misses_probe_targets_above_threshold(
-        motion_lib, x_cm, y_cm, x_mm, y_mm, measured_miss_mm):
-    """THIS IS WHAT THE BUG LOOKED LIKE -- a frozen regression pin, not a
-    live code path. Before sprint 015 ticket 002, startGoTo()'s
-    theta=2*atan2(y,x)/s=R*theta pair, handed to moveX(), was the ONLY
-    entry point reachable from a block: moveX()'s own >=50 deg split
-    reissued that pair as pivot-then-straight, which lands at a
-    different point than the arc it was computed for (arc length !=
-    chord length except in the limit). motion.ts no longer computes this
-    reduction or calls moveX() from startGoTo() at all (see
-    test_fixed_start_go_to_reaches_probe_targets_above_threshold below,
-    which exercises what startGoTo() actually does now) -- this test
-    exists only to pin the OLD reduction's measured miss on the SAME two
-    geometries, so the historical defect stays documented and a
-    regression back to this shape of bug would be caught.
+def test_arc_reduction_through_move_x_now_lands_on_target(
+        motion_lib, x_cm, y_cm, x_mm, y_mm, historical_miss_mm):
+    """The (arc-length, arc-angle) pair handed to moveX() reaches the
+    point it was computed for, because moveX() drives the arc it is
+    given at ANY angle. `historical_miss_mm` is what the SAME call
+    missed by when moveX() still split at 50 deg (block-go-to-misses-
+    its-target.md: 112.5 mm and 3172.4 mm) -- pinned here as the
+    distance this change closed, so a split creeping back into moveX()
+    fails loudly on the same two geometries that found it.
 
-    Existing goTo host tests deliberately stay below 50 deg
-    (test_motion_engine_reductions.py's own test_go_to_r_arc_hand_computed
-    asserts exactly that), which is why this defect could ship for six
-    sprints undetected."""
+    The second geometry is also the argument for goToR()'s own policy:
+    theta = 2*atan2(1, -10) is 348.6 deg the long way round a 50.5 cm
+    radius -- a 3.07 m loop, ending facing almost the way it started --
+    where goToR() wraps to the short arc and pivots-then-chords (a
+    174 deg pivot and a 10 cm straight)."""
     with ProbeEngine(motion_lib) as e:
         _ready(e)
-        _old_broken_block_arc_reduction_to_move_x(
+        s_mm, theta = _arc_reduction_to_move_x(
             e, x_cm, y_cm, _PROBE_SPEED_MM_S, _PROBE_TIMEOUT_MS)
         e.run_to_completion()
 
         miss = math.hypot(e.probe_x() - x_mm, e.probe_y() - y_mm)
-
-        # Pin: this reduction reproduces the issue's own measured miss,
-        # not merely "some" large number -- proves this is the SAME
-        # defect the issue measured, not a different bug.
-        assert miss == pytest.approx(measured_miss_mm, rel=0.2)
+        assert miss < _LANDING_TOLERANCE_MM
+        assert miss < 0.05 * historical_miss_mm
+        # The arc ends at heading theta, the full arc angle -- not at the
+        # bearing goToR()'s pivot-then-chord would leave the robot on.
+        assert e.probe_heading() == pytest.approx(theta, abs=math.radians(1.0))
+        if y_cm < 0 or x_cm < 0:
+            assert abs(s_mm) > 3000.0  # the long way round
 
 
 # ---- AC1/AC2/AC7 (SUC-001): startGoTo() after the fix ----------------------
@@ -256,12 +251,11 @@ def test_fixed_start_go_to_reaches_probe_targets_above_threshold(
     just goToR() in isolation -- see
     _fixed_start_go_to_to_go_to_r()'s docstring) and land within 5 mm on
     both probe geometries block-go-to-misses-its-target.md measured,
-    above the 50 deg split threshold where the old reduction (see
-    test_old_broken_block_arc_reduction_misses_probe_targets_above_threshold
-    above) used to miss by 112.5 mm / 3172.4 mm. startGoTo() now calls
-    goToR() directly (sprint 015 ticket 002), which owns its own
-    bearing-then-chord split and short-arc wrap (motion_engine.cpp) and
-    reaches (x, y) exactly."""
+    (historically 112.5 mm / 3172.4 mm misses through moveX()'s old
+    split; see test_arc_reduction_through_move_x_now_lands_on_target
+    above). startGoTo() calls goToR() directly (sprint 015 ticket 002),
+    which owns its own bearing-then-chord split and short-arc wrap
+    (motion_engine.cpp) and reaches (x, y) exactly."""
     with ProbeEngine(motion_lib) as e:
         _ready(e)
         _fixed_start_go_to_to_go_to_r(e, x_cm, y_cm)
@@ -271,16 +265,16 @@ def test_fixed_start_go_to_reaches_probe_targets_above_threshold(
         assert miss < _LANDING_TOLERANCE_MM
 
 
-# ---- test/test.ts legToward(): the SAME defect, a second call site --------
+# ---- test/test.ts legToward(): the SAME reduction, a second call site -----
 #
 # legToward()'s pre-fix reduction was ALGEBRAICALLY IDENTICAL to
-# _old_broken_block_arc_reduction_to_move_x() above: it computes a
+# _arc_reduction_to_move_x() above: it computes a
 # body-frame residual (bx, by) to the target exactly the way that
 # helper's (x_cm, y_cm) is used, then hands the same
 # theta=2*atan2(by,bx)/s=R*theta pair to the same moveX() -- so the same
 # helper stands in for legToward's own math here rather than being
-# reimplemented. The difference from the two geometries above is where
-# the miss comes from: legToward only pre-pivoted when |bearing| >=
+# reimplemented. HISTORY (moveX() no longer splits -- module docstring):
+# the miss came from legToward only pre-pivoting when |bearing| >=
 # 50 deg, but a bearing well under that (e.g. 30 deg) still doubles to a
 # theta of 60 deg, which is ABOVE moveX()'s OWN >=50 deg split
 # (kTurnFirstAngle) -- so the routine, common case (not just an edge
@@ -309,56 +303,31 @@ def _leg_toward_target_cm():
     return bx, by
 
 
-def _ideal_pivot_then_straight_endpoint_mm(bx_cm, by_cm):
-    """Pure kinematic prediction (no taper/ramp/tick shaping -- those
-    change the TIME profile, not the resting position) for where the
-    OLD moveX()-based reduction lands: pivot in place to theta =
-    2*atan2(by,bx), then drive s = radius*theta straight along the new
-    heading. Used only to derive this test's expected miss distance from
-    the geometry itself, rather than hand-typing a magic number."""
-    bearing = math.atan2(by_cm, bx_cm)
-    theta = 2.0 * bearing
-    radius = (bx_cm * bx_cm + by_cm * by_cm) / (2.0 * by_cm)
-    s_cm = radius * theta
-    return s_cm * math.cos(theta) * 10.0, s_cm * math.sin(theta) * 10.0
-
-
-def test_old_leg_toward_reduction_misses_worked_example(motion_lib):
-    """THIS IS WHAT THE BUG LOOKED LIKE at legToward()'s call site -- a
-    frozen regression pin, not a live code path (test/test.ts's
-    legToward() no longer computes this reduction). Reproduces
-    tour-legs-share-the-arc-split-defect.md's own worked example
-    (bearing 30 deg, distance 60 cm) through the real firmware's move
-    engine, on the SAME moveX()-based reduction
-    test_old_broken_block_arc_reduction_misses_probe_targets_above_threshold
-    above already pins for two other geometries -- this is the case
-    where the bearing itself (30 deg) is comfortably under legToward's
-    own 50 deg pre-pivot threshold, so the miss is not an edge case."""
+def test_leg_toward_arc_reduction_through_move_x_lands_on_worked_example(
+        motion_lib):
+    """tour-legs-share-the-arc-split-defect.md's worked example (bearing
+    30 deg, distance 60 cm) through the raw tangent-arc reduction and
+    moveX(). HISTORY: with moveX()'s old 50 deg split this landed
+    0.531d (318 mm) from the target, because the bearing (30 deg) is
+    under legToward's own pre-pivot threshold while the arc angle
+    (theta = 60 deg) was over moveX()'s -- the leg was silently a pivot
+    plus a straight. moveX() no longer splits, so the same reduction
+    lands on the target; test.ts's legToward() still goes through
+    startGoTo() -> goToR() for the policy reasons the module docstring
+    gives."""
     bx_cm, by_cm = _leg_toward_target_cm()
     target_mm_x, target_mm_y = bx_cm * 10.0, by_cm * 10.0
-    expected_x_mm, expected_y_mm = _ideal_pivot_then_straight_endpoint_mm(
-        bx_cm, by_cm)
-    expected_miss_mm = math.hypot(
-        expected_x_mm - target_mm_x, expected_y_mm - target_mm_y)
 
     with ProbeEngine(motion_lib) as e:
         _ready(e)
-        _old_broken_block_arc_reduction_to_move_x(
+        _arc_reduction_to_move_x(
             e, bx_cm, by_cm, _PROBE_SPEED_MM_S, _PROBE_TIMEOUT_MS)
         e.run_to_completion()
 
         miss = math.hypot(
             e.probe_x() - target_mm_x, e.probe_y() - target_mm_y)
-
-        # Pin: matches the ideal pivot-then-straight geometry (headroom
-        # for tick discretization against the ideal-wheels probe, same
-        # tolerance as _LANDING_TOLERANCE_MM above and for the same
-        # reason -- this leg's own pivot-residual amplification), and
-        # separately confirms it is approximately the issue's own 0.531d
-        # ratio -- not merely "some" large miss.
-        assert miss == pytest.approx(expected_miss_mm, abs=_LANDING_TOLERANCE_MM)
-        assert miss == pytest.approx(
-            0.531 * _LEG_TOWARD_DISTANCE_CM * 10.0, rel=0.05)
+        assert miss < _LANDING_TOLERANCE_MM
+        assert miss < 0.05 * 0.531 * _LEG_TOWARD_DISTANCE_CM * 10.0
 
 
 def test_fixed_leg_toward_reduction_reaches_worked_example(motion_lib):

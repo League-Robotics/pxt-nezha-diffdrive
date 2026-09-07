@@ -157,20 +157,19 @@ deadline, stall halt).
 **Main flow**:
 1. User places `move %distance cm turning %yaw degrees` with both
    parameters nonzero.
-2. Below a ~50 deg yaw threshold (`kTurnFirstAngleRad`), the move
-   engine computes one duration covering both axes so they complete
-   simultaneously — the result is a single constant-curvature arc, not
-   a straight leg followed by a turn. At or above that threshold, this
-   is NOT one blended segment: the robot pivots to the new heading
-   FIRST, then drives the distance straight — two sequential phases
-   (see SUC-004, which covers this split's simulator/hardware parity).
-3. Robot follows the arc (or the pivot-then-straight pair) and stops
-   when both axes reach target (or an early-termination condition
-   fires).
+2. The move engine computes one duration covering both axes so they
+   complete simultaneously — the result is a single constant-curvature
+   arc, R = distance / yaw, at ANY yaw: a large yaw with a small
+   distance runs the inner wheel backwards, a yaw beyond 360 deg goes
+   round more than once. There is no pivot-first threshold on `move`
+   (HISTORY: there was one at 50 deg until 2026-09-07,
+   `reports/move-x-arc-space-20260906.md`; SUC-004 once covered its
+   simulator/hardware parity).
+3. Robot follows the arc and stops when both axes reach target (or an
+   early-termination condition fires).
 
-**Postconditions**: Pose has advanced along the arc (or the
-pivot-then-straight pair); heading has changed by approximately `yaw`
-degrees.
+**Postconditions**: Pose has advanced along the arc; heading has
+changed by approximately `yaw` degrees.
 
 **Error flows**: Same as UC-003/UC-004.
 
@@ -187,8 +186,9 @@ degrees.
    robot's **current** coordinate frame (x forward, y left).
 2. The call reaches `MotionEngine::goToR()` directly — unlike UC-005,
    it does **not** reduce to a distance+yaw pair for the move engine
-   (see `specification.md` §4.3). Below a ~50 deg turn-angle threshold
-   this is one constant-curvature arc (turn angle `theta =
+   (see `specification.md` §4.3). Below `goToR()`'s own ~50 deg
+   turn-angle threshold (`kTurnFirstAngle`, a go-to policy — `move`
+   has no such split) this is one constant-curvature arc (turn angle `theta =
    2*atan2(y,x)`, short-arc wrapped; straight line if `y` is ~0,
    otherwise a signed-radius arc); at or above it, `goToR()` pivots to
    the target's line-of-sight bearing then drives the straight-line

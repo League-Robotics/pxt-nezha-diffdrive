@@ -432,13 +432,21 @@ def test_set_rotational_slip_changes_move_x_blended_kinematics(motion_lib):
 # measurement procedure (design S10.2), not as a MotionEngine unit test.
 
 
-# ---- pivot-vs-blend threshold (motion-api.md S3.3) ------------------------
+# ---- moveX never splits: one blended arc at ANY rotation ------------------
+# goToR()'s kTurnFirstAngle (50 deg) is a go-to-a-POINT policy and stays
+# there (see the goToR tests below). moveX() used to borrow it and replace
+# any |rotation| >= 50 deg move with pivot-then-straight -- a different
+# figure ending somewhere else. MEASURED gopiv 2026-09-01,
+# reports/tours-20260901/circle.json: a 360 deg / 942 mm arc drove as a
+# 942 mm straight line. Analysis: reports/move-x-arc-space-20260906.md.
 
 
 def test_move_x_blends_below_turn_first_threshold(motion_lib):
     """|rotation| < 50 deg WITH a nonzero distance is one blended
     segment -- the full (distance, rotation) pair reduces onto wheelsX
-    together, in a single startSegment() call (not a pure pivot)."""
+    together, in a single startSegment() call (not a pure pivot). Kept
+    alongside the at/above-threshold case below so the two together pin
+    that nothing changes across 50 deg."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
@@ -459,18 +467,26 @@ def test_move_x_blends_below_turn_first_threshold(motion_lib):
             expected_right, rel=_DUTY_REL)
 
 
-def test_move_x_pivots_first_at_and_above_turn_first_threshold(motion_lib):
-    """|rotation| >= 50 deg WITH a nonzero distance is NOT one blended
-    segment (motion-api.md S3.3): the first tick must show a PURE PIVOT
-    signature (equal magnitude, opposite sign) matching move_x(0,
-    rotation) exactly -- independent of the commanded distance, which
-    phase 1 does not touch at all. This is the test that would fail if
-    moveX() blended instead of splitting."""
+@pytest.mark.parametrize("rotation_deg", [
+    _TURN_FIRST_DEG + 0.5,  # a hair over the old split
+    90.0,
+    180.0,                  # yaw term (b/2 * pi = 180 mm) < 200 mm: still both wheels forward
+    360.0,                  # yaw term 359 mm > 200 mm: inner wheel REVERSED, R < b/2
+])
+def test_move_x_blends_at_and_above_the_old_turn_first_angle(motion_lib,
+                                                              rotation_deg):
+    """moveX() has NO pivot-first threshold: a nonzero distance with
+    |rotation| at or far above goToR()'s 50 deg kTurnFirstAngle is still
+    ONE blended segment, R = distance / rotation, including the case
+    where the yaw term exceeds the distance and the inner wheel runs
+    backwards. The first tick must show the blended duty pair, not the
+    pure-pivot signature the old split produced. Sanity-checks that the
+    two predictions differ, so this cannot pass by accident."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
         b = e.effective_track_width()
-        rotation = (_TURN_FIRST_DEG + 0.5) * math.pi / 180.0  # 50.5 deg
+        rotation = math.radians(rotation_deg)
         distance = 200.0
 
         e.move_x(distance, rotation, 150.0, 5000)
@@ -480,22 +496,33 @@ def test_move_x_pivots_first_at_and_above_turn_first_threshold(motion_lib):
             0.0, rotation, cpm, b, fdv)
         blend_left, blend_right = _first_tick_duty_pair(
             distance, rotation, cpm, b, fdv)
-        # Sanity: for this (distance, rotation, cruise) the pivot and
-        # blend predictions actually differ -- otherwise this test could
-        # pass by accident.
         assert pivot_left != pytest.approx(blend_left, rel=1e-2)
+        if rotation_deg >= 360.0:
+            # The inner wheel really is commanded backwards here.
+            assert blend_left < 0.0 < blend_right
 
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
-            pivot_left, rel=_DUTY_REL)
+            blend_left, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
-            pivot_right, rel=_DUTY_REL)
+            blend_right, rel=_DUTY_REL)
 
 
-def test_move_x_pivot_then_straight_phase_transition(motion_lib):
+# ---- goToR's pivot-then-chord phase hand-off ------------------------------
+# The queued second phase (Segment::hasPending, queuePivotThenStraight())
+# now has exactly one caller: goToR() above its own split. The two tests
+# below used to drive it through moveX(); they drive the same mechanism
+# through goToR() with a target straight abeam (x = 0, y = 300 mm):
+# bearing +90 deg, theta 180 deg -> willSplit, pivot +90 deg, chord 300.
+
+
+_ABEAM_TARGET_MM = 300.0
+
+
+def test_go_to_r_pivot_then_chord_phase_transition(motion_lib):
     """The queued second phase actually runs: once the pivot (phase 1)
-    completes cleanly, moveX() advances to a fresh straight segment
-    (phase 2, rotation == 0) for the remaining distance -- a single
-    caller-visible moveX() call, still active across the transition.
+    completes cleanly, goToR() advances to a fresh straight segment
+    (phase 2, rotation == 0) for the chord -- a single caller-visible
+    goToR() call, still active across the transition.
 
     The handoff itself lands a REAL neutral tick first (see
     motion_engine.cpp's service() own comment on the twist-hold hazard
@@ -507,29 +534,30 @@ def test_move_x_pivot_then_straight_phase_transition(motion_lib):
     S6.5's lazy origin capture applies to phase 2 exactly as it does to
     any fresh segment), which needs the step() that lands the neutral
     to have run first. So the OBSERVABLE tick count at the boundary is
-    unchanged from before this ticket (one zero-duty "neutral" tick,
-    then phase 2's own first real duty) -- only the mechanism
-    (awaitingHandoffNeutral flag vs. lazy origin capture) differs. The
-    one thing THIS ticket does change is how phase 1's OWN first tick is
-    reached -- land_first_command(), not a single step() -- and what
-    every first-tick duty pair evaluates to (the floor, not a ramp
-    fraction of cruise)."""
+    one zero-duty "neutral" tick, then phase 2's own first real duty."""
     with Engine(motion_lib) as e:
         fdv = _ready(e)
         cpm = e.counts_per_mm()
         b = e.effective_track_width()
-        rotation = 60.0 * math.pi / 180.0  # >= 50 deg -> pivot first
-        distance = 300.0
+        pivot = math.pi / 2.0  # bearing of (0, +300)
+        chord = _ABEAM_TARGET_MM
         cruise = 100.0
 
-        e.move_x(distance, rotation, cruise, 10_000)
+        e.go_to_r(0.0, _ABEAM_TARGET_MM, cruise, 1.0, 10_000)
         e.land_first_command()  # lands phase 1's own initial (floor) duty
+
+        # Phase 1 is a pure pivot: its first tick is the pivot signature.
+        pivot_left, pivot_right = _first_tick_duty_pair(0.0, pivot, cpm, b, fdv)
+        assert e.motor_last_staged_duty(LEFT) == pytest.approx(
+            pivot_left, rel=_DUTY_REL)
+        assert e.motor_last_staged_duty(RIGHT) == pytest.approx(
+            pivot_right, rel=_DUTY_REL)
 
         # Arm the encoders to report EXACT arrival at the pivot's target
         # (posLeft0/posRight0 are both 0 -- no move has run yet in this
         # fixture) -- meanProgress stays 0 (distTarget == 0 in phase 1),
         # so only yawDone needs satisfying.
-        yaw_target_counts = rotation * 0.5 * b * cpm
+        yaw_target_counts = pivot * 0.5 * b * cpm
         e.arm_motor_position(LEFT, -yaw_target_counts)
         e.arm_motor_position(RIGHT, yaw_target_counts)
         e.step()
@@ -552,7 +580,7 @@ def test_move_x_pivot_then_straight_phase_transition(motion_lib):
         e.step()  # lands phase 2's own initial (floor) duty
 
         expected_left, expected_right = _first_tick_duty_pair(
-            distance, 0.0, cpm, b, fdv)
+            chord, 0.0, cpm, b, fdv)
         assert expected_left == pytest.approx(expected_right, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)
@@ -560,7 +588,7 @@ def test_move_x_pivot_then_straight_phase_transition(motion_lib):
             expected_right, rel=_DUTY_REL)
 
 
-def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
+def test_go_to_r_handoff_clears_stale_twist_hold_reference(motion_lib):
     """Pins the mechanism motion_engine.cpp's own handoff-branch comment
     describes: DifferentialDrive's twist-hold servo (diffdrive.cpp,
     vendored) integrates a REFERENCE from the COMMANDED twist and trims
@@ -589,7 +617,7 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
     -- stays pinned at the 0 it armed with for the ENTIRE test; (2)
     arm_motor_position() teleports the encoders straight to the pivot's
     target in one tick (the same technique
-    test_move_x_pivot_then_straight_phase_transition, above, already
+    test_go_to_r_pivot_then_chord_phase_transition, above, already
     uses), which jumps the MEASURED twist position straight to the full
     yaw target. Reference-stays-0 versus measured-jumps-to-target is a
     cruder mismatch than hardware's own gradual coast-through-taper, but
@@ -610,11 +638,11 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
         e.set_twist_hold_gain(2.0)  # matches the gain measured on hardware
         cpm = e.counts_per_mm()
         b = e.effective_track_width()
-        rotation = 60.0 * math.pi / 180.0  # >= 50 deg -> pivot first
-        distance = 300.0
+        pivot = math.pi / 2.0  # bearing of (0, +300)
+        chord = _ABEAM_TARGET_MM
         cruise = 100.0
 
-        e.move_x(distance, rotation, cruise, 10_000)
+        e.go_to_r(0.0, _ABEAM_TARGET_MM, cruise, 1.0, 10_000)
         # Sprint 029 ticket 003: phase 1's first real (floor) command
         # only lands after land_first_command()'s three calls (design
         # S6.5's lazy start) -- but the property this test actually
@@ -627,11 +655,11 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
         e.land_first_command()
 
         # Teleport straight to the pivot's target, exactly as
-        # test_move_x_pivot_then_straight_phase_transition does -- see
+        # test_go_to_r_pivot_then_chord_phase_transition does -- see
         # this test's own docstring for why that alone, with the clock
         # never advancing, is enough to leave a large reference/measured
         # mismatch (reference stuck at 0, measured now the full target).
-        yaw_target_counts = rotation * 0.5 * b * cpm
+        yaw_target_counts = pivot * 0.5 * b * cpm
         e.arm_motor_position(LEFT, -yaw_target_counts)
         e.arm_motor_position(RIGHT, yaw_target_counts)
         e.step()
@@ -639,7 +667,7 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
 
         # Handoff tick: a real neutral must land here (zero duty on both
         # wheels) before phase 2 is allowed to start -- see
-        # test_move_x_pivot_then_straight_phase_transition's docstring
+        # test_go_to_r_pivot_then_chord_phase_transition's docstring
         # for the same two-tick mechanism, unrelated to twist-hold.
         e.step()
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(0.0, abs=1e-6)
@@ -660,7 +688,7 @@ def test_move_x_handoff_clears_stale_twist_hold_reference(motion_lib):
         # all -- identical to every other test in this file, which never
         # turns the gain on in the first place.
         expected_left, expected_right = _first_tick_duty_pair(
-            distance, 0.0, cpm, b, fdv)
+            chord, 0.0, cpm, b, fdv)
         assert expected_left == pytest.approx(expected_right, rel=_DUTY_REL)
         assert e.motor_last_staged_duty(LEFT) == pytest.approx(
             expected_left, rel=_DUTY_REL)

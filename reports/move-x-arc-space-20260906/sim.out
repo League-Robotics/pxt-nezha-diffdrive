@@ -1,0 +1,12 @@
+inner wheel under floor for R in 32.2..101.7 mm (b/2 = 57.2)
+case | t as-built | t dominant | dist err | yaw err | dist err(fix) | yaw err(fix)
+straight 30 cm | 1.61 s | 1.61 s | -0.3 mm | +0.00 deg | -0.3 mm | +0.00 deg
+30 cm, 30°  (R 57 cm) | 1.75 s | 1.73 s | -0.4 mm | -0.04 deg | -0.3 mm | -0.03 deg
+15 cm, 90°  (R 9.5 cm) | 1.49 s | 1.37 s | -1.7 mm | -0.99 deg | -0.2 mm | -0.11 deg
+5 cm, 180°  (R 1.6 cm, inner wheel reversed) | 1.99 s | 1.32 s | -1.5 mm | -5.55 deg | -0.2 mm | -0.65 deg
+94 cm, 360°  (R 15 cm) | 5.69 s | 5.62 s | -1.5 mm | -0.58 deg | -0.2 mm | -0.09 deg
+move_x(50 mm, 150 deg): arc end (10,36) split end (-43,25) gap 54 mm
+move_x(150 mm, 90 deg): arc end (95,95) split end (0,150) gap 110 mm
+move_x(300 mm, 90 deg): arc end (191,191) split end (0,300) gap 220 mm
+move_x(300 mm, 180 deg): arc end (0,191) split end (-300,0) gap 356 mm
+move_x(300 mm, 50 deg): arc end (263,123) split end (193,230) gap 128 mm
