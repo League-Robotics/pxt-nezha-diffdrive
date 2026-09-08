@@ -1819,7 +1819,14 @@ WIRE-01/MOD-01/BLK-09, R-17) — it is now single-sourced or drift-tested
 against `pxt.json` (the specific mechanism is a build-time-feasibility
 call made during ticket execution) so `ID`/`VER`'s wire reply can no longer misreport the build a
 host is actually talking to, restoring the `mbdeploy` → `VER`
-deploy-verification flow's own precondition.
+deploy-verification flow's own precondition. **Sprint 037**: the HELLO
+banner's own literal `"NEZHA2"`/`"robot"` prefix is now `identity.role`/
+`identity.commonName`, backed by `roleBuf_`/`commonNameBuf_` --
+Protocol-owned buffers the constructor seeds from `kRole`/`kCommonName`
+and `setDeviceRole()` can overwrite at runtime (no late-call guard
+needed: `sendBanner()` reads the buffers at emit time, not at some
+earlier "begin" time a late write could corrupt, unlike
+`WifiLink::Config`'s borrowed credentials).
 
 **Telemetry gap (closed, sprint 004; consumer retrofit closed, sprint
 005).** The old periodic cleartext `TLM:` line was retired with v5 and

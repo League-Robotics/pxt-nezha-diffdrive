@@ -30,7 +30,16 @@ class WireMockAdapter : public Wire::Adapter {
   static constexpr size_t kMaxRecordedRunArgs = 16;
 
   // ---- canned responses, set by the test before feed() --------------------
-  Wire::Identity identityToReturn;
+  // role/commonName default to production's kRole/kCommonName
+  // ("NEZHA2"/"robot", sprint 037 protocol.cpp) -- wgSetIdentity()
+  // (wire_grammar_shim.cpp) has no role/commonName parameters of its
+  // own (there is no per-test need to vary them yet; ticket 004 adds
+  // the dedicated setDeviceRole()-precedence test with its own shim),
+  // so this default is the ONLY value any test sees. Matching
+  // production's own unconfigured-robot default keeps every existing
+  // banner assertion here byte-identical to a real board that has
+  // never called setDeviceRole().
+  Wire::Identity identityToReturn{"", "", "", "NEZHA2", "robot", "", ""};
   // A full Wire::StatusFields -- status() below copies it whole (`out =
   // statusToReturn`), so every member StatusFields declares, including
   // sprint 010 ticket 003's new `cyc`, is already settable here with no
