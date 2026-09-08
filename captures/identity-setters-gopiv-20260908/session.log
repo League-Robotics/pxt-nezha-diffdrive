@@ -1,0 +1,92 @@
+# sprint 037 ticket 007 -- runtime identity setters, on-hardware
+# board gopiv (farm node loki), fw built from sprint/037 HEAD
+# 192.168.1.149:44475  2026-09-08T10:11:54-0700
+
+===== 0. WHICH PROGRAM IS RUNNING =====
+# FUNCS is the discriminator: `funcs ident` proves the identity.ts
+# build is live. ID's version cannot discriminate -- the sprint
+# branch carries the same 1.20260907.5 kVersion as master.
+--> HELLO
+<-- device NEZHA2 robot gopiv 2175407711
+--> FUNCS #1
+<-- ack 1 0 none
+<-- funcs ident
+
+===== 1. BASELINE -- no setter has been called =====
+# Must be byte-identical to the pre-sprint firmware's output.
+--> PING
+<-- pong 40271
+--> HELLO
+<-- device NEZHA2 robot gopiv 2175407711
+--> ID
+<-- id diffdrive gopiv 1.20260907.5 gopiv
+--> VER
+<-- ver 1.20260907.5
+
+===== 2. RUN ident set -- the stakeholder's actual ask =====
+--> RUN ident set #1
+<-- ack 1 0 none
+<-- DBG:role role=TESTROLE commonName=testbot trunc=0
+<-- DBG:profile src=runtime name=testprofile trunc=0
+<-- IDENT:set role=TESTROLE common=testbot profile=testprofile
+--> HELLO
+<-- device TESTROLE testbot gopiv 2175407711
+--> ID
+<-- id diffdrive testprofile 1.20260907.5 gopiv
+
+===== 3. RUN ident ws -- 'my robot'/'the bot' MUST strip, not reject =====
+--> RUN ident ws #1
+<-- ack 1 0 none
+<-- DBG:role role=myrobot commonName=thebot trunc=0
+<-- DBG:profile src=runtime name=thebot trunc=0
+<-- IDENT:ws expect role=myrobot common=thebot profile=thebot
+--> HELLO
+<-- device myrobot thebot gopiv 2175407711
+--> ID
+<-- id diffdrive thebot 1.20260907.5 gopiv
+
+===== 4. RUN ident long -- over-length must clip, not corrupt =====
+--> RUN ident long #1
+<-- ack 1 0 none
+<-- DBG:role role=ROLEROLEROLEROLEROLEROL commonName=commoncommoncommoncommo trunc=3
+<-- DBG:profile src=runtime name=profileprofileprofileprofilepro trunc=1
+<-- IDENT:long sent role=36 common=36 profile=47
+--> HELLO
+<-- device ROLEROLEROLEROLEROLEROL commoncommoncommoncommo gopiv 2175407711
+--> ID
+<-- id diffdrive profileprofileprofileprofilepro 1.20260907.5 gopiv
+
+===== 5. RUN ident reset -- baked defaults back =====
+--> RUN ident reset #1
+<-- ack 1 0 none
+<-- DBG:role role=NEZHA2 commonName=robot trunc=0
+<-- DBG:profile src=runtime name=gopiv trunc=0
+<-- IDENT:reset role=NEZHA2 common=robot profile=gopiv
+--> HELLO
+<-- device NEZHA2 robot gopiv 2175407711
+--> ID
+<-- id diffdrive gopiv 1.20260907.5 gopiv
+
+===== 6. board survived =====
+--> PING
+<-- pong 93367
+--> STATUS
+<-- status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none
+
+# closed 2026-09-08T10:13:04-0700
+
+
+===== 7. BOOT-ORDERING PROBE (ticket step 5) =====
+# Separate flash. identity.ts temporarily calls setDeviceRole("BOOTROLE",
+# "bootbot") + setProfile("bootprofile") as the FIRST statements of on
+# start, before the carriers. If the owned buffers were seeded at fiber
+# start rather than in Protocol's constructor, this call would land
+# before the seed and be overwritten by the baked defaults.
+# 2026-09-08T10:17:36-0700
+--> HELLO
+<-- device BOOTROLE bootbot gopiv 2175407711
+--> ID
+<-- id diffdrive bootprofile 1.20260907.5 gopiv
+--> PING
+<-- pong 27747
+<-- D

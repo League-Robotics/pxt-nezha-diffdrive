@@ -65,7 +65,8 @@
     "testFiles": [
         "test/test.ts",
         "test/testrig.ts",
-        "test/linefollow.ts"
+        "test/linefollow.ts",
+        "test/identity.ts"
     ],
     "supportedTargets": [
         "microbit"
