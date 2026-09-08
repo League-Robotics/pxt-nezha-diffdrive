@@ -147,33 +147,52 @@ def _protocol_cpp_k_version():
     return match.group(1)
 
 
-def test_k_version_is_the_uninjected_placeholder():
-    """protocol.cpp's checked-in kVersion must stay a PLACEHOLDER.
+def test_k_version_is_baked_to_the_project_version():
+    """protocol.cpp's checked-in kVersion must EQUAL the project version.
 
-    As of 2026-08-27 it is injected at deploy time by
-    tools/make_deploy.py's _inject_version(), from pyproject.toml's
-    `0.YYYYMMDD.n` build version -- the same scratch-copy-only mechanism
-    kProfile and kChannel use. So the literal in the repo is never a
-    real build's version, and a hex reporting `unbaked` over VER is a
-    hex that did not come through make_deploy.py.
+    2026-09-07, stakeholder direction. This INVERTS the test it replaces
+    (test_k_version_is_the_uninjected_placeholder), which pinned the
+    checked-in literal to the placeholder `unbaked` on the theory that
+    tools/make_deploy.py's _inject_version() would supply the real one
+    at deploy time.
 
-    This REPLACES test_k_version_matches_pxt_json_version. kVersion used
-    to mirror pxt.json's `1.0.10`-style EXTENSION semver, and that test
-    guarded the mirror. The mirror itself was the problem: the extension
-    version moves only on release, so every firmware built between two
-    releases answered VER identically. On 2026-08-27 two robots running
-    visibly different builds both reported `ver 1.0.10` with nothing on
-    the wire able to separate them, and the misdiagnosis cost hours.
-    pxt.json's semver is unchanged and still governs MakeCode's
-    extension resolution -- it simply is not what VER answers any more.
+    That theory only ever covered THIS repo's own bench and farm
+    tooling. Consumers reach the source two other ways -- cloning this
+    repo off GitHub, or via the extension tools/publish_extension.py
+    generates (whose assemble() copies pxt.json's `files` verbatim,
+    protocol.cpp among them) -- and build it in MakeCode's cloud
+    compiler, where make_deploy.py never runs. Both paths shipped the
+    placeholder, so every consumer board answered VER with `unbaked`
+    and nothing on the wire said which revision they were running.
+
+    kVersion is now baked at VERSION-BUMP time by
+    config/hooks/version_bump (dotconfig fires config/hooks/<event>;
+    see dotconfig's event_hooks.py and versioning.py), so whatever
+    revision anyone pulls says which revision it is.
+
+    The invariant pinned here is STRONGER than the placeholder one it
+    replaces. That test's stated fear was "a stale, hand-edited version
+    string" shipping instead of the injected one; pinning the constant
+    to the project's own version catches exactly that, on every host
+    run, instead of merely proving nobody had written a version there
+    yet. pxt.json is the comparison source because
+    publish_extension.py's check_version() already pins it to
+    config/dotconfig.yaml, dotconfig's single source of truth.
+
+    kProfile is deliberately NOT baked this way: it answers which
+    robot's config the image is running, and `unbaked` is the true
+    answer for a checkout that has not loaded one. Runtime setter
+    tracked in clasi/issues/high/kprofile-needs-a-runtime-setter.md.
     """
     wire_version = _protocol_cpp_k_version()
-    assert wire_version == "unbaked", (
-        f"protocol.cpp's kVersion is \"{wire_version}\", expected the "
-        f"placeholder \"unbaked\". A real version baked into the "
-        f"checked-in source means a build could ship a stale, "
-        f"hand-edited version string instead of the injected one -- the "
-        f"exact drift class this file exists to catch."
+    project_version = _pxt_json_version()
+    assert wire_version == project_version, (
+        f"protocol.cpp's kVersion is \"{wire_version}\" but the project "
+        f"version is \"{project_version}\". These are synced by "
+        f"config/hooks/version_bump on every `dotconfig version bump`; "
+        f"a mismatch means the hook did not run, was edited out, or the "
+        f"constant was hand-edited -- and a consumer building this tree "
+        f"would report a version that is not this tree's."
     )
 
 
