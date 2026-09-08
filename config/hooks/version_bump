@@ -5,14 +5,18 @@
 #   config/hooks/version_bump <project_dir> <old_version> <new_version>
 #
 # dotconfig's built-in `version_sync` only understands pyproject.toml and
-# package.json, so the MakeCode manifest (pxt.json) has to be synced here.
+# package.json, so two more places have to be synced here:
 #
-# The "version" line is rewritten in place (no JSON round-trip) so the
-# 4-space indentation and key order of pxt.json survive the bump.
+#   pxt.json              the MakeCode manifest's "version" key
+#   src/comms/protocol.cpp  the kVersion identity constant (VER / ID)
 #
-# The file is then `git add`ed: `dotconfig version bump --push` runs this
+# Both are rewritten in place (no JSON round-trip, no C++ reformat) so
+# pxt.json's 4-space indentation and key order, and protocol.cpp's
+# trailing comments, survive the bump.
+#
+# Each file is then `git add`ed: `dotconfig version bump --push` runs this
 # hook BEFORE its own `git commit`, and only stages the files it wrote
-# itself, so staging here is what gets pxt.json into the bump commit.
+# itself, so staging here is what gets them into the bump commit.
 set -euo pipefail
 
 PROJECT_DIR="$1"
@@ -21,6 +25,7 @@ NEW_VERSION="$3"
 export NEW_VERSION
 
 PXT_JSON="$PROJECT_DIR/pxt.json"
+PROTOCOL_CPP="$PROJECT_DIR/src/comms/protocol.cpp"
 
 if [ ! -f "$PXT_JSON" ]; then
     echo "version_bump hook: no pxt.json at $PXT_JSON, nothing to sync" >&2
@@ -45,7 +50,55 @@ fi
 
 echo "  Updated: pxt.json (${OLD_VERSION:-?} -> $NEW_VERSION)"
 
-# Stage it so `dotconfig version bump --push` includes it in the bump commit.
+# ---- src/comms/protocol.cpp: the kVersion identity constant -------------
+#
+# This is what a CONSUMER's board reports over VER (and ID's third
+# field). Consumers pull this repo -- or the extension generated from it
+# by tools/publish_extension.py -- straight off GitHub and build it in
+# MakeCode's cloud compiler; tools/make_deploy.py's _inject_version() is
+# never in their path, so a placeholder left in the checked-in source is
+# the version every consumer gets. Baking it HERE, at bump time, is what
+# makes the checked-in tree self-describing: whatever revision someone
+# pulls says which revision it is.
+#
+# kProfile is deliberately NOT touched. It answers a different question
+# -- which robot's config the hex was built against -- and for anyone
+# building from a plain checkout the honest answer is `unbaked`: no
+# per-robot calibration is compiled in. It stays the "did this hex come
+# through make_deploy?" signal that kVersion used to carry.
+#
+# The regex is make_deploy.py's own _K_VERSION_RE, deliberately: the two
+# must agree on protocol.cpp's shape or a deploy build and a bump would
+# disagree about what they are rewriting. It stops at the closing `";`
+# so the trailing comment on that line survives untouched.
+
+if [ ! -f "$PROTOCOL_CPP" ]; then
+    echo "version_bump hook: no protocol.cpp at $PROTOCOL_CPP, skipping kVersion" >&2
+else
+    matches=$(grep -cE '^constexpr const char\* kVersion = "[^"]*";' "$PROTOCOL_CPP" || true)
+    if [ "$matches" != "1" ]; then
+        echo "version_bump hook: expected exactly one kVersion constant in" >&2
+        echo "  $PROTOCOL_CPP, found $matches -- protocol.cpp's shape has changed," >&2
+        echo "  update this hook AND make_deploy.py's _K_VERSION_RE together" >&2
+        exit 1
+    fi
+
+    perl -pi -e '
+        s/^(constexpr const char\* kVersion = ")[^"]*(";)/$1$ENV{NEW_VERSION}$2/;
+    ' "$PROTOCOL_CPP"
+
+    if ! grep -qE "^constexpr const char\* kVersion = \"$NEW_VERSION\";" "$PROTOCOL_CPP"; then
+        echo "version_bump hook: failed to write $NEW_VERSION into $PROTOCOL_CPP" >&2
+        exit 1
+    fi
+
+    echo "  Updated: src/comms/protocol.cpp kVersion (${OLD_VERSION:-?} -> $NEW_VERSION)"
+fi
+
+# Stage them so `dotconfig version bump --push` includes them in the bump commit.
 if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git -C "$PROJECT_DIR" add -- pxt.json
+    if [ -f "$PROTOCOL_CPP" ]; then
+        git -C "$PROJECT_DIR" add -- src/comms/protocol.cpp
+    fi
 fi
