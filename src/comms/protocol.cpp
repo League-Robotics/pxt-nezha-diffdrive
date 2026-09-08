@@ -139,6 +139,7 @@ constexpr uint32_t kPollInterval = 5;  // [ms]
 Protocol::Protocol() {
   snprintf(roleBuf_, sizeof(roleBuf_), "%s", kRole);
   snprintf(commonNameBuf_, sizeof(commonNameBuf_), "%s", kCommonName);
+  snprintf(profileBuf_, sizeof(profileBuf_), "%s", kProfile);
 }
 
 void Protocol::emitLine(const char* text) {
@@ -218,6 +219,10 @@ void protocolSetupWifi(const char* ssid, const char* password) {
 void protocolSetDeviceRole(const char* role, const char* commonName) {
   protocol().setDeviceRole(role, commonName);
 }
+
+// Free-function entry point for shims.cpp's setProfile shim (ticket
+// 003) -- same boundary reason as protocolEmitLine() above.
+void protocolSetProfile(const char* name) { protocol().setProfile(name); }
 
 int Protocol::serialDropCount() const {
   return static_cast<int>(transport_.dropCount());
@@ -361,6 +366,30 @@ void Protocol::setDeviceRole(const char* role, const char* commonName) {
   snprintf(dbgBuf, sizeof(dbgBuf), "DBG:role role=%s commonName=%s trunc=%u",
            roleBuf_, commonNameBuf_,
            static_cast<unsigned>(deviceRoleTruncated_));
+  emitLine(dbgBuf);
+}
+
+// Same strip-then-accept rule as setDeviceRole() above, extended to
+// `profile` by sprint 037's stakeholder decision even though the source
+// issue's literal text doesn't ask for it: `profile` sits inside the
+// same space-separated, positionally-parsed `id` reply. No late-call
+// guard -- see setProfile()'s own doc comment (protocol.h).
+void Protocol::setProfile(const char* name) {
+  if (name == nullptr) {
+    emitLine("DBG:profile rejected: null argument");
+    return;
+  }
+
+  size_t nameLen = stripWhitespaceInto(name, profileBuf_, sizeof(profileBuf_));
+  profileTruncated_ = nameLen >= sizeof(profileBuf_);
+  profileSetAtRuntime_ = true;
+
+  // Budget: fixed text (29) + "runtime" (7) + name (<=31) + one digit +
+  // NUL = 69 against 84 -- 15 bytes margin.
+  char dbgBuf[84];
+  snprintf(dbgBuf, sizeof(dbgBuf), "DBG:profile src=%s name=%s trunc=%u",
+           profileSetAtRuntime_ ? "runtime" : "baked", profileBuf_,
+           static_cast<unsigned>(profileTruncated_));
   emitLine(dbgBuf);
 }
 
@@ -666,7 +695,7 @@ Wire::Identity Protocol::buildIdentity() {
   identity.drivetrain = kDrivetrain;
   identity.role = roleBuf_;
   identity.commonName = commonNameBuf_;
-  identity.profile = kProfile;
+  identity.profile = profileBuf_;
   identity.version = kVersion;
   return identity;
 }

@@ -214,6 +214,16 @@ class Protocol {
   // corrupt, so a call at any point is picked up by the next banner.
   void setDeviceRole(const char* role, const char* commonName);
 
+  // Runtime alternative to the constructor-seeded kProfile default:
+  // copies (stripped, clipped, truncation recorded) into profileBuf_.
+  // Same reasoning as setDeviceRole() above, not setupWifi(): execId()'s
+  // snprintf dereferences identity.profile at reply time, so no
+  // "begin"-time state exists for a late call to corrupt -- a call
+  // after the first `id` reply has already gone out is picked up by the
+  // next one. This is the one deliberate, tested divergence from
+  // setupWifi()'s late-call refusal.
+  void setProfile(const char* name);
+
  private:
   static void fiberEntry(void* self);
   void run();
@@ -404,6 +414,13 @@ class Protocol {
   char roleBuf_[24];        // seeded from kRole, overwritten by setDeviceRole()
   char commonNameBuf_[24];  // seeded from kCommonName, overwritten by setDeviceRole()
   uint8_t deviceRoleTruncated_ = 0;  // bit0 role, bit1 commonName
+
+  // Program-owned profile (setProfile()), seeded from kProfile by the
+  // constructor. Sized against the `id` reply's own 48-char field
+  // budget (wire_handler.cpp) -- 32 leaves headroom inside it.
+  char profileBuf_[32];               // seeded from kProfile, overwritten by setProfile()
+  bool profileTruncated_ = false;     // set once at the setProfile() store
+  bool profileSetAtRuntime_ = false;  // true once setProfile() has been called at all
 
   Wire::Identity buildIdentity();
 

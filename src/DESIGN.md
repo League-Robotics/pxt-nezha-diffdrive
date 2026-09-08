@@ -1826,7 +1826,11 @@ Protocol-owned buffers the constructor seeds from `kRole`/`kCommonName`
 and `setDeviceRole()` can overwrite at runtime (no late-call guard
 needed: `sendBanner()` reads the buffers at emit time, not at some
 earlier "begin" time a late write could corrupt, unlike
-`WifiLink::Config`'s borrowed credentials).
+`WifiLink::Config`'s borrowed credentials). **Ticket 002** gives
+`kProfile` the same treatment: `profileBuf_`, seeded by the same
+constructor and overwritable via `setProfile()`, same strip-then-accept
+whitespace rule, same no-late-call-guard reasoning (`execId()` reads
+`identity.profile` at reply time).
 
 **Telemetry gap (closed, sprint 004; consumer retrofit closed, sprint
 005).** The old periodic cleartext `TLM:` line was retired with v5 and

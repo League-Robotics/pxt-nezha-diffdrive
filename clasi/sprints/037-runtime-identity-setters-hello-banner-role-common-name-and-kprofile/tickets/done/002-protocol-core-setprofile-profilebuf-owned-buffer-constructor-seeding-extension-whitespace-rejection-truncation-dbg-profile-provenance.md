@@ -2,7 +2,7 @@
 id: '002'
 title: "Protocol core: setProfile() \u2014 profileBuf_ owned buffer, constructor seeding\
   \ extension, whitespace stripping, truncation, DBG:profile provenance"
-status: open
+status: done
 use-cases:
 - SUC-002
 - SUC-003
@@ -130,10 +130,10 @@ No change needed to `WireHandler::execId()` (`wire_handler.cpp:800-826`)
 
 ## Acceptance Criteria
 
-- [ ] `profileBuf_[32]`, `profileTruncated_`, `profileSetAtRuntime_`
+- [x] `profileBuf_[32]`, `profileTruncated_`, `profileSetAtRuntime_`
       exist on `Protocol`, and `Protocol::Protocol()` (from ticket 001)
       is extended to seed `profileBuf_` from `kProfile`.
-- [ ] `Protocol::setProfile(name)` exists with: null rejection (the only
+- [x] `Protocol::setProfile(name)` exists with: null rejection (the only
       rejection path), whitespace STRIPPING (every `isspace()` byte
       removed from `name` — leading, trailing, and internal; the call
       still succeeds — same rule as ticket 001's `setDeviceRole()`,
@@ -143,26 +143,26 @@ No change needed to `WireHandler::execId()` (`wire_handler.cpp:800-826`)
       only overflows because of whitespace about to be removed must NOT
       be flagged truncated), and a `DBG:profile` emission on both the
       null-rejection and success paths.
-- [ ] `setProfile("the bot")` succeeds and stores `thebot` — no
+- [x] `setProfile("the bot")` succeeds and stores `thebot` — no
       rejection, no unset field.
-- [ ] A `name` value whose RAW length (before stripping) is `>=
+- [x] A `name` value whose RAW length (before stripping) is `>=
       sizeof(profileBuf_)`, but whose STRIPPED length is `<` that
       `sizeof`, is stored IN FULL, untruncated — the "whitespace-only
       overflow" case — and `profileTruncated_` is NOT set.
-- [ ] `buildIdentity()` points `identity.profile` at `profileBuf_`, not
+- [x] `buildIdentity()` points `identity.profile` at `profileBuf_`, not
       at `kProfile` directly.
-- [ ] With no program ever calling `setProfile()`, the emitted `id`
+- [x] With no program ever calling `setProfile()`, the emitted `id`
       reply is byte-for-byte identical to today's output — this is the
       regression bar. Verify by hand against
       `tests/host/test_wire_grammar.py`'s existing `id`-reply
       assertions (ticket 005 adds the dedicated pin test).
-- [ ] `setProfile()` called AFTER the first `id` reply has already gone
+- [x] `setProfile()` called AFTER the first `id` reply has already gone
       out still succeeds and is reflected in the next `id` reply — no
       late-call guard exists on this path (the deliberate divergence
       from `setupWifi()`). This is a source-level design property
       pinned by ticket 005's test, not something this ticket needs its
       own test for.
-- [ ] `tests/tools/test_make_deploy_wifi.py` and any existing
+- [x] `tests/tools/test_make_deploy_wifi.py` and any existing
       `make_deploy.py` profile-injection test still pass untouched —
       this ticket does not touch `make_deploy.py`'s `_inject_profile()`
       or the `kProfile` declaration's exact text (confirm

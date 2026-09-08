@@ -1,5 +1,12 @@
 ---
 status: pending
+sprint: '037'
+tickets:
+- 037-002
+- 037-003
+- 037-005
+- 037-006
+- 037-007
 ---
 
 # `kProfile` needs a runtime setter — a pasted calibration block IS loading a robot's config
