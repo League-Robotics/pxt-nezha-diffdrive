@@ -2,7 +2,7 @@
 id: '004'
 title: 'Host-level source-pin tests: setDeviceRole() precedence, truncation, whitespace,
   and constructor-seeding shape'
-status: open
+status: done
 use-cases:
 - SUC-001
 - SUC-003
@@ -107,17 +107,17 @@ byte-identical," short of an actual on-hardware or compiled check
 
 ## Acceptance Criteria
 
-- [ ] New file
+- [x] New file
       `tests/host/test_setdevicerole_precedence_source_pin.py` (or
       similar name, consistent with sprint 036's naming) exists,
       following `test_setupwifi_precedence_source_pin.py`'s structure.
-- [ ] The test fails if whitespace stripping is removed (a whitespace
+- [x] The test fails if whitespace stripping is removed (a whitespace
       byte in `role`/`commonName` would be stored verbatim instead of
       being stripped), and fails if a `DBG:role rejected: whitespace`
       message reappears anywhere in the file (verify each by
       temporarily breaking it locally, confirming the new test catches
       it, then restoring — do not leave the break in the tree).
-- [ ] The test includes an explicit "whitespace-only overflow" case: an
+- [x] The test includes an explicit "whitespace-only overflow" case: an
       input whose RAW length is `>= sizeof(roleBuf_)` (or
       `sizeof(commonNameBuf_)`) only because of whitespace bytes that
       will be stripped, and whose STRIPPED length is `<` that `sizeof`.
@@ -125,14 +125,14 @@ byte-identical," short of an actual on-hardware or compiled check
       corresponding bit is NOT set for that case — i.e. the pin
       confirms the source measures the length AFTER stripping, not
       before.
-- [ ] The test fails if `buildIdentity()` is reverted to
+- [x] The test fails if `buildIdentity()` is reverted to
       `identity.role = kRole` / `identity.commonName = kCommonName`
       directly.
-- [ ] The test fails if the constructor's seed lines are replaced with
+- [x] The test fails if the constructor's seed lines are replaced with
       hardcoded literals instead of `kRole`/`kCommonName`.
-- [ ] The test fails if the stale "NSDMI, not a hand-written
+- [x] The test fails if the stale "NSDMI, not a hand-written
       constructor" comment reappears unamended.
-- [ ] `sendBanner()`'s format-string pin fails if a literal
+- [x] `sendBanner()`'s format-string pin fails if a literal
       (`"NEZHA2"`/`"robot"`) reappears in it.
 
 ## Testing
