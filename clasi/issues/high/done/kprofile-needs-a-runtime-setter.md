@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 sprint: '037'
 tickets:
 - 037-002
