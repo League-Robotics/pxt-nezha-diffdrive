@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: TS/shim arity and toolbox-visibility pin test for setDeviceRole() and setProfile()
-status: open
+status: done
 use-cases:
 - SUC-001
 - SUC-002
@@ -74,24 +74,48 @@ every other TS-surface check in `tests/host/`.
 
 ## Acceptance Criteria
 
-- [ ] `tests/host/test_block_toolbox_order.py` passes unmodified after
+- [x] `tests/host/test_block_toolbox_order.py` passes unmodified after
       ticket 003 lands (or, if it genuinely needs a baseline change,
       that change is justified in this ticket's own notes as
       intentional, not just "test failed so I updated the baseline").
-- [ ] New arity/adjacency pin test(s) exist for BOTH `setDeviceRole`/
+      Confirmed: ran unmodified, 10/10 passed with no baseline edits
+      (neither `setDeviceRole` nor `setProfile` joined the visible
+      toolbox — both stayed `blockHidden=true`).
+- [x] New arity/adjacency pin test(s) exist for BOTH `setDeviceRole`/
       `_setDeviceRole` and `setProfile`/`_setProfile`, asserting
       parameter count, type, and order match, and that each call site
       passes arguments in the declared order.
-- [ ] The new test fails if `_setDeviceRole`'s parameters are reordered
+      Added `tests/host/test_identity_setters_shim_arity_source_pin.py`
+      (13 tests) as a sibling to
+      `test_setupwifi_shim_arity_source_pin.py`.
+- [x] The new test fails if `_setDeviceRole`'s parameters are reordered
       to `(commonName, role)` while `setDeviceRole`'s call site is not
       updated to match (verify by temporarily breaking it, confirming
       the test catches it, then restoring).
-- [ ] The new test fails if either shim's `//%` annotation gains an
+      Verified: reordering `_setDeviceRole`'s sim.ts parameters to
+      `(commonName, role)` without touching the run.ts call site failed
+      `test_setdevicerole_three_layer_arity_and_order_agree`; restored,
+      re-ran green. Also verified the companion call-site-only swap
+      (`_setDeviceRole(commonName, role)` at the call site, declarations
+      untouched) fails
+      `test_run_ts_setdevicerole_call_site_passes_args_in_declared_order`;
+      restored, re-ran green.
+- [x] The new test fails if either shim's `//%` annotation gains an
       intervening comment line, loses `blockHidden=true`, or reverts
       the `getUTF8Size()` emptiness guard to a bare `toCharArray()`
       check (verify each by temporarily breaking it, confirming the
       test catches it, then restoring — `git status` clean on `src/`
       afterward).
+      Verified all three breaks (one representative case each,
+      restored after each): an intervening comment between
+      `setProfile`'s `//%` and its declaration in shims.cpp failed
+      `test_shims_cpp_setprofile_pragma_immediately_precedes_declaration`;
+      removing `blockHidden=true` from `setDeviceRole` in run.ts failed
+      `test_run_ts_setdevicerole_is_block_hidden`; reverting
+      `setDeviceRole`'s emptiness guard to a `toCharArray()`-based check
+      in shims.cpp failed
+      `test_shims_cpp_setdevicerole_emptiness_guard_uses_getutf8size_not_tocharrray`.
+      `git status --short src/` clean after each restore.
 
 ## Testing
 
