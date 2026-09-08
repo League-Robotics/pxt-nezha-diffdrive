@@ -2,7 +2,7 @@
 id: '005'
 title: 'Host-level source-pin tests: setProfile() precedence, truncation, whitespace,
   and late-call-succeeds behavior'
-status: open
+status: done
 use-cases:
 - SUC-002
 - SUC-003
@@ -84,28 +84,28 @@ issue's own recommended shape (`src=baked|runtime name=vevov trunc=0`).
 
 ## Acceptance Criteria
 
-- [ ] New file `tests/host/test_setprofile_precedence_source_pin.py`
+- [x] New file `tests/host/test_setprofile_precedence_source_pin.py`
       (or similar name) exists, following ticket 004's structure and
       `test_setupwifi_precedence_source_pin.py`'s precedent.
-- [ ] The test fails if whitespace stripping is removed from
+- [x] The test fails if whitespace stripping is removed from
       `setProfile()` (a whitespace byte would be stored verbatim
       instead of being stripped), and fails if a `DBG:profile rejected:
       whitespace` message reappears anywhere in the file.
-- [ ] The test includes an explicit "whitespace-only overflow" case: a
+- [x] The test includes an explicit "whitespace-only overflow" case: a
       `name` whose RAW length is `>= sizeof(profileBuf_)` only because
       of whitespace bytes that will be stripped, and whose STRIPPED
       length is `<` that `sizeof`. Assert the test's expectation is that
       `profileTruncated_` is NOT set for that case.
-- [ ] The test fails if `buildIdentity()` is reverted to
+- [x] The test fails if `buildIdentity()` is reverted to
       `identity.profile = kProfile` directly.
-- [ ] The test fails if a late-call guard (any conditional resembling
+- [x] The test fails if a late-call guard (any conditional resembling
       `setupWifi()`'s `wifiBegun_` check) is added to `setProfile()`'s
       body — this is a NEGATIVE assertion; verify it actually fails by
       temporarily adding a fake guard locally, confirming the test
       catches it, then removing the fake guard.
-- [ ] The test fails if the constructor's `profileBuf_` seed line is
+- [x] The test fails if the constructor's `profileBuf_` seed line is
       replaced with a hardcoded literal instead of `kProfile`.
-- [ ] `make_deploy.py::_inject_profile()`'s regex is confirmed (by this
+- [x] `make_deploy.py::_inject_profile()`'s regex is confirmed (by this
       test or a companion assertion) to still match exactly one
       `kProfile` declaration in `protocol.cpp`.
 
