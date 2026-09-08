@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: 'Shim and TS/sim surface: setDeviceRole() and setProfile() entry points'
-status: open
+status: done
 use-cases:
 - SUC-001
 - SUC-002
@@ -136,23 +136,43 @@ with matching `let simDeviceRole = ""`, `let simCommonName = ""`,
 
 ## Acceptance Criteria
 
-- [ ] `diffDrive.setDeviceRole(role, commonName)` and
+- [x] `diffDrive.setDeviceRole(role, commonName)` and
       `diffDrive.setProfile(name)` are callable from TypeScript/
       JavaScript, both `//% blockHidden=true`, neither present in the
       toolbox.
-- [ ] Both shims treat an empty PXT `String` as `""` via
+- [x] Both shims treat an empty PXT `String` as `""` via
       `getUTF8Size()`, not via `toCharArray()`'s result at size 0.
-- [ ] `_setDeviceRole`/`_setProfile` in `sim.ts` record into sim-local
+- [x] `_setDeviceRole`/`_setProfile` in `sim.ts` record into sim-local
       variables and perform no other action, matching `_setupWifi`'s
       shape.
-- [ ] `//%` annotations sit immediately above their declarations in
+- [x] `//%` annotations sit immediately above their declarations in
       `shims.cpp`, with no intervening comment line, for both new
       shims.
-- [ ] `tests/host/test_block_toolbox_order.py` still passes unmodified
+- [x] `tests/host/test_block_toolbox_order.py` still passes unmodified
       (or, if it genuinely needs a baseline change, that is justified
       as intentional in this ticket's notes, not a reflexive baseline
       update) — check whether this ticket's change alone breaks
       anything before assuming ticket 006 covers it.
+
+## Completion notes
+
+- `test_block_toolbox_order.py` passes UNMODIFIED: both new functions
+  carry no `block=` caption (only `blockHidden=true`), so the scanner
+  never sees them and the baseline needed no change.
+- Verified with a real `pxt build` (not just the tsc-text-scan tests),
+  via `projects/blocktest` (OrbStack/Docker `pext/yotta` toolchain):
+  `shims.cpp` compiled and linked with the new `setDeviceRole`/
+  `setProfile` shims, and a consumer `main.ts` calling
+  `diffDrive.setDeviceRole("NEZHA2", "robot")` /
+  `diffDrive.setProfile("vevov")` built a hex successfully
+  (`projects/blocktest/built/binary.hex`). That scratch project change
+  was reverted after the build (`projects/` is git-tracked here despite
+  `.gitignore`, so it was checked out back to its prior committed
+  state, not left modified).
+- Not run: a full Blocks-editor JS<->Blocks decompile/toolbox-render
+  check (no live `pxt serve` session opened this turn) — UNVERIFIED,
+  consistent with `test_block_toolbox_order.py`'s own source-scan
+  proxy method rather than a real toolchain invocation.
 
 ## Testing
 
