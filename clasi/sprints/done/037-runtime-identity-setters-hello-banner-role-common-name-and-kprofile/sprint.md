@@ -1,7 +1,7 @@
 ---
 id: '037'
 title: 'Runtime identity setters: HELLO banner role/common_name and kProfile'
-status: executing
+status: done
 branch: sprint/037-runtime-identity-setters-hello-banner-role-common-name-and-kprofile
 use-cases: []
 issues:

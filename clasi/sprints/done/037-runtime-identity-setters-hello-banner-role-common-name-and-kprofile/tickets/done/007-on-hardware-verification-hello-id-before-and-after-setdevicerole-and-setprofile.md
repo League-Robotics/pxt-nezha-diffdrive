@@ -1,7 +1,7 @@
 ---
 id: '007'
 title: 'On-hardware verification: HELLO/ID before and after setDeviceRole() and setProfile()'
-status: open
+status: done
 use-cases:
 - SUC-001
 - SUC-002
