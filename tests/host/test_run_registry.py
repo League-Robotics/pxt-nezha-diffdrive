@@ -30,10 +30,13 @@ _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _SRC_DIR = _REPO_ROOT / "src"
 _TEST_DIR = pathlib.Path(__file__).resolve().parent
 
-# The shim's own test instantiation: RunRegistry<4, 8>. Small enough
-# that the overflow and truncation edges are reachable in a few calls.
+# The shim's own test instantiation: RunRegistry<4, 8, 12>. Small enough
+# that the overflow and truncation edges are reachable in a few calls,
+# with the name and signature cells sized differently so a test can
+# tell which limit clipped what (the firmware's own default is 24/64).
 _SLOTS = 4
 _BYTES = 8
+_SIG_BYTES = 12
 
 
 @pytest.fixture(scope="module")
@@ -162,7 +165,23 @@ def test_an_overlong_name_is_truncated_rather_than_dropped(reg):
     assert reg.add(b"a" * 40, b"s" * 40)
     assert reg.count() == 1
     assert reg.name(0) == b"a" * (_BYTES - 1)
-    assert reg.signature(0) == b"s" * (_BYTES - 1)
+    assert reg.signature(0) == b"s" * (_SIG_BYTES - 1)
+
+
+def test_the_signature_cell_is_wider_than_the_name_cell(reg):
+    """A signature is a declaration the host parses --
+    `(dist:number,speed:number=60)` -- not a short token like a name, so
+    it gets its own, larger cell (run_registry.h's SigBytes; 64 in the
+    firmware, 12 here). A declaration that would not fit a name cell
+    must come back intact from the signature cell, punctuation and all."""
+    sig = b"(a:n,b=6)"  # 9 bytes: over the 8-byte name cell, under the 12-byte signature cell
+    assert len(sig) > _BYTES - 1
+    assert reg.add(b"move", sig)
+    assert reg.signature(0) == sig
+    # Re-declaring updates in place (run.ts's runSignature() after onRun()).
+    assert reg.add(b"move", b"()")
+    assert reg.count() == 1
+    assert reg.signature(0) == b"()"
 
 
 def test_the_table_saturates_and_counts_rather_than_evicting(reg):

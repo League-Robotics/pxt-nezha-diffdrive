@@ -13,7 +13,10 @@
 namespace {
 // Small on purpose: 4 slots and 8-byte cells make the overflow and
 // truncation edges reachable in a test without 32 setup calls.
-using TestRegistry = diffDrive::RunRegistry<4, 8>;
+// 4 slots, 8-byte names, 12-byte signatures: every truncation edge
+// reachable in a few calls, and the two cell sizes distinct so a test
+// can tell which limit clipped what.
+using TestRegistry = diffDrive::RunRegistry<4, 8, 12>;
 }  // namespace
 
 extern "C" {

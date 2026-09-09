@@ -32,11 +32,14 @@ comments get wrong:
    has them all"; the log says otherwise (session-1, 4.033 s: the ack
    and the first `funcs` line share a millisecond, the 17th arrives
    18 ms later).
-2. **Signatures are always empty from a blocks program.** `onRun()`
-   registers every name with `""` (`src/blocks/run.ts:128`), so the
-   listing tells a UI *which* names exist, not their arity or types.
-   The grammar reserves a second token for that (`funcs <name> <sig>`)
-   but nothing fills it today.
+2. **Signatures are empty unless the program declares them.** `onRun()`
+   registers every name with `""` (`src/blocks/run.ts:128`); as of
+   2026-09-09 a program adds `diffDrive.runSignature(name, "(a:number,b=60)")`
+   next to the `onRun()` to fill the second token, and the robot-console
+   parses that declaration into per-parameter inputs. Grammar in
+   `runSignature()`'s doc comment: one token, no spaces,
+   `(name[:type][=default],...)`; `()` means "takes none", absence means
+   "unknown".
 
 ## What the wire looks like
 
@@ -220,5 +223,6 @@ Filed as `clasi/issues/funcs-ack-precedes-the-listing-and-stale-run-colon-commen
   errs kUnknown". Reversed since d4d8e4e (2026-09-07): `RUN <name> #id`
   is the only form that dispatches and the colon form is dropped
   (`clasi/issues/high/colon-run-form-is-silently-not-dispatched.md`).
-- The signature slot is never populated by blocks, so the UI-facing
-  promise of `funcs <name> <signature>` is currently empty.
+- The signature slot is populated only by an explicit `runSignature()`
+  call (2026-09-09); a blocks program that never calls it still lists
+  bare names.
