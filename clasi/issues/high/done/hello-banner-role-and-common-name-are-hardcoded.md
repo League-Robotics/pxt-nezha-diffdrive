@@ -95,7 +95,30 @@ only because they are compile-time literals. A runtime setter must clip
 into fixed buffers, same as `wifiSsid_[33]` — see the identical hazard
 noted for `profile` in `wire_handler.cpp:815-826`.
 
-## Related finding — spec and implementation DISAGREE on the grammar
+## Related finding — WITHDRAWN 2026-09-08, there is no disagreement
+
+> **This section was wrong and is retained only so the correction is
+> findable.** It claimed the space-delimited banner diverged from
+> `announce.md` and needed a cross-repo decision. It does not.
+>
+> The robot's space dialect and the relay's colon dialect are both
+> correct. The robot's is space-delimited because v6 dropped `:` as a
+> field separator when it retired v5 (dfca4f8, 2026-08-23) — the
+> announcement line went with it, deliberately.
+>
+> `mbdeploy`'s `probe_type` (`devices.py:150-196`) accepts **both**
+> dialects and has since 2026-08-27, returning the identical five-field
+> dict either way. And `announce.md`'s only regex is
+> `DEVICE:(RADIOBRIDGE|RADIORELAY):relay:...` — hardcoded to relays, so
+> it never matched a robot in any dialect; it is the relay's spec, not a
+> robot spec.
+>
+> Nothing is broken, nothing needs to converge, and the robot banner
+> must NOT be "fixed" to colons. See `radio-robot-lib`
+> `docs/design/protocol.md` §2.4 (corrected) and that repo's withdrawn
+> issue `hello-banner-emit-the-specified-colon-announcement-format.md`.
+
+### The original (incorrect) text follows
 
 Reported here because it was found while answering the above; it is NOT
 part of this issue's fix and must not be changed without a cross-repo
