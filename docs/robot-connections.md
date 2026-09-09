@@ -219,6 +219,99 @@ else) but not actual secrecy: anyone who opens or shares that web
 project sees it. Real secrecy needs the VS Code + git checkout, where
 `secrets.ts` genuinely never leaves the machine it was created on.
 
+## Device identity -- what `HELLO` and `ID` announce
+
+`HELLO` is how every carrier's discovery finds a robot, so what it
+announces is an interface, not a cosmetic string.
+
+```
+device NEZHA2 robot gopiv 2175407711
+       ^role  ^common_name
+             ^^^^^^^^^^^^^ settable from your program
+                   ^device_name ^serial -- from silicon, never settable
+```
+
+Five fields: a sentinel, then `role` (the device class / firmware
+family), `common_name` (the generic name within that class),
+`device_name` (`microbit_friendly_name()`), and `serial`
+(`microbit_serial_number()`). The naming is counter-intuitive and easy
+to get backwards: **`role` is `NEZHA2`**, **`common_name` is `robot`**.
+Not the other way round.
+
+`ID`'s middle field is a sixth identity value, `profile` -- which
+robot's config this image is running:
+
+```
+id diffdrive gopiv 1.20260908.1 gopiv
+             ^profile
+```
+
+### Setting identity from your own project (`setDeviceRole()`, `setProfile()`)
+
+`role`, `common_name` and `profile` used to be compile-time constants:
+`role`/`common_name` were string literals inside the banner's format
+string, and `profile` came from `kProfile`, which
+`tools/make_deploy.py::_inject_profile()` bakes into a scratch copy at
+deploy time. A student's own project never runs `make_deploy.py`, so
+`profile` stayed `unbaked` no matter how much configuration the program
+loaded at runtime, and `role`/`common_name` could not be changed at all.
+
+Both are now runtime-settable:
+
+```typescript
+diffDrive.setDeviceRole("NEZHA2", "robot")   // role, common_name
+diffDrive.setProfile("gopiv")                // ID's profile field
+```
+
+Call them wherever you like -- unlike `setupWifi()`, **a late call
+works**. There is no late-call guard, because nothing borrows into these
+buffers the way `WifiLink::Config` borrows into the credential ones. The
+next `HELLO` or `ID` picks up whatever the current value is, so calling
+a setter after the first banner has already gone out is legitimate and
+takes effect immediately. A call made as the very first statement of
+`on start` also works -- the buffers are seeded from the baked defaults
+in `Protocol`'s constructor, before any fiber starts, so an early call
+cannot be overwritten by the seed.
+
+Both are **not in the toolbox** (`//% blockHidden=true`), the same as
+`setupWifi()` and `enableWifiLink()`. Reachable from
+TypeScript/JavaScript, not by dragging blocks.
+
+**Whitespace is stripped, not rejected.** The banner is space-delimited
+and parsed *positionally*, so a space inside `role` or `common_name`
+would shift every field after it and turn a 5-field line into a 6-field
+one -- breaking every consumer. Rather than fail the call, the setters
+remove all whitespace and accept the result:
+
+```typescript
+diffDrive.setDeviceRole("my robot", "the bot")   // stores myrobot / thebot
+```
+
+Over-length values are clipped rather than overflowing the banner
+buffer, and the clip is not silent: the `DBG:role` and `DBG:profile`
+lines carry `trunc=` (for `DBG:role`, a bitmask -- bit 0 role, bit 1
+common_name). `DBG:profile` also carries `src=` (baked vs runtime), so
+"which robot's config does this image think it is running" is
+answerable from the same line.
+
+Calling neither setter leaves the announced identity byte-identical to
+what the firmware has always emitted.
+
+MEASURED gopiv 2026-09-08,
+`captures/identity-setters-gopiv-20260908/`: baseline byte-identical;
+role/common_name/profile all settable at runtime; `"my robot"` stored as
+`myrobot`; over-length values clipped with `trunc` reported and the
+banner still a well-formed 5-field line; a setter called as the first
+statement of `on start` already reflected in the very first banner.
+
+> **Know before you change these.** `role` and `common_name` are what
+> cross-repo discovery keys on -- `microbit-radio-relay`'s
+> `probe_type`, and `radio-robot-lib`'s positional banner codec, both
+> expect `NEZHA2`/`robot` for a robot. Setting them to something else
+> makes the robot announce itself as a device class those tools do not
+> know. That is the point of the interface (a differently-classed
+> device can now say so), but it is not a cosmetic rename.
+
 ## Farm USB
 
 ```bash
