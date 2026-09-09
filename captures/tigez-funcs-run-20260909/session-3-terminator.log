@@ -1,0 +1,15 @@
+   0.000 > HELLO
+   0.318 < device NEZHA2 robot tigez 3527777815
+   1.863 < DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=1350 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=1 trunc=0
+   2.004 > funcs #1
+   4.007 > FUNCS #2
+PING
+   4.020 < nack 1 0 none
+   4.020 < pong 52949008
+   4.022 < nack 1 0 none
+   6.010 > FUNCS #3
+STATUS
+   6.025 < nack 1 0 none
+   6.033 < status ready=1 active=0 connL=0 connR=0 otos=0 wedge=0 flags=1 i2cf=2 cyc=2 tlm=off next=1 done=0 reason=none
+   6.033 < nack 1 0 none
+   8.013 > run trace 0 #4

@@ -1,0 +1,25 @@
+   0.000 > HELLO
+   0.314 < device NEZHA2 robot tigez 3527777815
+   2.004 > RUN trace 1 #1
+   2.020 < ack 1 0 none
+   2.036 < trace=1
+   4.009 > RUN trace 0 #2
+   4.023 < ack 2 0 none
+   4.038 < trace=0
+   6.014 > RUN counters #3
+   6.031 < ack 3 0 none
+   6.055 < C now i2cf=2 lease=0 sat=0 deficit=0 overrun=0 streakL=0 streakR=0 glitchL=0 glitchR=0 wrongway=0 serialdrop=0 rebase=0
+   6.312 < DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=1348 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=1 trunc=0
+   8.019 > RUN diag #4
+   8.031 < ack 4 0 none
+   8.051 < OBS1:diag ready=1 estop=0 stall=0 lease=0 connL=0 connR=0 stalled=0
+   8.411 < DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=1349 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=1 trunc=0
+  10.025 > RUN trace abc #5
+  10.079 < ack 5 0 none
+  10.094 < trace=0
+  12.030 > RUN trace 1 2 3 4 5 6 7 8 9 10 #6
+  12.047 < ack 6 0 none
+  12.062 < trace=1
+  13.383 < DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=1349 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=1 trunc=0
+  14.034 > STATUS
+  14.111 < status ready=1 active=0 connL=0 connR=0 otos=0 wedge=0 flags=1 i2cf=2 cyc=2 tlm=off next=7 done=0 reason=none

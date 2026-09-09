@@ -1,0 +1,37 @@
+   0.000 > PING
+   0.324 < pong 52861248
+   1.006 > STATUS
+   1.024 < status ready=1 active=0 connL=0 connR=0 otos=0 wedge=0 flags=1 i2cf=2 cyc=2 tlm=off next=2 done=0 reason=none
+   2.011 > HELLO
+   2.030 < device NEZHA2 robot tigez 3527777815
+   4.016 > FUNCS #1
+   4.033 < ack 1 0 none
+   4.033 < funcs trace
+   4.035 < funcs counters
+   4.035 < funcs square
+   4.037 < funcs circle
+   4.037 < funcs calx
+   4.043 < funcs cala
+   4.043 < funcs spin
+   4.043 < funcs line
+   4.045 < funcs abort
+   4.045 < funcs sense
+   4.045 < funcs push
+   4.045 < funcs turn
+   4.047 < funcs speed
+   4.047 < funcs m
+   4.049 < funcs t
+   4.051 < funcs clear
+   4.051 < funcs diag
+   4.697 < DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=1347 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=1 trunc=0
+   6.770 < DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=1348 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=1 trunc=0
+   7.018 > RUN nosuchname #2
+   7.033 < ack 2 0 none
+   7.033 < err 1 #2
+   9.022 > RUN #3
+   9.044 < nack 3 0 none
+   9.044 < err 2 #3
+  11.027 > STATUS
+  11.049 < status ready=1 active=0 connL=0 connR=0 otos=0 wedge=0 flags=1 i2cf=2 cyc=2 tlm=off next=3 done=0 reason=none
+  11.051 < nack 3 0 none
+  11.769 < DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=1348 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=1 trunc=0

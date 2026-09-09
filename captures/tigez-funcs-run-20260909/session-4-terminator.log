@@ -1,0 +1,46 @@
+   0.000 > HELLO
+   0.325 < device NEZHA2 robot tigez 3527777815
+   2.005 > FUNCS #1
+PING
+   2.031 < ack 1 0 none
+   2.031 < funcs trace
+   2.031 < funcs counters
+   2.031 < funcs square
+   2.031 < funcs circle
+   2.034 < funcs calx
+   2.034 < funcs cala
+   2.034 < funcs spin
+   2.036 < funcs line
+   2.036 < funcs abort
+   2.038 < funcs sense
+   2.038 < funcs push
+   2.040 < funcs turn
+   2.040 < funcs speed
+   2.042 < funcs m
+   2.042 < funcs t
+   2.045 < funcs clear
+   2.045 < funcs diag
+   2.047 < pong 52971769
+   4.010 > FUNCS #2
+STATUS
+   4.027 < ack 2 0 none
+   4.027 < funcs trace
+   4.029 < funcs counters
+   4.029 < funcs square
+   4.031 < funcs circle
+   4.033 < funcs calx
+   4.033 < funcs cala
+   4.035 < funcs spin
+   4.035 < funcs line
+   4.037 < funcs abort
+   4.037 < funcs sense
+   4.039 < funcs push
+   4.039 < funcs turn
+   4.041 < funcs speed
+   4.041 < funcs m
+   4.043 < funcs t
+   4.043 < funcs clear
+   4.045 < funcs diag
+   4.064 < status ready=1 active=0 connL=0 connR=0 otos=0 wedge=0 flags=1 i2cf=2 cyc=2 tlm=off next=3 done=0 reason=none
+   6.011 > STATUS
+   6.035 < status ready=1 active=0 connL=0 connR=0 otos=0 wedge=0 flags=1 i2cf=2 cyc=2 tlm=off next=3 done=0 reason=none
