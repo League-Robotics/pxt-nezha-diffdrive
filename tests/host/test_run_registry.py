@@ -184,6 +184,19 @@ def test_the_signature_cell_is_wider_than_the_name_cell(reg):
     assert reg.signature(0) == b"()"
 
 
+def test_an_empty_re_registration_keeps_the_declared_signature(reg):
+    """runSignature() may run BEFORE the onRun() it describes, and
+    onRun() always registers with "". Measured on gopiv 2026-09-09:
+    `clear` and `diag`, declared above their onRun() lines, listed bare
+    while every name declared below its onRun() kept its signature. An
+    empty signature on a known name is "no opinion", never "erase"."""
+    assert reg.add(b"clear", b"()")
+    assert reg.add(b"clear", b"")
+    assert reg.add(b"clear", None)
+    assert reg.count() == 1
+    assert reg.signature(0) == b"()"
+
+
 def test_the_table_saturates_and_counts_rather_than_evicting(reg):
     """The failure mode that matters. A ring that overwrote the oldest
     entry would make FUNCS list a table that no longer matches what
