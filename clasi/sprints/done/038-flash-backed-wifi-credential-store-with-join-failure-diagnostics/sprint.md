@@ -1,7 +1,7 @@
 ---
 id: 038
 title: Flash-backed WiFi credential store with join-failure diagnostics
-status: executing
+status: done
 branch: sprint/038-flash-backed-wifi-credential-store-with-join-failure-diagnostics
 use-cases: []
 issues:
