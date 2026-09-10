@@ -600,10 +600,8 @@ void WifiLink::serviceJoin() {
     // this separate, redacted trace: SSID kept (not a secret, and
     // diagnostically useful), passphrase replaced by a fixed marker.
     // MEASURED gopiv 2026-09-09, captures/wifi-join-codes-20260909/:
-    // before this fix, DBG:wifi broadcast the real passphrase on every
-    // join attempt (redacted only in that capture's own notes.md, not
-    // on the wire) -- see
-    // clasi/issues/dbg-wifi-prints-the-passphrase-in-cleartext.md.
+    // before this fix, DBG:wifi broadcast the real passphrase on
+    // every join attempt.
     char trace[kCommandBuffer];
     snprintf(trace, sizeof(trace), "AT+CWJAP=\"%s\",***", config_.ssid);
     startCommand(cmd, "OK", kJoinTimeout, trace);

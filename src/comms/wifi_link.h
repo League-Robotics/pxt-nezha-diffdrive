@@ -207,10 +207,9 @@ class WifiLink {
   // ESP-AT/Ai-WB2 documented meanings (1=timeout, 2=wrong password,
   // 3=AP not found, 4=connect failed) are read from vendor
   // documentation, not measured, and are UNVERIFIED on the
-  // Ai-WB2-12F -- see clasi/issues/wifi-join-failure-does-not-say-why.md.
-  // Do not add a word mapping here; that is explicitly out of scope
-  // until a real wrong-password join on real hardware confirms the
-  // codes.
+  // Ai-WB2-12F. Do not add a word mapping here; that is explicitly out
+  // of scope until a real wrong-password join on real hardware
+  // confirms the codes.
   int lastJoinError() const { return lastJoinError_; }
 
   uint32_t dropCount() const { return dropCount_; }

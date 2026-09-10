@@ -19,8 +19,8 @@
 //
 // == The page address is a candidate, not a confirmed answer ==
 //
-// sprint 038 ticket 002's own description: `MICROBIT_STORAGE_PAGE`
-// (0x0007F000) is `uBit.storage`'s (KeyValueStorage's) page.
+// `MICROBIT_STORAGE_PAGE` (0x0007F000) is `uBit.storage`'s
+// (KeyValueStorage's) page.
 // `MICROBIT_DEFAULT_SCRATCH_PAGE` (0x0007E000) is BOTH the flash
 // driver's own erase-merge scratch page (MicroBitFlash::flash_write()'s
 // default `scratch_addr`) AND `MICROBIT_APP_REGION_END` -- where the
@@ -31,8 +31,8 @@
 // down and is a NAMED CONSTANT precisely so a future firmware region
 // shuffle cannot silently collide with it -- but whether that address
 // actually survives `mbdeploy deploy` (which erases pages) and a power
-// cycle is UNVERIFIED here. That is ticket 004's job, on real hardware,
-// not this file's.
+// cycle is UNVERIFIED here -- confirming it is real-hardware work, not
+// this file's.
 #pragma once
 
 #include <cstdint>
@@ -90,7 +90,7 @@ class WifiFlashPort {
 // WifiUartCodal (wifi_uart.h/.cpp) already uses.
 class WifiFlashPortCodal final : public WifiFlashPort {
  public:
-  // UNVERIFIED pending ticket 004 (see this file's header comment
+  // UNVERIFIED on real hardware (see this file's header comment
   // above): one nRF52833 flash page below MICROBIT_DEFAULT_SCRATCH_PAGE
   // (0x0007E000 - 0x1000 = 0x0007D000), chosen to sit outside both
   // MICROBIT_STORAGE_PAGE (0x0007F000, uBit.storage's) and

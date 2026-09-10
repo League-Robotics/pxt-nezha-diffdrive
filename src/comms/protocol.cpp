@@ -4,8 +4,8 @@
 #include "../core/fiber_identity.h"
 #include "../platform/vfp_guard.h"
 #include "wifi_credential_store.h"  // wifiCredentialStore(): the shared
-                                    // flash-backed store, ticket 006's
-                                    // reduced boot-wiring slice
+                                    // flash-backed store used by
+                                    // serviceWifi()'s lazy-begin
 
 #include <cctype>  // isspace(), for setDeviceRole()'s whitespace strip
 #include <cstdio>  // plain snprintf, not std::snprintf: newlib-nano's
@@ -406,28 +406,22 @@ void Protocol::emitWifiDebug() {
   // code was captured this attempt (a plain timeout). No word mapping
   // -- the vendor code semantics are UNVERIFIED on this hardware, see
   // lastJoinError()'s own comment in wifi_link.h. This is a bare
-  // integer, never the credential itself -- see
-  // .claude/rules/measurement-citations.md and this sprint's hard
-  // constraint that no passphrase ever leaves the board.
+  // integer, never the credential itself -- the passphrase must never
+  // leave the board.
   //
   // cmd=%s below is `wifiLink_.lastCommand()`, reported verbatim and
   // safe to: `lastCommand()`'s contract (wifi_link.h) guarantees it
   // NEVER contains a passphrase, in any state. The redaction happens
   // at the source (WifiLink::startCommand()'s trace-override
   // parameter, used by the one call site -- the AT+CWJAP= join step --
-  // that ever composes one), not here, so this function needs no
-  // change to stay safe (sprint 038 ticket 009 / the 2026-09-10
-  // Revision, Finding 1;
-  // clasi/issues/dbg-wifi-prints-the-passphrase-in-cleartext.md).
+  // that ever composes one), so this function needs no change to stay
+  // safe.
   //
   // credsrc=<n> reports which source serviceWifi()'s lazy-begin used,
   // per that function's own precedence comment: 0 = baked
   // (kWifiSsid/kWifiPassword), 1 = set by setupWifi() (wifiCredsExplicit_),
-  // 2 = a stored WifiCredentialStore flash slot (wifiCredsFromFlash_,
-  // sprint 038 ticket 006's reduced boot-wiring slice -- see
-  // docs/robot-connections.md's own copy of this mapping, which this
-  // ticket also updates). Like join=, this is a bare integer -- never
-  // the credential itself.
+  // 2 = a stored WifiCredentialStore flash slot (wifiCredsFromFlash_).
+  // Like join=, this is a bare integer -- never the credential itself.
   char joinBuf[4];  // "-" or up to 2 ASCII digits (see lastJoinError())
   if (wifiLink_.lastJoinError() != 0) {
     snprintf(joinBuf, sizeof(joinBuf), "%d", wifiLink_.lastJoinError());
@@ -462,17 +456,15 @@ void Protocol::serviceWifi() {
   if (!wifiBegun_) {
     wifiBegun_ = true;
     WifiLink::Config config;
-    // Precedence, most to least preferred (sprint 038 ticket 006's
-    // REDUCED boot-wiring slice -- deliberately NOT ticket 005's
-    // WifiJoinSequencer/list-walking; see sprint.md's Architecture
-    // section and this ticket's own commit message for that
-    // deviation): a stored flash credential (WifiCredentialStore's
-    // FIRST occupied slot) beats a setupWifi()-supplied credential,
-    // which beats the baked kWifiSsid/kWifiPassword fallback. An
-    // EMPTY store leaves wifiCredsFromFlash_ false, which falls
-    // through to the pre-existing wifiCredsExplicit_/baked branch
-    // below UNCHANGED -- this is what keeps that case byte-for-byte
-    // identical to pre-ticket-006 behavior.
+    // Precedence, most to least preferred: a stored flash credential
+    // (WifiCredentialStore's FIRST occupied slot) beats a
+    // setupWifi()-supplied credential, which beats the baked
+    // kWifiSsid/kWifiPassword fallback. Deliberately NOT the full
+    // WifiJoinSequencer/list-walking design -- just the first
+    // occupied slot. An EMPTY store leaves wifiCredsFromFlash_ false,
+    // which falls through to the pre-existing wifiCredsExplicit_/baked
+    // branch below UNCHANGED -- that case stays byte-for-byte
+    // identical to before this credential source existed.
     WifiCredentialStore& store = wifiCredentialStore();
     for (int slot = 0; slot < WifiCredentialStore::kSlots; ++slot) {
       if (!store.occupied(slot)) continue;

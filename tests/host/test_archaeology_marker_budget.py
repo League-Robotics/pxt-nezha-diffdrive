@@ -234,8 +234,19 @@ _RATIO_BASELINE = {
     # Sprint 038 ticket 003: WIFICRED's decode/exec pair carries the
     # same load-bearing hard-constraint/sequencing comment as above;
     # raised as its own explicit edit alongside the ticket that moved it.
-    "src/comms/wire_handler.cpp": 0.70,  # 645 / 915
-    "src/comms/wifi_link.h": 0.64,  # 145 / 226
+    # Raised again, same ticket's own %zu fix: 0.70 -> 0.72 (645/915 ->
+    # 656/916). The added comment is a MEASURED-and-artifact-cited
+    # printf-portability bug (gopiv 2026-09-09,
+    # captures/wifi-credential-store-20260909/) protected from trimming
+    # by .claude/rules/measurement-citations.md -- there is no smaller
+    # write of this fact available.
+    "src/comms/wire_handler.cpp": 0.72,  # 656 / 916
+    # Raised 0.64 -> 0.79 (145/226 -> 183/232) alongside sprint 038
+    # ticket 001's join-failure diagnostics: lastJoinError() and the
+    # startCommand() trace-override parameter are new public surface
+    # whose comments state a hard contract (a passphrase must never
+    # reach lastCommand_/the wire) -- load-bearing, not archaeology.
+    "src/comms/wifi_link.h": 0.79,  # 183 / 232
     "src/comms/run_queue.h": 0.59,  # 36 / 61
     "src/platform/vfp_guard.cpp": 0.58,  # 7 / 12
     "src/comms/radio_transport.cpp": 0.57,  # 64 / 112
@@ -246,7 +257,13 @@ _RATIO_BASELINE = {
     "src/platform/otos_port.cpp": 0.27,  # 44 / 163
     "src/blocks/run.ts": 0.23,  # 56 / 243
     "src/blocks/motion.ts": 0.17,  # 74 / 423
-    "src/comms/wifi_link.cpp": 0.13,  # 113 / 844
+    # Raised 0.13 -> 0.16 (113/844 -> 138/869) alongside sprint 038
+    # ticket 001's join-failure diagnostics: the join-error-code
+    # capture state machine, plus the passphrase-redaction fix's own
+    # MEASURED citation (gopiv 2026-09-09,
+    # captures/wifi-join-codes-20260909/), protected from trimming by
+    # .claude/rules/measurement-citations.md.
+    "src/comms/wifi_link.cpp": 0.16,  # 138 / 869
     "src/blocks/pose.ts": 0.03,  # 1 / 38
     "src/blocks/stop.ts": 0.02,  # 1 / 49
 }

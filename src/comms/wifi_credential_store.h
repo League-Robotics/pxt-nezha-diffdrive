@@ -11,9 +11,9 @@
 //
 // == Why this exists, and why not KeyValueStorage / MicroBitFileSystem ==
 //
-// sprint 038's architecture (Design Rationale #1): `uBit.storage`
-// (KeyValueStorage) is a 16-byte-key/32-byte-value/5-pair store -- it
-// cannot hold even one `(ssid, password)` record, let alone a list.
+// `uBit.storage` (KeyValueStorage) is a 16-byte-key/32-byte-value/
+// 5-pair store -- it cannot hold even one `(ssid, password)` record,
+// let alone a list.
 // `MicroBitFileSystem` was rejected as unjustified complexity: a
 // directory/block-allocation filesystem sized for files, whose own
 // default scratch page is the SAME page the flash driver's low-level
@@ -50,13 +50,12 @@
 // own use (a `Config` needs the actual string) and MUST NOT be wired to
 // any network-reachable surface. hasPassword() is the accessor meant
 // for exactly that: "is a password set," never the password itself --
-// what ticket 003's WIFICRED enumeration is expected to call. Keeping
-// these as two differently-named methods, rather than one get() a
-// caller could carelessly wire up, is the "clearly separated" half of
-// this ticket's own passphrase-safety requirement (the other half,
-// never tracing a passphrase into a log line, is WifiLink's
-// lastCommand()/startCommand() contract -- ticket 009, unrelated code
-// path).
+// what the WIFICRED wire verb's enumeration is expected to call.
+// Keeping these as two differently-named methods, rather than one
+// get() a caller could carelessly wire up, is the "clearly separated"
+// half of the passphrase-safety requirement (the other half, never
+// tracing a passphrase into a log line, is WifiLink's
+// lastCommand()/startCommand() contract, unrelated code path).
 #pragma once
 
 #include <cstddef>
@@ -125,8 +124,8 @@ class WifiCredentialStore {
   // own NUL) does not fit in kSsidBytes/kPasswordBytes: REJECTED, not
   // silently truncated (see this file's header comment). `password` of
   // "" is a legal record (an open network); `ssid` of "" is accepted at
-  // this layer too -- WifiJoinSequencer (ticket 005), not this class,
-  // decides whether an empty-ssid slot is ever attempted.
+  // this layer too -- the join caller, not this class, decides whether
+  // an empty-ssid slot is ever attempted.
   bool set(int slot, const char* ssid, const char* password);
 
   // Marks `slot` empty. Writes a zero-filled record over the WHOLE

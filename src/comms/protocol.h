@@ -498,23 +498,20 @@ class Protocol {
   // store, read by emitWifiDebug()'s `trunc=` field.
   uint8_t wifiCredsTruncated_ = 0;
 
-  // Sprint 038 ticket 006's reduced boot-wiring slice (see
-  // serviceWifi()'s own comment for the precedence rule and
-  // sprint.md's Revision note on why the full WifiJoinSequencer/list-
-  // walking is deliberately NOT here): a copy of the FIRST occupied
-  // WifiCredentialStore slot's ssid/password, read once at
-  // serviceWifi()'s lazy-begin. Sized identically to wifiSsid_/
-  // wifiPassword_ above and for the same reason -- WifiLink::Config
-  // borrows a pointer into this cell for the link's life, so it must
-  // be a Protocol-owned cell, not a serviceWifi() local.
+  // A copy of the FIRST occupied WifiCredentialStore slot's
+  // ssid/password (see serviceWifi()'s own comment for the precedence
+  // rule), read once at serviceWifi()'s lazy-begin. Sized identically
+  // to wifiSsid_/wifiPassword_ above and for the same reason --
+  // WifiLink::Config borrows a pointer into this cell for the link's
+  // life, so it must be a Protocol-owned cell, not a serviceWifi()
+  // local.
   char wifiFlashSsid_[33] = {0};
   char wifiFlashPassword_[64] = {0};
 
   // True iff serviceWifi()'s lazy-begin found an occupied flash slot
   // and used it -- the credsrc=2 case. An EMPTY store leaves this
-  // false forever, which is what keeps that case byte-for-byte
-  // identical to pre-ticket-006 behavior: every write below this flag
-  // (wifiFlashSsid_/wifiFlashPassword_ above) simply never happens.
+  // false forever, so every write below this flag simply never
+  // happens and the explicit/baked-credential path runs unchanged.
   bool wifiCredsFromFlash_ = false;
 
   // NSDMI for every member below except roleBuf_/commonNameBuf_ above
@@ -546,17 +543,12 @@ class Protocol {
   uint8_t wifiRxBuf_[WifiLink::kMaxLineBytes + 1];
   // Sized for the worst-case `DBG:wifi ...` line: fixed text, two
   // 15-char addresses, six counters, a 47-char command, a 71-char
-  // reply trace, and `credsrc=%d trunc=%u` (~294/320 used before that
-  // last field -- grown to 384 alongside it, not after, for headroom).
-  //
-  // Sprint 038 ticket 001 added ` join=%s` (up to 2 ASCII digits, or
-  // "-"): worst-case line is 322 bytes + NUL = 323/384 used
-  // (calculated by substituting each field's type-range maximum into
-  // the exact format string -- see the ticket's own commit message for
-  // the script). 61 bytes remain in this buffer for ticket 006's
-  // `ssid=`/`haspw=` R1 status fields; that ticket must re-check this
-  // budget against its own field widths (an SSID is up to 32 octets),
-  // not assume 61 bytes covers them.
+  // reply trace, `credsrc=%d trunc=%u` and ` join=%s` (up to 2 ASCII
+  // digits or "-"). Worst case is 322 bytes + NUL = 323/384 used, each
+  // field's type-range maximum substituted into the exact format
+  // string -- 61 bytes of headroom remain for the next field added
+  // here; re-check against that field's own width (an SSID is up to
+  // 32 octets) before assuming 61 bytes covers it.
   char wifiDbgBuf_[384];
 
   // Radio RX scratch -- every line the radio poll receives lands here

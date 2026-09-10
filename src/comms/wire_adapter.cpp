@@ -1042,10 +1042,10 @@ Wire::Result WireAdapter::wifiCredSet(int slot, const char* ssid,
   //
   // Takes effect at the NEXT BOOT, not immediately: Protocol::
   // serviceWifi()'s lazy-begin branch reads this store exactly once,
-  // the first time it runs (sprint 038 ticket 006's reduced boot-
-  // wiring slice) -- a write here after that point is durable (it
-  // reaches flash) but has no effect on the WifiLink instance already
-  // running. This function's return is deliberately just kOk/kRange
+  // the first time it runs -- a write here after that point is
+  // durable (it reaches flash) but has no effect on the WifiLink
+  // instance already running. This function's return is deliberately
+  // just kOk/kRange
   // (-> a bare `ack`/`err` reply, wire_handler.cpp's execWifiCred()),
   // never a claim that the join was reconfigured -- do not add
   // reply text implying otherwise here.
