@@ -3,6 +3,9 @@
 
 #include "../core/fiber_identity.h"
 #include "../platform/vfp_guard.h"
+#include "wifi_credential_store.h"  // wifiCredentialStore(): the shared
+                                    // flash-backed store, ticket 006's
+                                    // reduced boot-wiring slice
 
 #include <cctype>  // isspace(), for setDeviceRole()'s whitespace strip
 #include <cstdio>  // plain snprintf, not std::snprintf: newlib-nano's
@@ -416,6 +419,15 @@ void Protocol::emitWifiDebug() {
   // change to stay safe (sprint 038 ticket 009 / the 2026-09-10
   // Revision, Finding 1;
   // clasi/issues/dbg-wifi-prints-the-passphrase-in-cleartext.md).
+  //
+  // credsrc=<n> reports which source serviceWifi()'s lazy-begin used,
+  // per that function's own precedence comment: 0 = baked
+  // (kWifiSsid/kWifiPassword), 1 = set by setupWifi() (wifiCredsExplicit_),
+  // 2 = a stored WifiCredentialStore flash slot (wifiCredsFromFlash_,
+  // sprint 038 ticket 006's reduced boot-wiring slice -- see
+  // docs/robot-connections.md's own copy of this mapping, which this
+  // ticket also updates). Like join=, this is a bare integer -- never
+  // the credential itself.
   char joinBuf[4];  // "-" or up to 2 ASCII digits (see lastJoinError())
   if (wifiLink_.lastJoinError() != 0) {
     snprintf(joinBuf, sizeof(joinBuf), "%d", wifiLink_.lastJoinError());
@@ -440,7 +452,7 @@ void Protocol::emitWifiDebug() {
            static_cast<unsigned long>(wifiLink_.mdnsAnnounceCount()),
            wifiLink_.mdnsSocketOpen() ? 1 : 0,
            wifiLink_.lastCommand(), wifiLink_.lastReply(),
-           wifiCredsExplicit_ ? 1 : 0,
+           wifiCredsFromFlash_ ? 2 : (wifiCredsExplicit_ ? 1 : 0),
            static_cast<unsigned>(wifiCredsTruncated_),
            joinBuf);
   emitLine(wifiDbgBuf_);
@@ -450,7 +462,28 @@ void Protocol::serviceWifi() {
   if (!wifiBegun_) {
     wifiBegun_ = true;
     WifiLink::Config config;
-    if (wifiCredsExplicit_) {
+    // Precedence, most to least preferred (sprint 038 ticket 006's
+    // REDUCED boot-wiring slice -- deliberately NOT ticket 005's
+    // WifiJoinSequencer/list-walking; see sprint.md's Architecture
+    // section and this ticket's own commit message for that
+    // deviation): a stored flash credential (WifiCredentialStore's
+    // FIRST occupied slot) beats a setupWifi()-supplied credential,
+    // which beats the baked kWifiSsid/kWifiPassword fallback. An
+    // EMPTY store leaves wifiCredsFromFlash_ false, which falls
+    // through to the pre-existing wifiCredsExplicit_/baked branch
+    // below UNCHANGED -- this is what keeps that case byte-for-byte
+    // identical to pre-ticket-006 behavior.
+    WifiCredentialStore& store = wifiCredentialStore();
+    for (int slot = 0; slot < WifiCredentialStore::kSlots; ++slot) {
+      if (!store.occupied(slot)) continue;
+      store.get(slot, wifiFlashSsid_, wifiFlashPassword_);
+      wifiCredsFromFlash_ = true;
+      break;  // FIRST occupied slot only -- no list-walking here.
+    }
+    if (wifiCredsFromFlash_) {
+      config.ssid = wifiFlashSsid_;
+      config.password = wifiFlashPassword_;
+    } else if (wifiCredsExplicit_) {
       // A program called setupWifi() before the link began -- use its
       // stored credentials (possibly an explicit "", which
       // WifiLink::begin() treats as a deliberate disable, same

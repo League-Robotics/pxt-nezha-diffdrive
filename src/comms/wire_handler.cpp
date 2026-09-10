@@ -1098,7 +1098,19 @@ void WireHandler::execWifiCred(char** fields, size_t fieldCount, uint32_t id,
       // -- flash content is not trusted to be free of '\n'/'\r' any
       // more than a RunRegistry entry is.
       sanitizeLineText(ssid, sanitizedSsid, sizeof(sanitizedSsid));
-      snprintf(buf, sizeof(buf), "wificred %zu %s %d\n", i, sanitizedSsid,
+      // %zu is NOT supported by this target's printf -- MEASURED gopiv
+      // 2026-09-09, captures/wifi-credential-store-20260909/: the
+      // embedded newlib-nano printf emits the two characters "zu"
+      // literally and shifts every remaining argument, so
+      // `WIFICRED #3` enumerated `wificred zu 0` instead of
+      // `wificred 0 TestNet038 1`. Host tests pass regardless because
+      // the host's own printf DOES support %zu, which is exactly why
+      // this needs a source-pin guard
+      // (test_no_percent_z_format_specifier_source_pin.py) and not just
+      // this one fix. Explicit cast to unsigned + %u, matching
+      // replyErr()'s own `static_cast<unsigned>(code)` precedent above.
+      snprintf(buf, sizeof(buf), "wificred %u %s %d\n",
+               static_cast<unsigned>(i), sanitizedSsid,
                hasPassword ? 1 : 0);
       writeLine(buf);
     }

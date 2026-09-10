@@ -498,6 +498,25 @@ class Protocol {
   // store, read by emitWifiDebug()'s `trunc=` field.
   uint8_t wifiCredsTruncated_ = 0;
 
+  // Sprint 038 ticket 006's reduced boot-wiring slice (see
+  // serviceWifi()'s own comment for the precedence rule and
+  // sprint.md's Revision note on why the full WifiJoinSequencer/list-
+  // walking is deliberately NOT here): a copy of the FIRST occupied
+  // WifiCredentialStore slot's ssid/password, read once at
+  // serviceWifi()'s lazy-begin. Sized identically to wifiSsid_/
+  // wifiPassword_ above and for the same reason -- WifiLink::Config
+  // borrows a pointer into this cell for the link's life, so it must
+  // be a Protocol-owned cell, not a serviceWifi() local.
+  char wifiFlashSsid_[33] = {0};
+  char wifiFlashPassword_[64] = {0};
+
+  // True iff serviceWifi()'s lazy-begin found an occupied flash slot
+  // and used it -- the credsrc=2 case. An EMPTY store leaves this
+  // false forever, which is what keeps that case byte-for-byte
+  // identical to pre-ticket-006 behavior: every write below this flag
+  // (wifiFlashSsid_/wifiFlashPassword_ above) simply never happens.
+  bool wifiCredsFromFlash_ = false;
+
   // NSDMI for every member below except roleBuf_/commonNameBuf_ above
   // (and, after ticket 002, profileBuf_), which Protocol::Protocol()
   // seeds explicitly -- a char array can't be NSDMI'd from a runtime
