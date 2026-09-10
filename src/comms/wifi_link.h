@@ -106,8 +106,29 @@ class WifiLink {
     uint16_t port;         // our UDP protocol port (7654) -- and the TCP server's
     uint16_t hostPort;     // the host's fixed port (7655), CIPSTART's remote placeholder
     bool tcpServer;        // also accept TCP clients on `port` (AT+CIPSERVER)
+
+    // When true, serviceJoin()'s step 0 sends AT+CWQAP (disassociate,
+    // tolerant of ERROR -- "nothing was associated" is expected) and
+    // skips the AT+CWJAP? poll entirely, going straight to the
+    // existing explicit AT+CWJAP= send below. Default false: every
+    // existing caller (setupWifi()/baked single-credential path
+    // included) keeps the poll-first LANDMINE-avoidance behavior
+    // byte-for-byte -- see serviceJoin()'s own comment, wifi-link note
+    // section 5.3.
+    //
+    // WifiJoinSequencer (src/comms/wifi_join_sequencer.h) sets this
+    // true on every Config it builds. Why: MEASURED gopiv 2026-09-09,
+    // captures/wifi-join-codes-20260909/notes.md (badpw-boot.log) --
+    // the Ai-WB2 module auto-rejoins its own remembered AP after the
+    // AT+RST that begins every kConfigure pass, which the AT+CWJAP?
+    // poll (matched on SSID name alone) cannot distinguish from the
+    // module actually using the credential this Config carries. A
+    // list-walker that cannot force the credential under test is
+    // walking a list the module may simply ignore.
+    bool forceExplicitJoin;
+
     Config() : ssid(""), password(""), hostname("robot"), port(7654), hostPort(7655),
-               tcpServer(true) {}
+               tcpServer(true), forceExplicitJoin(false) {}
   };
 
   // Wire-line ceiling, matching Wire::WireHandler::kMaxLineBytes /

@@ -400,6 +400,35 @@ size_t WireHandler::tokenizeLine(char* line, char** tokens,
   while (true) {
     while (*p == ' ') ++p;  // skip a run of separator spaces (sp ::= ' '+)
     if (*p == '\0') break;  // end of line -- no more tokens
+
+    if (*p == '"') {
+      // Quoted token (see this function's header comment). `out` only
+      // ever trails `scan` (never leads it), so the in-place decode
+      // never writes past what it has already read.
+      ++p;  // step past the opening quote
+      char* tokenStart = p;
+      char* out = p;
+      char* scan = p;
+      while (*scan != '\0') {
+        if (scan[0] == '\\' && scan[1] == '"') {
+          *out++ = '"';
+          scan += 2;
+          continue;
+        }
+        if (scan[0] == '"' && (scan[1] == '\0' || scan[1] == ' ')) {
+          ++scan;  // step past the closing quote
+          break;
+        }
+        *out++ = *scan++;
+      }
+      *out = '\0';
+      if (count < maxTokens) tokens[count] = tokenStart;
+      ++count;
+      p = scan;
+      if (*p == '\0') break;  // ran off the end -- unterminated, see above
+      continue;               // `p` is the separator right after the quote
+    }
+
     if (count < maxTokens) tokens[count] = p;
     ++count;
     while (*p != '\0' && *p != ' ') ++p;  // scan to next separator or end
@@ -1109,9 +1138,25 @@ void WireHandler::execWifiCred(char** fields, size_t fieldCount, uint32_t id,
       // (test_no_percent_z_format_specifier_source_pin.py) and not just
       // this one fix. Explicit cast to unsigned + %u, matching
       // replyErr()'s own `static_cast<unsigned>(code)` precedent above.
-      snprintf(buf, sizeof(buf), "wificred %u %s %d\n",
-               static_cast<unsigned>(i), sanitizedSsid,
-               hasPassword ? 1 : 0);
+      //
+      // ssid is the LAST field, deliberately -- an 802.11 SSID may
+      // contain spaces (MEASURED gopiv 2026-09-10,
+      // captures/wifi-credential-store-20260909/: the real fleet SSID
+      // "Busboom Mesh" would enumerate as `wificred 0 Busboom Mesh 1`
+      // under the old mid-line `<slot> <ssid> <haspw>` shape, and a
+      // consumer splitting on whitespace could not tell where the
+      // SSID ended). Putting haspw BEFORE ssid means a consumer that
+      // does not know the SSID in advance can split the line on
+      // whitespace with a maxsplit of 3 (`"wificred"`, slot, haspw,
+      // then everything left over is the SSID) and get it right no
+      // matter what the SSID contains -- no quoting/escaping needed.
+      // tools/robotlink.py's wificred_list() and
+      // docs/robot-connections.md's WIFICRED section use this same
+      // convention; Protocol::emitWifiDebug() (protocol.cpp) puts its
+      // own ssid= field last for the identical reason.
+      snprintf(buf, sizeof(buf), "wificred %u %d %s\n",
+               static_cast<unsigned>(i), hasPassword ? 1 : 0,
+               sanitizedSsid);
       writeLine(buf);
     }
     return;

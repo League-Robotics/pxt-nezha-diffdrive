@@ -54,6 +54,8 @@ def lib(tmp_path_factory):
     lib.wcsBegin.argtypes = [ctypes.c_void_p]
     lib.wcsOccupied.argtypes = [ctypes.c_void_p, ctypes.c_int]
     lib.wcsOccupied.restype = ctypes.c_int
+    lib.wcsAnyOccupied.argtypes = [ctypes.c_void_p]
+    lib.wcsAnyOccupied.restype = ctypes.c_int
     lib.wcsGet.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_char_p]
     lib.wcsGet.restype = ctypes.c_int
     lib.wcsHasPassword.argtypes = [ctypes.c_void_p, ctypes.c_int]
@@ -112,6 +114,22 @@ def test_fresh_store_is_all_empty(store):
     for slot in range(lib.wcsSlots()):
         assert lib.wcsOccupied(handle, slot) == 0
         assert _get(lib, handle, slot) is None
+    assert lib.wcsAnyOccupied(handle) == 0
+
+
+def test_any_occupied_true_iff_some_slot_is(store):
+    # Sprint 038 ticket 005: Protocol::serviceWifi()'s lazy-begin uses
+    # this to decide whether WifiJoinSequencer owns the join (a
+    # non-empty store) or the setupWifi()/baked path does (an empty
+    # one) -- it must not require scanning every slot at each call
+    # site.
+    lib, handle = store
+    lib.wcsBegin(handle)
+    assert lib.wcsAnyOccupied(handle) == 0
+    assert lib.wcsSet(handle, 5, b"some-net", FAKE_PASSWORD.encode()) == 1
+    assert lib.wcsAnyOccupied(handle) == 1
+    assert lib.wcsClear(handle, 5) == 1
+    assert lib.wcsAnyOccupied(handle) == 0
 
 
 def test_round_trip(store):

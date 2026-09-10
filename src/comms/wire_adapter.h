@@ -276,12 +276,13 @@ class WireAdapter : public Wire::Adapter {
   const char* runSignature(size_t index) const override;
 
   // ---- the WiFi credential store, disclosed -- delegates to
-  // WifiCredentialStore via wifiCredentialStore()'s stopgap singleton
-  // seam (wifi_credential_store.h's own comment on that function; a
-  // later ticket replaces it with a real owner). This
-  // class still stores no credential table of its own -- same
-  // "disclose, don't hold" shape as runCount()/runName()/
-  // runSignature() directly above. NEVER calls
+  // WifiCredentialStore via wifiCredentialStore()'s singleton seam
+  // (wifi_credential_store.h's own comment on that function), which is
+  // confirmed as the SAME instance
+  // Protocol's own WifiJoinSequencer walks -- not a stopgap this class
+  // will later be re-pointed off of. This class still stores no
+  // credential table of its own -- same "disclose, don't hold" shape
+  // as runCount()/runName()/runSignature() directly above. NEVER calls
   // WifiCredentialStore::get() -- only hasPassword() and the
   // ssid-only form of get() (passwordOut == nullptr), so the real
   // password can never reach this class, let alone the wire. ----

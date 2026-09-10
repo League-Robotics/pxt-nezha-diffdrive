@@ -412,3 +412,147 @@ def open_link(port=None, radio=False, wifi=None, robot=None):
     # tests/tools/test_robotlink.py pins this.
     link.hello()
     return link
+
+
+# ---- WIFICRED (sprint 038 ticket 007) -------------------------------------
+#
+# Grammar, MEASURED gopiv 2026-09-09/10,
+# captures/wifi-credential-store-20260909/notes.md:
+#
+#   WIFICRED SET <slot> <ssid> <password> #<id>  -> ack <id> ... [err <n> #<id>]
+#   WIFICRED #<id>                                -> zero or more
+#                                                     `wificred <slot> <haspw> <ssid>`
+#                                                     lines, then ack <id> ...
+#   WIFICRED CLEAR <slot> #<id>                    -> ack <id> ... [err <n> #<id>]
+#
+# `ssid` is the LAST field of the enumeration line, deliberately -- an
+# 802.11 SSID may contain spaces (MEASURED gopiv 2026-09-10,
+# captures/wifi-credential-store-20260909/: the real fleet SSID
+# "Busboom Mesh"). Putting it last means wificred_list() below can
+# split with maxsplit=3 and take everything after `haspw` as the SSID,
+# unambiguously, no matter what the SSID contains.
+#
+# Every form is sequenced (WIFICRED is in _V6_VERBS above), including the
+# bare enumeration -- a `WIFICRED` sent without an id parses as `#0` and is
+# silently dropped, same as an unsequenced FUNCS would be. `<password>` is
+# mandatory on SET: `WIFICRED SET 1 SecondNet #3` (no password field)
+# returned `err 2`. Slots are 0..7; `haspw` is 0/1; the passphrase is never
+# readable back -- the firmware's execWifiCred() bare-enumeration branch
+# only ever reads the adapter's has-password FLAG (wire_handler.cpp), never
+# a real password accessor.
+#
+# The reply to a SET/CLEAR is `ack <id> ...` UNCONDITIONALLY, sent before
+# the adapter's own merits check runs, with a possible `err <code> #<id>`
+# line following it if the adapter rejects the content (wire_handler.cpp:
+# replyAck() then execute() then replyErr()) -- so a caller that stops
+# reading at the first `ack`-prefixed line can miss a same-burst `err`.
+# The helpers below read for the full `wait` window instead of stopping
+# early, for exactly that reason.
+#
+# ---- SET's own quoting (sprint 038 ticket 003, blocking follow-up) --------
+#
+# `<ssid>` and `<password>` may BOTH legally contain spaces -- an 802.11
+# SSID is arbitrary octets, and a WPA passphrase may contain spaces too
+# -- and the fleet's own real network is named "Busboom Mesh" (MEASURED
+# gopiv 2026-09-10, captures/wifi-credential-store-20260909/). The
+# enumeration reply solves this with field ORDER alone (ssid last), but
+# that trick only works for a single free-form field; SET has two, so
+# it needs real quoting instead. wire_handler.cpp's tokenizeLine() reads
+# a token that STARTS with '"' as a quoted field running to the next
+# '"' followed by a separator or end of line, with `\"` decoding to a
+# literal '"' inside it (the only escape that grammar has). A bare
+# token with no space and no '"' is unaffected -- `WIFICRED SET 0
+# TestNet038 fakepw111 #1` keeps working exactly as before.
+#
+# _wifi_quote_field() below applies that rule automatically so neither
+# wificred_set()'s own caller nor tools/provision_wifi.py's ever has to
+# hand-quote anything.
+
+def _wifi_quote_field(value):
+    r"""Encodes one WIFICRED SET field (`ssid` or `password`) for the
+    wire, per the grammar above: passed through UNQUOTED, byte for
+    byte, when it contains neither a space nor a '"' (the pre-quoting
+    shape, still what most SSIDs/passwords hit); otherwise wrapped in
+    '"..."' with every literal '"' escaped as `\"`. The escape is
+    provably round-trippable even when `value` already contains a raw
+    backslash next to a quote: the firmware's decoder only treats `\`
+    as an escape introducer when the VERY NEXT byte is `"`, and this
+    encoder inserts exactly one such backslash immediately before each
+    original `"` and touches no other byte, so decoding left-to-right
+    resynchronizes correctly regardless of what precedes it."""
+    if ' ' not in value and '"' not in value:
+        return value
+    return '"' + value.replace('"', '\\"') + '"'
+
+
+def _wificred_exchange(link, line, wait):
+    """Send one WIFICRED sub-command and collect every reply line for
+    `wait` seconds (not just until the first `ack`/`nack` -- see the
+    module comment above on why an early return can miss a same-burst
+    `err` line).
+
+    `line` is passed to `Link.send()`, which is where the sequence id
+    gets attached (WIFICRED is in `_V6_VERBS`) -- this function never
+    formats, logs, or prints `line` itself, so a SET's password (built
+    into `line` by `wificred_set()` below) is never touched by
+    anything in this module.
+    """
+    link.send(line)
+    return list(link.lines(wait))
+
+
+def wificred_set(link, slot, ssid, password, wait=1.5):
+    """`WIFICRED SET <slot> <ssid> <password>` -- returns the raw reply
+    lines (`ack ...` and, on a merits rejection, `err <code> #<id>`).
+
+    `ssid`/`password` are taken as plain, UNQUOTED Python strings --
+    this function quotes either one on the wire itself
+    (`_wifi_quote_field()` above) iff it contains a space or a '"', so
+    a caller never has to think about the wire's own quoting grammar to
+    provision an SSID like "Busboom Mesh". `password` is taken as a
+    plain argument, exactly as every other wire-verb helper here takes
+    its arguments -- the CALLER is responsible for sourcing it from a
+    file or environment variable rather than a literal, and this
+    function never prints, logs, or returns it: the firmware's own
+    reply never echoes a password either, so nothing this function
+    reads back could leak one even by accident.
+    """
+    return _wificred_exchange(
+        link,
+        f'WIFICRED SET {slot} {_wifi_quote_field(ssid)} '
+        f'{_wifi_quote_field(password)}',
+        wait)
+
+
+def wificred_clear(link, slot, wait=1.5):
+    """`WIFICRED CLEAR <slot>` -- returns the raw reply lines."""
+    return _wificred_exchange(link, f'WIFICRED CLEAR {slot}', wait)
+
+
+def wificred_list(link, wait=1.5):
+    """Bare `WIFICRED` -- enumerate the credential store.
+
+    Returns a list of `{'slot': int, 'ssid': str, 'has_password': bool}`
+    dicts, one per occupied slot, in the order the firmware reports
+    them. Deliberately NOT `{'has_password': <the password>}` -- the
+    firmware never sends the passphrase on this or any other path
+    (module comment above), so there is nothing for this parser to
+    accidentally pick up even from a malformed line.
+
+    The line is `wificred <slot> <haspw> <ssid>` -- ssid LAST and
+    split with maxsplit=3, so a real SSID containing spaces (e.g.
+    "Busboom Mesh") comes back whole rather than truncated at its
+    first space. See the module comment above.
+    """
+    entries = []
+    for line in _wificred_exchange(link, 'WIFICRED', wait):
+        parts = line.split(None, 3)
+        if len(parts) != 4 or parts[0] != 'wificred':
+            continue
+        try:
+            slot = int(parts[1])
+        except ValueError:
+            continue
+        entries.append({'slot': slot, 'ssid': parts[3],
+                         'has_password': parts[2] == '1'})
+    return entries

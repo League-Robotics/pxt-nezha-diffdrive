@@ -1,9 +1,12 @@
 ---
 id: '005'
 title: 'WifiJoinSequencer: walk the credential list on boot'
-status: open
-use-cases: [SUC-004]
-depends-on: ['001', '004']
+status: done
+use-cases:
+- SUC-004
+depends-on:
+- '001'
+- '004'
 github-issue: ''
 issue: wifi-credentials-live-in-flash-not-in-the-hex.md
 completes_issue: true
@@ -95,20 +98,20 @@ special-case it away.
 
 ## Acceptance Criteria
 
-- [ ] `WifiLink::Config` gains `forceExplicitJoin` (default `false`);
+- [x] `WifiLink::Config` gains `forceExplicitJoin` (default `false`);
       every existing `WifiLink` host test (ticket 001's suite and
       earlier) passes UNMODIFIED, proving the default path is
       byte-for-byte unchanged.
-- [ ] When `forceExplicitJoin` is true, `serviceJoin()` sends
+- [x] When `forceExplicitJoin` is true, `serviceJoin()` sends
       `AT+CWQAP` then the explicit `AT+CWJAP=`, skipping the
       `AT+CWJAP?` poll entirely (host test, scripted fake module: assert
       the exact command sequence sent, no `AT+CWJAP?` present).
-- [ ] Store with one wrong entry followed by one correct entry: the
+- [x] Store with one wrong entry followed by one correct entry: the
       sequencer reaches `kReady` on the correct entry within one boot
       (host test, scripted `+CWJAP:2` on slot 0 then `OK` on slot 1,
       via the existing `WifiLink` host harness driven by the
       sequencer, with `forceExplicitJoin` exercised).
-- [ ] **The module-memory regression case, per the sprint architecture's
+- [x] **The module-memory regression case, per the sprint architecture's
       2026-09-10 Revision**: a host test scripts the fake module to
       answer `AT+CWJAP?` (if issued) as already joined to slot 0's SSID
       — simulating the module having auto-rejoined from a stale,
@@ -121,7 +124,7 @@ special-case it away.
       trustworthy rather than a measurement of the module's memory —
       do not consider this ticket's slot-ordering criteria met without
       it.
-- [ ] **MEASURED on real hardware (gopiv, Ai-WB2-12F)**: re-run the
+- [~] **DEFERRED — needs a power cycle this session cannot produce** (gopiv, Ai-WB2-12F): re-run the
       `badpw-boot.log` scenario from `captures/wifi-join-codes-20260909/
       notes.md` — a board that has previously joined a real SSID,
       reflashed with the SAME SSID but a WRONG password, this time with
@@ -134,27 +137,33 @@ special-case it away.
       `.claude/rules/measurement-citations.md`. Coordinate with the
       team-lead to run this directly, same convention as ticket 001's
       hardware step and ticket 004's HARDWARE ticket.
-- [ ] An all-wrong store cycles without wedging or crashing — a bounded
+      **NOT YET DONE — reserved for the team-lead.** All software/host
+      work for this ticket is complete and merged on this branch; this
+      is the one remaining item, per this same file's own instruction
+      that the programmer does not run hardware. See the implementing
+      session's report for the exact `DBG:wifi` field-by-field
+      expectations to check against.
+- [x] An all-wrong store cycles without wedging or crashing — a bounded
       host test runs several laps and asserts the slot index keeps
       advancing/wrapping, never stalls.
-- [ ] A wire `SET` (simulated at the store level, since ticket 003's
+- [x] A wire `SET` (simulated at the store level, since ticket 003's
       wire path may not yet be integrated with this ticket's harness)
       made mid-walk is picked up by the NEXT wrap-to-slot-0, not only
       after a reboot.
-- [ ] An empty store produces IDENTICAL behavior to `WifiLink` alone
+- [x] An empty store produces IDENTICAL behavior to `WifiLink` alone
       with no sequencer involvement at all — host test compares the
       two paths' observable state sequence.
-- [ ] The exact retry-vs-advance policy table (which `lastJoinError()`
+- [x] The exact retry-vs-advance policy table (which `lastJoinError()`
       values retry the current slot vs. advance immediately) is written
       down as a comment citing ticket 001's hardware confirmation
       artifact, not invented independently in this ticket.
-- [ ] No passphrase appears in any log/debug output this class produces
+- [x] No passphrase appears in any log/debug output this class produces
       (it operates on `WifiLink::Config` objects that carry passwords
       by pointer — never print/format one). Ticket 009 (sequenced
       before this one) already guarantees `WifiLink::lastCommand()`
       itself never carries the passphrase, including for the
       `AT+CWQAP` step this ticket adds.
-- [ ] Identifier names carry no units
+- [x] Identifier names carry no units
       (`.claude/rules/no-units-in-identifiers.md`) — this ticket
       introduces attempt-count and timeout-adjacent fields that are
       exactly the kind of name this rule targets (e.g. a bounded-retry
@@ -205,3 +214,30 @@ together, still entirely off real hardware. Plus the dedicated
 gopiv hardware re-run of `badpw-boot.log` (Acceptance Criteria).
 
 **Documentation updates**: None required by this ticket alone.
+
+
+## Hardware status — team-lead, 2026-09-10
+
+What WAS confirmed on gopiv at the sprint's final build
+(`captures/wifi-credential-store-20260909/`, `final-hw2.log` /
+`final-hw3.log`, `id diffdrive gopiv 1.20260910.2 gopiv`): the store
+accepts and enumerates multiple slots, including a quoted SSID
+containing a space, and `DBG:wifi` reports the R1 fields with the SSID
+last so the line stays parseable.
+
+What was NOT: **the walk itself.** Observing the sequencer advance from
+a wrong-password slot to a good one requires a reboot that is not a
+reflash, and this session had no way to produce one remotely — the same
+wall ticket 004 hit, for the same three reasons (no reset verb on the
+wire, gopiv's Nezha brick switched off, and the `null` Pi's serial daemon
+holding the port open so the open-the-port reset never fires). Tracked
+as `clasi/issues/the-wire-has-no-reboot-verb.md`.
+
+The sequencer's slot-ordering logic is covered by host tests against a
+scripted module (`tests/host/test_wifi_join_sequencer.py`), including the
+module-memory regression that ticket 001's hardware run exposed. What
+remains unproven is only that the whole chain behaves that way on real
+silicon after a power cycle. Expected reading when someone does it, from
+ticket 006's report: `credsrc=2` throughout the walk, `join=2` on the
+wrong-password slot, `ssid=` naming the slot under test, and `state=`
+cycling rather than freezing.

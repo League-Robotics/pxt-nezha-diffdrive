@@ -58,7 +58,8 @@ def lib(tmp_path_factory):
     )
     lib = ctypes.CDLL(str(path))
     lib.wlCreate.restype = ctypes.c_void_p
-    lib.wlCreate.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p]
+    lib.wlCreate.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
+                             ctypes.c_int]
     lib.wlDestroy.argtypes = [ctypes.c_void_p]
     lib.wlSetNow.argtypes = [ctypes.c_uint32]
     lib.wlAdvance.argtypes = [ctypes.c_uint32]
@@ -94,10 +95,12 @@ class Link:
     and returns every complete AT command line it wrote since the last
     call (payload bytes written after a `>` prompt are returned raw)."""
 
-    def __init__(self, lib, ssid="Busboom Mesh", password="hunter2", hostname="tovez"):
+    def __init__(self, lib, ssid="Busboom Mesh", password="hunter2", hostname="tovez",
+                 force_explicit_join=False):
         self.lib = lib
         self.lib.wlSetNow(1000)
-        self.h = lib.wlCreate(ssid.encode(), password.encode(), hostname.encode())
+        self.h = lib.wlCreate(ssid.encode(), password.encode(), hostname.encode(),
+                              1 if force_explicit_join else 0)
         self._buf = ctypes.create_string_buffer(4096)
         self.tcp_ok = True
 
@@ -298,6 +301,84 @@ def test_join_query_hit_skips_the_explicit_join(link):
     assert 'AT+CWJAP="' not in link.lib.wlLastCommand(link.h).decode()
 
 
+# --------------------------------------------- forceExplicitJoin (038-005)
+#
+# Sprint 038 ticket 005 / sprint architecture 2026-09-10 Revision:
+# Config::forceExplicitJoin, default false (every test above this point
+# uses the `link` fixture's default, force_explicit_join=False, and is
+# UNMODIFIED by this ticket -- proving the default poll-first path is
+# byte-for-byte unchanged, AC1). These two tests pin the forced path
+# WifiJoinSequencer relies on -- its own class carries the "every
+# Config it builds sets this true" half; these pin the MECHANICS,
+# per this ticket's own Files-to-modify list.
+
+def _configure(link):
+    for cmd in CONFIGURE_SEQUENCE:
+        link.expect_command(cmd)
+        link.reply("\r\nready\r\n" if cmd == "AT+RST" else "\r\nOK\r\n")
+
+
+def test_force_explicit_join_sends_cwqap_then_skips_the_poll(lib):
+    """AC2: with forceExplicitJoin, serviceJoin() sends AT+CWQAP
+    (tolerant -- an ERROR because nothing was associated is expected,
+    same convention as AT+CIPCLOSE in kConfigureSteps) then the
+    explicit AT+CWJAP=, with NO AT+CWJAP? poll anywhere in the
+    sequence -- exactly what WifiJoinSequencer needs so the credential
+    actually tried is always the one it selected."""
+    link = Link(lib, force_explicit_join=True)
+    try:
+        seen = []
+        _configure(link)
+        seen += CONFIGURE_SEQUENCE
+        link.expect_command("AT+CWQAP")
+        seen.append("AT+CWQAP")
+        link.reply("\r\nERROR\r\n")  # tolerant: "nothing was associated"
+        link.expect_command('AT+CWJAP="Busboom Mesh","hunter2"')
+        seen.append('AT+CWJAP="Busboom Mesh","hunter2"')
+        assert "AT+CWJAP?" not in seen
+        link.reply("WIFI CONNECTED\r\nWIFI GOT IP\r\n\r\nOK\r\n")
+        link.step()
+        assert link.state() == ADDRESS
+    finally:
+        link.close()
+
+
+def test_force_explicit_join_ignores_the_modules_own_memory(lib):
+    """AC4, the module-memory regression case (sprint architecture's
+    2026-09-10 Revision, MEASURED gopiv 2026-09-09,
+    captures/wifi-join-codes-20260909/notes.md, badpw-boot.log): the
+    Ai-WB2 auto-rejoins its own remembered AP after AT+RST, and a bare
+    AT+CWJAP? poll (matched on SSID name alone) cannot tell that apart
+    from the credential under test actually working -- a wrong baked
+    password once reached state=5 with no +CWJAP: code ever sent,
+    because the explicit join step was never reached. With
+    forceExplicitJoin, WifiLink never issues that poll AT ALL, so even
+    a module primed to answer "already joined to this SSID" never gets
+    asked -- the credential actually attempted is always the explicit
+    AT+CWJAP= for THIS Config's real password, classified strictly on
+    that command's own reply, never on stale poll-shaped chatter."""
+    link = Link(lib, force_explicit_join=True)
+    try:
+        _configure(link)
+        # The very first thing serviceJoin() writes is AT+CWQAP -- not
+        # AT+CWJAP? -- so the module's own remembered association is
+        # never consulted at all.
+        link.expect_command("AT+CWQAP")
+        link.reply("\r\nERROR\r\n")
+        link.expect_command('AT+CWJAP="Busboom Mesh","hunter2"')
+        # The explicit join's own reply is what decides the outcome --
+        # a wrong-password failure is captured and reported, never
+        # silently accepted as success the way the poll-first path was
+        # measured to on a module with a stale, different remembered
+        # password for the same SSID.
+        link.reply("+CWJAP:2\r\n\r\nFAIL\r\n")
+        link.step()
+        assert link.state() == BACKOFF
+        assert link.lib.wlLastJoinError(link.h) == 2
+    finally:
+        link.close()
+
+
 def _configure_and_reach_explicit_join(link):
     """Drive through CONFIGURE and the six AT+CWJAP? poll misses (mirrors
     Link.bring_up()'s join_query_hits=False branch) up to, but not
@@ -459,8 +540,11 @@ def test_only_the_cwjap_join_call_site_passes_a_trace_override():
     # 564, 593, 613, 629, 643-649, 666-671, 693-697, 711, plus the
     # payload-framing AT+CIPSEND= site at 887-896) -- a change to this
     # count means a call site was added or removed and this audit must
-    # be re-examined, not silently widened.
-    assert len(sites) == 10, f"unexpected startCommand() call-site count: {sites}"
+    # be re-examined, not silently widened. Sprint 038 ticket 005 adds
+    # ONE: forceExplicitJoin's AT+CWQAP step in serviceJoin(), a plain
+    # 3-arg call (no secret, no trace override) -- re-examined and
+    # accounted for here, 10 -> 11.
+    assert len(sites) == 11, f"unexpected startCommand() call-site count: {sites}"
 
     four_arg_sites = [line for line, n in sites if n == 4]
     assert len(four_arg_sites) == 1, (

@@ -105,6 +105,13 @@ class WifiCredentialStore {
 
   bool occupied(int slot) const;
 
+  // True iff ANY slot is occupied -- the "does this board have a
+  // provisioned list at all" check Protocol::serviceWifi()'s lazy-begin
+  // uses to decide whether WifiJoinSequencer owns the join or the
+  // setupWifi()/baked single-credential path does (per the precedence
+  // rule in this project's WiFi architecture docs).
+  bool anyOccupied() const;
+
   // Copies slot's NUL-terminated ssid/password into the caller's
   // buffers -- each must be at least kSsidBytes/kPasswordBytes. Returns
   // false, buffers untouched, for an out-of-range or unoccupied slot.
@@ -173,13 +180,17 @@ class WifiCredentialStore {
 // first call, never destroyed, so a block program's own top-level
 // registration ordering can never race it.
 //
-// STOPGAP, by design: Protocol does not yet OWN this instance -- a
-// later ticket adds it alongside WifiJoinSequencer, which needs the
-// same store and is the reason a real owner is worth adding then
-// rather than now. Until then, WireAdapter reaches the store through
-// this free function instead of a constructor-injected reference;
-// re-pointing it later changes this function's callers, not WIFICRED's
-// own wire-level behavior or its tests.
+// This function-local static REMAINS the storage, even after sprint
+// 038 ticket 005 added WifiJoinSequencer (src/comms/
+// wifi_join_sequencer.h), which needs this same store -- deliberately:
+// Protocol constructs its WifiJoinSequencer member by binding this
+// function's return (a real, constructor-injected `WifiCredentialStore&`,
+// same ownership shape WifiLink itself uses for WifiUart&), so both
+// WireAdapter's WIFICRED verb and Protocol's own join-sequencing share
+// the ONE instance without Protocol having to separately construct and
+// then hand off a second one. Re-pointing this free function later
+// still changes only its callers, not WIFICRED's own wire-level
+// behavior or its tests.
 WifiCredentialStore& wifiCredentialStore();
 
 }  // namespace diffDrive

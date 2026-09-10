@@ -169,8 +169,8 @@ If a passphrase or SSID is too long (over 32 characters for the SSID,
 63 for the password), `setupWifi()` clips it rather than overflowing --
 and that clip is never silent. The next `DBG:wifi ...` line carries
 `credsrc=` (0 = baked, 1 = set by `setupWifi()`, 2 = a credential
-stored in flash via `WIFICRED SET` -- sprint 038's reduced boot-wiring
-slice, ticket 006) and `trunc=` (a bitmask: bit 0 SSID clipped, bit 1
+stored in flash via `WIFICRED SET`, walked on boot by
+`WifiJoinSequencer` -- sprint 038 ticket 005) and `trunc=` (a bitmask: bit 0 SSID clipped, bit 1
 password clipped -- `trunc=` only ever reflects the `setupWifi()` path,
 not a flash-stored credential), so "joins nothing, no reason" is
 diagnosable from the same status line you already read for everything
@@ -178,17 +178,20 @@ else WiFi. A call made after the link has already come up is also not
 silent -- it changes nothing and prints `DBG:wifi late setupWifi()
 ignored`.
 
-`credsrc=2` beats `credsrc=1` beats `credsrc=0`: at boot, `Protocol`
-prefers the FIRST occupied slot in the flash-backed credential store
-over a `setupWifi()`-supplied credential, which in turn beats the
+`credsrc=2` beats `credsrc=1` beats `credsrc=0`: at boot, whenever the
+flash-backed credential store holds any entry at all, `Protocol` hands
+the join to `WifiJoinSequencer`, which walks its occupied slots in
+order until one joins (advancing immediately on a definitive
+wrong-password failure, retrying a few times on anything else before
+moving on, then wrapping back to slot 0 and re-reading the store) --
+preferred over both a `setupWifi()`-supplied credential and the
 deploy-time bake. `WIFICRED SET`/`WIFICRED CLEAR` write flash
-immediately but take effect at the **next boot only** -- the running
-link is not reconfigured live, and the `ack`/`err` reply to a `SET`
-does not mean the robot has joined on it yet, only that the write
-succeeded. An empty store behaves exactly as before this feature
-existed (`credsrc=0` or `1`, never `2`). This is a deliberately reduced
-slice of the sprint's full design (`WifiJoinSequencer`, multi-
-credential list-walking on join failure, is not implemented) -- see
+immediately; while the sequencer is walking a non-empty store, a write
+is picked up on the walk's next pass back to slot 0, not only after a
+reboot -- the `ack`/`err` reply to a `SET` still does not mean the
+robot has joined on it yet, only that the write succeeded. An empty
+store behaves exactly as before this feature existed (`credsrc=0` or
+`1`, never `2`) -- see
 `clasi/sprints/038-flash-backed-wifi-credential-store-with-join-failure-diagnostics/sprint.md`.
 
 #### The `secrets.ts` convention
@@ -234,6 +237,162 @@ program (so it is not accidentally read top-to-bottom with everything
 else) but not actual secrecy: anyone who opens or shares that web
 project sees it. Real secrecy needs the VS Code + git checkout, where
 `secrets.ts` genuinely never leaves the machine it was created on.
+
+### Provisioning credentials from a host tool (`WIFICRED`)
+
+Sprint 038's flash-backed credential store adds a wire verb so a bench
+tool can hand a board a whole list of networks -- up to 8 slots -- with
+no rebuild and no secret ever baked into a hex. Grammar, MEASURED
+gopiv 2026-09-09/10,
+`captures/wifi-credential-store-20260909/notes.md`:
+
+```
+HELLO
+WIFICRED SET <slot> <ssid> <password> #<id>    -> ack <id> ...
+WIFICRED #<id>                                 -> wificred <slot> <haspw> <ssid>
+WIFICRED CLEAR <slot> #<id>                    -> ack <id> ...
+```
+
+- **Every form is sequenced**, including the bare enumeration -- a
+  `WIFICRED` sent with no `#<id>` parses as `#0` and is silently
+  dropped, enumerating nothing.
+- **`<password>` is mandatory on `SET`.** `WIFICRED SET 1 SecondNet #3`
+  (no password field) returned `err 2`.
+- Slots are `0`..`7`. `haspw` is `0`/`1`. **The passphrase is never
+  readable back** on any path, under any input -- the enumeration
+  reports only whether a slot has one.
+- **`<ssid>` and `<password>` may both contain spaces, and `SET`
+  quotes them.** Field order (below) is what disambiguates the
+  *enumeration* line's single free-form field; `SET` has TWO free-form
+  fields, so order alone cannot save it -- it needs real quoting.
+  MEASURED gopiv 2026-09-10, `captures/wifi-credential-store-20260909/`:
+  the fleet's actual network is named `Busboom Mesh`, with a space, so
+  provisioning it is the case this exists for:
+
+  ```
+  WIFICRED SET 0 "Busboom Mesh" "my pass phrase" #1
+  ```
+
+  A bare token with no space and no `"` is unquoted, exactly as
+  before quoting existed -- `WIFICRED SET 0 TestNet038 fakepw111 #1`
+  (already documented above, already in committed captures) keeps
+  working byte for byte. A field that needs quoting is wrapped in
+  `"..."`; a literal `"` inside it is escaped as `\"` -- the only
+  escape this grammar has (a lone `\` is passed through literally). A
+  quote opened but never closed before the line ends is rejected
+  cleanly: it is NOT mis-parsed or guessed at, it decodes as a
+  wrong-arity `SET` and comes back `nack`/`err 2` like any other
+  malformed line -- **never** an echo of the field content, so a
+  botched password never appears on the wire even in the rejection.
+  See `src/comms/wire_handler.h`'s `tokenizeLine()` comment for the
+  exact grammar and `tests/host/test_wire_grammar.py`'s
+  `test_wificred_set_*` quoting tests for the pinned cases (bare,
+  quoted ssid, quoted password, both quoted, `\"`-escaped, and the
+  unterminated-quote rejection).
+
+  You never have to hand-quote anything yourself: `tools/robotlink.py`'s
+  `wificred_set()` and `tools/provision_wifi.py` (next section) both
+  quote a field automatically whenever it contains a space or a `"` --
+  pass plain, unquoted strings to either one.
+- **`ssid` is the LAST field on the `wificred` line, deliberately.** An
+  802.11 SSID may legally contain spaces -- MEASURED gopiv 2026-09-10,
+  `captures/wifi-credential-store-20260909/`, against the real fleet
+  SSID `Busboom Mesh`: a mid-line `<slot> <ssid> <haspw>` shape would
+  enumerate it as `wificred 0 Busboom Mesh 1`, and a consumer
+  splitting on whitespace has no way to tell where the SSID ends. With
+  `haspw` before it, a consumer can split the line with a maxsplit of
+  3 (`wificred`, slot, haspw, then everything left over is the SSID)
+  and recover it unambiguously no matter what it contains -- no
+  quoting or escaping needed. `tools/robotlink.py`'s `wificred_list()`
+  parses it this way; `DBG:wifi`'s `ssid=` field below uses the same
+  convention for the same reason.
+
+**A flash MASS-ERASES the whole chip, so credentials do not survive
+`mbdeploy deploy`.** MEASURED gopiv 2026-09-09/10, same capture: a
+store written before `mbdeploy deploy --remote gopiv` enumerated empty
+afterward -- the programmed range never reaches the store's flash
+page, this is pyOCD's mass-erase, not an overwrite. **Provision AFTER
+flashing, never before.**
+
+`DBG:wifi`'s full field list (`src/comms/protocol.cpp`'s
+`emitWifiDebug()`): `state= ip= peer= tcp= to= restarts= sent= rx=
+drop= mdns= cmd= reply= credsrc= trunc= join= haspw= ssid=`. Two of
+those are new alongside `credsrc=`/`trunc=` above:
+
+- **`ssid=`/`haspw=`** -- the SSID currently active/attempted at
+  whichever source `credsrc=` names, and whether it has a password.
+  Never the password. `ssid=- haspw=0` (never a bare empty field) when
+  nothing is configured at the active source yet. **`ssid=` is the
+  LAST field on the line, deliberately** -- same reason and same
+  convention as the `WIFICRED` enumeration's `ssid` above: an 802.11
+  SSID may contain spaces, and putting `haspw=` before it means a
+  consumer that does not know the SSID in advance can take everything
+  from `ssid=` to end-of-line as the value, unambiguously.
+- **`join=`** -- the WiFi module's own `+CWJAP:<code>` from the most
+  recent join attempt, or `-` when no code was captured (a plain
+  timeout). This is the raw vendor number, deliberately unmapped in
+  firmware (Ai-WB2/ESP-AT documentation says `2` = wrong password,
+  `3` = AP not found, `4` = connect failed, `1` = timeout, but those
+  meanings are read from vendor docs, not confirmed on this hardware --
+  treat the number as a diagnostic hint, not a certainty).
+
+**Two failure shapes that look alike on a status line but are not.** A
+module that is absent or unpowered answers `DBG:wifi` with nothing at
+all -- no line, not even `reply=` empty. A module that is present but
+failing to join answers `reply=..OK..` and loops, `restarts=` climbing
+every cycle:
+
+```
+DBG:wifi state=2 ... restarts=2783 ... cmd=AT+CIPDINFO=1 reply=..OK.. credsrc=1 trunc=0
+```
+
+`state=2` is `kJoin`. Seeing `reply=` populated at all means the
+module is alive and answering AT commands -- the hardware is fine; the
+credentials or the AP are what to check next (`join=`, above, or `ssid=`
+against what you meant to provision).
+
+#### `tools/provision_wifi.py`
+
+`tools/robotlink.py` grows three helpers matching this verb's shape
+(`wificred_set()`, `wificred_clear()`, `wificred_list()` -- the last
+parses the bare enumeration into
+`[{'slot': int, 'ssid': str, 'has_password': bool}, ...]`, never a
+password), and `tools/provision_wifi.py` is a small script built on
+them for a whole bench session -- one board, one or more slots, no
+hand-typed wire lines:
+
+```bash
+# one slot, password from an env var (never on the command line or in
+# shell history)
+WIFI_PW=hunter2example uv run python tools/provision_wifi.py \
+    --usb /dev/cu.usbmodem2121302 --slot 0 --ssid MyNetwork \
+    --password-env WIFI_PW
+
+# a board's whole list, one session, from a local (gitignored) manifest
+uv run python tools/provision_wifi.py --wifi gopiv \
+    --manifest ~/.secrets/gopiv-wifi.json
+
+# read back what is stored -- ssid + whether a password is set, never
+# the password
+uv run python tools/provision_wifi.py --wifi gopiv --list
+```
+
+`--usb`/`--radio`/`--wifi` select the carrier exactly as they do for
+`tools/wire_acceptance.py`, above. The password is read from
+`--password-env`, `--password-file`, or (neither given) a
+non-echoing interactive prompt -- there is no plain `--password` flag,
+because a command-line argument is visible in `ps` and shell history.
+Nothing this script reads, writes, or prints ever contains a
+passphrase; see its own module docstring for the manifest file's
+shape (never commit that file). `rogo` (a raw pipe where the caller
+types the sequence ids by hand) can also drive `WIFICRED` directly for
+a one-off check, the same as any other verb -- there is no dedicated
+`rogo` helper for it, by design (the ticket that added this tooling
+scoped a polished provisioning UI as explicitly out of scope). Typing
+`WIFICRED SET` by hand over `rogo` means typing the quotes yourself
+for any field with a space, e.g.
+`WIFICRED SET 0 "Busboom Mesh" "my pass phrase" #1` -- `provision_wifi.py`
+is the one that quotes on your behalf.
 
 ## Device identity -- what `HELLO` and `ID` announce
 

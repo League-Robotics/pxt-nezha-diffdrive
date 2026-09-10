@@ -509,6 +509,17 @@ class WireHandler {
   // whitespace (protocol.md S2/S3.2). Returns the TRUE total token
   // count (verb included), which may exceed `maxTokens` -- only the
   // first `maxTokens` pointers are stored.
+  //
+  // A token whose first byte is '"' is a QUOTED token (WIFICRED SET's
+  // <ssid>/<password>, the only fields that may contain spaces): reads
+  // to the next '"' followed by a separator/EOL, decoding `\"` to a
+  // literal '"' (the only escape). Only a LEADING '"' triggers this, so
+  // every other verb's fields -- always keywords or integers -- are
+  // unaffected. An unterminated quote swallows the rest of the line
+  // (id included), which just starves the verb of a data field; the id
+  // itself is unaffected since it is resolved from the raw line before
+  // this runs (findLastFieldToken()), and the arity check downstream
+  // (e.g. decodeWifiCred()) rejects the short field count normally.
   static size_t tokenizeLine(char* line, char** tokens, size_t maxTokens);
 
   // Resolves the mandatory trailing id against expectedNext_ (protocol.md

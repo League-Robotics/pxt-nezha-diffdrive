@@ -1040,11 +1040,18 @@ Wire::Result WireAdapter::wifiCredSet(int slot, const char* ssid,
   // rejection reason this call can have without this function
   // duplicating the store's own bounds.
   //
-  // Takes effect at the NEXT BOOT, not immediately: Protocol::
-  // serviceWifi()'s lazy-begin branch reads this store exactly once,
-  // the first time it runs -- a write here after that point is
-  // durable (it reaches flash) but has no effect on the WifiLink
-  // instance already running. This function's return is deliberately
+  // Takes effect WITHOUT a reboot once WifiJoinSequencer is walking the
+  // store (sprint 038 ticket 005): its service() re-reads the store
+  // fresh (WifiCredentialStore::begin()) every time its walk wraps
+  // back to slot 0, and set()/clear() also update this SAME store
+  // instance's in-RAM cache immediately -- so a write reaches a link
+  // that's already mid-walk on its NEXT lap, whichever comes first. If
+  // the store was EMPTY at Protocol::serviceWifi()'s lazy-begin (no
+  // walk was ever armed -- see wifi_join_sequencer.h's own header
+  // comment on the empty-store case), this write still only takes
+  // effect at the next boot: the already-running WifiLink was
+  // begin()'d directly on the setupWifi()/baked credential and nothing
+  // re-reads this store for it. This function's return is deliberately
   // just kOk/kRange
   // (-> a bare `ack`/`err` reply, wire_handler.cpp's execWifiCred()),
   // never a claim that the join was reconfigured -- do not add

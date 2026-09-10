@@ -431,3 +431,163 @@ def test_run_line_is_sequenced_arguments_and_all():
     link.send('RUN tour wheels')
     assert port.writes[-1] == b'RUN tour wheels #5\n'
     assert link._seq == 5
+
+
+# ---- WIFICRED (sprint 038 ticket 007) -------------------------------------
+
+def test_wificred_is_a_sequenced_verb():
+    """A bare `WIFICRED` without an id parses on the robot as `#0` and
+    is silently dropped -- same trap FUNCS closes for its own bare
+    enumeration."""
+    assert 'WIFICRED' in robotlink._V6_VERBS
+
+
+def test_wificred_set_writes_the_set_line_with_its_id():
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    robotlink.wificred_set(link, 0, 'MyNetwork', 'hunter2example', wait=0.02)
+    assert port.writes[-1] == b'WIFICRED SET 0 MyNetwork hunter2example #1\n'
+
+
+def test_wificred_clear_writes_the_clear_line_with_its_id():
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    robotlink.wificred_clear(link, 3, wait=0.02)
+    assert port.writes[-1] == b'WIFICRED CLEAR 3 #1\n'
+
+
+def test_wificred_list_writes_the_bare_line_with_its_id():
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    robotlink.wificred_list(link, wait=0.02)
+    assert port.writes[-1] == b'WIFICRED #1\n'
+
+
+def test_wificred_set_returns_both_ack_and_a_same_burst_err():
+    """The firmware sends `ack <id> ...` UNCONDITIONALLY before running
+    the adapter's own merits check, with a possible `err <code> #<id>`
+    line following it (wire_handler.cpp: replyAck() then execute() then
+    replyErr()). A caller that stops reading at the first `ack`-prefixed
+    line can miss a same-burst `err` -- this pins that both lines come
+    back from one wificred_set() call."""
+    port = FakePort([b'ack 1 0 none\n', b'err 5 #1\n'])
+    link = robotlink.Link(port, False)
+    out = robotlink.wificred_set(link, 9, 'Net', 'pw', wait=0.05)
+    assert out == ['ack 1 0 none', 'err 5 #1']
+
+
+def test_wificred_list_parses_the_enumeration_into_structured_entries():
+    port = FakePort([
+        b'wificred 0 1 MyNetwork\n',
+        b'wificred 2 0 OpenGuestNet\n',
+        b'ack 1 0 none\n',
+    ])
+    link = robotlink.Link(port, False)
+    entries = robotlink.wificred_list(link, wait=0.05)
+    assert entries == [
+        {'slot': 0, 'ssid': 'MyNetwork', 'has_password': True},
+        {'slot': 2, 'ssid': 'OpenGuestNet', 'has_password': False},
+    ]
+
+
+def test_wificred_list_never_returns_a_has_password_string():
+    """Acceptance criterion, verbatim: a list of
+    `{slot, ssid, has_password}` -- NOT `has_password: <the password>`.
+    `has_password` must be a bool, never the wire's own literal `'1'`/
+    `'0'` token surviving unconverted (which would at least be the
+    right VALUE by accident) and never anything resembling a secret."""
+    port = FakePort([b'wificred 0 1 MyNetwork\n', b'ack 1 0 none\n'])
+    link = robotlink.Link(port, False)
+    entries = robotlink.wificred_list(link, wait=0.05)
+    assert entries[0]['has_password'] is True
+    assert isinstance(entries[0]['has_password'], bool)
+
+
+def test_wificred_list_ignores_malformed_or_unrelated_lines():
+    port = FakePort([
+        b'DBG:wifi state=5 ...\n',
+        b'wificred not-a-slot 1 Net\n',   # bad slot -- skipped, not raised
+        b'wificred 0 1 MyNetwork\n',
+        b'ack 1 0 none\n',
+    ])
+    link = robotlink.Link(port, False)
+    entries = robotlink.wificred_list(link, wait=0.05)
+    assert entries == [{'slot': 0, 'ssid': 'MyNetwork', 'has_password': True}]
+
+
+def test_wificred_list_recovers_an_ssid_containing_spaces():
+    """MEASURED gopiv 2026-09-10, captures/wifi-credential-store-20260909/:
+    the real fleet SSID `Busboom Mesh` contains a space. `wificred_list()`
+    must split with a maxsplit of 3 (ssid is the LAST field on the wire
+    line) so the whole SSID comes back, not just its first token."""
+    port = FakePort([b'wificred 0 1 Busboom Mesh\n', b'ack 1 0 none\n'])
+    link = robotlink.Link(port, False)
+    entries = robotlink.wificred_list(link, wait=0.05)
+    assert entries == [
+        {'slot': 0, 'ssid': 'Busboom Mesh', 'has_password': True},
+    ]
+
+
+def test_wificred_set_quotes_an_ssid_containing_a_space(capsys):
+    """MEASURED gopiv 2026-09-10, captures/wifi-credential-store-20260909/:
+    the fleet's real network is `Busboom Mesh`, with a space. Neither
+    ssid nor password may legally be assumed space-free (an 802.11 SSID
+    is arbitrary octets, and a WPA passphrase may contain spaces too),
+    so wificred_set() must quote either field on the wire itself
+    (wire_handler.cpp's tokenizeLine() quoted-token grammar) -- a
+    caller passes plain, unquoted Python strings."""
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    robotlink.wificred_set(link, 0, 'Busboom Mesh', 'fakepw111', wait=0.02)
+    assert port.writes[-1] == b'WIFICRED SET 0 "Busboom Mesh" fakepw111 #1\n'
+
+
+def test_wificred_set_quotes_a_password_containing_a_space():
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    robotlink.wificred_set(link, 0, 'MyNetwork', 'my pass phrase', wait=0.02)
+    assert (port.writes[-1] ==
+            b'WIFICRED SET 0 MyNetwork "my pass phrase" #1\n')
+
+
+def test_wificred_set_quotes_both_fields_when_both_contain_spaces():
+    """The exact command a stakeholder now runs to provision the real
+    fleet network."""
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    robotlink.wificred_set(link, 0, 'Busboom Mesh', 'my pass phrase',
+                            wait=0.02)
+    assert (port.writes[-1] ==
+            b'WIFICRED SET 0 "Busboom Mesh" "my pass phrase" #1\n')
+
+
+def test_wificred_set_leaves_space_free_fields_unquoted():
+    """Regression pin: the space-free case -- already documented in the
+    stakeholder's own instructions and committed captures -- must stay
+    byte-identical to before quoting existed."""
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    robotlink.wificred_set(link, 0, 'TestNet038', 'fakepw111', wait=0.02)
+    assert port.writes[-1] == b'WIFICRED SET 0 TestNet038 fakepw111 #1\n'
+
+
+def test_wificred_set_escapes_a_literal_quote_inside_a_field():
+    port = FakePort()
+    link = robotlink.Link(port, False)
+    robotlink.wificred_set(link, 0, 'Busboom "Mesh"', 'simplepw', wait=0.02)
+    assert (port.writes[-1] ==
+            b'WIFICRED SET 0 "Busboom \\"Mesh\\"" simplepw #1\n')
+
+
+def test_wificred_set_never_prints_the_password(capsys):
+    """No `tools/` log output may contain a passphrase
+    (`.claude/rules/measurement-citations.md`-adjacent hygiene, and
+    this ticket's own acceptance criteria). `wificred_set()` writes the
+    password to the (fake) wire and nowhere else."""
+    port = FakePort([b'ack 1 0 none\n'])
+    link = robotlink.Link(port, False)
+    secret = 'CorrectHorseBatteryStaple99'
+    robotlink.wificred_set(link, 0, 'MyNetwork', secret, wait=0.02)
+    out, err = capsys.readouterr()
+    assert secret not in out
+    assert secret not in err
