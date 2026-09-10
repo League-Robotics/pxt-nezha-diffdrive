@@ -412,3 +412,93 @@ def open_link(port=None, radio=False, wifi=None, robot=None):
     # tests/tools/test_robotlink.py pins this.
     link.hello()
     return link
+
+
+# ---- WIFICRED (sprint 038 ticket 007) -------------------------------------
+#
+# Grammar, MEASURED gopiv 2026-09-09/10,
+# captures/wifi-credential-store-20260909/notes.md:
+#
+#   WIFICRED SET <slot> <ssid> <password> #<id>  -> ack <id> ... [err <n> #<id>]
+#   WIFICRED #<id>                                -> zero or more
+#                                                     `wificred <slot> <ssid> <haspw>`
+#                                                     lines, then ack <id> ...
+#   WIFICRED CLEAR <slot> #<id>                    -> ack <id> ... [err <n> #<id>]
+#
+# Every form is sequenced (WIFICRED is in _V6_VERBS above), including the
+# bare enumeration -- a `WIFICRED` sent without an id parses as `#0` and is
+# silently dropped, same as an unsequenced FUNCS would be. `<password>` is
+# mandatory on SET: `WIFICRED SET 1 SecondNet #3` (no password field)
+# returned `err 2`. Slots are 0..7; `haspw` is 0/1; the passphrase is never
+# readable back -- the firmware's execWifiCred() bare-enumeration branch
+# only ever reads the adapter's has-password FLAG (wire_handler.cpp), never
+# a real password accessor.
+#
+# The reply to a SET/CLEAR is `ack <id> ...` UNCONDITIONALLY, sent before
+# the adapter's own merits check runs, with a possible `err <code> #<id>`
+# line following it if the adapter rejects the content (wire_handler.cpp:
+# replyAck() then execute() then replyErr()) -- so a caller that stops
+# reading at the first `ack`-prefixed line can miss a same-burst `err`.
+# The helpers below read for the full `wait` window instead of stopping
+# early, for exactly that reason.
+
+
+def _wificred_exchange(link, line, wait):
+    """Send one WIFICRED sub-command and collect every reply line for
+    `wait` seconds (not just until the first `ack`/`nack` -- see the
+    module comment above on why an early return can miss a same-burst
+    `err` line).
+
+    `line` is passed to `Link.send()`, which is where the sequence id
+    gets attached (WIFICRED is in `_V6_VERBS`) -- this function never
+    formats, logs, or prints `line` itself, so a SET's password (built
+    into `line` by `wificred_set()` below) is never touched by
+    anything in this module.
+    """
+    link.send(line)
+    return list(link.lines(wait))
+
+
+def wificred_set(link, slot, ssid, password, wait=1.5):
+    """`WIFICRED SET <slot> <ssid> <password>` -- returns the raw reply
+    lines (`ack ...` and, on a merits rejection, `err <code> #<id>`).
+
+    `password` is taken as a plain argument, exactly as every other
+    wire-verb helper here takes its arguments -- the CALLER is
+    responsible for sourcing it from a file or environment variable
+    rather than a literal, and this function never prints, logs, or
+    returns it: the firmware's own reply never echoes a password
+    either, so nothing this function reads back could leak one even by
+    accident.
+    """
+    return _wificred_exchange(
+        link, f'WIFICRED SET {slot} {ssid} {password}', wait)
+
+
+def wificred_clear(link, slot, wait=1.5):
+    """`WIFICRED CLEAR <slot>` -- returns the raw reply lines."""
+    return _wificred_exchange(link, f'WIFICRED CLEAR {slot}', wait)
+
+
+def wificred_list(link, wait=1.5):
+    """Bare `WIFICRED` -- enumerate the credential store.
+
+    Returns a list of `{'slot': int, 'ssid': str, 'has_password': bool}`
+    dicts, one per occupied slot, in the order the firmware reports
+    them. Deliberately NOT `{'has_password': <the password>}` -- the
+    firmware never sends the passphrase on this or any other path
+    (module comment above), so there is nothing for this parser to
+    accidentally pick up even from a malformed line.
+    """
+    entries = []
+    for line in _wificred_exchange(link, 'WIFICRED', wait):
+        parts = line.split()
+        if len(parts) != 4 or parts[0] != 'wificred':
+            continue
+        try:
+            slot = int(parts[1])
+        except ValueError:
+            continue
+        entries.append({'slot': slot, 'ssid': parts[2],
+                         'has_password': parts[3] == '1'})
+    return entries
