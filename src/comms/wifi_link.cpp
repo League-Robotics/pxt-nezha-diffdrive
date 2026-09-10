@@ -557,6 +557,37 @@ void WifiLink::serviceConfigure() {
 
 void WifiLink::serviceJoin() {
   if (step_ == 0) {
+    if (config_.forceExplicitJoin) {
+      // Sprint 038 ticket 005 / sprint architecture 2026-09-10
+      // Revision: the module auto-rejoins its own remembered AP after
+      // AT+RST (MEASURED gopiv 2026-09-09,
+      // captures/wifi-join-codes-20260909/notes.md, badpw-boot.log),
+      // which the AT+CWJAP? poll below cannot distinguish from the
+      // credential THIS Config was actually told to test -- it
+      // matches on SSID name alone. A caller that needs certainty
+      // (WifiJoinSequencer, walking a credential list) sets
+      // forceExplicitJoin, which makes this step disassociate whatever
+      // the module currently holds (AT+CWQAP, tolerant -- an ERROR
+      // because nothing was associated is expected, same
+      // tolerant-teardown convention as AT+CIPCLOSE in
+      // kConfigureSteps) and go straight to the explicit AT+CWJAP=
+      // below, no poll. This stays clear of the S5.3 LANDMINE (an
+      // explicit join fired into an in-progress auto-join
+      // near-livelocks) because AT+CWQAP acts on the module's CURRENT
+      // association regardless of how it was reached, so no auto-join
+      // can still be in flight once it completes -- the poll-first
+      // path immediately below is UNCHANGED and remains the default
+      // (forceExplicitJoin defaults false) for every other caller.
+      if (!awaiting_) {
+        startCommand("AT+CWQAP", "OK", kCommandTimeout);
+        return;
+      }
+      if (pollAwait() == kPending) return;
+      // Tolerant: proceed to the explicit AT+CWJAP= step regardless of
+      // whether AT+CWQAP matched, was rejected, or timed out.
+      step_ = 1;
+      return;
+    }
     // LANDMINE (the wifi-link note, section 5.3): poll AT+CWJAP? first so the
     // module's own post-RST auto-rejoin can land. An explicit CWJAP
     // fired into an in-progress auto-join answers busy/ERROR and was

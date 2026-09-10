@@ -453,28 +453,40 @@ void Protocol::emitWifiDebug() {
 }
 
 void Protocol::serviceWifi() {
+  const bool firstPoll = !wifiBegun_;
   if (!wifiBegun_) {
     wifiBegun_ = true;
     WifiLink::Config config;
+    // The mDNS host label is the board's own silicon-derived name --
+    // the same authoritative identity ID's `name` field reports -- so
+    // `tovez.local` / "tovez robot link" can never be a stale bake.
+    // Shared by every precedence branch below, so it is set once,
+    // ahead of the branch that picks ssid/password.
+    config.hostname = microbit_friendly_name();
+    config.port = kWifiPort;
+    config.hostPort = kWifiHostPort;
+
     // Precedence, most to least preferred: a stored flash credential
-    // (WifiCredentialStore's FIRST occupied slot) beats a
-    // setupWifi()-supplied credential, which beats the baked
-    // kWifiSsid/kWifiPassword fallback. Deliberately NOT the full
-    // WifiJoinSequencer/list-walking design -- just the first
-    // occupied slot. An EMPTY store leaves wifiCredsFromFlash_ false,
+    // beats a setupWifi()-supplied credential, which beats the baked
+    // kWifiSsid/kWifiPassword fallback (sprint architecture Design
+    // Rationale #3). An EMPTY store leaves wifiCredsFromFlash_ false,
     // which falls through to the pre-existing wifiCredsExplicit_/baked
     // branch below UNCHANGED -- that case stays byte-for-byte
-    // identical to before this credential source existed.
-    WifiCredentialStore& store = wifiCredentialStore();
-    for (int slot = 0; slot < WifiCredentialStore::kSlots; ++slot) {
-      if (!store.occupied(slot)) continue;
-      store.get(slot, wifiFlashSsid_, wifiFlashPassword_);
-      wifiCredsFromFlash_ = true;
-      break;  // FIRST occupied slot only -- no list-walking here.
-    }
+    // identical to before this credential source existed, AND
+    // wifiJoinSequencer_.begin() is never called for it, which is what
+    // makes WifiJoinSequencer::service() (below, called
+    // unconditionally every poll) a pure pass-through to
+    // wifiLink_.service() in that case -- see that class's own header
+    // comment on why that equivalence is the point.
+    wifiCredsFromFlash_ = wifiCredentialStore().anyOccupied();
     if (wifiCredsFromFlash_) {
-      config.ssid = wifiFlashSsid_;
-      config.password = wifiFlashPassword_;
+      // WifiJoinSequencer (sprint 038 ticket 005) owns the walk
+      // entirely from here -- which slot, when to advance,
+      // forceExplicitJoin -- this class supplies only the
+      // non-credential parts of Config above; ssid/password on this
+      // local `config` are left at Config's own defaults ("") and
+      // ignored, since begin() below never reaches wifiLink_ directly.
+      wifiJoinSequencer_.begin(config);
     } else if (wifiCredsExplicit_) {
       // A program called setupWifi() before the link began -- use its
       // stored credentials (possibly an explicit "", which
@@ -483,22 +495,34 @@ void Protocol::serviceWifi() {
       // comment).
       config.ssid = wifiSsid_;
       config.password = wifiPassword_;
+      wifiLink_.begin(config);
     } else {
       config.ssid = kWifiSsid;
       config.password = kWifiPassword;
+      wifiLink_.begin(config);
     }
-    // The mDNS host label is the board's own silicon-derived name --
-    // the same authoritative identity ID's `name` field reports -- so
-    // `tovez.local` / "tovez robot link" can never be a stale bake.
-    config.hostname = microbit_friendly_name();
-    config.port = kWifiPort;
-    config.hostPort = kWifiHostPort;
-    wifiLink_.begin(config);
+  }
+
+  // WifiJoinSequencer::service() is a pure pass-through to
+  // wifiLink_.service() whenever wifiJoinSequencer_.begin() was never
+  // called above (the wifiCredsExplicit_/baked branches) -- see that
+  // class's own header comment. So this single call replaces a direct
+  // wifiLink_.service() call for EVERY precedence branch, not just the
+  // flash one.
+  wifiJoinSequencer_.service();
+
+  if (firstPoll) {
+    // Emitted AFTER the first service() above, not inside the
+    // lazy-begin block: for the flash-store branch, wifiLink_ is not
+    // actually begin()'d until WifiJoinSequencer's own first
+    // service() call (it owns picking the slot) -- emitting here
+    // instead of right after wifiJoinSequencer_.begin() means this
+    // first DBG:wifi line reports the link's REAL post-begin() state
+    // (e.g. state=1/CONFIGURE) for every precedence branch alike,
+    // never a transient state=0/DISABLED reading for the flash case.
     lastWifiDbg_ = clockNow();
     emitWifiDebug();
   }
-
-  wifiLink_.service();
 
   const uint32_t now = clockNow();  // [ms]
   if (wifiLink_.pollStateChanged() ||

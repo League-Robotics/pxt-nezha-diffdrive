@@ -44,6 +44,8 @@
         "src/comms/wifi_uart.cpp",
         "src/comms/wifi_credential_store.h",
         "src/comms/wifi_credential_store.cpp",
+        "src/comms/wifi_join_sequencer.h",
+        "src/comms/wifi_join_sequencer.cpp",
         "src/comms/run_queue.h",
         "src/comms/run_bridge.h",
         "src/comms/run_bridge.cpp",

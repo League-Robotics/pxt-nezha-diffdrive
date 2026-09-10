@@ -1,9 +1,12 @@
 ---
 id: '005'
 title: 'WifiJoinSequencer: walk the credential list on boot'
-status: open
-use-cases: [SUC-004]
-depends-on: ['001', '004']
+status: in-progress
+use-cases:
+- SUC-004
+depends-on:
+- '001'
+- '004'
 github-issue: ''
 issue: wifi-credentials-live-in-flash-not-in-the-hex.md
 completes_issue: true
@@ -95,20 +98,20 @@ special-case it away.
 
 ## Acceptance Criteria
 
-- [ ] `WifiLink::Config` gains `forceExplicitJoin` (default `false`);
+- [x] `WifiLink::Config` gains `forceExplicitJoin` (default `false`);
       every existing `WifiLink` host test (ticket 001's suite and
       earlier) passes UNMODIFIED, proving the default path is
       byte-for-byte unchanged.
-- [ ] When `forceExplicitJoin` is true, `serviceJoin()` sends
+- [x] When `forceExplicitJoin` is true, `serviceJoin()` sends
       `AT+CWQAP` then the explicit `AT+CWJAP=`, skipping the
       `AT+CWJAP?` poll entirely (host test, scripted fake module: assert
       the exact command sequence sent, no `AT+CWJAP?` present).
-- [ ] Store with one wrong entry followed by one correct entry: the
+- [x] Store with one wrong entry followed by one correct entry: the
       sequencer reaches `kReady` on the correct entry within one boot
       (host test, scripted `+CWJAP:2` on slot 0 then `OK` on slot 1,
       via the existing `WifiLink` host harness driven by the
       sequencer, with `forceExplicitJoin` exercised).
-- [ ] **The module-memory regression case, per the sprint architecture's
+- [x] **The module-memory regression case, per the sprint architecture's
       2026-09-10 Revision**: a host test scripts the fake module to
       answer `AT+CWJAP?` (if issued) as already joined to slot 0's SSID
       — simulating the module having auto-rejoined from a stale,
@@ -134,27 +137,33 @@ special-case it away.
       `.claude/rules/measurement-citations.md`. Coordinate with the
       team-lead to run this directly, same convention as ticket 001's
       hardware step and ticket 004's HARDWARE ticket.
-- [ ] An all-wrong store cycles without wedging or crashing — a bounded
+      **NOT YET DONE — reserved for the team-lead.** All software/host
+      work for this ticket is complete and merged on this branch; this
+      is the one remaining item, per this same file's own instruction
+      that the programmer does not run hardware. See the implementing
+      session's report for the exact `DBG:wifi` field-by-field
+      expectations to check against.
+- [x] An all-wrong store cycles without wedging or crashing — a bounded
       host test runs several laps and asserts the slot index keeps
       advancing/wrapping, never stalls.
-- [ ] A wire `SET` (simulated at the store level, since ticket 003's
+- [x] A wire `SET` (simulated at the store level, since ticket 003's
       wire path may not yet be integrated with this ticket's harness)
       made mid-walk is picked up by the NEXT wrap-to-slot-0, not only
       after a reboot.
-- [ ] An empty store produces IDENTICAL behavior to `WifiLink` alone
+- [x] An empty store produces IDENTICAL behavior to `WifiLink` alone
       with no sequencer involvement at all — host test compares the
       two paths' observable state sequence.
-- [ ] The exact retry-vs-advance policy table (which `lastJoinError()`
+- [x] The exact retry-vs-advance policy table (which `lastJoinError()`
       values retry the current slot vs. advance immediately) is written
       down as a comment citing ticket 001's hardware confirmation
       artifact, not invented independently in this ticket.
-- [ ] No passphrase appears in any log/debug output this class produces
+- [x] No passphrase appears in any log/debug output this class produces
       (it operates on `WifiLink::Config` objects that carry passwords
       by pointer — never print/format one). Ticket 009 (sequenced
       before this one) already guarantees `WifiLink::lastCommand()`
       itself never carries the passphrase, including for the
       `AT+CWQAP` step this ticket adds.
-- [ ] Identifier names carry no units
+- [x] Identifier names carry no units
       (`.claude/rules/no-units-in-identifiers.md`) — this ticket
       introduces attempt-count and timeout-adjacent fields that are
       exactly the kind of name this rule targets (e.g. a bounded-retry

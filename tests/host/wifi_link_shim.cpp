@@ -54,7 +54,8 @@ struct Handle {
 
 extern "C" {
 
-void* wlCreate(const char* ssid, const char* password, const char* hostname) {
+void* wlCreate(const char* ssid, const char* password, const char* hostname,
+              int forceExplicitJoin) {
   Handle* h = new Handle();
   h->ssid = ssid;
   h->password = password;
@@ -63,6 +64,7 @@ void* wlCreate(const char* ssid, const char* password, const char* hostname) {
   config.ssid = h->ssid.c_str();
   config.password = h->password.c_str();
   config.hostname = h->hostname.c_str();
+  config.forceExplicitJoin = (forceExplicitJoin != 0);
   h->link.begin(config);
   return h;
 }

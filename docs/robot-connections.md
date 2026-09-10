@@ -169,8 +169,8 @@ If a passphrase or SSID is too long (over 32 characters for the SSID,
 63 for the password), `setupWifi()` clips it rather than overflowing --
 and that clip is never silent. The next `DBG:wifi ...` line carries
 `credsrc=` (0 = baked, 1 = set by `setupWifi()`, 2 = a credential
-stored in flash via `WIFICRED SET` -- sprint 038's reduced boot-wiring
-slice, ticket 006) and `trunc=` (a bitmask: bit 0 SSID clipped, bit 1
+stored in flash via `WIFICRED SET`, walked on boot by
+`WifiJoinSequencer` -- sprint 038 ticket 005) and `trunc=` (a bitmask: bit 0 SSID clipped, bit 1
 password clipped -- `trunc=` only ever reflects the `setupWifi()` path,
 not a flash-stored credential), so "joins nothing, no reason" is
 diagnosable from the same status line you already read for everything
@@ -178,17 +178,20 @@ else WiFi. A call made after the link has already come up is also not
 silent -- it changes nothing and prints `DBG:wifi late setupWifi()
 ignored`.
 
-`credsrc=2` beats `credsrc=1` beats `credsrc=0`: at boot, `Protocol`
-prefers the FIRST occupied slot in the flash-backed credential store
-over a `setupWifi()`-supplied credential, which in turn beats the
+`credsrc=2` beats `credsrc=1` beats `credsrc=0`: at boot, whenever the
+flash-backed credential store holds any entry at all, `Protocol` hands
+the join to `WifiJoinSequencer`, which walks its occupied slots in
+order until one joins (advancing immediately on a definitive
+wrong-password failure, retrying a few times on anything else before
+moving on, then wrapping back to slot 0 and re-reading the store) --
+preferred over both a `setupWifi()`-supplied credential and the
 deploy-time bake. `WIFICRED SET`/`WIFICRED CLEAR` write flash
-immediately but take effect at the **next boot only** -- the running
-link is not reconfigured live, and the `ack`/`err` reply to a `SET`
-does not mean the robot has joined on it yet, only that the write
-succeeded. An empty store behaves exactly as before this feature
-existed (`credsrc=0` or `1`, never `2`). This is a deliberately reduced
-slice of the sprint's full design (`WifiJoinSequencer`, multi-
-credential list-walking on join failure, is not implemented) -- see
+immediately; while the sequencer is walking a non-empty store, a write
+is picked up on the walk's next pass back to slot 0, not only after a
+reboot -- the `ack`/`err` reply to a `SET` still does not mean the
+robot has joined on it yet, only that the write succeeded. An empty
+store behaves exactly as before this feature existed (`credsrc=0` or
+`1`, never `2`) -- see
 `clasi/sprints/038-flash-backed-wifi-credential-store-with-join-failure-diagnostics/sprint.md`.
 
 #### The `secrets.ts` convention

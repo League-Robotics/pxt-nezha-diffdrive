@@ -32,6 +32,13 @@ bool WifiCredentialStore::occupied(int slot) const {
   return cache_[slot].occupied;
 }
 
+bool WifiCredentialStore::anyOccupied() const {
+  for (int slot = 0; slot < kSlots; ++slot) {
+    if (cache_[slot].occupied) return true;
+  }
+  return false;
+}
+
 bool WifiCredentialStore::get(int slot, char* ssidOut, char* passwordOut) const {
   if (slot < 0 || slot >= kSlots) return false;
   if (!cache_[slot].occupied) return false;

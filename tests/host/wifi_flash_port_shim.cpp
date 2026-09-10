@@ -84,6 +84,10 @@ int wcsOccupied(void* p, int slot) {
   return static_cast<Handle*>(p)->store.occupied(slot) ? 1 : 0;
 }
 
+int wcsAnyOccupied(void* p) {
+  return static_cast<Handle*>(p)->store.anyOccupied() ? 1 : 0;
+}
+
 // Returns 1 and fills ssidOut/passwordOut (each must be at least
 // kSsidBytes/kPasswordBytes) on success, 0 otherwise (buffers
 // untouched).

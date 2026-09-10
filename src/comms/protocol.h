@@ -36,6 +36,7 @@
 #include "radio_transport.h"  // radio transport -- now a full v6 sink too
 #include "serial_transport.h"
 #include "wifi_link.h"        // WiFi transport (host-portable AT state machine)
+#include "wifi_join_sequencer.h"  // walks WifiCredentialStore on boot (038-005)
 #include "wifi_uart.h"        // ...over NRF_UARTE1 (CODAL-free header)
 #include "wire_adapter.h"
 #include "run_bridge.h"
@@ -498,20 +499,14 @@ class Protocol {
   // store, read by emitWifiDebug()'s `trunc=` field.
   uint8_t wifiCredsTruncated_ = 0;
 
-  // A copy of the FIRST occupied WifiCredentialStore slot's
-  // ssid/password (see serviceWifi()'s own comment for the precedence
-  // rule), read once at serviceWifi()'s lazy-begin. Sized identically
-  // to wifiSsid_/wifiPassword_ above and for the same reason --
-  // WifiLink::Config borrows a pointer into this cell for the link's
-  // life, so it must be a Protocol-owned cell, not a serviceWifi()
-  // local.
-  char wifiFlashSsid_[33] = {0};
-  char wifiFlashPassword_[64] = {0};
-
-  // True iff serviceWifi()'s lazy-begin found an occupied flash slot
-  // and used it -- the credsrc=2 case. An EMPTY store leaves this
-  // false forever, so every write below this flag simply never
-  // happens and the explicit/baked-credential path runs unchanged.
+  // True iff serviceWifi()'s lazy-begin found the flash-backed
+  // WifiCredentialStore non-empty and handed the join to
+  // WifiJoinSequencer -- the credsrc=2 case. An EMPTY store leaves
+  // this false forever, so the explicit/baked-credential path below
+  // runs unchanged (sprint 038 ticket 005; wifiJoinSequencer_ member,
+  // below wifiLink_, owns its own ssid/password cells now -- this
+  // class no longer needs to, since it no longer copies a slot's
+  // credentials itself).
   bool wifiCredsFromFlash_ = false;
 
   // NSDMI for every member below except roleBuf_/commonNameBuf_ above
@@ -538,6 +533,14 @@ class Protocol {
   // each transport keeps its own expectedNext_, so a sequence gap on
   // WiFi can never nack serial's or radio's next command.
   WifiLink wifiLink_{wifiUart_, &Protocol::wireNow};
+  // Walks WifiCredentialStore's occupied slots on boot (sprint 038
+  // ticket 005); serviceWifi() calls THIS class's service() every poll
+  // now, not wifiLink_.service() directly. Shares the SAME store
+  // instance WireAdapter's WIFICRED verb reaches through
+  // wifiCredentialStore() (wifi_credential_store.h) -- one singleton,
+  // two callers, exactly that header's own "STOPGAP ... until then"
+  // comment anticipated.
+  WifiJoinSequencer wifiJoinSequencer_{wifiLink_, wifiCredentialStore()};
   TransportSink<WifiLink> wifiSink_{wifiLink_, &Protocol::writeWifi};
   Wire::WireHandler wireHandlerWifi_{wireAdapter_, wifiSink_};
   uint8_t wifiRxBuf_[WifiLink::kMaxLineBytes + 1];

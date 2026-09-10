@@ -6,13 +6,24 @@ clasi/sprints/036-runtime-wifi-credentials-via-setupwifi/tickets/
 003-host-level-test-setupwifi-precedence-truncation-and-late-call-
 behavior.md.
 
-Extended by sprint 038 ticket 006's REDUCED boot-wiring slice (section
-7, near the end of this file) to also pin that a stored flash
-credential (`WifiCredentialStore`'s first occupied slot) is preferred
+Extended by sprint 038 ticket 006's REDUCED boot-wiring slice, and then
+by ticket 005's real `WifiJoinSequencer` (section 7, near the end of
+this file), to also pin that a stored flash credential is preferred
 ahead of both the `wifiCredsExplicit_`/baked precedence pinned above,
 and that `credsrc=` can report it as `2` -- without disturbing any of
 the sprint-036 pins, which still describe the `1`/`0` half of the same
-precedence chain unchanged.
+precedence chain unchanged. Section 7's pins were themselves REPLACED
+by ticket 005 (not merely extended): the "FIRST occupied slot,
+break-out-of-the-loop" shape ticket 006's own reduced slice used no
+longer exists in `serviceWifi()` -- the slot walk moved entirely into
+`WifiJoinSequencer` (host-tested separately,
+`tests/host/test_wifi_join_sequencer.py`), and `serviceWifi()` now
+only decides WHETHER the store has any entries at all
+(`WifiCredentialStore::anyOccupied()`) before handing the walk off.
+Section 7's own comment at the time flagged this explicitly: "This
+does not pin ticket 005's `WifiJoinSequencer` ... only that ONE slot
+is tried, not a walk-on-failure loop" -- ticket 005 is exactly the
+change that comment anticipated.
 
 **What this is NOT.** Source-text pinning, following
 `test_dispatched_job_motion_source_pin.py`'s own precedent of
@@ -529,44 +540,56 @@ def test_truncation_boundary_constants_agree_with_cell_sizes():
 
 
 # ---------------------------------------------------------------------
-# 7. Sprint 038 ticket 006's REDUCED boot-wiring slice: serviceWifi()
+# 7. Sprint 038 ticket 005's real WifiJoinSequencer wiring: serviceWifi()
 #    must prefer a stored flash credential over both wifiCredsExplicit_
-#    and the bake, and credsrc= must be able to report it (2), without
-#    disturbing the sprint-036 precedence this file otherwise pins.
-#    Same "cannot compile protocol.cpp" limitation as every other test
-#    in this file applies here too -- these are source-shape pins, not
-#    a run of the real precedence logic.
+#    and the bake, hand the walk off to WifiJoinSequencer (not a
+#    first-slot-only scan inline), and credsrc= must still be able to
+#    report the flash case as 2, without disturbing the sprint-036
+#    precedence this file otherwise pins. Same "cannot compile
+#    protocol.cpp" limitation as every other test in this file applies
+#    here too -- these are source-shape pins, not a run of the real
+#    precedence logic (the real slot-walk/retry-vs-advance logic is
+#    host-tested directly, in WifiJoinSequencer's own translation
+#    unit -- see tests/host/test_wifi_join_sequencer.py).
 # ---------------------------------------------------------------------
 
 _FLASH_FLAG_IF_RE = re.compile(r"if\s*\(\s*wifiCredsFromFlash_\s*\)")
-_STORE_LOOP_RE = re.compile(
-    r"for\s*\(\s*int\s+slot\s*=\s*0\s*;\s*slot\s*<\s*"
-    r"WifiCredentialStore::kSlots\s*;\s*\+\+slot\s*\)"
+_FLASH_ANY_OCCUPIED_RE = re.compile(
+    r"wifiCredsFromFlash_\s*=\s*wifiCredentialStore\s*\(\s*\)\s*\.\s*"
+    r"anyOccupied\s*\(\s*\)\s*;"
+)
+_SEQUENCER_BEGIN_RE = re.compile(
+    r"wifiJoinSequencer_\s*\.\s*begin\s*\(\s*config\s*\)"
 )
 
 
 def test_service_wifi_prefers_flash_store_over_explicit_and_baked():
-    """serviceWifi()'s lazy-begin must walk WifiCredentialStore's slots
-    looking for the FIRST occupied one, and -- when found -- use it in
-    preference to both the wifiCredsExplicit_ branch and the baked
-    kWifiSsid/kWifiPassword fallback pinned above. This does not pin
-    ticket 005's WifiJoinSequencer (deliberately not implemented in
-    this reduced slice) -- only that ONE slot is tried, not a walk-on-
-    failure loop."""
+    """serviceWifi()'s lazy-begin must check WHETHER
+    WifiCredentialStore has any occupied slot at all
+    (anyOccupied()) -- not walk it looking for the first one inline,
+    that logic moved entirely into WifiJoinSequencer (ticket 005,
+    host-tested in its own file) -- and, when the store is non-empty,
+    hand the walk off to wifiJoinSequencer_.begin(), in preference to
+    both the wifiCredsExplicit_ branch and the baked
+    kWifiSsid/kWifiPassword fallback pinned above."""
     body = _service_wifi_body()
 
-    assert _STORE_LOOP_RE.search(body), (
-        "Protocol::serviceWifi(): no 'for (int slot = 0; slot < "
-        f"WifiCredentialStore::kSlots; ++slot)' scan found:\n{body}"
+    assert _FLASH_ANY_OCCUPIED_RE.search(body), (
+        "Protocol::serviceWifi(): no "
+        "'wifiCredsFromFlash_ = wifiCredentialStore().anyOccupied();' "
+        f"found -- has the ticket 005 precedence check regressed back "
+        f"to an inline first-slot scan, or been removed?:\n{body}"
     )
-    assert re.search(r"store\.occupied\s*\(\s*slot\s*\)", body), (
-        f"Protocol::serviceWifi(): no store.occupied(slot) check found "
-        f"in the flash scan:\n{body}"
-    )
-    assert re.search(r"\bbreak\s*;", body), (
-        "Protocol::serviceWifi(): the flash-slot scan has no break -- "
-        f"it must stop at the FIRST occupied slot, not walk the list:"
-        f"\n{body}"
+    # The old ticket-006-slice inline scan must be GONE -- this class
+    # no longer knows about individual slots at all, only whether the
+    # store has any.
+    assert not re.search(
+        r"for\s*\(\s*int\s+slot\s*=\s*0\s*;\s*slot\s*<\s*"
+        r"WifiCredentialStore::kSlots\s*;\s*\+\+slot\s*\)", body,
+    ), (
+        "Protocol::serviceWifi(): a 'for (int slot = 0; ...; ++slot)' "
+        "scan is still present -- slot-walking belongs in "
+        f"WifiJoinSequencer, not here, as of ticket 005:\n{body}"
     )
 
     flash_if = _FLASH_FLAG_IF_RE.search(body)
@@ -574,14 +597,10 @@ def test_service_wifi_prefers_flash_store_over_explicit_and_baked():
         f"Protocol::serviceWifi(): no 'if (wifiCredsFromFlash_)' branch "
         f"found:\n{body}"
     )
-    assert re.search(r"config\.ssid\s*=\s*wifiFlashSsid_", body), (
-        f"Protocol::serviceWifi(): no 'config.ssid = wifiFlashSsid_' "
-        f"found -- the flash-store path must feed WifiLink::Config from "
-        f"the Protocol-owned flash cell, not a temporary:\n{body}"
-    )
-    assert re.search(r"config\.password\s*=\s*wifiFlashPassword_", body), (
-        f"Protocol::serviceWifi(): no 'config.password = "
-        f"wifiFlashPassword_' found:\n{body}"
+    assert _SEQUENCER_BEGIN_RE.search(body), (
+        "Protocol::serviceWifi(): no 'wifiJoinSequencer_.begin(config)' "
+        f"call found -- the flash-store branch must hand the walk off "
+        f"to WifiJoinSequencer, not begin() wifiLink_ itself:\n{body}"
     )
 
     # Precedence: the flash branch must appear BEFORE the
@@ -598,6 +617,24 @@ def test_service_wifi_prefers_flash_store_over_explicit_and_baked():
         "Protocol::serviceWifi(): the wifiCredsFromFlash_ check does "
         "not appear BEFORE the wifiCredsExplicit_ check -- flash must "
         f"be preferred, not merely present:\n{body}"
+    )
+
+
+def test_service_wifi_calls_sequencer_service_not_link_service_directly():
+    """Sprint architecture Overview: 'serviceWifi() calls
+    sequencer.service() instead of wifiLink_.service() directly' --
+    for EVERY precedence branch, not just the flash one (which is what
+    lets WifiJoinSequencer be a pure pass-through for an empty store,
+    see that class's own header comment)."""
+    body = _service_wifi_body()
+    assert re.search(r"wifiJoinSequencer_\s*\.\s*service\s*\(\s*\)", body), (
+        f"Protocol::serviceWifi(): no 'wifiJoinSequencer_.service()' "
+        f"call found:\n{body}"
+    )
+    assert not re.search(r"\bwifiLink_\s*\.\s*service\s*\(\s*\)", body), (
+        "Protocol::serviceWifi(): a direct 'wifiLink_.service()' call "
+        "is still present -- every poll must go through "
+        f"wifiJoinSequencer_.service() instead:\n{body}"
     )
 
 

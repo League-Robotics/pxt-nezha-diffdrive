@@ -201,7 +201,12 @@ _RATIO_BASELINE = {
     "src/comms/wire_adapter.h": 3.74,  # 262 / 70
     "src/motion/motion_engine.h": 3.70,  # 396 / 107
     "src/comms/radio_transport.h": 3.69,  # 258 / 70
-    "src/comms/protocol.h": 3.58,  # 351 / 98
+    # Raised 3.58 -> 3.59 (351/98 -> 413/115) alongside sprint 038
+    # ticket 005: WifiJoinSequencer's own member and the serviceWifi()
+    # precedence-branch comments it required are load-bearing (they
+    # state which class owns the join once the store is non-empty, and
+    # why the mDNS hostname/port fields moved ahead of the branch).
+    "src/comms/protocol.h": 3.59,  # 413 / 115
     "src/core/motion_owner.h": 3.56,  # 64 / 18
     "src/platform/vfp_guard.h": 3.54,  # 46 / 13
     "src/core/heading_wrap.h": 2.82,  # 31 / 11
@@ -222,8 +227,19 @@ _RATIO_BASELINE = {
     "src/motion/odometry.h": 1.33,  # 76 / 57
     "src/motion/motion_limits.h": 1.26,  # 73 / 58
     "src/motion/velocity_shaper.cpp": 1.20,  # 65 / 54
-    "src/comms/wire_adapter.cpp": 1.19,  # 474 / 397
-    "src/comms/protocol.cpp": 1.15,  # 389 / 338
+    # Raised 1.19 -> 1.21 (474/397 -> 547/453) alongside sprint 038
+    # ticket 005: wifiCredSet()'s own "when does a wire SET take
+    # effect" comment now states the real, corrected timing (a wrap of
+    # WifiJoinSequencer's walk, not only a reboot) -- load-bearing,
+    # since the PREVIOUS text was actively wrong once the sequencer
+    # shipped.
+    "src/comms/wire_adapter.cpp": 1.21,  # 547 / 453
+    # Raised 1.15 -> 1.19 (389/338 -> 532/447) alongside sprint 038
+    # ticket 005: serviceWifi()'s precedence-branch comment now states
+    # the WifiJoinSequencer hand-off contract (which branch arms it,
+    # why an unarmed sequencer is a pure pass-through) -- load-bearing,
+    # not archaeology.
+    "src/comms/protocol.cpp": 1.19,  # 532 / 447
     "src/comms/serial_transport.cpp": 0.83,  # 43 / 52
     "src/comms/emit_queue.h": 0.80,  # 39 / 49
     "src/platform/nezha_port.h": 0.78,  # 58 / 74
@@ -246,7 +262,13 @@ _RATIO_BASELINE = {
     # startCommand() trace-override parameter are new public surface
     # whose comments state a hard contract (a passphrase must never
     # reach lastCommand_/the wire) -- load-bearing, not archaeology.
-    "src/comms/wifi_link.h": 0.79,  # 183 / 232
+    # Raised 0.79 -> 0.86 (183/232 -> 201/233) alongside sprint 038
+    # ticket 005: Config::forceExplicitJoin's own comment states a
+    # hard MEASURED fact (gopiv 2026-09-09,
+    # captures/wifi-join-codes-20260909/, the module-memory auto-rejoin
+    # finding) and the contract this field changes -- load-bearing,
+    # protected from trimming by .claude/rules/measurement-citations.md.
+    "src/comms/wifi_link.h": 0.86,  # 201 / 233
     "src/comms/run_queue.h": 0.59,  # 36 / 61
     "src/platform/vfp_guard.cpp": 0.58,  # 7 / 12
     "src/comms/radio_transport.cpp": 0.57,  # 64 / 112
@@ -263,7 +285,13 @@ _RATIO_BASELINE = {
     # MEASURED citation (gopiv 2026-09-09,
     # captures/wifi-join-codes-20260909/), protected from trimming by
     # .claude/rules/measurement-citations.md.
-    "src/comms/wifi_link.cpp": 0.16,  # 138 / 869
+    # Raised 0.16 -> 0.18 (138/869 -> 160/878) alongside sprint 038
+    # ticket 005: the forceExplicitJoin branch in serviceJoin() carries
+    # the same MEASURED module-memory citation as wifi_link.h's Config
+    # field, plus the LANDMINE-avoidance reasoning for why AT+CWQAP is
+    # safe where a bare explicit join is not -- load-bearing, protected
+    # from trimming by .claude/rules/measurement-citations.md.
+    "src/comms/wifi_link.cpp": 0.18,  # 160 / 878
     "src/blocks/pose.ts": 0.03,  # 1 / 38
     "src/blocks/stop.ts": 0.02,  # 1 / 49
 }
