@@ -1,0 +1,10 @@
+rogo: 'gopiv robot link' -> gopiv.local.:7654 -> 192.168.1.218 (txt name=gopiv role=robot link=v6 port=7654)
+rogo: connected to 192.168.1.218:7654
+device NEZHA2 robot gopiv 2175407711
+DBG:wifi state=5 ip=192.168.1.218 peer=-:0 tcp=1/1 to=0 restarts=0 sent=6 rx=2 drop=0 mdns=1/1 cmd=AT+CIPSEND=0,177 reply=..Recv 177 bytes....SEND OK.. credsrc=0 trunc=0 join=-
+device NEZHA2 robot gopiv 2175407711
+ack 1 0 none
+ack 2 0 none
+wificred 0 TestNet038 1
+nack 3 0 none
+err 2 #3

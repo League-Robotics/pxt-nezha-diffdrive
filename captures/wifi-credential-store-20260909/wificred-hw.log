@@ -1,0 +1,7 @@
+--- enumerate (expect empty store) ---
+ack 1 0 none
+--- set slot 0 ---
+ack 2 0 none
+err 3 #2
+--- enumerate again ---
+ack 3 0 none
