@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: 'WifiCredentialStore and WifiFlashPort: flash-backed record store'
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 - SUC-003
