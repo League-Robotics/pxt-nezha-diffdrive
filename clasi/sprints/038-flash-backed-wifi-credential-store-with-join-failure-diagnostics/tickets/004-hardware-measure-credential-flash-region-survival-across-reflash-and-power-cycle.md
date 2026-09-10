@@ -72,21 +72,21 @@ this check only needs WiFi and the wire, not motion.
 
 ## Acceptance Criteria
 
-- [ ] MEASURED (artifact path cited, per
+- [~] DEFERRED, not measurable from here (artifact path cited, per
       `.claude/rules/measurement-citations.md`): the credential record
       written in step 2 is read back correctly after a power cycle.
-- [ ] MEASURED: the credential record is read back correctly after an
+- [x] MEASURED — **FAIL, and that is the finding**: read back after an
       `mbdeploy deploy` reflash — the sprint's headline risk, settled
       here, not assumed.
-- [ ] If either measurement is a FAIL, this is reported to the
+- [x] If either measurement is a FAIL, this is reported to the
       stakeholder as a finding (not silently patched around), and
       either a new candidate page is chosen (reopening ticket 002) or
       R3's scope is explicitly narrowed with stakeholder sign-off
       before any downstream ticket (005, 006) proceeds on the
       assumption that R3 is fully met.
-- [ ] The test credential used is obviously fake, never a real
+- [x] The test credential used is obviously fake, never a real
       network's password, in every captured artifact.
-- [ ] No passphrase — fake or otherwise — appears in cleartext in any
+- [x] No passphrase — fake or otherwise — appears in cleartext in any
       artifact this ticket produces beyond what's operationally
       necessary to prove the round-trip (the captured transcript may
       show the fake SSID and a `haspw=1` flag; it should not need to
@@ -114,3 +114,40 @@ this out as un-satisfiable by host tests).
 or the narrowed/relocated decision) in this ticket's own closing notes
 so ticket 007's docs pass has the final, confirmed answer to write
 down.
+
+
+## Results — team-lead, 2026-09-09/10
+
+Artifacts: `captures/wifi-credential-store-20260909/` (`notes.md` indexes
+them). Board gopiv, fake credential `TestNet038` / a fake passphrase.
+
+**Reflash: FAIL — a deploy MASS-ERASES, so credentials do not survive it.**
+A store written before `mbdeploy deploy --remote gopiv` enumerated empty
+afterwards. The programmed range (105 sectors, 0x68000 bytes) never
+reaches the store page at `0x0007D000`, so this is pyOCD's chip
+mass-erase, not overwrite. Reported to the stakeholder in the interim
+release summary; **R3 is narrowed accordingly to "survives a power
+cycle", not "survives a reflash"**, and the stakeholder's answer was to
+keep going. The operational rule — *provision AFTER flashing* — is in
+the capture notes, the release notes, the merge commit, and the
+instructions handed to the consuming project. Ticket 002's page address
+is NOT reopened: no page survives a mass erase, so no other candidate
+would have done better.
+
+**Power cycle: DEFERRED, not measurable from this session.** It needs a
+reboot that is not a reflash, and there was no way to produce one
+remotely: the wire vocabulary has no reset/reboot verb, gopiv's Nezha
+brick is switched off so power cannot be cycled through it, and the
+`null` Pi's serial daemon holds the port open continuously so the
+open-the-port-resets-the-target behaviour never fires. The first person
+to power-cycle a provisioned board settles it; the expected reading
+(`credsrc=2` and a join on the stored SSID) is written down in the
+capture notes and in the consuming project's instructions, flagged as
+unconfirmed. **A `REBOOT` wire verb would close this hole** — filed as
+its own issue.
+
+**Two defects found by this run, both fixed** (they are why the first
+two attempts failed): the vendored `MicroBitFlash.h` documents
+`flash_write()` as returning non-zero on success while the code returns
+`MICROBIT_OK` (0), and this target's newlib-nano printf has no `%zu`.
+Details in the capture notes.
