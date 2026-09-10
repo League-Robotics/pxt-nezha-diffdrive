@@ -421,9 +421,16 @@ def open_link(port=None, radio=False, wifi=None, robot=None):
 #
 #   WIFICRED SET <slot> <ssid> <password> #<id>  -> ack <id> ... [err <n> #<id>]
 #   WIFICRED #<id>                                -> zero or more
-#                                                     `wificred <slot> <ssid> <haspw>`
+#                                                     `wificred <slot> <haspw> <ssid>`
 #                                                     lines, then ack <id> ...
 #   WIFICRED CLEAR <slot> #<id>                    -> ack <id> ... [err <n> #<id>]
+#
+# `ssid` is the LAST field of the enumeration line, deliberately -- an
+# 802.11 SSID may contain spaces (MEASURED gopiv 2026-09-10,
+# captures/wifi-credential-store-20260909/: the real fleet SSID
+# "Busboom Mesh"). Putting it last means wificred_list() below can
+# split with maxsplit=3 and take everything after `haspw` as the SSID,
+# unambiguously, no matter what the SSID contains.
 #
 # Every form is sequenced (WIFICRED is in _V6_VERBS above), including the
 # bare enumeration -- a `WIFICRED` sent without an id parses as `#0` and is
@@ -489,16 +496,21 @@ def wificred_list(link, wait=1.5):
     firmware never sends the passphrase on this or any other path
     (module comment above), so there is nothing for this parser to
     accidentally pick up even from a malformed line.
+
+    The line is `wificred <slot> <haspw> <ssid>` -- ssid LAST and
+    split with maxsplit=3, so a real SSID containing spaces (e.g.
+    "Busboom Mesh") comes back whole rather than truncated at its
+    first space. See the module comment above.
     """
     entries = []
     for line in _wificred_exchange(link, 'WIFICRED', wait):
-        parts = line.split()
+        parts = line.split(None, 3)
         if len(parts) != 4 or parts[0] != 'wificred':
             continue
         try:
             slot = int(parts[1])
         except ValueError:
             continue
-        entries.append({'slot': slot, 'ssid': parts[2],
-                         'has_password': parts[3] == '1'})
+        entries.append({'slot': slot, 'ssid': parts[3],
+                         'has_password': parts[2] == '1'})
     return entries

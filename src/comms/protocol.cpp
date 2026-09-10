@@ -429,6 +429,18 @@ void Protocol::emitWifiDebug() {
   // the two can't disagree: 2=wifiJoinSequencer_'s slot,
   // 1=wifiSsid_/wifiPassword_, 0=kWifiSsid/kWifiPassword. No credential
   // at the active source -> `ssid=- haspw=0`, never a bare empty field.
+  //
+  // ssid= is the LAST field on the line, deliberately -- an 802.11
+  // SSID may contain spaces (MEASURED gopiv 2026-09-10,
+  // captures/wifi-credential-store-20260909/: the real fleet SSID
+  // "Busboom Mesh" made a mid-line `ssid=%s haspw=%u` unparseable --
+  // `ssid=Busboom` plus a stray `Mesh` token). Putting haspw= BEFORE
+  // ssid= and ssid= after it means a consumer that does not know the
+  // SSID in advance can take everything from `ssid=` to end-of-line as
+  // the SSID, unambiguously, with no quoting/escaping needed and no
+  // byte cost -- see docs/robot-connections.md's DBG:wifi section.
+  // execWifiCred()'s `wificred` enumeration line (wire_handler.cpp)
+  // uses the identical convention for the same reason.
   const char* ssidField = "-";
   bool haspwField = false;
   if (wifiCredsFromFlash_) {
@@ -456,7 +468,7 @@ void Protocol::emitWifiDebug() {
   snprintf(wifiDbgBuf_, sizeof(wifiDbgBuf_),
            "DBG:wifi state=%d ip=%s peer=%s:%u tcp=%u/%d to=%d restarts=%lu "
            "sent=%lu rx=%lu drop=%lu mdns=%lu/%d cmd=%s reply=%s "
-           "credsrc=%d trunc=%u join=%s ssid=%s haspw=%u",
+           "credsrc=%d trunc=%u join=%s haspw=%u ssid=%s",
            static_cast<int>(wifiLink_.state()),
            wifiLink_.ownIp()[0] ? wifiLink_.ownIp() : "-",
            wifiLink_.peerIp()[0] ? wifiLink_.peerIp() : "-",
@@ -472,7 +484,7 @@ void Protocol::emitWifiDebug() {
            wifiLink_.lastCommand(), wifiLink_.lastReply(),
            wifiCredsFromFlash_ ? 2 : (wifiCredsExplicit_ ? 1 : 0),
            static_cast<unsigned>(wifiCredsTruncated_),
-           joinBuf, ssidField, haspwField ? 1u : 0u);
+           joinBuf, haspwField ? 1u : 0u, ssidField);
   emitLine(wifiDbgBuf_);
 }
 

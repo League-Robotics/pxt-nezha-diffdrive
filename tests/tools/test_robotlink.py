@@ -478,8 +478,8 @@ def test_wificred_set_returns_both_ack_and_a_same_burst_err():
 
 def test_wificred_list_parses_the_enumeration_into_structured_entries():
     port = FakePort([
-        b'wificred 0 MyNetwork 1\n',
-        b'wificred 2 OpenGuestNet 0\n',
+        b'wificred 0 1 MyNetwork\n',
+        b'wificred 2 0 OpenGuestNet\n',
         b'ack 1 0 none\n',
     ])
     link = robotlink.Link(port, False)
@@ -496,7 +496,7 @@ def test_wificred_list_never_returns_a_has_password_string():
     `has_password` must be a bool, never the wire's own literal `'1'`/
     `'0'` token surviving unconverted (which would at least be the
     right VALUE by accident) and never anything resembling a secret."""
-    port = FakePort([b'wificred 0 MyNetwork 1\n', b'ack 1 0 none\n'])
+    port = FakePort([b'wificred 0 1 MyNetwork\n', b'ack 1 0 none\n'])
     link = robotlink.Link(port, False)
     entries = robotlink.wificred_list(link, wait=0.05)
     assert entries[0]['has_password'] is True
@@ -506,13 +506,26 @@ def test_wificred_list_never_returns_a_has_password_string():
 def test_wificred_list_ignores_malformed_or_unrelated_lines():
     port = FakePort([
         b'DBG:wifi state=5 ...\n',
-        b'wificred not-a-slot Net 1\n',   # bad slot -- skipped, not raised
-        b'wificred 0 MyNetwork 1\n',
+        b'wificred not-a-slot 1 Net\n',   # bad slot -- skipped, not raised
+        b'wificred 0 1 MyNetwork\n',
         b'ack 1 0 none\n',
     ])
     link = robotlink.Link(port, False)
     entries = robotlink.wificred_list(link, wait=0.05)
     assert entries == [{'slot': 0, 'ssid': 'MyNetwork', 'has_password': True}]
+
+
+def test_wificred_list_recovers_an_ssid_containing_spaces():
+    """MEASURED gopiv 2026-09-10, captures/wifi-credential-store-20260909/:
+    the real fleet SSID `Busboom Mesh` contains a space. `wificred_list()`
+    must split with a maxsplit of 3 (ssid is the LAST field on the wire
+    line) so the whole SSID comes back, not just its first token."""
+    port = FakePort([b'wificred 0 1 Busboom Mesh\n', b'ack 1 0 none\n'])
+    link = robotlink.Link(port, False)
+    entries = robotlink.wificred_list(link, wait=0.05)
+    assert entries == [
+        {'slot': 0, 'ssid': 'Busboom Mesh', 'has_password': True},
+    ]
 
 
 def test_wificred_set_never_prints_the_password(capsys):

@@ -1656,9 +1656,11 @@ def test_a_decode_failure_stall_also_raises_the_reminder(wg):
 # (sprint 038 ticket 003, sprint architecture Design Rationale #4)
 #
 # Bare enumeration is execFuncs()'s shape exactly: walk an
-# adapter-declared FIXED slot count, emit one `wificred <slot> <ssid>
-# <haspw>` line per OCCUPIED slot, and let the ack terminate the
-# variable-length reply. `SET`/`CLEAR` share this same verb name as a
+# adapter-declared FIXED slot count, emit one `wificred <slot> <haspw>
+# <ssid>` line per OCCUPIED slot (ssid LAST -- an 802.11 SSID may
+# contain spaces; see wire_handler.cpp's execWifiCred() comment), and
+# let the ack terminate the variable-length reply. `SET`/`CLEAR` share
+# this same verb name as a
 # sub-verb in fields[0] rather than becoming their own kCommandTable
 # rows. The WHOLE verb -- bare enumeration included -- is SEQUENCED:
 # see kCommandTable's own WIFICRED row comment (wire_handler.cpp) for
@@ -1674,7 +1676,7 @@ def test_a_decode_failure_stall_also_raises_the_reminder(wg):
 
 
 def test_wificred_golden_vector(wg):
-    """One `wificred <slot> <ssid> <haspw>` line per OCCUPIED slot, in
+    """One `wificred <slot> <haspw> <ssid>` line per OCCUPIED slot, in
     slot-number order, unoccupied slots skipped entirely -- mirrors
     test_funcs_golden_vector's shape."""
     wg.arm_wificred_slot(0, b"home", True)
@@ -1682,8 +1684,8 @@ def test_wificred_golden_vector(wg):
     wg.feed(b"WIFICRED #1\n")
     assert wg.take_sink() == (
         _ack(1) +
-        b"wificred 0 home 1\n"
-        b"wificred 3 office-guest 0\n"
+        b"wificred 0 1 home\n"
+        b"wificred 3 0 office-guest\n"
     )
 
 
@@ -1703,7 +1705,7 @@ def test_wificred_set_round_trips_into_the_enumeration(wg):
     assert wg.take_sink() == _ack(1)
 
     wg.feed(b"WIFICRED #2\n")
-    assert wg.take_sink() == _ack(2) + b"wificred 2 gopiv-guest 1\n"
+    assert wg.take_sink() == _ack(2) + b"wificred 2 1 gopiv-guest\n"
 
 
 def test_wificred_clear_removes_a_slot(wg):
@@ -1858,8 +1860,20 @@ def test_wificred_sanitizes_an_adapter_supplied_newline_in_the_ssid(wg):
     wg.arm_wificred_slot(0, b"ho\nme", True)
     wg.feed(b"WIFICRED #1\n")
     reply = wg.take_sink()
-    assert reply == _ack(1) + b"wificred 0 home 1\n"
+    assert reply == _ack(1) + b"wificred 0 1 home\n"
     assert reply.count(b"\n") == 2  # the ack's and this one entry's
+
+
+def test_wificred_enumeration_ssid_with_spaces_is_unambiguous(wg):
+    """MEASURED gopiv 2026-09-10, captures/wifi-credential-store-20260909/:
+    the real fleet SSID `Busboom Mesh` is a legal 802.11 SSID. `ssid`
+    must be the LAST field on the line so a consumer that does not know
+    the SSID in advance can still recover it whole (split on whitespace
+    with maxsplit=3), rather than misreading `Busboom` as the ssid and
+    `Mesh` as a stray token."""
+    wg.arm_wificred_slot(0, b"Busboom Mesh", True)
+    wg.feed(b"WIFICRED #1\n")
+    assert wg.take_sink() == _ack(1) + b"wificred 0 1 Busboom Mesh\n"
 
 
 def test_wificred_appears_in_the_help_listing(wg):

@@ -241,7 +241,7 @@ def _worst_case_line_length():
         "DBG:wifi state={state} ip={ip} peer={peer}:{port} tcp={tcp}/{replyLink} "
         "to={to} restarts={restarts} sent={sent} rx={rx} drop={drop} "
         "mdns={mdns}/{mdnsOpen} cmd={cmd} reply={reply} "
-        "credsrc={credsrc} trunc={trunc} join={join} ssid={ssid} haspw={haspw}"
+        "credsrc={credsrc} trunc={trunc} join={join} haspw={haspw} ssid={ssid}"
     )
     return len(fmt.format(**_WORST_CASE_FIELDS))
 

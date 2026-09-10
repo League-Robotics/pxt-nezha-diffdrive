@@ -249,7 +249,7 @@ gopiv 2026-09-09/10,
 ```
 HELLO
 WIFICRED SET <slot> <ssid> <password> #<id>    -> ack <id> ...
-WIFICRED #<id>                                 -> wificred <slot> <ssid> <haspw>
+WIFICRED #<id>                                 -> wificred <slot> <haspw> <ssid>
 WIFICRED CLEAR <slot> #<id>                    -> ack <id> ...
 ```
 
@@ -261,6 +261,18 @@ WIFICRED CLEAR <slot> #<id>                    -> ack <id> ...
 - Slots are `0`..`7`. `haspw` is `0`/`1`. **The passphrase is never
   readable back** on any path, under any input -- the enumeration
   reports only whether a slot has one.
+- **`ssid` is the LAST field on the `wificred` line, deliberately.** An
+  802.11 SSID may legally contain spaces -- MEASURED gopiv 2026-09-10,
+  `captures/wifi-credential-store-20260909/`, against the real fleet
+  SSID `Busboom Mesh`: a mid-line `<slot> <ssid> <haspw>` shape would
+  enumerate it as `wificred 0 Busboom Mesh 1`, and a consumer
+  splitting on whitespace has no way to tell where the SSID ends. With
+  `haspw` before it, a consumer can split the line with a maxsplit of
+  3 (`wificred`, slot, haspw, then everything left over is the SSID)
+  and recover it unambiguously no matter what it contains -- no
+  quoting or escaping needed. `tools/robotlink.py`'s `wificred_list()`
+  parses it this way; `DBG:wifi`'s `ssid=` field below uses the same
+  convention for the same reason.
 
 **A flash MASS-ERASES the whole chip, so credentials do not survive
 `mbdeploy deploy`.** MEASURED gopiv 2026-09-09/10, same capture: a
@@ -271,13 +283,18 @@ flashing, never before.**
 
 `DBG:wifi`'s full field list (`src/comms/protocol.cpp`'s
 `emitWifiDebug()`): `state= ip= peer= tcp= to= restarts= sent= rx=
-drop= mdns= cmd= reply= credsrc= trunc= join= ssid= haspw=`. Two of
+drop= mdns= cmd= reply= credsrc= trunc= join= haspw= ssid=`. Two of
 those are new alongside `credsrc=`/`trunc=` above:
 
 - **`ssid=`/`haspw=`** -- the SSID currently active/attempted at
   whichever source `credsrc=` names, and whether it has a password.
   Never the password. `ssid=- haspw=0` (never a bare empty field) when
-  nothing is configured at the active source yet.
+  nothing is configured at the active source yet. **`ssid=` is the
+  LAST field on the line, deliberately** -- same reason and same
+  convention as the `WIFICRED` enumeration's `ssid` above: an 802.11
+  SSID may contain spaces, and putting `haspw=` before it means a
+  consumer that does not know the SSID in advance can take everything
+  from `ssid=` to end-of-line as the value, unambiguously.
 - **`join=`** -- the WiFi module's own `+CWJAP:<code>` from the most
   recent join attempt, or `-` when no code was captured (a plain
   timeout). This is the raw vendor number, deliberately unmapped in

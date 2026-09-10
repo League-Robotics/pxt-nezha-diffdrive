@@ -1109,9 +1109,25 @@ void WireHandler::execWifiCred(char** fields, size_t fieldCount, uint32_t id,
       // (test_no_percent_z_format_specifier_source_pin.py) and not just
       // this one fix. Explicit cast to unsigned + %u, matching
       // replyErr()'s own `static_cast<unsigned>(code)` precedent above.
-      snprintf(buf, sizeof(buf), "wificred %u %s %d\n",
-               static_cast<unsigned>(i), sanitizedSsid,
-               hasPassword ? 1 : 0);
+      //
+      // ssid is the LAST field, deliberately -- an 802.11 SSID may
+      // contain spaces (MEASURED gopiv 2026-09-10,
+      // captures/wifi-credential-store-20260909/: the real fleet SSID
+      // "Busboom Mesh" would enumerate as `wificred 0 Busboom Mesh 1`
+      // under the old mid-line `<slot> <ssid> <haspw>` shape, and a
+      // consumer splitting on whitespace could not tell where the
+      // SSID ended). Putting haspw BEFORE ssid means a consumer that
+      // does not know the SSID in advance can split the line on
+      // whitespace with a maxsplit of 3 (`"wificred"`, slot, haspw,
+      // then everything left over is the SSID) and get it right no
+      // matter what the SSID contains -- no quoting/escaping needed.
+      // tools/robotlink.py's wificred_list() and
+      // docs/robot-connections.md's WIFICRED section use this same
+      // convention; Protocol::emitWifiDebug() (protocol.cpp) puts its
+      // own ssid= field last for the identical reason.
+      snprintf(buf, sizeof(buf), "wificred %u %d %s\n",
+               static_cast<unsigned>(i), hasPassword ? 1 : 0,
+               sanitizedSsid);
       writeLine(buf);
     }
     return;

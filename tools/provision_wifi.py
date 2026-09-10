@@ -8,7 +8,7 @@ captures/wifi-credential-store-20260909/notes.md; helpers in
 tools/robotlink.py: wificred_set()/wificred_clear()/wificred_list()):
 
     WIFICRED SET <slot> <ssid> <password> #<id>  -> ack <id> ...
-    WIFICRED #<id>                                 -> wificred <slot> <ssid> <haspw>
+    WIFICRED #<id>                                 -> wificred <slot> <haspw> <ssid>
     WIFICRED CLEAR <slot> #<id>                    -> ack <id> ...
 
 Slots are 0..7. `<password>` is mandatory on SET. The passphrase is

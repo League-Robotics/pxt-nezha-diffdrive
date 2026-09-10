@@ -164,8 +164,8 @@ def test_report_not_ok_on_no_reply(capsys):
 
 def test_main_list_never_prints_a_password(monkeypatch, capsys):
     port = FakePort([
-        b'wificred 0 MyNetwork 1\n',
-        b'wificred 1 SecondNetwork 1\n',
+        b'wificred 0 1 MyNetwork\n',
+        b'wificred 1 1 SecondNetwork\n',
         b'ack 1 0 none\n',
     ])
     link = robotlink.Link(port, False)
