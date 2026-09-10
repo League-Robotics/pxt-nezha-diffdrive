@@ -80,7 +80,7 @@ No units in the field's own name (`.claude/rules/no-units-in-identifiers.md`
       retained through backoff; also cover a plain timeout (no
       `+CWJAP:` seen at all) reporting the "no code" sentinel, not a
       stale previous value.
-- [ ] MEASURED on real hardware (gopiv, Ai-WB2-12F, per
+- [x] MEASURED on real hardware (gopiv, Ai-WB2-12F, per
       `.claude/rules/connecting-to-a-robot.md`): a join attempt with a
       deliberately wrong password is run and the resulting
       `+CWJAP:<code>` is captured and cited by artifact path per
@@ -92,6 +92,23 @@ No units in the field's own name (`.claude/rules/no-units-in-identifiers.md`
       test alone.
       **NOT RUN by this ticket's programmer dispatch** — on-robot work
       is the team-lead's, by project convention
+      **RUN BY THE TEAM-LEAD 2026-09-09.** Artifacts:
+      `captures/wifi-join-codes-20260909/` (`notes.md` indexes them).
+      Wrong password on the real AP -> `reply=+CWJAP:2....ERROR`,
+      `join=2` (`badpw2-tap.log`). Nonexistent SSID -> `+CWJAP:3`,
+      `join=3` (`bogusssid-tap.log`), a second row obtained for free.
+      Retention verified in the same logs: the code survives the
+      `kJoin -> kBackoff` transition and the following restart, and
+      resets to `-` at the next `AT+CWJAP=` send. Codes 1 and 4 remain
+      UNVERIFIED. Vendor code semantics are now confirmed for 2 and 3
+      ON THIS MODULE; the comments still say UNVERIFIED for 1 and 4.
+      Two findings came out of this run and are recorded outside the
+      ticket: the module auto-rejoins from its own stored AP config,
+      which masks a wrong baked password entirely and constrains
+      ticket 005's sequencer (see the capture's notes.md), and
+      `DBG:wifi` prints the passphrase in cleartext
+      (`clasi/issues/dbg-wifi-prints-the-passphrase-in-cleartext.md`).
+
       (`docs/knowledge`/sprint.md Tickets table note on ticket 004's
       hardware step, same convention applied here). Host-side capture
       and retention are implemented and host-tested above; the vendor
