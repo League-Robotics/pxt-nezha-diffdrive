@@ -397,10 +397,26 @@ void Protocol::emitWifiDebug() {
   // One line, cleartext `DBG:` prefix (the same convention the TS
   // layer's debug output uses), through emitLine() so it reaches
   // serial, radio AND -- once up -- the WiFi host itself.
+  //
+  // join=<code> is the module's RAW `+CWJAP:<code>` from the most
+  // recent join attempt (WifiLink::lastJoinError()), or "-" when no
+  // code was captured this attempt (a plain timeout). No word mapping
+  // -- the vendor code semantics are UNVERIFIED on this hardware, see
+  // lastJoinError()'s own comment in wifi_link.h. This is a bare
+  // integer, never the credential itself -- see
+  // .claude/rules/measurement-citations.md and this sprint's hard
+  // constraint that no passphrase ever leaves the board.
+  char joinBuf[4];  // "-" or up to 2 ASCII digits (see lastJoinError())
+  if (wifiLink_.lastJoinError() != 0) {
+    snprintf(joinBuf, sizeof(joinBuf), "%d", wifiLink_.lastJoinError());
+  } else {
+    joinBuf[0] = '-';
+    joinBuf[1] = '\0';
+  }
   snprintf(wifiDbgBuf_, sizeof(wifiDbgBuf_),
            "DBG:wifi state=%d ip=%s peer=%s:%u tcp=%u/%d to=%d restarts=%lu "
            "sent=%lu rx=%lu drop=%lu mdns=%lu/%d cmd=%s reply=%s "
-           "credsrc=%d trunc=%u",
+           "credsrc=%d trunc=%u join=%s",
            static_cast<int>(wifiLink_.state()),
            wifiLink_.ownIp()[0] ? wifiLink_.ownIp() : "-",
            wifiLink_.peerIp()[0] ? wifiLink_.peerIp() : "-",
@@ -415,7 +431,8 @@ void Protocol::emitWifiDebug() {
            wifiLink_.mdnsSocketOpen() ? 1 : 0,
            wifiLink_.lastCommand(), wifiLink_.lastReply(),
            wifiCredsExplicit_ ? 1 : 0,
-           static_cast<unsigned>(wifiCredsTruncated_));
+           static_cast<unsigned>(wifiCredsTruncated_),
+           joinBuf);
   emitLine(wifiDbgBuf_);
 }
 

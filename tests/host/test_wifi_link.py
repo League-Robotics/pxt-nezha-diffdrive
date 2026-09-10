@@ -74,7 +74,8 @@ def lib(tmp_path_factory):
                  "wlSent", "wlReceived", "wlNewPeerEdge", "wlStateChanged",
                  "wlTelemetryAllowed", "wlMdnsOpen", "wlMdnsCount",
                  "wlClearRxCalls", "wlBaud", "wlNewClientEdge", "wlReplyLink",
-                 "wlTcpMask", "wlTcpServerOpen", "wlTxCount"):
+                 "wlTcpMask", "wlTcpServerOpen", "wlTxCount",
+                 "wlLastJoinError"):
         getattr(lib, name).argtypes = [ctypes.c_void_p]
         getattr(lib, name).restype = ctypes.c_int
     for name in ("wlPeerIp", "wlOwnIp", "wlLastCommand", "wlLastReply"):
@@ -294,6 +295,65 @@ def test_join_query_hit_skips_the_explicit_join(link):
     link.bring_up(join_query_hits=True)
     assert link.state() == READY
     assert 'AT+CWJAP="' not in link.lib.wlLastCommand(link.h).decode()
+
+
+def _configure_and_reach_explicit_join(link):
+    """Drive through CONFIGURE and the six AT+CWJAP? poll misses (mirrors
+    Link.bring_up()'s join_query_hits=False branch) up to, but not
+    including, the reply to the explicit AT+CWJAP=... join command --
+    leaves that reply to the caller so it can script a join failure."""
+    for cmd in CONFIGURE_SEQUENCE:
+        link.expect_command(cmd)
+        link.reply("\r\nready\r\n" if cmd == "AT+RST" else "\r\nOK\r\n")
+    link.expect_command("AT+CWJAP?")
+    link.reply("No AP\r\n\r\nOK\r\n")
+    for _ in range(5):
+        link.step(1600)  # each query times out at 1500 ms
+        link.expect_command("AT+CWJAP?")
+        link.reply("No AP\r\n\r\nOK\r\n")
+    link.step(1600)
+    link.expect_command('AT+CWJAP="Busboom Mesh","hunter2"')
+
+
+def test_join_failure_captures_cwjap_code_and_retains_it_across_backoff(link):
+    """Sprint 038 ticket 001 / SUC-006: the module's own `+CWJAP:<code>`
+    before the FAIL/ERROR that sends serviceJoin() into enterBackoff()
+    is captured as the RAW vendor number (no word mapping -- see
+    lastJoinError()'s comment in wifi_link.h; the code-2-means-
+    wrong-password mapping is UNVERIFIED on real hardware and is
+    deliberately not asserted here, only the raw integer)."""
+    _configure_and_reach_explicit_join(link)
+    link.reply("+CWJAP:2\r\n\r\nFAIL\r\n")
+    link.step()
+    assert link.state() == BACKOFF
+    assert link.lib.wlLastJoinError(link.h) == 2
+    # Retained across the kJoin -> kBackoff transition: still 2 on a
+    # later poll, not cleared by enterBackoff()/enterState().
+    link.step(200)
+    assert link.state() == BACKOFF
+    assert link.lib.wlLastJoinError(link.h) == 2
+
+
+def test_plain_join_timeout_reports_sentinel_not_a_stale_previous_code(link):
+    """The staleness bug the ticket's acceptance criteria calls out by
+    name: a join with NO +CWJAP: reply at all (a genuine kJoinTimeout,
+    no reply whatsoever) must report the "no code" sentinel (0), even
+    immediately after a PRIOR attempt captured a real code -- the reset
+    happens at the start of each new AT+CWJAP= send, not just once at
+    construction."""
+    _configure_and_reach_explicit_join(link)
+    link.reply("+CWJAP:2\r\n\r\nFAIL\r\n")
+    link.step()
+    assert link.state() == BACKOFF
+    assert link.lib.wlLastJoinError(link.h) == 2
+
+    link.step(5100)  # past kBackoffDelay -- back to CONFIGURE -> AT+RST
+    assert link.state() == CONFIGURE
+    _configure_and_reach_explicit_join(link)
+    # No reply at all this time -- let the explicit join genuinely time out.
+    link.step(15100)  # past kJoinTimeout
+    assert link.state() == BACKOFF
+    assert link.lib.wlLastJoinError(link.h) == 0
 
 
 def test_ready_state_learns_own_ip_from_cipsta(link):

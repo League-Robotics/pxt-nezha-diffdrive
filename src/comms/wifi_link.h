@@ -195,6 +195,24 @@ class WifiLink {
   uint16_t peerPort() const { return peerPort_; }
   const char* ownIp() const { return ownIp_; }
   uint32_t restartCount() const { return restartCount_; }
+
+  // The module's own `+CWJAP:<code>` from the most recent join attempt
+  // (`AT+CWJAP="ssid","pw"`), retained across the kJoin -> kBackoff
+  // transition. 0 = no code was captured for the current attempt (a
+  // plain timeout with no `+CWJAP:` reply at all counts as this, not
+  // a stale value from a previous attempt -- reset every time a new
+  // AT+CWJAP command is sent, see serviceJoin()).
+  //
+  // This is the RAW vendor number, deliberately UNMAPPED: the
+  // ESP-AT/Ai-WB2 documented meanings (1=timeout, 2=wrong password,
+  // 3=AP not found, 4=connect failed) are read from vendor
+  // documentation, not measured, and are UNVERIFIED on the
+  // Ai-WB2-12F -- see clasi/issues/wifi-join-failure-does-not-say-why.md.
+  // Do not add a word mapping here; that is explicitly out of scope
+  // until a real wrong-password join on real hardware confirms the
+  // codes.
+  int lastJoinError() const { return lastJoinError_; }
+
   uint32_t dropCount() const { return dropCount_; }
   uint32_t sentCount() const { return sentCount_; }
   uint32_t receivedCount() const { return receivedCount_; }
@@ -324,6 +342,11 @@ class WifiLink {
   uint32_t restartCount_;
   bool stateChanged_;
 
+  // See lastJoinError() above: 0 = no code captured this attempt.
+  // Reset at the start of each AT+CWJAP=... send in serviceJoin(),
+  // not just once at construction.
+  int lastJoinError_;
+
   bool awaiting_;
   uint32_t deadline_;
   Matcher expect_;
@@ -347,6 +370,17 @@ class WifiLink {
   bool ownIpCapturing_;
   char ownIp_[16];
   uint8_t ownIpLen_;
+
+  // `+CWJAP:<code>` capture (mirrors ownIpTag_ above, but the terminal
+  // is "first non-digit" rather than a literal '"'): watches for the
+  // token during byte feed and, on match, accumulates up to 2 ASCII
+  // digits into lastJoinError_. Runs unconditionally -- the token also
+  // appears (quoted, not digits) in the AT+CWJAP? poll reply, which
+  // never enters joinErrorCapturing_ because '"' is not a digit.
+  Matcher joinErrorTag_;
+  bool joinErrorCapturing_;
+  int joinErrorValue_;
+  uint8_t joinErrorDigits_;
 
   // peer (the host), learned from +IPD headers on kProtocolLink
   char peerIp_[16];

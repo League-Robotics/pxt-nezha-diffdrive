@@ -529,6 +529,15 @@ class Protocol {
   // 15-char addresses, six counters, a 47-char command, a 71-char
   // reply trace, and `credsrc=%d trunc=%u` (~294/320 used before that
   // last field -- grown to 384 alongside it, not after, for headroom).
+  //
+  // Sprint 038 ticket 001 added ` join=%s` (up to 2 ASCII digits, or
+  // "-"): worst-case line is 322 bytes + NUL = 323/384 used
+  // (calculated by substituting each field's type-range maximum into
+  // the exact format string -- see the ticket's own commit message for
+  // the script). 61 bytes remain in this buffer for ticket 006's
+  // `ssid=`/`haspw=` R1 status fields; that ticket must re-check this
+  // budget against its own field widths (an SSID is up to 32 octets),
+  // not assume 61 bytes covers them.
   char wifiDbgBuf_[384];
 
   // Radio RX scratch -- every line the radio poll receives lands here
