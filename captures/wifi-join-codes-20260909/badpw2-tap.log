@@ -1,0 +1,14 @@
+tap gopiv -> null.local:43323
+   9.2s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply= credsrc=0 trunc=0 join=-
+  14.3s  DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply=+CWJAP:2....ERROR.. credsrc=0 trunc=0 join=2
+  19.3s  DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply=+CWJAP:2....ERROR.. credsrc=0 trunc=0 join=2
+  20.8s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CIPDINFO=1 reply=..OK.. credsrc=0 trunc=0 join=2
+  30.8s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply= credsrc=0 trunc=0 join=-
+  35.9s  DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply=+CWJAP:2....ERROR.. credsrc=0 trunc=0 join=2
+  40.9s  DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply=+CWJAP:2....ERROR.. credsrc=0 trunc=0 join=2
+  42.4s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CIPDINFO=1 reply=..OK.. credsrc=0 trunc=0 join=2
+  52.4s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply= credsrc=0 trunc=0 join=-
+  57.8s  DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=3 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply=+CWJAP:2....ERROR credsrc=0 trunc=0 join=2
+  62.6s  DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=3 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply=+CWJAP:2....ERROR credsrc=0 trunc=0 join=2
+  64.1s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=3 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CIPDINFO=1 reply=..OK.. credsrc=0 trunc=0 join=2
+  74.1s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=3 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="Busboom Mesh","<REDACTED>" reply= credsrc=0 trunc=0 join=-

@@ -1,0 +1,14 @@
+tap gopiv -> null.local:43323
+   1.5s  DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply=+CWJAP:3....ERROR.. credsrc=0 trunc=0 join=3
+   6.8s  DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply=+CWJAP:3....ERROR.. credsrc=0 trunc=0 join=3
+   7.8s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CIPDINFO=1 reply=..OK.. credsrc=0 trunc=0 join=3
+  17.8s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply= credsrc=0 trunc=0 join=-
+  20.8s  DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply=+CWJAP:3....ERROR.. credsrc=0 trunc=0 join=3
+  25.8s  DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply=+CWJAP:3....ERROR.. credsrc=0 trunc=0 join=3
+  27.3s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CIPDINFO=1 reply=..OK.. credsrc=0 trunc=0 join=3
+  37.3s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply= credsrc=0 trunc=0 join=-
+  40.3s  DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=3 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply=+CWJAP:3....ERROR.. credsrc=0 trunc=0 join=3
+  45.3s  DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=3 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply=+CWJAP:3....ERROR.. credsrc=0 trunc=0 join=3
+  46.8s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=3 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CIPDINFO=1 reply=..OK.. credsrc=0 trunc=0 join=3
+  56.8s  DBG:wifi state=2 ip=- peer=-:0 tcp=0/0 to=4 restarts=3 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply= credsrc=0 trunc=0 join=-
+  59.9s  DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=4 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWJAP="NoSuchNetwork038","<REDACTED>" reply=+CWJAP:3....ERROR.. credsrc=0 trunc=0 join=3
