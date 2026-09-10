@@ -1,9 +1,10 @@
 ---
-id: '008'
+id: 008
 title: 'Build checkpoint: confirm a flashable hex from the sprint''s final state'
-status: open
+status: in-progress
 use-cases: []
-depends-on: ['007']
+depends-on:
+- '007'
 github-issue: ''
 issue:
 - wifi-join-failure-does-not-say-why.md

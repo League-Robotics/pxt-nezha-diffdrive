@@ -160,3 +160,237 @@ wrote eight BLOCKED sections into THIS real capture file when the host
 suite ran at 04:32-04:33 (default capture dir, real Shelly read). They
 were stripped from this file; the test must use a tmp capture dir
 (issue filed).
+## 2026-09-06 10:47:49
+
+- **board**: tovez
+- **camera**: arducam-ov9782-usb-camera, tag 52
+- **carrier**: WiFi TCP tovez:7654 (the default carrier)
+- **command**: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.venv/bin/pytest tests/ -q
+- **date**: 2026-09-06
+- **dot**: NE
+- **program**: tests/calibration/consolidation_acceptance.py
+
+### Results
+
+| check | status | detail |
+| --- | --- | --- |
+| lights | BLOCKED | output=false -- THE FIELD IS DARK. A dark field looks exactly like a broken camera or a lost robot. Turn them on: curl -s "http://192.168.1.122/rpc/Switch.Set?id=0&on=true" |
+| MOVE_X moves the robot | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| pose vs ground truth | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| geofence refuses/permits | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+
+### Measurements
+
+```json
+{
+  "lights": {
+    "output": false
+  },
+  "MOVE_X moves the robot": {},
+  "pose vs ground truth": {},
+  "geofence refuses/permits": {}
+}
+```
+
+### Command lines sent
+
+```
+(nothing was sent)
+```
+
+> captures/ is GITIGNORED. Commit this artifact with `git add -f <path>` or the MEASURED citation that names it points at nothing (.claude/rules/measurement-citations.md).
+## 2026-09-06 10:49:25
+
+- **board**: tovez
+- **camera**: arducam-ov9782-usb-camera, tag 52
+- **carrier**: WiFi TCP tovez:7654 (the default carrier)
+- **command**: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.venv/bin/pytest tests/ -q
+- **date**: 2026-09-06
+- **dot**: NE
+- **program**: tests/calibration/consolidation_acceptance.py
+
+### Results
+
+| check | status | detail |
+| --- | --- | --- |
+| lights | BLOCKED | output=false -- THE FIELD IS DARK. A dark field looks exactly like a broken camera or a lost robot. Turn them on: curl -s "http://192.168.1.122/rpc/Switch.Set?id=0&on=true" |
+| MOVE_X moves the robot | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| pose vs ground truth | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| geofence refuses/permits | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+
+### Measurements
+
+```json
+{
+  "lights": {
+    "output": false
+  },
+  "MOVE_X moves the robot": {},
+  "pose vs ground truth": {},
+  "geofence refuses/permits": {}
+}
+```
+
+### Command lines sent
+
+```
+(nothing was sent)
+```
+
+> captures/ is GITIGNORED. Commit this artifact with `git add -f <path>` or the MEASURED citation that names it points at nothing (.claude/rules/measurement-citations.md).
+## 2026-09-06 11:06:48
+
+- **board**: tovez
+- **camera**: arducam-ov9782-usb-camera, tag 52
+- **carrier**: WiFi TCP tovez:7654 (the default carrier)
+- **command**: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.venv/lib/python3.13/site-packages/pytest/__main__.py tests/ -q
+- **date**: 2026-09-06
+- **dot**: NE
+- **program**: tests/calibration/consolidation_acceptance.py
+
+### Results
+
+| check | status | detail |
+| --- | --- | --- |
+| lights | BLOCKED | output=false -- THE FIELD IS DARK. A dark field looks exactly like a broken camera or a lost robot. Turn them on: curl -s "http://192.168.1.122/rpc/Switch.Set?id=0&on=true" |
+| MOVE_X moves the robot | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| pose vs ground truth | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| geofence refuses/permits | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+
+### Measurements
+
+```json
+{
+  "lights": {
+    "output": false
+  },
+  "MOVE_X moves the robot": {},
+  "pose vs ground truth": {},
+  "geofence refuses/permits": {}
+}
+```
+
+### Command lines sent
+
+```
+(nothing was sent)
+```
+
+> captures/ is GITIGNORED. Commit this artifact with `git add -f <path>` or the MEASURED citation that names it points at nothing (.claude/rules/measurement-citations.md).
+## 2026-09-06 11:10:24
+
+- **board**: tovez
+- **camera**: arducam-ov9782-usb-camera, tag 52
+- **carrier**: WiFi TCP tovez:7654 (the default carrier)
+- **command**: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.venv/lib/python3.13/site-packages/pytest/__main__.py tests/ -q
+- **date**: 2026-09-06
+- **dot**: NE
+- **program**: tests/calibration/consolidation_acceptance.py
+
+### Results
+
+| check | status | detail |
+| --- | --- | --- |
+| lights | BLOCKED | output=false -- THE FIELD IS DARK. A dark field looks exactly like a broken camera or a lost robot. Turn them on: curl -s "http://192.168.1.122/rpc/Switch.Set?id=0&on=true" |
+| MOVE_X moves the robot | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| pose vs ground truth | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| geofence refuses/permits | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+
+### Measurements
+
+```json
+{
+  "lights": {
+    "output": false
+  },
+  "MOVE_X moves the robot": {},
+  "pose vs ground truth": {},
+  "geofence refuses/permits": {}
+}
+```
+
+### Command lines sent
+
+```
+(nothing was sent)
+```
+
+> captures/ is GITIGNORED. Commit this artifact with `git add -f <path>` or the MEASURED citation that names it points at nothing (.claude/rules/measurement-citations.md).
+## 2026-09-06 12:29:31
+
+- **board**: tovez
+- **camera**: arducam-ov9782-usb-camera, tag 52
+- **carrier**: WiFi TCP tovez:7654 (the default carrier)
+- **command**: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.venv/lib/python3.13/site-packages/pytest/__main__.py tests/ -q
+- **date**: 2026-09-06
+- **dot**: NE
+- **program**: tests/calibration/consolidation_acceptance.py
+
+### Results
+
+| check | status | detail |
+| --- | --- | --- |
+| lights | BLOCKED | output=false -- THE FIELD IS DARK. A dark field looks exactly like a broken camera or a lost robot. Turn them on: curl -s "http://192.168.1.122/rpc/Switch.Set?id=0&on=true" |
+| MOVE_X moves the robot | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| pose vs ground truth | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| geofence refuses/permits | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+
+### Measurements
+
+```json
+{
+  "lights": {
+    "output": false
+  },
+  "MOVE_X moves the robot": {},
+  "pose vs ground truth": {},
+  "geofence refuses/permits": {}
+}
+```
+
+### Command lines sent
+
+```
+(nothing was sent)
+```
+
+> captures/ is GITIGNORED. Commit this artifact with `git add -f <path>` or the MEASURED citation that names it points at nothing (.claude/rules/measurement-citations.md).
+## 2026-09-06 12:45:46
+
+- **board**: tovez
+- **camera**: arducam-ov9782-usb-camera, tag 52
+- **carrier**: WiFi TCP tovez:7654 (the default carrier)
+- **command**: /Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/.venv/lib/python3.13/site-packages/pytest/__main__.py tests/ -q
+- **date**: 2026-09-06
+- **dot**: NE
+- **program**: tests/calibration/consolidation_acceptance.py
+
+### Results
+
+| check | status | detail |
+| --- | --- | --- |
+| lights | BLOCKED | output=false -- THE FIELD IS DARK. A dark field looks exactly like a broken camera or a lost robot. Turn them on: curl -s "http://192.168.1.122/rpc/Switch.Set?id=0&on=true" |
+| MOVE_X moves the robot | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| pose vs ground truth | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+| geofence refuses/permits | BLOCKED | not run: pre-flight 'lights' did not pass. Nothing is commanded from an unconfirmed bench. |
+
+### Measurements
+
+```json
+{
+  "lights": {
+    "output": false
+  },
+  "MOVE_X moves the robot": {},
+  "pose vs ground truth": {},
+  "geofence refuses/permits": {}
+}
+```
+
+### Command lines sent
+
+```
+(nothing was sent)
+```
+
+> captures/ is GITIGNORED. Commit this artifact with `git add -f <path>` or the MEASURED citation that names it points at nothing (.claude/rules/measurement-citations.md).

@@ -82,3 +82,36 @@ Every form is sequenced — a bare `WIFICRED` without `#<id>` is nacked
 and enumerates nothing. `<password>` is mandatory on `SET`:
 `WIFICRED SET 1 SecondNet #3` came back `err 2` (`wificred-hw5.log`).
 `haspw` is `0`/`1`; no passphrase appears in any reply.
+
+## Sprint-final verification — gopiv, 2026-09-10 (`final-hw2.log`, `final-hw3.log`)
+
+Build: `tools/make_deploy.py --robot gopiv` at the sprint's final commit,
+`id diffdrive gopiv 1.20260910.2 gopiv`.
+
+```
+HELLO
+WIFICRED SET 0 "Busboom Mesh" "fake pass phrase" #1   -> ack 1
+WIFICRED SET 1 PlainNet038 fakepw111 #2              -> ack 2
+WIFICRED #3
+    wificred 0 1 Busboom Mesh
+    wificred 1 1 PlainNet038
+DBG:wifi ... credsrc=0 trunc=0 join=- haspw=1 ssid=Busboom Mesh
+```
+
+Three things this confirms that host tests could not:
+
+1. **A quoted SSID containing a space round-trips.** The fleet's own
+   network is `Busboom Mesh`; before the quoting fix it was literally
+   unprovisionable through this verb, which no host test caught because
+   every fixture used a space-free name.
+2. **Bare tokens still work** (`PlainNet038`), so the grammar already
+   published to a consuming project did not break under them.
+3. **The variable-length SSID is LAST on both output surfaces**
+   (`wificred <slot> <haspw> <ssid>`, `... haspw=1 ssid=Busboom Mesh`),
+   so a parser takes everything after the fixed fields to end-of-line
+   and never has to guess where the name ends. The earlier field order
+   put `ssid=` mid-line and produced `ssid=Busboom Mesh haspw=1`, which
+   parses wrong for exactly the network this fleet runs on.
+
+The passphrase appears nowhere: `haspw=1` is the only trace of it, and
+`WIFICRED` enumeration has no accessor that could return it.
