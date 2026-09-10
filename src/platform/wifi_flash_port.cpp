@@ -18,6 +18,14 @@
 
 #include "MicroBitFlash.h"
 
+// The ONE place WifiFlashPortCodal is actually constructed for
+// firmware use, via wifiCredentialStore() (wifi_credential_store.h's
+// own doc comment on that function explains why the definition has to
+// live here rather than beside the declaration). This is a stopgap
+// seam, not the real composition root -- see that comment for what
+// replaces it.
+#include "../comms/wifi_credential_store.h"
+
 namespace diffDrive {
 
 namespace {
@@ -63,6 +71,24 @@ bool WifiFlashPortCodal::write(uint32_t offset, const uint8_t* buffer, uint32_t 
 bool WifiFlashPortCodal::erasePage() {
   flashDriver().erase_page(reinterpret_cast<uint32_t*>(kFlashPageAddress));
   return true;
+}
+
+WifiCredentialStore& wifiCredentialStore() {
+  // Function-local statics, in DECLARATION order (the port must exist
+  // before the store that borrows a reference to it) -- same
+  // constructed-on-first-use reasoning as flashDriver() above and
+  // run_registry.cpp's runRegistry(). begin() is called exactly once,
+  // on the first call ever made, to seed the cache from whatever the
+  // page already holds (or the all-0xFF "empty store" pattern on a
+  // never-written page -- see WifiCredentialStore's own header
+  // comment); every set()/clear() after that keeps the cache current
+  // itself, so re-reading flash on every call is neither needed nor
+  // done.
+  static WifiFlashPortCodal port;
+  static WifiCredentialStore store(port);
+  static bool began = (store.begin(), true);
+  (void)began;
+  return store;
 }
 
 }  // namespace diffDrive

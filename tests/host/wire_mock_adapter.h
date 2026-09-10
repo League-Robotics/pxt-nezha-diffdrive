@@ -324,4 +324,93 @@ class WireMockAdapter : public Wire::Adapter {
     if (index >= runRegistryCount) return "";
     return runSignatures[index] == nullptr ? "" : runSignatures[index];
   }
+
+  // ---- the WIFICRED verb's own seam (sprint 038 ticket 003) --------------
+  // A small STATEFUL slot table, unlike the RUN registry above (which a
+  // test arms once and reads back unmodified): wifiCredSet()/
+  // wifiCredClear() actually mutate wifiCredSlots_ here, so a bare
+  // WIFICRED issued after a SET/CLEAR round-trips through THIS mock the
+  // same way it would through the real WifiCredentialStore -- the wire
+  // test's whole point is proving the verb's SET/CLEAR half is visible
+  // to its own enumeration half, not just that each is independently
+  // wired up. kMaxWifiCredSlots mirrors WifiCredentialStore::kSlots (8)
+  // but this class deliberately does not depend on that constant, same
+  // discipline as kSsidCap in execWifiCred() itself.
+  static constexpr size_t kMaxWifiCredSlots = 8;
+
+  struct WifiCredSlot {
+    bool occupied = false;
+    char ssid[64] = {};
+    bool hasPassword = false;
+  };
+  WifiCredSlot wifiCredSlots[kMaxWifiCredSlots];
+
+  Wire::Result wifiCredSetResult = Wire::Result::kOk;
+  Wire::Result wifiCredClearResult = Wire::Result::kOk;
+
+  mutable int wifiCredCountCalls = 0;
+  mutable int wifiCredSlotCalls = 0;
+  int wifiCredSetCalls = 0;
+  int wifiCredClearCalls = 0;
+
+  int lastWifiCredSetSlot = -1;
+  // Both fields below record exactly what this call was HANDED, so a
+  // test can prove the password DID reach the adapter (a functional
+  // requirement) while separately proving -- via the SINK buffer, never
+  // via these fields -- that it never reached the wire. 96 comfortably
+  // exceeds WifiCredentialStore::kPasswordBytes (64).
+  char lastWifiCredSetSsid[64] = {};
+  char lastWifiCredSetPassword[96] = {};
+  int lastWifiCredClearSlot = -1;
+
+  // Arms slot `slot` as occupied, for a test that wants a pre-populated
+  // enumeration without going through SET first -- same role
+  // wgAddRunEntry() plays for the RUN registry.
+  void armWifiCredSlot(int slot, const char* ssid, bool hasPassword) {
+    if (slot < 0 || static_cast<size_t>(slot) >= kMaxWifiCredSlots) return;
+    WifiCredSlot& s = wifiCredSlots[slot];
+    s.occupied = true;
+    std::snprintf(s.ssid, sizeof(s.ssid), "%s", ssid == nullptr ? "" : ssid);
+    s.hasPassword = hasPassword;
+  }
+
+  size_t wifiCredCount() const override {
+    ++wifiCredCountCalls;
+    // The FIXED slot count, not how many are occupied -- see
+    // wire_handler.h's Adapter comment on this seam.
+    return kMaxWifiCredSlots;
+  }
+  bool wifiCredSlot(size_t index, char* ssidOut, size_t ssidCap,
+                    bool& hasPasswordOut) const override {
+    ++wifiCredSlotCalls;
+    if (index >= kMaxWifiCredSlots) return false;
+    const WifiCredSlot& s = wifiCredSlots[index];
+    if (!s.occupied) return false;
+    std::snprintf(ssidOut, ssidCap, "%s", s.ssid);
+    hasPasswordOut = s.hasPassword;
+    return true;
+  }
+  Wire::Result wifiCredSet(int slot, const char* ssid,
+                           const char* password) override {
+    ++wifiCredSetCalls;
+    lastWifiCredSetSlot = slot;
+    std::snprintf(lastWifiCredSetSsid, sizeof(lastWifiCredSetSsid), "%s",
+                  ssid == nullptr ? "" : ssid);
+    std::snprintf(lastWifiCredSetPassword, sizeof(lastWifiCredSetPassword),
+                  "%s", password == nullptr ? "" : password);
+    if (wifiCredSetResult == Wire::Result::kOk) {
+      armWifiCredSlot(slot, ssid,
+                      password != nullptr && password[0] != '\0');
+    }
+    return wifiCredSetResult;
+  }
+  Wire::Result wifiCredClear(int slot) override {
+    ++wifiCredClearCalls;
+    lastWifiCredClearSlot = slot;
+    if (wifiCredClearResult == Wire::Result::kOk && slot >= 0 &&
+        static_cast<size_t>(slot) < kMaxWifiCredSlots) {
+      wifiCredSlots[slot] = WifiCredSlot();
+    }
+    return wifiCredClearResult;
+  }
 };

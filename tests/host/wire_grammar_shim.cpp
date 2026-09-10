@@ -298,6 +298,59 @@ void wgSetLastDoneReason(void* handle, int reason) {
       static_cast<Wire::DoneReason>(reason);
 }
 
+// Arms one slot of the mock's WIFICRED table -- what a bare WIFICRED
+// enumerates. Mirrors wgAddRunEntry() above, but by slot NUMBER (not
+// append order) since wifiCredCount() is a fixed slot count, not a
+// registration list. COPIES ssid into the handle's own storage the
+// same way wgAddRunEntry() does, so the caller need not keep the
+// Python bytes alive past this call.
+void wgArmWifiCredSlot(void* handle, int slot, const char* ssid,
+                       int hasPassword) {
+  static_cast<Handle*>(handle)->adapter.armWifiCredSlot(slot, ssid,
+                                                         hasPassword != 0);
+}
+
+// `result` is Wire::Result's DECLARATION-ORDER ordinal, same contract
+// as wgSetStopResult et al. above.
+void wgSetWifiCredSetResult(void* handle, int result) {
+  static_cast<Handle*>(handle)->adapter.wifiCredSetResult =
+      static_cast<Wire::Result>(result);
+}
+void wgSetWifiCredClearResult(void* handle, int result) {
+  static_cast<Handle*>(handle)->adapter.wifiCredClearResult =
+      static_cast<Wire::Result>(result);
+}
+
+int wgWifiCredSetCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.wifiCredSetCalls;
+}
+int wgWifiCredClearCalls(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.wifiCredClearCalls;
+}
+int wgLastWifiCredSetSlot(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.lastWifiCredSetSlot;
+}
+int wgLastWifiCredClearSlot(void* handle) {
+  return static_cast<Handle*>(handle)->adapter.lastWifiCredClearSlot;
+}
+// Confirms what the ADAPTER actually received (never wired up to the
+// sink) -- so a test can prove the ssid/password reached wifiCredSet()
+// unmodified, distinct from and in addition to proving (via the sink
+// buffer, separately) that the password never reached the wire.
+int wgLastWifiCredSetSsidMatches(void* handle, const char* ssid) {
+  return std::strcmp(static_cast<Handle*>(handle)->adapter.lastWifiCredSetSsid,
+                      ssid) == 0
+             ? 1
+             : 0;
+}
+int wgLastWifiCredSetPasswordMatches(void* handle, const char* password) {
+  return std::strcmp(
+             static_cast<Handle*>(handle)->adapter.lastWifiCredSetPassword,
+             password) == 0
+             ? 1
+             : 0;
+}
+
 // ---- WireMockAdapter call-log readback -----------------------------------
 
 int wgEstopCalls(void* handle) {

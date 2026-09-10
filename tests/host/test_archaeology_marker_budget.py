@@ -208,7 +208,11 @@ _RATIO_BASELINE = {
     "src/core/bus_guard.h": 2.67,  # 48 / 18
     "src/core/encoder_glitch_armor.h": 2.45,  # 108 / 44
     "src/comms/run_bridge.h": 2.32,  # 79 / 34
-    "src/comms/wire_handler.h": 2.07,  # 455 / 220
+    # Sprint 038 ticket 003: WIFICRED's Adapter seam comment (its own
+    # hard-constraint contract -- no passphrase ever reaches the wire --
+    # and the sequencing rationale) is load-bearing, not archaeology;
+    # raised as its own explicit edit alongside the ticket that moved it.
+    "src/comms/wire_handler.h": 2.14,  # 506 / 236
     "src/comms/transport_sink.h": 1.92,  # 46 / 24
     "src/motion/velocity_shaper.h": 1.90,  # 38 / 20
     "src/comms/config_fields.h": 1.61,  # 95 / 59
@@ -227,7 +231,10 @@ _RATIO_BASELINE = {
     "src/platform/nezha_port.cpp": 0.74,  # 189 / 255
     "src/platform/platform_ports.h": 0.74,  # 20 / 27
     "src/motion/motion_engine.cpp": 0.73,  # 218 / 299
-    "src/comms/wire_handler.cpp": 0.68,  # 565 / 834
+    # Sprint 038 ticket 003: WIFICRED's decode/exec pair carries the
+    # same load-bearing hard-constraint/sequencing comment as above;
+    # raised as its own explicit edit alongside the ticket that moved it.
+    "src/comms/wire_handler.cpp": 0.70,  # 645 / 915
     "src/comms/wifi_link.h": 0.64,  # 145 / 226
     "src/comms/run_queue.h": 0.59,  # 36 / 61
     "src/platform/vfp_guard.cpp": 0.58,  # 7 / 12

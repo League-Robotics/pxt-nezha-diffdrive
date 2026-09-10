@@ -64,6 +64,12 @@ _SHIM_SOURCES = [
     # RunRegistry instance, which lives here -- without this TU the link
     # fails on an undefined diffDrive::runRegistry().
     _SRC_DIR / "comms" / "run_registry.cpp",
+    # wire_adapter.cpp's wifiCred*() methods (sprint 038 ticket 003)
+    # delegate to WifiCredentialStore via wifiCredentialStore() -- without
+    # BOTH of the next two TUs the link fails on undefined
+    # diffDrive::WifiCredentialStore::* and diffDrive::wifiCredentialStore().
+    _SRC_DIR / "comms" / "wifi_credential_store.cpp",
+    _TEST_DIR / "wifi_credential_store_host_singleton.cpp",
     _TEST_DIR / "wire_motion_verb_shim.cpp",
 ]
 

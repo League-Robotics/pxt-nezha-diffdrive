@@ -162,4 +162,25 @@ class WifiCredentialStore {
   Slot cache_[kSlots];
 };
 
+// The firmware's one shared store instance, reached by WireAdapter's
+// WIFICRED seam. DECLARED here (host-portable
+// -- this header still reaches no pxt.h) so WireAdapter's own
+// host-portable translation unit can call it, mirroring
+// run_registry.h's runRegistry() split: the DEFINITION lives in
+// wifi_flash_port.cpp -- the one CODAL-coupled translation unit this
+// feature has -- because building the real instance means constructing
+// a WifiFlashPortCodal, which only that file may name. A function-local
+// static for the same reason runRegistry() is one: constructed on
+// first call, never destroyed, so a block program's own top-level
+// registration ordering can never race it.
+//
+// STOPGAP, by design: Protocol does not yet OWN this instance -- a
+// later ticket adds it alongside WifiJoinSequencer, which needs the
+// same store and is the reason a real owner is worth adding then
+// rather than now. Until then, WireAdapter reaches the store through
+// this free function instead of a constructor-injected reference;
+// re-pointing it later changes this function's callers, not WIFICRED's
+// own wire-level behavior or its tests.
+WifiCredentialStore& wifiCredentialStore();
+
 }  // namespace diffDrive
