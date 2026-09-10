@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: 'WifiJoinSequencer: walk the credential list on boot'
-status: in-progress
+status: done
 use-cases:
 - SUC-004
 depends-on:

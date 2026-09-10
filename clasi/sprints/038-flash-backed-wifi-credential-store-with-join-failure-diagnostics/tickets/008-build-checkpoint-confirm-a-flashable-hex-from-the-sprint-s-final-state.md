@@ -41,23 +41,23 @@ theoretical concern for this specific sprint.
 
 ## Acceptance Criteria
 
-- [ ] `tools/make_deploy.py` runs against the sprint's final `master`-
+- [x] `tools/make_deploy.py` runs against the sprint's final `master`-
       bound state (after ticket 007) and produces a flashable hex.
-- [ ] Every new translation unit this sprint added is confirmed present
+- [x] Every new translation unit this sprint added is confirmed present
       in `pxt.json`'s `files` list (explicit check, not assumed from
       the build succeeding — a stale manifest and a stale build cache
       can both mask this, per
       `.claude/rules/measurement-citations.md`'s own worked example of
       exactly this failure mode).
-- [ ] Any benign abort (legacy V1 hex-merge, or the `TS9283`/`TS9043`/
+- [x] Any benign abort (legacy V1 hex-merge, or the `TS9283`/`TS9043`/
       `TS9200` packaging class) is retried per `make_deploy.py`'s
       existing triage, and the outcome is recorded, not silently
       re-run until green without comment.
-- [ ] If the build genuinely fails on a real `.cpp` compile error not
+- [x] If the build genuinely fails on a real `.cpp` compile error not
       caught by the host `-std=c++11` syntax gate (the known gap this
       checkpoint exists to catch), it is reported and fixed here —
       this ticket does not close with a broken build.
-- [ ] The resulting hex is not flashed to a fleet board as part of THIS
+- [x] The resulting hex is not flashed to a fleet board as part of THIS
       ticket unless the team-lead separately decides to (this ticket's
       job is "a flashable hex exists," not "the fleet is now running
       it" — that's the sprint's own closing decision, informed by
@@ -82,3 +82,22 @@ is expected from this ticket beyond what `make_deploy.py` already
 runs.
 
 **Documentation updates**: None required.
+
+
+## Result — team-lead, 2026-09-10
+
+`tools/make_deploy.py --robot gopiv` at the sprint's final commit built
+cleanly (`.tmp/deploy-head/built/binary.hex`) and flashed to gopiv over
+the network. The board came up and answered on its own WiFi link:
+
+```
+id diffdrive gopiv 1.20260910.2 gopiv
+WIFICRED SET 0 "Busboom Mesh" "fake pass phrase" #1   -> ack 1
+WIFICRED #2                                          -> wificred 0 1 Busboom Mesh
+DBG:wifi state=5 ip=192.168.1.218 ... credsrc=0 join=- haspw=1 ssid=Busboom Mesh
+```
+
+Artifacts: `captures/wifi-credential-store-20260909/final-hw3.log` and
+that directory's `notes.md`. Full suite at this commit: 2074 passed
+(`tests/tools/test_field_dance_accel_bake.py` ignored — it needs a
+camera daemon that is not running here).
