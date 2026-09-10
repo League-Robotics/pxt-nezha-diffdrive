@@ -17,6 +17,18 @@ anywhere -- it is read once from an environment variable, a local
 file, or (interactively) a non-echoing prompt, handed straight to
 `WifiLink.send()`, and discarded.
 
+`--ssid`/`--password-*` and a manifest's `ssid`/`password` fields may
+contain SPACES -- an 802.11 SSID is arbitrary octets, and a WPA
+passphrase may contain spaces too, e.g. the fleet's own real network,
+"Busboom Mesh" (MEASURED gopiv 2026-09-10,
+captures/wifi-credential-store-20260909/). This tool never hand-builds
+the wire line itself; it calls `robotlink.wificred_set()` for every
+SET (both the single-`--slot` path and the `--manifest` batch path
+below), and THAT function quotes each field on the wire automatically
+(`\"`-escaping any literal `"`) whenever it contains a space or a
+quote -- callers here just pass plain Python strings and never think
+about wire-grammar quoting at all.
+
 **Provision AFTER flashing, not before.** A flash mass-erases the
 whole chip (MEASURED gopiv 2026-09-09/10, same capture: an enumeration
 of a store written before `mbdeploy deploy --remote gopiv` came back

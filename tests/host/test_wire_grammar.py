@@ -1876,6 +1876,128 @@ def test_wificred_enumeration_ssid_with_spaces_is_unambiguous(wg):
     assert wg.take_sink() == _ack(1) + b"wificred 0 1 Busboom Mesh\n"
 
 
+# ---- WIFICRED SET quoting (sprint 038 ticket 003, blocking follow-up) --
+#
+# The OUTPUT side (enumeration) is unambiguous by FIELD ORDER alone --
+# ssid last, see test_wificred_enumeration_ssid_with_spaces_is_unambiguous
+# above. That trick cannot save the INPUT side: `WIFICRED SET` has TWO
+# free-form fields (ssid, password), either of which may legally
+# contain spaces (an 802.11 SSID is arbitrary octets; a WPA passphrase
+# may too), so no fixed field order disambiguates where one ends and
+# the other begins. This needs real quoting.
+#
+# MEASURED gopiv 2026-09-10, captures/wifi-credential-store-20260909/:
+# the `ssid=Busboom Mesh haspw=1` DBG:wifi line that first exposed this
+# whole class of bug -- the fleet's actual network is named
+# `Busboom Mesh`, with a space, so provisioning it is the acceptance
+# case these tests pin.
+#
+# Grammar: `WIFICRED SET <slot> <ssid> <password> #<id>`, where <ssid>
+# and <password> are each EITHER a bare token (no spaces, exactly as
+# before -- `WIFICRED SET 0 TestNet038 fakepw111 #1` keeps working
+# unchanged) OR a double-quoted token admitting spaces, e.g.
+# `WIFICRED SET 0 "Busboom Mesh" "my pass phrase" #1`. Inside a quoted
+# token, `\"` decodes to a literal '"' -- the only escape this grammar
+# has; a lone '\' is passed through literally. See tokenizeLine()'s own
+# header comment (wire_handler.h) for the full quote-close rule and the
+# unterminated-quote fallback.
+
+
+def test_wificred_set_bare_unquoted_tokens_still_work(wg):
+    """Regression pin, verbatim: this exact line is already documented
+    in the stakeholder's own instructions and in committed captures --
+    the space-free case must keep parsing exactly as before quoting was
+    added."""
+    wg.feed(b"WIFICRED SET 0 TestNet038 fakepw111 #1\n")
+    assert wg.take_sink() == _ack(1)
+    assert wg.last_wificred_set_ssid_matches(b"TestNet038")
+    assert wg.last_wificred_set_password_matches(b"fakepw111")
+
+
+def test_wificred_set_accepts_a_quoted_ssid_with_spaces(wg):
+    wg.feed(b'WIFICRED SET 2 "Busboom Mesh" hunter2pass #1\n')
+    assert wg.take_sink() == _ack(1)
+    assert wg.last_wificred_set_ssid_matches(b"Busboom Mesh")
+    assert wg.last_wificred_set_password_matches(b"hunter2pass")
+
+    wg.feed(b"WIFICRED #2\n")
+    assert wg.take_sink() == _ack(2) + b"wificred 2 1 Busboom Mesh\n"
+
+
+def test_wificred_set_accepts_a_quoted_password_with_spaces(wg):
+    """The password never reaches the wire on any path (the HARD
+    CONSTRAINT pinned above), so this checks the mock's recorded call
+    args, plus that the space-bearing password text never shows up in
+    the capture."""
+    password = b"my pass phrase"
+    wg.feed(b'WIFICRED SET 3 gopiv-guest "' + password + b'" #1\n')
+    capture = wg.take_sink()
+    assert capture == _ack(1)
+    assert password not in capture
+    assert wg.last_wificred_set_ssid_matches(b"gopiv-guest")
+    assert wg.last_wificred_set_password_matches(password)
+
+
+def test_wificred_set_quoted_ssid_and_quoted_password_round_trip(wg):
+    """The exact command line a stakeholder now types to provision the
+    real fleet network -- both fields quoted, both containing spaces."""
+    wg.feed(b'WIFICRED SET 0 "Busboom Mesh" "my pass phrase" #1\n')
+    reply = wg.take_sink()
+    assert reply == _ack(1)
+    assert b"my pass phrase" not in reply
+    assert wg.last_wificred_set_ssid_matches(b"Busboom Mesh")
+    assert wg.last_wificred_set_password_matches(b"my pass phrase")
+
+    wg.feed(b"WIFICRED #2\n")
+    assert wg.take_sink() == _ack(2) + b"wificred 0 1 Busboom Mesh\n"
+
+
+def test_wificred_set_supports_backslash_quote_escape_inside_a_field(wg):
+    """The one escape this grammar has: `\\"` inside a quoted field
+    decodes to a literal '"' -- an SSID or passphrase containing a
+    literal double-quote character is legal octets and must round-trip
+    exactly."""
+    wg.feed(b'WIFICRED SET 1 "Busboom \\"Mesh\\"" simplepw #1\n')
+    assert wg.take_sink() == _ack(1)
+    assert wg.last_wificred_set_ssid_matches(b'Busboom "Mesh"')
+    assert wg.last_wificred_set_password_matches(b"simplepw")
+
+
+def test_wificred_set_unterminated_quote_is_rejected_cleanly(wg):
+    """No closing '"' before the line ends is deliberately NOT
+    supported -- rather than guess where the field ends, the quote
+    swallows the rest of the line (including what would have been the
+    id token's OWN copy inside fields[], though the id itself is still
+    resolved correctly from the raw line -- see tokenizeLine()'s header
+    comment), which leaves WIFICRED SET with too few data fields.
+    decodeWifiCred()'s existing arity check rejects that exactly like
+    any other wrong-arity line: nack + err, same as
+    test_wificred_set_with_wrong_arity_is_a_decode_failure above -- no
+    new failure path, and critically, no field content (the `err
+    <code>` requirement) is ever echoed."""
+    wg.feed(b'WIFICRED SET 0 ssidhere "unterminated pass #1\n')
+    reply = wg.take_sink()
+    assert reply == b"nack 1 0 none\n" + b"err 2 #1\n"
+    assert b"unterminated" not in reply
+    assert b"pass" not in reply
+    assert wg.wificred_set_calls == 0
+
+    # Sequence did not advance (same shape as every other decode
+    # failure) -- the SAME id is still accepted next, well-formed.
+    wg.feed(b"WIFICRED SET 0 ssidhere pw #1\n")
+    assert wg.take_sink() == _ack(1)
+
+
+def test_wificred_set_quoted_ssid_with_an_extra_field_is_a_decode_failure(wg):
+    """A well-formed quoted field does not silently absorb a NEIGHBORING
+    stray token -- one extra field is still wrong arity, not a
+    best-effort guess at which token was meant as the password."""
+    wg.feed(b'WIFICRED SET 0 "Busboom Mesh" pw extra #1\n')
+    reply = wg.take_sink()
+    assert reply == b"nack 1 0 none\n" + b"err 2 #1\n"
+    assert wg.wificred_set_calls == 0
+
+
 def test_wificred_appears_in_the_help_listing(wg):
     wg.feed(b"HELP\n")
     assert b"WIFICRED" in wg.take_sink()

@@ -448,6 +448,41 @@ def open_link(port=None, radio=False, wifi=None, robot=None):
 # reading at the first `ack`-prefixed line can miss a same-burst `err`.
 # The helpers below read for the full `wait` window instead of stopping
 # early, for exactly that reason.
+#
+# ---- SET's own quoting (sprint 038 ticket 003, blocking follow-up) --------
+#
+# `<ssid>` and `<password>` may BOTH legally contain spaces -- an 802.11
+# SSID is arbitrary octets, and a WPA passphrase may contain spaces too
+# -- and the fleet's own real network is named "Busboom Mesh" (MEASURED
+# gopiv 2026-09-10, captures/wifi-credential-store-20260909/). The
+# enumeration reply solves this with field ORDER alone (ssid last), but
+# that trick only works for a single free-form field; SET has two, so
+# it needs real quoting instead. wire_handler.cpp's tokenizeLine() reads
+# a token that STARTS with '"' as a quoted field running to the next
+# '"' followed by a separator or end of line, with `\"` decoding to a
+# literal '"' inside it (the only escape that grammar has). A bare
+# token with no space and no '"' is unaffected -- `WIFICRED SET 0
+# TestNet038 fakepw111 #1` keeps working exactly as before.
+#
+# _wifi_quote_field() below applies that rule automatically so neither
+# wificred_set()'s own caller nor tools/provision_wifi.py's ever has to
+# hand-quote anything.
+
+def _wifi_quote_field(value):
+    r"""Encodes one WIFICRED SET field (`ssid` or `password`) for the
+    wire, per the grammar above: passed through UNQUOTED, byte for
+    byte, when it contains neither a space nor a '"' (the pre-quoting
+    shape, still what most SSIDs/passwords hit); otherwise wrapped in
+    '"..."' with every literal '"' escaped as `\"`. The escape is
+    provably round-trippable even when `value` already contains a raw
+    backslash next to a quote: the firmware's decoder only treats `\`
+    as an escape introducer when the VERY NEXT byte is `"`, and this
+    encoder inserts exactly one such backslash immediately before each
+    original `"` and touches no other byte, so decoding left-to-right
+    resynchronizes correctly regardless of what precedes it."""
+    if ' ' not in value and '"' not in value:
+        return value
+    return '"' + value.replace('"', '\\"') + '"'
 
 
 def _wificred_exchange(link, line, wait):
@@ -470,16 +505,23 @@ def wificred_set(link, slot, ssid, password, wait=1.5):
     """`WIFICRED SET <slot> <ssid> <password>` -- returns the raw reply
     lines (`ack ...` and, on a merits rejection, `err <code> #<id>`).
 
-    `password` is taken as a plain argument, exactly as every other
-    wire-verb helper here takes its arguments -- the CALLER is
-    responsible for sourcing it from a file or environment variable
-    rather than a literal, and this function never prints, logs, or
-    returns it: the firmware's own reply never echoes a password
-    either, so nothing this function reads back could leak one even by
-    accident.
+    `ssid`/`password` are taken as plain, UNQUOTED Python strings --
+    this function quotes either one on the wire itself
+    (`_wifi_quote_field()` above) iff it contains a space or a '"', so
+    a caller never has to think about the wire's own quoting grammar to
+    provision an SSID like "Busboom Mesh". `password` is taken as a
+    plain argument, exactly as every other wire-verb helper here takes
+    its arguments -- the CALLER is responsible for sourcing it from a
+    file or environment variable rather than a literal, and this
+    function never prints, logs, or returns it: the firmware's own
+    reply never echoes a password either, so nothing this function
+    reads back could leak one even by accident.
     """
     return _wificred_exchange(
-        link, f'WIFICRED SET {slot} {ssid} {password}', wait)
+        link,
+        f'WIFICRED SET {slot} {_wifi_quote_field(ssid)} '
+        f'{_wifi_quote_field(password)}',
+        wait)
 
 
 def wificred_clear(link, slot, wait=1.5):

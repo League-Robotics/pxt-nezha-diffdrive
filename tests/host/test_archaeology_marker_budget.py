@@ -217,7 +217,11 @@ _RATIO_BASELINE = {
     # hard-constraint contract -- no passphrase ever reaches the wire --
     # and the sequencing rationale) is load-bearing, not archaeology;
     # raised as its own explicit edit alongside the ticket that moved it.
-    "src/comms/wire_handler.h": 2.14,  # 506 / 236
+    # Raised again, same ticket, blocking follow-up: tokenizeLine()'s
+    # quoted-token grammar (WIFICRED SET's ssid/password may contain
+    # spaces) is a real contract a future caller needs -- the escape
+    # rule and the unterminated-quote fallback, not archaeology.
+    "src/comms/wire_handler.h": 2.20,  # 517 / 236
     "src/comms/transport_sink.h": 1.92,  # 46 / 24
     "src/motion/velocity_shaper.h": 1.90,  # 38 / 20
     "src/comms/config_fields.h": 1.61,  # 95 / 59

@@ -261,6 +261,39 @@ WIFICRED CLEAR <slot> #<id>                    -> ack <id> ...
 - Slots are `0`..`7`. `haspw` is `0`/`1`. **The passphrase is never
   readable back** on any path, under any input -- the enumeration
   reports only whether a slot has one.
+- **`<ssid>` and `<password>` may both contain spaces, and `SET`
+  quotes them.** Field order (below) is what disambiguates the
+  *enumeration* line's single free-form field; `SET` has TWO free-form
+  fields, so order alone cannot save it -- it needs real quoting.
+  MEASURED gopiv 2026-09-10, `captures/wifi-credential-store-20260909/`:
+  the fleet's actual network is named `Busboom Mesh`, with a space, so
+  provisioning it is the case this exists for:
+
+  ```
+  WIFICRED SET 0 "Busboom Mesh" "my pass phrase" #1
+  ```
+
+  A bare token with no space and no `"` is unquoted, exactly as
+  before quoting existed -- `WIFICRED SET 0 TestNet038 fakepw111 #1`
+  (already documented above, already in committed captures) keeps
+  working byte for byte. A field that needs quoting is wrapped in
+  `"..."`; a literal `"` inside it is escaped as `\"` -- the only
+  escape this grammar has (a lone `\` is passed through literally). A
+  quote opened but never closed before the line ends is rejected
+  cleanly: it is NOT mis-parsed or guessed at, it decodes as a
+  wrong-arity `SET` and comes back `nack`/`err 2` like any other
+  malformed line -- **never** an echo of the field content, so a
+  botched password never appears on the wire even in the rejection.
+  See `src/comms/wire_handler.h`'s `tokenizeLine()` comment for the
+  exact grammar and `tests/host/test_wire_grammar.py`'s
+  `test_wificred_set_*` quoting tests for the pinned cases (bare,
+  quoted ssid, quoted password, both quoted, `\"`-escaped, and the
+  unterminated-quote rejection).
+
+  You never have to hand-quote anything yourself: `tools/robotlink.py`'s
+  `wificred_set()` and `tools/provision_wifi.py` (next section) both
+  quote a field automatically whenever it contains a space or a `"` --
+  pass plain, unquoted strings to either one.
 - **`ssid` is the LAST field on the `wificred` line, deliberately.** An
   802.11 SSID may legally contain spaces -- MEASURED gopiv 2026-09-10,
   `captures/wifi-credential-store-20260909/`, against the real fleet
@@ -355,7 +388,11 @@ shape (never commit that file). `rogo` (a raw pipe where the caller
 types the sequence ids by hand) can also drive `WIFICRED` directly for
 a one-off check, the same as any other verb -- there is no dedicated
 `rogo` helper for it, by design (the ticket that added this tooling
-scoped a polished provisioning UI as explicitly out of scope).
+scoped a polished provisioning UI as explicitly out of scope). Typing
+`WIFICRED SET` by hand over `rogo` means typing the quotes yourself
+for any field with a space, e.g.
+`WIFICRED SET 0 "Busboom Mesh" "my pass phrase" #1` -- `provision_wifi.py`
+is the one that quotes on your behalf.
 
 ## Device identity -- what `HELLO` and `ID` announce
 

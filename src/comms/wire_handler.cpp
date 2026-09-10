@@ -400,6 +400,35 @@ size_t WireHandler::tokenizeLine(char* line, char** tokens,
   while (true) {
     while (*p == ' ') ++p;  // skip a run of separator spaces (sp ::= ' '+)
     if (*p == '\0') break;  // end of line -- no more tokens
+
+    if (*p == '"') {
+      // Quoted token (see this function's header comment). `out` only
+      // ever trails `scan` (never leads it), so the in-place decode
+      // never writes past what it has already read.
+      ++p;  // step past the opening quote
+      char* tokenStart = p;
+      char* out = p;
+      char* scan = p;
+      while (*scan != '\0') {
+        if (scan[0] == '\\' && scan[1] == '"') {
+          *out++ = '"';
+          scan += 2;
+          continue;
+        }
+        if (scan[0] == '"' && (scan[1] == '\0' || scan[1] == ' ')) {
+          ++scan;  // step past the closing quote
+          break;
+        }
+        *out++ = *scan++;
+      }
+      *out = '\0';
+      if (count < maxTokens) tokens[count] = tokenStart;
+      ++count;
+      p = scan;
+      if (*p == '\0') break;  // ran off the end -- unterminated, see above
+      continue;               // `p` is the separator right after the quote
+    }
+
     if (count < maxTokens) tokens[count] = p;
     ++count;
     while (*p != '\0' && *p != ' ') ++p;  // scan to next separator or end
