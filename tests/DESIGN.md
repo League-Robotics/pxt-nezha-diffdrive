@@ -52,7 +52,7 @@ fake HTTP getter — and neither touches hardware.
 
 ## Translation units nothing on the host compiles
 
-Nine `.cpp` files under `src/` reach `pxt.h` — directly, or
+Ten `.cpp` files under `src/` reach `pxt.h` — directly, or
 transitively through `platform/platform_ports.h` or
 `platform/otos_port.h`. `pxt.h` ships with the `core` dependency
 declared in `pxt.json`, brings CODAL's whole type set (`uBit`, fibers,
@@ -84,13 +84,14 @@ column names a real host test rather than only the hex checkpoint.
 | `platform/microbit_i2c_bus.cpp` | `uBit.i2c` itself: the codebase's entire CODAL I²C dependency, deliberately concentrated here so `nezha_port.cpp` need not carry it | hex checkpoint; there is no logic to test — every line forwards to `uBit.i2c`, and the interface it implements (`platform/i2c_bus.h`) is host-compiled by every `sim_tour.py` build |
 | `platform/otos_port.cpp` | SparkFun OTOS I²C transactions, via `otos_port.h` | hex checkpoint; the heading-wrap math is `core/heading_wrap.h`, host-tested |
 | `platform/vfp_guard.cpp` | `fiber_sleep()` | hex checkpoint; `test_vfp_guard_source_pin.py` |
+| `platform/wifi_flash_port.cpp` | `codal::MicroBitFlash::flash_write()`/`erase_page()` — one dedicated flash page (sprint 038 ticket 002) | hex checkpoint; on-hardware page-survival is ticket 004's job, not a host test's. Record layout, truncation-vs-reject policy, and list semantics live in `comms/wifi_credential_store.cpp`, which **is** in the C++11 gate and host-tested (`test_wifi_credential_store.py`) against a fake `WifiFlashPort` (`wifi_flash_port_shim.cpp`) |
 
-Two things cover all eight regardless:
+Two things cover all ten regardless:
 `host/test_include_paths_match_target.py` checks every `#include`
 under `src/` with no compiler at all, these files included, and the
 **hex checkpoint** — a real PXT build for a real target — is the only
 thing that compiles them as the robot will. `host/test_cxx11_syntax_gate.py`
-covers a deliberate list that excludes all eight.
+covers a deliberate list that excludes all ten.
 
 **Why no stub `pxt.h`.** A stub would only re-prove that these files
 parse, which the include gate plus the hex checkpoint already cover
