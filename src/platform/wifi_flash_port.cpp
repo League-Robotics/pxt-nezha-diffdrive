@@ -65,7 +65,22 @@ bool WifiFlashPortCodal::write(uint32_t offset, const uint8_t* buffer, uint32_t 
   // deliberately: that page is already the flash driver's own scratch
   // for every other flash_write() caller on this build, so this store
   // adds no second scratch consumer.
-  return flashDriver().flash_write(address, source, static_cast<int>(length)) != 0;
+  //
+  // The vendored header's doc comment is WRONG and must not be trusted:
+  // built/dockercodal/libraries/codal-microbit-v2/inc/MicroBitFlash.h:61
+  // claims "@return non-zero on sucess, zero on error", but the
+  // implementation (.../source/MicroBitFlash.cpp, flash_write()'s final
+  // `return MICROBIT_OK;`) returns MICROBIT_OK -- which is 0 -- on
+  // success, and MICROBIT_INVALID_PARAMETER (-1001, non-zero) from its
+  // guard failures. An inverted check here reads a successful write as
+  // a failure and a rejected write as a success.
+  //
+  // MEASURED gopiv 2026-09-09: with the old inverted check flashed,
+  // `WIFICRED SET 0 TestNet038 secretpw038 #2` returned `err 3` and a
+  // following `WIFICRED #3` enumerated nothing, even though slot 0 and
+  // both strings are well within range --
+  // captures/wifi-credential-store-20260909/.
+  return flashDriver().flash_write(address, source, static_cast<int>(length)) == MICROBIT_OK;
 }
 
 bool WifiFlashPortCodal::erasePage() {
