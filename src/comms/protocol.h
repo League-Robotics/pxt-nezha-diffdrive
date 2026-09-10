@@ -546,12 +546,12 @@ class Protocol {
   uint8_t wifiRxBuf_[WifiLink::kMaxLineBytes + 1];
   // Sized for the worst-case `DBG:wifi ...` line: fixed text, two
   // 15-char addresses, six counters, a 47-char command, a 71-char
-  // reply trace, `credsrc=%d trunc=%u` and ` join=%s` (up to 2 ASCII
-  // digits or "-"). Worst case is 322 bytes + NUL = 323/384 used, each
-  // field's type-range maximum substituted into the exact format
-  // string -- 61 bytes of headroom remain for the next field added
-  // here; re-check against that field's own width (an SSID is up to
-  // 32 octets) before assuming 61 bytes covers it.
+  // reply trace, `credsrc=%d trunc=%u join=%s`, plus (038-006's R1
+  // fields) a 32-octet `ssid=%s` and a `haspw=%u` digit. Worst case is
+  // 368 bytes + NUL = 369/384 used, pinned in Python by
+  // test_wifi_join_error_debug_source_pin.py -- 15 bytes of headroom
+  // remain; re-check a new field's own width before assuming that
+  // covers it.
   char wifiDbgBuf_[384];
 
   // Radio RX scratch -- every line the radio poll receives lands here

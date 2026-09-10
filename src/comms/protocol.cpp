@@ -422,6 +422,30 @@ void Protocol::emitWifiDebug() {
   // (kWifiSsid/kWifiPassword), 1 = set by setupWifi() (wifiCredsExplicit_),
   // 2 = a stored WifiCredentialStore flash slot (wifiCredsFromFlash_).
   // Like join=, this is a bare integer -- never the credential itself.
+  //
+  // ssid=<...>/haspw=<0|1> -- R1: is a module/link enabled (with
+  // state=), what SSID is current/attempted, does it have a password
+  // -- never the password. Same precedence credsrc= above reports, so
+  // the two can't disagree: 2=wifiJoinSequencer_'s slot,
+  // 1=wifiSsid_/wifiPassword_, 0=kWifiSsid/kWifiPassword. No credential
+  // at the active source -> `ssid=- haspw=0`, never a bare empty field.
+  const char* ssidField = "-";
+  bool haspwField = false;
+  if (wifiCredsFromFlash_) {
+    if (wifiJoinSequencer_.currentSsid()[0] != '\0') {
+      ssidField = wifiJoinSequencer_.currentSsid();
+      haspwField = wifiJoinSequencer_.currentHasPassword();
+    }
+  } else if (wifiCredsExplicit_) {
+    if (wifiSsid_[0] != '\0') {
+      ssidField = wifiSsid_;
+      haspwField = (wifiPassword_[0] != '\0');
+    }
+  } else if (kWifiSsid[0] != '\0') {
+    ssidField = kWifiSsid;
+    haspwField = (kWifiPassword[0] != '\0');
+  }
+
   char joinBuf[4];  // "-" or up to 2 ASCII digits (see lastJoinError())
   if (wifiLink_.lastJoinError() != 0) {
     snprintf(joinBuf, sizeof(joinBuf), "%d", wifiLink_.lastJoinError());
@@ -432,7 +456,7 @@ void Protocol::emitWifiDebug() {
   snprintf(wifiDbgBuf_, sizeof(wifiDbgBuf_),
            "DBG:wifi state=%d ip=%s peer=%s:%u tcp=%u/%d to=%d restarts=%lu "
            "sent=%lu rx=%lu drop=%lu mdns=%lu/%d cmd=%s reply=%s "
-           "credsrc=%d trunc=%u join=%s",
+           "credsrc=%d trunc=%u join=%s ssid=%s haspw=%u",
            static_cast<int>(wifiLink_.state()),
            wifiLink_.ownIp()[0] ? wifiLink_.ownIp() : "-",
            wifiLink_.peerIp()[0] ? wifiLink_.peerIp() : "-",
@@ -448,7 +472,7 @@ void Protocol::emitWifiDebug() {
            wifiLink_.lastCommand(), wifiLink_.lastReply(),
            wifiCredsFromFlash_ ? 2 : (wifiCredsExplicit_ ? 1 : 0),
            static_cast<unsigned>(wifiCredsTruncated_),
-           joinBuf);
+           joinBuf, ssidField, haspwField ? 1u : 0u);
   emitLine(wifiDbgBuf_);
 }
 

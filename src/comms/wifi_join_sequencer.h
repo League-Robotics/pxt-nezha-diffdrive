@@ -96,6 +96,24 @@ class WifiJoinSequencer {
   // begun.
   int currentSlot() const { return currentSlot_; }
 
+  // The SSID of the slot currently being tried (or most recently
+  // begun) -- "" before the first slot is begun, same "meaningless
+  // before the first slot is begun" caveat as currentSlot() above (and
+  // for the same reason: ssidBuf_ is zero-initialized but beginSlot()
+  // has never copied a real value into it yet). This is the accessor
+  // currentSlot()'s own comment anticipated: Protocol::emitWifiDebug()
+  // reads it for the R1 `ssid=` field (sprint 038 ticket 006).
+  const char* currentSsid() const { return walking_ ? ssidBuf_ : ""; }
+
+  // Whether the current slot's stored credential has a non-empty
+  // password -- NEVER the password itself, same never-a-passphrase-
+  // accessor discipline WifiCredentialStore::hasPassword() documents
+  // (this file's own header comment). Read by emitWifiDebug() for the
+  // R1 `haspw=` field, same call site as currentSsid() above.
+  bool currentHasPassword() const {
+    return walking_ && passwordBuf_[0] != '\0';
+  }
+
   // How many full bring-up attempts the current slot has used so far
   // this lap -- test introspection.
   int attemptsOnSlot() const { return attemptsOnSlot_; }

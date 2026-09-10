@@ -95,6 +95,10 @@ def lib(tmp_path_factory):
         getattr(lib, name).restype = ctypes.c_int
     lib.wjsLastCommand.argtypes = [ctypes.c_void_p]
     lib.wjsLastCommand.restype = ctypes.c_char_p
+    lib.wjsCurrentSsid.argtypes = [ctypes.c_void_p]
+    lib.wjsCurrentSsid.restype = ctypes.c_char_p
+    lib.wjsCurrentHasPassword.argtypes = [ctypes.c_void_p]
+    lib.wjsCurrentHasPassword.restype = ctypes.c_int
     lib.wjsMaxAttemptsPerSlot.argtypes = []
     lib.wjsMaxAttemptsPerSlot.restype = ctypes.c_int
     lib.wjsLinkBeginDirect.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
@@ -210,6 +214,12 @@ class Seq:
 
     def last_command(self):
         return self.lib.wjsLastCommand(self.h).decode()
+
+    def current_ssid(self):
+        return self.lib.wjsCurrentSsid(self.h).decode()
+
+    def current_has_password(self):
+        return self.lib.wjsCurrentHasPassword(self.h) == 1
 
 
 @pytest.fixture
@@ -398,3 +408,68 @@ def test_empty_store_is_a_pure_pass_through_to_wifilink(seq):
     seq.step()
     assert seq.state() == JOIN
     assert not seq.walking()
+
+
+# --------------------------------------------- R1 introspection (038-006)
+# currentSsid()/currentHasPassword() are what
+# Protocol::emitWifiDebug() reads for DBG:wifi's `ssid=`/`haspw=`
+# fields (sprint 038 ticket 006, sprint architecture R1). Exercised
+# here directly, against the real WifiJoinSequencer -- unlike
+# Protocol's own wiring, this class compiles under tests/host/, so
+# this is a real test, not a source pin.
+
+def test_current_ssid_empty_before_the_first_slot_is_begun(seq):
+    """Before begin() -- or before service() has picked a slot --
+    currentSsid() is "" and currentHasPassword() is false, mirroring
+    currentSlot()'s own "meaningless (0) before begin" caveat. Nothing
+    has called store_set()/begin() here at all."""
+    assert seq.current_ssid() == ""
+    assert not seq.current_has_password()
+
+
+def test_current_ssid_and_has_password_reflect_the_walking_slot(seq):
+    """Once the sequencer is walking, currentSsid() names the slot
+    under test and currentHasPassword() reports whether ITS entry has
+    a password -- never the password string itself (current_has_
+    password() is a bool ctypes binding; there is no ctypes accessor
+    anywhere in this harness that could return the real passphrase)."""
+    assert seq.store_set(0, "Busboom Mesh", "hunter2")
+    seq.begin(hostname="tovez")
+    seq.step()  # arms the walk (service()'s first-pass advanceTo(0))
+    assert seq.current_slot() == 0
+    assert seq.current_ssid() == "Busboom Mesh"
+    assert seq.current_has_password()
+
+
+def test_current_has_password_false_for_open_network_slot(seq):
+    """An empty stored password (a deliberate open-network entry, per
+    WifiCredentialStore::set()'s own contract) must report
+    haspw=false -- currentHasPassword() answers "is a password SET",
+    not "is this slot occupied"."""
+    assert seq.store_set(0, "Busboom Mesh", "")
+    seq.begin(hostname="tovez")
+    seq.step()
+    assert seq.current_slot() == 0
+    assert seq.current_ssid() == "Busboom Mesh"
+    assert not seq.current_has_password()
+
+
+def test_current_ssid_advances_with_the_walk(seq):
+    """currentSsid() tracks whichever slot the walk has moved to, not
+    a value frozen at the first begin() -- reusing the ticket 005
+    one-wrong-then-one-correct scenario and checking the ssid/haspw
+    pair at each slot along the way."""
+    assert seq.store_set(0, "Busboom Mesh", "wrongpw000")
+    assert seq.store_set(1, "GuestNet", "")
+    seq.begin(hostname="tovez")
+
+    seq.configure()
+    seq.expect_cwqap_then_join("Busboom Mesh", "wrongpw000")
+    assert seq.current_ssid() == "Busboom Mesh"
+    assert seq.current_has_password()
+    seq.reply("+CWJAP:2\r\n\r\nFAIL\r\n")
+    seq.step()
+
+    assert seq.current_slot() == 1
+    assert seq.current_ssid() == "GuestNet"
+    assert not seq.current_has_password()

@@ -140,6 +140,13 @@ const char* wjsLastCommand(void* p) { return static_cast<Handle*>(p)->link.lastC
 int wjsCurrentSlot(void* p) { return static_cast<Handle*>(p)->seq.currentSlot(); }
 int wjsAttemptsOnSlot(void* p) { return static_cast<Handle*>(p)->seq.attemptsOnSlot(); }
 int wjsWalking(void* p) { return static_cast<Handle*>(p)->seq.walking() ? 1 : 0; }
+// Sprint 038 ticket 006's R1 accessors -- see WifiJoinSequencer::
+// currentSsid()/currentHasPassword() (wifi_join_sequencer.h) for the
+// never-the-password-itself contract currentHasPassword() carries.
+const char* wjsCurrentSsid(void* p) { return static_cast<Handle*>(p)->seq.currentSsid(); }
+int wjsCurrentHasPassword(void* p) {
+  return static_cast<Handle*>(p)->seq.currentHasPassword() ? 1 : 0;
+}
 int wjsMaxAttemptsPerSlot() { return diffDrive::WifiJoinSequencer::kMaxAttemptsPerSlot; }
 
 // The empty-store regression-guard test's own primitive: begins
