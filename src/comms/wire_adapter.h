@@ -277,8 +277,8 @@ class WireAdapter : public Wire::Adapter {
 
   // ---- the WiFi credential store, disclosed -- delegates to
   // WifiCredentialStore via wifiCredentialStore()'s singleton seam
-  // (wifi_credential_store.h's own comment on that function), which
-  // sprint 038 ticket 006 confirmed as the SAME instance
+  // (wifi_credential_store.h's own comment on that function), which is
+  // confirmed as the SAME instance
   // Protocol's own WifiJoinSequencer walks -- not a stopgap this class
   // will later be re-pointed off of. This class still stores no
   // credential table of its own -- same "disclose, don't hold" shape

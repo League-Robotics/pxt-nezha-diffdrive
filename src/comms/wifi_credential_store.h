@@ -107,9 +107,9 @@ class WifiCredentialStore {
 
   // True iff ANY slot is occupied -- the "does this board have a
   // provisioned list at all" check Protocol::serviceWifi()'s lazy-begin
-  // uses (sprint 038 ticket 005) to decide whether WifiJoinSequencer
-  // owns the join or the setupWifi()/baked single-credential path does
-  // (sprint architecture Design Rationale #3's precedence rule).
+  // uses to decide whether WifiJoinSequencer owns the join or the
+  // setupWifi()/baked single-credential path does (per the precedence
+  // rule in this project's WiFi architecture docs).
   bool anyOccupied() const;
 
   // Copies slot's NUL-terminated ssid/password into the caller's

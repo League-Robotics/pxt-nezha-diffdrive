@@ -77,6 +77,7 @@ need more than a line; a file with no section is fully described here.
 | file | what it is for |
 |---|---|
 | `wire_acceptance.py` | end-to-end acceptance against real firmware on a real robot: good cases, bad cases, every v6 verb, and whether the robot actually MOVES. The proof a carrier works. |
+| `provision_wifi.py` | one scripted bench session that writes a board's WIFICRED flash-backed credential store (single `--slot`, a `--manifest` batch, `--list`, or `--clear`) — no hand-typed wire lines, no wizard UI; a passphrase is read from an env var, a file, or a non-echoing prompt and never printed, logged, or persisted by this tool. Provision AFTER flashing: a flash mass-erases the chip. |
 
 ### Build, deploy and publish
 

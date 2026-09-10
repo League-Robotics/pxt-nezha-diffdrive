@@ -339,7 +339,7 @@ def test_all_wrong_store_cycles_slots_without_wedging_retryable(seq, lib):
     # Each slot gets exactly max_attempts tries before the sequencer
     # advances -- e.g. max_attempts=2: [0, 0, 1, 1, 0, 0, 1, 1].
     expected = []
-    for lap in range(2):
+    for _lap in range(2):
         for slot in (0, 1):
             expected += [slot] * max_attempts
     assert seen_slots == expected[:len(seen_slots)]

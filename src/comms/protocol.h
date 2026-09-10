@@ -503,10 +503,9 @@ class Protocol {
   // WifiCredentialStore non-empty and handed the join to
   // WifiJoinSequencer -- the credsrc=2 case. An EMPTY store leaves
   // this false forever, so the explicit/baked-credential path below
-  // runs unchanged (sprint 038 ticket 005; wifiJoinSequencer_ member,
-  // below wifiLink_, owns its own ssid/password cells now -- this
-  // class no longer needs to, since it no longer copies a slot's
-  // credentials itself).
+  // runs unchanged (the wifiJoinSequencer_ member, below wifiLink_,
+  // owns its own ssid/password cells now -- this class no longer
+  // needs to, since it no longer copies a slot's credentials itself).
   bool wifiCredsFromFlash_ = false;
 
   // NSDMI for every member below except roleBuf_/commonNameBuf_ above
