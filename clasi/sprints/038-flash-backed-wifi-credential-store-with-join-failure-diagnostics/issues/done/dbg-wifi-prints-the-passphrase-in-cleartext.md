@@ -1,5 +1,8 @@
 ---
-status: pending
+status: done
+sprint: 038
+tickets:
+- 038-009
 ---
 
 # `DBG:wifi` prints the WiFi passphrase in cleartext, on every carrier

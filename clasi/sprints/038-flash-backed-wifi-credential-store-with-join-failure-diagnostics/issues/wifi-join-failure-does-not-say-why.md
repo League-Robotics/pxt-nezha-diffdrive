@@ -1,5 +1,9 @@
 ---
-status: pending
+status: in-progress
+sprint: 038
+tickets:
+- 038-001
+- 038-008
 ---
 
 # A WiFi join failure does not say why: wrong password and out-of-range AP look identical

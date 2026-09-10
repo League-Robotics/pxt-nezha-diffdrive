@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: 'WifiLink: retain and expose the +CWJAP failure code'
-status: in-progress
+status: done
 use-cases:
 - SUC-006
 depends-on: []
