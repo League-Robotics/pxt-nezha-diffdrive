@@ -406,6 +406,16 @@ void Protocol::emitWifiDebug() {
   // integer, never the credential itself -- see
   // .claude/rules/measurement-citations.md and this sprint's hard
   // constraint that no passphrase ever leaves the board.
+  //
+  // cmd=%s below is `wifiLink_.lastCommand()`, reported verbatim and
+  // safe to: `lastCommand()`'s contract (wifi_link.h) guarantees it
+  // NEVER contains a passphrase, in any state. The redaction happens
+  // at the source (WifiLink::startCommand()'s trace-override
+  // parameter, used by the one call site -- the AT+CWJAP= join step --
+  // that ever composes one), not here, so this function needs no
+  // change to stay safe (sprint 038 ticket 009 / the 2026-09-10
+  // Revision, Finding 1;
+  // clasi/issues/dbg-wifi-prints-the-passphrase-in-cleartext.md).
   char joinBuf[4];  // "-" or up to 2 ASCII digits (see lastJoinError())
   if (wifiLink_.lastJoinError() != 0) {
     snprintf(joinBuf, sizeof(joinBuf), "%d", wifiLink_.lastJoinError());

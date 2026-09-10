@@ -218,6 +218,15 @@ class WifiLink {
   uint32_t receivedCount() const { return receivedCount_; }
   uint32_t mdnsAnnounceCount() const { return mdnsAnnounceCount_; }
   bool mdnsSocketOpen() const { return mdnsSocketOpen_; }
+
+  // The most recent AT command sent, for the DBG:wifi trace and bench
+  // tools. Contract: this string NEVER contains a WiFi passphrase, in
+  // any state -- startCommand()'s optional trace-override parameter is
+  // how a caller composing a secret-carrying command (only
+  // serviceJoin()'s explicit AT+CWJAP= step, today) substitutes a
+  // redacted string here while the real command still reaches the UART
+  // unchanged. Protocol::emitWifiDebug() reports this verbatim on the
+  // strength of that contract -- see its own comment.
   const char* lastCommand() const { return lastCommand_; }
   const char* lastReply() const { return lastReply_; }
 
@@ -302,8 +311,15 @@ class WifiLink {
 
   // AT command/await mechanics (one in flight at a time)
   enum Await : uint8_t { kPending, kMatched, kRejected, kTimedOut };
-  bool startCommand(const char* command, const char* expect,
-                    uint32_t timeout);  // [ms]
+  // `traceOverride`, when non-null, is recorded into lastCommand_ IN
+  // PLACE OF `command` -- the real `command` still reaches the UART
+  // byte-for-byte either way. Every caller but one passes nullptr and
+  // is byte-for-byte unchanged (lastCommand_ == command, as before).
+  // The one exception is serviceJoin()'s AT+CWJAP= step, which is the
+  // only startCommand() call site that ever composes a passphrase into
+  // `command` -- see lastCommand()'s doc comment above.
+  bool startCommand(const char* command, const char* expect, uint32_t timeout,
+                    const char* traceOverride = nullptr);  // [ms]
   void startAwait(const char* expect, uint32_t timeout);  // [ms]
   Await pollAwait();
 

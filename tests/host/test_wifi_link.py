@@ -28,6 +28,7 @@ link wrote. Run with::
 """
 import ctypes
 import pathlib
+import re
 import struct
 
 import pytest
@@ -354,6 +355,125 @@ def test_plain_join_timeout_reports_sentinel_not_a_stale_previous_code(link):
     link.step(15100)  # past kJoinTimeout
     assert link.state() == BACKOFF
     assert link.lib.wlLastJoinError(link.h) == 0
+
+
+# ----------------------------------------- passphrase redaction (038-009)
+
+# Matches the `link` fixture's defaults (Link.__init__ above) -- the
+# literal values already used by test_join_polls_cwjap_query_before_...
+# and friends, named here so the redaction tests can assert against them.
+JOIN_SSID = "Busboom Mesh"
+JOIN_PASSWORD = "hunter2"
+
+
+def _assert_lastcommand_has_no_passphrase(link):
+    traced = link.lib.wlLastCommand(link.h).decode()
+    assert JOIN_PASSWORD not in traced, (
+        f"passphrase leaked into WifiLink::lastCommand(): {traced!r}")
+
+
+def test_last_command_is_redacted_at_the_explicit_join_step_and_in_backoff(link):
+    """Sprint 038 ticket 009 / the 2026-09-10 Revision, Finding 1: MEASURED
+    gopiv 2026-09-09 (captures/wifi-join-codes-20260909/, the `cmd=`
+    field redacted only in that capture's own notes.md, NOT on the
+    wire) that Protocol::emitWifiDebug() -- via
+    WifiLink::lastCommand() -- broadcast the real join passphrase on
+    serial, radio AND the WiFi link itself; see
+    clasi/issues/dbg-wifi-prints-the-passphrase-in-cleartext.md.
+
+    _configure_and_reach_explicit_join()'s own expect_command() call
+    already pins that the WIRE command is the byte-for-byte real
+    'AT+CWJAP="Busboom Mesh","hunter2"' (AC2 -- unchanged). This test
+    pins the separate, redacted TRACE lastCommand() records instead
+    (AC1): present in kJoin right after the send, still redacted after
+    a scripted +CWJAP:2 failure moves the link to kBackoff, and still
+    redacted on a later backoff poll -- the SSID appears throughout,
+    the password never does."""
+    _configure_and_reach_explicit_join(link)
+    traced = link.lib.wlLastCommand(link.h).decode()
+    assert traced == f'AT+CWJAP="{JOIN_SSID}",***'
+    assert JOIN_SSID in traced
+    _assert_lastcommand_has_no_passphrase(link)
+
+    link.reply("+CWJAP:2\r\n\r\nFAIL\r\n")
+    link.step()
+    assert link.state() == BACKOFF
+    assert link.lib.wlLastJoinError(link.h) == 2
+    assert link.lib.wlLastCommand(link.h).decode() == traced
+    _assert_lastcommand_has_no_passphrase(link)
+
+    link.step(200)  # a later poll, still backing off
+    _assert_lastcommand_has_no_passphrase(link)
+
+
+def test_last_command_is_redacted_after_a_successful_join(link):
+    """Same finding as above, the success path: the redacted trace
+    from the explicit join step survives into kAddress (nothing
+    overwrites lastCommand_ until the next real AT command is sent)."""
+    _configure_and_reach_explicit_join(link)
+    _assert_lastcommand_has_no_passphrase(link)
+    link.reply("WIFI CONNECTED\r\nWIFI GOT IP\r\n\r\nOK\r\n")
+    link.step()
+    assert link.state() == ADDRESS
+    traced = link.lib.wlLastCommand(link.h).decode()
+    assert traced == f'AT+CWJAP="{JOIN_SSID}",***'
+    _assert_lastcommand_has_no_passphrase(link)
+
+
+def _startcommand_call_sites():
+    """Every startCommand() CALL (not its declaration, its out-of-line
+    definition, or a comment mentioning the name) in wifi_link.cpp, as
+    (line_text, arg_count) pairs -- a structural audit mirroring the
+    ticket description's own grep: 'AT+CWJAP=' at the explicit join
+    step is the only call site that composes a secret into a command,
+    so it is the only one that may pass a 4th (trace-override)
+    argument. A future call site that introduces a new secret-carrying
+    command and forgets to redact it is caught here."""
+    src = (_SRC_DIR / "comms" / "wifi_link.cpp").read_text()
+
+    def arg_count(args_str):
+        masked = re.sub(r'"[^"]*"',
+                        lambda m: m.group(0).replace(",", "\x00"), args_str)
+        return 0 if masked.strip() == "" else len(masked.split(","))
+
+    sites = []
+    for m in re.finditer(r"startCommand\(([^)]*)\)", src):
+        line_start = src.rfind("\n", 0, m.start()) + 1
+        line_end = src.find("\n", m.start())
+        line = src[line_start:line_end].strip()
+        if line.startswith("//") or "WifiLink::startCommand" in line:
+            continue  # the definition, or a comment mentioning the name
+        sites.append((line, arg_count(m.group(1))))
+    return sites
+
+
+def test_only_the_cwjap_join_call_site_passes_a_trace_override():
+    """The audit test itself -- see _startcommand_call_sites()'s own
+    docstring. Pins: exactly one call site among all of them carries a
+    trace-override 4th argument, it is the AT+CWJAP= join step, and
+    every other call site passes exactly the original 3 arguments
+    (command, expect, timeout) -- i.e. is byte-for-byte unchanged by
+    this ticket, per its own acceptance criteria."""
+    sites = _startcommand_call_sites()
+    # Pinned count from the ticket's own grep (wifi_link.cpp lines 542,
+    # 564, 593, 613, 629, 643-649, 666-671, 693-697, 711, plus the
+    # payload-framing AT+CIPSEND= site at 887-896) -- a change to this
+    # count means a call site was added or removed and this audit must
+    # be re-examined, not silently widened.
+    assert len(sites) == 10, f"unexpected startCommand() call-site count: {sites}"
+
+    four_arg_sites = [line for line, n in sites if n == 4]
+    assert len(four_arg_sites) == 1, (
+        f"expected exactly one startCommand() call site to carry a "
+        f"trace override, found: {four_arg_sites}")
+    assert "trace" in four_arg_sites[0] and "CWJAP" not in four_arg_sites[0]
+
+    for line, n in sites:
+        if line in four_arg_sites:
+            continue
+        assert n == 3, f"call site does not pass exactly 3 args: {line!r}"
+        assert "trace" not in line, (
+            f"a non-audited call site references a trace override: {line!r}")
 
 
 def test_ready_state_learns_own_ip_from_cipsta(link):

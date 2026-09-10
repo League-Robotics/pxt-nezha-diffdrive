@@ -294,14 +294,18 @@ void WifiLink::startAwait(const char* expect, uint32_t timeout) {  // [ms]
 }
 
 bool WifiLink::startCommand(const char* command, const char* expect,
-                            uint32_t timeout) {  // [ms]
+                            uint32_t timeout,  // [ms]
+                            const char* traceOverride) {
   const int n = snprintf(commandBuf_, sizeof(commandBuf_), "%s\r\n", command);
   if (n <= 0 || static_cast<unsigned>(n) >= sizeof(commandBuf_)) return false;
   if (!uart_.write(reinterpret_cast<const uint8_t*>(commandBuf_),
                    static_cast<uint16_t>(n))) {
     return false;  // TX full -- caller retries next poll, state unchanged
   }
-  copyBounded(lastCommand_, sizeof(lastCommand_), command);
+  // `command` itself has already gone to the UART above, unchanged --
+  // the override only affects what gets RECORDED for tracing.
+  copyBounded(lastCommand_, sizeof(lastCommand_),
+              traceOverride != nullptr ? traceOverride : command);
   lastReply_[0] = '\0';
   lastReplyLen_ = 0;
   startAwait(expect, timeout);
@@ -590,7 +594,19 @@ void WifiLink::serviceJoin() {
     char cmd[kCommandBuffer];
     snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"", config_.ssid,
              config_.password);
-    startCommand(cmd, "OK", kJoinTimeout);
+    // The real command above (with the real password) goes to the
+    // UART unchanged. What gets RECORDED in lastCommand_ -- and so
+    // reported verbatim by Protocol::emitWifiDebug() on DBG:wifi -- is
+    // this separate, redacted trace: SSID kept (not a secret, and
+    // diagnostically useful), passphrase replaced by a fixed marker.
+    // MEASURED gopiv 2026-09-09, captures/wifi-join-codes-20260909/:
+    // before this fix, DBG:wifi broadcast the real passphrase on every
+    // join attempt (redacted only in that capture's own notes.md, not
+    // on the wire) -- see
+    // clasi/issues/dbg-wifi-prints-the-passphrase-in-cleartext.md.
+    char trace[kCommandBuffer];
+    snprintf(trace, sizeof(trace), "AT+CWJAP=\"%s\",***", config_.ssid);
+    startCommand(cmd, "OK", kJoinTimeout, trace);
     return;
   }
   const Await outcome = pollAwait();
