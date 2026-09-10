@@ -208,7 +208,11 @@ _RATIO_BASELINE = {
     "src/core/bus_guard.h": 2.67,  # 48 / 18
     "src/core/encoder_glitch_armor.h": 2.45,  # 108 / 44
     "src/comms/run_bridge.h": 2.32,  # 79 / 34
-    "src/comms/wire_handler.h": 2.07,  # 455 / 220
+    # Sprint 038 ticket 003: WIFICRED's Adapter seam comment (its own
+    # hard-constraint contract -- no passphrase ever reaches the wire --
+    # and the sequencing rationale) is load-bearing, not archaeology;
+    # raised as its own explicit edit alongside the ticket that moved it.
+    "src/comms/wire_handler.h": 2.14,  # 506 / 236
     "src/comms/transport_sink.h": 1.92,  # 46 / 24
     "src/motion/velocity_shaper.h": 1.90,  # 38 / 20
     "src/comms/config_fields.h": 1.61,  # 95 / 59
@@ -227,8 +231,22 @@ _RATIO_BASELINE = {
     "src/platform/nezha_port.cpp": 0.74,  # 189 / 255
     "src/platform/platform_ports.h": 0.74,  # 20 / 27
     "src/motion/motion_engine.cpp": 0.73,  # 218 / 299
-    "src/comms/wire_handler.cpp": 0.68,  # 565 / 834
-    "src/comms/wifi_link.h": 0.64,  # 145 / 226
+    # Sprint 038 ticket 003: WIFICRED's decode/exec pair carries the
+    # same load-bearing hard-constraint/sequencing comment as above;
+    # raised as its own explicit edit alongside the ticket that moved it.
+    # Raised again, same ticket's own %zu fix: 0.70 -> 0.72 (645/915 ->
+    # 656/916). The added comment is a MEASURED-and-artifact-cited
+    # printf-portability bug (gopiv 2026-09-09,
+    # captures/wifi-credential-store-20260909/) protected from trimming
+    # by .claude/rules/measurement-citations.md -- there is no smaller
+    # write of this fact available.
+    "src/comms/wire_handler.cpp": 0.72,  # 656 / 916
+    # Raised 0.64 -> 0.79 (145/226 -> 183/232) alongside sprint 038
+    # ticket 001's join-failure diagnostics: lastJoinError() and the
+    # startCommand() trace-override parameter are new public surface
+    # whose comments state a hard contract (a passphrase must never
+    # reach lastCommand_/the wire) -- load-bearing, not archaeology.
+    "src/comms/wifi_link.h": 0.79,  # 183 / 232
     "src/comms/run_queue.h": 0.59,  # 36 / 61
     "src/platform/vfp_guard.cpp": 0.58,  # 7 / 12
     "src/comms/radio_transport.cpp": 0.57,  # 64 / 112
@@ -239,7 +257,13 @@ _RATIO_BASELINE = {
     "src/platform/otos_port.cpp": 0.27,  # 44 / 163
     "src/blocks/run.ts": 0.23,  # 56 / 243
     "src/blocks/motion.ts": 0.17,  # 74 / 423
-    "src/comms/wifi_link.cpp": 0.13,  # 113 / 844
+    # Raised 0.13 -> 0.16 (113/844 -> 138/869) alongside sprint 038
+    # ticket 001's join-failure diagnostics: the join-error-code
+    # capture state machine, plus the passphrase-redaction fix's own
+    # MEASURED citation (gopiv 2026-09-09,
+    # captures/wifi-join-codes-20260909/), protected from trimming by
+    # .claude/rules/measurement-citations.md.
+    "src/comms/wifi_link.cpp": 0.16,  # 138 / 869
     "src/blocks/pose.ts": 0.03,  # 1 / 38
     "src/blocks/stop.ts": 0.02,  # 1 / 49
 }

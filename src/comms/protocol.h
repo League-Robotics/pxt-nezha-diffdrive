@@ -498,6 +498,22 @@ class Protocol {
   // store, read by emitWifiDebug()'s `trunc=` field.
   uint8_t wifiCredsTruncated_ = 0;
 
+  // A copy of the FIRST occupied WifiCredentialStore slot's
+  // ssid/password (see serviceWifi()'s own comment for the precedence
+  // rule), read once at serviceWifi()'s lazy-begin. Sized identically
+  // to wifiSsid_/wifiPassword_ above and for the same reason --
+  // WifiLink::Config borrows a pointer into this cell for the link's
+  // life, so it must be a Protocol-owned cell, not a serviceWifi()
+  // local.
+  char wifiFlashSsid_[33] = {0};
+  char wifiFlashPassword_[64] = {0};
+
+  // True iff serviceWifi()'s lazy-begin found an occupied flash slot
+  // and used it -- the credsrc=2 case. An EMPTY store leaves this
+  // false forever, so every write below this flag simply never
+  // happens and the explicit/baked-credential path runs unchanged.
+  bool wifiCredsFromFlash_ = false;
+
   // NSDMI for every member below except roleBuf_/commonNameBuf_ above
   // (and, after ticket 002, profileBuf_), which Protocol::Protocol()
   // seeds explicitly -- a char array can't be NSDMI'd from a runtime
@@ -527,8 +543,12 @@ class Protocol {
   uint8_t wifiRxBuf_[WifiLink::kMaxLineBytes + 1];
   // Sized for the worst-case `DBG:wifi ...` line: fixed text, two
   // 15-char addresses, six counters, a 47-char command, a 71-char
-  // reply trace, and `credsrc=%d trunc=%u` (~294/320 used before that
-  // last field -- grown to 384 alongside it, not after, for headroom).
+  // reply trace, `credsrc=%d trunc=%u` and ` join=%s` (up to 2 ASCII
+  // digits or "-"). Worst case is 322 bytes + NUL = 323/384 used, each
+  // field's type-range maximum substituted into the exact format
+  // string -- 61 bytes of headroom remain for the next field added
+  // here; re-check against that field's own width (an SSID is up to
+  // 32 octets) before assuming 61 bytes covers it.
   char wifiDbgBuf_[384];
 
   // Radio RX scratch -- every line the radio poll receives lands here

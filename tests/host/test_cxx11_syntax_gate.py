@@ -137,6 +137,13 @@ _CXX11_PORTABLE_SOURCES = [
     # construct that is legal at the host suite's C++20 and not at the
     # target's C++11.
     _TEST_DIR / "radio_rx_classify_syntax_check.cpp",
+    # Sprint 038 ticket 002 (flash-backed WiFi credential store):
+    # comms/wifi_credential_store.cpp has no pxt.h dependency -- it
+    # reaches only platform/wifi_flash_port.h (the abstract seam, itself
+    # host-portable; the CODAL-coupled implementation is
+    # platform/wifi_flash_port.cpp, excluded below, tests/DESIGN.md) --
+    # and has a natural .cpp of its own, so it is compiled directly.
+    _SRC_DIR / "comms" / "wifi_credential_store.cpp",
 ]
 
 

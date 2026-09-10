@@ -1,5 +1,14 @@
 ---
-status: pending
+status: in-progress
+sprint: 038
+tickets:
+- 038-002
+- 038-003
+- 038-004
+- 038-005
+- 038-006
+- 038-007
+- 038-008
 ---
 
 # WiFi credentials belong in flash, as a list, settable over the wire

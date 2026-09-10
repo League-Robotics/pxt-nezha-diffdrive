@@ -3,6 +3,9 @@
 
 #include "../core/fiber_identity.h"
 #include "../platform/vfp_guard.h"
+#include "wifi_credential_store.h"  // wifiCredentialStore(): the shared
+                                    // flash-backed store used by
+                                    // serviceWifi()'s lazy-begin
 
 #include <cctype>  // isspace(), for setDeviceRole()'s whitespace strip
 #include <cstdio>  // plain snprintf, not std::snprintf: newlib-nano's
@@ -397,10 +400,39 @@ void Protocol::emitWifiDebug() {
   // One line, cleartext `DBG:` prefix (the same convention the TS
   // layer's debug output uses), through emitLine() so it reaches
   // serial, radio AND -- once up -- the WiFi host itself.
+  //
+  // join=<code> is the module's RAW `+CWJAP:<code>` from the most
+  // recent join attempt (WifiLink::lastJoinError()), or "-" when no
+  // code was captured this attempt (a plain timeout). No word mapping
+  // -- the vendor code semantics are UNVERIFIED on this hardware, see
+  // lastJoinError()'s own comment in wifi_link.h. This is a bare
+  // integer, never the credential itself -- the passphrase must never
+  // leave the board.
+  //
+  // cmd=%s below is `wifiLink_.lastCommand()`, reported verbatim and
+  // safe to: `lastCommand()`'s contract (wifi_link.h) guarantees it
+  // NEVER contains a passphrase, in any state. The redaction happens
+  // at the source (WifiLink::startCommand()'s trace-override
+  // parameter, used by the one call site -- the AT+CWJAP= join step --
+  // that ever composes one), so this function needs no change to stay
+  // safe.
+  //
+  // credsrc=<n> reports which source serviceWifi()'s lazy-begin used,
+  // per that function's own precedence comment: 0 = baked
+  // (kWifiSsid/kWifiPassword), 1 = set by setupWifi() (wifiCredsExplicit_),
+  // 2 = a stored WifiCredentialStore flash slot (wifiCredsFromFlash_).
+  // Like join=, this is a bare integer -- never the credential itself.
+  char joinBuf[4];  // "-" or up to 2 ASCII digits (see lastJoinError())
+  if (wifiLink_.lastJoinError() != 0) {
+    snprintf(joinBuf, sizeof(joinBuf), "%d", wifiLink_.lastJoinError());
+  } else {
+    joinBuf[0] = '-';
+    joinBuf[1] = '\0';
+  }
   snprintf(wifiDbgBuf_, sizeof(wifiDbgBuf_),
            "DBG:wifi state=%d ip=%s peer=%s:%u tcp=%u/%d to=%d restarts=%lu "
            "sent=%lu rx=%lu drop=%lu mdns=%lu/%d cmd=%s reply=%s "
-           "credsrc=%d trunc=%u",
+           "credsrc=%d trunc=%u join=%s",
            static_cast<int>(wifiLink_.state()),
            wifiLink_.ownIp()[0] ? wifiLink_.ownIp() : "-",
            wifiLink_.peerIp()[0] ? wifiLink_.peerIp() : "-",
@@ -414,8 +446,9 @@ void Protocol::emitWifiDebug() {
            static_cast<unsigned long>(wifiLink_.mdnsAnnounceCount()),
            wifiLink_.mdnsSocketOpen() ? 1 : 0,
            wifiLink_.lastCommand(), wifiLink_.lastReply(),
-           wifiCredsExplicit_ ? 1 : 0,
-           static_cast<unsigned>(wifiCredsTruncated_));
+           wifiCredsFromFlash_ ? 2 : (wifiCredsExplicit_ ? 1 : 0),
+           static_cast<unsigned>(wifiCredsTruncated_),
+           joinBuf);
   emitLine(wifiDbgBuf_);
 }
 
@@ -423,7 +456,26 @@ void Protocol::serviceWifi() {
   if (!wifiBegun_) {
     wifiBegun_ = true;
     WifiLink::Config config;
-    if (wifiCredsExplicit_) {
+    // Precedence, most to least preferred: a stored flash credential
+    // (WifiCredentialStore's FIRST occupied slot) beats a
+    // setupWifi()-supplied credential, which beats the baked
+    // kWifiSsid/kWifiPassword fallback. Deliberately NOT the full
+    // WifiJoinSequencer/list-walking design -- just the first
+    // occupied slot. An EMPTY store leaves wifiCredsFromFlash_ false,
+    // which falls through to the pre-existing wifiCredsExplicit_/baked
+    // branch below UNCHANGED -- that case stays byte-for-byte
+    // identical to before this credential source existed.
+    WifiCredentialStore& store = wifiCredentialStore();
+    for (int slot = 0; slot < WifiCredentialStore::kSlots; ++slot) {
+      if (!store.occupied(slot)) continue;
+      store.get(slot, wifiFlashSsid_, wifiFlashPassword_);
+      wifiCredsFromFlash_ = true;
+      break;  // FIRST occupied slot only -- no list-walking here.
+    }
+    if (wifiCredsFromFlash_) {
+      config.ssid = wifiFlashSsid_;
+      config.password = wifiFlashPassword_;
+    } else if (wifiCredsExplicit_) {
       // A program called setupWifi() before the link began -- use its
       // stored credentials (possibly an explicit "", which
       // WifiLink::begin() treats as a deliberate disable, same

@@ -135,5 +135,6 @@ int wlTcpMask(void* p) { return static_cast<Handle*>(p)->link.tcpOpenMask(); }
 void wlMarkTelemetry(void* p, int on) { static_cast<Handle*>(p)->link.markTelemetry(on != 0); }
 int wlTxCount(void* p) { return static_cast<Handle*>(p)->link.queuedSends(); }
 int wlTcpServerOpen(void* p) { return static_cast<Handle*>(p)->link.tcpServerOpen() ? 1 : 0; }
+int wlLastJoinError(void* p) { return static_cast<Handle*>(p)->link.lastJoinError(); }
 
 }  // extern "C"

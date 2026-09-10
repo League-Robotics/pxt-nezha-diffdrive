@@ -184,9 +184,12 @@ bool WifiLink::IpdParser::feed(char c) {
 WifiLink::WifiLink(WifiUart& uart, NowFn now)  // [ms] clock
     : uart_(uart), now_(now), config_(), state_(kDisabled), step_(0),
       joinQueryAttempt_(0), restartCount_(0), stateChanged_(false),
+      lastJoinError_(0),
       awaiting_(false), deadline_(0), awaitMatched_(false),
       awaitRejected_(false), payloadRemaining_(0), payloadLink_(-1),
-      statusLen_(0), ownIpCapturing_(false), ownIpLen_(0), peerPort_(0),
+      statusLen_(0), ownIpCapturing_(false), ownIpLen_(0),
+      joinErrorCapturing_(false), joinErrorValue_(0), joinErrorDigits_(0),
+      peerPort_(0),
       peerKnown_(false), lastPeerHeard_(0), reportedPeerPort_(0),
       rxHead_(0), rxCount_(0), tcpOpenMask_(0), replyLink_(kProtocolLink),
       tcpConnectEdge_(false), tcpServerOpen_(false), telemetryMode_(false),
@@ -212,6 +215,7 @@ WifiLink::WifiLink(WifiUart& uart, NowFn now)  // [ms] clock
   inFlight_.telemetry = false;
   inFlight_.slot.len = 0;
   ownIpTag_.reset("ip:\"");
+  joinErrorTag_.reset("+CWJAP:");
 }
 
 void WifiLink::begin(const Config& config) {
@@ -290,14 +294,18 @@ void WifiLink::startAwait(const char* expect, uint32_t timeout) {  // [ms]
 }
 
 bool WifiLink::startCommand(const char* command, const char* expect,
-                            uint32_t timeout) {  // [ms]
+                            uint32_t timeout,  // [ms]
+                            const char* traceOverride) {
   const int n = snprintf(commandBuf_, sizeof(commandBuf_), "%s\r\n", command);
   if (n <= 0 || static_cast<unsigned>(n) >= sizeof(commandBuf_)) return false;
   if (!uart_.write(reinterpret_cast<const uint8_t*>(commandBuf_),
                    static_cast<uint16_t>(n))) {
     return false;  // TX full -- caller retries next poll, state unchanged
   }
-  copyBounded(lastCommand_, sizeof(lastCommand_), command);
+  // `command` itself has already gone to the UART above, unchanged --
+  // the override only affects what gets RECORDED for tracing.
+  copyBounded(lastCommand_, sizeof(lastCommand_),
+              traceOverride != nullptr ? traceOverride : command);
   lastReply_[0] = '\0';
   lastReplyLen_ = 0;
   startAwait(expect, timeout);
@@ -379,7 +387,28 @@ void WifiLink::feedByte(uint8_t c) {
     ownIpCapturing_ = true;
     ownIpLen_ = 0;
   }
-  // 5. AT reply matchers.
+  // 5. Join-failure code capture from `+CWJAP:<code>` (RAW vendor
+  // number, UNVERIFIED semantics -- see lastJoinError() in
+  // wifi_link.h). The token also appears, quoted rather than
+  // digit-first, in the AT+CWJAP? poll reply (`+CWJAP:"<ssid>"`); that
+  // case never enters joinErrorCapturing_ below because '"' fails the
+  // digit test on the very next byte, so nothing is captured from it.
+  if (joinErrorCapturing_) {
+    if (c >= '0' && c <= '9') {
+      if (joinErrorDigits_ < 2) {
+        joinErrorValue_ = joinErrorValue_ * 10 + (c - '0');
+        ++joinErrorDigits_;
+      }
+    } else {
+      if (joinErrorDigits_ > 0) lastJoinError_ = joinErrorValue_;
+      joinErrorCapturing_ = false;
+    }
+  } else if (joinErrorTag_.feed(static_cast<char>(c))) {
+    joinErrorCapturing_ = true;
+    joinErrorValue_ = 0;
+    joinErrorDigits_ = 0;
+  }
+  // 6. AT reply matchers.
   if (awaiting_) {
     traceReply(static_cast<char>(c));
     if (expect_.feed(static_cast<char>(c))) awaitMatched_ = true;
@@ -556,10 +585,26 @@ void WifiLink::serviceJoin() {
     return;
   }
   if (!awaiting_) {
+    // Reset the join-error capture HERE, at the start of THIS attempt's
+    // AT+CWJAP= send -- not just once at construction -- so a code
+    // captured on a previous slot/attempt never survives into this
+    // one's report.
+    lastJoinError_ = 0;
+    joinErrorCapturing_ = false;
     char cmd[kCommandBuffer];
     snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"", config_.ssid,
              config_.password);
-    startCommand(cmd, "OK", kJoinTimeout);
+    // The real command above (with the real password) goes to the
+    // UART unchanged. What gets RECORDED in lastCommand_ -- and so
+    // reported verbatim by Protocol::emitWifiDebug() on DBG:wifi -- is
+    // this separate, redacted trace: SSID kept (not a secret, and
+    // diagnostically useful), passphrase replaced by a fixed marker.
+    // MEASURED gopiv 2026-09-09, captures/wifi-join-codes-20260909/:
+    // before this fix, DBG:wifi broadcast the real passphrase on
+    // every join attempt.
+    char trace[kCommandBuffer];
+    snprintf(trace, sizeof(trace), "AT+CWJAP=\"%s\",***", config_.ssid);
+    startCommand(cmd, "OK", kJoinTimeout, trace);
     return;
   }
   const Await outcome = pollAwait();
@@ -568,7 +613,12 @@ void WifiLink::serviceJoin() {
     return;
   }
   if (outcome == kPending) return;
-  enterBackoff();  // +CWJAP:<code>/ERROR -- AP not up yet, wrong SSID, ...
+  // +CWJAP:<code>/ERROR -- AP not up yet, wrong SSID, wrong password,
+  // ... -- lastJoinError_ has already captured the code (if the module
+  // sent one) via feedByte()'s step 5, and enterBackoff()/enterState()
+  // below do not touch it, so it survives into kBackoff for the
+  // caller (emitWifiDebug()'s join= field) to read.
+  enterBackoff();
 }
 
 void WifiLink::serviceAddress() {

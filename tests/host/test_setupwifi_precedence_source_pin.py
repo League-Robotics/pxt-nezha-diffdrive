@@ -6,6 +6,14 @@ clasi/sprints/036-runtime-wifi-credentials-via-setupwifi/tickets/
 003-host-level-test-setupwifi-precedence-truncation-and-late-call-
 behavior.md.
 
+Extended by sprint 038 ticket 006's REDUCED boot-wiring slice (section
+7, near the end of this file) to also pin that a stored flash
+credential (`WifiCredentialStore`'s first occupied slot) is preferred
+ahead of both the `wifiCredsExplicit_`/baked precedence pinned above,
+and that `credsrc=` can report it as `2` -- without disturbing any of
+the sprint-036 pins, which still describe the `1`/`0` half of the same
+precedence chain unchanged.
+
 **What this is NOT.** Source-text pinning, following
 `test_dispatched_job_motion_source_pin.py`'s own precedent of
 regex-asserting on source text without compiling it -- `tests/host/`
@@ -518,3 +526,96 @@ def test_truncation_boundary_constants_agree_with_cell_sizes():
     # wifiPassword_[64]: a 63-char WPA2 passphrase fits, 64 does not.
     assert _would_truncate("p" * 63, 64) is False
     assert _would_truncate("p" * 64, 64) is True
+
+
+# ---------------------------------------------------------------------
+# 7. Sprint 038 ticket 006's REDUCED boot-wiring slice: serviceWifi()
+#    must prefer a stored flash credential over both wifiCredsExplicit_
+#    and the bake, and credsrc= must be able to report it (2), without
+#    disturbing the sprint-036 precedence this file otherwise pins.
+#    Same "cannot compile protocol.cpp" limitation as every other test
+#    in this file applies here too -- these are source-shape pins, not
+#    a run of the real precedence logic.
+# ---------------------------------------------------------------------
+
+_FLASH_FLAG_IF_RE = re.compile(r"if\s*\(\s*wifiCredsFromFlash_\s*\)")
+_STORE_LOOP_RE = re.compile(
+    r"for\s*\(\s*int\s+slot\s*=\s*0\s*;\s*slot\s*<\s*"
+    r"WifiCredentialStore::kSlots\s*;\s*\+\+slot\s*\)"
+)
+
+
+def test_service_wifi_prefers_flash_store_over_explicit_and_baked():
+    """serviceWifi()'s lazy-begin must walk WifiCredentialStore's slots
+    looking for the FIRST occupied one, and -- when found -- use it in
+    preference to both the wifiCredsExplicit_ branch and the baked
+    kWifiSsid/kWifiPassword fallback pinned above. This does not pin
+    ticket 005's WifiJoinSequencer (deliberately not implemented in
+    this reduced slice) -- only that ONE slot is tried, not a walk-on-
+    failure loop."""
+    body = _service_wifi_body()
+
+    assert _STORE_LOOP_RE.search(body), (
+        "Protocol::serviceWifi(): no 'for (int slot = 0; slot < "
+        f"WifiCredentialStore::kSlots; ++slot)' scan found:\n{body}"
+    )
+    assert re.search(r"store\.occupied\s*\(\s*slot\s*\)", body), (
+        f"Protocol::serviceWifi(): no store.occupied(slot) check found "
+        f"in the flash scan:\n{body}"
+    )
+    assert re.search(r"\bbreak\s*;", body), (
+        "Protocol::serviceWifi(): the flash-slot scan has no break -- "
+        f"it must stop at the FIRST occupied slot, not walk the list:"
+        f"\n{body}"
+    )
+
+    flash_if = _FLASH_FLAG_IF_RE.search(body)
+    assert flash_if, (
+        f"Protocol::serviceWifi(): no 'if (wifiCredsFromFlash_)' branch "
+        f"found:\n{body}"
+    )
+    assert re.search(r"config\.ssid\s*=\s*wifiFlashSsid_", body), (
+        f"Protocol::serviceWifi(): no 'config.ssid = wifiFlashSsid_' "
+        f"found -- the flash-store path must feed WifiLink::Config from "
+        f"the Protocol-owned flash cell, not a temporary:\n{body}"
+    )
+    assert re.search(r"config\.password\s*=\s*wifiFlashPassword_", body), (
+        f"Protocol::serviceWifi(): no 'config.password = "
+        f"wifiFlashPassword_' found:\n{body}"
+    )
+
+    # Precedence: the flash branch must appear BEFORE the
+    # wifiCredsExplicit_ branch this file's own test 2 already pins,
+    # i.e. it is checked first (an else-if or an outer if wrapping the
+    # existing explicit/baked pair), not appended after as a second,
+    # unreachable preference.
+    explicit_if = _EXPLICIT_IF_RE.search(body)
+    assert explicit_if, (
+        f"Protocol::serviceWifi(): no 'if (wifiCredsExplicit_)' branch "
+        f"found -- has the sprint-036 precedence been removed?:\n{body}"
+    )
+    assert flash_if.start() < explicit_if.start(), (
+        "Protocol::serviceWifi(): the wifiCredsFromFlash_ check does "
+        "not appear BEFORE the wifiCredsExplicit_ check -- flash must "
+        f"be preferred, not merely present:\n{body}"
+    )
+
+
+def test_wifi_debug_credsrc_reports_flash_source_as_2():
+    """emitWifiDebug()'s credsrc= field must be able to report the
+    flash case (2) ahead of the setupWifi()/baked cases (1/0) this
+    file's test 5 already pins -- the SAME expression must still
+    contain the exact 'wifiCredsExplicit_ ? 1 : 0' substring test 5
+    checks (so that pin keeps meaning what it always meant), now
+    wrapped in an outer 'wifiCredsFromFlash_ ? 2 : (...)'."""
+    body = _emit_wifi_debug_body()
+    assert re.search(
+        r"wifiCredsFromFlash_\s*\?\s*2\s*:\s*\(\s*wifiCredsExplicit_\s*"
+        r"\?\s*1\s*:\s*0\s*\)",
+        body,
+    ), (
+        "Protocol::emitWifiDebug(): credsrc= is not sourced from "
+        "'wifiCredsFromFlash_ ? 2 : (wifiCredsExplicit_ ? 1 : 0)' -- "
+        f"has the sprint 038 ticket 006 precedence expression regressed?"
+        f"\n{body}"
+    )

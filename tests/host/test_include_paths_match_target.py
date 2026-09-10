@@ -64,7 +64,20 @@ _CXX_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"}
 # Headers that ship with a declared pxt.json dependency (not authored
 # under src/) and are resolved through that dependency's own include
 # path in a real build -- see module docstring.
-_EXTERNAL_HEADERS = {"pxt.h"}
+#
+# "MicroBitFlash.h" (sprint 038 ticket 002, platform/wifi_flash_port.cpp):
+# same shape as pxt.h itself -- codal-microbit-v2/inc/MicroBitFlash.h
+# ships with the `core` dependency and is not authored under src/, but
+# unlike NRF52Serial or MicroBitRadio (visible transitively through
+# pxt.h -> MicroBit.h's own umbrella of driver includes -- see
+# MicroBit.h's #include list), MicroBit.h does NOT itself #include
+# MicroBitFlash.h (confirmed by reading
+# built/dockercodal/libraries/codal-microbit-v2/model/MicroBit.h: it
+# pulls in NRF52FlashManager.h, not MicroBitFlash.h), so
+# wifi_flash_port.cpp must name it directly. It resolves the same way
+# pxt.h does -- via the codal-microbit-v2 package's own include path,
+# not a project-root -I -- which this host-only check cannot see.
+_EXTERNAL_HEADERS = {"pxt.h", "MicroBitFlash.h"}
 
 
 def _iter_cxx_files():
