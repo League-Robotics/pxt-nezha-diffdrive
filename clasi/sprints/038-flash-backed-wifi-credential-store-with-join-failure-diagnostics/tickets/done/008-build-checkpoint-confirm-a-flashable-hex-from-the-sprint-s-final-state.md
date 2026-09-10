@@ -1,7 +1,7 @@
 ---
 id: 008
 title: 'Build checkpoint: confirm a flashable hex from the sprint''s final state'
-status: in-progress
+status: done
 use-cases: []
 depends-on:
 - '007'
