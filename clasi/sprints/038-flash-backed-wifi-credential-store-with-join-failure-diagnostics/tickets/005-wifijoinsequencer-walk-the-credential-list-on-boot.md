@@ -124,7 +124,7 @@ special-case it away.
       trustworthy rather than a measurement of the module's memory —
       do not consider this ticket's slot-ordering criteria met without
       it.
-- [ ] **MEASURED on real hardware (gopiv, Ai-WB2-12F)**: re-run the
+- [~] **DEFERRED — needs a power cycle this session cannot produce** (gopiv, Ai-WB2-12F): re-run the
       `badpw-boot.log` scenario from `captures/wifi-join-codes-20260909/
       notes.md` — a board that has previously joined a real SSID,
       reflashed with the SAME SSID but a WRONG password, this time with
@@ -214,3 +214,30 @@ together, still entirely off real hardware. Plus the dedicated
 gopiv hardware re-run of `badpw-boot.log` (Acceptance Criteria).
 
 **Documentation updates**: None required by this ticket alone.
+
+
+## Hardware status — team-lead, 2026-09-10
+
+What WAS confirmed on gopiv at the sprint's final build
+(`captures/wifi-credential-store-20260909/`, `final-hw2.log` /
+`final-hw3.log`, `id diffdrive gopiv 1.20260910.2 gopiv`): the store
+accepts and enumerates multiple slots, including a quoted SSID
+containing a space, and `DBG:wifi` reports the R1 fields with the SSID
+last so the line stays parseable.
+
+What was NOT: **the walk itself.** Observing the sequencer advance from
+a wrong-password slot to a good one requires a reboot that is not a
+reflash, and this session had no way to produce one remotely — the same
+wall ticket 004 hit, for the same three reasons (no reset verb on the
+wire, gopiv's Nezha brick switched off, and the `null` Pi's serial daemon
+holding the port open so the open-the-port reset never fires). Tracked
+as `clasi/issues/the-wire-has-no-reboot-verb.md`.
+
+The sequencer's slot-ordering logic is covered by host tests against a
+scripted module (`tests/host/test_wifi_join_sequencer.py`), including the
+module-memory regression that ticket 001's hardware run exposed. What
+remains unproven is only that the whole chain behaves that way on real
+silicon after a power cycle. Expected reading when someone does it, from
+ticket 006's report: `credsrc=2` throughout the walk, `join=2` on the
+wrong-password slot, `ssid=` naming the slot under test, and `state=`
+cycling rather than freezing.

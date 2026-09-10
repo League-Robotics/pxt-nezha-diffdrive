@@ -2,7 +2,7 @@
 id: '004'
 title: 'HARDWARE: measure credential flash region survival across reflash and power
   cycle'
-status: done
+status: in-progress
 use-cases:
 - SUC-003
 depends-on:
