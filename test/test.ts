@@ -569,6 +569,69 @@ diffDrive.onRun("arm", function (arg: number) {
     applyArm()
 })
 
+// Hardware verification for the `configure motor` block (sprint-less,
+// 2026-09-12). Reports the LIVE wiring straight out of the two ports
+// (diag 35-38), so a host can see whether a configureMotor() call
+// actually landed -- the thing that could not be seen when it shipped
+// as a silent no-op.
+function emitWiring(tag: string) {
+    diffDrive.emitLine("WIRE " + tag
+        + " leftPort=" + diffDrive.probe(35)
+        + " leftSign=" + diffDrive.probe(36)
+        + " rightPort=" + diffDrive.probe(37)
+        + " rightSign=" + diffDrive.probe(38)
+        + " connL=" + diffDrive.probe(4)
+        + " connR=" + diffDrive.probe(5))
+}
+
+diffDrive.onRun("wire", function (arg: number) {
+    emitWiring("now")
+})
+
+// Spin ONE side briefly and report the brick's RAW counter either side
+// of it (diag 39/40). Raw does not pass through fwdSign, so the sign of
+// its delta is which way the motor physically turned -- the measurement
+// probe(10)/(11) cannot make, since those move with fwdSign and stay
+// self-consistent under a flip.
+//
+// arg: 0 = left forward, 1 = right forward. Bench stand only (wheels
+// up): this drives a wheel for 600 ms.
+diffDrive.onRun("spinone", function (arg: number) {
+    const isRight = arg == 1
+    const before = isRight ? diffDrive.probe(40) : diffDrive.probe(39)
+    const posBefore = isRight ? diffDrive.probe(11) : diffDrive.probe(10)
+    const t0 = control.millis()
+    while (control.millis() - t0 < 600) {
+        diffDrive.setWheelSpeeds(isRight ? 0 : 12, isRight ? 12 : 0)
+        diffDrive.driveTick()
+    }
+    diffDrive.stop()
+    const after = isRight ? diffDrive.probe(40) : diffDrive.probe(39)
+    const posAfter = isRight ? diffDrive.probe(11) : diffDrive.probe(10)
+    diffDrive.emitLine("SPIN " + (isRight ? "right" : "left")
+        + " rawBefore=" + before + " rawAfter=" + after
+        + " rawDelta=" + (after - before)
+        + " posDelta=" + (posAfter - posBefore)
+        + " sign=" + (isRight ? diffDrive.probe(38) : diffDrive.probe(36))
+        + " port=" + (isRight ? diffDrive.probe(37) : diffDrive.probe(35)))
+})
+
+// arg encodes one configureMotor() call as SPD: Side*100 + Port*10 + Dir,
+// Dir 1 = forward, 2 = reversed. Left M2 reversed is 22; right M1
+// forward is 111. One integer because onRun carries exactly one.
+diffDrive.onRun("setwire", function (arg: number) {
+    const side = Math.idiv(arg, 100) % 10
+    const port = Math.idiv(arg, 10) % 10
+    const dir = arg % 10
+    emitWiring("before")
+    diffDrive.configureMotor(
+        side == 1 ? MotorSide.Right : MotorSide.Left,
+        port == 4 ? MotorPort.M4 : port == 3 ? MotorPort.M3
+            : port == 2 ? MotorPort.M2 : MotorPort.M1,
+        dir == 2 ? MotorDirection.Reversed : MotorDirection.Forward)
+    emitWiring("after")
+})
+
 diffDrive.onRun("probe", function (arg: number) {
     diffDrive.emitLine("OPROBE:" + diffDrive.otosBegin()
         + ":" + diffDrive.otosGet(7))
