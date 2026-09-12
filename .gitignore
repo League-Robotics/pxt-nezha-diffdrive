@@ -25,6 +25,7 @@ __pycache__/
 # committed; copy one in from a sibling checkout (nezha-upy keeps the
 # same shape).
 config/wifi_secrets.json
+config/wifi_secrets_garage.json
 
 # --- macOS / editor cruft ---
 .DS_Store
