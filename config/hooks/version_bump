@@ -95,10 +95,42 @@ else
     echo "  Updated: src/comms/protocol.cpp kVersion (${OLD_VERSION:-?} -> $NEW_VERSION)"
 fi
 
+# ---- uv.lock: the host-test lockfile's record of this project ----------
+#
+# uv.lock pins a resolved version for every package including this one --
+# pyproject.toml is a `virtual = "."` root, so the version dotconfig just
+# wrote into it appears in the lock too. dotconfig's version_sync knows
+# nothing about lockfiles, so without this the lock keeps whatever version
+# it last resolved at: on 2026-09-12 it sat at 1.20260912.1 through both
+# the .2 and .3 bumps. That is not cosmetic -- `uv run` refreshes the lock
+# on its next invocation, so the stale version resurfaces as an unrelated
+# dirty file in whatever commit someone makes next.
+#
+# `uv lock` rather than a regex: uv owns this file's format, and only this
+# project's own version changed, so it re-resolves from the existing lock.
+# --offline keeps a bump from reaching the network; a bump is not the place
+# to discover a dependency change.
+UV_LOCK="$PROJECT_DIR/uv.lock"
+if [ -f "$UV_LOCK" ]; then
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "version_bump hook: uv not on PATH, uv.lock left at its old version" >&2
+    elif (cd "$PROJECT_DIR" && uv lock --offline --quiet); then
+        echo "  Updated: uv.lock (${OLD_VERSION:-?} -> $NEW_VERSION)"
+    else
+        # Not fatal: every other file is already correct, and a lockfile one
+        # version behind is a smaller problem than a bump that half-ran.
+        echo "version_bump hook: 'uv lock' failed; uv.lock still records the" >&2
+        echo "  old version -- re-run it by hand before committing" >&2
+    fi
+fi
+
 # Stage them so `dotconfig version bump --push` includes them in the bump commit.
 if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git -C "$PROJECT_DIR" add -- pxt.json
     if [ -f "$PROTOCOL_CPP" ]; then
         git -C "$PROJECT_DIR" add -- src/comms/protocol.cpp
+    fi
+    if [ -f "$UV_LOCK" ]; then
+        git -C "$PROJECT_DIR" add -- uv.lock
     fi
 fi
