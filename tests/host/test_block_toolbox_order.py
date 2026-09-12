@@ -133,10 +133,16 @@ _BASELINE_GROUP_ORDER = {
         "startWorldTracking", "worldTrackingReady", "readWorld",
         "worldHeading", "worldX", "worldY",
     ],
+    # 2026-09-12 (out of process, stakeholder): `configureMotor` is NEW,
+    # first in Setup (reports/blocks-toolbox.csv row 31.5 -> weight 120).
+    # Which port each wheel is on and which way it runs was a
+    # compile-time literal in shims.cpp until now, injected per robot by
+    # tools/make_deploy.py and unreachable from the editor; a rewired
+    # robot is the first thing anyone sets, hence ahead of track width.
     "Setup": [
-        "setTrackWidth", "setWheelCalibration", "setupRadio",
-        "setDefaultYawRate", "setConfigValue", "setArrivalTolerance",
-        "setDefaultSpeed",
+        "configureMotor", "setTrackWidth", "setWheelCalibration",
+        "setupRadio", "setDefaultYawRate", "setConfigValue",
+        "setArrivalTolerance", "setDefaultSpeed",
     ],
     "Remote": ["onRun", "onRunCommand"],
     "Debug": ["sendString", "sendValue"],
@@ -187,6 +193,13 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.Lag",           # ordinal 37
         "ConfigField.StraightTrim",  # ordinal 38
         "ConfigField.GoToTimeout",   # ordinal 39
+        # 2026-09-12 (out of process, stakeholder): configureMotor's
+        # three dropdowns. MotorSide/MotorPort carry their own meaning
+        # (0/1 sides, 1-based brick ports); MotorDirection's values ARE
+        # the firmware's fwdSign, so Reversed is -1 and not an ordinal.
+        "MotorSide.Left", "MotorSide.Right",
+        "MotorPort.M1", "MotorPort.M2", "MotorPort.M3", "MotorPort.M4",
+        "MotorDirection.Forward", "MotorDirection.Reversed",
     ],
 }
 
