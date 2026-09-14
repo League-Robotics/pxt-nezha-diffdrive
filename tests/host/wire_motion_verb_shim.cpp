@@ -700,6 +700,16 @@ bool protocolOfferRun(const char* text) {
   return g_offerRunAccepts;
 }
 
+// STATUS's transport fields: the real ones live in protocol.cpp (pxt.h).
+static bool g_statusWifi = false;
+static bool g_statusRadio = false;
+static int g_statusChannel = 0;
+static int g_statusGroup = 0;
+bool protocolWifiConnected() { return g_statusWifi; }
+bool protocolRadioEnabled() { return g_statusRadio; }
+int protocolRadioChannel() { return g_statusChannel; }
+int protocolRadioGroup() { return g_statusGroup; }
+
 // Mirrors shims.cpp's real engineMoveEndedByDeadline() exactly -- the
 // SECOND genuinely new read resolvePendingReason() (wire_adapter.cpp)
 // needs, alongside engineMoveActive() above. Reads this handle's OWN
@@ -1319,4 +1329,11 @@ int waConsumeOneShotTelemetry(void* handle) {
              : 0;
 }
 
+
+void waSetTransportStatus(int wifi, int radio, int channel, int group) {
+  diffDrive::g_statusWifi = wifi != 0;
+  diffDrive::g_statusRadio = radio != 0;
+  diffDrive::g_statusChannel = channel;
+  diffDrive::g_statusGroup = group;
+}
 }  // extern "C"

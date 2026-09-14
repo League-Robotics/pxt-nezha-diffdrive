@@ -252,6 +252,15 @@ void wgSetStatus(void* handle, int ready, int active, int connL, int connR,
   s.tlm = tlm;
 }
 
+void wgSetTransportStatus(void* handle, int wifi, int radio, int channel,
+                          int group) {
+  Wire::StatusFields& s = static_cast<Handle*>(handle)->adapter.statusToReturn;
+  s.wifi = wifi != 0;
+  s.radio = radio != 0;
+  s.channel = static_cast<uint8_t>(channel);
+  s.group = static_cast<uint8_t>(group);
+}
+
 // `name` must outlive its use, same borrowed-pointer contract as
 // wgSetIdentity above.
 void wgSetGetOverride(void* handle, const char* name, float value) {

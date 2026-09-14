@@ -656,6 +656,11 @@ bool protocolOfferRun(const char* text) {
   while (text[len] != '\0') ++len;
   return protocol().handleRun(reinterpret_cast<const uint8_t*>(text), len);
 }
+// STATUS's transport fields (WireAdapter::status()).
+bool protocolWifiConnected() { return protocol().wifiConnected(); }
+bool protocolRadioEnabled() { return protocol().radioLinkEnabled(); }
+int protocolRadioChannel() { return protocol().radioChannel(); }
+int protocolRadioGroup() { return protocol().radioGroup(); }
 
 void Protocol::dispatchJob() {
   if (motionOwner_ != MotionOwner::kNone) return;

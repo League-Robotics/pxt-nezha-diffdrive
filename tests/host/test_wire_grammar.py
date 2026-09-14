@@ -162,6 +162,10 @@ def _bind(lib):
         ctypes.c_int32, ctypes.c_uint32, ctypes.c_char_p,
     ]
     lib.wgSetStatus.restype = None
+    lib.wgSetTransportStatus.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+    ]
+    lib.wgSetTransportStatus.restype = None
     lib.wgSetGetOverride.argtypes = [
         ctypes.c_void_p, ctypes.c_char_p, ctypes.c_float,
     ]
@@ -331,6 +335,10 @@ class WireGrammar:
         self._lib.wgSetStatus(self._handle, int(ready), int(active),
                                int(conn_left), int(conn_right), int(otos),
                                int(wedge), flags, i2cf, cyc, tlm)
+
+    def set_transport_status(self, wifi=False, radio=False, channel=0, group=0):
+        self._lib.wgSetTransportStatus(self._handle, int(wifi), int(radio),
+                                       channel, group)
 
     def set_get_override(self, name: bytes, value: float):
         self._lib.wgSetGetOverride(self._handle, name, value)
@@ -990,8 +998,27 @@ def test_status_golden_vector(wg):
     wg.feed(b"STATUS #1\n")
     assert wg.take_sink() == (
         b"status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 "
-        b"flags=a i2cf=26 cyc=147 tlm=pose next=1 done=0 reason=none\n"
+        b"flags=a i2cf=26 cyc=147 tlm=pose next=1 done=0 reason=none "
+        b"wifi=0 radio=0 channel=0 group=0\n"
     )
+
+
+def test_status_carries_wifi_and_radio_channel_group(wg):
+    """2026-09-14: STATUS reports whether WiFi is connected and the radio
+    link's state with its live channel/group -- appended after reason=,
+    as radio-robot-lib's protocol.md S6 allows (k=v, unknown keys
+    ignored). Channel and group are reported even while the radio link
+    is disabled."""
+    wg.set_status(ready=True, conn_left=True, conn_right=True, cyc=5)
+    wg.set_transport_status(wifi=True, radio=False, channel=55, group=114)
+    wg.feed(b"STATUS #1\n")
+    line = wg.take_sink()
+    assert line.endswith(b" reason=none wifi=1 radio=0 channel=55 group=114\n")
+    wg.set_transport_status(wifi=False, radio=True, channel=255, group=255)
+    wg.feed(b"STATUS #2\n")
+    line = wg.take_sink()
+    assert line.endswith(b" wifi=0 radio=1 channel=255 group=255\n")
+    assert len(line) <= 240
 
 
 # ---------------------------------------------------------------------------
