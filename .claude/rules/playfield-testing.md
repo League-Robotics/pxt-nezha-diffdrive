@@ -94,25 +94,41 @@ USB reaches only the bench stand; anything needing real motion runs
 untethered over the zavaz relay (channel 4 — never retune getez's
 channel 3).
 
-### The fleet is MIXED on `!N` — five boards migrated, zeguz and zetuv have not
+### Radio addresses: the 73-channel map (fleet reflashed 2026-09-14)
 
-**Live hazard, opened 2026-08-29, updated 2026-08-30. Closes when
-every board in the table answers `!N` (zeguz and zetuv remain).** `!N <name>` derives the radio link from the
-board's name. The relay migrated to that derivation
-(`microbit-radio-relay` f8b1224/362d7f1); the robots are migrating one
-at a time, so **`!N` is correct for some boards and silently wrong for
-others** — a worse state to reason about than uniformly-unmigrated,
-because it works once and then does not.
+A robot's radio pair is derived from its name: `channel = 11 + n % 73`,
+`group = 15 + n % 241` (radio-robot-lib `docs/design/radio-addressing.md`,
+this repo's `docs/radio-addressing.md`). The old 25-channel map
+(`25 + 2*(n % 25)`) is retired. torture's `mbrelay` registry derives the
+same pairs, so `mbrelay connect <robot>` tunes correctly.
 
-| board | `!N` tunes relay to | robot is on | `!N` |
-|---|---|---|---|
-| **gopiv** | 47 / 60 | **47 / 60** | **works** |
-| **tovez** | 55 / 108 | **55 / 108** | **works** |
-| **vevav** | 67 / 43 | **67 / 43** | **works** |
-| **vevov** | 37 / 43 | **37 / 43** | **works** |
-| **tigez** | 55 / 114 | **55 / 114** | **works** |
-| zeguz | 25 / 19 | 3 / 10 | silent |
-| zetuv | 27 / 21 | 3 / 10 | silent |
+| board | pair | state |
+|---|---|---|
+| **gopiv** | 12 / 30 | calibration v0.20260914.5, verified |
+| **tigez** | 52 / 179 | calibration v0.20260914.5, verified |
+| **tovez** | 48 / 29 | calibration v0.20260914.5, verified |
+| **vevov** | 20 / 82 | calibration v0.20260914.5, verified |
+| togov | 64 / 45 | not on a robot, not flashed |
+| zeguz | 71 / 199 | not on a robot, not flashed (old firmware: 3 / 10) |
+| zetuv | 49 / 250 | not on a robot, not flashed (old firmware: 3 / 10) |
+
+vitut (41 / 30 by name) and vevav are **relays** on Eric's Mac and are not
+re-addressed; they are tuned per session with `!CG` / `!N`.
+
+MEASURED 2026-09-14, `captures/fleet-radio-migration-20260914/`: each
+verified robot answered `id diffdrive calibration-0.20260914.5
+1.20260914.1 <name>` and STATUS `radio=1 channel=<c> group=<g>` through
+torture (`torture-verify-*.log`, `torture-status-wifi.log`) and ID through
+vitut via robot-console (`vitut-verify-after-relink.log`). vevav was
+unplugged and not checked.
+
+A robot-console link row (`radio-<robot>-via-<relay>`) remembers the pair
+it last reached a robot on. A stale row makes the robot look silent through
+a USB relay while torture reaches it fine; that is what
+`vitut-verify.log` shows before the rows were rewritten.
+
+The sections below keep their historical pairs (55 / 114, 37 / 43, ...);
+those are the old map.
 
 **The radio-traffic wedge on fw 1.20260829.1 is RESOLVED (opened
 2026-08-30, closed 2026-09-02).** That build hard-faulted (`CFSR 0x8200`,
@@ -132,12 +148,10 @@ remains in place. tigez now runs the sprint 027 build. PING/ID over
 radio on an IDLE robot was always safe -- that is how the table above
 was verified.
 
-**Use `!CG <channel> <group>` with explicit numbers on zeguz and zetuv.**
-On gopiv, tovez, vevav, vevov and tigez either `!N <name>` or `!CG`
-works. Anything still tuned to vevov's old 4/10 now points at nothing.
-**tigez is ON the playfield (replacing vevav) as of 2026-08-30** and
-SHARES channel 55 with tovez — the groups (114 vs 108) disambiguate,
-but they split airtime if both are live at once.
+**On the 73-channel map no two robots share a channel.** Use
+`!CG <channel> <group>` with the table's numbers, or `mbrelay connect
+<robot>` from torture. zeguz and zetuv still run old firmware on 3 / 10
+until they are reflashed.
 
 MEASURED tigez 2026-08-30, `captures/fleet-reflash-20260830.md`
 (afternoon update): new board on farm node meili, flashed
