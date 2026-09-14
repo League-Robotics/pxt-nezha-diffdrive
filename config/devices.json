@@ -11,6 +11,30 @@
     "serial": "2175407711",
     "uid": "9906360200052820049d38a46da36a83000000006e052820"
   },
+  "990636020005282007d057b7d6d99f53000000006e052820": {
+    "announcement": "DEVICE:RADIOBRIDGE:relay:zapig:1491116212",
+    "board_name": "zapig",
+    "common_name": "relay",
+    "device_id": 1491116212,
+    "device_name": "zapig",
+    "enum": 7,
+    "port": "/dev/cu.usbmodem2121302",
+    "role": "RADIOBRIDGE",
+    "serial": "1491116212",
+    "uid": "990636020005282007d057b7d6d99f53000000006e052820"
+  },
+  "99063602000528202e78ea8f7143163f000000006e052820": {
+    "announcement": "DEVICE:RADIOBRIDGE:relay:vevav:536019796",
+    "board_name": "vevav",
+    "common_name": "relay",
+    "device_id": 536019796,
+    "device_name": "vevav",
+    "enum": 8,
+    "port": "/dev/cu.usbmodem2121402",
+    "role": "RADIOBRIDGE",
+    "serial": "536019796",
+    "uid": "99063602000528202e78ea8f7143163f000000006e052820"
+  },
   "9906360200052820312bde85515a72e6000000006e052820": {
     "announcement": "device NEZHA2 robot zetuv 1468666101",
     "board_name": "zetuv",
@@ -24,21 +48,28 @@
     "uid": "9906360200052820312bde85515a72e6000000006e052820"
   },
   "99063602000528203b43773cab0210ea000000006e052820": {
-    "announcement": "device NEZHA2 robot tigez 3527777815",
+    "announcement": "device NEZA2 root tiez 32777715",
     "board_name": "tigez",
-    "common_name": "robot",
+    "common_name": "root",
     "device_id": 3527777815,
-    "device_name": "tigez",
+    "device_name": "tiez",
     "enum": 6,
     "port": "/dev/cu.usbmodem2121102",
-    "role": "NEZHA2",
-    "serial": "3527777815",
+    "role": "NEZA2",
+    "serial": "32777715",
     "uid": "99063602000528203b43773cab0210ea000000006e052820"
   },
   "99063602000528205e042b046826389c000000006e052820": {
     "enum": 5,
     "port": "/dev/cu.usbmodem2121102",
     "uid": "99063602000528205e042b046826389c000000006e052820"
+  },
+  "99063602000528208939f0a5fd47f738000000006e052820": {
+    "board_name": "vitut",
+    "device_id": 2198604104,
+    "enum": 9,
+    "port": "/dev/cu.usbmodem2121202",
+    "uid": "99063602000528208939f0a5fd47f738000000006e052820"
   },
   "9906360200052820a8fdb5e413abb276000000006e052820": {
     "announcement": "device NEZHA2 robot tovez 2314287040",
