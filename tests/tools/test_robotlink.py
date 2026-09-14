@@ -178,10 +178,10 @@ def test_open_link_radio_sends_hello_after_relay_setup_before_seq_verb(
     # BEFORE HELLO -- which itself must precede the first sequenced
     # (#-suffixed) verb. Sprint 029 (TL-01): the channel/group are no
     # longer the stale ZAVAZ_CHANNEL=4/ZAVAZ_GROUP=10 constants -- they
-    # come from radio_address('vevov'), which derives to (37, 43) (the
-    # same pair vevov has used since its 2026-08-30 move).
+    # come from radio_address('vevov'), which derives to (20, 82) on the
+    # 73-channel map vevov was reflashed to on 2026-09-14.
     channel, group = robotlink.radio_address('vevov')
-    assert (channel, group) == (37, 43)
+    assert (channel, group) == (20, 82)
     assert port.writes == [
         b'!ECHO OFF\n',
         b'!MODE RAW250\n',
@@ -329,12 +329,12 @@ def test_help_is_not_sequenced_and_does_not_consume_an_id():
 # radio_address(robot) replaces it: field_calibration.json's explicit
 # override for `robot` when present, else the same base-5 name
 # derivation make_deploy.py uses to hand the fleet its addresses in the
-# first place. These pin the exact table from
-# .claude/rules/playfield-testing.md (MEASURED 2026-08-30): vevov
-# 37/43, tovez 55/108, tigez 55/114.
+# first place. These pin the 73-channel map (radio-robot-lib
+# docs/design/radio-addressing.md) the fleet was reflashed to on
+# 2026-09-14: vevov 20/82, tovez 48/29, tigez 52/179.
 
-def test_radio_address_vevov_derives_to_37_43():
-    assert robotlink.radio_address('vevov') == (37, 43)
+def test_radio_address_vevov_derives_to_20_82():
+    assert robotlink.radio_address('vevov') == (20, 82)
 
 
 def test_radio_address_tovez_derives_to_48_29():
@@ -342,16 +342,15 @@ def test_radio_address_tovez_derives_to_48_29():
     assert robotlink.radio_address('tovez') == (48, 29)
 
 
-def test_radio_address_tigez_derives_to_55_114():
-    # tigez has no entry at all in field_calibration.json's `robots`
-    # map (only vevov and tovez do) -- pure name-derivation must still
-    # work for a robot the calibration file has never heard of.
-    assert robotlink.radio_address('tigez') == (55, 114)
+def test_radio_address_tigez_derives_to_52_179():
+    # tigez's field_calibration.json entry carries no radio pair --
+    # pure name-derivation must supply it.
+    assert robotlink.radio_address('tigez') == (52, 179)
 
 
 def test_radio_address_explicit_override_wins_over_derivation():
     # A synthetic calibration whose override deliberately DISAGREES
-    # with what derive_radio_from_name('vevov') would compute (37, 43)
+    # with what derive_radio_from_name('vevov') would compute (20, 82)
     # -- proving this is actually precedence, not coincidence.
     cal = {'robots': {'vevov': {'radio_channel': 99, 'radio_group': 5}}}
     assert robotlink.radio_address('vevov', calibration=cal) == (99, 5)

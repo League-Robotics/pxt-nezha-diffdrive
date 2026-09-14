@@ -28,9 +28,6 @@
       "mount_y_cm": 0.034,
       "mount_z_cm": 11.2,
       "mount_yaw_residual_deg": -1.17,
-      "radio_channel": 37,
-      "radio_group": 43,
-      "_radio_note": "MEASURED 2026-08-30 (.claude/rules/playfield-testing.md fleet table); also the base-5 name-derived pair (make_deploy.derive_radio_from_name('vevov')) -- kept explicit here since this is the file robotlink.radio_address() reads first.",
       "lever_cm": [
         0.0,
         0.0
@@ -65,8 +62,6 @@
       "mount_y_cm": 0.087,
       "mount_z_cm": 11.6,
       "mount_yaw_residual_deg": -3.77,
-      "radio_channel": 55,
-      "radio_group": 114,
       "lever_cm": [
         0.0,
         0.0

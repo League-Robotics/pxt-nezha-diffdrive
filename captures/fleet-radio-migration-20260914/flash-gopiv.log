@@ -1,0 +1,29 @@
+=== gopiv attempt 1 2026-09-14T22:28:07Z
+0006461 I Loading /tmp/mbdeploy-flash-grx6q_h8.hex [load_cmd]
+0008894 I Erasing... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0016429 I Programming... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[==============0030310 E Error during board uninit: [session]
+0030312 E Probe error during disconnect: [session]
+0030313 C Timeout reading from probe 9906360200052820049d38a46da36a83000000006e052820 [__main__]
+flash failed with a transient-looking probe/communication error — retrying once before any mass-erase decision.
+0005902 I Loading /tmp/mbdeploy-flash-grx6q_h8.hex [load_cmd]
+0007532 I Erasing... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[======0021299 E Error during board uninit: [session]
+0021300 E Probe error during disconnect: [session]
+0021302 C Timeout reading from probe 9906360200052820049d38a46da36a83000000006e052820 [__main__]
+Error: flash failed (exit 1) with no recognized recoverable signature -- not mass-erasing. If this device is actually locked/protected, run 'pyocd erase --mass' manually.
+Error: flash failed (exit 1)
+=== gopiv attempt 2 2026-09-14T22:29:16Z
+0007115 I Loading /tmp/mbdeploy-flash-hxsw_kfr.hex [load_cmd]
+0008753 I Erasing... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0016389 I Programming... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0022698 I Erased 144384 bytes (36 sectors), programmed 144384 bytes (36 pages), identical 86016 bytes (21 pages) at 16.14 kB/s [loader]
+=== gopiv RESULT ok=1 2026-09-14T22:29:51Z

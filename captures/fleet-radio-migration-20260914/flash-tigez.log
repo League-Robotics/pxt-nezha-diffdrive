@@ -1,0 +1,10 @@
+=== tigez attempt 1 2026-09-14T22:28:07Z
+0005601 I Loading /tmp/mbdeploy-flash-dtxp31uw.hex [load_cmd]
+0007270 I Erasing... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0016697 I Programming... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0017184 I Erased 5120 bytes (2 sectors), programmed 5120 bytes (2 pages), identical 225280 bytes (55 pages) at 22.70 kB/s [loader]
+=== tigez RESULT ok=1 2026-09-14T22:28:35Z

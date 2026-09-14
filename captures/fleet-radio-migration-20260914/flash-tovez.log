@@ -1,0 +1,10 @@
+=== tovez attempt 1 2026-09-14T22:28:07Z
+0005671 I Loading /tmp/mbdeploy-flash-dehgwm2c.hex [load_cmd]
+0007268 I Erasing... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0014286 I Programming... [loader]
+[---|---|---|---|---|---|---|---|---|----]
+[========================================]
+0024135 I Erased 230400 bytes (57 sectors), programmed 230400 bytes (57 pages), identical 0 bytes (0 pages) at 13.34 kB/s [loader]
+=== tovez RESULT ok=1 2026-09-14T22:28:42Z

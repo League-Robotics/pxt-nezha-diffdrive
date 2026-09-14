@@ -1,0 +1,20 @@
+=== gopiv 2026-09-14T22:35:31Z
+relay zetog tuned to gopiv: channel 12 group 30
+ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none wifi=0 radio=1 channel=12 group=30
+=== tigez 2026-09-14T22:35:34Z
+relay guvov tuned to tigez: channel 52 group 179
+ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none wifi=0 radio=1 channel=52 group=179
+=== tovez 2026-09-14T22:35:36Z
+relay ? did not answer !CG 48 29 within 8s
+=== vevov 2026-09-14T22:35:37Z
+relay ? did not answer !CG 20 82 within 8s
+=== tovez 2026-09-14T22:35:51Z
+relay zetog tuned to tovez: channel 48 group 29
+wifi=1 radio=1 channel=48 group=29
+=== vevov 2026-09-14T22:35:55Z
+relay gozop tuned to vevov: channel 20 group 82
+wifi=0 radio=1 channel=20 group=82
+=== gopiv 2026-09-14T22:36:01Z
+relay ? did not answer !CG 12 30 within 8s
+=== tigez 2026-09-14T22:36:04Z
+relay ? did not answer !CG 52 179 within 8s

@@ -1,0 +1,24 @@
+== gopiv -> channel 12 group 30 (apply)
+changed rows: 5
+== tigez -> channel 52 group 179 (apply)
+changed rows: 4
+== tovez -> channel 48 group 29 (apply)
+changed rows: 3
+== vevov -> channel 20 group 82 (apply)
+changed rows: 4
+radio-vevov-via-usb-99063602000528208939f0a5fd47f738|20|82
+radio-vevov-via-usb-99063602000528202e78ea8f7143163f|20|82
+radio-gopiv-via-usb-99063602000528202e78ea8f7143163f|12|30
+radio-gopiv-via-usb-99063602000528208939f0a5fd47f738|12|30
+radio-tovez-via-usb-99063602000528202e78ea8f7143163f|48|29
+radio-tigez-via-mbrelay-torture|52|179
+radio-gopiv-via-mbrelay-torture|12|30
+radio-tovez-via-usb-99063602000528208939f0a5fd47f738|48|29
+radio-tigez-via-usb-99063602000528208939f0a5fd47f738|52|179
+radio-gopiv-via-mbrelay-gala|12|30
+radio-tovez-via-mbrelay-torture|48|29
+radio-tigez-via-usb-99063602000528202e78ea8f7143163f|52|179
+radio-tigez-via-usb-990636020005282007d057b7d6d99f53|52|179
+radio-gopiv-via-usb-990636020005282007d057b7d6d99f53|12|30
+radio-vevov-via-usb-990636020005282007d057b7d6d99f53|20|82
+radio-vevov-via-mbrelay-torture|20|82
