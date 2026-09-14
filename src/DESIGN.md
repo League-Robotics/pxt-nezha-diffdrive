@@ -1962,6 +1962,24 @@ Pieces the kernel deliberately does not contain:
   stall latch and the e-stop latch are semantically distinct fault
   classes, and blurring their clear paths would reintroduce the
   ambiguity that decision fixed for a different pair.
+- **A stall stops only the command it happened in** (2026-09-13,
+  stakeholder direction): the kernel's `stallHalted_` is sticky, so
+  before this every Drive/Move block after one stall was silently
+  ignored until reboot or `clearStallLatch()`. `MotionEngine` now calls
+  `kernel_.clearStallLatch()` at every public command entry point
+  (`wheelsV`/`moveV`, `wheelsX`, `moveX`, `goToR`/`goToW`; not the
+  internal second phase of a pivot-then-straight, which is the same
+  command), so each command gets its own attempt and a still-jammed
+  wheel trips the detector again after its own window. A stall also ends
+  a continuous hold now, as it already ended a Segment. The engine keeps
+  a separate sticky report, `stallReported()`: set when the halt is
+  published, cleared on the first `service()` tick of a later command
+  that measures either wheel above the kernel's `stallSpeed`, or by
+  `clearStallReport()`. `isStalled()` reads that report (or the live
+  halt); `clearStall()`/`SET stall_clear` clear both. STATUS `flags`
+  bit 2, `probe(2)` and the wire's `reason=stall` still read the
+  kernel's raw halt bit. The vendored kernel is unchanged. Pinned by
+  `tests/host/test_motion_engine_stall_rearm.py`.
 - **Stop delivery** (sprint 006, new): `stopAll()`/`endMove()`
   (`stop`/`stop move`) and `updateMove()`'s own move-completion branch
   (the `isMoving()`/`move progress` poller's path, which can end a move

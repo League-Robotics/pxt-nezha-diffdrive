@@ -261,6 +261,17 @@ def _bind_motion_lib(lib):
     lib.meEndMoveOldStopSequence.restype = None
     lib.meEndMoveFixedStopSequence.argtypes = [ctypes.c_void_p]
     lib.meEndMoveFixedStopSequence.restype = None
+    # -- surface first needed by test_motion_engine_stall_rearm.py
+    lib.meSetStall.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float]
+    lib.meSetStall.restype = None
+    lib.meOutStallHalted.argtypes = [ctypes.c_void_p]
+    lib.meOutStallHalted.restype = ctypes.c_int
+    lib.meStallReported.argtypes = [ctypes.c_void_p]
+    lib.meStallReported.restype = ctypes.c_int
+    lib.meClearStallReport.argtypes = [ctypes.c_void_p]
+    lib.meClearStallReport.restype = None
+    lib.meIsDriving.argtypes = [ctypes.c_void_p]
+    lib.meIsDriving.restype = ctypes.c_int
     return lib
 
 

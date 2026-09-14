@@ -115,6 +115,10 @@ _CXX11_PORTABLE_SOURCES = [
     # something to compile.
     _TEST_DIR / "motion_owner_syntax_check.cpp",
     _TEST_DIR / "fiber_identity_syntax_check.cpp",
+    # comms/reply_backpressure.h (2026-09-13) has no pxt.h dependency --
+    # the host-portable wait Protocol::writeWifi() uses so a long WiFi
+    # reply is not cut off at the 8-slot transmit ring -- but no .cpp.
+    _TEST_DIR / "reply_backpressure_syntax_check.cpp",
     # comms/config_fields.h has no pxt.h dependency (it is the wire's
     # config-name/ordinal table and nothing else -- see its own header
     # comment) but no natural .cpp of its own, so this dedicated

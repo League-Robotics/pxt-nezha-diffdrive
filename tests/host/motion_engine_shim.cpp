@@ -576,6 +576,26 @@ void meMotorArmPosition(void* handle, int side, float positionCounts,
   motor.nextSampleTimeUs = sampleTimeUs;
 }
 
+// ---- stall re-arm + report (2026-09-13) -------------------------------
+// A stall stops only the command it happened in: MotionEngine re-arms the
+// kernel's halt at every new command and keeps a separate sticky report
+// (stallReported()) until a later command measures the wheels turning.
+// meSetStall() enables the kernel's detector, which the default Config
+// leaves off (stallDemand == 0).
+void meSetStall(void* handle, float speed, float demand, float window) {
+  // [counts/s] [counts/s] [ms]
+  static_cast<Handle*>(handle)->kernel.setStall(speed, demand, window);
+}
+int meOutStallHalted(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().stallHalted ? 1 : 0;
+}
+int meStallReported(void* handle) {
+  return static_cast<Handle*>(handle)->engine.stallReported() ? 1 : 0;
+}
+void meClearStallReport(void* handle) {
+  static_cast<Handle*>(handle)->engine.clearStallReport();
+}
+
 // ---- settle-tick decision (sprint 008 ticket 004) ----------------------
 // MotionEngine::settleToRest() itself, plus its own onSleep-driven test
 // script -- closes settle-tick-loop-is-not-host-testable.md: before this
