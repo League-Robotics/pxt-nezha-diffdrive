@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""radio-address-dump -- protocol v1 (microbit-radio-relay tools/radio-address-dump).
+
+    tools/radio-address-dump --list
+    tools/radio-address-dump <id> [1|2]
+
+Prints the canonical form of radio-robot-lib docs/design/radio-addressing.md
+for n = 0..3124: v2 (default) "<name>,<channel>,<group>,<decode(name)>,<reverse(channel,group)>",
+whose sha256 is the spec's D2; "1" selects the three-column D1 form.
+
+This repository's implementations:
+    python   tools/make_deploy.py: derive_radio_from_name(), the name decoder
+             and radio_address_to_name() -- what make_deploy, robotlink and
+             the calibration tools use.
+"""
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def dump_python(version):
+    sys.path.insert(0, str(ROOT / "tools"))
+    import make_deploy as md
+    out = []
+    for n in range(3125):
+        name = md._value_to_name(n)
+        channel, group = md.derive_radio_from_name(name)
+        if version == 1:
+            out.append(f"{name},{channel},{group}\n")
+        else:
+            decoded = md._name_to_value(name)
+            back = md.radio_address_to_name(channel, group)
+            reverse = md._name_to_value(back) if back is not None else -1
+            out.append(f"{name},{channel},{group},{decoded},{reverse}\n")
+    sys.stdout.write("".join(out))
+    return 0
+
+
+IMPLEMENTATIONS = {"python": dump_python}
+
+
+def main(argv):
+    if len(argv) == 2 and argv[1] == "--list":
+        print("\n".join(IMPLEMENTATIONS))
+        return 0
+    if len(argv) not in (2, 3) or argv[1] not in IMPLEMENTATIONS:
+        print(__doc__, file=sys.stderr)
+        return 2
+    version = int(argv[2]) if len(argv) == 3 else 2
+    if version not in (1, 2):
+        print("version must be 1 or 2", file=sys.stderr)
+        return 2
+    return IMPLEMENTATIONS[argv[1]](version)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

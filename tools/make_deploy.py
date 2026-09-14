@@ -470,31 +470,10 @@ _NAME_CONSONANTS = 'zvgpt'
 _NAME_VOWELS = 'uoiea'
 
 
-def derive_radio_from_name(name):
-    """`(channel, group)` derived from a board's five-letter name, or
-    `None` if `name` is not a micro:bit friendly name.
-
-    A micro:bit's name is `NRF_FICR->DEVICEID[1]` written in base 5, so
-    this pair is CALCULABLE from the name alone -- offline, by anyone,
-    with no registry. `channel = 25 + 2*(n % 25)` (odd, 25..73) and
-    `group = 1 + n/25` with 10 skipped (1..9, 11..126); the map is a
-    bijection over all 3125 names, and it never emits channels 3/4/7 or
-    groups 0/10, which is what keeps the legacy fleet convention,
-    MakeCode's unconfigured default and the relay's `!C` space clear.
-
-    THIS IS HOW A PAIR IS ASSIGNED, NOT HOW ONE IS READ. Nothing in the
-    build or on the robot uses this value in place of the config: the
-    config is authoritative (see `_read_robot_radio_group()`), and this
-    exists so a pair can be COMPUTED when populating that config, and so
-    a build can report when the two disagree. The robot never derives
-    its own address at boot.
-
-    Normative spec: `docs/radio-addressing.md` (+
-    `docs/radio-address-vectors.json`), whose full-space digest pins all
-    3125 triples. NOTE: as of 2026-08-30 that spec is on the sprint-025
-    branch and NOT yet on master, so this implementation is currently
-    the only copy here -- keep them in step when the branch lands.
-    """
+def _name_to_value(name):
+    """The base-5 value `n` (0..3124) of a micro:bit friendly name, or
+    `None` if `name` is not one. Trims whitespace and ignores case; the
+    FIRST letter is the most significant digit."""
     name = (name or '').strip().lower()
     if len(name) != 5:
         return None
@@ -504,8 +483,58 @@ def derive_radio_from_name(name):
         if letter not in alphabet:
             return None
         n = n * 5 + alphabet.index(letter)
-    group = 1 + n // 25
-    return 25 + 2 * (n % 25), group + 1 if group >= 10 else group
+    return n
+
+
+def _value_to_name(n):
+    """The friendly name whose base-5 value is `n` (0..3124)."""
+    letters = []
+    for position in range(4, -1, -1):
+        alphabet = _NAME_CONSONANTS if position % 2 == 0 else _NAME_VOWELS
+        letters.append(alphabet[n % 5])
+        n //= 5
+    return ''.join(reversed(letters))
+
+
+def derive_radio_from_name(name):
+    """`(channel, group)` derived from a board's five-letter name, or
+    `None` if `name` is not a micro:bit friendly name.
+
+    `channel = 11 + (n % 73)` (11..83) and `group = 15 + (n % 241)`
+    (15..255), where `n` is the name's base-5 value. 73 and 241 are
+    coprime and 73 * 241 > 3125, so all 3125 names get distinct pairs,
+    and channels 0-10 / groups 0-14 (the legacy fleet convention,
+    MakeCode's defaults and the relay's `!C` group 10) are never emitted.
+
+    Normative spec: radio-robot-lib `docs/design/radio-addressing.md`
+    (adopted 2026-09-13; replaces the old `25 + 2*(n % 25)` map). Its D2
+    digest is the gate -- `tools/radio-address-dump python` must hash to
+    it. `docs/radio-address-vectors.json` here is a transcription.
+
+    THIS IS HOW A PAIR IS ASSIGNED, NOT HOW ONE IS READ. The config is
+    authoritative for a build (see `_read_robot_radio_group()`); this
+    exists so a pair can be computed when populating that config, and
+    so a build can report when the two disagree.
+    """
+    n = _name_to_value(name)
+    if n is None:
+        return None
+    return 11 + (n % 73), 15 + (n % 241)
+
+
+def radio_address_to_name(channel, group):
+    """The one friendly name whose derived pair is `(channel, group)`,
+    or `None` -- most pairs belong to no name. The spec's reverse map:
+    `n = c + 73 * (((g - c + 241) * 208) % 241)`, with `c = channel - 11`,
+    `g = group - 15` and 208 the inverse of 73 mod 241."""
+    if not (11 <= channel <= 83 and 15 <= group <= 255):
+        return None
+    c = channel - 11
+    g = group - 15
+    n = c + 73 * (((g - c + 241) * 208) % 241)
+    if n >= 3125:
+        return None
+    return _value_to_name(n)
 
 
 def _read_robot_radio_group(robot):
@@ -542,19 +571,19 @@ def _read_robot_radio_group(robot):
     if group is None:
         # A HALF-MIGRATED CONFIG IS AN ERROR, not a default. Falling
         # back to 10 is correct only for a genuinely legacy config --
-        # one whose channel is also legacy. A config carrying a
-        # NEW-STYLE channel (odd, 25..73, i.e. one the name-derivation
-        # produces) but no group would build as new-channel plus
-        # legacy-group-10: an address on nobody's map, reachable by no
-        # `!CG` anyone would think to try, and presenting as a flashing
-        # failure rather than as the config gap it is. The two cases are
-        # distinguishable, so the fallback does not have to be blanket.
+        # one whose channel is also legacy. A config carrying THIS
+        # ROBOT'S name-derived channel but no group would build as
+        # derived-channel plus legacy-group-10: an address on nobody's
+        # map, reachable by no `!CG` anyone would think to try, and
+        # presenting as a flashing failure rather than as the config gap
+        # it is. Judged against the robot's own derived pair, so it holds
+        # for whichever map radio-addressing.md specifies.
         channel = connection.get('radio_channel')
+        derived = derive_radio_from_name(robot)
         if (isinstance(channel, int) and not isinstance(channel, bool)
-                and channel % 2 == 1 and 25 <= channel <= 73):
-            derived = derive_radio_from_name(robot)
+                and derived is not None and channel == derived[0]):
             suggestion = (f" -- the name-derived pair is "
-                          f"{derived[0]}/{derived[1]}" if derived else "")
+                          f"{derived[0]}/{derived[1]}")
             sys.exit(
                 f"make_deploy: {path} sets connection.radio_channel to "
                 f"{channel}, which is a name-derived channel, but names no "

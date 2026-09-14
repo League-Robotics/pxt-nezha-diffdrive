@@ -337,8 +337,9 @@ def test_radio_address_vevov_derives_to_37_43():
     assert robotlink.radio_address('vevov') == (37, 43)
 
 
-def test_radio_address_tovez_derives_to_55_108():
-    assert robotlink.radio_address('tovez') == (55, 108)
+def test_radio_address_tovez_derives_to_48_29():
+    # radio-robot-lib radio-addressing.md (2026-09-13): 11+(n%73), 15+(n%241).
+    assert robotlink.radio_address('tovez') == (48, 29)
 
 
 def test_radio_address_tigez_derives_to_55_114():
@@ -358,7 +359,7 @@ def test_radio_address_explicit_override_wins_over_derivation():
 
 def test_radio_address_falls_back_to_derivation_when_robot_has_no_entry():
     cal = {'robots': {}}
-    assert robotlink.radio_address('vevov', calibration=cal) == (37, 43)
+    assert robotlink.radio_address('vevov', calibration=cal) == (20, 82)
 
 
 def test_radio_address_half_migrated_override_raises():

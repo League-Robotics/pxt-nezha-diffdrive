@@ -193,13 +193,19 @@ def test_a_non_integer_group_fails_loudly(scratch_repo):
 
 
 @pytest.mark.parametrize("name,pair", [
-    ("gopiv", (47, 60)),
-    ("vevov", (37, 43)),
-    ("tovez", (55, 108)),
-    ("zeguz", (25, 19)),      # channel 25 is INCLUSIVE
-    ("zuzuz", (25, 1)),       # n = 0, the floor
-    ("tatat", (73, 126)),     # n = 3124, the ceiling
-    ("zuzuv", (27, 1)),       # n = 1 -- reverses to vuzuz under a
+    # radio-robot-lib docs/design/radio-addressing.md (adopted 2026-09-13):
+    # channel = 11 + (n % 73), group = 15 + (n % 241).
+    ("gopiv", (12, 30)),
+    ("vevov", (20, 82)),
+    ("tovez", (48, 29)),
+    ("zeguz", (71, 199)),
+    ("zuzuz", (11, 15)),      # n = 0, the floor
+    ("zugag", (83, 87)),      # n = 72, channel ceiling
+    ("zugap", (11, 88)),      # n = 73, channel wraps
+    ("zotez", (32, 255)),     # n = 240, group ceiling
+    ("zotev", (33, 15)),      # n = 241, group wraps
+    ("tatat", (69, 247)),     # n = 3124, the last name
+    ("zuzuv", (12, 16)),      # n = 1 -- reverses to vuzuz under a
                               # little-endian encoder, so this vector
                               # catches a reversed digit order that
                               # palindromes (zavaz, zuzuz) cannot.
@@ -219,16 +225,17 @@ def test_a_name_outside_the_codebook_derives_nothing(name):
 
 
 def test_the_derivation_never_emits_a_reserved_channel_or_group():
-    """3/4/7 keep the legacy fleet convention and MakeCode's
-    unconfigured default clear; 0/10 keep the relay's !C space clear."""
+    """Channels 0-10 (legacy 3/4/5, MakeCode's default 7) and groups
+    0-14 (MakeCode's 0, the relay's !C group 10) are never emitted, and
+    all 3125 names get distinct pairs."""
     consonants, vowels = "zvgpt", "uoiea"
     pairs = [make_deploy.derive_radio_from_name(a + b + c + d + e)
              for a in consonants for b in vowels for c in consonants
              for d in vowels for e in consonants]
     assert len(pairs) == 3125 and None not in pairs
     assert len(set(pairs)) == 3125                       # bijective
-    assert not ({3, 4, 7} & {ch for ch, _ in pairs})
-    assert not ({0, 10} & {gp for _, gp in pairs})
+    assert min(ch for ch, _ in pairs) == 11 and max(ch for ch, _ in pairs) == 83
+    assert min(gp for _, gp in pairs) == 15 and max(gp for _, gp in pairs) == 255
 
 
 def test_config_wins_over_the_derivation_because_names_can_collide(
@@ -238,7 +245,7 @@ def test_config_wins_over_the_derivation_because_names_can_collide(
     derive the same pair. Config is the escape hatch, and the build
     must honour it over the computed value."""
     deploy, robots_dir = scratch_repo
-    assert make_deploy.derive_radio_from_name("gopiv") == (47, 60)
+    assert make_deploy.derive_radio_from_name("gopiv") == (12, 30)
     _write_robot_config(robots_dir, "gopiv", 61, group=77)   # hand override
     assert make_deploy._inject_radio_channel(str(deploy), "gopiv") == (61, 77)
     assert (_kchannel(deploy), _kgroup(deploy)) == (61, 77)
@@ -343,21 +350,21 @@ def test_a_new_style_channel_with_no_group_is_refused(scratch_repo):
     address, which presents as a flashing failure rather than a config
     gap. Raised by radio-robot-lib during review of the injection."""
     deploy, robots_dir = scratch_repo
-    _write_robot_config(robots_dir, "gopiv", 47)          # no radio_group
+    _write_robot_config(robots_dir, "gopiv", 12)          # gopiv's derived channel, no group
     with pytest.raises(SystemExit) as exc:
         make_deploy._inject_radio_channel(str(deploy), "gopiv")
     msg = str(exc.value)
     assert "names no connection.radio_group" in msg
-    assert "47" in msg
-    assert "47/60" in msg                                  # names the fix
+    assert "12" in msg
+    assert "12/30" in msg                                  # names the fix
 
 
 @pytest.mark.parametrize("channel", [3, 4, 5, 6, 7, 24, 74, 26])
 def test_a_genuinely_legacy_channel_still_defaults_to_group_10(
         scratch_repo, channel):
     """The fallback must stay silent for real legacy configs -- every
-    config had this shape before 2026-08-30. Even channels and channels
-    outside 25..73 cannot be name-derived, so they are unambiguous."""
+    config had this shape before 2026-08-30. Only the robot's OWN derived
+    channel counts as half-migrated; any other channel is unambiguous."""
     deploy, robots_dir = scratch_repo
     _write_robot_config(robots_dir, "tovez", channel)
     assert make_deploy._inject_radio_channel(str(deploy), "tovez") == (
