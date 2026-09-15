@@ -256,6 +256,25 @@ def _bind_motion_lib(lib):
     lib.meTwistReferenceCounts.argtypes = [ctypes.c_void_p]
     lib.meTwistReferenceCounts.restype = ctypes.c_float
 
+    # -- surface first needed by test_motion_engine_pulse.py (sprint 039
+    # ticket 001, SUC-001)
+    lib.mePulseWheels.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_int32]
+    lib.mePulseWheels.restype = None
+    lib.mePulseLeftCounts.argtypes = [ctypes.c_void_p]
+    lib.mePulseLeftCounts.restype = ctypes.c_float
+    lib.mePulseRightCounts.argtypes = [ctypes.c_void_p]
+    lib.mePulseRightCounts.restype = ctypes.c_float
+    lib.meMotorDutyHistoryCount.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meMotorDutyHistoryCount.restype = ctypes.c_int
+    lib.meMotorDutyHistoryAt.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+    lib.meMotorDutyHistoryAt.restype = ctypes.c_float
+    lib.meMotorClearDutyHistory.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meMotorClearDutyHistory.restype = None
+    lib.meArmEstopAfterSleepCall.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meArmEstopAfterSleepCall.restype = None
+    lib.meDisarmEstopAfterSleepCall.argtypes = [ctypes.c_void_p]
+    lib.meDisarmEstopAfterSleepCall.restype = None
+
     # -- surface first needed by test_stop_move_zeros_continuous_drive.py
     lib.meEndMoveOldStopSequence.argtypes = [ctypes.c_void_p]
     lib.meEndMoveOldStopSequence.restype = None

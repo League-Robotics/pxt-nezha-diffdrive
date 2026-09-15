@@ -514,6 +514,42 @@ float engineDominantAxisTravel(float distance, float rotation) {  // [mm] [rad] 
   return ensure().engine.dominantAxisTravel(distance, rotation);
 }
 
+// [counts/mm] -- forwards MotionEngine::countsPerMm() for wire-layer
+// callers that need to report a counts delta in mm too (the wire
+// `pulse` RUN handler, wire_adapter.cpp). Named identically to the
+// method it forwards -- an allow-listed conversion-function name (see
+// the no-units-in-identifiers rule and its own source-pin test) --
+// rather than the usual `engineXxx` prefix every other wire-layer
+// forward in this file uses: `engineCountsPerMm` itself carries the
+// forbidden `Mm` unit suffix.
+float countsPerMm() {
+  return ensure().engine.countsPerMm();
+}
+
+// The diagnostic pulse primitive's own wire-layer forward --
+// MotionEngine::pulseWheels() itself drives its own kernel.step() loop
+// synchronously (that method's own comment, motion_engine.h), talking
+// I2C through every one of those steps, so this wraps the whole call in
+// the SAME BusGuard tickDrive() and every other non-kernel I2C caller
+// in this file take (rewireMotor()'s own comment above is the
+// precedent) -- otherwise a concurrently-running tickDrive() on another
+// fiber could race this call's own kernel.step() mid encoder-settle-
+// sleep, the exact collision the guard exists to prevent. Not itself a
+// yield point needing the VFP-safe sleep/yield wrappers: every sleep
+// this call reaches is already inside kernel.step()'s own two settle
+// sleeps, which route through the guarded Sleeper the same way
+// settleToRest() already does.
+void enginePulseWheels(float ampLeft, float ampRight, int32_t widthTicks,
+                       float& outLeft, float& outRight) {  // [counts] [counts]
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  const diffDrive::MotionEngine::PulseResult result =
+      r.engine.pulseWheels(ampLeft, ampRight, widthTicks);
+  r.busGuard.release();
+  outLeft = result.left;
+  outRight = result.right;
+}
+
 // True iff MotionEngine's move-engine state (MOVE_X/GO_TO_R/GO_TO_W's
 // own tracked segment) is currently active -- one of the two reads
 // WireAdapter's motion-completion resolution needs. Mirrors the `//%`

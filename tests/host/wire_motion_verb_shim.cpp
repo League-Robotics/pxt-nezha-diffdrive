@@ -627,6 +627,34 @@ float engineDominantAxisTravel(float distanceMm, float rotationRad) {
                                                       rotationRad);
 }
 
+// Sprint 039 ticket 001 (SUC-001): mirrors shims.cpp's real
+// enginePulseWheels()/countsPerMm() -- what the real WireAdapter's
+// onRun()-reached execPulse() (wire_adapter.cpp) forward-declares and
+// calls for `RUN pulse <ampLeft> <ampRight> <widthTicks> #<id>`. This
+// double has no Rig/BusGuard to mirror (this file's own header comment
+// on why WaHandle has no equivalent of production's I2C-serialization
+// concerns) -- it forwards straight onto the SAME real `engine` every
+// other engineXxx() function in this file already drives, so a
+// wire-level test exercising RUN's own decode/dispatch/result-string
+// path is exercising the exact bridge production code uses.
+void enginePulseWheels(float ampLeft, float ampRight, int32_t widthTicks,
+                       float& outLeft, float& outRight) {
+  if (g_activeWaHandle == nullptr) {
+    outLeft = 0.0f;
+    outRight = 0.0f;
+    return;
+  }
+  const diffDrive::MotionEngine::PulseResult result =
+      g_activeWaHandle->engine.pulseWheels(ampLeft, ampRight, widthTicks);
+  outLeft = result.left;
+  outRight = result.right;
+}
+
+float countsPerMm() {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  return g_activeWaHandle->engine.countsPerMm();
+}
+
 // Mirrors shims.cpp's real engineMoveV()/engineGoToR()/engineGoToW()
 // exactly -- what WireAdapter::onMoveV()/onGoToR()/onGoToW()
 // (wire_adapter.cpp) forward-declares and calls.

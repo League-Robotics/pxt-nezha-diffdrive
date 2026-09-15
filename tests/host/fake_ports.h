@@ -58,9 +58,23 @@ class FakeMotor : public DiffDrive::Motor {
 
   // Stages the raw duty write -- NOT yet "landed" (appliedDuty()) until
   // the next tick(), mirroring real hardware's stage/tick split.
+  //
+  // Sprint 039 ticket 001: also appends to dutyHistory -- lastStagedDuty
+  // alone only ever shows the MOST RECENT call, which cannot pin a
+  // multi-tick SHAPE (e.g. "N ticks of nonzero duty, then hard zero")
+  // the way MotionEngine::pulseWheels()'s own internal, synchronous
+  // kernel.step() loop needs, since a test has no per-tick control point
+  // to read lastStagedDuty from in between (same reason FakeSleeper's
+  // onSleep callback exists -- a test can only observe an intra-call
+  // sequence through a recorded log, not by re-entering the call).
+  // Capped, not resized: kMaxDutyHistory is generous for any pulse this
+  // test tree fires; dutyHistoryCount still increments past the cap so
+  // overflow is detectable rather than silently truncated.
   void setDuty(float duty) override {
     ++setDutyCalls;
     lastStagedDuty = duty;
+    if (dutyHistoryCount < kMaxDutyHistory) dutyHistory[dutyHistoryCount] = duty;
+    ++dutyHistoryCount;
   }
 
   // sprint 006 ticket 002: mirrors NezhaMotorPort::emergencyStop()'s real
@@ -134,6 +148,18 @@ class FakeMotor : public DiffDrive::Motor {
   bool sampleRequested = false;
   float lastStagedDuty = 0.0f;
   uint64_t lastTickNowUs = 0;
+
+  // Sprint 039 ticket 001: the per-call setDuty() log -- see that
+  // method's own comment above. `clearDutyHistory()` resets both before
+  // a test fires the call under observation, so the log reflects only
+  // that call, not any earlier setup (begin(), a prior move, ...).
+  static constexpr int kMaxDutyHistory = 64;
+  float dutyHistory[kMaxDutyHistory] = {};
+  int dutyHistoryCount = 0;
+  void clearDutyHistory() {
+    dutyHistoryCount = 0;
+    for (float& v : dutyHistory) v = 0.0f;
+  }
 
  private:
   float positionValue_ = 0.0f;

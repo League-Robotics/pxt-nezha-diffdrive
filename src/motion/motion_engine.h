@@ -198,6 +198,54 @@ class MotionEngine {
   // Issues no command of its own and folds nothing into odometry.
   void settleToRest();
 
+  // Per-wheel encoder-count delta a pulseWheels() call measured, across
+  // the WHOLE call (pulse + hard-zero + settle) -- never a per-tick
+  // sample, since this primitive drives its own tick loop synchronously
+  // and returns only once, at the end.
+  struct PulseResult {
+    float left;   // [counts]
+    float right;  // [counts]
+  };
+
+  // Fires ONE bounded-width, bounded-amplitude raw-duty pulse per wheel
+  // via the kernel's own driveDuty() (kModeRawDuty -- already bypasses
+  // PID, the speed floor, the crawl dither and twist-hold; E-stop and
+  // lease expiry still force neutral through the kernel's own
+  // controlStep(), unaffected by anything below), hard-zeros, then
+  // reports each wheel's encoder-count delta once both wheels read at
+  // rest (settleToRest()). This is pure diagnostic substrate for a
+  // floor characterization gate -- no automatic looping, no re-read/
+  // terminate logic. A settle-gated STEPPER that fires this repeatedly,
+  // re-reading remaining error between pulses, is a deliberately
+  // separate later concern -- not built here.
+  //
+  // `widthTicks` counts kernel.step() calls THIS METHOD DRIVES ITSELF,
+  // synchronously, in a loop -- there is no tickDrive()/tick-engine
+  // cadence involved anywhere in this call, unlike every other
+  // MotionEngine primitive, which only ARMS a command for the tick
+  // engine's own next step(). A caller reaching this on real hardware
+  // must not have another fiber concurrently calling tickDrive() on the
+  // same kernel -- shims.cpp's forward wraps this call in the same
+  // BusGuard tickDrive() itself acquires, for exactly that reason.
+  // `widthTicks <= 0` fires no pulse at all (still hard-zeros and
+  // settles, reporting ~0 delta): a defensive no-op, not a refusal.
+  //
+  // `amp{Left,Right}` are duty PERCENT [-100, 100], the same scale
+  // driveDuty() itself takes -- passed straight through, unclamped
+  // here (the kernel's own controlStep() clamps to the configured
+  // maxDuty rail). A single-tick pulse cannot exceed ~25% duty and a
+  // two-tick pulse ~50% AT THE MOTOR PORT regardless of the amplitude
+  // requested here, per the port's own 25%-per-tick slew limit
+  // (src/platform/nezha_port.cpp) -- a hardware constraint on the
+  // CALLER's choice of amplitude/width, not something this primitive
+  // works around or compensates for.
+  //
+  // Clears any in-flight move-engine command first, same as every
+  // other primitive here (wheelsV()/wheelsX()'s own "wheels_* clears
+  // the planner").
+  PulseResult pulseWheels(float ampLeft, float ampRight,
+                          int32_t widthTicks);  // [%] [%] [ticks]
+
   // The one settable shaping surface. This engine holds no shaping knob.
   MotionLimits& limits() { return limits_; }
   const MotionLimits& limits() const { return limits_; }

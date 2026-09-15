@@ -433,6 +433,47 @@ void MotionEngine::settleToRest() {
   }
 }
 
+MotionEngine::PulseResult MotionEngine::pulseWheels(float ampLeft,
+                                                     float ampRight,
+                                                     int32_t widthTicks) {
+  kernel_.clearStallLatch();  // a new command gets its own attempt, same
+                               // as every other primitive here
+  cancelMove();
+
+  const DiffDrive::DifferentialDrive::Output before = kernel_.output();
+  const float leftStart = before.positionLeft;
+  const float rightStart = before.positionRight;
+
+  // Re-armed every iteration, immediately before THAT iteration's own
+  // step() -- generous relative to one cycle so the command can never
+  // expire mid-pulse (this method's own header comment). Not a safety
+  // weakening: E-stop/leaseExpired are evaluated fresh by the kernel's
+  // own controlStep() on every tick regardless of what this lease says,
+  // so an E-stop engaged mid-loop still forces neutral on its very next
+  // step() even though this loop keeps re-arming.
+  const uint32_t lease = 2u * kernel_.config().cyclePeriod;  // [ms]
+  const int32_t ticks = widthTicks > 0 ? widthTicks : 0;
+  for (int32_t i = 0; i < ticks; ++i) {
+    kernel_.driveDuty(ampLeft, ampRight, lease);
+    kernel_.step();
+  }
+
+  // Hard zero: only STAGED here -- kModeNeutral's own controlStep()
+  // branch calls stageStop() (== stageDuty(0, 0)), the same exact-zero
+  // write path a commanded zero from anywhere else takes (no slew, no
+  // throttle), but it only reaches the motors on a LATER step(), same
+  // as every other primitive's neutral(). settleToRest() below is what
+  // delivers it -- its own first internal step is the handoff moment,
+  // exactly as it is for a Segment's arrival (see that method's own
+  // comment).
+  kernel_.neutral();
+  settleToRest();
+
+  const DiffDrive::DifferentialDrive::Output after = kernel_.output();
+  return PulseResult{after.positionLeft - leftStart,
+                     after.positionRight - rightStart};
+}
+
 int MotionEngine::progress() const {
   if (!seg_.active) return 1000;
   // Before the first service() tick the origin is uncaptured, so a fraction
