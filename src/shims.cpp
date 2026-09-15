@@ -355,18 +355,20 @@ static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 // the free function deliverStopNow(), a name src/DESIGN.md,
 // tests/host/fake_ports.h and several code-review documents still use.)
 //
-// The three parts, in order:
+// The four parts, in order:
 //
-//   engine.endMove()  clears the move engine's own in-flight state, so
-//                     a later service() cannot re-command from it.
-//   kernel.neutral()  disarms the kernel's HELD commanded velocity (a
-//                     continuous drive holds up to kLeaseMax, one
-//                     hour); without it the port zero below is
-//                     momentary, because the very next step()
-//                     re-commands the duty. Unconditional, so a stop
-//                     after setWheels()/driveTwist() gets it too
-//                     (stakeholder decision, 2026-08-26).
-//   the port write    delivers the stop NOW.
+//   engine.endMove()   clears the move engine's own in-flight state, so
+//                      a later service() cannot re-command from it.
+//   kernel.neutral()   disarms the kernel's HELD commanded velocity (a
+//                      continuous drive holds up to kLeaseMax, one
+//                      hour); without it the port zero below is
+//                      momentary, because the very next step()
+//                      re-commands the duty. Unconditional, so a stop
+//                      after setWheels()/driveTwist() gets it too
+//                      (stakeholder decision, 2026-08-26).
+//   the port write     delivers the stop NOW.
+//   engine.settleToRest()  (sprint 039 ticket 002) forces a FRESH kernel
+//                      Output before this call returns -- see below.
 //
 // Why PORT-LEVEL (R-08/BLK-01): kernel.neutral() only STAGES a zero
 // (diffdrive.cpp), delivered solely on a LATER kernel.step(), and
@@ -381,13 +383,48 @@ static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 // latches estopLatch_ (diffdrive.cpp), turning this resumable soft stop
 // into a hard e-stop needing clearEmergencyStop().
 //
+// SPRINT 039 TICKET 002 (closes status-active-stays-1-after-a-soft-
+// stop.md): the port write above stops the WHEELS, but it does nothing
+// to the kernel's own published Output -- WireAdapter::status()'s
+// `active` bit reads out.velocityLeft/Right (wire_adapter.cpp), which
+// is whatever kernel.step() last computed from encoder deltas, and
+// nothing here used to step the kernel again. If nothing else ever
+// calls tickDrive() after this soft stop (the common case for an
+// explicit `stop()`/wire `STOP` issued once the caller is done), that
+// stale mid-drive velocity reads back forever: MEASURED vevov
+// 2026-09-15, captures/calibratel-vevov-20260915/bench-log.md run 9 --
+// a sequenced `STOP now` followed by three STATUS reads several seconds
+// apart all read `active=1` with `cyc` frozen. This is exactly the gap
+// tickDrive()'s own settle loop already closes for a move's NATURAL
+// deadline (`wasActive && !moveActive` -> `engine.settleToRest()`,
+// below) -- the explicit stop paths never had the equivalent. Calling
+// the same `settleToRest()` here, immediately after the port write,
+// keeps stepping the kernel (bounded, `MotionEngine::kSettleMaxSteps`)
+// until both wheels are MEASURED at rest, so `Output.velocityLeft/
+// Right` -- and therefore STATUS `active` -- reflects the stop by the
+// time this call returns, with no second caller required. Host-tested
+// via `motion_engine_shim.cpp`'s `meEndMoveSettledStopSequence()` (this
+// exact call sequence, hand-mirrored -- see that shim's own comment for
+// why `shims.cpp` itself cannot be host-compiled) in
+// tests/host/test_status_active_after_soft_stop.py.
+//
 // Staged while busGuard is held: the port write would otherwise race
 // the I2C traffic of whichever OTHER fiber holds the guard (mid
 // kernel.step(), possibly parked in its own settle sleep) -- the exact
 // collision the guard exists to prevent. Rig::pendingStop_ hands the
-// write to that fiber instead, delivered from inside tickDrive() just
-// before it releases the guard, still within the same tick. When the
-// guard is free (the common case) the write happens here, immediately.
+// write (and the settle below) to that fiber instead, delivered from
+// inside tickDrive() just before it releases the guard, still within
+// the same tick -- see that function's own comment for the exact
+// point. When the guard is free (the common case) this call acquires
+// it itself for the duration of the port write + settle, the same
+// acquire/I2C-body/release bracket every other non-kernel I2C entry
+// point in this file takes (enginePulseWheels()'s own comment above is
+// the precedent) -- settleToRest() steps the kernel, which talks I2C,
+// so it needs the SAME protection kernel.step() always gets from
+// tickDrive()'s own acquire(). Acquiring here can never block: this
+// branch is reached only when busGuard.held() just read false, and
+// CODAL's cooperative scheduler cannot interleave another fiber's
+// acquire() in between (no yield crosses that gap).
 void Rig::softStop() {
   engine.endMove();
   kernel.neutral();
@@ -395,8 +432,11 @@ void Rig::softStop() {
     pendingStop_ = true;
     return;
   }
+  busGuard.acquire(sleeper);
   left.emergencyStop();
   right.emergencyStop();
+  engine.settleToRest();
+  busGuard.release();
 }
 
 // ---- velocity commands ----------------------------------------------
@@ -767,10 +807,25 @@ bool tickDrive() {
   // an already-decided stop, and re-entering softStop() would re-run
   // its endMove()/neutral() and re-take the held() branch it is the
   // consumer of.
+  //
+  // settleToRest() + odomUpdate() (sprint 039 ticket 002): the SAME
+  // staleness gap Rig::softStop()'s own comment describes for its
+  // unstaged branch applies here too, and is actually the MORE likely
+  // path to hit it -- the OTHER fiber's own engine.endMove() (inside
+  // softStop(), before pendingStop_ was staged) already cleared seg_/
+  // hold_, so `wasActive` above (read from isDriving() AFTER this
+  // tick's own step()) sees them already empty and the `wasActive &&
+  // !moveActive` branch two paragraphs up never fires for this stop --
+  // without the call here, THIS tick's own step() (which ran BEFORE the
+  // race was even known about) is left as the last word on Output, and
+  // it was computed while the robot was still genuinely moving. Same
+  // bounded settle, same reasoning, applied to the staged case.
   if (r.pendingStop_) {
     r.pendingStop_ = false;
     r.left.emergencyStop();
     r.right.emergencyStop();
+    r.engine.settleToRest();
+    odomUpdate(r);  // coast counts -> pose before the final TLM
   }
   r.busGuard.release();
 

@@ -1,8 +1,9 @@
 ---
 id: '002'
 title: 'Diagnose and fix: STATUS active staleness + reverse-to-forward driveTick hang'
-status: open
-use-cases: [SUC-003]
+status: in-progress
+use-cases:
+- SUC-003
 depends-on: []
 github-issue: ''
 issue: status-active-stays-1-after-a-soft-stop.md
@@ -95,31 +96,60 @@ would silently corrupt either one's hardware data. Resolve this first.
 
 ## Acceptance Criteria
 
-- [ ] A host test (style of `tests/host/test_wire_motion_verbs.py`)
+- [x] A host test (style of `tests/host/test_wire_motion_verbs.py`)
       pins `STATUS active == 0` promptly after every soft-stop path:
       `stop()`/block, wire `STOP`, and the starvation watchdog's own
-      forced stop.
+      forced stop. Done via `tests/host/test_status_active_after_soft_
+      stop.py`, exercising the shared `Rig::softStop()` mechanism every
+      one of those three call sites routes through (hand-mirrored in
+      `motion_engine_shim.cpp::meEndMoveSettledStopSequence()`, since
+      `shims.cpp` itself is not host-compilable — see that test file's
+      own header comment). Confirmed the test actually detects the
+      regression by reverting the fix locally and observing the test
+      fail, then restoring it.
 - [ ] A hardware repro session (**team-lead runs this**, per
       `hardware-tickets-run-them-yourself`), with `TLM FULL` streaming
       and diags 28 and 29 read before and after each step, reproduces
       runs 7-9's pattern (`captures/calibratel-vevov-20260915/bench-log.md`)
       on the current build, to isolate which candidate mechanism is at
-      fault.
+      fault. **NOT DONE — no robot available to this session.** Repro
+      procedure written up in `docs/knowledge/2026-09-15-reverse-to-
+      forward-drivetick-hang-diagnosis.md`.
 - [ ] After the fix, the same hardware repro is repeated and shows: the
       reverse-then-forward `driveTick()` loop completes its full
       commanded tick count and prints its completion line every time
       (run it enough times to be confident it is not intermittent), and
       `STATUS active` reads `0` promptly after a subsequent `STOP`.
-- [ ] The fix does not edit `src/core/diffdrive.{h,cpp}`.
-- [ ] Any new yield point goes through
-      `vfpSafeSleep()`/`vfpSafeYield()`.
-- [ ] **Fallback**: if the debugging budget (see
-      `systematic-debugging` skill's attempt cap) is exhausted without
-      isolating a root cause, document findings, apply the documented
-      workaround (avoid reverse-then-immediate-forward `driveTick()`
-      loops in ticket 003's characterization script and ticket 004's
-      nudge sequencing), and file a follow-up issue — do not block
-      sprint close indefinitely on this ticket.
+      **NOT DONE — hardware-only, team-lead's step.**
+- [x] The fix does not edit `src/core/diffdrive.{h,cpp}`. Confirmed —
+      the Defect 1 fix touches only `src/shims.cpp` (production) and
+      `tests/host/` (test scaffolding).
+- [x] Any new yield point goes through
+      `vfpSafeSleep()`/`vfpSafeYield()`. No new yield points: the fix
+      reuses `MotionEngine::settleToRest()` and `BusGuard::acquire()`,
+      both already-existing, already-hardened call paths this file uses
+      elsewhere for the identical purpose — no new call site added.
+- [ ] **Fallback**: if the debugging budget (see `systematic-debugging`
+      skill's attempt cap) is exhausted without isolating a root cause,
+      document findings, apply the documented workaround (avoid
+      reverse-then-immediate-forward `driveTick()` loops in ticket
+      003's characterization script and ticket 004's nudge sequencing),
+      and file a follow-up issue — do not block sprint close
+      indefinitely on this ticket. **PARTIALLY DONE.** Findings are
+      documented in `docs/knowledge/2026-09-15-reverse-to-forward-
+      drivetick-hang-diagnosis.md` (source audit, leading hypothesis,
+      a secondary real defect found — the watchdog's `lastTick`
+      freshness signal is set before `busGuard.acquire()`, not after —
+      and the exact hardware repro to run). No fix was applied for
+      Defect 2 itself: the dispatch instruction for this ticket was to
+      land a fix only if the mechanism could be demonstrated in a host
+      test, and `shims.cpp`'s fiber/watchdog machinery is not
+      host-compilable, so none of the candidates could be verified that
+      way. The workaround cannot yet be "applied" to tickets 003/004,
+      since neither exists (out of this ticket's approved scope,
+      sprint 039). NOT done: filing the follow-up issue — left for
+      team-lead, since creating sprint/issue artifacts is outside a
+      programmer agent's role.
 
 ## Testing
 

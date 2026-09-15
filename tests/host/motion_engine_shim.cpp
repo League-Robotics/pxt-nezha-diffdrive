@@ -553,6 +553,28 @@ void meEndMoveFixedStopSequence(void* handle) {
   h->left.emergencyStop();
   h->right.emergencyStop();
 }
+
+// Sprint 039 ticket 002 (closes status-active-stays-1-after-a-soft-
+// stop.md): the SETTLED sequence -- shims.cpp's Rig::softStop() as of
+// this ticket, hand-mirrored the same way meEndMoveFixedStopSequence()
+// above mirrors its own predecessor. Adds engine.settleToRest() after
+// the port-level zero write: meEndMoveFixedStopSequence() above zeros
+// the MOTORS but never steps the kernel again, so kernel.output()'s
+// velocityLeft/Right -- what WireAdapter::status()'s `active` bit reads
+// -- stays at whatever it was computed as during the LAST step() before
+// the stop, which can be a genuinely nonzero mid-drive reading. This
+// mirrors Rig::softStop()'s own not-busGuard-held branch; the guard
+// itself has no host-portable equivalent worth mirroring here (see this
+// file's own header comment -- a plain FakeMotor pair, no fiber
+// concurrency exists on this host harness for it to protect against).
+void meEndMoveSettledStopSequence(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMove();
+  h->kernel.neutral();
+  h->left.emergencyStop();
+  h->right.emergencyStop();
+  h->engine.settleToRest();
+}
 int meProgress(void* handle) {
   return static_cast<Handle*>(handle)->engine.progress();
 }

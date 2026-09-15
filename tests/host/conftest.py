@@ -280,6 +280,10 @@ def _bind_motion_lib(lib):
     lib.meEndMoveOldStopSequence.restype = None
     lib.meEndMoveFixedStopSequence.argtypes = [ctypes.c_void_p]
     lib.meEndMoveFixedStopSequence.restype = None
+    # -- surface first needed by test_status_active_after_soft_stop.py
+    # (sprint 039 ticket 002)
+    lib.meEndMoveSettledStopSequence.argtypes = [ctypes.c_void_p]
+    lib.meEndMoveSettledStopSequence.restype = None
     # -- surface first needed by test_motion_engine_stall_rearm.py
     lib.meSetStall.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float]
     lib.meSetStall.restype = None
