@@ -42,6 +42,22 @@
 // operating point this stepper's DEFAULTS are seeded from; this file's
 // stiction constants are chosen only to make the STEPPER's own logic
 // exercisable deterministically on a host).
+//
+// EXTENDED sprint 039 ticket 006 (test_creep_self_lock_stiction_sim.py):
+// this file's own StictionMotor is reused, per that ticket's own
+// instruction to extend rather than duplicate it, for a SECOND
+// investigation unrelated to the nudge stepper above -- whether a slow
+// CONTINUOUS hold (wheelsV()/moveV(), not a pulse) can self-lock below
+// breakaway. The addition is two-part: (1) StictionMotor grew
+// `withholdStampOnStiction` (default false, so every ticket 004 test
+// keeps its original behavior byte-for-byte) so a caller can select the
+// REAL port's stamp-withholding behavior instead of the always-advance
+// model ticket 004 needed; (2) new exported entry points below
+// (mnWheelsV/mnMoveV/mnIsDriving/mnOutVelocity*/mnOutAppliedDuty*/
+// mnOutI2cFaultCount/mnSetVFloor/mnSetVMax/mnConfigureCreepPlant) drive
+// MotionEngine's OTHER primitive -- the continuous Hold -- through the
+// same real kernel this file already builds, rather than adding a
+// third shim for a Motor double this file already owns.
 #include <cmath>
 #include <cstdint>
 
@@ -87,13 +103,41 @@ class StictionMotor : public DiffDrive::Motor {
   void tick(uint64_t /*nowUs*/) override {
     appliedDutyValue_ = lastStagedDuty;
     ++tickCount;
-    sampleTimeValue_ += kSampleIntervalUs;
+    bool cleared = false;
     if (appliedDutyValue_ >= breakawayDuty) {
       positionValue_ += stepCounts;
+      cleared = true;
     } else if (appliedDutyValue_ <= -breakawayDuty) {
       positionValue_ -= stepCounts;
+      cleared = true;
     }
     // Below breakaway magnitude: pure stiction, no motion at all.
+    //
+    // ticket 006 addition: `withholdStampOnStiction` (default false --
+    // ticket 004's own tests are unaffected) selects which of two
+    // real ports' behavior this tick's sample-stamp update mirrors.
+    // false (the original ticket-004 model) advances sampleTimeValue_
+    // unconditionally every tick, which is right for that ticket's own
+    // deterministic-pulse tests (a pulse's own dutyHistory readback
+    // does not depend on stamp health) but is NOT what the real
+    // NezhaMotorPort does. true mirrors
+    // NezhaMotorPort::collect() (src/platform/nezha_port.cpp:391-406,
+    // READ ONLY): a successful read whose raw counts are unchanged
+    // from the previous accepted sample, while driven, withholds the
+    // fresh sampleTime_ stamp -- "sampleTime_ HOLDS" is that function's
+    // own comment. DifferentialDrive::step() turns a held stamp into
+    // `sampleAdvanced{Left,Right}_ == false` (diffdrive.cpp:550-551),
+    // which is the exact input K2's guard in positionError() (diffdrive
+    // .cpp:955-991, READ ONLY) tests. Without this mode the shim cannot
+    // reproduce the creep self-lock at all: with the stamp always
+    // advancing, `advanced` is always true and K2 never suppresses
+    // anything, so the I-term winds up normally regardless of physical
+    // motion -- see test_creep_self_lock_stiction_sim.py's own
+    // refutation run, which uses the DEFAULT (false) for exactly that
+    // contrast.
+    if (cleared || !withholdStampOnStiction) {
+      sampleTimeValue_ += kSampleIntervalUs;
+    }
   }
 
   float position() const override { return positionValue_; }
@@ -117,6 +161,7 @@ class StictionMotor : public DiffDrive::Motor {
   // ---- stiction model parameters, test-armed before firing ----
   float breakawayDuty = kDefaultBreakawayDuty;
   float stepCounts = kDefaultStepCounts;
+  bool withholdStampOnStiction = false;  // ticket 006 -- see tick()'s comment
 
   // ---- readback ----
   float lastStagedDuty = 0.0f;
@@ -273,6 +318,90 @@ int32_t mnNudgeMaxPulses(void*) {
 // kernel.step() + engine.service() pairing (shims.cpp).
 int mnService(void* handle) {
   return static_cast<Handle*>(handle)->engine.service() ? 1 : 0;
+}
+
+// ---- ticket 006: the continuous-hold primitive (wheelsV()/moveV()),
+// against the same StictionMotor + real kernel above, to investigate the
+// creep self-lock independently of the nudge stepper. `mnService` above
+// is reused unchanged -- MotionEngine::service() already dispatches to
+// the Hold branch whenever nudge_ is inactive, which it is here (this
+// handle never calls beginNudge()). -------------------------------------
+
+void mnWheelsV(void* handle, float left, float right, uint32_t durationMs) {
+  static_cast<Handle*>(handle)->engine.wheelsV(left, right, durationMs);
+}
+void mnMoveV(void* handle, float vx, float omega, uint32_t durationMs) {
+  static_cast<Handle*>(handle)->engine.moveV(vx, omega, durationMs);
+}
+int mnIsDriving(void* handle) {
+  return static_cast<Handle*>(handle)->engine.isDriving() ? 1 : 0;
+}
+
+// side: 0 == left, 1 == right.
+void mnSetWithholdStampOnStiction(void* handle, int side, int enabled) {
+  motorFor(static_cast<Handle*>(handle), side).withholdStampOnStiction =
+      enabled != 0;
+}
+
+float mnOutVelocityLeft(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().velocityLeft;
+}
+float mnOutVelocityRight(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().velocityRight;
+}
+float mnOutAppliedDutyLeft(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().appliedDutyLeft;
+}
+float mnOutAppliedDutyRight(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().appliedDutyRight;
+}
+uint32_t mnOutI2cFaultCount(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().i2cFaultCount;
+}
+int mnOutStallHalted(void* handle) {
+  return static_cast<Handle*>(handle)->kernel.output().stallHalted ? 1 : 0;
+}
+
+// MotionLimits' own vFloor/vMax -- exposed so a test can prove (rather
+// than merely read, in motion_engine.cpp) whether the Hold branch's
+// shaper.advance() call is actually sensitive to vFloor. See
+// test_creep_self_lock_stiction_sim.py's own
+// test_hold_vfloor_value_has_no_effect_on_commanded_ramp.
+void mnSetVFloor(void* handle, float mmPerS) {
+  static_cast<Handle*>(handle)->engine.limits().setVFloor(mmPerS);
+}
+void mnSetVMax(void* handle, float mmPerS) {
+  static_cast<Handle*>(handle)->engine.limits().setVMax(mmPerS);
+}
+
+// Bundles the DiffDrive::Config fields this investigation's PID plant
+// needs into one call rather than growing eight more single-field
+// exports -- every field here already has an identically-named fluent
+// setter on DifferentialDrive (src/core/diffdrive.h), chained in the
+// same order the historical docs/code-review/2026-09-02/raw/
+// stiction_probe.cpp reference used them (kp/ki/iMax/pidMax/posErrMax),
+// extended with fullDutyVelocity and maxDuty so a test does not also
+// need mnSetMaxDuty(). wheelGain/wheelIntercept are left at Config's own
+// defaults (1.0/0.0 -- see diffdrive.h's Config struct), which makes
+// correctedCommand() return the commanded speed UNCHANGED -- exactly
+// the "duty is pure feedforward" setup test_motion_engine_reductions.py
+// already documents using for the same reason. kaff is included even
+// though every call in this investigation passes 0 for it (isolating
+// the I-term, mirroring the historical reference's own kp=0 choice) so
+// a test can deliberately turn it on to check that is NOT what rescues
+// a locked wheel either.
+void mnConfigureCreepPlant(void* handle, float maxDuty,
+                            float fullDutyVelocity, float kp, float ki,
+                            float iMax, float kaff, float pidMax,
+                            float posErrMax) {
+  static_cast<Handle*>(handle)->kernel.setMaxDuty(maxDuty)
+      .setFullDutyVelocity(fullDutyVelocity)
+      .setKp(kp)
+      .setKi(ki)
+      .setIMax(iMax)
+      .setKaff(kaff)
+      .setPidMax(pidMax)
+      .setPositionErrorMax(posErrMax);
 }
 
 }  // extern "C"
