@@ -1,0 +1,134 @@
+{
+ "amplitude": 15.0,
+ "width": 2,
+ "wheel": "left",
+ "sign": 1.0,
+ "requested": 20,
+ "returned": 20,
+ "samples": [
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.22,
+   "right": 0.0,
+   "countsLeft": 28.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.82,
+   "right": 0.0,
+   "countsLeft": 23.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.98,
+   "right": 0.0,
+   "countsLeft": 25.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.51,
+   "right": 0.0,
+   "countsLeft": 19.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.82,
+   "right": 0.0,
+   "countsLeft": 23.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.82,
+   "right": 0.0,
+   "countsLeft": 23.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.98,
+   "right": 0.0,
+   "countsLeft": 25.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.51,
+   "right": 0.0,
+   "countsLeft": 19.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.82,
+   "right": 0.0,
+   "countsLeft": 23.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  }
+ ],
+ "mean_mm": 1.7865000000000002,
+ "sd_mm": 0.14745423018686174,
+ "ratio": 0.08253805216169142,
+ "dead_pulses": 0
+}

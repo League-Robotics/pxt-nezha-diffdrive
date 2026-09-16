@@ -1,6 +1,6 @@
 {
   "_note": "One calibration of record (sprint 029 ticket 006, TL-02/TL-11). camlink.py loads this file and registers a mount with the aprilcam daemon ONLY on an explicit --register call; robotlink.py's radio_address() reads/derives from it. mount_yaw_residual_deg is the sub-degree PHYSICAL mount skew ONLY -- the fixed +90 deg AprilCam front-edge-to-hat convention (.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md) is never stored here; it is added back in code, once, by camlink.mount_yaw_rad() (for daemon registration) and field.robot_heading_from_tag_yaw() (for a raw, unregistered tag reading).",
-  "default_robot": "tovez",
+  "default_robot": "vevov",
   "field": {
     "_note": "Fixed field furniture, not a robot -- not subject to the TL-02 remount-overwrite hazard. Height-only mount (drives camera parallax correction only; no forward direction, so no yaw convention applies). Register once per daemon session with `camlink.py --register field`. Tag 10 sits over the NW dot (-50, 30), tag 11 over the SW dot (-50, -30) -- permanent ground truth in every frame.",
     "tags": {
@@ -23,7 +23,8 @@
       "_provenance": "VEVOV-MEASURED 2026-09-05 on the SECONDARY playfield (110x70, hd-usb-camera) by tests/calibration/mount.py: reports/pf2-recal-20260905/02-mount-vevov/mount.json and 02-mount-vevov.log. Tag height 11.2 cm is the stakeholder's tape measurement the same day (the 12.0 cm carried here since 2026-09-02 is obsolete -- the plate was remounted). 9 rest poses over 8 +-90 pivots, residual rms 4.8 mm; verification drift 0.46 cm/pivot.",
       "tag_family": "apriltag",
       "tag_number": 53,
-      "camera": "hd-usb-camera",
+      "camera": "arducam-ov9782-usb-camera",
+      "_camera_note": "Switched from hd-usb-camera to arducam-ov9782-usb-camera on 2026-09-16 (sprint 039 ticket 003) because vevov is now on the MAIN playfield, and this field names the camera that currently SEES the robot -- tovez's entry has always named ov9782 for the same reason. This is NOT a re-solve: every mount value below was measured on the secondary playfield with hd-usb-camera, as its own _provenance says, and mount_x/y/z and the yaw residual are robot-frame quantities that do not depend on which camera observes the tag. Note the main playfield has TWO cameras registered to it, arducam-ov9281 (number 2) and arducam-ov9782 (number 4); 4 is the one this project's notes name as the overhead camera and the one stakeholder direction pinned for this session.",
       "mount_x_cm": -2.787,
       "mount_y_cm": 0.034,
       "mount_z_cm": 11.2,

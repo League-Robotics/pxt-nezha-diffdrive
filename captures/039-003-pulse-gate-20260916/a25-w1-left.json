@@ -1,0 +1,134 @@
+{
+ "amplitude": 25.0,
+ "width": 1,
+ "wheel": "left",
+ "sign": 1.0,
+ "requested": 20,
+ "returned": 20,
+ "samples": [
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.35,
+   "right": 0.0,
+   "countsLeft": 17.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 3.49,
+   "right": 0.0,
+   "countsLeft": 44.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 3.57,
+   "right": 0.0,
+   "countsLeft": 45.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 3.09,
+   "right": 0.0,
+   "countsLeft": 39.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.35,
+   "right": 0.0,
+   "countsLeft": 17.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.35,
+   "right": 0.0,
+   "countsLeft": 17.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 3.09,
+   "right": 0.0,
+   "countsLeft": 39.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 3.49,
+   "right": 0.0,
+   "countsLeft": 44.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  }
+ ],
+ "mean_mm": 1.6075,
+ "sd_mm": 1.2681595916918345,
+ "ratio": 0.7889017677709701,
+ "dead_pulses": 6
+}
