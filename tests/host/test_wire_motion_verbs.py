@@ -4003,8 +4003,21 @@ def test_run_pulse_fires_and_reports_encoder_delta_in_counts_and_mm(wa):
     """The REAL round trip: RUN pulse fires MotionEngine::pulseWheels()
     over a real kernel/FakeMotor pair, settles, and the wire reply's
     `ret` line reports the LEFT wheel's encoder delta in both counts and
-    mm -- the characterization gate's own acceptance test (ticket 003,
-    SUC-001) is stated in both, per this ticket's own Scope.
+    hundredths-of-a-mm -- the characterization gate's own acceptance
+    test (ticket 003, SUC-001) is stated in both, per this ticket's own
+    Scope.
+
+    The reply is INTEGER-only (`left_counts`/`right_counts`/
+    `left_mm_x100`/`right_mm_x100`), not the original `%.1f`/`%.2f`
+    float format: the micro:bit target's newlib-nano printf has no
+    float conversion support, so every value came back EMPTY on
+    hardware (MEASURED vevov 2026-09-16, see wire_adapter.cpp's
+    execPulse() comment) even though this host test, linked against the
+    desk's own libc, could not see the defect -- the host's printf DOES
+    support %f. Fixed as part of reopening sprint 039 ticket 001 for
+    this hardware-only defect; see also
+    test_no_float_format_specifier_in_wire_layer_source_pin.py, which
+    pins the source shape a host test alone cannot catch.
 
     The LEFT motor's encoder is armed to a single fixed
     (position, sample_time) pair BEFORE firing (fake_ports.h's own
@@ -4031,10 +4044,12 @@ def test_run_pulse_fires_and_reports_encoder_delta_in_counts_and_mm(wa):
     fields = dict(pair.split("=") for pair in text.split(" "))
 
     cpm = wa.counts_per_mm()
-    assert float(fields["left_counts"]) == pytest.approx(500.0, abs=0.1)
-    assert float(fields["right_counts"]) == pytest.approx(0.0, abs=0.1)
-    assert float(fields["left_mm"]) == pytest.approx(500.0 / cpm, abs=0.05)
-    assert float(fields["right_mm"]) == pytest.approx(0.0, abs=0.05)
+    assert int(fields["left_counts"]) == pytest.approx(500, abs=1)
+    assert int(fields["right_counts"]) == pytest.approx(0, abs=1)
+    assert int(fields["left_mm_x100"]) == pytest.approx(
+        round(500.0 / cpm * 100.0), abs=1
+    )
+    assert int(fields["right_mm_x100"]) == pytest.approx(0, abs=1)
 
 
 def test_run_pulse_unknown_name_is_still_unknown(wa):

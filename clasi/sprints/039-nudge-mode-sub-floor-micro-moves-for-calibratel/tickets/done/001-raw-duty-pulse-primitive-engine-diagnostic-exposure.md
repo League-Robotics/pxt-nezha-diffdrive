@@ -75,6 +75,65 @@ that is ticket 004, gated on ticket 003's verdict.
       loop, but confirm before closing.
 - [x] No unit suffix in any new identifier; units are `// [unit]`
       trailing comments (`.claude/rules/no-units-in-identifiers.md`).
+- [x] `execPulse()`'s wire reply uses integer-only formatting (no
+      `%f`/`%.Nf`/`%g`/`%e` conversion anywhere in `src/comms/`) — added
+      2026-09-16 after the hardware-only defect below; pinned by
+      `tests/host/test_no_float_format_specifier_in_wire_layer_source_pin.py`.
+
+## Hardware defect found and fixed (2026-09-16)
+
+**Reopened by team-lead during ticket 003's hardware session.**
+`WireAdapter::execPulse()` (`src/comms/wire_adapter.cpp`, the
+`std::snprintf` originally near line 987) formatted its `ret` reply
+with `%.1f`/`%.2f`. The micro:bit target's newlib-nano printf has no
+float conversion support — not truncated, not wrong digits, the whole
+conversion comes back EMPTY.
+
+MEASURED vevov 2026-09-16, team-lead session, over the farm serial link
+(null.local:41285), firmware `vevov-nudgehang0915`:
+
+    TX  RUN pulse 25 0 1 #21
+    RX  ack 21 9 stop
+    RX  ret left_counts= right_counts= left_mm= right_mm= #21
+
+Every field name present, every value empty. The pulse itself EXECUTED
+correctly — the camera measured ~1.55 cm of arc over 21 single-wheel
+pulses (about 0.74 mm each), and `cyc` advanced normally. Only the
+reporting was broken, which made the verb useless for ticket 003's
+characterization gate (it depends on the encoder counts).
+
+Every other wire formatter in this codebase already uses integer
+conversions only (`%d`/`%ld`/`%lu`/`%x`/`%u`/`%s`) for exactly this
+reason — see `wire_handler.cpp`'s `formatConfigValue()` and its own
+"no %f" comment. `execPulse()` was the one holdout that reached
+hardware before anyone noticed a host test (linked against the desk's
+own libc, which DOES support `%f`) could not catch.
+
+**Fix**: `execPulse()` now rounds the encoder deltas to the nearest
+count (`left_counts`/`right_counts`, unchanged field names) and reports
+travel as hundredths of a millimetre via new integer-scaled fields
+`left_mm_x100`/`right_mm_x100` (replacing the old float `left_mm`/
+`right_mm` fields), formatted with `%ld`. A pulse's ~0.7 mm
+displacement now resolves to tens of counts of the `_x100` field,
+enough for the gate to distinguish 0.3 mm from 2.0 mm.
+
+**New reply format** (host-visible, exact):
+
+    ret left_counts=<int> right_counts=<int> left_mm_x100=<int> right_mm_x100=<int> #<id>
+
+**Regression guard**: `tests/host/test_no_float_format_specifier_in_wire_layer_source_pin.py`
+(new) source-pins `src/comms/` against any `%f`/`%.Nf`/`%g`/`%e`
+conversion specifier, modeled on `test_no_percent_z_format_specifier_source_pin.py`
+and `test_vfp_guard_source_pin.py` — a normal host test cannot catch
+this class of defect because the host's own libc formats floats
+correctly, which is exactly why this one reached hardware.
+`tests/host/test_wire_motion_verbs.py::test_run_pulse_fires_and_reports_encoder_delta_in_counts_and_mm`
+updated to pin the new integer field names/format.
+
+Verified: `uv run python tools/make_deploy.py --robot vevov
+--profile-suffix=-pulsefix0916` builds a hex with `wire_adapter.cpp`
+compiled cleanly (1,804,661-byte `built/binary.hex`). Not reflashed —
+team-lead runs hardware.
 
 ## Implementation Notes
 

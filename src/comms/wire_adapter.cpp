@@ -984,10 +984,46 @@ Wire::Result WireAdapter::execPulse(const char* const* argv, size_t argc,
   const float cpm = countsPerMm();  // [counts/mm]
   const float leftTravel = cpm > 0.0f ? leftDelta / cpm : 0.0f;    // [mm]
   const float rightTravel = cpm > 0.0f ? rightDelta / cpm : 0.0f;  // [mm]
-  std::snprintf(result, resultCapacity,
-               "left_counts=%.1f right_counts=%.1f left_mm=%.2f right_mm=%.2f",
-               static_cast<double>(leftDelta), static_cast<double>(rightDelta),
-               static_cast<double>(leftTravel), static_cast<double>(rightTravel));
+
+  // Integer-only formatting -- the micro:bit target's newlib-nano printf
+  // has no float conversion support (`%f`/`%g`/`%e` all come back EMPTY,
+  // not truncated or wrong -- the whole conversion silently vanishes).
+  // MEASURED vevov 2026-09-16, team-lead session, farm serial link
+  // (null.local:41285), firmware vevov-nudgehang0915: `RUN pulse 25 0 1
+  // #21` executed correctly (camera measured ~1.55 cm of arc over 21
+  // pulses, ~0.74 mm each, cyc advanced normally) but the `ret` line
+  // came back `left_counts= right_counts= left_mm= right_mm=` -- every
+  // field name present, every value empty, because this function's
+  // `%.1f`/`%.2f` snprintf conversions do not exist on-target. Every
+  // OTHER wire formatter in this codebase already avoids float
+  // conversions for exactly this reason (see wire_handler.cpp's
+  // formatConfigValue() and its own "no %f" comment) -- this was the
+  // one holdout. Fixed per sprint 039 ticket 001 reopened for this
+  // defect; pinned by test_no_float_format_specifier_in_wire_layer_
+  // source_pin.py, which a host test alone cannot catch since the
+  // desk's own libc DOES support %f (same shape as the %zu gap
+  // test_no_percent_z_format_specifier_source_pin.py documents).
+  //
+  // Encoder counts are integral; round to the nearest count rather than
+  // truncate. Travel is reported as hundredths of a millimetre
+  // (`_mm_x100`, an explicit scale in the WIRE field name -- wire field
+  // names are exempt from no-units-in-identifiers.md, which is about
+  // C++ identifiers -- so a host parser cannot mistake the units) so a
+  // single pulse's ~0.7 mm displacement resolves to tens of counts of
+  // the field, enough for the characterization gate (ticket 003) to
+  // tell 0.3 mm from 2.0 mm apart.
+  const long leftCountsInt =
+      std::lround(static_cast<double>(leftDelta));  // [counts]
+  const long rightCountsInt =
+      std::lround(static_cast<double>(rightDelta));  // [counts]
+  const long leftMmScaled =
+      std::lround(static_cast<double>(leftTravel) * 100.0);  // [mm], x100
+  const long rightMmScaled =
+      std::lround(static_cast<double>(rightTravel) * 100.0);  // [mm], x100
+  std::snprintf(
+      result, resultCapacity,
+      "left_counts=%ld right_counts=%ld left_mm_x100=%ld right_mm_x100=%ld",
+      leftCountsInt, rightCountsInt, leftMmScaled, rightMmScaled);
   hasResult = true;
   return Wire::Result::kOk;
 }
