@@ -496,6 +496,28 @@ static void waSetGoToDeadline(WaHandle& h, float v) {
   h.goToDeadline = static_cast<uint32_t>(v);
 }
 
+// Sprint 039 ticket 004: thin forwards to the REAL MotionEngine's own
+// nudge config surface, mirroring shims.cpp's cfgGetNudgeAmplitude()/
+// cfgGetNudgeWidth()/cfgGetNudgeSettle() exactly (this handle's `engine`
+// IS a real diffDrive::MotionEngine, same as waGetRotationalSlip()
+// above).
+static float waGetNudgeAmplitude(WaHandle& h) {
+  return h.engine.nudgeAmplitude();
+}
+static void waSetNudgeAmplitude(WaHandle& h, float v) {
+  h.engine.setNudgeAmplitude(v);
+}
+static float waGetNudgeWidth(WaHandle& h) {
+  return static_cast<float>(h.engine.nudgeWidthTicks());
+}
+static void waSetNudgeWidth(WaHandle& h, float v) {
+  h.engine.setNudgeWidthTicks(static_cast<int32_t>(std::lround(v)));
+}
+static float waGetNudgeSettle(WaHandle& h) { return h.engine.nudgeSettle(); }
+static void waSetNudgeSettle(WaHandle& h, float v) {
+  h.engine.setNudgeSettle(v);
+}
+
 struct WaConfigAccessor {
   int ordinal;
   float (*get)(WaHandle&);        // [unscaled]
@@ -524,6 +546,9 @@ static const WaConfigAccessor kWaConfigAccessors[] = {
     {33, &waGetEstopClear, &waSetEstopClear},
     {38, &waGetStraightTrim, &waSetStraightTrim},
     {39, &waGetGoToDeadline, &waSetGoToDeadline},
+    {40, &waGetNudgeAmplitude, &waSetNudgeAmplitude},
+    {41, &waGetNudgeWidth, &waSetNudgeWidth},
+    {42, &waGetNudgeSettle, &waSetNudgeSettle},
 };
 
 static const WaConfigAccessor* waFindConfigAccessor(int ordinal) {

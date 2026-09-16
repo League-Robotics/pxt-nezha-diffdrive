@@ -295,6 +295,29 @@ def _bind_motion_lib(lib):
     lib.meClearStallReport.restype = None
     lib.meIsDriving.argtypes = [ctypes.c_void_p]
     lib.meIsDriving.restype = ctypes.c_int
+
+    # -- surface first needed by test_motion_engine_nudge.py (sprint 039
+    # ticket 004)
+    lib.meBeginNudge.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32]
+    lib.meBeginNudge.restype = None
+    lib.meIsNudgeActive.argtypes = [ctypes.c_void_p]
+    lib.meIsNudgeActive.restype = ctypes.c_int
+    lib.meNudgePulseCount.argtypes = [ctypes.c_void_p]
+    lib.meNudgePulseCount.restype = ctypes.c_int32
+    lib.meNudgeMaxPulses.argtypes = [ctypes.c_void_p]
+    lib.meNudgeMaxPulses.restype = ctypes.c_int32
+    lib.meNudgeAmplitude.argtypes = [ctypes.c_void_p]
+    lib.meNudgeAmplitude.restype = ctypes.c_float
+    lib.meSetNudgeAmplitude.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetNudgeAmplitude.restype = None
+    lib.meNudgeWidthTicks.argtypes = [ctypes.c_void_p]
+    lib.meNudgeWidthTicks.restype = ctypes.c_int32
+    lib.meSetNudgeWidthTicks.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+    lib.meSetNudgeWidthTicks.restype = None
+    lib.meNudgeSettle.argtypes = [ctypes.c_void_p]
+    lib.meNudgeSettle.restype = ctypes.c_float
+    lib.meSetNudgeSettle.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetNudgeSettle.restype = None
     return lib
 
 

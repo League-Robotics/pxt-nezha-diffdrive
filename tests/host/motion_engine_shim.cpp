@@ -792,4 +792,54 @@ float meProbeHeading(void* handle) {
   return static_cast<Handle*>(handle)->probeHeading_;
 }
 
+// ---- nudge mode: the settle-gated pulse stepper (sprint 039 ticket 004)
+// ------------------------------------------------------------------------
+// MotionEngine::beginNudge()/isNudgeActive() plus the three config
+// getters/setters -- meServiceMove() above already dispatches through
+// service(), which now routes to serviceNudge() whenever nudge_ is
+// active (service()'s own header comment), so no new "step the nudge"
+// export is needed here. Covers what a plain, manually-armed FakeMotor
+// already supports (mutual exclusion with seg_/hold_, E-stop, the
+// config surface). The AUTONOMOUS duty->position stiction-plant
+// behavioral tests (pulses fire only when settled, the ledger
+// converges, budget/deadline/one-step-stop, a direction flip's step-
+// count parity) need a Motor double this file's plain FakeMotor
+// deliberately does not provide (fake_ports.h's own "no physics"
+// invariant) -- those live in their own dedicated shim
+// (motion_engine_nudge_stiction_shim.cpp) rather than adding physics
+// here for every one of this file's other twelve consuming test files.
+
+void meBeginNudge(void* handle, float distanceMm, float rotationRad,
+                  uint32_t timeoutMs) {
+  static_cast<Handle*>(handle)->engine.beginNudge(distanceMm, rotationRad,
+                                                  timeoutMs);
+}
+int meIsNudgeActive(void* handle) {
+  return static_cast<Handle*>(handle)->engine.isNudgeActive() ? 1 : 0;
+}
+int32_t meNudgePulseCount(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgePulseCount();
+}
+int32_t meNudgeMaxPulses(void*) {
+  return diffDrive::MotionEngine::nudgeMaxPulses();
+}
+float meNudgeAmplitude(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeAmplitude();
+}
+void meSetNudgeAmplitude(void* handle, float percent) {
+  static_cast<Handle*>(handle)->engine.setNudgeAmplitude(percent);
+}
+int32_t meNudgeWidthTicks(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeWidthTicks();
+}
+void meSetNudgeWidthTicks(void* handle, int32_t ticks) {
+  static_cast<Handle*>(handle)->engine.setNudgeWidthTicks(ticks);
+}
+float meNudgeSettle(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeSettle();
+}
+void meSetNudgeSettle(void* handle, float ms) {
+  static_cast<Handle*>(handle)->engine.setNudgeSettle(ms);
+}
+
 }  // extern "C"

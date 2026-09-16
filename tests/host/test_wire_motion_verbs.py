@@ -2221,6 +2221,14 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     # field. Whole milliseconds, and deliberately not the field's own 0
     # default, per the non-default-value rationale above.
     "goto_timeout": 4500.0,
+    # Sprint 039 ticket 004: the nudge stepper's own three ordinals
+    # (40-42), all thin MotionEngine forwards like rotational_slip
+    # above. Values chosen inside each field's own validated range and
+    # away from its shipped default (same non-default-value rationale as
+    # accel/decel/v_max above).
+    "nudge_amplitude": 18.0,
+    "nudge_width": 3.0,
+    "nudge_settle": 40.0,
 }
 
 
@@ -3229,6 +3237,10 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # field and into the one config table, which is what puts it in
         # this dump.
         b"goto_timeout",
+        # sprint 039 ticket 004: ordinals 40-42 (nudge_amplitude/
+        # nudge_width/nudge_settle), NEW, declared after goto_timeout in
+        # kConfigFields.
+        b"nudge_amplitude", b"nudge_width", b"nudge_settle",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

@@ -1520,6 +1520,27 @@ void cfgSetGoToDeadline(Rig& r, float v) {
   r.goToDeadline = static_cast<uint32_t>(v);
 }
 
+// Sprint 039 ticket 004: the nudge stepper's three config rows, all
+// thin forwards to MotionEngine's own validated setters -- same shape
+// as cfgGetRotationalSlip()/cfgSetRotationalSlip() above (the engine
+// owns the validation, this row only routes). nudge_width stores an
+// integer tick count through the same unscaled-float wire convention
+// every other row uses; round rather than truncate so a wire caller
+// sending an exact integer never loses it to float rounding on the way
+// through x1000/0.001f.
+float cfgGetNudgeAmplitude(Rig& r) { return r.engine.nudgeAmplitude(); }
+void cfgSetNudgeAmplitude(Rig& r, float v) { r.engine.setNudgeAmplitude(v); }
+
+float cfgGetNudgeWidth(Rig& r) {
+  return static_cast<float>(r.engine.nudgeWidthTicks());
+}
+void cfgSetNudgeWidth(Rig& r, float v) {
+  r.engine.setNudgeWidthTicks(static_cast<int32_t>(std::lround(v)));
+}
+
+float cfgGetNudgeSettle(Rig& r) { return r.engine.nudgeSettle(); }
+void cfgSetNudgeSettle(Rig& r, float v) { r.engine.setNudgeSettle(v); }
+
 struct ConfigAccessor {
   int ordinal;
   float (*get)(Rig&);          // [unscaled]
@@ -1548,6 +1569,9 @@ constexpr ConfigAccessor kConfigAccessors[] = {
     {33, &cfgGetEstopClear, &cfgSetEstopClear},
     {38, &cfgGetStraightTrim, &cfgSetStraightTrim},
     {39, &cfgGetGoToDeadline, &cfgSetGoToDeadline},
+    {40, &cfgGetNudgeAmplitude, &cfgSetNudgeAmplitude},
+    {41, &cfgGetNudgeWidth, &cfgSetNudgeWidth},
+    {42, &cfgGetNudgeSettle, &cfgSetNudgeSettle},
 };
 
 const ConfigAccessor* findConfigAccessor(int ordinal) {

@@ -246,6 +246,90 @@ class MotionEngine {
   PulseResult pulseWheels(float ampLeft, float ampRight,
                           int32_t widthTicks);  // [%] [%] [ticks]
 
+  // ---- nudge mode: the settle-gated pulse stepper (ticket 004) --------
+  //
+  // Loops pulseWheels()'s own underlying primitive (firePulseAndSettle()
+  // below, factored out of pulseWheels() so both share one call
+  // sequence): fires a pulse only on a tick where BOTH wheels already
+  // read at rest (atRest(), the same test settleToRest() uses -- one
+  // definition of "stopped", never a second), re-reads the remaining
+  // error from encoder counts (never carried/accumulated state), and
+  // terminates on margin, deadline, or a conservative pulse budget
+  // (nudgeMaxPulses()) -- raw-duty mode updates no stall latch, so this
+  // budget is the only runaway backstop (this method's own header
+  // comment on pulseWheels() above).
+  //
+  // `distance`/`rotation` convert to (distTarget, yawTarget) COUNTS
+  // exactly as moveX()/beginSegment() do: distTarget = distance *
+  // countsPerMm(), yawTarget = rotation * 0.5 * effectiveTrackWidth() *
+  // countsPerMm(). A pure straight nudge passes rotation == 0; a pure
+  // turn (nudgeTurn(), ticket 005) passes distance == 0; ticket 005's
+  // nudge(leftMm, rightMm) reduces its own per-wheel pair onto this same
+  // (distance, rotation) pair the way wheelsX() already reduces onto
+  // beginSegment(). Clears any in-flight seg_/hold_ command first, same
+  // as every other primitive here -- exactly one of seg_/hold_/nudge_ is
+  // ever live (isNudgeActive()).
+  //
+  // Amplitude (duty %), width (ticks) and the inter-pulse settle pause
+  // (ms) are read from this engine's own nudgeAmplitude()/
+  // nudgeWidthTicks()/nudgeSettle() at FIRE time, not captured here --
+  // a wire `SET` mid-nudge takes effect on the very next pulse, the same
+  // "config read fresh every use" contract every other MotionEngine
+  // config knob (limits(), rotationalSlip()) already has.
+  void beginNudge(float distance, float rotation,
+                  uint32_t timeout);  // [mm] [rad] [ms]
+
+  // A nudge target is in flight (service() is dispatching to
+  // serviceNudge()). Mutually exclusive with isMoveActive()/hold_'s own
+  // active flag -- cancelMove() clears all three.
+  bool isNudgeActive() const { return nudge_.active; }
+
+  // [pulses] how many pulses the MOST RECENT (or still in-flight) nudge
+  // has fired -- serviceNudge() only clears nudge_.active on
+  // termination, not the rest of the struct, so this stays readable
+  // (and stops changing) immediately after a nudge ends. A fresh
+  // beginNudge() resets it to 0.
+  int32_t nudgePulseCount() const { return nudge_.pulsesFired; }
+
+  // [pulses] the fixed, conservative pulse-budget backstop every nudge
+  // is bound by (Design Rationale: "raw-duty pulses ride the kernel's
+  // existing kModeRawDuty ... nudge stepper's own deadline + pulse
+  // budget is the only runaway backstop"). Exposed so a test (or a
+  // caller sizing its own deadline) reads the real number rather than
+  // re-typing it.
+  static constexpr int32_t nudgeMaxPulses() { return kMaxNudgePulses; }
+
+  // [%] duty magnitude a nudge pulse fires at, applied to whichever
+  // wheel(s) the remaining error's sign selects. Default 15.0f: MEASURED
+  // vevov 2026-09-16, captures/039-003-pulse-gate-20260916/notes.md --
+  // ticket 003's accepted operating point (amplitude 15%, width 2
+  // ticks, 1.79 mm/pulse, sd/mean 0.08, 0/20 dead warm and cold).
+  float nudgeAmplitude() const { return nudgeAmplitude_; }
+  void setNudgeAmplitude(float percent) {
+    if (percent > 0.0f) nudgeAmplitude_ = percent;
+  }
+
+  // [ticks] pulse width fired per nudge step. Default 2: same MEASURED
+  // citation as nudgeAmplitude() above -- width 1 is the "nothing-or-
+  // lurch" bimodal signature the gate rejected at every amplitude
+  // tried; width 2 is what buys repeatability.
+  int32_t nudgeWidthTicks() const { return nudgeWidthTicks_; }
+  void setNudgeWidthTicks(int32_t ticks) {
+    if (ticks > 0) nudgeWidthTicks_ = ticks;
+  }
+
+  // [ms] a wall-clock pause serviceNudge() honors, on top of the
+  // encoder-velocity rest test (atRest()), before it will fire the next
+  // pulse -- an operator-tunable margin for mechanical settling
+  // (backlash, structural ring-down) the encoder alone may not show.
+  // Default 0.0f (off): UNVERIFIED -- no hardware measurement backs a
+  // nonzero default, so this knob does not change behavior until an
+  // operator or a later characterization run sets one.
+  float nudgeSettle() const { return nudgeSettle_; }
+  void setNudgeSettle(float ms) {
+    if (ms >= 0.0f) nudgeSettle_ = ms;
+  }
+
   // The one settable shaping surface. This engine holds no shaping knob.
   MotionLimits& limits() { return limits_; }
   const MotionLimits& limits() const { return limits_; }
@@ -280,7 +364,57 @@ class MotionEngine {
     uint32_t until = 0;     // [ms] the caller's duration deadline
   };
 
+  // beginNudge()'s target, ticked by serviceNudge(). Exactly one of
+  // seg_/hold_/nudge_ is ever live (cancelMove() clears all three).
+  struct Nudge {
+    bool active = false;
+    float distTarget = 0.0f;  // [counts] signed mean-axis target
+    float yawTarget = 0.0f;   // [counts] signed half-differential target
+    // Origin captured SYNCHRONOUSLY at beginNudge() (unlike Segment's
+    // lazy originPending capture): beginNudge() stages no command of
+    // its own for a later service() tick to deliver -- the kernel's
+    // Output is already valid to read the instant cancelMove() returns.
+    float posLeft0 = 0.0f, posRight0 = 0.0f;  // [counts]
+    uint32_t deadline = 0;    // [ms] the caller's timeout backstop
+    int32_t pulsesFired = 0;  // [pulses] counted against kMaxNudgePulses
+    // [counts] magnitude of the MOST RECENTLY fired pulse that
+    // corrected EACH axis, tracked separately since a combined
+    // (distance AND rotation both nonzero) nudge can correct either
+    // axis on a given pulse -- see serviceNudge()'s own comment. 0
+    // means "no estimate yet on this axis" (always fire while that
+    // axis's remaining error exceeds its margin). This is what
+    // serviceNudge()'s "stop within one step" check reads rather than a
+    // caller-supplied expected step, since the per-pulse magnitude is
+    // empirical (surface/robot dependent) and this engine has no other
+    // way to know it.
+    float lastDistStep = 0.0f;  // [counts]
+    float lastYawStep = 0.0f;   // [counts]
+    // [ms] serviceNudge() will not fire before this wall-clock time --
+    // nudgeSettle()'s own gate, stamped after every fire; 0 at
+    // beginNudge() so the FIRST pulse is never delayed by it.
+    uint32_t readyAt = 0;
+  };
+
   uint32_t now() const;  // [ms]
+
+  // The shared rest test settleToRest() and serviceNudge() both use --
+  // "mirror the existing rest test rather than inventing a second
+  // definition of stopped" (ticket 004's own description).
+  bool atRest(const DiffDrive::DifferentialDrive::Output& out) const;
+
+  // The shared tail of pulseWheels() and serviceNudge(): fires
+  // `widthTicks` duty ticks via the kernel's own driveDuty(), hard-
+  // zeros, then settles (settleToRest()) -- see pulseWheels()'s own
+  // header comment for the full contract (synchronous, drives its own
+  // kernel.step() loop, no tick-engine cadence involved). Returns the
+  // per-wheel encoder-count delta measured across just this call.
+  PulseResult firePulseAndSettle(float ampLeft, float ampRight,
+                                 int32_t widthTicks);  // [%] [%] [ticks]
+
+  // nudge_'s own per-tick advance, dispatched from service() exactly the
+  // way the Segment/Hold branches already are -- see this file's own
+  // Nudge struct and beginNudge()'s header comment for the algorithm.
+  bool serviceNudge();
 
   // Converts this segment's axis into the dominant-wheel floor/cap the
   // shaper wants. A pure turn uses the omega floor/ceiling; a straight leg
@@ -321,8 +455,19 @@ class MotionEngine {
 
   Segment seg_;
   Hold hold_;
+  Nudge nudge_;
   VelocityShaper shaper_;
   MotionLimits limits_;
+
+  // [pulses] the nudge stepper's own runaway backstop -- see
+  // nudgeMaxPulses()'s own comment.
+  static constexpr int32_t kMaxNudgePulses = 40;
+
+  // Nudge config, read fresh at fire time by serviceNudge(). Defaults
+  // and their citations live on the public getters/setters above.
+  float nudgeAmplitude_ = 15.0f;    // [%]
+  int32_t nudgeWidthTicks_ = 2;     // [ticks]
+  float nudgeSettle_ = 0.0f;      // [ms]
 
   // [ms] the previous service() tick, for the shaper's dt. Re-stamped at
   // every genuine command start so the first tick's dt runs from when the

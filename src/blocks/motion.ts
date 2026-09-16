@@ -83,7 +83,13 @@ enum ConfigField {
     //% block="straight trim"
     StraightTrim = 38,
     //% block="go-to timeout ms"
-    GoToTimeout = 39
+    GoToTimeout = 39,
+    //% block="nudge pulse amplitude %"
+    NudgeAmplitude = 40,
+    //% block="nudge pulse width ticks"
+    NudgeWidth = 41,
+    //% block="nudge settle time ms"
+    NudgeSettle = 42
 }
 
 // Top-level, not inside the namespace: pxt renders an enum parameter as
