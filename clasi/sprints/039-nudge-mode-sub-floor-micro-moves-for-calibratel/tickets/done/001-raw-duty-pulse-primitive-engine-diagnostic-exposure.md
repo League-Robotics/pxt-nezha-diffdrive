@@ -45,9 +45,16 @@ that is ticket 004, gated on ticket 003's verdict.
   patterns better and document the choice in this ticket's
   implementation notes.
 - Report units in BOTH encoder counts and mm (vevov: ~0.79 mm/count
-  straight, ~0.8 deg/count per wheel in a pivot — travel_calib
-  0.79324), since the characterization gate's own acceptance test
-  (ticket 003, SUC-001) is stated in both.
+  straight — travel_calib 0.79324), since the characterization gate's
+  own acceptance test (ticket 003, SUC-001) is stated in both.
+  **CORRECTED 2026-09-16, ticket 003 close** (MEASURED vevov
+  2026-09-16, `captures/039-003-pulse-gate-20260916/notes.md`): the
+  ~0.8°-per-count pivot figure this bullet originally carried was
+  wrong by roughly a factor of ten — a count is 0.1 shaft degree =
+  0.0793 mm, about 0.08° of pivot at vevov's measured 111 mm track.
+  The minimum reliable rotation increment is set by the pulse (~0.9°
+  at ticket 003's accepted operating point), not by encoder
+  resolution.
 - A single-tick pulse cannot exceed ~25% duty and a two-tick pulse
   ~50%, per the port's own 25%/tick slew (`src/platform/
   nezha_port.cpp:291` area) — this is a hardware constraint on the

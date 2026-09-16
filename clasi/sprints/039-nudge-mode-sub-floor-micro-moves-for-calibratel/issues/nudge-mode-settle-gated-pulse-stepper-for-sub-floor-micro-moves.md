@@ -62,10 +62,17 @@ What it needs that the 2026-08-31 proposal did not cover:
   `move()`/`MOVE_X` requests into the same engine mode is still the right
   shape underneath.
 - **Resolution check.** vevov's encoder counts are ~0.79 mm of wheel
-  travel (travel_calib 0.79324). A pivot with the wheels in opposition is
-  therefore ~0.8° per count per wheel (b_eff 116 mm), right at calibrateL's
-  1° tolerance. The characterization gate should report increments in
-  counts as well as mm.
+  travel (travel_calib 0.79324). The characterization gate should report
+  increments in counts as well as mm.
+  **CORRECTED 2026-09-16, ticket 003 close** (MEASURED vevov 2026-09-16,
+  `captures/039-003-pulse-gate-20260916/notes.md`): a single count is 0.1
+  shaft degree = 0.0793 mm, about **0.08°** of pivot per count at vevov's
+  measured 111 mm track — this section's original ~0.8°-per-count figure
+  was wrong by roughly a factor of ten. Encoder resolution was never the
+  limiting factor; the minimum reliable *pulse* is. At ticket 003's
+  accepted operating point (amplitude 15 %, width 2 ticks, 1.79 mm/pulse)
+  a single-wheel pulse pivots the robot about **0.9°**, which is what is
+  actually right at calibrateL's 1° tolerance.
 
 The template session's workaround shows why `setWheelSpeeds` + N ×
 `driveTick()` cannot substitute. It reported vevov on zilch at pin

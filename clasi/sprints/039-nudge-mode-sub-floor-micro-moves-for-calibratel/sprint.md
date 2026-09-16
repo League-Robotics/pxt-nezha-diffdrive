@@ -419,8 +419,15 @@ extends both below the kernel's speed floor.
      delta.
   4. Repeated ~20x per (amplitude, width, wheel, temperature) cell.
 - **Postconditions**: a displacement map exists with mean/sd per cell,
-  in both mm and encoder counts (vevov's ~0.79 mm/count, ~0.8 deg/count
-  per wheel in a pivot).
+  in both mm and encoder counts (vevov's ~0.79 mm/count). **Corrected
+  2026-09-16, ticket 003 close:** a single count is 0.1 shaft degree =
+  0.0793 mm, about **0.08°** of pivot per count at vevov's measured
+  111 mm track — not the ~0.8° this postcondition originally claimed
+  (wrong by roughly a factor of ten). Encoder resolution was never the
+  limit; the minimum reliable *pulse* is — see ticket 003's "Rotation-
+  resolution consequence for ticket 005" (MEASURED vevov 2026-09-16,
+  `captures/039-003-pulse-gate-20260916/notes.md`): ~0.9° per pulse at
+  the accepted 15 %/width-2 operating point.
 - **Acceptance Criteria**:
   - [ ] Every cell's mean and sd (mm and counts) is recorded with a
         named capture artifact.
@@ -559,6 +566,17 @@ NO-GO/stall fallback below, this is carried forward as
 tickets 003/004 should apply the documented workaround (avoid
 reverse-then-immediate-forward `driveTick()` loops) until that issue
 resolves.
+
+**Ticket 003 closed 2026-09-16 with an explicit GO.** MEASURED vevov
+2026-09-16, `captures/039-003-pulse-gate-20260916/notes.md`: accepted
+operating point amplitude 15 %, width 2 ticks, 1.79 mm per-pulse step,
+sd/mean 0.08, 0/20 dead (warm and cold). Pulse width, not amplitude,
+is what buys repeatability. See ticket 003's "Result" section for the
+full displacement map, per-wheel asymmetry (magnitude symmetric,
+scatter is not), the corrected rotation-resolution figure for tickets
+004/005 (~0.9° per pulse, not the ~0.8°-per-count this sprint's
+SUC-001 postcondition originally claimed), coverage gaps, and the
+overridden pre-flight dance.
 
 **NO-GO / stall fallbacks** (stated per plan-sprint's effort-decision
 guidance, not left implicit):
