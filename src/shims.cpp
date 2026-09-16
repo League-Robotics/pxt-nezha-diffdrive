@@ -700,6 +700,103 @@ bool updateMove() {
   return moveActive;
 }
 
+// ---- nudge mode: block-facing entry points (ticket 005) ----------------
+//
+// nudge()/nudgeTurn() (blocks/motion.ts) each stage a beginNudge() call
+// then loop `_tickDrive()` (which already dispatches to serviceNudge()
+// via MotionEngine::service() -- ticket 004, see that method) until the
+// nudge itself reports inactive, and read the measured result off
+// nudgeMeasuredDistance()/nudgeMeasuredRotation() below.
+//
+// The reduction onto beginNudge()'s (distance, rotation) pair happens
+// HERE, in the shim layer, not in TypeScript: it needs
+// effectiveTrackWidth(), which is live engine state (trackWidth /
+// rotationalSlip, both runtime-configurable) -- computing it in TS
+// would either duplicate that state or go stale against it. This is
+// the same reason wheelsX()'s own per-wheel reduction lives in
+// MotionEngine::wheelsX(), not in blocks/motion.ts.
+//
+// Two entry points, not one generic (distance, rotation) shim, because
+// the two blocks take genuinely different parameterizations
+// (per-wheel mm vs a single yaw angle) and each reduction is a
+// one-line formula -- a shared generic shim would just move the
+// reduction back into TS for one of the two callers.
+//
+// Both take the SAME ownership contract as startMove() above: refused
+// (a silent no-op), not superseding, while a wire motion or a genuine
+// block/job collision already holds the drivetrain. Neither threads a
+// caller-supplied timeout through from TS -- nudge()/nudgeTurn() have
+// no timeout parameter of their own (ticket 005's block signatures);
+// kNudgeTimeout below is a generous backstop on top of the pulse
+// BUDGET (MotionEngine::nudgeMaxPulses(), the real runaway guard).
+
+// [ms] UNVERIFIED: no hardware measurement backs this exact number.
+// Bound instead by arithmetic against the documented worst case:
+// kMaxNudgePulses (40) pulses, each at most kSettleMaxSteps (12)
+// settle-loop steps * ~24 ms cyclePeriod (~300 ms/pulse) before any
+// operator-set nudgeSettle() pause is added on top -- about 12 s
+// worst case. This constant is a ceiling well above that, not a tuned
+// value; the pulse budget is what actually bounds a runaway nudge.
+static constexpr uint32_t kNudgeTimeout = 20000;
+
+//%
+void beginNudgeWheels(int left, int right) {  // [mm] [mm]
+  if (!protocolTryTakeMotionOwnership()) return;
+  Rig& r = ensure();
+  const float distance = 0.5f * static_cast<float>(left + right);  // [mm]
+  // Inverse of beginNudge()'s own yawTarget formula (motion_engine.h):
+  // yawTarget = rotation * 0.5 * effectiveTrackWidth() * cpm, and the
+  // SAME half-difference wheelsX() reduces onto yawTarget directly
+  // (0.5*(right-left)*cpm) must come out equal, so
+  // rotation = (right-left) / effectiveTrackWidth().
+  const float rotation =                                          // [rad]
+      static_cast<float>(right - left) / r.engine.effectiveTrackWidth();
+  r.engine.beginNudge(distance, rotation, kNudgeTimeout);
+}
+
+//%
+void beginNudgeTurn(int rotation) {  // [cdeg]
+  if (!protocolTryTakeMotionOwnership()) return;
+  Rig& r = ensure();
+  r.engine.beginNudge(0.0f, static_cast<float>(rotation) * kCdegToRad,
+                      kNudgeTimeout);
+}
+
+// A nudge is still in flight -- the loop-termination signal
+// tickDrive()'s own return value does NOT carry for nudge mode:
+// commandLooksActive() (this file, below) reads isDriving() (seg_/
+// hold_ only) and applied duty, and a nudge pulse's own
+// firePulseAndSettle() always drives applied duty back to zero via
+// settleToRest() before returning control here -- so tickDrive() reads
+// "nothing commanded" on every single nudge tick even while pulses
+// remain. blocks/motion.ts's nudge()/nudgeTurn() loop on
+// `_tickDrive() || _nudgeActive()` instead of `_tickDrive()` alone for
+// exactly this reason. Mirrors engineMoveActive()'s own
+// `rig == nullptr` guard.
+//%
+bool nudgeActive() {
+  return rig != nullptr && rig->engine.isNudgeActive();
+}
+
+// [mm] the measured mean-axis distance nudge() actually achieved --
+// see MotionEngine::nudgeMeasuredDistance()'s own comment for why this
+// reads the engine's own ledger rather than the fused odometry pose.
+// Rounded to the nearest mm at THIS boundary (block layer), not
+// upstream: the engine's own float stays full precision for any other
+// consumer.
+//%
+int nudgeMeasuredDistance() {  // [mm]
+  return static_cast<int>(std::lround(ensure().engine.nudgeMeasuredDistance()));
+}
+
+// [cdeg] the measured rotation nudgeTurn() actually achieved, in the
+// same centidegree convention poseHeading() already uses.
+//%
+int nudgeMeasuredRotation() {  // [cdeg]
+  return static_cast<int>(
+      std::lround(ensure().engine.nudgeMeasuredRotation() * 100.0f));
+}
+
 // Forward declaration: commandLooksActive() is defined further down, in
 // its own clearly delineated section right before the starvation
 // watchdog (it was written there first, for the watchdog's own use) --

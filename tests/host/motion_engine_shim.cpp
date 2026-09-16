@@ -842,4 +842,17 @@ void meSetNudgeSettle(void* handle, float ms) {
   static_cast<Handle*>(handle)->engine.setNudgeSettle(ms);
 }
 
+// ---- nudge mode: the measured result (sprint 039 ticket 005) ----------
+// MotionEngine::nudgeMeasuredDistance()/nudgeMeasuredRotation() -- what
+// blocks/motion.ts's nudge()/nudgeTurn() return instead of the
+// requested amount. See motion_engine.h's own comment on these two
+// methods for the "read the same ledger serviceNudge() uses, never the
+// fused odometry pose" rationale.
+float meNudgeMeasuredDistance(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeMeasuredDistance();
+}
+float meNudgeMeasuredRotation(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeMeasuredRotation();
+}
+
 }  // extern "C"

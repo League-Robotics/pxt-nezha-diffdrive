@@ -299,6 +299,45 @@ class MotionEngine {
   // re-typing it.
   static constexpr int32_t nudgeMaxPulses() { return kMaxNudgePulses; }
 
+  // ---- nudge mode: the measured result (ticket 005's own read) --------
+  //
+  // Ticket 005's nudge()/nudgeTurn() blocks (blocks/motion.ts) must
+  // return what the encoders ACTUALLY measured, not the requested
+  // amount -- the entire reason calibrateL can loop on the return value
+  // instead of trusting the command (sprint.md SUC-002). These two
+  // accessors read straight from the CURRENT kernel Output against the
+  // nudge's own captured origin (Nudge::posLeft0/posRight0), the exact
+  // same ledger serviceNudge()'s own convergence test (distRemain/
+  // yawRemain above) already uses -- never a re-derivation through the
+  // fused odometry pose, which lags a tick behind inside tickDrive()
+  // (odomUpdate() runs BEFORE service() there). Valid any time after
+  // beginNudge(), including after the nudge has ended: nudge_ is not
+  // reset on termination (nudgePulseCount()'s own comment above), only
+  // ever overwritten by the NEXT beginNudge().
+  float nudgeMeasuredDistance() const {  // [mm] mean-axis, matches
+                                          // beginNudge()'s own `distance`
+    const DiffDrive::DifferentialDrive::Output out = kernel_.output();
+    return 0.5f * ((out.positionLeft - nudge_.posLeft0) +
+                   (out.positionRight - nudge_.posRight0)) /
+           countsPerMm();
+  }
+
+  float nudgeMeasuredRotation() const {  // [deg] CCW+, inverse of
+                                          // beginNudge()'s own yawTarget
+                                          // formula
+    const DiffDrive::DifferentialDrive::Output out = kernel_.output();
+    const float yawDelta =  // [counts]
+        0.5f * ((out.positionRight - nudge_.posRight0) -
+                (out.positionLeft - nudge_.posLeft0));
+    // yawTarget (counts) = rotation * 0.5 * effectiveTrackWidth() *
+    // countsPerMm() -- beginNudge()'s own formula above -- so inverting
+    // for rotation needs the factor of 2 back:
+    // rotation = 2 * yawDelta / (effectiveTrackWidth() * countsPerMm()).
+    const float rad =
+        2.0f * yawDelta / (countsPerMm() * effectiveTrackWidth());
+    return rad * (180.0f / 3.14159265f);
+  }
+
   // [%] duty magnitude a nudge pulse fires at, applied to whichever
   // wheel(s) the remaining error's sign selects. Default 15.0f: MEASURED
   // vevov 2026-09-16, captures/039-003-pulse-gate-20260916/notes.md --

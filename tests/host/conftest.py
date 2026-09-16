@@ -318,6 +318,13 @@ def _bind_motion_lib(lib):
     lib.meNudgeSettle.restype = ctypes.c_float
     lib.meSetNudgeSettle.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meSetNudgeSettle.restype = None
+
+    # -- surface first needed by test_nudge_block_regression.py (sprint
+    # 039 ticket 005)
+    lib.meNudgeMeasuredDistance.argtypes = [ctypes.c_void_p]
+    lib.meNudgeMeasuredDistance.restype = ctypes.c_float
+    lib.meNudgeMeasuredRotation.argtypes = [ctypes.c_void_p]
+    lib.meNudgeMeasuredRotation.restype = ctypes.c_float
     return lib
 
 
