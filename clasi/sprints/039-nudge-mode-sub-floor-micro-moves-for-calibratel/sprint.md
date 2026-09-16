@@ -547,6 +547,19 @@ should not delay the calibrateL-facing work. If ticket 003 returns
 NO-GO, tickets 004 and 005 do not proceed this sprint — see the
 Architecture section's Design Rationale and note below.
 
+**Ticket 002 closed 2026-09-16 with its hang half unresolved.** Defect
+1 (stale `STATUS active`) is fixed and CONFIRMED on hardware (MEASURED
+vevov 2026-09-16, `captures/039-002-repro-20260915/repro-results.md`).
+Defect 2 (the reverse-to-forward `driveTick()` hang) did not
+reproduce in 22 hardware transitions on the fixed build, but the root
+cause was never isolated — the build also carries the Defect 1 change
+to the same stop path, so "does not reproduce" is not "fixed". Per the
+NO-GO/stall fallback below, this is carried forward as
+`clasi/issues/reverse-to-forward-drivetick-hang-never-reproduced.md`;
+tickets 003/004 should apply the documented workaround (avoid
+reverse-then-immediate-forward `driveTick()` loops) until that issue
+resolves.
+
 **NO-GO / stall fallbacks** (stated per plan-sprint's effort-decision
 guidance, not left implicit):
 

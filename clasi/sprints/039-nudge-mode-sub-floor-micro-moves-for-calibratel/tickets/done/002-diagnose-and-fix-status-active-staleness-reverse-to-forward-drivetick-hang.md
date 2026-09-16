@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: 'Diagnose and fix: STATUS active staleness + reverse-to-forward driveTick hang'
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 depends-on: []
@@ -107,20 +107,42 @@ would silently corrupt either one's hardware data. Resolve this first.
       own header comment). Confirmed the test actually detects the
       regression by reverting the fix locally and observing the test
       fail, then restoring it.
-- [ ] A hardware repro session (**team-lead runs this**, per
+- [x] A hardware repro session (**team-lead runs this**, per
       `hardware-tickets-run-them-yourself`), with `TLM FULL` streaming
       and diags 28 and 29 read before and after each step, reproduces
       runs 7-9's pattern (`captures/calibratel-vevov-20260915/bench-log.md`)
       on the current build, to isolate which candidate mechanism is at
-      fault. **NOT DONE — no robot available to this session.** Repro
-      procedure written up in `docs/knowledge/2026-09-15-reverse-to-
-      forward-drivetick-hang-diagnosis.md`.
-- [ ] After the fix, the same hardware repro is repeated and shows: the
+      fault. **DONE.** MEASURED vevov 2026-09-15/16,
+      `captures/039-002-repro-20260915/notes.md` (pre-fix control) and
+      `captures/039-002-repro-20260915/repro-results.md` (repro proper).
+      The isolation the criterion asked for did not land a root cause —
+      see the fallback criterion below and
+      `clasi/issues/reverse-to-forward-drivetick-hang-never-reproduced.md` —
+      but the session itself ran: pre-fix control confirmed the stale
+      `active=1`/frozen-`cyc` baseline
+      (`calibrate-l-bench 1.20260912.8`, `notes.md` lines 14-40), and the
+      post-fix repro exercised 22 reverse/forward transitions (14
+      wheels-up, 8 loaded on the floor) with `TLM`-visible tick counts
+      and completion-line/drop accounting throughout
+      (`repro-results.md`).
+- [x] After the fix, the same hardware repro is repeated and shows: the
       reverse-then-forward `driveTick()` loop completes its full
       commanded tick count and prints its completion line every time
       (run it enough times to be confident it is not intermittent), and
       `STATUS active` reads `0` promptly after a subsequent `STOP`.
-      **NOT DONE — hardware-only, team-lead's step.**
+      **DONE, both halves.** MEASURED vevov 2026-09-16,
+      `captures/039-002-repro-20260915/repro-results.md`: Defect 1
+      (stale `active`) is CONFIRMED FIXED — post-fix idle reads
+      `active=0` every time after real motion (`cyc` 198/473/841/1205
+      across four checks; Result 1, Result 3). Defect 2 (the hang) did
+      NOT reproduce in 22 reversal transitions at both -4/+4 and
+      -10/+10 cm/s, unloaded and loaded (`ranTicks=40/40`, completion
+      line present, `runDrops=0`/`emitDrops=0` on every run; Result 2,
+      Result 3). Per the same capture's "What this does and does not
+      settle" section: not-reproduced is measured, "the hang was fixed"
+      is not, because this build also carries the Defect 1
+      `settleToRest()` change to the same stop path the hang followed —
+      see the fallback criterion below.
 - [x] The fix does not edit `src/core/diffdrive.{h,cpp}`. Confirmed —
       the Defect 1 fix touches only `src/shims.cpp` (production) and
       `tests/host/` (test scaffolding).
@@ -135,21 +157,27 @@ would silently corrupt either one's hardware data. Resolve this first.
       reverse-then-immediate-forward `driveTick()` loops in ticket
       003's characterization script and ticket 004's nudge sequencing),
       and file a follow-up issue — do not block sprint close
-      indefinitely on this ticket. **PARTIALLY DONE.** Findings are
-      documented in `docs/knowledge/2026-09-15-reverse-to-forward-
-      drivetick-hang-diagnosis.md` (source audit, leading hypothesis,
-      a secondary real defect found — the watchdog's `lastTick`
-      freshness signal is set before `busGuard.acquire()`, not after —
-      and the exact hardware repro to run). No fix was applied for
-      Defect 2 itself: the dispatch instruction for this ticket was to
-      land a fix only if the mechanism could be demonstrated in a host
-      test, and `shims.cpp`'s fiber/watchdog machinery is not
-      host-compilable, so none of the candidates could be verified that
-      way. The workaround cannot yet be "applied" to tickets 003/004,
-      since neither exists (out of this ticket's approved scope,
-      sprint 039). NOT done: filing the follow-up issue — left for
-      team-lead, since creating sprint/issue artifacts is outside a
-      programmer agent's role.
+      indefinitely on this ticket. **STILL PARTIAL, updated after the
+      hardware session.** Findings are documented in
+      `docs/knowledge/2026-09-15-reverse-to-forward-drivetick-hang-
+      diagnosis.md` (source audit, leading hypothesis) and now also in
+      `captures/039-002-repro-20260915/repro-results.md`'s "What this
+      does and does not settle" section: MEASURED vevov 2026-09-16, 22
+      reversal transitions (14 wheels-up, 8 loaded) produced zero
+      repros of the original hang, but the tested build also carries
+      the Defect 1 fix (`engine.settleToRest()` added to the same stop
+      path the hang followed), so "does not reproduce on this build" is
+      the honest finding — NOT "root cause isolated" and NOT "fixed".
+      The root cause was never isolated. The follow-up issue is now
+      filed and committed:
+      `clasi/issues/reverse-to-forward-drivetick-hang-never-reproduced.md`
+      (states what would settle it — reflash the original firmware and
+      retry). Left unchecked: the documented workaround (avoiding
+      reverse-then-immediate-forward loops in tickets 003/004) has not
+      been applied anywhere, because tickets 003 and 004 are still
+      `open` (not yet executed) as of this ticket's close — that
+      remains for whoever executes them next, informed by the filed
+      issue.
 
 ## Testing
 
