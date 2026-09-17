@@ -2221,6 +2221,14 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     # field. Whole milliseconds, and deliberately not the field's own 0
     # default, per the non-default-value rationale above.
     "goto_timeout": 4500.0,
+    # Sprint 039 ticket 004: the nudge stepper's own three ordinals
+    # (40-42), all thin MotionEngine forwards like rotational_slip
+    # above. Values chosen inside each field's own validated range and
+    # away from its shipped default (same non-default-value rationale as
+    # accel/decel/v_max above).
+    "nudge_amplitude": 18.0,
+    "nudge_width": 3.0,
+    "nudge_settle": 40.0,
 }
 
 
@@ -3229,6 +3237,10 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # field and into the one config table, which is what puts it in
         # this dump.
         b"goto_timeout",
+        # sprint 039 ticket 004: ordinals 40-42 (nudge_amplitude/
+        # nudge_width/nudge_settle), NEW, declared after goto_timeout in
+        # kConfigFields.
+        b"nudge_amplitude", b"nudge_width", b"nudge_settle",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 
@@ -3949,3 +3961,116 @@ def test_config_rounding_matches_double_precision_lround(wa):
     prefix = _ack(1) + b"get default_cruise "
     assert reply.startswith(prefix)
     assert float(reply[len(prefix):]) == pytest.approx(0.251, abs=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 039 ticket 001 (SUC-001): `RUN pulse <ampLeft> <ampRight>
+# <widthTicks> #<id>` -- the diagnostic pulse primitive's own wire
+# surface. Handled entirely in C++ (WireAdapter::execPulse(),
+# wire_adapter.cpp), synchronously, deliberately NOT routed through the
+# TS run_registry/RunBridge path every OTHER RUN name in this project
+# goes through (see execPulse()'s own comment, wire_adapter.cpp): the
+# characterization gate (ticket 003) needs a result in the SAME round
+# trip, and that path only ever dispatches to a TypeScript handler on a
+# LATER tick, void by construction. Exercises the REAL
+# WireAdapter -> shims.cpp's enginePulseWheels() ->
+# MotionEngine::pulseWheels() chain over a real kernel/FakeMotor, same
+# `wa` fixture as every other motion-verb test in this file.
+# ---------------------------------------------------------------------------
+
+
+def test_run_pulse_wrong_arg_count_is_badarg(wa):
+    wa.set_max_duty(100.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"RUN pulse 25 25 #1\n")  # only 2 args -- needs 3
+    assert wa.take_sink() == _ack(1) + _err(2, 1)  # ERR_BADARG
+
+
+def test_run_pulse_unparseable_amplitude_is_badarg(wa):
+    wa.set_max_duty(100.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"RUN pulse 25x 25 2 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(2, 1)  # ERR_BADARG
+
+
+def test_run_pulse_unparseable_width_ticks_is_badarg(wa):
+    wa.set_max_duty(100.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"RUN pulse 25 25 2.5 #1\n")  # widthTicks is an INT field
+    assert wa.take_sink() == _ack(1) + _err(2, 1)  # ERR_BADARG
+
+
+def test_run_pulse_nonpositive_width_ticks_is_range(wa):
+    wa.set_max_duty(100.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"RUN pulse 25 25 0 #1\n")
+    assert wa.take_sink() == _ack(1) + _err(3, 1)  # ERR_RANGE
+
+
+def test_run_pulse_fires_and_reports_encoder_delta_in_counts_and_mm(wa):
+    """The REAL round trip: RUN pulse fires MotionEngine::pulseWheels()
+    over a real kernel/FakeMotor pair, settles, and the wire reply's
+    `ret` line reports the LEFT wheel's encoder delta in both counts and
+    hundredths-of-a-mm -- the characterization gate's own acceptance
+    test (ticket 003, SUC-001) is stated in both, per this ticket's own
+    Scope.
+
+    The reply is INTEGER-only (`left_counts`/`right_counts`/
+    `left_mm_x100`/`right_mm_x100`), not the original `%.1f`/`%.2f`
+    float format: the micro:bit target's newlib-nano printf has no
+    float conversion support, so every value came back EMPTY on
+    hardware (MEASURED vevov 2026-09-16, see wire_adapter.cpp's
+    execPulse() comment) even though this host test, linked against the
+    desk's own libc, could not see the defect -- the host's printf DOES
+    support %f. Fixed as part of reopening sprint 039 ticket 001 for
+    this hardware-only defect; see also
+    test_no_float_format_specifier_in_wire_layer_source_pin.py, which
+    pins the source shape a host test alone cannot catch.
+
+    The LEFT motor's encoder is armed to a single fixed
+    (position, sample_time) pair BEFORE firing (fake_ports.h's own
+    "armed-then-committed, frozen once left un-rearmed" contract), so
+    pulseWheels()'s own internal kernel.step() loop lands on it on its
+    very first step and reads it back unchanged for every step after --
+    a fully deterministic final delta with no duty-to-position physics
+    model needed. The RIGHT motor is left entirely unarmed (frozen at
+    0), so its own delta comes back 0, proving the two wheels are
+    reported independently rather than echoing one shared number."""
+    wa.set_max_duty(100.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.arm_motor_position(LEFT, 500.0, sample_time_us=1000)
+
+    wa.feed(b"RUN pulse 25 25 2 #1\n")
+    reply = wa.take_sink()
+    prefix = _ack(1)
+    assert reply.startswith(prefix)
+    ret_line = reply[len(prefix):]
+    assert ret_line.startswith(b"ret ") and ret_line.endswith(b" #1\n")
+
+    text = ret_line[len(b"ret "):-len(b" #1\n")].decode()
+    fields = dict(pair.split("=") for pair in text.split(" "))
+
+    cpm = wa.counts_per_mm()
+    assert int(fields["left_counts"]) == pytest.approx(500, abs=1)
+    assert int(fields["right_counts"]) == pytest.approx(0, abs=1)
+    assert int(fields["left_mm_x100"]) == pytest.approx(
+        round(500.0 / cpm * 100.0), abs=1
+    )
+    assert int(fields["right_mm_x100"]) == pytest.approx(0, abs=1)
+
+
+def test_run_pulse_unknown_name_is_still_unknown(wa):
+    """Sanity check that adding the "pulse" special case did not turn
+    onRun() into an accept-anything path: an unrelated, unregistered
+    name is still refused kUnknown exactly as before (no TS handler is
+    bound in this host harness, so the registry is empty)."""
+    wa.set_max_duty(100.0)
+    assert wa.begin() == STATUS_OK
+
+    wa.feed(b"RUN some_unregistered_name #1\n")
+    assert wa.take_sink() == _ack(1) + _err(1, 1)  # ERR_UNKNOWN

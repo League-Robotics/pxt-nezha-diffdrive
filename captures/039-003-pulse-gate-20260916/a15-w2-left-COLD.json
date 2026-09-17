@@ -1,0 +1,86 @@
+{
+ "amplitude": 15.0,
+ "width": 2,
+ "wheel": "left",
+ "sign": 1.0,
+ "requested": 12,
+ "returned": 12,
+ "samples": [
+  {
+   "left": 2.46,
+   "right": 0.0,
+   "countsLeft": 31.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.98,
+   "right": 0.0,
+   "countsLeft": 25.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.51,
+   "right": 0.0,
+   "countsLeft": 19.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.98,
+   "right": 0.0,
+   "countsLeft": 25.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.82,
+   "right": 0.0,
+   "countsLeft": 23.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.35,
+   "right": 0.0,
+   "countsLeft": 17.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.75,
+   "right": 0.0,
+   "countsLeft": 22.0,
+   "countsRight": 0.0
+  }
+ ],
+ "mean_mm": 1.8,
+ "sd_mm": 0.25858589804292625,
+ "ratio": 0.14365883224607015,
+ "dead_pulses": 0
+}

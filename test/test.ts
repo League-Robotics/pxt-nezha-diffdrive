@@ -616,6 +616,72 @@ diffDrive.onRun("spinone", function (arg: number) {
         + " port=" + (isRight ? diffDrive.probe(37) : diffDrive.probe(35)))
 })
 
+// Bench diagnostic mirroring nezha-robot-template's calibratel.ts
+// nudge() -- see docs/knowledge/2026-09-15-reverse-to-forward-
+// drivetick-hang-diagnosis.md, ticket 039/002, "Recommended hardware
+// repro" step 3. Drives both wheels directly through a driveTick()
+// loop for a fixed tick budget: the exact shape that stopped
+// advancing on a reverse-then-forward transition on vevov, 2026-09-15
+// (captures/calibratel-vevov-20260915/bench-log.md, runs 7-9, where
+// the loop's own completion line never printed and cyc froze at
+// 16-17 of a requested 40).
+//
+// Emits a START line before the loop begins and a DONE line after, so
+// a hang that never reaches DONE is distinguishable in a log from a
+// run that never started -- the original bench log could only tell
+// the two apart by an 8 s wait. Both lines carry diag 28 (RUN payload
+// drops) and 29 (emitLine drops), so a missing DONE line can be told
+// apart from one silently dropped by a full ring without needing
+// `TLM FULL` running. DONE also reports the requested vs. actually-run
+// tick count -- the number the original bench log could only infer
+// from cyc deltas -- plus the pose and, sampled the instant the loop
+// stops, the applied duty and wheel velocity, so a hang can be told
+// apart from a clean early stop.
+//
+// arg0: left wheel speed [cm/s], arg1: right wheel speed [cm/s],
+// arg2: requested tick count. Bench stand or field; no worldReady()/
+// seed/steering -- raw driveTick() diagnostic, same posture as
+// "spinone" above.
+diffDrive.onRun("nudge", function (arg: number) {
+    const left = diffDrive.runArg(0)
+    const right = diffDrive.runArg(1)
+    const requestedTicks = diffDrive.runArg(2)
+    const runDropsBefore = diffDrive.probe(28)
+    const emitDropsBefore = diffDrive.probe(29)
+    diffDrive.emitLine("NUDGE:start:left=" + left + ":right=" + right
+        + ":requested=" + requestedTicks
+        + ":runDrops=" + runDropsBefore
+        + ":emitDrops=" + emitDropsBefore)
+    diffDrive.resetPose()
+    diffDrive.setWheelSpeeds(left, right)
+    let ranTicks = 0
+    for (let i = 0; i < requestedTicks; i++) {
+        if (!diffDrive.driveTick()) break
+        ranTicks++
+    }
+    // Sampled BEFORE stop() -- stop() itself commands neutral, which
+    // would make the wheels look idle even if the loop above ended
+    // with them still driven.
+    const dutyLeft = diffDrive.probe(12)
+    const dutyRight = diffDrive.probe(13)
+    const velocityLeft = diffDrive.probe(14)
+    const velocityRight = diffDrive.probe(15)
+    diffDrive.stop()
+    tickWait(40)
+    diffDrive.emitLine("NUDGE:done:ranTicks=" + ranTicks
+        + ":requested=" + requestedTicks
+        + ":x=" + Math.round(diffDrive.poseX() * 100)
+        + ":heading=" + Math.round(diffDrive.heading() * 100)
+        + ":cyc=" + diffDrive.probe(16)
+        + ":dutyLeft=" + dutyLeft + ":dutyRight=" + dutyRight
+        + ":velocityLeft=" + velocityLeft
+        + ":velocityRight=" + velocityRight
+        + ":runDrops=" + diffDrive.probe(28)
+        + ":emitDrops=" + diffDrive.probe(29))
+})
+diffDrive.runSignature("nudge",
+    "(left_cms:number,right_cms:number,ticks:number)")
+
 // arg encodes one configureMotor() call as SPD: Side*100 + Port*10 + Dir,
 // Dir 1 = forward, 2 = reversed. Left M2 reversed is 22; right M1
 // forward is 111. One integer because onRun carries exactly one.

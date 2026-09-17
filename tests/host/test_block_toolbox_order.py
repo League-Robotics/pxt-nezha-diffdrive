@@ -119,7 +119,11 @@ _DEFAULT_WEIGHT = 50  # pxtcompiler.js's fnweight(): fn.attributes.weight || 50
 # ENUM) -- so any *future* drift in a group that happens to be fine
 # today still fails here instead of reaching a student.
 _BASELINE_GROUP_ORDER = {
-    "Move": ["move", "startMove", "whileMoving"],
+    # Sprint 039 ticket 005: nudge()/nudgeTurn() are NEW, appended after
+    # whileMoving (reports/blocks-toolbox.csv rows 3.1/3.2) -- sub-floor
+    # micro-moves for calibrateL, distinct from move()'s closed-loop
+    # shaper.
+    "Move": ["move", "startMove", "whileMoving", "nudge", "nudgeTurn"],
     "Drive": ["driveTwist", "startDrive", "whileDriving"],
     "Wheels": ["setWheelSpeeds"],
     "GoTo": ["goTo", "goToWorld", "startGoTo", "whileGoingTo"],
@@ -193,6 +197,12 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.Lag",           # ordinal 37
         "ConfigField.StraightTrim",  # ordinal 38
         "ConfigField.GoToTimeout",   # ordinal 39
+        # Sprint 039 ticket 004: NudgeAmplitude/NudgeWidth/NudgeSettle
+        # are NEW, appended after GoToTimeout (ordinals 40-42) -- the
+        # nudge stepper's own tuning surface (config_fields.h).
+        "ConfigField.NudgeAmplitude",  # ordinal 40
+        "ConfigField.NudgeWidth",      # ordinal 41
+        "ConfigField.NudgeSettle",     # ordinal 42
         # 2026-09-12 (out of process, stakeholder): configureMotor's
         # three dropdowns. MotorSide/MotorPort carry their own meaning
         # (0/1 sides, 1-based brick ports); MotorDirection's values ARE

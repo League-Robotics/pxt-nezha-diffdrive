@@ -496,6 +496,28 @@ static void waSetGoToDeadline(WaHandle& h, float v) {
   h.goToDeadline = static_cast<uint32_t>(v);
 }
 
+// Sprint 039 ticket 004: thin forwards to the REAL MotionEngine's own
+// nudge config surface, mirroring shims.cpp's cfgGetNudgeAmplitude()/
+// cfgGetNudgeWidth()/cfgGetNudgeSettle() exactly (this handle's `engine`
+// IS a real diffDrive::MotionEngine, same as waGetRotationalSlip()
+// above).
+static float waGetNudgeAmplitude(WaHandle& h) {
+  return h.engine.nudgeAmplitude();
+}
+static void waSetNudgeAmplitude(WaHandle& h, float v) {
+  h.engine.setNudgeAmplitude(v);
+}
+static float waGetNudgeWidth(WaHandle& h) {
+  return static_cast<float>(h.engine.nudgeWidthTicks());
+}
+static void waSetNudgeWidth(WaHandle& h, float v) {
+  h.engine.setNudgeWidthTicks(static_cast<int32_t>(std::lround(v)));
+}
+static float waGetNudgeSettle(WaHandle& h) { return h.engine.nudgeSettle(); }
+static void waSetNudgeSettle(WaHandle& h, float v) {
+  h.engine.setNudgeSettle(v);
+}
+
 struct WaConfigAccessor {
   int ordinal;
   float (*get)(WaHandle&);        // [unscaled]
@@ -524,6 +546,9 @@ static const WaConfigAccessor kWaConfigAccessors[] = {
     {33, &waGetEstopClear, &waSetEstopClear},
     {38, &waGetStraightTrim, &waSetStraightTrim},
     {39, &waGetGoToDeadline, &waSetGoToDeadline},
+    {40, &waGetNudgeAmplitude, &waSetNudgeAmplitude},
+    {41, &waGetNudgeWidth, &waSetNudgeWidth},
+    {42, &waGetNudgeSettle, &waSetNudgeSettle},
 };
 
 static const WaConfigAccessor* waFindConfigAccessor(int ordinal) {
@@ -625,6 +650,34 @@ float engineDominantAxisTravel(float distanceMm, float rotationRad) {
   if (g_activeWaHandle == nullptr) return 0.0f;
   return g_activeWaHandle->engine.dominantAxisTravel(distanceMm,
                                                       rotationRad);
+}
+
+// Sprint 039 ticket 001 (SUC-001): mirrors shims.cpp's real
+// enginePulseWheels()/countsPerMm() -- what the real WireAdapter's
+// onRun()-reached execPulse() (wire_adapter.cpp) forward-declares and
+// calls for `RUN pulse <ampLeft> <ampRight> <widthTicks> #<id>`. This
+// double has no Rig/BusGuard to mirror (this file's own header comment
+// on why WaHandle has no equivalent of production's I2C-serialization
+// concerns) -- it forwards straight onto the SAME real `engine` every
+// other engineXxx() function in this file already drives, so a
+// wire-level test exercising RUN's own decode/dispatch/result-string
+// path is exercising the exact bridge production code uses.
+void enginePulseWheels(float ampLeft, float ampRight, int32_t widthTicks,
+                       float& outLeft, float& outRight) {
+  if (g_activeWaHandle == nullptr) {
+    outLeft = 0.0f;
+    outRight = 0.0f;
+    return;
+  }
+  const diffDrive::MotionEngine::PulseResult result =
+      g_activeWaHandle->engine.pulseWheels(ampLeft, ampRight, widthTicks);
+  outLeft = result.left;
+  outRight = result.right;
+}
+
+float countsPerMm() {
+  if (g_activeWaHandle == nullptr) return 0.0f;
+  return g_activeWaHandle->engine.countsPerMm();
 }
 
 // Mirrors shims.cpp's real engineMoveV()/engineGoToR()/engineGoToW()

@@ -1,0 +1,44 @@
+{
+ "amplitude": 15.0,
+ "width": 1,
+ "wheel": "left",
+ "sign": 1.0,
+ "requested": 5,
+ "returned": 5,
+ "samples": [
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.87,
+   "right": 0.0,
+   "countsLeft": 11.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 1.35,
+   "right": 0.0,
+   "countsLeft": 17.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 0.0,
+   "right": 0.0,
+   "countsLeft": 0.0,
+   "countsRight": 0.0
+  }
+ ],
+ "mean_mm": 0.44400000000000006,
+ "sd_mm": 0.5645741758174917,
+ "ratio": 1.2715634590484046,
+ "dead_pulses": 3
+}

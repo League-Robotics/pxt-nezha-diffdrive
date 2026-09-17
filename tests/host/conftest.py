@@ -256,11 +256,34 @@ def _bind_motion_lib(lib):
     lib.meTwistReferenceCounts.argtypes = [ctypes.c_void_p]
     lib.meTwistReferenceCounts.restype = ctypes.c_float
 
+    # -- surface first needed by test_motion_engine_pulse.py (sprint 039
+    # ticket 001, SUC-001)
+    lib.mePulseWheels.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_int32]
+    lib.mePulseWheels.restype = None
+    lib.mePulseLeftCounts.argtypes = [ctypes.c_void_p]
+    lib.mePulseLeftCounts.restype = ctypes.c_float
+    lib.mePulseRightCounts.argtypes = [ctypes.c_void_p]
+    lib.mePulseRightCounts.restype = ctypes.c_float
+    lib.meMotorDutyHistoryCount.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meMotorDutyHistoryCount.restype = ctypes.c_int
+    lib.meMotorDutyHistoryAt.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+    lib.meMotorDutyHistoryAt.restype = ctypes.c_float
+    lib.meMotorClearDutyHistory.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meMotorClearDutyHistory.restype = None
+    lib.meArmEstopAfterSleepCall.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meArmEstopAfterSleepCall.restype = None
+    lib.meDisarmEstopAfterSleepCall.argtypes = [ctypes.c_void_p]
+    lib.meDisarmEstopAfterSleepCall.restype = None
+
     # -- surface first needed by test_stop_move_zeros_continuous_drive.py
     lib.meEndMoveOldStopSequence.argtypes = [ctypes.c_void_p]
     lib.meEndMoveOldStopSequence.restype = None
     lib.meEndMoveFixedStopSequence.argtypes = [ctypes.c_void_p]
     lib.meEndMoveFixedStopSequence.restype = None
+    # -- surface first needed by test_status_active_after_soft_stop.py
+    # (sprint 039 ticket 002)
+    lib.meEndMoveSettledStopSequence.argtypes = [ctypes.c_void_p]
+    lib.meEndMoveSettledStopSequence.restype = None
     # -- surface first needed by test_motion_engine_stall_rearm.py
     lib.meSetStall.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float]
     lib.meSetStall.restype = None
@@ -272,6 +295,36 @@ def _bind_motion_lib(lib):
     lib.meClearStallReport.restype = None
     lib.meIsDriving.argtypes = [ctypes.c_void_p]
     lib.meIsDriving.restype = ctypes.c_int
+
+    # -- surface first needed by test_motion_engine_nudge.py (sprint 039
+    # ticket 004)
+    lib.meBeginNudge.argtypes = [ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_uint32]
+    lib.meBeginNudge.restype = None
+    lib.meIsNudgeActive.argtypes = [ctypes.c_void_p]
+    lib.meIsNudgeActive.restype = ctypes.c_int
+    lib.meNudgePulseCount.argtypes = [ctypes.c_void_p]
+    lib.meNudgePulseCount.restype = ctypes.c_int32
+    lib.meNudgeMaxPulses.argtypes = [ctypes.c_void_p]
+    lib.meNudgeMaxPulses.restype = ctypes.c_int32
+    lib.meNudgeAmplitude.argtypes = [ctypes.c_void_p]
+    lib.meNudgeAmplitude.restype = ctypes.c_float
+    lib.meSetNudgeAmplitude.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetNudgeAmplitude.restype = None
+    lib.meNudgeWidthTicks.argtypes = [ctypes.c_void_p]
+    lib.meNudgeWidthTicks.restype = ctypes.c_int32
+    lib.meSetNudgeWidthTicks.argtypes = [ctypes.c_void_p, ctypes.c_int32]
+    lib.meSetNudgeWidthTicks.restype = None
+    lib.meNudgeSettle.argtypes = [ctypes.c_void_p]
+    lib.meNudgeSettle.restype = ctypes.c_float
+    lib.meSetNudgeSettle.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    lib.meSetNudgeSettle.restype = None
+
+    # -- surface first needed by test_nudge_block_regression.py (sprint
+    # 039 ticket 005)
+    lib.meNudgeMeasuredDistance.argtypes = [ctypes.c_void_p]
+    lib.meNudgeMeasuredDistance.restype = ctypes.c_float
+    lib.meNudgeMeasuredRotation.argtypes = [ctypes.c_void_p]
+    lib.meNudgeMeasuredRotation.restype = ctypes.c_float
     return lib
 
 

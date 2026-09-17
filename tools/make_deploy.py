@@ -36,6 +36,14 @@ primary deploy.
                                                  # link up at boot (off by
                                                  # default since 2026-09-02;
                                                  # WiFi is the carrier)
+  uv run python tools/make_deploy.py --robot vevov \
+      --profile-suffix -nudgehang0915            # pin a diagnostic
+                                                 # build's wire ID
+                                                 # (kProfile) so it
+                                                 # reads back distinct
+                                                 # from a previous
+                                                 # flash, without
+                                                 # touching kVersion
 
 WiFi credentials: the gitignored `config/wifi_secrets.json`
 (`{"ssid": ..., "password": ...}`) is baked into the scratch copy by
@@ -711,6 +719,15 @@ def _inject_profile(deploy_dir, robot, suffix=''):
     from the chip via `HELLO` -- see
     `.claude/rules/playfield-testing.md`; this only labels the build."""
     _read_robot_profile(robot)
+    # protocol.cpp's own profileBuf_[32] silently truncates via
+    # snprintf(); fail loudly here instead of baking a build that
+    # answers ID with a cut-off profile nobody asked for.
+    baked = robot + suffix
+    if len(baked) > 31:
+        sys.exit(f"make_deploy: baked profile {baked!r} is "
+                  f"{len(baked)} bytes, over protocol.cpp's own "
+                  f"profileBuf_[32] (31 usable + NUL) -- shorten "
+                  f"--profile-suffix")
     path = os.path.join(deploy_dir, 'src', 'comms', 'protocol.cpp')
     text = open(path).read()
     new_text, n = _K_PROFILE_RE.subn(rf'\g<1>{robot}{suffix}\g<2>', text)
@@ -1509,9 +1526,35 @@ def main():
                           "Any other program builds in its own scratch "
                           "copy .tmp/deploy-<stem>, so it never shares "
                           "a build cache with the test.ts deploy")
+    ap.add_argument('--profile-suffix', default='',
+                     help="append this to the baked kProfile (the wire "
+                          "ID reply's profile field), e.g. "
+                          "'-nudgehang0915', so a diagnostic build is "
+                          "distinguishable over ID from a previous "
+                          "flash WITHOUT touching the repo's own "
+                          "close_sprint-owned version file -- this is "
+                          "the 'runtime pin' `bump-the-version-before-"
+                          "a-behaviour-flash` (memory) and sprint 039's "
+                          "own Migration Concerns call for. Same "
+                          "mechanism --fault-spin already uses for its "
+                          "own fixed '-faultspin' suffix; primary "
+                          "test.ts build only. Empty (default) leaves "
+                          "the profile as plain <robot>, unchanged from "
+                          "before this flag existed")
     a = ap.parse_args()
     if a.no_otos and (a.fault_spin or a.testrig or a.program != 'test.ts'):
         ap.error('--no-otos is supported only by the primary test.ts build')
+    if a.profile_suffix and (a.fault_spin or a.testrig
+                              or a.program != 'test.ts'):
+        ap.error('--profile-suffix is supported only by the primary '
+                 'test.ts build')
+    if a.profile_suffix and not re.fullmatch(r'[-\w]+', a.profile_suffix):
+        # kProfile becomes a C string literal AND a space-separated
+        # wire field (the `id` reply's profile token) -- reject
+        # anything that could break either, rather than baking a
+        # build that answers ID with a malformed or truncated profile.
+        ap.error(f'--profile-suffix {a.profile_suffix!r} must be only '
+                 f'letters, digits, "_" and "-"')
     if a.fault_spin:
         if a.testrig:
             ap.error('--fault-spin and --testrig are separate scratch '
@@ -1576,7 +1619,9 @@ def main():
         _disable_otos_boot(DEPLOY)
         print('make_deploy: OTOS boot initialization disabled')
     _inject_radio_channel(DEPLOY, a.robot)
-    _inject_profile(DEPLOY, a.robot)
+    profile = _inject_profile(DEPLOY, a.robot, a.profile_suffix)
+    if a.profile_suffix:
+        print(f'make_deploy: wire profile = {profile}')
     _inject_wifi_secrets(DEPLOY)
     for _name, _value in _inject_geometry(DEPLOY, a.robot):
         print(f'make_deploy: geometry bake {_name} = {_value:g}')

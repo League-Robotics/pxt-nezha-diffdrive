@@ -1,0 +1,134 @@
+{
+ "amplitude": 20.0,
+ "width": 2,
+ "wheel": "left",
+ "sign": 1.0,
+ "requested": 20,
+ "returned": 20,
+ "samples": [
+  {
+   "left": 2.46,
+   "right": 0.0,
+   "countsLeft": 31.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.46,
+   "right": 0.0,
+   "countsLeft": 31.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 3.09,
+   "right": 0.0,
+   "countsLeft": 39.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.7,
+   "right": 0.0,
+   "countsLeft": 34.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 3.09,
+   "right": 0.0,
+   "countsLeft": 39.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.7,
+   "right": 0.0,
+   "countsLeft": 34.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.86,
+   "right": 0.0,
+   "countsLeft": 36.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.46,
+   "right": 0.0,
+   "countsLeft": 31.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.86,
+   "right": 0.0,
+   "countsLeft": 36.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.86,
+   "right": 0.0,
+   "countsLeft": 36.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.86,
+   "right": 0.0,
+   "countsLeft": 36.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.46,
+   "right": 0.0,
+   "countsLeft": 31.0,
+   "countsRight": 0.0
+  },
+  {
+   "left": 2.62,
+   "right": 0.0,
+   "countsLeft": 33.0,
+   "countsRight": 0.0
+  }
+ ],
+ "mean_mm": 2.691,
+ "sd_mm": 0.185280867873615,
+ "ratio": 0.06885205049186734,
+ "dead_pulses": 0
+}

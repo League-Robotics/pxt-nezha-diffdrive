@@ -62,6 +62,12 @@ struct Handle {
   float probeX_ = 0.0f, probeY_ = 0.0f, probeHeading_ = 0.0f;
   float probePl_ = 0.0f, probePr_ = 0.0f;
 
+  // Sprint 039 ticket 001: mePulseWheels()'s own last result, read back
+  // by mePulseLeftCounts()/mePulseRightCounts() below -- same "call,
+  // then read back a member" shape as probeX_/probeY_/probeHeading_
+  // above.
+  diffDrive::MotionEngine::PulseResult lastPulse_{};
+
   Handle()
       : kernel(left, right, clock, sleeper, launcher),
         engine(kernel, clock),
@@ -547,6 +553,28 @@ void meEndMoveFixedStopSequence(void* handle) {
   h->left.emergencyStop();
   h->right.emergencyStop();
 }
+
+// Sprint 039 ticket 002 (closes status-active-stays-1-after-a-soft-
+// stop.md): the SETTLED sequence -- shims.cpp's Rig::softStop() as of
+// this ticket, hand-mirrored the same way meEndMoveFixedStopSequence()
+// above mirrors its own predecessor. Adds engine.settleToRest() after
+// the port-level zero write: meEndMoveFixedStopSequence() above zeros
+// the MOTORS but never steps the kernel again, so kernel.output()'s
+// velocityLeft/Right -- what WireAdapter::status()'s `active` bit reads
+// -- stays at whatever it was computed as during the LAST step() before
+// the stop, which can be a genuinely nonzero mid-drive reading. This
+// mirrors Rig::softStop()'s own not-busGuard-held branch; the guard
+// itself has no host-portable equivalent worth mirroring here (see this
+// file's own header comment -- a plain FakeMotor pair, no fiber
+// concurrency exists on this host harness for it to protect against).
+void meEndMoveSettledStopSequence(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMove();
+  h->kernel.neutral();
+  h->left.emergencyStop();
+  h->right.emergencyStop();
+  h->engine.settleToRest();
+}
 int meProgress(void* handle) {
   return static_cast<Handle*>(handle)->engine.progress();
 }
@@ -608,6 +636,58 @@ void meClearStallReport(void* handle) {
 // delta -- cycleCount increments unconditionally on every step()
 // regardless of caller (src/core/diffdrive.cpp), so this needs no new
 // production-code counter.
+// ---- pulse primitive (sprint 039 ticket 001, SUC-001) ------------------
+// MotionEngine::pulseWheels() itself, plus the FakeMotor duty-history
+// readback (fake_ports.h) a test needs to pin the exact commanded SHAPE
+// across the primitive's own internal, synchronous kernel.step() loop --
+// no per-tick control point exists from Python for this call, unlike
+// every other primitive in this file (moveX()/wheelsV()/etc., which only
+// ARM a command for a caller-driven step()/serviceMove() pair).
+
+void mePulseWheels(void* handle, float ampLeft, float ampRight,
+                   int32_t widthTicks) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->lastPulse_ = h->engine.pulseWheels(ampLeft, ampRight, widthTicks);
+}
+float mePulseLeftCounts(void* handle) {
+  return static_cast<Handle*>(handle)->lastPulse_.left;
+}
+float mePulseRightCounts(void* handle) {
+  return static_cast<Handle*>(handle)->lastPulse_.right;
+}
+
+// `side`: 0 == left, 1 == right -- same convention as meMotorLastStagedDuty.
+int meMotorDutyHistoryCount(void* handle, int side) {
+  return motorFor(static_cast<Handle*>(handle), side).dutyHistoryCount;
+}
+float meMotorDutyHistoryAt(void* handle, int side, int index) {
+  return motorFor(static_cast<Handle*>(handle), side).dutyHistory[index];
+}
+void meMotorClearDutyHistory(void* handle, int side) {
+  motorFor(static_cast<Handle*>(handle), side).clearDutyHistory();
+}
+
+// Arms the kernel's REAL estop() to fire the instant FakeSleeper's
+// onSleep callback count reaches `callNumber` -- lets a test trigger an
+// E-stop PARTWAY THROUGH pulseWheels()'s own internal, synchronous
+// kernel.step() loop (no other point of control exists from Python
+// during that call, same reason meArmSettleProfile() exists). step()
+// calls sleepMillis() exactly twice per step (fake_ports.h's own
+// comment on FakeSleeper), so callNumber == 2*n lands after the n-th
+// step has fully landed its own duty write, and every step from n+1
+// onward sees kernel.output().estopped and is forced neutral by the
+// kernel's own controlStep() -- not by anything pulseWheels() itself
+// does differently.
+void meArmEstopAfterSleepCall(void* handle, int callNumber) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->sleeper.onSleep = [h, callNumber](int n) {
+    if (n == callNumber) h->kernel.estop();
+  };
+}
+void meDisarmEstopAfterSleepCall(void* handle) {
+  static_cast<Handle*>(handle)->sleeper.onSleep = nullptr;
+}
+
 uint32_t meSettleToRest(void* handle) {
   Handle* h = static_cast<Handle*>(handle);
   const uint32_t before = h->kernel.output().cycleCount;
@@ -710,6 +790,69 @@ float meProbeX(void* handle) { return static_cast<Handle*>(handle)->probeX_; }
 float meProbeY(void* handle) { return static_cast<Handle*>(handle)->probeY_; }
 float meProbeHeading(void* handle) {
   return static_cast<Handle*>(handle)->probeHeading_;
+}
+
+// ---- nudge mode: the settle-gated pulse stepper (sprint 039 ticket 004)
+// ------------------------------------------------------------------------
+// MotionEngine::beginNudge()/isNudgeActive() plus the three config
+// getters/setters -- meServiceMove() above already dispatches through
+// service(), which now routes to serviceNudge() whenever nudge_ is
+// active (service()'s own header comment), so no new "step the nudge"
+// export is needed here. Covers what a plain, manually-armed FakeMotor
+// already supports (mutual exclusion with seg_/hold_, E-stop, the
+// config surface). The AUTONOMOUS duty->position stiction-plant
+// behavioral tests (pulses fire only when settled, the ledger
+// converges, budget/deadline/one-step-stop, a direction flip's step-
+// count parity) need a Motor double this file's plain FakeMotor
+// deliberately does not provide (fake_ports.h's own "no physics"
+// invariant) -- those live in their own dedicated shim
+// (motion_engine_nudge_stiction_shim.cpp) rather than adding physics
+// here for every one of this file's other twelve consuming test files.
+
+void meBeginNudge(void* handle, float distanceMm, float rotationRad,
+                  uint32_t timeoutMs) {
+  static_cast<Handle*>(handle)->engine.beginNudge(distanceMm, rotationRad,
+                                                  timeoutMs);
+}
+int meIsNudgeActive(void* handle) {
+  return static_cast<Handle*>(handle)->engine.isNudgeActive() ? 1 : 0;
+}
+int32_t meNudgePulseCount(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgePulseCount();
+}
+int32_t meNudgeMaxPulses(void*) {
+  return diffDrive::MotionEngine::nudgeMaxPulses();
+}
+float meNudgeAmplitude(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeAmplitude();
+}
+void meSetNudgeAmplitude(void* handle, float percent) {
+  static_cast<Handle*>(handle)->engine.setNudgeAmplitude(percent);
+}
+int32_t meNudgeWidthTicks(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeWidthTicks();
+}
+void meSetNudgeWidthTicks(void* handle, int32_t ticks) {
+  static_cast<Handle*>(handle)->engine.setNudgeWidthTicks(ticks);
+}
+float meNudgeSettle(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeSettle();
+}
+void meSetNudgeSettle(void* handle, float ms) {
+  static_cast<Handle*>(handle)->engine.setNudgeSettle(ms);
+}
+
+// ---- nudge mode: the measured result (sprint 039 ticket 005) ----------
+// MotionEngine::nudgeMeasuredDistance()/nudgeMeasuredRotation() -- what
+// blocks/motion.ts's nudge()/nudgeTurn() return instead of the
+// requested amount. See motion_engine.h's own comment on these two
+// methods for the "read the same ledger serviceNudge() uses, never the
+// fused odometry pose" rationale.
+float meNudgeMeasuredDistance(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeMeasuredDistance();
+}
+float meNudgeMeasuredRotation(void* handle) {
+  return static_cast<Handle*>(handle)->engine.nudgeMeasuredRotation();
 }
 
 }  // extern "C"
