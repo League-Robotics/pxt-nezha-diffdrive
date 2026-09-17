@@ -5,9 +5,53 @@ sprint: 039
 
 # vevov: encoders read 0 while `i2cf` faults on ~99% of cycles
 
-Priority: **High** — the robot drives, cannot measure that it is driving, and
-every distance limit built on odometry is silently inert. It drove 111 cm on a
-10 cm command.
+Priority: **High** — but see the correction immediately below: the I2C framing
+in this title and in the original text is WRONG.
+
+## CORRECTION 2026-09-16, same session
+
+**The cause was the Nezha brick being unpowered, not an I2C bus fault.** The
+stakeholder reported the robot had been switched off, powered it back on, and
+every symptom cleared at once:
+
+```
+posl=144 posr=161            (were 0 and 0)
+i2cf=17 while cyc 37 -> 45   (ZERO new faults across a commanded nudge)
+connL=1 connR=1
+```
+
+against the failure's 1246 new faults in 1251 cycles with both encoders at 0.
+
+The trap is worth recording, because every artifact looked like a live robot:
+**the micro:bit is powered from the host Raspberry Pi over USB, so it keeps
+answering HELLO, serving STATUS, and accepting flashes while the Nezha brick's
+own battery is off.** `connL`/`connR` read 0, `posl`/`posr` read 0, and `i2cf`
+climbs on every cycle — which is simply what I2C to an unpowered peripheral
+looks like, and is easy to read as a failing bus on a healthy robot.
+
+What remains true and worth keeping from the original report:
+
+- The **inert distance guard** is real and independent of the cause. A drive
+  bounded by a comparison against `poseX()` cannot terminate when `poseX()` is
+  frozen, whatever froze it. `sweep 10` ran 111 cm. The guard added in
+  nezha-robot-template (`CALJ_DEAD_TICKS`) stands on its own merits: it does not
+  care whether the odometry died from a flat battery or a broken bus.
+- The remaining exposure list (`caljHome`, `calt`'s pivots, `sweep`) is
+  unchanged.
+
+What is retracted: the claim that this is an I2C hardware or bus-integrity
+fault, and the comparison drawn against
+`i2c-fault-count-climbs-on-idle-bus.md`. That issue documents faults on a
+*powered* idle bus and is untouched by this. A power-state check belongs
+*before* any I2C fault is diagnosed.
+
+Original report follows, retained unedited for the record.
+
+## Original report
+
+Priority as filed: **High** — the robot drives, cannot measure that it is
+driving, and every distance limit built on odometry is silently inert. It drove
+111 cm on a 10 cm command.
 
 ## What was observed
 
