@@ -468,11 +468,10 @@ MotionEngine::PulseResult MotionEngine::firePulseAndSettle(
   // comment). A direction flip versus the PREVIOUS pulse this call (or
   // serviceNudge()'s previous fire) pays the port's own reversal dwell
   // here, transparently -- this call issues no extra dwell of its own,
-  // same driveDuty()-then-settle shape regardless of sign
-  // (.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md's sibling
-  // rule for THIS ticket is nezha_port.cpp:236-250; the settle loop
-  // below absorbs whatever real-hardware delay that dwell adds, it does
-  // not need to know it happened).
+  // same driveDuty()-then-settle shape regardless of sign (the dwell
+  // itself is nezha_port.cpp:236-250; the settle loop below absorbs
+  // whatever real-hardware delay it adds, it does not need to know it
+  // happened).
   kernel_.neutral();
   settleToRest();
 
@@ -555,17 +554,16 @@ bool MotionEngine::serviceNudge() {
   const float yawMargin =
       limits_.arriveYaw * kDegToRad * 0.5f * effectiveTrackWidth() * cpm;
 
-  // An axis counts as CONVERGED either when it is within its own
-  // margin, or -- "stop within one step of target rather than overshoot
-  // and correct" (captures/039-003-pulse-gate-20260916/notes.md's own
-  // rotation-resolution consequence: a single pulse is ~0.9 deg at the
-  // accepted operating point, close enough to calibrateL's 1 deg
-  // tolerance that one more pulse than needed misses it) -- once a
-  // pulse has actually been measured on that axis, when firing AGAIN is
-  // more likely to overshoot PAST the target than to land closer to it.
-  // Each axis tracks its own last-measured step (lastDistStep/
-  // lastYawStep) since a combined nudge can converge one axis
-  // pulses before the other.
+  // An axis counts as CONVERGED either when it is within its own margin,
+  // or -- stop within one step of target rather than overshoot and
+  // correct -- once a pulse has actually been measured on that axis,
+  // when firing AGAIN is more likely to overshoot PAST the target than
+  // to land closer to it (a single pulse is ~0.9 deg at the accepted
+  // operating point cited on nudgeAmplitude() in motion_engine.h, close
+  // enough to calibrateL's 1 deg tolerance that one extra pulse misses
+  // it). Each axis tracks its own last-measured step (lastDistStep/
+  // lastYawStep) since a combined nudge can converge one axis pulses
+  // before the other.
   const bool distDone = std::fabs(distRemain) <= distMargin;
   const bool yawDone = std::fabs(yawRemain) <= yawMargin;
   const bool distConverged =
@@ -583,8 +581,8 @@ bool MotionEngine::serviceNudge() {
   // A pure straight nudge (yawTarget == 0) or a pure turn (distTarget ==
   // 0) always has its one live axis converged-false until reached and
   // the other converged-true from the start, so the choice below
-  // degenerates to exactly that axis for both of ticket 005's own calls
-  // (nudge()/nudgeTurn()). A combined nudge (both axes nonzero, e.g. an
+  // degenerates to exactly that axis for both nudge()/nudgeTurn() calls.
+  // A combined nudge (both axes nonzero, e.g. an
   // uneven nudge(leftMm, rightMm)) corrects whichever UNCONVERGED axis
   // is relatively FARTHER from its own margin this pulse, in units of
   // "how many margins away", so neither axis starves the other across

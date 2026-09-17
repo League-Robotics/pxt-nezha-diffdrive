@@ -246,7 +246,7 @@ class MotionEngine {
   PulseResult pulseWheels(float ampLeft, float ampRight,
                           int32_t widthTicks);  // [%] [%] [ticks]
 
-  // ---- nudge mode: the settle-gated pulse stepper (ticket 004) --------
+  // ---- nudge mode: the settle-gated pulse stepper ----------------------
   //
   // Loops pulseWheels()'s own underlying primitive (firePulseAndSettle()
   // below, factored out of pulseWheels() so both share one call
@@ -263,10 +263,10 @@ class MotionEngine {
   // exactly as moveX()/beginSegment() do: distTarget = distance *
   // countsPerMm(), yawTarget = rotation * 0.5 * effectiveTrackWidth() *
   // countsPerMm(). A pure straight nudge passes rotation == 0; a pure
-  // turn (nudgeTurn(), ticket 005) passes distance == 0; ticket 005's
-  // nudge(leftMm, rightMm) reduces its own per-wheel pair onto this same
-  // (distance, rotation) pair the way wheelsX() already reduces onto
-  // beginSegment(). Clears any in-flight seg_/hold_ command first, same
+  // turn (nudgeTurn()) passes distance == 0; nudge(leftMm, rightMm)
+  // reduces its own per-wheel pair onto this same (distance, rotation)
+  // pair the way wheelsX() already reduces onto beginSegment(). Clears
+  // any in-flight seg_/hold_ command first, same
   // as every other primitive here -- exactly one of seg_/hold_/nudge_ is
   // ever live (isNudgeActive()).
   //
@@ -299,16 +299,16 @@ class MotionEngine {
   // re-typing it.
   static constexpr int32_t nudgeMaxPulses() { return kMaxNudgePulses; }
 
-  // ---- nudge mode: the measured result (ticket 005's own read) --------
+  // ---- nudge mode: the measured result ----------------------------------
   //
-  // Ticket 005's nudge()/nudgeTurn() blocks (blocks/motion.ts) must
-  // return what the encoders ACTUALLY measured, not the requested
-  // amount -- the entire reason calibrateL can loop on the return value
-  // instead of trusting the command (sprint.md SUC-002). These two
-  // accessors read straight from the CURRENT kernel Output against the
-  // nudge's own captured origin (Nudge::posLeft0/posRight0), the exact
-  // same ledger serviceNudge()'s own convergence test (distRemain/
-  // yawRemain above) already uses -- never a re-derivation through the
+  // nudge()/nudgeTurn() (blocks/motion.ts) must return what the encoders
+  // ACTUALLY measured, not the requested amount -- the entire reason
+  // calibrateL can loop on the return value instead of trusting the
+  // command. These two accessors read straight from the CURRENT kernel
+  // Output against the nudge's own captured origin (Nudge::posLeft0/
+  // posRight0), the exact same ledger serviceNudge()'s own convergence
+  // test (distRemain/yawRemain above) already uses -- never a
+  // re-derivation through the
   // fused odometry pose, which lags a tick behind inside tickDrive()
   // (odomUpdate() runs BEFORE service() there). Valid any time after
   // beginNudge(), including after the nudge has ended: nudge_ is not
@@ -341,8 +341,8 @@ class MotionEngine {
   // [%] duty magnitude a nudge pulse fires at, applied to whichever
   // wheel(s) the remaining error's sign selects. Default 15.0f: MEASURED
   // vevov 2026-09-16, captures/039-003-pulse-gate-20260916/notes.md --
-  // ticket 003's accepted operating point (amplitude 15%, width 2
-  // ticks, 1.79 mm/pulse, sd/mean 0.08, 0/20 dead warm and cold).
+  // the accepted operating point (amplitude 15%, width 2 ticks,
+  // 1.79 mm/pulse, sd/mean 0.08, 0/20 dead warm and cold).
   float nudgeAmplitude() const { return nudgeAmplitude_; }
   void setNudgeAmplitude(float percent) {
     if (percent > 0.0f) nudgeAmplitude_ = percent;
@@ -437,8 +437,8 @@ class MotionEngine {
   uint32_t now() const;  // [ms]
 
   // The shared rest test settleToRest() and serviceNudge() both use --
-  // "mirror the existing rest test rather than inventing a second
-  // definition of stopped" (ticket 004's own description).
+  // mirrors the existing rest test rather than inventing a second
+  // definition of "stopped".
   bool atRest(const DiffDrive::DifferentialDrive::Output& out) const;
 
   // The shared tail of pulseWheels() and serviceNudge(): fires

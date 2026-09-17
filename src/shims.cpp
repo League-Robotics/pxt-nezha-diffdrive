@@ -367,8 +367,8 @@ static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 //                      after setWheels()/driveTwist() gets it too
 //                      (stakeholder decision, 2026-08-26).
 //   the port write     delivers the stop NOW.
-//   engine.settleToRest()  (sprint 039 ticket 002) forces a FRESH kernel
-//                      Output before this call returns -- see below.
+//   engine.settleToRest()  forces a FRESH kernel Output before this
+//                      call returns -- see below.
 //
 // Why PORT-LEVEL (R-08/BLK-01): kernel.neutral() only STAGES a zero
 // (diffdrive.cpp), delivered solely on a LATER kernel.step(), and
@@ -383,48 +383,25 @@ static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 // latches estopLatch_ (diffdrive.cpp), turning this resumable soft stop
 // into a hard e-stop needing clearEmergencyStop().
 //
-// SPRINT 039 TICKET 002 (closes status-active-stays-1-after-a-soft-
-// stop.md): the port write above stops the WHEELS, but it does nothing
-// to the kernel's own published Output -- WireAdapter::status()'s
-// `active` bit reads out.velocityLeft/Right (wire_adapter.cpp), which
-// is whatever kernel.step() last computed from encoder deltas, and
-// nothing here used to step the kernel again. If nothing else ever
-// calls tickDrive() after this soft stop (the common case for an
-// explicit `stop()`/wire `STOP` issued once the caller is done), that
-// stale mid-drive velocity reads back forever: MEASURED vevov
-// 2026-09-15, captures/calibratel-vevov-20260915/bench-log.md run 9 --
-// a sequenced `STOP now` followed by three STATUS reads several seconds
-// apart all read `active=1` with `cyc` frozen. This is exactly the gap
-// tickDrive()'s own settle loop already closes for a move's NATURAL
-// deadline (`wasActive && !moveActive` -> `engine.settleToRest()`,
-// below) -- the explicit stop paths never had the equivalent. Calling
-// the same `settleToRest()` here, immediately after the port write,
-// keeps stepping the kernel (bounded, `MotionEngine::kSettleMaxSteps`)
-// until both wheels are MEASURED at rest, so `Output.velocityLeft/
-// Right` -- and therefore STATUS `active` -- reflects the stop by the
-// time this call returns, with no second caller required. Host-tested
-// via `motion_engine_shim.cpp`'s `meEndMoveSettledStopSequence()` (this
-// exact call sequence, hand-mirrored -- see that shim's own comment for
-// why `shims.cpp` itself cannot be host-compiled) in
-// tests/host/test_status_active_after_soft_stop.py.
+// The port write above stops the WHEELS but does not itself touch the
+// kernel's own published Output, which WireAdapter::status()'s `active`
+// bit reads -- so without a further kernel step, `active` can read
+// stale/frozen after a stop (MEASURED vevov 2026-09-15, captures/
+// calibratel-vevov-20260915/: `active=1`/`cyc` frozen after a `STOP`).
+// settleToRest() here keeps stepping the kernel (bounded,
+// `MotionEngine::kSettleMaxSteps`) until both wheels are MEASURED at
+// rest, so `active` reflects the stop by the time this call returns.
 //
 // Staged while busGuard is held: the port write would otherwise race
-// the I2C traffic of whichever OTHER fiber holds the guard (mid
-// kernel.step(), possibly parked in its own settle sleep) -- the exact
+// the I2C traffic of whichever OTHER fiber holds the guard -- the exact
 // collision the guard exists to prevent. Rig::pendingStop_ hands the
 // write (and the settle below) to that fiber instead, delivered from
-// inside tickDrive() just before it releases the guard, still within
-// the same tick -- see that function's own comment for the exact
-// point. When the guard is free (the common case) this call acquires
-// it itself for the duration of the port write + settle, the same
-// acquire/I2C-body/release bracket every other non-kernel I2C entry
-// point in this file takes (enginePulseWheels()'s own comment above is
-// the precedent) -- settleToRest() steps the kernel, which talks I2C,
-// so it needs the SAME protection kernel.step() always gets from
-// tickDrive()'s own acquire(). Acquiring here can never block: this
-// branch is reached only when busGuard.held() just read false, and
-// CODAL's cooperative scheduler cannot interleave another fiber's
-// acquire() in between (no yield crosses that gap).
+// inside tickDrive() just before it releases the guard. When the guard
+// is free (the common case) this call acquires it itself for the
+// duration of the port write + settle, the same acquire/I2C-body/
+// release bracket every other non-kernel I2C entry point in this file
+// takes -- settleToRest() steps the kernel, which talks I2C, so it
+// needs the same protection tickDrive()'s own acquire() gives step().
 void Rig::softStop() {
   engine.endMove();
   kernel.neutral();
@@ -555,30 +532,19 @@ float engineDominantAxisTravel(float distance, float rotation) {  // [mm] [rad] 
 }
 
 // [counts/mm] -- forwards MotionEngine::countsPerMm() for wire-layer
-// callers that need to report a counts delta in mm too (the wire
-// `pulse` RUN handler, wire_adapter.cpp). Named identically to the
-// method it forwards -- an allow-listed conversion-function name (see
-// the no-units-in-identifiers rule and its own source-pin test) --
-// rather than the usual `engineXxx` prefix every other wire-layer
-// forward in this file uses: `engineCountsPerMm` itself carries the
+// callers reporting a counts delta in mm (wire_adapter.cpp's `pulse`
+// handler). Named after the method it forwards, not the usual
+// `engineXxx` prefix: `engineCountsPerMm` would itself carry the
 // forbidden `Mm` unit suffix.
 float countsPerMm() {
   return ensure().engine.countsPerMm();
 }
 
-// The diagnostic pulse primitive's own wire-layer forward --
-// MotionEngine::pulseWheels() itself drives its own kernel.step() loop
-// synchronously (that method's own comment, motion_engine.h), talking
-// I2C through every one of those steps, so this wraps the whole call in
-// the SAME BusGuard tickDrive() and every other non-kernel I2C caller
-// in this file take (rewireMotor()'s own comment above is the
-// precedent) -- otherwise a concurrently-running tickDrive() on another
-// fiber could race this call's own kernel.step() mid encoder-settle-
-// sleep, the exact collision the guard exists to prevent. Not itself a
-// yield point needing the VFP-safe sleep/yield wrappers: every sleep
-// this call reaches is already inside kernel.step()'s own two settle
-// sleeps, which route through the guarded Sleeper the same way
-// settleToRest() already does.
+// pulseWheels()'s wire-layer forward: that method drives its own
+// kernel.step() loop synchronously, so this wraps it in the SAME
+// BusGuard tickDrive() and every other non-kernel I2C caller here
+// takes, guarding against a concurrent tickDrive() racing it mid
+// encoder-settle-sleep.
 void enginePulseWheels(float ampLeft, float ampRight, int32_t widthTicks,
                        float& outLeft, float& outRight) {  // [counts] [counts]
   Rig& r = ensure();
@@ -700,43 +666,33 @@ bool updateMove() {
   return moveActive;
 }
 
-// ---- nudge mode: block-facing entry points (ticket 005) ----------------
+// ---- nudge mode: block-facing entry points ------------------------------
 //
 // nudge()/nudgeTurn() (blocks/motion.ts) each stage a beginNudge() call
 // then loop `_tickDrive()` (which already dispatches to serviceNudge()
-// via MotionEngine::service() -- ticket 004, see that method) until the
-// nudge itself reports inactive, and read the measured result off
-// nudgeMeasuredDistance()/nudgeMeasuredRotation() below.
+// via MotionEngine::service()) until the nudge reports inactive, and
+// read the measured result off nudgeMeasuredDistance()/
+// nudgeMeasuredRotation() below.
 //
-// The reduction onto beginNudge()'s (distance, rotation) pair happens
-// HERE, in the shim layer, not in TypeScript: it needs
-// effectiveTrackWidth(), which is live engine state (trackWidth /
-// rotationalSlip, both runtime-configurable) -- computing it in TS
-// would either duplicate that state or go stale against it. This is
-// the same reason wheelsX()'s own per-wheel reduction lives in
-// MotionEngine::wheelsX(), not in blocks/motion.ts.
+// The (left, right)/(deg) -> (distance, rotation) reduction happens
+// HERE, not in TypeScript: it needs effectiveTrackWidth(), live
+// runtime-configurable engine state that TS would otherwise have to
+// duplicate or go stale against -- the same reason wheelsX()'s own
+// per-wheel reduction lives in MotionEngine::wheelsX(). Two entry
+// points rather than one generic shim, since each reduction is a
+// one-line formula and the two blocks take genuinely different
+// parameterizations.
 //
-// Two entry points, not one generic (distance, rotation) shim, because
-// the two blocks take genuinely different parameterizations
-// (per-wheel mm vs a single yaw angle) and each reduction is a
-// one-line formula -- a shared generic shim would just move the
-// reduction back into TS for one of the two callers.
-//
-// Both take the SAME ownership contract as startMove() above: refused
-// (a silent no-op), not superseding, while a wire motion or a genuine
-// block/job collision already holds the drivetrain. Neither threads a
-// caller-supplied timeout through from TS -- nudge()/nudgeTurn() have
-// no timeout parameter of their own (ticket 005's block signatures);
+// Same ownership contract as startMove() above: refused (a silent
+// no-op), not superseding, while the drivetrain is already held.
+// Neither threads a caller-supplied timeout through from TS;
 // kNudgeTimeout below is a generous backstop on top of the pulse
 // BUDGET (MotionEngine::nudgeMaxPulses(), the real runaway guard).
 
-// [ms] UNVERIFIED: no hardware measurement backs this exact number.
-// Bound instead by arithmetic against the documented worst case:
-// kMaxNudgePulses (40) pulses, each at most kSettleMaxSteps (12)
-// settle-loop steps * ~24 ms cyclePeriod (~300 ms/pulse) before any
-// operator-set nudgeSettle() pause is added on top -- about 12 s
-// worst case. This constant is a ceiling well above that, not a tuned
-// value; the pulse budget is what actually bounds a runaway nudge.
+// [ms] UNVERIFIED ceiling, not a tuned value: kMaxNudgePulses (40) at
+// kSettleMaxSteps (12) settle steps each, ~24 ms/step, is ~12 s worst
+// case before any operator nudgeSettle() pause; the pulse budget is
+// what actually bounds a runaway nudge.
 static constexpr uint32_t kNudgeTimeout = 20000;
 
 //%
@@ -762,17 +718,12 @@ void beginNudgeTurn(int rotation) {  // [cdeg]
                       kNudgeTimeout);
 }
 
-// A nudge is still in flight -- the loop-termination signal
-// tickDrive()'s own return value does NOT carry for nudge mode:
-// commandLooksActive() (this file, below) reads isDriving() (seg_/
-// hold_ only) and applied duty, and a nudge pulse's own
-// firePulseAndSettle() always drives applied duty back to zero via
-// settleToRest() before returning control here -- so tickDrive() reads
-// "nothing commanded" on every single nudge tick even while pulses
-// remain. blocks/motion.ts's nudge()/nudgeTurn() loop on
-// `_tickDrive() || _nudgeActive()` instead of `_tickDrive()` alone for
-// exactly this reason. Mirrors engineMoveActive()'s own
-// `rig == nullptr` guard.
+// A nudge is still in flight. tickDrive()'s own return value does NOT
+// carry for nudge mode -- a fired pulse always settles applied duty
+// back to zero before returning, so it reads "nothing commanded" every
+// nudge tick (blocks/motion.ts's nudge()/nudgeTurn() loop on this
+// alongside `_tickDrive()` for that reason). Mirrors engineMoveActive()'s
+// own `rig == nullptr` guard.
 //%
 bool nudgeActive() {
   return rig != nullptr && rig->engine.isNudgeActive();
@@ -905,18 +856,13 @@ bool tickDrive() {
   // its endMove()/neutral() and re-take the held() branch it is the
   // consumer of.
   //
-  // settleToRest() + odomUpdate() (sprint 039 ticket 002): the SAME
-  // staleness gap Rig::softStop()'s own comment describes for its
-  // unstaged branch applies here too, and is actually the MORE likely
-  // path to hit it -- the OTHER fiber's own engine.endMove() (inside
-  // softStop(), before pendingStop_ was staged) already cleared seg_/
-  // hold_, so `wasActive` above (read from isDriving() AFTER this
-  // tick's own step()) sees them already empty and the `wasActive &&
-  // !moveActive` branch two paragraphs up never fires for this stop --
-  // without the call here, THIS tick's own step() (which ran BEFORE the
-  // race was even known about) is left as the last word on Output, and
-  // it was computed while the robot was still genuinely moving. Same
-  // bounded settle, same reasoning, applied to the staged case.
+  // settleToRest() + odomUpdate() close the SAME staleness gap
+  // Rig::softStop()'s own comment describes, for the staged case: the
+  // OTHER fiber's engine.endMove() already cleared seg_/hold_ before
+  // pendingStop_ was staged, so the `wasActive && !moveActive` branch
+  // above never fires, and without this call THIS tick's own step()
+  // (run before the race was known) is left as the last, stale word on
+  // Output.
   if (r.pendingStop_) {
     r.pendingStop_ = false;
     r.left.emergencyStop();
@@ -1617,14 +1563,11 @@ void cfgSetGoToDeadline(Rig& r, float v) {
   r.goToDeadline = static_cast<uint32_t>(v);
 }
 
-// Sprint 039 ticket 004: the nudge stepper's three config rows, all
-// thin forwards to MotionEngine's own validated setters -- same shape
-// as cfgGetRotationalSlip()/cfgSetRotationalSlip() above (the engine
-// owns the validation, this row only routes). nudge_width stores an
-// integer tick count through the same unscaled-float wire convention
-// every other row uses; round rather than truncate so a wire caller
-// sending an exact integer never loses it to float rounding on the way
-// through x1000/0.001f.
+// The nudge stepper's three config rows are thin forwards to
+// MotionEngine's own validated setters, same shape as
+// cfgGetRotationalSlip()/cfgSetRotationalSlip() above. nudge_width
+// rounds rather than truncates so an exact integer tick count survives
+// the shared unscaled-float wire convention (x1000/0.001f).
 float cfgGetNudgeAmplitude(Rig& r) { return r.engine.nudgeAmplitude(); }
 void cfgSetNudgeAmplitude(Rig& r, float v) { r.engine.setNudgeAmplitude(v); }
 

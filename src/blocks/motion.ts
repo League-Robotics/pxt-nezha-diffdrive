@@ -312,20 +312,14 @@ namespace diffDrive {
         while (_tickDrive());
     }
 
-    // ================= nudge mode: sub-floor micro-moves (039/005) ====
+    // ================= nudge mode: sub-floor micro-moves ==============
     //
-    // For corrections too small for move()'s speed floor to sustain --
-    // today ~15 mm / ~5 deg, motion_engine.h's Design Rationale. Fires
-    // repeated small duty pulses (ticket 004's settle-gated stepper)
-    // instead of the closed-loop shaper, re-reading encoder counts
-    // between pulses. calibrateL (nezha-robot-template) is the reason
-    // this exists: it squares the robot to a floor line by nudging
-    // round and re-measuring, and it must loop on what ACTUALLY moved,
-    // not trust the command -- so both blocks below return the
-    // measured displacement, not the requested one, matching this
-    // file's every other blocking move block in shape
-    // (stage-then-`while (_tickDrive())`) but NOT in that loop's exact
-    // condition -- see the comment on the loop itself for why.
+    // Sub-floor micro-moves: repeated small duty pulses (motion_engine.h's
+    // settle-gated pulse stepper) instead of the closed-loop shaper, for
+    // corrections below move()'s own speed floor. Both blocks below
+    // return the ACTUALLY-MEASURED displacement, not the requested
+    // amount, so a caller (e.g. calibrateL, squaring to a floor line) can
+    // loop on what really happened.
 
     /**
      * Nudge each wheel by a small distance, forward (positive) or
@@ -336,13 +330,13 @@ namespace diffDrive {
      * the requested amount, so a caller can loop on the return value
      * instead of trusting the command. Works forward and reverse.
      *
-     * PRACTICAL RESOLUTION FLOOR -- MEASURED vevov 2026-09-16
-     * (captures/039-003-pulse-gate-20260916/notes.md): the accepted
-     * operating point is ONE pulse per step, about 1.79 mm (sd/mean
-     * 0.08). A `nudge(2, 2)` request is really a one-pulse request,
-     * not a promise of exactly 2.00 mm -- expect the return value to
-     * land near a multiple of ~1.8 mm. Do not ask for sub-mm
-     * precision; loop on the return value instead.
+     * PRACTICAL RESOLUTION FLOOR: the accepted operating point is ONE
+     * pulse per step, about 1.79 mm (measured and cited on
+     * MotionEngine::nudgeAmplitude() in motion_engine.h). A
+     * `nudge(2, 2)` request is really a one-pulse request, not a
+     * promise of exactly 2.00 mm -- expect the return value to land
+     * near a multiple of ~1.8 mm. Do not ask for sub-mm precision;
+     * loop on the return value instead.
      * @param left left wheel distance in mm, eg: 5
      * @param right right wheel distance in mm, eg: 5
      */
@@ -350,18 +344,11 @@ namespace diffDrive {
     //% group="Move" weight=415
     export function nudge(left: number, right: number): number {
         _beginNudgeWheels(Math.round(left), Math.round(right))
-        // NOT `while (_tickDrive());` alone: tickDrive()'s own return
-        // value (commandLooksActive() in shims.cpp) reads isDriving()
-        // (seg_/hold_ only, never nudge_) and applied duty, and a
-        // nudge pulse's own firePulseAndSettle() always drives applied
-        // duty back to zero before returning control here -- so
-        // tickDrive() reports "nothing commanded" on every single
-        // nudge tick even while pulses remain (shims.cpp's own comment
-        // on beginNudgeWheels()). `_tickDrive()` must still be called
-        // every iteration -- it is what actually steps the engine and
-        // paces the 24 ms cadence -- so it stays the first, always-
-        // evaluated operand; `_nudgeActive()` is the real termination
-        // signal.
+        // tickDrive()'s return reflects isDriving()/applied duty, which a
+        // nudge pulse always settles to zero before returning -- so it
+        // reports "idle" every tick even mid-pulse-budget. Call it anyway
+        // (it paces the tick) but treat _nudgeActive() as the real
+        // termination signal.
         while (_tickDrive() || _nudgeActive());
         return _nudgeMeasuredDistance()  // [mm], matching left/right's own unit
     }

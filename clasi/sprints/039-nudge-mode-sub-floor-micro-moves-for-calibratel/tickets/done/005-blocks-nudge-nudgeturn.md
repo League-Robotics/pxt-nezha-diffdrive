@@ -78,6 +78,62 @@ the 2026-09-15 update added explicitly.
       block=`/`group=` conventions so the generated block surface stays
       consistent.
 
+## Follow-up: comment-hygiene pass (reopened 2026-09-16)
+
+Sprint 039's close was blocked by
+`tests/host/test_archaeology_marker_budget.py`'s two ratchets:
+archaeology-marker count (199 vs budget 173) and per-file comment
+volume (`src/blocks/motion.ts` 0.17->0.18, `src/comms/config_fields.h`
+1.61->1.68, `src/shims.cpp` 1.42->1.46). This ticket was reopened to
+fix it, since 004 and 005 together introduced the growth (004 in
+`config_fields.h`/most of `motion_engine.h`/`motion_engine.cpp`; 005
+in the bulk of `motion.ts`/`shims.cpp`); 005 was picked because the
+larger share of the regression (comment volume) was in `motion.ts` and
+`shims.cpp`.
+
+**What was cut (archaeology, per `docs/code-review/guidelines.md`'s
+write-time standard):** sprint/ticket references narrating which
+ticket added what (`(ticket 004)`, `(ticket 005)`, `SPRINT 039 TICKET
+002 (closes ...)` section headers), justification-to-reviewer essays
+around the soft-stop settle fix and the wire-layer float-format fix,
+and a `sprint.md`/use-case citation that only restated the commit's own
+rationale. Touched files: `src/blocks/motion.ts`, `src/shims.cpp`,
+`src/comms/config_fields.h`, `src/motion/motion_engine.h`,
+`src/motion/motion_engine.cpp`, `src/comms/wire_adapter.cpp` (the last
+three were not in this ticket's own diff but carried marker/comment
+growth from tickets 001/004 that blocked the same repo-wide ratchet;
+cleaning them here was the only way to bring the shared marker budget
+back under 173 without touching an already-`done` ticket).
+
+**What was kept, per the dispatcher's explicit direction:** the
+measured nudge defaults and their artifact citation (15%/width 2/
+1.79 mm, `captures/039-003-pulse-gate-20260916/notes.md`) — but
+consolidated to ONE canonical citation, on `MotionEngine::
+nudgeAmplitude()` in `motion_engine.h`, with `motion.ts`,
+`config_fields.h` and `motion_engine.cpp` now pointing to it by name
+instead of each repeating the full citation (`docs/code-review/
+guidelines.md` anti-pattern #3: "point elsewhere by name, never by
+restating another layer's behavior"). Also kept: the STATUS-`active`
+staleness fix's own measured citation in `shims.cpp` (now naming the
+`captures/calibratel-vevov-20260915/` directory rather than
+`bench-log.md` by name, to fit inside the marker budget while staying
+a real, force-tracked, checkable pointer), the `_tickDrive() ||
+_nudgeActive()` loop-condition explanation (a genuine landmine: a
+fired pulse always settles duty to zero, so `tickDrive()` alone never
+detects an in-flight nudge), and every unit comment and `no-units-
+in-identifiers.md`-style exemption note.
+
+**No baseline was raised.** Every file now measures under its
+existing `_RATIO_BASELINE` entry; the marker total is exactly at
+`_BUDGET` (173/173) after the cut, with zero net markers added by this
+sprint's work once the citations were consolidated.
+
+**Verification:** `uv run pytest tests/host/test_archaeology_marker_budget.py`
+(3 passed), the nudge/motion/wire-adapter/toolbox-order/source-pin
+tests scoped to the touched files (191 passed), then the full suite
+`uv run pytest -q` (2189 passed, 0 failed) matching what `close_sprint`
+runs.
+
 ## Testing
 
 - **Existing tests to run**: any TS-level block test harness this repo

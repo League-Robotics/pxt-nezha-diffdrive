@@ -134,12 +134,8 @@ constexpr ConfigFieldDescriptor kConfigFields[] = {
     // on: a block-issued go-to overwrites it.
     // ConfigField.GoToTimeout: "go-to timeout ms"
     {"goto_timeout", 39, "ms"},
-    // Sprint 039 ticket 004: the settle-gated nudge stepper's own three
-    // knobs (MotionEngine::nudgeAmplitude()/nudgeWidthTicks()/
-    // nudgeSettle()). Defaults: 15 %, 2 ticks -- MEASURED vevov
-    // 2026-09-16, captures/039-003-pulse-gate-20260916/notes.md's
-    // accepted operating point; 0 ms settle is UNVERIFIED (no hardware
-    // measurement backs a nonzero default).
+    // Nudge defaults 15%/2 ticks, cited on nudgeAmplitude() in
+    // motion_engine.h. 0 ms settle is UNVERIFIED.
     // ConfigField.NudgeAmplitude: "nudge pulse amplitude %"
     {"nudge_amplitude", 40, "%"},
     // ConfigField.NudgeWidth: "nudge pulse width ticks"
