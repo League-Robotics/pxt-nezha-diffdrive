@@ -1,7 +1,7 @@
 ---
 id: 039
 title: 'Nudge mode: sub-floor micro-moves for calibrateL'
-status: executing
+status: done
 branch: sprint/039-nudge-mode-sub-floor-micro-moves-for-calibratel
 use-cases:
 - SUC-001
