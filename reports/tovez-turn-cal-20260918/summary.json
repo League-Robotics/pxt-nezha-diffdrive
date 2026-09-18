@@ -1,0 +1,51 @@
+{
+  "robot": "tovez",
+  "cruise_mm_s": 188,
+  "n_turns": 16,
+  "n_disturbed_excluded": 0,
+  "disturbed_turns": [],
+  "slip_during_run": 0.998,
+  "pivot_overrun_during_run_mm": 0.0,
+  "overrun_field": "stop_distance",
+  "lag_during_run_s": 0.0,
+  "trackwidth_assumed_mm": 114.2,
+  "b_eff_mm": 114.43,
+  "fit_gain": 0.972,
+  "fit_offset_deg": 5.41,
+  "mean_err_left_deg": 1.8,
+  "mean_err_right_deg": -1.46,
+  "per_command": {
+    "+90": {
+      "n": 4,
+      "mean_err": 3.41,
+      "min": 1.71,
+      "max": 6.49
+    },
+    "-90": {
+      "n": 4,
+      "mean_err": -2.36,
+      "min": -2.91,
+      "max": -1.68
+    },
+    "+180": {
+      "n": 4,
+      "mean_err": 0.18,
+      "min": -1.53,
+      "max": 1.32
+    },
+    "-180": {
+      "n": 4,
+      "mean_err": -0.55,
+      "min": -1.63,
+      "max": 0.8
+    }
+  },
+  "mean_abs_err_deg": 1.92,
+  "mean_drift_cm": 1.22,
+  "suggested": {
+    "rotational_slip": 0.9701,
+    "stop_distance_mm": 5.4,
+    "model": "camera = gain*cmd + offset; slip_new = slip*gain; stop_distance_new = stop_distance + offset_rad*b_eff/2",
+    "note": "029 firmware: measure and SET lag first (S10.2); this stop_distance is only valid at the cruise it was fitted at"
+  }
+}

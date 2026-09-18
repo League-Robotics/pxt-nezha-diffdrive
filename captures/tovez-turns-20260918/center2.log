@@ -1,0 +1,14 @@
+device NEZHA2 robot tovez 2314287040
+[ 1] (  35.6,  24.6)   178.5 deg ->  43.3 cm from centre
+     aim  +36.2
+[ 2] (  34.5,  24.2)  -144.7 deg ->  42.1 cm from centre
+     drive  25.0 cm
+[ 3] (  14.1,   9.3)  -141.6 deg ->  16.9 cm from centre
+     drive  16.9 cm
+[ 4] (   0.7,  -1.1)  -140.8 deg ->   1.3 cm from centre
+
+gate: MOVE_X +120 0 -- travel bearing vs heading
+  nose  -141.0  travelled 12.08 cm at  -140.9 =>   +0.1 off the nose
+  FRAME OK
+
+final (  -8.7,  -8.7) heading  -139.4

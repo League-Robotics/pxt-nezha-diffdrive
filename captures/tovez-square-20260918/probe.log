@@ -1,0 +1,12 @@
+device NEZHA2 robot tovez 2314287040
+  start                  tag (  28.7,  37.9)  heading    34.1
+probe 1: MOVE_X 0 +785 (commanded +45 deg)
+  after +785 mrad        tag (  29.6,  37.6)  heading    83.5
+  turned +49.4 deg for a commanded +45
+  => rotation sign = +1 (positive mrad turns CCW/left)
+facing west: commanding 1684 mrad for +96.5 deg
+  facing west            tag (  29.6,  36.9)  heading   154.7
+probe 2: MOVE_X +120 0 (commanded 12 cm)
+  after +120 mm          tag (  30.3,  36.9)  heading   157.1
+  moved   0.7 cm at bearing +3.5 (-151.1 deg off the nose)
+only 0.7 cm for a commanded 12 -- the robot is not driving; stopping

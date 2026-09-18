@@ -1,0 +1,20 @@
+device NEZHA2 robot tovez 2314287040
+[1] at (  50.4,   26.6)   -90.3 deg
+  plan: [('pivot', 125.44852690490356), ('drive', -98.27403126430768), ('pivot', -35.14897082175921)]
+    pivot  +125.4 ok
+    drive   -98.3 ok
+    pivot   -35.1 ok
+[2] at (  31.9,   39.9)    31.9 deg
+  plan: [('pivot', 16.517473988739418), ('drive', -93.3805395949331), ('pivot', -48.45251944678415)]
+Traceback (most recent call last):
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/captures/tovez-square-20260918/stage.py", line 97, in <module>
+    main()
+    ~~~~^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/captures/tovez-square-20260918/stage.py", line 77, in main
+    require_clear_path(pts, what='stage to the square start dot')
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/Proj/proj/RobotProjects/pxt-nezha-diffdrive/tools/field.py", line 153, in require_clear_path
+    raise PathRefused(
+    ...<4 lines>...
+        f'reposition the robot or re-plan -- the margin is not a knob.')
+field.PathRefused: REFUSING stage to the square start dot: the projected path leaves the usable field (+/-55.15 x +/-32.65 cm -- LIMITS 67.15/44.65 less the 12 cm margin) at (31.9, 39.9), (28.8, 36.4), (25.7, 32.9). Planned path: (31.9, 39.9) -> (-30.0, -30.0). Nothing was sent; reposition the robot or re-plan -- the margin is not a knob.

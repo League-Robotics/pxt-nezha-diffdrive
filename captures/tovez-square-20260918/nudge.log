@@ -1,0 +1,13 @@
+device NEZHA2 robot tovez 2314287040
+start ( -22.6, -25.7)     1.4
+    face  -90.0: at     1.0 (-91.0 off)
+    face  -90.0: at   -89.9 ( -0.1 off)
+  drive south 1.2 cm
+    face   +0.0: at   -88.3 (+88.3 off)
+    face   +0.0: at     2.7 ( -2.7 off)
+    face   +0.0: at    -0.1 ( +0.1 off)
+  drive -6.5 cm along the nose
+
+START POSE ( -30.0, -27.5) heading    -4.2
+  square corners: (-30,-28), (30,-28), (30,32), (-30,32)
+  all corners inside the 12 cm margin: True

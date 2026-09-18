@@ -1,0 +1,40 @@
+# square.tour, but every segment ends at REST before the next begins.
+#
+# WHY. MEASURED tovez 2026-09-18 on baked firmware 1.20260918.2
+# (lag 0.030): 16 camera-scored pivots FROM REST at this same cruise
+# land within 0.87 deg mean |err| (reports/tovez-turn-cal-20260918-lag030),
+# yet the same commanded pivots inside square.tour leave +7.48 deg of
+# net PHYSICAL rotation error over a lap that the odometry does not see
+# (reports/tovez-square-20260918-baked, closure 52.0 mm physical).
+# The one difference is that a tour's pivot begins while the robot is
+# still settling out of a 250 mm/s leg.
+#
+# This file changes ONLY that: a 0.7 s host-side dwell after every
+# segment. Same geometry, same speeds, same constants. If closure
+# improves, the error is injected at the leg/pivot boundary and not by
+# the pivot calibration -- which is the open question in
+# clasi/issues/rotation-error-is-injected-by-the-legs-not-the-pivots.md
+
+MARK leg1
+TWIST vx=250 dist=600 timeout=8
+STOP dwell=0.7
+TWIST omega=180 angle=90 timeout=6
+STOP dwell=0.7
+
+MARK leg2
+TWIST vx=250 dist=600 timeout=8
+STOP dwell=0.7
+TWIST omega=180 angle=90 timeout=6
+STOP dwell=0.7
+
+MARK leg3
+TWIST vx=250 dist=600 timeout=8
+STOP dwell=0.7
+TWIST omega=180 angle=90 timeout=6
+STOP dwell=0.7
+
+MARK leg4
+TWIST vx=250 dist=600 timeout=8
+STOP dwell=0.7
+TWIST omega=180 angle=90 timeout=6
+STOP dwell=0.7

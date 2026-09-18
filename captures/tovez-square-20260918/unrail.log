@@ -1,0 +1,7 @@
+device NEZHA2 robot tovez 2314287040
+[1] tag (  30.3,  36.9) heading   158.3  -> +111.7 from south
+[2] tag (  28.8,  36.5) heading   -98.0  ->   +8.0 from south
+probe: MOVE_X +120 0 with the nose in open field
+  tag (  16.7,  37.6) heading   -97.0
+  moved 12.11 cm at bearing +174.4 (nose was -98.0); 101% of commanded
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=927 cyc=9889 tlm=full next=4 done=3 reason=stop wifi=1 radio=1 channel=48 group=29

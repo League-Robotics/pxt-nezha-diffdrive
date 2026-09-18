@@ -1,0 +1,21 @@
+device NEZHA2 robot tovez 2314287040
+[ 1] at (  12.6,  38.1)   173.2 deg ->  80.4 cm to go
+     aim  +64.8 deg
+[ 2] at (  13.7,  33.3)  -119.7 deg ->  76.9 cm to go
+     drive  25.0 cm
+[ 3] at (   2.5,  10.8)  -118.8 deg ->  52.2 cm to go
+     aim   -9.7 deg
+[ 4] at (   2.0,  11.7)  -130.4 deg ->  52.5 cm to go
+     drive  25.0 cm
+[ 5] at ( -11.3, -10.4)  -119.5 deg ->  27.1 cm to go
+     aim  -14.0 deg
+[ 6] at ( -12.1,  -9.4)  -132.9 deg ->  27.3 cm to go
+     drive  25.0 cm
+[ 7] at ( -30.2, -26.8)  -133.6 deg ->   3.2 cm to go
+     aim  +48.1 deg
+[ 8] at ( -28.8, -28.9)  -104.0 deg ->   1.6 cm to go
+  face east [1]:   -81.6 (+81.6 off)
+  face east [2]:     0.9 ( -0.9 off)
+
+STAGED at ( -22.6, -25.8) heading     1.0 (target (-30.0, -30.0, 0.0))
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=955 cyc=10236 tlm=full next=10 done=9 reason=stop wifi=1 radio=1 channel=48 group=29

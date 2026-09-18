@@ -1,0 +1,14 @@
+tour square: 9 steps
+  device NEZHA2 robot tovez 2314287040
+  [  1/9] leg1         dist   600.0 rot      0.0 ok
+  [  2/9] pivot        dist     0.0 rot   1570.8 ok
+  [  3/9] leg2         dist   600.0 rot      0.0 ok
+  [  4/9] pivot        dist     0.0 rot   1570.8 ok
+  [  5/9] leg3         dist   600.0 rot      0.0 ok
+  [  6/9] pivot        dist     0.0 rot   1570.8 ok
+  [  7/9] leg4         dist   600.0 rot      0.0 ok
+  [  8/9] pivot        dist     0.0 rot   1570.8 ok
+
+closure 62.1 mm
+chart reports/tovez-square-20260918-baked/square.png
+data  reports/tovez-square-20260918-baked/square.json
