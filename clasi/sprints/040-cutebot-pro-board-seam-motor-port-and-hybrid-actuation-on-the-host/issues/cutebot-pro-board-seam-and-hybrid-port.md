@@ -1,5 +1,15 @@
 ---
-status: pending
+status: in-progress
+sprint: '040'
+tickets:
+- 040-001
+- 040-002
+- 040-003
+- 040-004
+- 040-005
+- 040-006
+- 040-007
+- 040-008
 ---
 
 # Cutebot Pro: board seam, motor port, and the hybrid actuation path (host side)
