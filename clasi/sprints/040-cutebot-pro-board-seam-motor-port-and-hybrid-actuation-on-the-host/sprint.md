@@ -1,7 +1,7 @@
 ---
 id: '040'
 title: Cutebot Pro board seam, motor port, and hybrid actuation on the host
-status: ticketing
+status: executing
 branch: sprint/040-cutebot-pro-board-seam-motor-port-and-hybrid-actuation-on-the-host
 use-cases: []
 issues:
