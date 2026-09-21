@@ -90,13 +90,15 @@ bakes exactly as they are for the Nezha fleet.
 2. **The onboard speed readback is one unsigned byte in cm/s.** Not a
    velocity a servo loop can close on; not even signed.
 
-So the Cutebot's PID is real but it is a *student-block* controller
-(20-50 cm/s, blocking distance/angle moves with a done flag). It is
-not a replacement for `DifferentialDrive`. What the Cutebot DOES give
-us cleanly is exactly what the Nezha brick gives us: a raw PWM per
-wheel and an accumulating encoder per wheel. The clamp is in the
-extension's TypeScript; whether the MCU itself enforces it is a §8
-measurement, and the only thing that could reopen §3.B.
+So the Cutebot's PID cannot be the ONLY controller: below 200 mm/s
+there is nothing to hand it. What the Cutebot DOES give us cleanly is
+exactly what the Nezha brick gives us — a raw PWM per wheel and an
+accumulating encoder per wheel — PLUS a per-wheel velocity setpoint
+that is usable at cruise. The stakeholder's direction (2026-09-21) is
+to use both: our kernel in the slow regime, their loop in the fast
+one. That is §3.D. The clamp is in the extension's TypeScript; whether
+the MCU itself enforces it is a §8 measurement that sets where the
+handoff can sit.
 
 ## 2. Where this stack already splits hardware from the rest
 
@@ -159,7 +161,7 @@ not behaviour. A second published extension is NOT proposed.
 
 ## 3. Options
 
-### A. Cutebot as a `DiffDrive::Motor` port — RECOMMENDED
+### A. Cutebot as a `DiffDrive::Motor` port — THE BASE (D builds on it)
 
 `platform/cutebot_port.{h,cpp}`: `CutebotMotorPort : DiffDrive::Motor`,
 one per wheel, both bound to a shared `CutebotDevice` (the 0x10 slave)
@@ -195,21 +197,99 @@ What to watch:
   post-write wait the extension uses should be a `Sleeper` sleep, not
   a spin, per the fiber-yield rule.
 
-### B. Onboard speed loop as the kernel — NOT NOW
+### B. Onboard speed loop as the whole kernel — REJECTED
 
 Replace `DifferentialDrive` with a `CutebotKernel` that forwards
 velocities to `0x80` and builds `Output` from `0xA0` reads. Blocked by
 §1.5: the 200 mm/s floor clips every profile and the cm/s byte cannot
 close a loop. It would also need a new seam — `MotionEngine` takes
 `DifferentialDrive&` concretely, not an interface — which is a larger
-refactor than A for a worse controller. Revisit only if §8.7 shows the
-MCU itself accepts speeds below 200 mm/s.
+refactor than A for a worse controller.
 
 ### C. Onboard distance/angle moves as a student fast path — LATER
 
 `0x81`/`0x83` + `0xA0 [5]` polling. Blocking, no arcs, no ratio-locked
 wheel moves, no telemetry mid-move. Fine as an extra block for
 students; never the core. Out of scope for this arc.
+
+### D. Hybrid: our kernel below the handoff, their loop above — THE PLAN
+
+Stakeholder direction 2026-09-21: "use our raw speeds for lower speed
+values and switch to their PID for faster speeds." This is A plus one
+more actuation path in the same port, chosen per tick by a policy that
+lives in the board layer. Nothing above the port changes except one
+observer hook in `MotionEngine`.
+
+**Where the velocity setpoint comes from.** `MotionEngine::service()`
+already computes the shaped per-wheel command every tick and hands it
+to the kernel at exactly two sites (`motion_engine.cpp:368` for a
+segment, `:406` for a hold) as `(velocity, twist)` in mm/s. The kernel
+does not publish its commanded velocity (`Output` has measured
+`velocity`/`twist` only, `diffdrive.h:122-161`; `Command` is private),
+and the kernel is vendored. So the setpoint is tapped in `motion/`,
+which this repo owns: an optional `WheelCommandTap` observer that
+`MotionEngine` notifies with `(left, right)` mm/s alongside every
+`kernel_.drive()` and with "neutral" alongside every
+`kernel_.neutral()`. Host-testable, one small class, no kernel edit.
+
+**Where the decision is made.** `CutebotDevice` (the shared 0x10
+object both `CutebotMotorPort`s bind to) receives the tap. Each cycle
+it holds the kernel's two staged duties AND the engine's two
+setpoints, and a `CutebotActuationPolicy` picks ONE frame to ship:
+
+| regime | frame | who closes the loop |
+|---|---|---|
+| slow, ramps, taper, nudge, pivots with an inner wheel under the floor | `0x10` PWM from the kernel's duty | our kernel |
+| fast cruise, both wheels at or above the handoff (or exactly 0) | `0x80` mm/s setpoints from the tap | the Cutebot MCU |
+
+The kernel keeps stepping in velocity mode throughout: it still reads
+both encoders, publishes `Output`, feeds odometry, honours the lease,
+estop and stall latches. While the onboard loop has the wheels, the
+port simply does not ship the kernel's duty, and reports
+`appliedDuty()` as what the kernel asked for so nothing upstream sees
+a discontinuity. The kernel's PI integrator sits at whatever it had
+at up-handoff and, with the onboard loop holding the target, sees
+near-zero error — so at down-handoff its duty resumes close to right.
+That is the hypothesis; §8 measures it.
+
+**Two candidate policies**, both to be bench-scored, selected at
+runtime through the config table so the A/B needs no reflash:
+
+1. *Threshold with hysteresis* — engage at both |v| ≥ 220 mm/s,
+   release below 180 (numbers illustrative). Simple; hands off twice
+   on every leg that cruises above the floor, once on the ramp and
+   once at the top of the taper. The taper crossing is the one that
+   can cost arrival accuracy.
+2. *Plateau only* — engage only once the shaper reports it is at
+   cruise, release the moment braking begins, so the whole approach to
+   the stop is ours. The tap carries the shaper's phase for this.
+
+Config surface: `onboard_pid` (0 off = pure A, 1 threshold, 2 plateau)
+and `onboard_floor` [mm/s] as two new `config_fields.h` rows, so
+`SET onboard_pid 0` is always the escape hatch.
+
+**Handoff hazards — each one a §8 probe, none of them known:**
+
+- Up-handoff: does `0x80` take over cleanly from a running PWM, or
+  does the MCU's integrator start from zero and bump?
+- Down-handoff: does a `0x10` write cancel the onboard loop at all?
+  If the MCU keeps servoing until it sees a `0x80` zero, a stop-then-
+  PWM sequence brakes the robot mid-leg — that would force policy 2
+  and a release well before the taper.
+- Accuracy of their setpoint against OUR encoder read, at 200, 300,
+  400 mm/s. Their loop closes on their pulses; we score it on ours.
+- Per-wheel eligibility: `0x80` treats 0 as "stop" but clamps 1..199
+  up to 200, so an arc whose inner wheel is under the floor can never
+  be theirs. The policy must gate on BOTH wheels.
+- Stop: `emergencyStop()` sends `0x80` zeros AND `0x10` zeros; which
+  one actually stops a wheel under onboard control is a probe.
+
+**Why this is still small.** The tap is ~40 lines in `motion/` with a
+host test; the policy is a pure function in the board layer with a
+host test; the sim bus grows a simulated onboard loop (a first-order
+lag to setpoint on `SimWheel`, the same physics class) so
+`sim_tour.py` can run a hybrid tour before a board is touched. The
+Nezha board ignores the tap entirely.
 
 ## 4. Board selection
 
@@ -267,7 +347,15 @@ exists precisely so a port's real bytes are tested rather than a
 
 - `tests/host/sim_cutebot_bus.h` — parses `FF F9 cmd len ...`, answers
   the revision probe, `0xA0 [3|4]` in degrees from the shared `SimWheel`
-  physics, `0x50` clears; rejects anything else.
+  physics, `0x50` clears, and `0x80` as a simulated onboard loop (a
+  first-order lag driving `SimWheel` to the setpoint, with the 200
+  mm/s clamp modelled so a policy bug shows up on the host); rejects
+  anything else.
+- `test_wheel_command_tap.py` — `MotionEngine` notifies the tap with
+  the same numbers it gives the kernel, and "neutral" on every
+  `neutral()` path; `test_cutebot_actuation_policy.py` — the pure
+  policy under both modes, hysteresis, the both-wheels gate, and
+  `onboard_pid 0` shipping only PWM.
 - `cutebot_port_shim.cpp` + `test_cutebot_port.py` — frame bytes and
   direction bits for every sign combination, the two-wheel coalesced
   write (exactly one `0x10` frame per kernel cycle), degrees-to-counts,
@@ -304,32 +392,47 @@ Order of operations, each one a MEASURED line in the capture notes:
    vs the commanded sign (the sign bake), then `fullDutyVelocity`.
 6. `MOVE_X` 200 mm vs tape: `travelCalib`. In-place pivots vs the
    camera if it is on the field, else a protractor: `rotationalSlip`.
-7. The onboard loop, once, for the record: `0x80` at 100 mm/s — does
-   the MCU clamp to 200 or is that only the extension? Decides whether
-   §3.B is ever worth reopening.
+7. The onboard loop's floor: `0x80` at 100 and 150 mm/s — does the
+   MCU clamp to 200 or is that only the extension? Sets the lowest
+   `onboard_floor` the policy may use.
+8. The handoff probes from §3.D, in order: `0x80` setpoint accuracy
+   vs our encoder at 200/300/400 mm/s; up-handoff from a running PWM
+   (encoder velocity trace across the switch); does `0x10` cancel
+   `0x80`, and if not, what does; which zero stops a wheel under
+   onboard control.
+9. Hybrid tours: the same square at `onboard_pid 0`, `1`, `2`, scored
+   on closure and per-leg heading like every other tour in
+   `reports/`. The policy that wins on the numbers is the default.
 
 ## 9. Proposed arc
 
 Two sprints; the second cannot be planned in detail until §8.2-8.4
 have answered what the board is.
 
-**Sprint 040 — Board seam and the Cutebot Pro motor port.**
+**Sprint 040 — Board seam, the Cutebot Pro port, and the hybrid
+actuation path on the host.**
 Refactor the §2.1 list behind a board composition with zero behaviour
 change on Nezha (host suite green, one tovez/gopiv smoke over USB);
-`CutebotMotorPort` + device object + sim bus + host tests; `board`
-bake key in `make_deploy.py`; fleet JSON for the assigned board;
-docs. Ends with a hex that builds and a host tour that closes.
+`CutebotMotorPort` + `CutebotDevice` with both the PWM and the `0x80`
+paths; the `WheelCommandTap` in `MotionEngine`; the actuation policy
+with both modes and its two config rows; `sim_cutebot_bus.h` with the
+simulated onboard loop; host tests for all of it; `board` bake key in
+`make_deploy.py`; fleet JSON for the assigned board; docs. Ends with a
+hex that builds and a host hybrid tour that closes.
 
-**Sprint 041 — Bring-up and calibration on the Cutebot.**
-§8 on the real board; kernel bake for the Cutebot motors; encoder
-resolution decision (§3.A); WiFi pin answer (§5); the servo verb for
-the gripper; a square tour that closes within the fleet's numbers.
+**Sprint 041 — Bring-up, calibration and the handoff on the Cutebot.**
+§8 on the real board: revision and raw-pulse probes, caliper geometry,
+sign bake, `fullDutyVelocity`, `travelCalib`, slip; then the §3.D
+handoff probes and the three-way tour A/B that picks the default
+policy; encoder resolution decision (§3.A); WiFi pin answer (§5); the
+servo verb for the gripper.
 
-Everything in §6 beyond the servo, and §3.B/C, stay as issues.
+Everything in §6 beyond the servo, and §3.C, stay as issues.
 
 ## 10. Open decisions for the stakeholder
 
-1. Option A (our kernel over their PWM) vs B (their loop) — §1.5 says A;
-   confirm.
+1. ~~Option A vs B~~ — DECIDED 2026-09-21: the hybrid, §3.D. Our
+   kernel in the slow regime, their loop at cruise, policy chosen on
+   bench numbers with `onboard_pid 0` as the escape hatch.
 2. `configure motor` on a Cutebot: sign-only, or refuse?
 3. Which board, really: zeguz or zetuv, and is it a v1 or v2 Cutebot?
