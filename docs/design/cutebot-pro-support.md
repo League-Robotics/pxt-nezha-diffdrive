@@ -100,6 +100,48 @@ one. That is §3.D. The clamp is in the extension's TypeScript; whether
 the MCU itself enforces it is a §8 measurement that sets where the
 handoff can sit.
 
+### 1.6 Why would ELECFREAKS floor their loop at 200 mm/s? (UNVERIFIED)
+
+The stakeholder asked (2026-09-21). Nothing published answers it; the
+Cutebot Pro MCU firmware is not open. Four hypotheses, in the order
+the bench can separate them, because the answer sets where the
+handoff in §3.D can safely sit:
+
+1. **Speed measurement is a pulse count over a short fixed window.**
+   1428 pulses per revolution on a ~150 mm circumference is ~9.5
+   pulses per mm of travel. A 10 ms window sees ~10 pulses at
+   100 mm/s and ~19 at 200 mm/s: ±10 % vs ±5 % quantisation of the
+   loop's own feedback. A PI loop fed a 10 %-quantised measurement
+   hunts; at 200 it is tolerable. The cm/s integer readback is
+   consistent with a coarse internal speed variable. *Signature:*
+   commanded below 200 the wheel oscillates at a few Hz; our
+   encoder trace shows it.
+2. **The motors' breakaway sits near the low end.** 3.3 V, 0.2 A gear
+   motors on a rubber tyre have a deadband the Nezha fleet also has
+   (this repo's 70 mm/s floor, crawl pulses and nudge mode exist
+   for exactly this). A simple PI with no feedforward and no
+   anti-windup integrates through the deadband, then lurches:
+   stick-slip. *Signature:* stop-start creeping rather than
+   oscillation; our `i2cf`-style "driven but unchanged" ticks.
+3. **The clamp is a product decision, not a control limit.** The
+   blocks are for children, the documented range is 20-50 cm/s, and a
+   student who types 5 and sees nothing move files a complaint. The
+   `Math.max(..., 200)` lives in the TypeScript, not necessarily in
+   the MCU. *Signature:* `0x80` at 100 mm/s simply works.
+4. **Integer arithmetic in cm/s inside the MCU.** If the loop's error
+   term is an integer cm/s, its resolution is 5 % at 20 cm/s and
+   50 % at 2 cm/s; a floor near 20 is where such a loop becomes
+   usable. *Signature:* setpoints between 200 and 210 mm/s land on
+   the same measured speed.
+
+(1) and (2) are physics and would bind our own kernel too — except
+that our kernel reads position at 0.1° (or raw pulses, §3.A) and
+integrates over a 24 ms cycle with feedforward and a tuned floor, so
+it already lives below their limit on the Nezha. (3) is the good
+case and would let the handoff sit anywhere. §8.7's probe at 50, 100
+and 150 mm/s, logged against our encoder at 40 Hz, distinguishes all
+four without opening the MCU.
+
 ## 2. Where this stack already splits hardware from the rest
 
 `src/DESIGN.md` §1's layer map is the whole story. Below the line is
