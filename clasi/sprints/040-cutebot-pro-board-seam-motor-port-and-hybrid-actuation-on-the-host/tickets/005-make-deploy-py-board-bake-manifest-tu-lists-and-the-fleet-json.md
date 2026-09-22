@@ -1,9 +1,13 @@
 ---
 id: '005'
 title: make_deploy.py board bake, manifest/TU lists, and the fleet JSON
-status: open
-use-cases: ["SUC-001"]
-depends-on: ["001", "002", "004"]
+status: in-progress
+use-cases:
+- SUC-001
+depends-on:
+- '001'
+- '002'
+- '004'
 github-issue: ''
 issue: cutebot-pro-board-seam-and-hybrid-port.md
 completes_issue: true
@@ -74,21 +78,21 @@ scope:
 
 ## Acceptance Criteria
 
-- [ ] `geometry.firmware_bake.board` absent or `"nezha"` produces a
+- [x] `geometry.firmware_bake.board` absent or `"nezha"` produces a
       byte-identical scratch copy to today's build (re-confirms ticket
       001's guarantee still holds through this ticket's own changes).
-- [ ] `geometry.firmware_bake.board: "cutebot-pro"` selects
+- [x] `geometry.firmware_bake.board: "cutebot-pro"` selects
       `DIFFDRIVE_BOARD_CUTEBOT_PRO` in the scratch copy's
       `platform/board.h`.
-- [ ] An unrecognized `board` value (e.g. a typo) makes
+- [x] An unrecognized `board` value (e.g. a typo) makes
       `make_deploy.py` exit loudly with a clear message naming the bad
       value — proven by a test feeding it one.
-- [ ] `EXPECTED_CPP_FILES`, the pxt-bound TU exclusion list, and
+- [x] `EXPECTED_CPP_FILES`, the pxt-bound TU exclusion list, and
       `pxt.json`'s `files` all correctly enumerate every file added by
       tickets 001-004, verified by `test_pxt_manifest_completeness.py`
       and `test_pxt_bound_exclusion_is_current.py` passing with no
       manual exception added to either.
-- [ ] A fleet JSON entry exists for the assigned board (name confirmed
+- [x] A fleet JSON entry exists for the assigned board (name confirmed
       with the stakeholder, or left as an explicit TODO comment in the
       ticket's own completion notes if execution happens before the
       name is confirmed) with `hardware_model` and
@@ -109,3 +113,158 @@ scope:
 - **Verification command**: `uv run pytest`, plus one real
   `tools/make_deploy.py` invocation per board value against a scratch
   robot config.
+
+## Completion Notes
+
+**Files added (pxt-nezha-diffdrive).**
+`tests/tools/test_make_deploy_board_bake.py` — pins `_inject_board()`
+(absent key, explicit `"nezha"`, `"cutebot-pro"`, an unrecognized
+string, a malformed type, a corrupted regex site) using the same
+synthetic-`board.h` + `RADIO_ROBOT_LIB`-monkeypatch shape
+`test_make_deploy_motors.py` already uses; a second suite of tests
+(`TestRealSiblingConfig`) exercises `_inject_board()` against the REAL
+`radio-robot-lib` checkout this ticket also writes
+`config/robots/zeguz.json` into, skipping cleanly
+(`pytest.skip()`, following `test_ruff_clean.py`'s own precedent for
+an absent optional dependency) when that checkout or the zeguz config
+specifically is not present. 21 tests total (17 pure-Python + 4
+real-sibling), all passing in this checkout.
+
+**Files modified (pxt-nezha-diffdrive).** `tools/make_deploy.py`:
+`_inject_board(deploy_dir, robot)` (new, placed beside
+`_read_robot_firmware_bake()`/before `_inject_geometry()`), wired into
+all three build paths `main()` already injects geometry/motors from
+(`--fault-spin`, `--program <other>`, and the primary `test.ts` build)
+— `_inject_geometry()` is injected in all three today, so `board`
+followed that precedent rather than `_inject_motors()`'s narrower
+two-of-three placement (a robot's board identity is a build-wide fact,
+not something that should differ between the primary deploy and a
+`--fault-spin`/other-program variant of the same robot). `_inject_motors()`
+gained one new refusal (see table below) and its docstring documents
+why. `tools/DESIGN.md`: the `make_deploy.py` inventory row and the
+`_inject_motors()` prose paragraph both extended to name the new
+`board` bake and its cross-check with `_inject_motors()`.
+`EXPECTED_CPP_FILES`, the pxt-bound TU exclusion list
+(`tests/DESIGN.md`), and `pxt.json`'s `files` needed NO changes here —
+tickets 001/002/004 already added every file this ticket's own
+description asked to reconcile (`board_nezha.cpp`, `board_cutebot.cpp`,
+`cutebot_port.cpp`, `cutebot_actuation_policy.cpp`); verified, not
+re-added, by re-running `test_pxt_manifest_completeness.py` /
+`test_pxt_bound_exclusion_is_current.py` / `test_make_deploy_board_seam.py`
+before touching anything.
+
+**`_inject_board()`'s injection-behaviour table**, its own doc comment's
+summary tested by `test_make_deploy_board_bake.py`:
+
+| `firmware_bake.board` | `board.h` result | reports in build log |
+|---|---|---|
+| absent (no key, or no `firmware_bake` block at all) | untouched — file never opened | no |
+| `"nezha"` | re-substituted to the same tracked literal (explicit no-op) | yes — `('board', 'nezha')` |
+| `"cutebot-pro"` | `DIFFDRIVE_BOARD_CUTEBOT_PRO` | yes — `('board', 'cutebot-pro')` |
+| anything else (typo, wrong type, `1`, `["cutebot-pro"]`, ...) | `sys.exit()` naming the bad value, the robot, and the accepted set | n/a (build aborts) |
+
+**The `_inject_motors()` / cutebot-pro cross-check decision (this
+ticket's own "decide and document" item).** Chose REFUSE, not silent
+no-op. `board_nezha.cpp`'s whole body — including the two
+`NezhaMotorPort` lines `_inject_motors()` substitutes over — sits
+behind `#if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_NEZHA` (confirmed by
+reading the file), so on a `cutebot-pro` build the substitution would
+still "succeed" (the regex site exists in the always-compiled
+translation unit) but compile into dead code that never runs — a
+silent no-op indistinguishable, from the config author's side, from a
+working bake. That is exactly the class of stale-but-plausible config
+this fleet's own rules exist to catch (the mounts-table story in
+`.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`), so
+`_inject_motors()` now `sys.exit()`s when a robot's config declares
+BOTH `firmware_bake.board: "cutebot-pro"` AND a `firmware_bake.motors`
+block, naming both keys and telling the operator to remove one.
+`board: "cutebot-pro"` with no `motors` block (zeguz's own real shape)
+does not trip this — proven by
+`test_cutebot_pro_board_alone_does_not_trip_the_motors_refusal`.
+
+**Fleet JSON (radio-robot-lib, committed separately, not pushed).**
+`config/robots/zeguz.json` — `identity.hardware_model` "ELECFREAKS
+Cutebot Pro", `identity.drivetrain_type` "diffdrive",
+`geometry.firmware_bake.board` "cutebot-pro", and NO other bake key.
+Computed radio pair, via `make_deploy.derive_radio_from_name('zeguz')`
+(this repo's own name-derived-addressing implementation, MEASURED this
+session by direct call, not transcribed): **channel 71, group 199** —
+matches `.claude/rules/playfield-testing.md`'s own 73-channel table
+row for zeguz, so the two independent sources (the derivation formula
+and the hand-kept table) agree.
+
+**The name-resolution question is UNRESOLVED, exactly as the ticket's
+own description anticipated, and is called out both in
+`zeguz.json`'s own `identity._identity_note` and here.** The
+stakeholder's dispatch instruction for this session states the name as
+"zeguz" (matching the design doc's own §8 note); a prior farm listing
+saw "zetuv on magni" instead, busy/refusing connect, with no fresh
+`mbdeploy list --remote` + `HELLO` run this session to settle it (no
+robot access in this host-only ticket). Per the ticket's own
+instruction ("create the config under the stakeholder-confirmed name
+at execution time rather than guessing"), `zeguz.json` was created
+under the name given for this dispatch, with an explicit note that a
+`HELLO` mismatch (the board answering "zetuv") means renaming the file
+and recomputing its radio pair for that name — NOT editing this one's
+values in place, since `zetuv`'s derived pair (49, 250, also computed
+this session) differs from zeguz's.
+
+**Schema validation, honestly reported.** `robot_config.schema.json`'s
+own docstring says `data/robots/*.json` (its stated target directory,
+which does not exist in this checkout — the real files are under
+`config/robots/`) "does not yet validate against this document"
+pending a later JSON-reshape migration. Confirmed directly this
+session: `jsonschema.validate()` against `zeguz.json` fails on
+`schema_version` (`additionalProperties: false` at the object root,
+which the schema does not declare) — and the SAME failure mode
+reproduces against the real, long-shipped `tovez.json`
+(`geometry.firmware_bake` and every underscore-prefixed provenance
+note are likewise undeclared `additionalProperties`). `zeguz.json`
+therefore follows the REAL fleet convention (the shape every other
+`config/robots/*.json` actually uses, which is what `make_deploy.py`
+reads) rather than the letter of the not-yet-enforced generated
+schema, and this divergence is not new or specific to this file.
+
+**`docs/design/cutebot-pro-support.md` Sec.8's "zeguz on mangi" vs
+"zetuv on magni" spelling** (one letter transposed) is UNEXPLAINED, not
+resolved this session — it could be a typo in the design doc's own
+note, or two genuinely different farm nodes. Not chased further:
+node identity is orthogonal to the robot-name question this ticket had
+to leave open, and no farm access exists in this host-only ticket to
+check `mbdeploy list --remote` against either spelling.
+
+**`test/DESIGN.md`'s "placeholder table" was NOT touched, and this is
+a deliberate decision, not an oversight.** The ticket text (Scope item
+5) says "tools/DESIGN.md and test/DESIGN.md's placeholder table
+updated for the new bake." Reading `test/DESIGN.md` (the TS-programs
+design doc, singular `test/`) shows its placeholder table is
+specifically the four `test.ts`-file substitutions `make_deploy.py`
+performs (`BOOT_VERSION`, `BOOT_ROBOT`, `BOOT_RADIO_LINK`,
+`otosBootId`) — `board.h` is a different file, never touched by any of
+those four regexes, and adding a row for it there would misdescribe
+what that table is. `tools/DESIGN.md` (updated, see above) is where
+the geometry/motors bake prose already lives and where the board bake
+now lives beside it. `tests/DESIGN.md` (plural, the pytest-suite
+design doc) needed no change: its translation-unit/exclusion tables
+were already correct per tickets 001/002/004, confirmed by re-running
+`test_pxt_manifest_completeness.py`/`test_pxt_bound_exclusion_is_current.py`
+rather than re-editing.
+
+**Full-suite result.** `uv run pytest tests/host tests/tools -q
+--ignore=tests/tools/test_field_dance_accel_bake.py` — **2281 passed**,
+MEASURED this session (matches ticket 001's own note on why that one
+file is excluded: it imports `tools/field_dance.py`, which connects to
+a live AprilCam daemon at import time, and none runs in this host-only
+session). `ruff check tools/make_deploy.py
+tests/tools/test_make_deploy_board_bake.py` — clean.
+
+**Not attempted / left for later.** A real `tools/make_deploy.py
+--robot zeguz --board cutebot-pro` DOCKER BUILD (compiling a hex) —
+that is this sprint's own mandated last-ticket build checkpoint
+(ticket 007), not this ticket's; this ticket's own verification is the
+scratch-copy substitution proven directly (`_sync_scratch()` +
+`_inject_board()` against the real tree, no compile). Confirming the
+robot's real identity via `HELLO` and, if it answers `zetuv`, renaming
+`zeguz.json` accordingly — flagged above and left for the session that
+has robot access. Any geometry/motors/travel_calib bake for zeguz —
+explicitly Sprint 041's job per this ticket's own non-negotiable.

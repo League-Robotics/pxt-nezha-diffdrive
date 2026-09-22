@@ -83,7 +83,7 @@ need more than a line; a file with no section is fully described here.
 
 | file | what it is for |
 |---|---|
-| `make_deploy.py` | builds a flashable hex in a scratch copy of the repo, bakes the target robot's radio channel/name/geometry/motors, and triages the build result. |
+| `make_deploy.py` | builds a flashable hex in a scratch copy of the repo, bakes the target robot's radio channel/name/geometry/motors/board, and triages the build result. |
 | `gen_config_field_enum.py` | the repo's one code generator: writes `src/blocks/motion.ts`'s `ConfigField` enum from `src/comms/config_fields.h`. `--check` reports drift without writing. |
 | `publish_extension.py` | assembles the student-facing MakeCode extension from `pxt.json`'s `files` plus `extension/`, and pushes it to its own generated repository. |
 | `publish_wiki.py` | renders a Markdown doc from this repo onto the Robot Garage DokuWiki. |
@@ -228,6 +228,19 @@ unregistered tag and applies its own parallax correction (see
   Units remain centimetres. `make_deploy.py` now also bakes
   `firmware_bake.motors` (`_inject_motors()`), the per-robot port and
   forward-sign mapping, beside the geometry keys.
+  **Sprint 040 ticket 005** adds `firmware_bake.board`
+  (`_inject_board()`): which physical board a build composes against
+  (`"nezha"`, the default, or `"cutebot-pro"`), rewritten into the
+  scratch copy's `src/platform/board.h` `DIFFDRIVE_BOARD` literal —
+  absent key or `"nezha"` is a no-op/byte-identical selection (an
+  explicit `"nezha"` still reports through the build log, unlike an
+  absent key); anything else loudly exits naming the bad value. See
+  `docs/design/cutebot-pro-support.md` Sec.4. `_inject_motors()`
+  itself now refuses a robot config that declares BOTH
+  `firmware_bake.board: "cutebot-pro"` and a `firmware_bake.motors`
+  block — `board_nezha.cpp`'s `NezhaMotorPort` construction sits behind
+  `#if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_NEZHA`, so on a Cutebot build
+  that bake would compile into dead code and silently do nothing.
 
 ## Build / deploy
 
