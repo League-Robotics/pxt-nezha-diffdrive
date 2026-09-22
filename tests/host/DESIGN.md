@@ -36,7 +36,10 @@ Three kinds of file, one pattern:
   under test one step at a time.
 - **Shims** (`kernel_shim.cpp`, `motion_engine_shim.cpp`,
   `odometry_shim.cpp`, `run_queue_shim.cpp`, `run_bridge_shim.cpp`,
-  `wire_grammar_shim.cpp`, `wire_motion_verb_shim.cpp`) — the
+  `wire_grammar_shim.cpp`, `wire_motion_verb_shim.cpp`,
+  `nezha_board_diag_shim.cpp`, `cutebot_port_shim.cpp`,
+  `cutebot_actuation_policy_shim.cpp`, `cutebot_hybrid_shim.cpp` —
+  sprint 040) — the
   `extern "C"` surfaces ctypes can bind: each bundles the class under
   test with its private fakes behind an opaque handle plus free
   functions. `run_bridge_shim.cpp` (sprint 033) exposes
@@ -105,6 +108,37 @@ Three kinds of file, one pattern:
   `std::lround(v * 1000.0)` instead of a truncating
   `static_cast<int>(v * 1000.0f)`, matching what production actually
   does.
+  `nezha_board_diag_shim.cpp` (sprint 040 ticket 001) compiles
+  `nezha_port.cpp` plus a small shim proving `nezhaBoardDiagValue()`'s
+  field mapping directly (`test_board_nezha_diag.py`) — the
+  board-diagnostics hook `platform/board_nezha.cpp`'s own
+  `boardDiagValue()` delegates to, since `board_nezha.cpp` itself is
+  not host-linkable (§6 below; its own thin hook wiring is instead
+  source-pinned by `test_board_seam_source_pin.py`, and
+  `board_cutebot.cpp`'s equivalent by `test_board_cutebot_source_pin.py`).
+  `cutebot_port_shim.cpp` (ticket 002, extended ticket 004) exposes the
+  real `CutebotDevice`/`CutebotMotorPort` pair over
+  `sim_cutebot_bus.h` — a fake 0x10 slave answering v2 frames, the
+  revision probe, `0xA0 [3]/[4]` degree reads from a shared `SimWheel`,
+  `0x50` clears, and (ticket 004) a simulated `0x80` onboard speed loop
+  with the 200 mm/s clamp modelled — the Cutebot analogue of
+  `sim_nezha_bus.h`, for the identical reason: a port's real bytes
+  should be tested, not a `FakeMotor` above them; driven by
+  `test_cutebot_port.py` (21 tests: frame bytes/dirbits, the
+  exactly-one-frame-per-cycle coalescing guarantee, the
+  degrees-to-counts conversion, `rebaseline()`, `emergencyStop()`,
+  `configureWiring()`'s sign-accept/port-refuse behaviour, and the
+  NACK/held-`sampleTime()` contract).
+  `cutebot_actuation_policy_shim.cpp` (ticket 004) exposes
+  `CutebotActuationPolicy::decide()` alone, with zero I2C or
+  `CutebotDevice` in the link, for `test_cutebot_actuation_policy.py`'s
+  pure-function coverage (31 tests: both modes, the hysteresis band,
+  the both-wheels eligibility gate); `cutebot_hybrid_shim.cpp` (ticket
+  004) is a third, device-level view over the same real
+  `CutebotDevice`/`CutebotMotorPort`/`sim_cutebot_bus.h` stack, distinct
+  from both, for `test_cutebot_hybrid_actuation.py`'s handoff-bookkeeping
+  coverage (frame choice on release, `appliedDuty()` under onboard
+  control).
   `motion_engine_shim.cpp` (or `kernel_shim.cpp`, whichever the
   extraction ticket judges the better home — the settle helper needs
   only `kernel.step()`/`kernel.output()`, already exposed by

@@ -36,11 +36,14 @@ alongside every `kernel_.drive()` call (plus that tick's
 `VelocityShaper::Step::phase`), and `onNeutral()` alongside every
 `kernel_.neutral()` call. It exists because the vendored kernel does
 not publish what it was last commanded, only what it measured — a
-board sitting below the kernel (the Cutebot Pro's hybrid actuation
-policy, a later sprint) has no other way to learn the setpoint.
+board sitting below the kernel has no other way to learn the setpoint.
 `MotionEngine` holds it as a nullable, non-owning pointer
-(`setWheelCommandTap()`); no tap installed (every board today) is
-byte-identical to before this class existed.
+(`setWheelCommandTap()`); no tap installed is byte-identical to before
+this class existed. **Ticket 004**, same sprint, gives it its first
+real consumer: a Cutebot-composed board installs a `CutebotTapAdapter`
+(`platform/cutebot_port.h`) that converts the shaped mm/s to
+`CutebotActuationPolicy`'s hybrid-actuation decision (`src/DESIGN.md`
+§7). A Nezha-composed board still leaves the pointer `nullptr`.
 
 Detail lives in [`src/DESIGN.md`](../DESIGN.md) §3. This file does not
 duplicate that content — it exists so `ls src/motion/` points

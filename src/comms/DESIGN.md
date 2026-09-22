@@ -8,7 +8,12 @@ The v6 ASCII wire stack and everything that gets it onto the wire:
 motion-completion resolution), `config_fields.h` (the wire's config
 name/ordinal/unit table — one list, read by `wire_adapter.cpp` and by
 the `ConfigField` generator, with the matching behaviour in
-`shims.cpp`), `serial_transport.*` /
+`shims.cpp` — sprint 040 ticket 004 appends `onboard_pid` (43) and
+`onboard_floor` (44), the hybrid-actuation policy's mode and floor;
+the rows exist on the wire for every board, since the table is
+append-only, but their `shims.cpp` accessor is a documented no-op/
+refusal on a Nezha-composed build and only does something on a
+Cutebot-composed one — see `src/DESIGN.md` §5/§7), `serial_transport.*` /
 `radio_transport.*` (byte framing over uBit.serial and the fleet
 radio relay — the radio owns its own opt-in gate, `enable()`/
 `enabled()`, and its RX accept/drop decision plus the four counters

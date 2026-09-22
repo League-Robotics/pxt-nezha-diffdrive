@@ -40,6 +40,16 @@ test programs (`test/`).
   `core/`/`motion/`/`platform/`/`comms/`/`blocks/` subdirectories by
   dependency layer (sprint 013), but that grouping is coarse, so that
   one doc still carries the logical subsystem breakdown as sections.
+  **Sprint 040** adds a board-composition layer inside `platform/`
+  (`board.h` + `board_nezha.cpp`/`board_cutebot.cpp`, one compile-time
+  literal selecting which board's ports `shims.cpp`'s `Rig` composes)
+  and a second hardware port beside the Nezha one — `CutebotMotorPort`/
+  `CutebotDevice`/`CutebotActuationPolicy` (`platform/cutebot_port.*`,
+  `platform/cutebot_actuation_policy.*`) for the ELECFREAKS Cutebot
+  Pro, including a hybrid actuation path that hands cruise-speed
+  control to the Cutebot's own onboard loop and back. See
+  `src/DESIGN.md` §1/§7 and `src/platform/DESIGN.md` for the detail;
+  `docs/design/cutebot-pro-support.md` is the design rationale.
 - [`tools/DESIGN.md`](../../tools/DESIGN.md) — host-side Python bench
   and diagnostic tooling: the sequenced-wire link layer and its four
   carriers, the overhead camera, playfield geometry and the geofence,
@@ -139,6 +149,18 @@ to the layer that knows which axis is dominant and in what units. See
 `src/DESIGN.md` §3 for the full object model and
 [`docs/design/motion-profile-unification.md`](../../docs/design/motion-profile-unification.md)
 for the design rationale.
+
+**Sprint 040** gives `MotionEngine` its first outbound dependency below
+the kernel: an optional, nullable `WheelCommandTap*`
+(`motion/wheel_command_tap.h`, host-portable) that `service()` notifies
+with the shaped per-wheel `(left, right)` mm/s and that tick's shaping
+phase alongside every `kernel_.drive()` call, and with `onNeutral()`
+alongside every `kernel_.neutral()` call — the only way a party sitting
+below the vendored kernel (which publishes measured `Output`, never
+commanded `Command`) can observe what this engine is asking for. No tap
+installed is byte-identical to before this collaborator existed; a
+Cutebot-composed board is the first real consumer (`src/DESIGN.md`
+§3/§7).
 
 ### Protocol versioning
 

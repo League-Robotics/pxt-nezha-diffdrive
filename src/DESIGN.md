@@ -28,14 +28,14 @@ dependency), so treat them as invariants:
 | Layer | Files | May include |
 |---|---|---|
 | Kernel | `core/diffdrive.h/.cpp` | `<cstdint>`/`<cmath>`/`<algorithm>` only — **no I2C, no CODAL, no MakeCode, no geometry** |
-| Motion engine | `motion/motion_engine.h/.cpp` | `diffdrive.h` + libc only — host-portable |
+| Motion engine | `motion/motion_engine.h/.cpp`, `motion/wheel_command_tap.h` (sprint 040 ticket 003) | `diffdrive.h` + libc only — host-portable |
 | Heading wrap (sprint 006) | `core/heading_wrap.h` | libc only — host-portable, no project includes at all |
 | Encoder glitch armor (sprint 006) | `core/encoder_glitch_armor.h` | libc only — host-portable, no project includes at all |
 | Odometry (sprint 033) | `motion/odometry.h` | `motion_engine.h` + libc only — host-portable |
 | Wire grammar | `comms/wire_handler.h/.cpp` | libc only — host-portable, no project includes at all |
 | Wire adapter | `comms/wire_adapter.h/.cpp` | `wire_handler.h` + libc — host-portable; reaches hardware only through forward-declared `shims.cpp` free functions |
 | Transports | `comms/serial_transport.*`, `comms/radio_transport.*` | CODAL (`pxt.h` in the .cpp) — know bytes and framing, **nothing** about verbs, grammar, or motion |
-| Hardware ports | `platform/nezha_port.*`, `platform/otos_port.*`, `platform/platform_ports.h` | `pxt.h` + the port interfaces they implement — know I2C/CODAL, nothing about blocks or the wire; `nezha_port.cpp` additionally calls into `encoder_glitch_armor.h` and `otos_port.cpp` into `heading_wrap.h`, both above (a dependency on a lower, host-portable layer, not membership in this one) |
+| Hardware ports | `platform/board.h`, `platform/board_nezha.cpp` / `platform/board_cutebot.cpp` (sprint 040 ticket 001/002, the board-composition seam), `platform/nezha_port.*`, `platform/cutebot_port.*` / `platform/cutebot_actuation_policy.*` (sprint 040 ticket 002/004), `platform/otos_port.*`, `platform/platform_ports.h` | `pxt.h` + the port interfaces they implement — know I2C/CODAL, nothing about blocks or the wire; `nezha_port.cpp` additionally calls into `encoder_glitch_armor.h` and `otos_port.cpp` into `heading_wrap.h`, both above (a dependency on a lower, host-portable layer, not membership in this one). **Not every file here reaches `pxt.h`**: `board.h`, `cutebot_port.*` and `cutebot_actuation_policy.*` are fully host-portable (no `pxt.h` at all — `cutebot_port.*`'s dependency on `wheel_command_tap.h` above is the same kind of downward-only reach `nezha_port.cpp`/`otos_port.cpp` already have); `board_nezha.cpp`/`board_cutebot.cpp` reach `pxt.h` only inside `#ifndef DIFFDRIVE_HOST_BUILD`, guarding just their own fault-context frame's real I2C write, mirroring `nezha_port.cpp`'s own guarded fault handlers |
 | Protocol composition | `comms/protocol.h/.cpp` | everything above — the CODAL fiber that plumbs transports into the wire stack |
 | Shim + blocks | `shims.cpp`, `blocks/sim.ts`, `blocks/run.ts`, `blocks/pose.ts`, `blocks/stop.ts`, `blocks/world.ts`, `blocks/motion.ts` (sprint 012: split from a single `main.ts` — see §9; sprint 013: `.ts` files grouped into `blocks/`) | everything — the composition root and the student-facing API |
 
@@ -535,10 +535,14 @@ shaped per-wheel `(left, right)` mm/s and that tick's
 `kernel_.drive()` call, and `onNeutral()` alongside every
 `kernel_.neutral()` call — the only way a party below the kernel (which
 is vendored and publishes measured `Output`, never commanded `Command`)
-can observe what this engine is actually asking for. Every fleet board
-today leaves it null; the pointer defaults to `nullptr` and every
-notify site is a single null check, so behaviour without one is
-byte-identical to before this collaborator existed.
+can observe what this engine is actually asking for. The pointer
+defaults to `nullptr` and every notify site is a single null check, so
+behaviour with no tap installed is byte-identical to before this
+collaborator existed. Every Nezha-composed board still leaves it null;
+a Cutebot-composed board (sprint 040 ticket 004) installs a
+`CutebotTapAdapter` (`platform/cutebot_port.h`) through
+`boardWheelCommandTap()`, the first real consumer — see §7's
+`CutebotActuationPolicy`.
 
 **Invariants.**
 - `wheels_*` and every reduction **clears the planner first** — at
@@ -776,7 +780,15 @@ robot without a live OTOS (§9), so this handler always dispatches to
 here is the **single** place wire milliradians become radians.
 GET/SET map snake_case wire names 1:1 onto config ordinals — 15 names
 through sprint 006, 18 as of sprint 007, 19 as of 2026-08-29, 34 as of
-sprint 029 ticket 004, and 32 rows today.
+sprint 029 ticket 004, and 37 rows as of sprint 040 ticket 004, which
+appends `onboard_pid` (43) and `onboard_floor` (44) — the
+hybrid-actuation policy's mode selector and its floor (§7). The two
+rows exist on the wire for every board, since the table is append-only
+and never reused, but only mean something on a Cutebot-composed board:
+a Nezha-composed build's accessor is a documented no-op (GET answers
+`0`, SET is refused). `SET onboard_pid 0` is reachable and ships PWM
+only on every board, with no dependency on any other config value — the
+sprint's own explicit escape-hatch requirement.
 
 **The config surface is one list, in one file.** `comms/config_fields.h`
 holds `kConfigFields[]` — `{name, ordinal, unit}`, one row per name a
@@ -1304,7 +1316,52 @@ wheels tour captured over the net; the radio silent with the switch
 off — recorded in
 `docs/knowledge/2026-09-02-wifi-transport-tovez.md`.
 
-## 7. Hardware ports — `platform/nezha_port.*`, `platform/otos_port.*`, `core/heading_wrap.h`, `core/encoder_glitch_armor.h`, `platform/platform_ports.h`
+## 7. Hardware ports — `platform/board.h`, `platform/board_nezha.cpp`, `platform/board_cutebot.cpp`, `platform/nezha_port.*`, `platform/cutebot_port.*`, `platform/cutebot_actuation_policy.*`, `platform/otos_port.*`, `core/heading_wrap.h`, `core/encoder_glitch_armor.h`, `platform/platform_ports.h`
+
+**Board composition (`platform/board.h`, `platform/board_nezha.cpp`,
+`platform/board_cutebot.cpp` — sprint 040 ticket 001, extended by
+ticket 002/004).** One compile-time literal, `DIFFDRIVE_BOARD`
+(`DIFFDRIVE_BOARD_NEZHA` / `DIFFDRIVE_BOARD_CUTEBOT_PRO`, defaulting to
+Nezha so every fleet robot's absent `geometry.firmware_bake.board` key
+still means Nezha), decides which board `shims.cpp`'s `Rig` composes.
+Before this sprint `Rig` declared two concrete `NezhaMotorPort`
+members inline; it now composes a `BoardMotors{left, right}` reference
+pair from whichever board is selected, and `configureMotor()`/
+`diagValue()` reach the composed board's wiring/diag state through
+four small hooks (`boardMotors()`, `boardWiring()`/
+`boardConfigureWiring()`, `boardDiagValue()`) rather than assuming a
+`NezhaMotorPort` type directly. `board.h` itself is host-portable (it
+declares the hooks and reaches only `core/diffdrive.h`/
+`core/motor_wiring.h`/`motion/wheel_command_tap.h`); each
+`board_*.cpp` is a per-board singleton (`NezhaBoard`/`CutebotBoard`)
+that constructs its two ports through a *default* I2C-bus argument only
+the target's `platform/microbit_i2c_bus.cpp` defines, so neither is
+host-linkable as a whole even though each reaches `pxt.h` only inside
+`#ifndef DIFFDRIVE_HOST_BUILD` (guarding just its own
+`diffdrive_emergency_motor_stop()` fault-context frame's real
+`uBit.i2c.write()` — moved into `board_nezha.cpp` from
+`nezha_port.cpp` for the Nezha half, since a second board's frame at
+the same I2C address must not answer for the wrong one).
+`board_nezha.cpp`'s own field mapping is additionally host-tested
+directly through `nezha_port.h`'s `nezhaBoardDiagValue()`
+(`test_board_nezha_diag.py`); `board_cutebot.cpp`'s equivalent lives in
+`cutebot_port.h`'s `cutebotBoardDiagValue()` (`test_cutebot_port.py`).
+Both files' own thin hook-wiring bodies, which cannot be host-compiled
+at all, are pinned as source text instead
+(`test_board_seam_source_pin.py`, `test_board_cutebot_source_pin.py`).
+`kRole` (`comms/protocol.cpp`) is generalized the same way: a
+`#elif DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_CUTEBOT_PRO` branch reports
+`"CUTEBOTPRO"`; the Nezha branch still reports `"NEZHA2"`, byte for
+byte. `tools/make_deploy.py`'s `geometry.firmware_bake.board` bake key
+(`"nezha"` default, or `"cutebot-pro"`) rewrites the scratch copy's
+`board.h` literal (`_inject_board()`, sprint 040 ticket 005); PXT
+compiles every `EXPECTED_CPP_FILES` entry regardless of which board is
+selected, so both boards' code is always in the hex and the `#if` is
+the only switch — a flash-size cost, never a behavior cost. A robot
+config that sets both `firmware_bake.board: "cutebot-pro"` and a
+`firmware_bake.motors` block is refused loudly by `_inject_motors()`
+rather than silently compiling the (correctly ignored, but
+config-author-invisible) dead Nezha branch.
 
 **NezhaMotorPort** (`DiffDrive::Motor` over I2C 0x10). The
 write-shaping pipeline is not styling — each stage guards a measured
@@ -1399,6 +1456,112 @@ relying on it happening to also be a large-magnitude jump. A genuine
 counter restart (two consistent implausible non-zero reads, or two
 consistent zero reads) still reaches `kAcceptAsRebaseline` through the
 existing two-strike path, unchanged.
+
+**CutebotMotorPort + CutebotDevice** (`platform/cutebot_port.h/.cpp`,
+sprint 040 ticket 002, extended ticket 004; `DiffDrive::Motor` over I2C
+0x10). The ELECFREAKS Cutebot Pro is ONE I2C slave whose `0x10` write
+carries BOTH wheels' duties in a single v2 frame (`FF F9 <cmd> <len>
+<params...>`), so `CutebotMotorPort` (one per wheel) stages its duty on
+a shared `CutebotDevice`, which ships the coalesced frame the moment
+BOTH sides have staged since the last ship — exactly one `0x10` write
+per kernel cycle, never two, regardless of which side's `tick()`
+completes the pair first. `CutebotDevice` also runs the 0x10 slave's
+other session state: the revision probe (`99 15 01 00 00 00 88`,
+cached for the session), the `0xA0 [3]/[4]` encoder reads (degrees ×10
+= kernel counts, the same "1 count = 0.1°" convention as the Nezha
+port), and `0x50` to zero an encoder (`rebaseline()` itself stays a
+software offset with no bus traffic, matching `NezhaMotorPort`'s own
+contract). A failed read holds the previous `sampleTime()` rather than
+fabricating a zero velocity, the identical freshness contract
+`NezhaMotorPort` gives. Every 1 ms post-write busy-wait the ELECFREAKS
+extension uses goes through `diffDrive::vfpSafeSleep()`, never a spin.
+Fully host-portable — no `pxt.h` anywhere in this file, not even
+guarded, unlike every other file in this section — and host-tested
+against a simulated 0x10 slave (`tests/host/sim_cutebot_bus.h`,
+`test_cutebot_port.py`: 21 tests covering frame bytes/dirbits for every
+duty-sign combination, the coalesced-write guarantee, the
+degrees-to-counts conversion, `rebaseline()`, `emergencyStop()`,
+`connected()`/held-`sampleTime()` on a simulated NACK, and
+`configureWiring()`, below).
+
+**`configureWiring()` on a Cutebot is sign-only; a port change is
+refused (sprint 040 ticket 002, resolving design doc §10.2's open
+question).** The Cutebot's two wheels are physically fixed to the one
+0x10 slave — there is no second port to move a wheel to, unlike the
+Nezha's four M1-M4 ports. `CutebotMotorPort::configureWiring(port,
+sign)` accepts a sign-only change and refuses any port-changing
+request, returning a platform-local `enum class WiringResult : uint8_t
+{ kOk, kUnimplemented }` rather than the wire's own `Wire::Result` —
+`cutebot_port.h` deliberately does not include `comms/wire_handler.h`,
+since this layer's own rule (§1's table) is that a hardware port may
+know I2C/CODAL and nothing about the wire, and including it would
+invert that dependency direction. `WiringResult` mirrors
+`Wire::Result`'s two relevant codes 1:1 with no include, so a future
+caller sitting above both layers could translate it with no semantic
+loss. The specific code for a port-changing request is
+`kUnimplemented`, not a range/bad-argument code — the requested port
+number is well-formed in the wire's own 1..4 vocabulary, it simply
+fails because this board has nothing a second port could mean; an
+out-of-range sign is a free no-op (`kOk`), the same precedent
+`NezhaMotorPort::configureWiring()` already sets for an invalid field.
+`board_cutebot.cpp`'s `boardConfigureWiring()` hook (void, matching
+every board's fixed hook signature) calls this and discards the
+result, which is not a regression versus today — `shims.cpp`'s
+`configureMotor()` block shim is itself void end to end on every
+board, on both Nezha and Cutebot.
+
+**CutebotActuationPolicy** (`platform/cutebot_actuation_policy.h/.cpp`,
+sprint 040 ticket 004) — the pure, per-tick decision between the
+kernel's `0x10` PWM duty and the Cutebot's onboard `0x80` speed-loop
+setpoint, per the design doc's own hybrid-actuation direction
+(stakeholder, 2026-09-21): our kernel below the handoff, the Cutebot's
+own loop at cruise. `decide(prevState, kernelDuty, tapSetpoint, mode,
+floor) -> {FrameChoice, PolicyState}` takes no I2C/board/kernel
+reference and is exercised entirely through
+`test_cutebot_actuation_policy.py` (31 tests) with zero simulated bus
+in the link — the same isolation `MotionLimits`/`VelocityShaper` get. A
+neutral tick or mode `0` (off) forces PWM unconditionally. Otherwise:
+
+- **Mode 1 (threshold with hysteresis).** `minMag`, the smaller of the
+  two wheels' tapped-setpoint magnitudes, engages at `>= floor * 1.1`
+  and — once engaged — stays engaged through `> floor * 0.9`, so an
+  already-engaged tick whose magnitude sits in the gap between the two
+  thresholds (the design doc's own illustrative 220/180 around a
+  200 mm/s floor, which this rule reproduces exactly at the default
+  floor) does not release early; the sim bus's own `0x80` clamp absorbs
+  anything under 200 gracefully in that gap.
+- **Mode 2 (plateau-only).** Both wheels must first pass the
+  both-wheels eligibility gate below; given eligibility, `kBrake`
+  (from `WheelCommandTap`'s `VelocityShaper::Phase`) releases, `kCruise`
+  engages, and `kAccel` holds whatever the previous state was (does not
+  newly engage, does not release an already-engaged run).
+- **Both-wheels eligibility gate** (used directly by mode 2, and
+  implicitly by mode 1's not-yet-engaged branch): a wheel is eligible
+  iff its tapped setpoint is exactly 0 or its magnitude is `>= floor`;
+  anything strictly between 0 and the floor is never eligible — an arc
+  whose inner wheel sits under the floor keeps the WHOLE pair on PWM,
+  since the hardware takes one frame for both wheels and there is no
+  way to split it.
+
+The `0x80` clamp (200..500 mm/s, nonzero-under-200 clamps up, exactly 0
+passes through) lives on the *receiving* end
+(`tests/host/sim_cutebot_bus.h`'s modelled onboard loop), not the
+sender — `CutebotDevice::writeOnboardFrame()` ships the tapped setpoint
+as decided, unclamped, so a policy bug that slips an under-floor
+nonzero value through is visible in what the simulated wheel actually
+does rather than silently absorbed. On release for any reason other
+than a neutral tick (hysteresis release, the plateau's first brake
+tick, an eligibility drop), `CutebotDevice::serviceCycle()` ships only
+the frame the policy chose; on a neutral/stop tick that arrives while
+previously engaged, it ships an `0x80` zero-both frame first, then
+falls through to the normal PWM path — both zeros are sent, since
+which one actually stops a wheel under onboard control is a sprint 041
+bench probe. **Defaults**: `onboard_pid` 0 (off, pure PWM) and
+`onboard_floor` 200.0 mm/s (matching the onboard loop's own hardware
+clamp), both configurable over the wire (§5). Every hysteresis-band
+and clamp constant here is a labelled POLICY CHOICE or a SOURCE READING
+of ELECFREAKS' own extension, never MEASURED — no Cutebot Pro hardware
+has run any of this yet (sprint 041's job).
 
 **OtosPort** (SparkFun OTOS, I2C 0x17; implements `PoseSource`).
 Ported verbatim from the reference firmware: register map, distinct
@@ -1861,13 +2024,20 @@ prefix again, and nothing in `tools/` still depends on it.
 ## 9. Shim + blocks — `shims.cpp`, `blocks/sim.ts`, `blocks/run.ts`, `blocks/pose.ts`, `blocks/stop.ts`, `blocks/world.ts`, `blocks/motion.ts`
 
 **shims.cpp** is the composition root and the MakeCode-facing C++
-surface. The lazy-singleton `Rig` composes: two `NezhaMotorPort`s
-(left M1 `-1`, right M2 `+1` — vevov wiring), the CODAL ports, the
-kernel (tovez-bake defaults + `twistHoldGain` 2.0, cadence 24 ms),
-and the `MotionEngine` (declared **after** the kernel — member init
-follows declaration order). `ensure()` calls `kernel.begin()` but
-**not** `kernel.start()` — the pure tick model — and launches the one
-background fiber this file owns, the starvation watchdog.
+surface. The lazy-singleton `Rig` composes: a `BoardMotors{left, right}`
+reference pair from whichever board `platform/board.h`'s
+`DIFFDRIVE_BOARD` selects (sprint 040 ticket 001 — before this sprint
+`Rig` declared two concrete `NezhaMotorPort` members directly; on the
+Nezha default the wiring is unchanged, left M1 `-1`, right M2 `+1` —
+vevov wiring — the construction just moved into `board_nezha.cpp`), the
+CODAL ports, the kernel (tovez-bake defaults + `twistHoldGain` 2.0,
+cadence 24 ms), and the `MotionEngine` (declared **after** the kernel —
+member init follows declaration order). `ensure()` calls
+`kernel.begin()` but **not** `kernel.start()` — the pure tick model —
+installs the composed board's `WheelCommandTap` on the engine via
+`boardWheelCommandTap()` (sprint 040 ticket 004 — `nullptr` on Nezha, a
+`CutebotTapAdapter` on a Cutebot-composed build, §3/§7), and launches
+the one background fiber this file owns, the starvation watchdog.
 
 Pieces the kernel deliberately does not contain:
 
@@ -2023,7 +2193,9 @@ Pieces the kernel deliberately does not contain:
   new mechanism.
 - **Wire bridges**: `setWheelsTimed`/`driveTwistTimed` (duration =
   lease), the six `engineXxx()` forwards, `engineDefaultCruise()`,
-  `diagValue()` (the DIAG/STATUS ordinal table),
+  `diagValue()` (the DIAG/STATUS ordinal table — ordinals 21/22/23/24/
+  27/35-40, board-specific since sprint 040 ticket 001, now delegate to
+  `boardDiagValue()` rather than assuming a `NezhaMotorPort` type; §7),
   `getConfigValue`/`setKernelValue` (the ×1000 surface, 31 named rows,
   routed through `kLimitsFields`/`kConfigAccessors` with no per-field
   switch — see §5), `probe()`,
