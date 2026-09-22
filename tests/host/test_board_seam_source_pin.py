@@ -73,6 +73,32 @@ def test_board_h_declares_the_composition_hooks():
         assert sig in _BOARD_H, f"board.h: missing declaration {sig!r}"
 
 
+def test_board_h_declares_the_hybrid_actuation_hooks():
+    for sig in ("WheelCommandTap* boardWheelCommandTap()", "int boardOnboardMode()",
+               "bool boardSetOnboardMode(int mode)", "float boardOnboardFloor()",
+               "bool boardSetOnboardFloor(float floor)"):
+        assert sig in _BOARD_H, f"board.h: missing declaration {sig!r}"
+
+
+# ---------------------------------------------------------------------
+# board_nezha.cpp: the hybrid-actuation hooks are a documented no-op --
+# Nezha has no onboard loop for them to mean anything on.
+# ---------------------------------------------------------------------
+
+def test_board_nezha_cpp_wheel_command_tap_is_a_null_hook():
+    assert "WheelCommandTap* boardWheelCommandTap() { return nullptr; }" in _BOARD_NEZHA_CPP
+
+
+def test_board_nezha_cpp_onboard_mode_reports_zero_and_refuses_set():
+    assert "int boardOnboardMode() { return 0; }" in _BOARD_NEZHA_CPP
+    assert "bool boardSetOnboardMode(int) { return false; }" in _BOARD_NEZHA_CPP
+
+
+def test_board_nezha_cpp_onboard_floor_reports_zero_and_refuses_set():
+    assert "float boardOnboardFloor() { return 0.0f; }" in _BOARD_NEZHA_CPP
+    assert "bool boardSetOnboardFloor(float) { return false; }" in _BOARD_NEZHA_CPP
+
+
 # ---------------------------------------------------------------------
 # shims.cpp: no concrete NezhaMotorPort left in Rig or configureMotor();
 # every moved diag ordinal reaches boardDiagValue().
@@ -101,6 +127,22 @@ def test_rig_composes_board_motors():
     assert "BoardMotors motors = boardMotors();" in _SHIMS_CPP
     assert "DiffDrive::Motor& left = motors.left;" in _SHIMS_CPP
     assert "DiffDrive::Motor& right = motors.right;" in _SHIMS_CPP
+
+
+def test_ensure_installs_the_boards_wheel_command_tap():
+    assert "rig->engine.setWheelCommandTap(boardWheelCommandTap());" in _SHIMS_CPP
+
+
+def test_onboard_config_accessors_forward_to_the_board_hooks():
+    for pattern in (
+        "boardOnboardMode()",
+        "boardSetOnboardMode(static_cast<int>(std::lround(v)))",
+        "boardOnboardFloor()",
+        "boardSetOnboardFloor(v)",
+    ):
+        assert pattern in _SHIMS_CPP, (
+            f"shims.cpp: onboard config accessors no longer call {pattern!r}"
+        )
 
 
 def _diag_value_cases():

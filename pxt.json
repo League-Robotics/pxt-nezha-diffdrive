@@ -36,6 +36,8 @@
         "src/platform/board_nezha.cpp",
         "src/platform/cutebot_port.h",
         "src/platform/cutebot_port.cpp",
+        "src/platform/cutebot_actuation_policy.h",
+        "src/platform/cutebot_actuation_policy.cpp",
         "src/platform/board_cutebot.cpp",
         "src/platform/otos_port.h",
         "src/platform/otos_port.cpp",

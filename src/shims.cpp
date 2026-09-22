@@ -275,6 +275,10 @@ static Rig* rig = nullptr;
 static Rig& ensure() {
   if (rig == nullptr) {
     rig = new Rig();
+    // Install whichever board's own WheelCommandTap (board.h's own
+    // hook) the composed board offers -- nullptr for Nezha, which
+    // MotionEngine already treats as "no tap installed".
+    rig->engine.setWheelCommandTap(boardWheelCommandTap());
     // Kernel defaults: the tovez bake (boot_calibration.cpp) with
     // NEUTRAL wheel gains -- a generic kit starts uncorrected.
     DiffDrive::DifferentialDrive::Config cfg;
@@ -1600,6 +1604,19 @@ void cfgSetNudgeWidth(Rig& r, float v) {
 float cfgGetNudgeSettle(Rig& r) { return r.engine.nudgeSettle(); }
 void cfgSetNudgeSettle(Rig& r, float v) { r.engine.setNudgeSettle(v); }
 
+// onboard_pid/onboard_floor: thin forwards to whichever board is
+// composed (board.h's own hooks) -- Rig is unused, same shape this
+// file's own diagValue() forward already uses for boardDiagValue(). A
+// refused SET (board_nezha.cpp's own no-op) is silently ignored here,
+// matching every other out-of-range wire SET in this table.
+float cfgGetOnboardMode(Rig&) { return static_cast<float>(boardOnboardMode()); }
+void cfgSetOnboardMode(Rig&, float v) {
+  boardSetOnboardMode(static_cast<int>(std::lround(v)));
+}
+
+float cfgGetOnboardFloor(Rig&) { return boardOnboardFloor(); }
+void cfgSetOnboardFloor(Rig&, float v) { boardSetOnboardFloor(v); }
+
 struct ConfigAccessor {
   int ordinal;
   float (*get)(Rig&);          // [unscaled]
@@ -1631,6 +1648,8 @@ constexpr ConfigAccessor kConfigAccessors[] = {
     {40, &cfgGetNudgeAmplitude, &cfgSetNudgeAmplitude},
     {41, &cfgGetNudgeWidth, &cfgSetNudgeWidth},
     {42, &cfgGetNudgeSettle, &cfgSetNudgeSettle},
+    {43, &cfgGetOnboardMode, &cfgSetOnboardMode},
+    {44, &cfgGetOnboardFloor, &cfgSetOnboardFloor},
 };
 
 const ConfigAccessor* findConfigAccessor(int ordinal) {

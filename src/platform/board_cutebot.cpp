@@ -5,13 +5,16 @@
 // wiring hooks, the diag-ordinal readback, and the fault-context
 // emergency-stop frame.
 //
-// SCOPE: the raw-PWM path only (CutebotMotorPort/CutebotDevice,
-// cutebot_port.h/.cpp). The 0x80 onboard speed-loop path and the
-// WheelCommandTap/actuation-policy hybrid (the design doc's own
-// S3.D) belong to later work; this file's CutebotBoard singleton
-// constructs only what this scope needs, leaving CutebotDevice's own
-// API (see its own header) as the clean seam that later work adds to,
-// not a hook that has to be reshaped.
+// SCOPE: the raw-PWM path (CutebotMotorPort/CutebotDevice,
+// cutebot_port.h/.cpp) AND the `0x80` onboard speed-loop path and the
+// WheelCommandTap/actuation-policy hybrid (design doc's own
+// hybrid-actuation section) -- this file's CutebotBoard singleton also
+// owns a CutebotTapAdapter (cutebot_port.h) bound to the SAME
+// device/port pair, installed on MotionEngine through
+// boardWheelCommandTap() below. Nothing about the two ports' own
+// construction changed; the tap adapter sits beside them, using
+// CutebotDevice's own API (stageDuty()'s coalescing point) exactly as
+// it always worked.
 //
 // Host-compilability note, same shape as board_nezha.cpp's own: this
 // file reaches `pxt.h` ONLY inside `#ifndef DIFFDRIVE_HOST_BUILD`, for
@@ -54,6 +57,10 @@ struct CutebotBoard {
   CutebotDevice device;
   CutebotMotorPort left{device, 0, +1};   // side 0 = left
   CutebotMotorPort right{device, 1, +1};  // side 1 = right
+  // The hybrid-actuation tap, bound to this SAME device/port pair --
+  // see cutebot_port.h's own comment for why the sign conversion
+  // happens here rather than in CutebotDevice itself.
+  CutebotTapAdapter tap{device, left, right};
 };
 
 CutebotBoard& board() {
@@ -93,6 +100,17 @@ void boardConfigureWiring(int side, uint8_t port, int8_t sign) {
 int boardDiagValue(int ordinal) {
   const CutebotBoard& b = board();
   return cutebotBoardDiagValue(b.left, b.right, ordinal);
+}
+
+// ---- hybrid actuation --------------------------------------------------
+
+WheelCommandTap* boardWheelCommandTap() { return &board().tap; }
+
+int boardOnboardMode() { return board().device.onboardMode(); }
+bool boardSetOnboardMode(int mode) { return board().device.setOnboardMode(mode); }
+float boardOnboardFloor() { return board().device.onboardFloor(); }
+bool boardSetOnboardFloor(float floor) {
+  return board().device.setOnboardFloor(floor);
 }
 
 #ifndef DIFFDRIVE_HOST_BUILD

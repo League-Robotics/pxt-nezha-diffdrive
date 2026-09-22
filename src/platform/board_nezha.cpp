@@ -85,6 +85,18 @@ int boardDiagValue(int ordinal) {
   return nezhaBoardDiagValue(b.left, b.right, ordinal);
 }
 
+// ---- hybrid actuation --------------------------------------------------
+//
+// The Nezha brick has no onboard speed loop, so none of this means
+// anything here -- see board.h's own comment on the documented no-op/
+// refusal shape. No NezhaBoard state backs these; there is nothing to
+// remember.
+WheelCommandTap* boardWheelCommandTap() { return nullptr; }
+int boardOnboardMode() { return 0; }
+bool boardSetOnboardMode(int) { return false; }
+float boardOnboardFloor() { return 0.0f; }
+bool boardSetOnboardFloor(float) { return false; }
+
 #ifndef DIFFDRIVE_HOST_BUILD
 
 // ---- fault-context emergency stop -----------------------------------

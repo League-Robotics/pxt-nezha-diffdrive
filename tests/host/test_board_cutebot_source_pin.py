@@ -95,6 +95,41 @@ def test_board_cutebot_cpp_defines_the_emergency_stop_frame():
     assert "CutebotDevice::kAddress" in _BOARD_CUTEBOT_CPP
 
 
+# ---------------------------------------------------------------------
+# Hybrid actuation hooks: the board wires a CutebotTapAdapter and
+# forwards the onboard config accessors to the shared CutebotDevice.
+# ---------------------------------------------------------------------
+
+def test_board_cutebot_cpp_owns_the_tap_adapter():
+    assert "CutebotTapAdapter tap{device, left, right};" in _BOARD_CUTEBOT_CPP
+
+
+def test_board_cutebot_cpp_declares_the_hybrid_actuation_hooks():
+    for sig in ("WheelCommandTap* boardWheelCommandTap()", "int boardOnboardMode()",
+               "bool boardSetOnboardMode(int mode)", "float boardOnboardFloor()",
+               "bool boardSetOnboardFloor(float floor)"):
+        assert sig in _BOARD_CUTEBOT_CPP, (
+            f"board_cutebot.cpp: missing hook definition {sig!r}"
+        )
+
+
+def test_board_wheel_command_tap_returns_the_shared_tap():
+    assert "WheelCommandTap* boardWheelCommandTap() { return &board().tap; }" in \
+        _BOARD_CUTEBOT_CPP
+
+
+def test_board_onboard_config_hooks_delegate_to_the_device():
+    for pattern in (
+        "board().device.onboardMode()",
+        "board().device.setOnboardMode(mode)",
+        "board().device.onboardFloor()",
+        "board().device.setOnboardFloor(floor)",
+    ):
+        assert pattern in _BOARD_CUTEBOT_CPP, (
+            f"board_cutebot.cpp: onboard config hook no longer calls {pattern!r}"
+        )
+
+
 def test_cutebot_port_cpp_never_defines_the_emergency_stop_frame():
     """cutebot_port.cpp is fully host-portable (cutebot_port.h's own
     header comment) -- the fault-context frame belongs to

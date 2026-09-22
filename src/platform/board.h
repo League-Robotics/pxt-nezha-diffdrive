@@ -22,6 +22,7 @@
 
 #include "../core/diffdrive.h"
 #include "../core/motor_wiring.h"
+#include "../motion/wheel_command_tap.h"
 
 #define DIFFDRIVE_BOARD_NEZHA 1
 #define DIFFDRIVE_BOARD_CUTEBOT_PRO 2
@@ -76,5 +77,30 @@ int boardDiagValue(int ordinal);
 // `constexpr const char*` its existing runtime-override mechanism
 // already seeds roleBuf_ from -- this header only carries the macro
 // that selection is made against.
+
+// The optional WheelCommandTap this board installs on MotionEngine --
+// shims.cpp's ensure() calls this once, right after constructing Rig,
+// and forwards the result straight to `engine.setWheelCommandTap()`. A
+// board with no use for the shaped setpoint (Nezha, forever) returns
+// nullptr, which MotionEngine already treats as "no tap installed" --
+// byte-identical to before this hook existed. Constructed lazily
+// alongside boardMotors()'s own singleton; see each board's own
+// definition.
+WheelCommandTap* boardWheelCommandTap();
+
+// Hybrid actuation config (comms/config_fields.h ordinals 43/44): the
+// mode (0 off / 1 threshold-with-hysteresis / 2 plateau-only) and floor
+// [mm/s] CutebotActuationPolicy reads each cycle. Meaningless on a
+// board with no onboard loop -- board_nezha.cpp's
+// own implementation reports mode 0 / floor 0 on GET and refuses every
+// SET (returns false), which shims.cpp's config accessors treat as a
+// silent no-op, the same "ignored, not erred" shape every other
+// out-of-range wire SET in this codebase gets. `SET onboard_pid 0`
+// still always ACKS on every board -- refusing the WIRE command is not
+// the same as refusing to store a value nothing on this board reads.
+int boardOnboardMode();
+bool boardSetOnboardMode(int mode);
+float boardOnboardFloor();
+bool boardSetOnboardFloor(float floor);
 
 }  // namespace diffDrive

@@ -79,12 +79,26 @@
 // `defaultI2CBus()` is a DECLARATION only; its target-only definition
 // is never referenced unless a caller actually omits the bus argument,
 // which no host test does.
+//
+// HYBRID ACTUATION. CutebotDevice also owns the `0x80` onboard-speed-
+// loop path and the per-cycle choice between it and the `0x10` PWM
+// path above -- see CutebotActuationPolicy (cutebot_actuation_policy.h)
+// for the pure decision itself, and CutebotTapAdapter (below) for how a
+// WheelCommandTap notification (motion/wheel_command_tap.h) reaches
+// this device with the correct WIRE sign already applied. `stageDuty()`
+// (this file's own "coalescing point") runs that decision once both
+// wheels have staged, and ships EXACTLY ONE frame: the coalesced PWM
+// frame, or one `0x80` setpoint frame -- never both, except the one
+// documented exception in serviceCycle()'s own comment (a genuine stop
+// while the onboard loop held the wheels).
 #pragma once
 
 #include <cstdint>
 
 #include "i2c_bus.h"
+#include "cutebot_actuation_policy.h"
 #include "../core/diffdrive.h"
+#include "../motion/wheel_command_tap.h"
 
 namespace diffDrive {
 
@@ -113,6 +127,10 @@ enum class WiringResult : uint8_t {
   kOk,
   kUnimplemented,
 };
+
+class CutebotMotorPort;  // forward: CutebotTapAdapter below only needs
+                         // a reference to it (wiredSign()), defined in
+                         // this file further down.
 
 class CutebotDevice {
  public:
@@ -155,6 +173,36 @@ class CutebotDevice {
   // that wants a real device zero.
   bool hardwareClearEncoder(int side);
 
+  // ---- hybrid actuation ----
+  //
+  // CutebotTapAdapter's own onDrive()/onNeutral() forwards, already
+  // WIRE-signed (see that class's own comment for why the sign
+  // conversion happens there, not here). Recorded, not acted on
+  // immediately -- serviceCycle() (private, below) reads the latest of
+  // these the next time both wheels have staged, which is this
+  // project's own definition of "once per kernel cycle" (stageDuty()'s
+  // both-sides-staged gate).
+  void updateTapDrive(float left, float right,
+                     VelocityShaper::Phase phase);
+  void updateTapNeutral();
+
+  // `onboard_pid`/`onboard_floor` (comms/config_fields.h ordinals
+  // 43/44), read and written through board_cutebot.cpp's thin
+  // board.h hooks. Mode is validated to {0,1,2}; an out-of-range SET is
+  // refused (returns false) and leaves the stored mode untouched --
+  // the same "refused, not silently coerced" shape
+  // CutebotMotorPort::configureWiring() uses for its own out-of-range
+  // inputs, except a refused SIGN there is a free no-op while an
+  // out-of-range MODE here has no sensible "closest legal value" to
+  // fall back to, so refusing outright is the honest answer. Floor
+  // must be strictly positive (a zero or negative floor would make
+  // every nonzero setpoint "at or above the floor", defeating the
+  // eligibility gate's whole point).
+  int onboardMode() const { return onboardMode_; }
+  bool setOnboardMode(int mode);
+  float onboardFloor() const { return onboardFloor_; }
+  bool setOnboardFloor(float floor);
+
   // Public so board_cutebot.cpp's fault-context emergency-stop frame
   // can build the SAME wire frame with no CutebotDevice instance in
   // reach -- see that file's own comment for why that path cannot use
@@ -170,18 +218,50 @@ class CutebotDevice {
  private:
   static constexpr uint8_t kCmdEncoder = 0xA0;
   static constexpr uint8_t kCmdClear = 0x50;
+  static constexpr uint8_t kCmdOnboard = 0x80;
   static constexpr uint8_t kSelDegreesLeft = 3;
   static constexpr uint8_t kSelDegreesRight = 4;
 
   // The one low-level write primitive: builds `FF F9 <cmd> <len>
   // <params>`, writes it, and performs the extension's own 1 ms
   // post-write wait (guarded -- see this file's header comment).
-  // paramLen is at most 4 (cmd 0x10's own params, the largest frame
+  // paramLen is at most 5 (cmd 0x80's own params, the largest frame
   // this device ever sends).
   bool writeV2Frame(uint8_t cmd, const uint8_t* params, uint8_t paramLen);
   bool writeWheelFrame(uint8_t wheelSel, uint8_t absL, uint8_t absR,
                        uint8_t dirbits);
   void shipFrame();
+
+  // cmd 0x80: `Lh Ll Rh Rl dirbits`, mm/s magnitude per wheel (design
+  // doc S1.2), ALWAYS both wheels -- there is no per-wheel selector the
+  // way 0x10's `wheel` byte has one. Deliberately UNCLAMPED here (see
+  // sim_cutebot_bus.h's own header comment on why the 200..500 mm/s
+  // clamp lives on the receiving end of this frame, not the sending
+  // end): this ships exactly whatever CutebotActuationPolicy's tapped
+  // setpoint was, so a policy bug that violates its own floor is
+  // visible in what the simulated wheel actually does, not silently
+  // absorbed here. Magnitude is bounded to fit 16 bits purely as an
+  // overflow guard, unrelated to the 200/500 mm/s clamp.
+  bool writeOnboardFrame(float left, float right);
+
+  // The per-cycle decision (design doc's hybrid-actuation section):
+  // called from stageDuty() the moment both wheels have staged, exactly
+  // where shipFrame() used to be called unconditionally. Runs
+  // CutebotActuationPolicy::decide() once, ships the ONE frame it
+  // chooses, and -- the one documented two-frame exception -- also
+  // ships an 0x80 zero-both frame on the specific transition from
+  // "onboard was engaged" to "a neutral/stop tick arrived", per the
+  // ticket's own handoff-bookkeeping requirement: "on neutral/stop
+  // while onboard is engaged, send the 0x80 zero AND the 0x10 zero --
+  // which one really stops a wheel under onboard control is a
+  // sprint-041 bench probe, and both are cheap." Every other
+  // engaged->disengaged transition (hysteresis release, the plateau's
+  // first brake tick, an eligibility drop) ships ONLY the frame
+  // decide() chose -- "the device resumes shipping the kernel's duty"
+  // (this ticket's own completion notes) needs no second frame, since
+  // shipFrame() below already sends whatever the kernel's own PI loop
+  // is currently asking for, not a zero.
+  void serviceCycle();
 
   I2CBus& bus_;  // the wire; never owned
 
@@ -190,6 +270,48 @@ class CutebotDevice {
 
   int8_t stagedValue_[2] = {0, 0};
   bool staged_[2] = {false, false};
+
+  // Hybrid actuation state.
+  int onboardMode_ = 0;            // GET/SET onboard_pid, {0,1,2}
+  float onboardFloor_ = 200.0f;    // GET/SET onboard_floor [mm/s]
+  CutebotActuationPolicy::PolicyState policyState_{};
+
+  // The latest WheelCommandTap sample, already wire-signed (see
+  // CutebotTapAdapter below). `tapNeutral_` starts true: with no tap
+  // installed (every Nezha build, and a Cutebot build before its first
+  // drive tick) this device must behave exactly as the raw-PWM path
+  // always did -- decide() forces PWM on a neutral tick regardless of mode, so an
+  // un-notified device is indistinguishable from mode 0.
+  float tapLeft_ = 0.0f;
+  float tapRight_ = 0.0f;
+  VelocityShaper::Phase tapPhase_ = VelocityShaper::Phase::kAccel;
+  bool tapNeutral_ = true;
+};
+
+// Forwards WheelCommandTap notifications into a CutebotDevice,
+// converting MotionEngine's caller-space (left, right) mm/s into
+// WIRE-signed values using each side's own fwdSign_ -- the SAME sign
+// CutebotMotorPort::tick() applies to its own staged PWM duty. This is
+// the one place both wheels' signs are available together: a
+// WheelCommandTap notification fires once per tick for BOTH wheels,
+// not once per port, and CutebotDevice itself stays free of per-wheel
+// sign knowledge (stageDuty() already receives pre-signed wire values
+// from each port, and this adapter keeps that convention intact for
+// the tap's own numbers).
+class CutebotTapAdapter final : public WheelCommandTap {
+ public:
+  CutebotTapAdapter(CutebotDevice& device, const CutebotMotorPort& left,
+                    const CutebotMotorPort& right)
+      : device_(device), left_(left), right_(right) {}
+
+  void onDrive(float left, float right,
+              VelocityShaper::Phase phase) override;
+  void onNeutral() override { device_.updateTapNeutral(); }
+
+ private:
+  CutebotDevice& device_;
+  const CutebotMotorPort& left_;
+  const CutebotMotorPort& right_;
 };
 
 class CutebotMotorPort final : public DiffDrive::Motor {

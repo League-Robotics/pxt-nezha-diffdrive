@@ -20,7 +20,9 @@ float clampf(float value, float lo, float hi) {
 
 bool CutebotDevice::writeV2Frame(uint8_t cmd, const uint8_t* params,
                                  uint8_t paramLen) {
-  uint8_t frame[8] = {0xFF, 0xF9, cmd, paramLen, 0, 0, 0, 0};
+  // 4 header bytes + up to 5 params (cmd 0x80's own frame, the largest
+  // this device ever sends -- see this file's own header comment).
+  uint8_t frame[9] = {0xFF, 0xF9, cmd, paramLen, 0, 0, 0, 0, 0};
   for (uint8_t i = 0; i < paramLen; ++i) frame[4 + i] = params[i];
   const int status = bus_.write(kAddress << 1, frame,
                                 static_cast<int>(4 + paramLen));
@@ -55,9 +57,87 @@ void CutebotDevice::stageDuty(int side, int8_t wireValue) {
   stagedValue_[side] = wireValue;
   staged_[side] = true;
   if (staged_[0] && staged_[1]) {
-    shipFrame();
+    serviceCycle();
     staged_[0] = false;
     staged_[1] = false;
+  }
+}
+
+// ---- hybrid actuation --------------------------------------------------
+
+void CutebotDevice::updateTapDrive(float left, float right,
+                                   VelocityShaper::Phase phase) {
+  tapLeft_ = left;
+  tapRight_ = right;
+  tapPhase_ = phase;
+  tapNeutral_ = false;
+}
+
+void CutebotDevice::updateTapNeutral() {
+  tapLeft_ = 0.0f;
+  tapRight_ = 0.0f;
+  tapNeutral_ = true;
+}
+
+bool CutebotDevice::setOnboardMode(int mode) {
+  if (mode < 0 || mode > 2) return false;
+  onboardMode_ = mode;
+  return true;
+}
+
+bool CutebotDevice::setOnboardFloor(float floor) {
+  if (!(floor > 0.0f)) return false;
+  onboardFloor_ = floor;
+  return true;
+}
+
+bool CutebotDevice::writeOnboardFrame(float left, float right) {
+  auto magnitude = [](float v) -> uint16_t {
+    const float mag = std::fabs(v);
+    // Overflow guard only -- see this file's own header comment on why
+    // this does NOT apply the 200..500 mm/s clamp itself.
+    const float bounded = mag > 60000.0f ? 60000.0f : mag;
+    return static_cast<uint16_t>(std::lround(bounded));
+  };
+  const uint16_t magL = magnitude(left);
+  const uint16_t magR = magnitude(right);
+  const uint8_t dirbits = static_cast<uint8_t>(
+      (left < 0.0f ? 0x01 : 0x00) | (right < 0.0f ? 0x02 : 0x00));
+  const uint8_t params[5] = {
+      static_cast<uint8_t>((magL >> 8) & 0xFF),
+      static_cast<uint8_t>(magL & 0xFF),
+      static_cast<uint8_t>((magR >> 8) & 0xFF),
+      static_cast<uint8_t>(magR & 0xFF),
+      dirbits};
+  return writeV2Frame(kCmdOnboard, params, 5);
+}
+
+void CutebotDevice::serviceCycle() {
+  const CutebotActuationPolicy::WheelStaged duty{
+      static_cast<float>(stagedValue_[0]) / 100.0f,
+      static_cast<float>(stagedValue_[1]) / 100.0f};
+  const CutebotActuationPolicy::WheelSetpoint setpoint{
+      tapLeft_, tapRight_, tapPhase_, tapNeutral_};
+
+  const bool wasEngaged = policyState_.engaged;
+  const CutebotActuationPolicy::Decision decision =
+      CutebotActuationPolicy::decide(policyState_, duty, setpoint,
+                                     onboardMode_, onboardFloor_);
+  policyState_ = decision.state;
+
+  if (wasEngaged && tapNeutral_) {
+    // See serviceCycle()'s own header comment: the one documented
+    // two-frame exception. decision.frame is already kPwm here (decide()
+    // forces PWM on every neutral tick), so shipFrame() below still
+    // runs and sends the 0x10 zero -- this just adds the 0x80 zero
+    // ahead of it.
+    writeOnboardFrame(0.0f, 0.0f);
+  }
+
+  if (decision.frame == CutebotActuationPolicy::Frame::kOnboard) {
+    writeOnboardFrame(tapLeft_, tapRight_);
+  } else {
+    shipFrame();
   }
 }
 
@@ -104,6 +184,19 @@ bool CutebotDevice::ensureProbed() {
   isV2_ = (reply != 1);
   probed_ = true;
   return true;
+}
+
+// ---- CutebotTapAdapter -------------------------------------------------
+
+void CutebotTapAdapter::onDrive(float left, float right,
+                                VelocityShaper::Phase phase) {
+  // See this class's own header comment: converts MotionEngine's
+  // caller-space (left, right) mm/s into WIRE-signed values using each
+  // side's own fwdSign_ -- the SAME sign CutebotMotorPort::tick()
+  // applies to its own staged PWM duty.
+  device_.updateTapDrive(left * static_cast<float>(left_.wiredSign()),
+                        right * static_cast<float>(right_.wiredSign()),
+                        phase);
 }
 
 // ---- CutebotMotorPort ------------------------------------------------

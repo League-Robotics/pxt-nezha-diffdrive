@@ -38,6 +38,13 @@ _HERE = pathlib.Path(__file__).resolve().parent
 _SOURCES = [
     _HERE / "cutebot_port_shim.cpp",
     _SRC_DIR / "platform" / "cutebot_port.cpp",
+    # Sprint 040 ticket 004: cutebot_port.cpp's stageDuty() now calls
+    # CutebotActuationPolicy::decide() once both wheels have staged
+    # (serviceCycle()) -- linking this TU is required from this ticket
+    # on, even for tests that never touch onboard_pid/onboard_floor
+    # directly (mode defaults to 0, so decide() always returns kPwm and
+    # every pre-existing test in this file stays byte-identical).
+    _SRC_DIR / "platform" / "cutebot_actuation_policy.cpp",
 ]
 
 # WiringResult's own values (cutebot_port.h) -- pinned here as plain

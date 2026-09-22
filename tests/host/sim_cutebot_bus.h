@@ -11,12 +11,34 @@
 // ELECFREAKS' own extension. This simulates the PROTOCOL, never a real
 // board's timing or plant.
 //
-// SCOPE (sprint 040 ticket 002): cmd 0x10 (PWM), cmd 0xA0 [3]/[4]
-// (degree reads), cmd 0x50 (hardware clear), and the v1-style revision
-// probe -- always answering v2. The 0x80 onboard speed-loop simulation
-// docs/design/cutebot-pro-support.md S7 describes is ticket 004's,
-// once the path exists to simulate; every other cmd is rejected here,
-// matching "reject everything else" from that same section.
+// SCOPE (sprint 040 ticket 002, extended by ticket 004): cmd 0x10
+// (PWM), cmd 0xA0 [3]/[4] (degree reads), cmd 0x50 (hardware clear),
+// the v1-style revision probe (always answering v2), and -- as of
+// ticket 004 -- cmd 0x80, the onboard speed loop, simulated as a
+// first-order lag on the shared SimWheel (SimWheel::stepOnboard(),
+// sim_nezha_bus.h) with the 200 mm/s floor modelled per
+// docs/design/cutebot-pro-support.md S1.5/S7. Every other cmd is still
+// rejected, matching "reject everything else" from that same section.
+//
+// THE 200 mm/s CLAMP IS MODELLED HERE, ON THE RECEIVING END -- NOT
+// applied by CutebotDevice before it sends (cutebot_port.cpp's
+// writeOnboardFrame() ships whatever the policy decided, unclamped).
+// That is deliberate: this sim's clamp models the EXTENSION's own
+// clamp (design doc S1.5's `Math.max(lspeed, 200)`, read from
+// ELECFREAKS' v2.ts, itself UNVERIFIED against real MCU firmware --
+// S1.6), and applying it HERE means a policy bug that hands the loop an
+// under-floor nonzero setpoint is still visible on the host: the
+// simulated wheel moves at the clamped speed, not the buggy one, so a
+// test comparing "what was sent" against "what actually happened" can
+// catch it, rather than the clamp silently absorbing the bug on the
+// sender's own side where nothing would ever notice.
+//
+// UNVERIFIED: whether a real `0x10` write actually cancels a running
+// onboard loop, or whether the MCU keeps servoing until it sees an
+// `0x80` zero (design doc S3.D's own "down-handoff" hazard, a sprint
+// 041 bench probe). This sim ASSUMES cancellation -- see the `0x10`
+// case below -- purely so a host test can exercise "handed back to PWM"
+// at all; it proves nothing about which assumption is correct.
 //
 // PHYSICS. Reuses SimWheel from sim_nezha_bus.h UNCHANGED -- its native
 // unit (0.1 deg per count, matching the kernel's own convention) is
@@ -82,6 +104,39 @@ class SimCutebotBus final : public diffDrive::I2CBus {
         lastWheelFrame_[2] = absR;
         lastWheelFrame_[3] = dirbits;
         ++frameCount_;
+        // UNVERIFIED (see this file's header): a 0x10 write cancels
+        // onboard mode in this sim, so step() resumes the duty-driven
+        // plant from here on -- the whole reason a test can exercise
+        // "handed back to PWM" without knowing whether a real board
+        // agrees.
+        onboardActive_ = false;
+        selection_ = Selection::kNone;
+        return 0;
+      }
+      case kCmdOnboard: {
+        // NO REAL CUTEBOT GEOMETRY EXISTS YET (design doc S1.4: wheel
+        // diameter, track width and encoder resolution are all
+        // caliper/bench measurements for sprint 041). This sim treats
+        // the wire's mm/s magnitude as a counts/s target for SimWheel
+        // 1:1 -- an arbitrary but internally consistent simplification
+        // that exercises the CLAMP and the LAG shape only; it is not a
+        // claim about what a real Cutebot's encoder would report for a
+        // given onboard-loop setpoint.
+        if (paramLen != 5) return 1;
+        const uint16_t magL = (static_cast<uint16_t>(data[4]) << 8) | data[5];
+        const uint16_t magR = (static_cast<uint16_t>(data[6]) << 8) | data[7];
+        const uint8_t dirbits = data[8];
+        onboardSetpointLeft_ = clampOnboardMagnitude(magL) *
+                              ((dirbits & 0x01) ? -1.0f : 1.0f);
+        onboardSetpointRight_ = clampOnboardMagnitude(magR) *
+                               ((dirbits & 0x02) ? -1.0f : 1.0f);
+        lastOnboardFrame_[0] = static_cast<uint8_t>((magL >> 8) & 0xFF);
+        lastOnboardFrame_[1] = static_cast<uint8_t>(magL & 0xFF);
+        lastOnboardFrame_[2] = static_cast<uint8_t>((magR >> 8) & 0xFF);
+        lastOnboardFrame_[3] = static_cast<uint8_t>(magR & 0xFF);
+        lastOnboardFrame_[4] = dirbits;
+        onboardActive_ = true;
+        ++onboardFrameCount_;
         selection_ = Selection::kNone;
         return 0;
       }
@@ -137,11 +192,21 @@ class SimCutebotBus final : public diffDrive::I2CBus {
   }
 
   // Advance the physics -- called by the harness once per simulated
-  // tick, AFTER the firmware's own tick has written whatever duty it
-  // decided on, same convention as SimNezhaBus::step().
+  // tick, AFTER the firmware's own tick has written whatever duty (or
+  // onboard setpoint) it decided on, same convention as
+  // SimNezhaBus::step(). Whichever mode is active (see the `0x10`/
+  // `0x80` write handlers above for how onboardActive_ flips) drives
+  // BOTH wheels through that one physics path -- there is no
+  // per-wheel mode split, matching the real protocol's own "one 0x10
+  // or one 0x80 frame always covers both wheels" shape.
   void step(float dt) {  // [s]
-    left_.step(dutyLeft_, dt);
-    right_.step(dutyRight_, dt);
+    if (onboardActive_) {
+      left_.stepOnboard(onboardSetpointLeft_, dt);
+      right_.stepOnboard(onboardSetpointRight_, dt);
+    } else {
+      left_.step(dutyLeft_, dt);
+      right_.step(dutyRight_, dt);
+    }
   }
 
   // NACKs the NEXT bus transaction only (write OR read, whichever
@@ -162,6 +227,23 @@ class SimCutebotBus final : public diffDrive::I2CBus {
   // than through the physics `duty()` it produces.
   uint8_t lastWheelFrame(int index) const { return lastWheelFrame_[index]; }
 
+  // ---- 0x80 onboard loop (sprint 040 ticket 004) ----
+  bool onboardActive() const { return onboardActive_; }
+  uint32_t onboardFrameCount() const { return onboardFrameCount_; }
+  // The setpoint this sim's PHYSICS is actually driving toward -- AFTER
+  // the 200 mm/s clamp below, so a test can see the clamp's effect
+  // directly rather than only inferring it from the resulting wheel
+  // speed.
+  float onboardSetpoint(int side) const {
+    return side == 0 ? onboardSetpointLeft_ : onboardSetpointRight_;
+  }
+  // The last shipped 0x80 frame's own PARAMS (magL hi, magL lo, magR
+  // hi, magR lo, dirbits) -- the RAW, UNCLAMPED bytes CutebotDevice
+  // sent, for a test that wants to prove the sender does NOT pre-clamp
+  // (see this file's header) as distinct from onboardSetpoint()'s
+  // already-clamped result.
+  uint8_t lastOnboardFrame(int index) const { return lastOnboardFrame_[index]; }
+
  private:
   enum class Selection { kNone, kRevision, kDegreesLeft, kDegreesRight };
 
@@ -169,6 +251,20 @@ class SimCutebotBus final : public diffDrive::I2CBus {
     if (!nackArmed_) return false;
     nackArmed_ = false;
     return true;
+  }
+
+  // The 200 mm/s floor (design doc S1.5): 0 passes through unchanged
+  // (the frame's own "stop" value); any other magnitude below 200
+  // clamps UP to 200. The 500 mm/s ceiling is the same source reading's
+  // "clamped to 200..500" -- modelled here too, though no acceptance
+  // criterion exercises it (nothing in this sprint drives a setpoint
+  // that high).
+  static float clampOnboardMagnitude(uint16_t rawMagnitude) {
+    const float mag = static_cast<float>(rawMagnitude);
+    if (mag == 0.0f) return 0.0f;
+    if (mag < 200.0f) return 200.0f;
+    if (mag > 500.0f) return 500.0f;
+    return mag;
   }
 
   // Mirrors of CutebotDevice's own constants -- duplicated deliberately
@@ -179,6 +275,7 @@ class SimCutebotBus final : public diffDrive::I2CBus {
   static constexpr uint8_t kCmdWheel = 0x10;
   static constexpr uint8_t kCmdEncoder = 0xA0;
   static constexpr uint8_t kCmdClear = 0x50;
+  static constexpr uint8_t kCmdOnboard = 0x80;
 
   SimWheel left_;
   SimWheel right_;
@@ -190,6 +287,12 @@ class SimCutebotBus final : public diffDrive::I2CBus {
   uint32_t probeCount_ = 0;
   bool nackArmed_ = false;
   uint8_t lastWheelFrame_[4] = {0, 0, 0, 0};
+
+  bool onboardActive_ = false;
+  float onboardSetpointLeft_ = 0.0f;   // [counts/s], post-clamp
+  float onboardSetpointRight_ = 0.0f;  // [counts/s], post-clamp
+  uint32_t onboardFrameCount_ = 0;
+  uint8_t lastOnboardFrame_[5] = {0, 0, 0, 0, 0};
 };
 
 }  // namespace HostSim

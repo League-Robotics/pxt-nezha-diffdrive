@@ -305,6 +305,11 @@ EXPECTED_CPP_FILES = [
     'src/platform/board_cutebot.cpp',
     'src/platform/nezha_port.cpp',
     'src/platform/cutebot_port.cpp',
+    # Sprint 040 ticket 004: the hybrid-actuation policy is a pure
+    # function/class with no board or I2C reference of its own (see its
+    # own header comment) -- always compiled, same as every other file
+    # in this list, regardless of DIFFDRIVE_BOARD.
+    'src/platform/cutebot_actuation_policy.cpp',
     'src/platform/otos_port.cpp',
     'src/platform/vfp_guard.cpp',
     'src/shims.cpp',

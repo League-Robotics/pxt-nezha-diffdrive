@@ -188,6 +188,19 @@ struct WaHandle {
   // production.
   uint32_t goToDeadline = 0;  // [ms]
 
+  // Sprint 040 ticket 004: mirrors the WIRE SURFACE production exposes
+  // for onboard_pid/onboard_floor (ordinals 43/44) -- this handle has
+  // no board.h composition at all, so unlike shims.cpp's real
+  // accessors (which forward to whichever board is compiled, and
+  // refuse on Nezha), these are plain, always-writable fields. That is
+  // deliberate: this double's whole job is proving the WIRE protocol
+  // dispatches to the right ordinal and round-trips a value, not
+  // reproducing a specific board's policy -- see
+  // test_config_surface_single_source.py's own header comment on what
+  // the compiled half of that file proves and what it does not.
+  float onboardModeValue = 0.0f;    // [1] mirrors onboard_pid
+  float onboardFloorMmS = 200.0f;   // [mm/s] mirrors onboard_floor
+
   // A settable override for diagValue()'s otherwise kernel/engine-
   // derived ordinals (i2cf=8, lexc=9, posl=10, posr=11, dutl=12,
   // dutr=13, cyc=16, cycovr=19, wrng=25) -- lets a scale test or the
@@ -518,6 +531,14 @@ static void waSetNudgeSettle(WaHandle& h, float v) {
   h.engine.setNudgeSettle(v);
 }
 
+// onboard_pid/onboard_floor (sprint 040 ticket 004): plain field
+// round-trip -- see WaHandle::onboardModeValue's own comment for why
+// this double does not reproduce a board's own refusal behaviour.
+static float waGetOnboardMode(WaHandle& h) { return h.onboardModeValue; }
+static void waSetOnboardMode(WaHandle& h, float v) { h.onboardModeValue = v; }
+static float waGetOnboardFloor(WaHandle& h) { return h.onboardFloorMmS; }
+static void waSetOnboardFloor(WaHandle& h, float v) { h.onboardFloorMmS = v; }
+
 struct WaConfigAccessor {
   int ordinal;
   float (*get)(WaHandle&);        // [unscaled]
@@ -549,6 +570,8 @@ static const WaConfigAccessor kWaConfigAccessors[] = {
     {40, &waGetNudgeAmplitude, &waSetNudgeAmplitude},
     {41, &waGetNudgeWidth, &waSetNudgeWidth},
     {42, &waGetNudgeSettle, &waSetNudgeSettle},
+    {43, &waGetOnboardMode, &waSetOnboardMode},
+    {44, &waGetOnboardFloor, &waSetOnboardFloor},
 };
 
 static const WaConfigAccessor* waFindConfigAccessor(int ordinal) {
