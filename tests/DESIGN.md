@@ -106,7 +106,16 @@ entry in the C++11 gate (`test_cxx11_syntax_gate.py`) rather than a row
 in this table, and is host-tested directly, over a simulated Cutebot
 bus, by `tests/host/test_cutebot_port.py`. `board_cutebot.cpp`'s own
 thin hook wiring is source-pinned the same way `board_nezha.cpp`'s is,
-by `tests/host/test_board_cutebot_source_pin.py`.
+by `tests/host/test_board_cutebot_source_pin.py`. **Sprint 040
+ticket 006** adds the same whole-tour proof `nezha_port.cpp`'s own row
+above gets: `sim_tour.py --board cutebot-pro`, over
+`tests/host/sim_cutebot_robot_shim.cpp`, drives `cutebot_port.cpp` AND
+`cutebot_actuation_policy.cpp` under the real kernel and `MotionEngine`
+through a full square tour at all three `onboard_pid` modes — the
+first host proof that the hybrid actuation policy's handoffs survive a
+real move sequence rather than only the synthetic per-tick inputs
+`test_cutebot_actuation_policy.py`/`test_cutebot_hybrid_actuation.py`
+already cover.
 
 | file | what binds it to the target | what gates it |
 |---|---|---|

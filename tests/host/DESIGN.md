@@ -116,6 +116,24 @@ Three kinds of file, one pattern:
   `compile_shared_lib()` (defined in `test_kernel_harness.py`,
   reused by every later suite: same compiler invocation, no CMake)
   and asserts through the handle.
+- **Whole-stack tour shims** (`sim_robot_shim.cpp`, and — sprint 040
+  ticket 006 — `sim_cutebot_robot_shim.cpp`) are a DELIBERATE exception
+  to "a new module gets its own shim only when it has its own class
+  under test" (§3 below): each composes the REAL port(s), the real
+  `DifferentialDrive` kernel, `MotionEngine` and `Odometry` over a
+  simulated brick (`sim_nezha_bus.h`/`sim_cutebot_bus.h`), one layer
+  BELOW where every other shim here substitutes `FakeMotor` — so a
+  defect on the critical path between the kernel and the wire (the
+  Nezha reversal dwell; a hybrid-actuation handoff that never
+  releases) shows up as a tour failing to close, not only as a unit
+  test someone forgot to write. `cutebot_port_shim.cpp`'s own header
+  comment names this file before it existed ("a future ticket ...
+  builds that separately, the way sim_tour.py sits beside
+  sim_robot_shim.cpp today"). `sim_tour.py` (this directory's one file
+  meant to be run directly as a script, `--board nezha`/`--board
+  cutebot-pro`) owns both shims' compile recipe and ctypes binding;
+  `test_sim_profile_tracking.py` and `test_sim_tour_cutebot.py` import
+  its functions directly rather than shelling out to it.
 - **`conftest.py`** (sprint 034 ticket 010) — the ONE place the
   motion-engine shim is compiled. Thirteen files here drive the same
   four translation units behind the same `meCreate()` handle, and each
