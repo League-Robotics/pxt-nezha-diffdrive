@@ -325,6 +325,25 @@ def _bind_motion_lib(lib):
     lib.meNudgeMeasuredDistance.restype = ctypes.c_float
     lib.meNudgeMeasuredRotation.argtypes = [ctypes.c_void_p]
     lib.meNudgeMeasuredRotation.restype = ctypes.c_float
+
+    # -- surface first needed by test_wheel_command_tap.py (sprint 040
+    # ticket 003)
+    lib.meTapInstall.argtypes = [ctypes.c_void_p]
+    lib.meTapInstall.restype = None
+    lib.meTapUninstall.argtypes = [ctypes.c_void_p]
+    lib.meTapUninstall.restype = None
+    lib.meTapClear.argtypes = [ctypes.c_void_p]
+    lib.meTapClear.restype = None
+    lib.meTapRecordCount.argtypes = [ctypes.c_void_p]
+    lib.meTapRecordCount.restype = ctypes.c_int
+    lib.meTapRecordKind.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meTapRecordKind.restype = ctypes.c_int
+    lib.meTapRecordLeft.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meTapRecordLeft.restype = ctypes.c_float
+    lib.meTapRecordRight.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meTapRecordRight.restype = ctypes.c_float
+    lib.meTapRecordPhase.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.meTapRecordPhase.restype = ctypes.c_int
     return lib
 
 

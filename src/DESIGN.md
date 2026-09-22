@@ -526,7 +526,19 @@ confirms.
 **Dependencies.** Holds references to a caller-owned kernel and
 `Clock` (the shaper's `dt` and the deadline backstop need wall time
 independent of kernel stepping). Owns **no odometry** — pose stays a
-`shims.cpp`/Rig concern; callers update it around `service()`.
+`shims.cpp`/Rig concern; callers update it around `service()`. **Sprint
+040 ticket 003** adds one optional, non-owning collaborator:
+`WheelCommandTap*` (`motion/wheel_command_tap.h`), settable via
+`setWheelCommandTap()`. When set, `service()` notifies it with the
+shaped per-wheel `(left, right)` mm/s and that tick's
+`VelocityShaper::Step::phase` (accel/cruise/brake) alongside every
+`kernel_.drive()` call, and `onNeutral()` alongside every
+`kernel_.neutral()` call — the only way a party below the kernel (which
+is vendored and publishes measured `Output`, never commanded `Command`)
+can observe what this engine is actually asking for. Every fleet board
+today leaves it null; the pointer defaults to `nullptr` and every
+notify site is a single null check, so behaviour without one is
+byte-identical to before this collaborator existed.
 
 **Invariants.**
 - `wheels_*` and every reduction **clears the planner first** — at

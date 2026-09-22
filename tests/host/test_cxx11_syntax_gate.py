@@ -155,6 +155,12 @@ _CXX11_PORTABLE_SOURCES = [
     # in board_cutebot.cpp instead. Has a natural .cpp of its own, so it
     # is compiled directly.
     _SRC_DIR / "platform" / "cutebot_port.cpp",
+    # Sprint 040 ticket 003: motion/wheel_command_tap.h has no pxt.h
+    # dependency (a pure host-portable observer interface -- see its
+    # own header comment) but no natural .cpp of its own (every member
+    # is a pure virtual), so this dedicated translation unit exists
+    # solely to give this gate something to compile.
+    _TEST_DIR / "wheel_command_tap_syntax_check.cpp",
 ]
 
 

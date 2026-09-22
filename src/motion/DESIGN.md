@@ -29,6 +29,19 @@ reference and integrates whatever kernel `Output` it is handed, so it
 holds no kernel and is driven directly by
 `tests/host/test_odometry.py`.
 
+**Sprint 040 ticket 003** added `wheel_command_tap.h`
+(`WheelCommandTap`): a small, host-portable, optional observer
+`MotionEngine` notifies with the shaped per-wheel `(left, right)` mm/s
+alongside every `kernel_.drive()` call (plus that tick's
+`VelocityShaper::Step::phase`), and `onNeutral()` alongside every
+`kernel_.neutral()` call. It exists because the vendored kernel does
+not publish what it was last commanded, only what it measured — a
+board sitting below the kernel (the Cutebot Pro's hybrid actuation
+policy, a later sprint) has no other way to learn the setpoint.
+`MotionEngine` holds it as a nullable, non-owning pointer
+(`setWheelCommandTap()`); no tap installed (every board today) is
+byte-identical to before this class existed.
+
 Detail lives in [`src/DESIGN.md`](../DESIGN.md) §3. This file does not
 duplicate that content — it exists so `ls src/motion/` points
 somewhere.
