@@ -293,6 +293,11 @@ EXPECTED_CPP_FILES = [
     'src/comms/wire_handler.cpp',
     'src/core/diffdrive.cpp',
     'src/motion/motion_engine.cpp',
+    # Sprint 040 ticket 001 (board-composition seam): board_nezha.cpp is
+    # the Nezha half of platform/board.h's compile-time seam -- see that
+    # file's own header comment. board_cutebot.cpp is added by a later
+    # ticket, when it exists.
+    'src/platform/board_nezha.cpp',
     'src/platform/nezha_port.cpp',
     'src/platform/otos_port.cpp',
     'src/platform/vfp_guard.cpp',
@@ -1224,7 +1229,10 @@ def _inject_geometry(deploy_dir, robot):
 # `geometry.firmware_bake.motors` -- {left_port, right_port,
 # fwd_sign_left, fwd_sign_right} -- names which Nezha port is each side
 # and the sign that makes +command drive that wheel FORWARD. The tracked
-# default in shims.cpp (`NezhaMotorPort left{1, -1}; right{2, +1};`) is
+# default (`NezhaMotorPort left{1, -1}; right{2, +1};`, now in
+# src/platform/board_nezha.cpp's NezhaBoard -- sprint 040 ticket 001
+# moved this construction out of src/shims.cpp behind the board-
+# composition seam, so this bake retargets there too) is
 # vevov's wiring, VERIFIED on vevov 2026-08-20. tovez is wired the other
 # way round: MEASURED tovez 2026-09-04,
 # captures/bench-acceptance-029-20260904d/heading-probe.log -- with the
@@ -1244,12 +1252,19 @@ _MOTOR_BAKE_RES = {
 
 
 def _inject_motors(deploy_dir, robot):
-    """Substitute `deploy_dir`'s copy of `src/shims.cpp`'s two
-    `NezhaMotorPort` lines with `robot`'s `firmware_bake.motors`, when it
-    declares one. All four keys are required together: a port without
-    its sign (or vice versa) is exactly the half-fix radio-robot-lib's
-    own `_port_note` warns reverses forward travel. Returns the list of
-    `(name, value)` injected, like `_inject_geometry()`."""
+    """Substitute `deploy_dir`'s copy of `src/platform/board_nezha.cpp`'s
+    two `NezhaMotorPort` lines with `robot`'s `firmware_bake.motors`,
+    when it declares one. All four keys are required together: a port
+    without its sign (or vice versa) is exactly the half-fix
+    radio-robot-lib's own `_port_note` warns reverses forward travel.
+    Returns the list of `(name, value)` injected, like
+    `_inject_geometry()`.
+
+    Sprint 040 ticket 001: retargeted from `src/shims.cpp` to
+    `src/platform/board_nezha.cpp` when the board-composition seam
+    moved the two `NezhaMotorPort` construction lines there -- the
+    regexes in `_MOTOR_BAKE_RES` are unchanged, since the lines
+    themselves moved verbatim."""
     bake = _read_robot_firmware_bake(robot)
     motors = bake.get('motors') if bake else None
     if motors is None:
@@ -1268,7 +1283,7 @@ def _inject_motors(deploy_dir, robot):
     if motors['left_port'] == motors['right_port']:
         sys.exit(f"make_deploy: firmware_bake.motors for '{robot}' puts both "
                   f"wheels on port {motors['left_port']}")
-    path = os.path.join(deploy_dir, 'src', 'shims.cpp')
+    path = os.path.join(deploy_dir, 'src', 'platform', 'board_nezha.cpp')
     with open(path) as f:
         text = f.read()
     applied = []
@@ -1278,8 +1293,9 @@ def _inject_motors(deploy_dir, robot):
         text, n = pattern.subn(rf'\g<1>{literal}\g<2>', text)
         if n != 1:
             sys.exit(f"make_deploy: expected exactly 1 site for motors.{key} "
-                      f"in {path}, found {n} -- if shims.cpp's Rig motor "
-                      f"lines changed, update _MOTOR_BAKE_RES")
+                      f"in {path}, found {n} -- if board_nezha.cpp's "
+                      f"NezhaBoard motor lines changed, update "
+                      f"_MOTOR_BAKE_RES")
         applied.append((key, value))
     with open(path, 'w') as f:
         f.write(text)

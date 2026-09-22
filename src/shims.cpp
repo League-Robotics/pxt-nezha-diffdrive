@@ -1,7 +1,8 @@
 // shims.cpp -- the MakeCode-facing C++ surface. Composes the DiffDrive
-// kernel (self-contained control law) with two NezhaMotorPorts and the
-// CODAL platform ports, and adds the application-layer pieces the
-// kernel deliberately does not contain:
+// kernel (self-contained control law) with a board-supplied motor pair
+// (platform/board.h -- Nezha by default) and the CODAL platform ports,
+// and adds the application-layer pieces the kernel deliberately does
+// not contain:
 //
 //   - ODOMETRY: differential dead-reckoning from the kernel's Output
 //     positions (the kernel is counts-native and has no chassis
@@ -38,7 +39,7 @@
 #include "core/motor_wiring.h"
 #include "motion/motion_engine.h"
 #include "motion/odometry.h"
-#include "platform/nezha_port.h"
+#include "platform/board.h"
 #include "platform/otos_port.h"
 #include "platform/platform_ports.h"
 #include "comms/run_registry.h"
@@ -111,8 +112,18 @@ struct Rig {
   // VERIFIED 2026-08-20 under AprilCam: commanded +180 swept the tag
   // yaw counter-clockwise (17.9 deg -> 169.7 deg mid-turn samples) --
   // physical direction now matches the commanded sign.
-  NezhaMotorPort left{1, -1};    // left = M1, mirrored
-  NezhaMotorPort right{2, +1};   // right = M2
+  //
+  // This history is ABOUT the Nezha board specifically, so the two-port
+  // construction it describes now lives in platform/board_nezha.cpp's
+  // NezhaBoard, not here -- see that file for the unmoved construction
+  // lines tools/make_deploy.py's `_MOTOR_BAKE_RES` still bakes
+  // per-robot. `left`/`right` below bind to whichever board
+  // platform/board.h selects (Nezha by default, so an existing fleet
+  // build is unaffected); DiffDrive::DifferentialDrive only ever needs
+  // the Motor interface, never the concrete port type.
+  BoardMotors motors = boardMotors();
+  DiffDrive::Motor& left = motors.left;
+  DiffDrive::Motor& right = motors.right;
   CodalClock clock;
   CodalSleeper sleeper;
   CodalFiberLauncher launcher;
@@ -1173,11 +1184,16 @@ int diagValue(int what) {
     case 20:
       return static_cast<int>(ensure().kernel.lastError());
     // 21/22: peak driven identical-encoder-read streaks (latch evidence)
-    case 21: return static_cast<int>(ensure().left.maxDrivenStreak_);
-    case 22: return static_cast<int>(ensure().right.maxDrivenStreak_);
     // 23/24: rejected implausible encoder reads (glitch armor)
-    case 23: return static_cast<int>(ensure().left.glitchCount_);
-    case 24: return static_cast<int>(ensure().right.glitchCount_);
+    // A second board has no NezhaMotorPort above the Motor interface,
+    // so this field-mapping switch moved behind boardDiagValue()
+    // (platform/board.h) -- see board_nezha.cpp's own hook and
+    // nezha_port.h's nezhaBoardDiagValue() for the field mapping this
+    // now calls into.
+    case 21: return boardDiagValue(what);
+    case 22: return boardDiagValue(what);
+    case 23: return boardDiagValue(what);
+    case 24: return boardDiagValue(what);
     case 25: return static_cast<int>(ensure().engine.wrongWayCount());
     // 26: SerialTransport::writeLine() drops -- the two-writer guard's
     // retry cap exhausted, or uBit.serial.send() itself failed.
@@ -1186,10 +1202,9 @@ int diagValue(int what) {
     // 27: both wheels' encoder rebaselines -- an implausible-then-
     // consistent jump treated as a counter restart (a brick MCU reset)
     // instead of integrated as a multi-metre teleport. Nonzero means
-    // an encoder counter restarted mid-session.
-    case 27:
-      return static_cast<int>(ensure().left.rebaselineCount_ +
-                              ensure().right.rebaselineCount_);
+    // an encoder counter restarted mid-session. Board-generic, see the
+    // note on case 21 above.
+    case 27: return boardDiagValue(what);
     // 28: cleartext RUN payloads refused because every ring slot was
     // still in flight. Nonzero means a host out-ran the robot.
     case 28: return protocolRunDropCount();
@@ -1216,24 +1231,25 @@ int diagValue(int what) {
     // 35-38: the live motor wiring -- which brick port each side is
     // driving and which way round it runs. What `configure motor`
     // (configureMotor(), above) writes, read back from the ports
-    // themselves rather than from any copy of the request.
+    // themselves rather than from any copy of the request. Board-
+    // generic, see the note on case 21 above.
     //
     // Exposed because the wiring was otherwise unobservable from the
     // host: the block shipped as a silent no-op on 2026-09-12 and
     // nothing short of watching the wheels could tell. Encoder and duty
     // ordinals cannot -- fwdSign multiplies duty AND encoder, so a
     // flipped side reads back perfectly self-consistent.
-    case 35: return static_cast<int>(ensure().left.wiredPort());
-    case 36: return static_cast<int>(ensure().left.wiredSign());
-    case 37: return static_cast<int>(ensure().right.wiredPort());
-    case 38: return static_cast<int>(ensure().right.wiredSign());
+    case 35: return boardDiagValue(what);
+    case 36: return boardDiagValue(what);
+    case 37: return boardDiagValue(what);
+    case 38: return boardDiagValue(what);
     // 39-40: the brick's own encoder counters, raw -- not rebased, not
     // multiplied by fwdSign. The ONLY readout here that moves when a
     // side's direction is flipped, and therefore the only one that can
     // witness a `configure motor` direction change without someone
-    // watching the wheel.
-    case 39: return static_cast<int>(ensure().left.rawCount());
-    case 40: return static_cast<int>(ensure().right.rawCount());
+    // watching the wheel. Board-generic, see the note on case 21 above.
+    case 39: return boardDiagValue(what);
+    case 40: return boardDiagValue(what);
     default: return 0;
   }
 }
@@ -1296,15 +1312,18 @@ void setGeometry(int trackWidth, int calib) {  // [0.1 mm] [1e-4 mm/deg]
 //%
 void configureMotor(int side, int port, int fwdSign) {
   Rig& r = ensure();
-  NezhaMotorPort& target = (side == 0) ? r.left : r.right;
-  NezhaMotorPort& other = (side == 0) ? r.right : r.left;
+  const int otherSide = 1 - side;
 
   // The decision -- including whether this is a swap -- is
   // motor_wiring.h's, so that it is host-testable; this function only
-  // APPLIES the result. Computed before the stop so a request that
-  // changes nothing costs nothing.
-  const WiringPair now{MotorWiring{target.wiredPort(), target.wiredSign()},
-                       MotorWiring{other.wiredPort(), other.wiredSign()}};
+  // APPLIES the result, reading and writing whichever side through the
+  // composed board's own wiring hooks (boardWiring()/
+  // boardConfigureWiring(), platform/board.h) rather than a concrete
+  // NezhaMotorPort type, so a second board can supply its own answer to
+  // "what is this side wired to" without this function knowing its
+  // type. Computed before the stop so a request that changes nothing
+  // costs nothing.
+  const WiringPair now{boardWiring(side), boardWiring(otherSide)};
   const WiringPair next = applyWiringRequest(now.target, now.other,
                                              port, fwdSign);
   if (next.target.port == now.target.port &&
@@ -1318,9 +1337,9 @@ void configureMotor(int side, int port, int fwdSign) {
   // kernel re-commanding the OLD port from the very next step().
   r.softStop();
 
-  // configureWiring() talks I2C (the leaving port's zero write, then
-  // the arriving port's encoder anchor), so it takes the bus guard like
-  // every other non-kernel I2C caller in this file -- otherwise it
+  // boardConfigureWiring() talks I2C (the leaving port's zero write,
+  // then the arriving port's encoder anchor), so it takes the bus guard
+  // like every other non-kernel I2C caller in this file -- otherwise it
   // races whatever fiber is parked inside kernel.step()'s encoder
   // settle sleep, which is the exact collision the guard exists for.
   r.busGuard.acquire(r.sleeper);
@@ -1329,8 +1348,8 @@ void configureMotor(int side, int port, int fwdSign) {
   // order means the two are never both addressing one port, not even
   // between two I2C writes.
   if (next.other.port != now.other.port || next.other.sign != now.other.sign)
-    other.configureWiring(next.other.port, next.other.sign);
-  target.configureWiring(next.target.port, next.target.sign);
+    boardConfigureWiring(otherSide, next.other.port, next.other.sign);
+  boardConfigureWiring(side, next.target.port, next.target.sign);
   r.busGuard.release();
 }
 

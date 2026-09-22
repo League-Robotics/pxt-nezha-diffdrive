@@ -31,6 +31,8 @@
         "src/platform/microbit_i2c_bus.cpp",
         "src/platform/nezha_port.h",
         "src/platform/nezha_port.cpp",
+        "src/platform/board.h",
+        "src/platform/board_nezha.cpp",
         "src/platform/otos_port.h",
         "src/platform/otos_port.cpp",
         "src/platform/wifi_flash_port.h",
