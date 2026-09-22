@@ -148,6 +148,24 @@ _CXX11_PORTABLE_SOURCES = [
     # platform/wifi_flash_port.cpp, excluded below, tests/DESIGN.md) --
     # and has a natural .cpp of its own, so it is compiled directly.
     _SRC_DIR / "comms" / "wifi_credential_store.cpp",
+    # Sprint 040 ticket 002: platform/cutebot_port.cpp has NO pxt.h
+    # dependency at all (unlike nezha_port.cpp, which is excluded below
+    # for its own ifndef-guarded fault handlers -- see tests/DESIGN.md)
+    # -- the Cutebot's fault-context emergency-stop frame lives entirely
+    # in board_cutebot.cpp instead. Has a natural .cpp of its own, so it
+    # is compiled directly.
+    _SRC_DIR / "platform" / "cutebot_port.cpp",
+    # Sprint 040 ticket 004: platform/cutebot_actuation_policy.cpp is a
+    # pure function/class -- no I2C, no board, no kernel reference (see
+    # its own header comment) -- with a natural .cpp of its own, so it
+    # is compiled directly, same as cutebot_port.cpp above.
+    _SRC_DIR / "platform" / "cutebot_actuation_policy.cpp",
+    # Sprint 040 ticket 003: motion/wheel_command_tap.h has no pxt.h
+    # dependency (a pure host-portable observer interface -- see its
+    # own header comment) but no natural .cpp of its own (every member
+    # is a pure virtual), so this dedicated translation unit exists
+    # solely to give this gate something to compile.
+    _TEST_DIR / "wheel_command_tap_syntax_check.cpp",
 ]
 
 

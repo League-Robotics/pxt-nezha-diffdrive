@@ -1,9 +1,23 @@
 # Cutebot Pro support — analysis and approach
 
-**Owner:** Eric Busboom · **Written:** 2026-09-21 · **Status:** proposal,
-pre-sprint. Nothing below has run on a Cutebot Pro yet; every hardware
-claim is a SOURCE READING of ELECFREAKS' own extension unless it says
-MEASURED.
+**Owner:** Eric Busboom · **Written:** 2026-09-21 · **Last reviewed:**
+2026-09-21 · **Status:** design rationale — the host-side build this
+document proposed (§9's "Sprint 040") is implemented and merged;
+nothing below has run on a real Cutebot Pro yet, so every hardware
+claim is still a SOURCE READING of ELECFREAKS' own extension unless it
+says MEASURED, and every number produced by this sprint's own
+simulation is labelled SIM-ONLY, never MEASURED. **This document is the
+design rationale, not the as-built record**: for the current shape of
+the code, read `src/DESIGN.md` §1 (layer map) and §7 (the board
+composition seam, `CutebotMotorPort`/`CutebotDevice`,
+`CutebotActuationPolicy`, in the same level of detail this document
+gave the Nezha port), `src/platform/DESIGN.md`, `src/motion/DESIGN.md`
+(`WheelCommandTap`), and `tools/DESIGN.md` (the `board` bake key). This
+document's own numbered sections are kept as the reasoning that led
+there — the alternatives considered, why they were rejected, and what
+is still open for Sprint 041's bench work — with corrections noted
+in place where the actual build resolved something differently than
+proposed.
 
 ## 0. The ask
 
@@ -169,6 +183,12 @@ the same 14 calls against §1.2's `0x10` and `0xA0 [3]/[4]`.
 
 ### 2.1 Where Nezha leaks above the port — the actual refactor list
 
+**As built (sprint 040 ticket 001, extended by 002/004): every row
+below moved.** This table is kept as the planning record — the "fix"
+column is what was actually done, not merely proposed — but the
+current, maintained description of the resulting seam lives in
+`src/DESIGN.md` §1/§7 and `src/platform/DESIGN.md`, not here.
+
 Everything that has to move for a second board is on this list, and
 nothing else does:
 
@@ -274,6 +294,15 @@ which this repo owns: an optional `WheelCommandTap` observer that
 `kernel_.drive()` and with "neutral" alongside every
 `kernel_.neutral()`. Host-testable, one small class, no kernel edit.
 
+**As built (sprint 040 ticket 003), the interface also carries the
+shaper's phase**, exactly as this section anticipated for the plateau
+policy below (`onDrive()`'s third parameter): `virtual void
+onDrive(float left, float right, VelocityShaper::Phase phase) = 0;` and
+`virtual void onNeutral() = 0;` (`motion/wheel_command_tap.h`), with
+`Phase` an `enum class { kAccel, kCruise, kBrake }` derived by
+`VelocityShaper::advance()` itself. See `src/DESIGN.md` §3 for the
+exact call sites and derivation rule.
+
 **Where the decision is made.** `CutebotDevice` (the shared 0x10
 object both `CutebotMotorPort`s bind to) receives the tap. Each cycle
 it holds the kernel's two staged duties AND the engine's two
@@ -306,9 +335,34 @@ runtime through the config table so the A/B needs no reflash:
    cruise, release the moment braking begins, so the whole approach to
    the stop is ours. The tap carries the shaper's phase for this.
 
+**As built (sprint 040 ticket 004): the "illustrative" 220/180 became
+the actual rule, expressed as a ratio of the configured floor, not a
+pair of hard-coded numbers.** `CutebotActuationPolicy`'s mode 1 engages
+the moment the SMALLER of the two wheels' tapped magnitudes reaches
+`floor × 1.1` and, once engaged, stays engaged through `floor × 0.9` —
+at the default 200 mm/s floor this reproduces 220/180 exactly, but it
+scales with whatever `onboard_floor` is set to. Mode 1 has no separate
+both-wheels check of its own; `floor × 1.1` already implies both wheels
+clear the floor. Mode 2 additionally requires the both-wheels
+eligibility gate below on every tick (a wheel is eligible iff its
+setpoint is exactly 0 or `>= floor`), and — a detail this section did
+not originally specify — an `kAccel` tick (still ramping, not yet at
+cruise) holds whatever the previous engaged/disengaged state was rather
+than newly engaging or releasing. Both modes and the gate are pure
+(`CutebotActuationPolicy::decide()`, no I2C/kernel/`MotionEngine`
+reference) and are host-tested with zero simulated bus in the link
+(`test_cutebot_actuation_policy.py`, 31 tests). See `src/DESIGN.md` §7
+for the full decision rule per mode.
+
 Config surface: `onboard_pid` (0 off = pure A, 1 threshold, 2 plateau)
-and `onboard_floor` [mm/s] as two new `config_fields.h` rows, so
-`SET onboard_pid 0` is always the escape hatch.
+and `onboard_floor` [mm/s] as two new `config_fields.h` rows (as built:
+ordinals 43/44), so `SET onboard_pid 0` is always the escape hatch.
+Defaults, as built: `onboard_pid` 0 (off, pure PWM — opt-in until a
+real bring-up measures it) and `onboard_floor` 200.0 mm/s (matching the
+onboard loop's own hardware clamp). The two rows exist on the wire for
+every board (the table is append-only) but a Nezha-composed build's
+accessor is a documented no-op/refusal — meaningless without a
+Cutebot.
 
 **Handoff hazards — each one a §8 probe, none of them known:**
 
@@ -410,6 +464,32 @@ exists precisely so a port's real bytes are tested rather than a
 - `sim_tour.py --board cutebot-pro` for a whole-tour smoke on the host
   before a board is touched.
 
+**As built, this section gained two more layers (ticket 004, ticket
+006):** `cutebot_hybrid_shim.cpp` + `test_cutebot_hybrid_actuation.py`
+— a device-level view (real `CutebotDevice`/`CutebotMotorPort` over
+`sim_cutebot_bus.h`) proving the handoff bookkeeping (which frame ships
+on release, `appliedDuty()` still reporting what the kernel asked for
+under onboard control) that the pure-policy test above cannot reach on
+its own; and `sim_cutebot_robot_shim.cpp` + `test_sim_tour_cutebot.py`
+— the whole-stack tour shim (real kernel, `MotionEngine`, `Odometry`,
+over the simulated bus) that `sim_tour.py --board cutebot-pro` actually
+runs, one layer below every other shim in this list.
+
+**SIM-ONLY figures, not MEASURED — no Cutebot Pro hardware has run any
+of this.** `uv run python tests/host/sim_tour.py --board cutebot-pro`
+(ticket 006, this session's own capture) closes the same square tour
+at all three `onboard_pid` values, on an UNVERIFIED plant model
+(`tau`/`breakaway_mm_s`/`full_duty_mm_s` copied from the Nezha sim's
+own placeholders, themselves not measured on any real board): closure
+118.9 mm (mode 0, pure PWM), 57.2 mm (mode 1), 58.1 mm (mode 2), all
+inside the 160 mm host-sim pass bar, with four straight legs per tour
+each shipping at least one `0x80` frame in the hybrid modes and zero in
+every pivot at every mode — proving the eligibility split and that a
+tour survives repeated handoffs, never a number a real Cutebot Pro
+would produce. See
+`clasi/sprints/040-cutebot-pro-board-seam-motor-port-and-hybrid-actuation-on-the-host/tickets/done/006-sim-tour-py-board-cutebot-pro-a-hybrid-tour-that-closes-on-the-host.md`'s
+own completion notes for the full table and per-leg frame counts.
+
 ## 8. Bench bring-up (the part that needs the robot)
 
 The assigned board for this session is on the mbdeploy farm. NOTE:
@@ -452,7 +532,8 @@ Two sprints; the second cannot be planned in detail until §8.2-8.4
 have answered what the board is.
 
 **Sprint 040 — Board seam, the Cutebot Pro port, and the hybrid
-actuation path on the host.**
+actuation path on the host. DONE (tickets 001-008,
+`clasi/sprints/040-cutebot-pro-board-seam-motor-port-and-hybrid-actuation-on-the-host/`).**
 Refactor the §2.1 list behind a board composition with zero behaviour
 change on Nezha (host suite green, one tovez/gopiv smoke over USB);
 `CutebotMotorPort` + `CutebotDevice` with both the PWM and the `0x80`
@@ -460,7 +541,13 @@ paths; the `WheelCommandTap` in `MotionEngine`; the actuation policy
 with both modes and its two config rows; `sim_cutebot_bus.h` with the
 simulated onboard loop; host tests for all of it; `board` bake key in
 `make_deploy.py`; fleet JSON for the assigned board; docs. Ends with a
-hex that builds and a host hybrid tour that closes.
+hex that builds and a host hybrid tour that closes. All of this
+delivered as planned: both fleet builds (`--robot tovez`,
+`--robot zeguz`) compiled clean from a clean scratch copy on the first
+attempt (ticket 007), and the host hybrid tour closes at all three
+`onboard_pid` values (ticket 006, SIM-ONLY — §7). Nothing on real
+Cutebot Pro hardware has run yet; that is entirely Sprint 041's job,
+unchanged below.
 
 **Sprint 041 — Bring-up, calibration and the handoff on the Cutebot.**
 §8 on the real board: revision and raw-pulse probes, caliper geometry,
@@ -476,5 +563,27 @@ Everything in §6 beyond the servo, and §3.C, stay as issues.
 1. ~~Option A vs B~~ — DECIDED 2026-09-21: the hybrid, §3.D. Our
    kernel in the slow regime, their loop at cruise, policy chosen on
    bench numbers with `onboard_pid 0` as the escape hatch.
-2. `configure motor` on a Cutebot: sign-only, or refuse?
+2. ~~`configure motor` on a Cutebot: sign-only, or refuse?~~ — DECIDED,
+   sprint 040 ticket 002 (stakeholder-reviewable): sign-only. A sign
+   change is accepted; a port-changing request is refused through a
+   platform-local `WiringResult` (`kOk`/`kUnimplemented`) rather than
+   the wire's own `Wire::Result` — `platform/` may not depend on
+   `comms/` (`src/DESIGN.md` §1), so `cutebot_port.h` declares its own
+   two-code mirror instead of including `wire_handler.h`. A
+   port-changing request answers `kUnimplemented` (well-formed input,
+   not supported on this board), not a range/bad-argument code; an
+   out-of-range sign is a free no-op (`kOk`), the same precedent
+   `NezhaMotorPort::configureWiring()` already sets. See
+   `src/DESIGN.md` §7 for the full rule and
+   `tests/host/test_cutebot_port.py`'s `test_configure_wiring_*` for
+   the coverage.
 3. Which board, really: zeguz or zetuv, and is it a v1 or v2 Cutebot?
+   **Still open.** Sprint 040 ticket 005 created the fleet JSON
+   (`radio-robot-lib/config/robots/zeguz.json`,
+   `geometry.firmware_bake.board: "cutebot-pro"`) under the name given
+   for that session's dispatch, with an explicit note in the config's
+   own `identity._identity_note` that a `HELLO` mismatch means renaming
+   the file and recomputing its radio pair — not editing the existing
+   one's values in place. No robot access existed in that host-only
+   ticket to settle it with a fresh `HELLO`; that is Sprint 041's first
+   step (§8.1).

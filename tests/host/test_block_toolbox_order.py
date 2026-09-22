@@ -203,6 +203,12 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.NudgeAmplitude",  # ordinal 40
         "ConfigField.NudgeWidth",      # ordinal 41
         "ConfigField.NudgeSettle",     # ordinal 42
+        # Sprint 040 ticket 004: OnboardPid/OnboardFloor are NEW,
+        # appended after NudgeSettle (ordinals 43-44) -- the Cutebot
+        # Pro hybrid-actuation policy's own config surface
+        # (config_fields.h).
+        "ConfigField.OnboardPid",    # ordinal 43
+        "ConfigField.OnboardFloor",  # ordinal 44
         # 2026-09-12 (out of process, stakeholder): configureMotor's
         # three dropdowns. MotorSide/MotorPort carry their own meaning
         # (0/1 sides, 1-based brick ports); MotorDirection's values ARE

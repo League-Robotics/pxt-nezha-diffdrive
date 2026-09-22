@@ -18,14 +18,55 @@
 // when a later ticket needs another MotionEngine entry point exposed.
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
+#include <vector>
 
 #include "core/diffdrive.h"
 #include "fake_ports.h"
 #include "fake_pose_source.h"
 #include "motion/motion_engine.h"
 #include "motion/odometry.h"
+#include "motion/wheel_command_tap.h"
 
 namespace {
+
+// Sprint 040 ticket 003 (test_wheel_command_tap.py): a WheelCommandTap
+// that records every onDrive()/onNeutral() call in order, so a test can
+// assert both the exact values a call carried AND the exact sequence of
+// calls across a whole primitive -- neither is visible from the engine's
+// own public surface, since the whole point of the tap is to observe
+// what nothing else can.
+struct TapRecord {
+  int kind = 0;     // 0 = onDrive, 1 = onNeutral
+  float left = 0.0f;   // [mm/s] meaningful only for kind == 0
+  float right = 0.0f;  // [mm/s] meaningful only for kind == 0
+  int phase = 0;       // diffDrive::VelocityShaper::Phase, kind == 0 only
+};
+
+class FakeWheelCommandTap : public diffDrive::WheelCommandTap {
+ public:
+  void onDrive(float leftMmS, float rightMmS,
+               diffDrive::VelocityShaper::Phase phase) override {
+    TapRecord r;
+    r.kind = 0;
+    r.left = leftMmS;
+    r.right = rightMmS;
+    r.phase = static_cast<int>(phase);
+    records_.push_back(r);
+  }
+  void onNeutral() override {
+    TapRecord r;
+    r.kind = 1;
+    records_.push_back(r);
+  }
+
+  void clear() { records_.clear(); }
+  size_t count() const { return records_.size(); }
+  const TapRecord& at(size_t index) const { return records_[index]; }
+
+ private:
+  std::vector<TapRecord> records_;
+};
 
 struct Handle {
   FakeMotor left;
@@ -67,6 +108,14 @@ struct Handle {
   // then read back a member" shape as probeX_/probeY_/probeHeading_
   // above.
   diffDrive::MotionEngine::PulseResult lastPulse_{};
+
+  // Sprint 040 ticket 003 (test_wheel_command_tap.py): NOT installed on
+  // `engine` by default -- a fresh handle behaves exactly as it did
+  // before this member existed until meTapInstall() is called, which is
+  // itself the "no tap = zero behaviour change" contract's own host
+  // proof (every OTHER test file in this shared library never calls
+  // meTapInstall() at all).
+  FakeWheelCommandTap tap;
 
   Handle()
       : kernel(left, right, clock, sleeper, launcher),
@@ -853,6 +902,45 @@ float meNudgeMeasuredDistance(void* handle) {
 }
 float meNudgeMeasuredRotation(void* handle) {
   return static_cast<Handle*>(handle)->engine.nudgeMeasuredRotation();
+}
+
+// ---- WheelCommandTap (sprint 040 ticket 003, test_wheel_command_tap.py)
+// Every Handle owns a FakeWheelCommandTap, but engine.setWheelCommandTap()
+// is called only via meTapInstall() -- a handle that never calls it is
+// exactly the "no tap" state every OTHER test file in this shared
+// library exercises implicitly, which is this ticket's own zero-
+// behaviour-change acceptance criterion made concrete: the thirteen
+// pre-existing test files above pass unmodified BECAUSE they never
+// touch these functions at all. ----------------------------------------
+
+void meTapInstall(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.setWheelCommandTap(&h->tap);
+}
+void meTapUninstall(void* handle) {
+  static_cast<Handle*>(handle)->engine.setWheelCommandTap(nullptr);
+}
+void meTapClear(void* handle) {
+  static_cast<Handle*>(handle)->tap.clear();
+}
+int meTapRecordCount(void* handle) {
+  return static_cast<int>(static_cast<Handle*>(handle)->tap.count());
+}
+int meTapRecordKind(void* handle, int index) {
+  return static_cast<Handle*>(handle)->tap.at(
+      static_cast<size_t>(index)).kind;
+}
+float meTapRecordLeft(void* handle, int index) {
+  return static_cast<Handle*>(handle)->tap.at(
+      static_cast<size_t>(index)).left;
+}
+float meTapRecordRight(void* handle, int index) {
+  return static_cast<Handle*>(handle)->tap.at(
+      static_cast<size_t>(index)).right;
+}
+int meTapRecordPhase(void* handle, int index) {
+  return static_cast<Handle*>(handle)->tap.at(
+      static_cast<size_t>(index)).phase;
 }
 
 }  // extern "C"

@@ -33,6 +33,20 @@ per-transport-isolation, and telemetry-frame tests) rather than each
 test file inventing its own build — extend an existing shim's function
 list before adding a new one.
 
+**Whole-stack tour shims are the exception to "one shim per subsystem"
+above.** `sim_robot_shim.cpp` (Nezha) and `sim_cutebot_robot_shim.cpp`
+(Cutebot Pro) each compose the REAL port(s), the real
+`DifferentialDrive` kernel, `MotionEngine` and `Odometry` over a
+simulated brick (`sim_nezha_bus.h`/`sim_cutebot_bus.h`) — not one class
+under test, the whole robot minus CODAL — because a tour-level defect
+(a reversal-dwell asymmetry, a hybrid-actuation handoff that never
+lets go) only shows up once every layer between the kernel and the
+wire is real and driven together. `sim_tour.py` builds and drives
+both (`--board nezha`, the default, or `--board cutebot-pro`) and is
+the one file here meant to be run directly as a script as well as
+imported from `test_*.py` (`test_sim_profile_tracking.py`,
+`test_sim_tour_cutebot.py`) — see its own module docstring.
+
 `tests/tools/` is a sibling suite testing `tools/*.py` directly in
 plain Python — no compiler, no subprocess, no network. See its own
 `tests/tools/DESIGN.md`.

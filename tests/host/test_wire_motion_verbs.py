@@ -2229,6 +2229,15 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "nudge_amplitude": 18.0,
     "nudge_width": 3.0,
     "nudge_settle": 40.0,
+    # Sprint 040 ticket 004: the Cutebot Pro hybrid-actuation policy's
+    # own two ordinals (43-44), plain stored fields on the test double
+    # (wire_motion_verb_shim.cpp's own WaHandle -- this handle has no
+    # board.h composition to forward to, unlike production's real
+    # board_nezha.cpp/board_cutebot.cpp accessors). Values chosen away
+    # from each field's own shipped default (0 / 200.0), same
+    # non-default-value rationale as accel/decel/v_max above.
+    "onboard_pid": 2.0,
+    "onboard_floor": 250.0,
 }
 
 
@@ -3241,6 +3250,10 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # nudge_width/nudge_settle), NEW, declared after goto_timeout in
         # kConfigFields.
         b"nudge_amplitude", b"nudge_width", b"nudge_settle",
+        # sprint 040 ticket 004: ordinals 43-44 (onboard_pid/
+        # onboard_floor), NEW, declared after nudge_settle -- the
+        # Cutebot Pro hybrid-actuation policy's own config surface.
+        b"onboard_pid", b"onboard_floor",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

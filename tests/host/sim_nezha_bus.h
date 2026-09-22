@@ -96,6 +96,42 @@ class SimWheel {
   float velocity() const { return velocity_; }   // [counts/s]
   float position() const { return position_; }   // [counts]
 
+  // Zeroes the accumulated position only -- velocity/moving_ state is
+  // untouched, matching a real encoder's hardware-zero register (cmd
+  // 0x50 on the Cutebot Pro's own wire; see
+  // tests/host/sim_cutebot_bus.h, sprint 040 ticket 002). Added for
+  // that simulator; SimNezhaBus itself never calls this (the Nezha
+  // brick's own hardware-zero path was never modelled here).
+  void resetPosition() { position_ = 0.0f; }
+
+  // Onboard speed-loop simulation (sprint 040 ticket 004,
+  // sim_cutebot_bus.h's `0x80` handling): a first-order lag DIRECTLY to
+  // a commanded velocity, bypassing the duty->target->breakaway
+  // pipeline step() uses above -- this models a controller that closes
+  // its OWN loop on the wheel (the Cutebot Pro's onboard PID), not our
+  // own duty-driven plant. `setpointCountsPerS` is whatever the caller
+  // decided to send, already through (or deliberately bypassing, to
+  // exercise a policy bug -- see sim_cutebot_bus.h's own header) the
+  // 200 mm/s floor; this method does not know about that floor at all.
+  // Reuses `tau_` as a stand-in lag constant -- UNVERIFIED against a
+  // real Cutebot's onboard-loop dynamics, no bench numbers exist yet
+  // (sprint 041). `moving_` is kept roughly honest (>= half the
+  // breakaway threshold) so a caller that later resumes step() sees a
+  // `moving_` flag consistent with the velocity this method leaves
+  // behind -- UNVERIFIED whether a real handoff back to PWM behaves
+  // anything like this; see sim_cutebot_bus.h's own comment on the
+  // "0x10 cancels onboard mode" assumption this exists to support.
+  void stepOnboard(float setpointCountsPerS, float dt) {  // [counts/s][s]
+    if (tau_ <= 0.0f) {
+      velocity_ = setpointCountsPerS;
+    } else {
+      const float a = dt / (tau_ + dt);
+      velocity_ += a * (setpointCountsPerS - velocity_);
+    }
+    position_ += velocity_ * dt;
+    moving_ = std::fabs(velocity_) >= 0.5f * breakaway_;
+  }
+
  private:
   float tau_;          // [s]
   float breakaway_;    // [counts/s]

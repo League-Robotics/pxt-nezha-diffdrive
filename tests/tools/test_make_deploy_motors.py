@@ -1,7 +1,10 @@
 """tests/tools/test_make_deploy_motors.py -- pins `tools/make_deploy.py`'s
 OPT-IN per-robot motor mapping bake (`_inject_motors()`): which Nezha
 port is each side and the sign that makes +command drive it forward,
-substituted into the scratch copy of `src/shims.cpp` from the robot's
+substituted into the scratch copy of `src/platform/board_nezha.cpp`
+(sprint 040 ticket 001 retargeted this from `src/shims.cpp` when the
+board-composition seam moved the `NezhaMotorPort` construction lines
+out of Rig into board_nezha.cpp's own NezhaBoard) from the robot's
 `geometry.firmware_bake.motors` block.
 
 Why it exists: MEASURED tovez 2026-09-04,
@@ -29,19 +32,18 @@ if str(_TOOLS_DIR) not in sys.path:
 
 import make_deploy  # noqa: E402
 
-_SHIMS = """\
-struct Rig {
+_BOARD_NEZHA = """\
+struct NezhaBoard {
   NezhaMotorPort left{1, -1};    // left = M1, mirrored
   NezhaMotorPort right{2, +1};   // right = M2
-  CodalClock clock;
 };
 """
 
 
 def _deploy(tmp_path):
     deploy = tmp_path / "deploy"
-    (deploy / "src").mkdir(parents=True)
-    (deploy / "src" / "shims.cpp").write_text(_SHIMS)
+    (deploy / "src" / "platform").mkdir(parents=True)
+    (deploy / "src" / "platform" / "board_nezha.cpp").write_text(_BOARD_NEZHA)
     return deploy
 
 
@@ -54,13 +56,13 @@ def _config(tmp_path, robot, geometry):
 
 
 def _read(deploy):
-    return (deploy / "src" / "shims.cpp").read_text()
+    return (deploy / "src" / "platform" / "board_nezha.cpp").read_text()
 
 
 def test_tracked_default_matches_the_regex_sites():
-    """The real shims.cpp must expose exactly one site per key, or the
-    bake would exit at build time on the day it is first needed."""
-    text = (_REPO_ROOT / "src" / "shims.cpp").read_text()
+    """The real board_nezha.cpp must expose exactly one site per key, or
+    the bake would exit at build time on the day it is first needed."""
+    text = (_REPO_ROOT / "src" / "platform" / "board_nezha.cpp").read_text()
     for key, pattern in make_deploy._MOTOR_BAKE_RES.items():
         assert len(pattern.findall(text)) == 1, key
 
@@ -84,7 +86,7 @@ def test_no_motors_block_leaves_shims_untouched(tmp_path, monkeypatch):
     monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB", str(_config(
         tmp_path, "vevov", {"firmware_bake": {"trackwidth": 128.0}})))
     assert make_deploy._inject_motors(str(deploy), "vevov") == []
-    assert _read(deploy) == _SHIMS
+    assert _read(deploy) == _BOARD_NEZHA
 
 
 def test_no_bake_block_at_all_leaves_shims_untouched(tmp_path, monkeypatch):
@@ -92,7 +94,7 @@ def test_no_bake_block_at_all_leaves_shims_untouched(tmp_path, monkeypatch):
     monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB", str(_config(
         tmp_path, "gopiv", {})))
     assert make_deploy._inject_motors(str(deploy), "gopiv") == []
-    assert _read(deploy) == _SHIMS
+    assert _read(deploy) == _BOARD_NEZHA
 
 
 @pytest.mark.parametrize("motors", [

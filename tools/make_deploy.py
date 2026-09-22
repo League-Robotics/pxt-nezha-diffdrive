@@ -293,7 +293,23 @@ EXPECTED_CPP_FILES = [
     'src/comms/wire_handler.cpp',
     'src/core/diffdrive.cpp',
     'src/motion/motion_engine.cpp',
+    # Sprint 040 ticket 001 (board-composition seam): board_nezha.cpp is
+    # the Nezha half of platform/board.h's compile-time seam -- see that
+    # file's own header comment. Sprint 040 ticket 002 adds the Cutebot
+    # half (board_cutebot.cpp) and its own port implementation
+    # (cutebot_port.cpp) -- both are always compiled (PXT builds every
+    # file in pxt.json's `files`; the DIFFDRIVE_BOARD `#if` inside each
+    # board_*.cpp is the only switch), regardless of which board a given
+    # build's DIFFDRIVE_BOARD selects.
+    'src/platform/board_nezha.cpp',
+    'src/platform/board_cutebot.cpp',
     'src/platform/nezha_port.cpp',
+    'src/platform/cutebot_port.cpp',
+    # Sprint 040 ticket 004: the hybrid-actuation policy is a pure
+    # function/class with no board or I2C reference of its own (see its
+    # own header comment) -- always compiled, same as every other file
+    # in this list, regardless of DIFFDRIVE_BOARD.
+    'src/platform/cutebot_actuation_policy.cpp',
     'src/platform/otos_port.cpp',
     'src/platform/vfp_guard.cpp',
     'src/shims.cpp',
@@ -1149,6 +1165,68 @@ def _read_robot_firmware_bake(robot):
     return bake
 
 
+# ---- per-robot board selection bake --------------------------------------
+#
+# `geometry.firmware_bake.board` -- which physical board this build
+# composes against (platform/board.h's DIFFDRIVE_BOARD literal). Opt-in
+# like every other firmware_bake key: absent, `board.h` keeps its
+# tracked `DIFFDRIVE_BOARD_NEZHA` default and every existing fleet
+# build stays byte-identical (sprint 040 ticket 001's own guarantee).
+# See docs/design/cutebot-pro-support.md Sec.4 -- runtime 0x10
+# autodetection was deliberately rejected in favor of this same
+# baked-and-reported convention _inject_radio_channel()/_inject_profile()/
+# _inject_geometry() already use.
+_BOARD_BAKE_LITERALS = {
+    'nezha': 'DIFFDRIVE_BOARD_NEZHA',
+    'cutebot-pro': 'DIFFDRIVE_BOARD_CUTEBOT_PRO',
+}
+
+_BOARD_BAKE_RE = re.compile(r'(#define DIFFDRIVE_BOARD )DIFFDRIVE_BOARD_\w+')
+
+
+def _inject_board(deploy_dir, robot):
+    """Substitute `deploy_dir`'s copy of `src/platform/board.h`'s
+    `#define DIFFDRIVE_BOARD ...` line with `robot`'s
+    `firmware_bake.board`, when it declares one.
+
+    Absent key: a no-op, returns `[]` -- `board.h` is never opened,
+    let alone written, so it stays byte-identical to the checked-in
+    source (this is what SUC-001's byte-identity acceptance criterion
+    rests on). `"nezha"` is an EXPLICIT no-op: it still opens the file
+    and re-substitutes the same literal back in (so a typo'd site
+    count would still be caught), and still reports back through the
+    `(name, value)` list like every other bake here, so a build log
+    can show the choice was made on purpose rather than merely
+    defaulted. `"cutebot-pro"` selects the Cutebot literal. Anything
+    else -- a typo, the wrong type -- exits loudly naming the bad
+    value, the robot and the config path, per this sprint's own hard
+    constraint against silently falling back to Nezha.
+
+    Returns the list of `(name, value)` injected, like
+    `_inject_geometry()`/`_inject_motors()`."""
+    bake = _read_robot_firmware_bake(robot)
+    board = bake.get('board') if bake else None
+    if board is None:
+        return []
+    if not isinstance(board, str) or board not in _BOARD_BAKE_LITERALS:
+        sys.exit(f"make_deploy: geometry.firmware_bake.board for '{robot}' "
+                  f"is {board!r}; expected one of "
+                  f"{sorted(_BOARD_BAKE_LITERALS)}")
+    literal = _BOARD_BAKE_LITERALS[board]
+    path = os.path.join(deploy_dir, 'src', 'platform', 'board.h')
+    with open(path) as f:
+        text = f.read()
+    text, n = _BOARD_BAKE_RE.subn(rf'\g<1>{literal}', text)
+    if n != 1:
+        sys.exit(f"make_deploy: expected exactly 1 site for "
+                  f"firmware_bake.board in {path}, found {n} -- if "
+                  f"board.h's DIFFDRIVE_BOARD default declaration "
+                  f"changed, update _BOARD_BAKE_RE")
+    with open(path, 'w') as f:
+        f.write(text)
+    return [('board', board)]
+
+
 def _inject_geometry(deploy_dir, robot):
     """Substitute `deploy_dir`'s copies of `src/motion/motion_engine.h`
     AND `src/motion/motion_limits.h` (this ticket: the bake now spans
@@ -1224,7 +1302,10 @@ def _inject_geometry(deploy_dir, robot):
 # `geometry.firmware_bake.motors` -- {left_port, right_port,
 # fwd_sign_left, fwd_sign_right} -- names which Nezha port is each side
 # and the sign that makes +command drive that wheel FORWARD. The tracked
-# default in shims.cpp (`NezhaMotorPort left{1, -1}; right{2, +1};`) is
+# default (`NezhaMotorPort left{1, -1}; right{2, +1};`, now in
+# src/platform/board_nezha.cpp's NezhaBoard -- sprint 040 ticket 001
+# moved this construction out of src/shims.cpp behind the board-
+# composition seam, so this bake retargets there too) is
 # vevov's wiring, VERIFIED on vevov 2026-08-20. tovez is wired the other
 # way round: MEASURED tovez 2026-09-04,
 # captures/bench-acceptance-029-20260904d/heading-probe.log -- with the
@@ -1244,14 +1325,43 @@ _MOTOR_BAKE_RES = {
 
 
 def _inject_motors(deploy_dir, robot):
-    """Substitute `deploy_dir`'s copy of `src/shims.cpp`'s two
-    `NezhaMotorPort` lines with `robot`'s `firmware_bake.motors`, when it
-    declares one. All four keys are required together: a port without
-    its sign (or vice versa) is exactly the half-fix radio-robot-lib's
-    own `_port_note` warns reverses forward travel. Returns the list of
-    `(name, value)` injected, like `_inject_geometry()`."""
+    """Substitute `deploy_dir`'s copy of `src/platform/board_nezha.cpp`'s
+    two `NezhaMotorPort` lines with `robot`'s `firmware_bake.motors`,
+    when it declares one. All four keys are required together: a port
+    without its sign (or vice versa) is exactly the half-fix
+    radio-robot-lib's own `_port_note` warns reverses forward travel.
+    Returns the list of `(name, value)` injected, like
+    `_inject_geometry()`.
+
+    Sprint 040 ticket 001: retargeted from `src/shims.cpp` to
+    `src/platform/board_nezha.cpp` when the board-composition seam
+    moved the two `NezhaMotorPort` construction lines there -- the
+    regexes in `_MOTOR_BAKE_RES` are unchanged, since the lines
+    themselves moved verbatim.
+
+    Sprint 040 ticket 005: refuses loudly, rather than silently
+    no-opping, when `robot` declares BOTH `firmware_bake.board:
+    "cutebot-pro"` and a `firmware_bake.motors` block. The substitution
+    below would still "succeed" in that case -- `board_nezha.cpp` is
+    always compiled (EXPECTED_CPP_FILES's own comment) -- but its
+    entire body, including the two `NezhaMotorPort` lines this bakes
+    over, sits behind `#if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_NEZHA`
+    (see that file's header), so on a Cutebot build the bake would
+    compile into dead code and never run. A robot config carrying both
+    keys is exactly the stale-config trap this fleet's own rules warn
+    about (`.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`'s
+    camlink mounts-table story) -- caught here instead of silently
+    doing nothing."""
     bake = _read_robot_firmware_bake(robot)
     motors = bake.get('motors') if bake else None
+    if motors is not None and bake.get('board') == 'cutebot-pro':
+        sys.exit(f"make_deploy: '{robot}' declares "
+                  f"geometry.firmware_bake.board 'cutebot-pro' AND a "
+                  f"firmware_bake.motors block -- board_nezha.cpp's "
+                  f"NezhaMotorPort construction compiles out entirely "
+                  f"on a Cutebot build, so this bake would silently do "
+                  f"nothing. Remove firmware_bake.motors or set board "
+                  f"to 'nezha'.")
     if motors is None:
         return []
     if not isinstance(motors, dict) or set(_MOTOR_BAKE_RES) - set(motors):
@@ -1268,7 +1378,7 @@ def _inject_motors(deploy_dir, robot):
     if motors['left_port'] == motors['right_port']:
         sys.exit(f"make_deploy: firmware_bake.motors for '{robot}' puts both "
                   f"wheels on port {motors['left_port']}")
-    path = os.path.join(deploy_dir, 'src', 'shims.cpp')
+    path = os.path.join(deploy_dir, 'src', 'platform', 'board_nezha.cpp')
     with open(path) as f:
         text = f.read()
     applied = []
@@ -1278,8 +1388,9 @@ def _inject_motors(deploy_dir, robot):
         text, n = pattern.subn(rf'\g<1>{literal}\g<2>', text)
         if n != 1:
             sys.exit(f"make_deploy: expected exactly 1 site for motors.{key} "
-                      f"in {path}, found {n} -- if shims.cpp's Rig motor "
-                      f"lines changed, update _MOTOR_BAKE_RES")
+                      f"in {path}, found {n} -- if board_nezha.cpp's "
+                      f"NezhaBoard motor lines changed, update "
+                      f"_MOTOR_BAKE_RES")
         applied.append((key, value))
     with open(path, 'w') as f:
         f.write(text)
@@ -1569,6 +1680,8 @@ def main():
                                   FAULT_SPIN_PROFILE_SUFFIX)
         print(f'make_deploy: wire profile = {profile}')
         _inject_wifi_secrets(DEPLOY_FAULT_SPIN)
+        for _name, _value in _inject_board(DEPLOY_FAULT_SPIN, a.robot):
+            print(f'make_deploy: board bake {_name} = {_value}')
         for _name, _value in _inject_geometry(DEPLOY_FAULT_SPIN, a.robot):
             print(f'make_deploy: geometry bake {_name} = {_value:g}')
         for _name, _value in _inject_motors(DEPLOY_FAULT_SPIN, a.robot):
@@ -1596,6 +1709,8 @@ def main():
         _inject_profile(deploy_dir, a.robot)
         _inject_wifi_secrets(deploy_dir)   # protocol.cpp is shared by every program
         # (no _inject_radio_link here: BOOT_RADIO_LINK lives in test.ts only)
+        for _name, _value in _inject_board(deploy_dir, a.robot):
+            print(f'make_deploy: board bake {_name} = {_value}')
         for _name, _value in _inject_geometry(deploy_dir, a.robot):
             print(f'make_deploy: geometry bake {_name} = {_value:g}')
         _inject_version(deploy_dir)
@@ -1623,6 +1738,8 @@ def main():
     if a.profile_suffix:
         print(f'make_deploy: wire profile = {profile}')
     _inject_wifi_secrets(DEPLOY)
+    for _name, _value in _inject_board(DEPLOY, a.robot):
+        print(f'make_deploy: board bake {_name} = {_value}')
     for _name, _value in _inject_geometry(DEPLOY, a.robot):
         print(f'make_deploy: geometry bake {_name} = {_value:g}')
     for _name, _value in _inject_motors(DEPLOY, a.robot):
