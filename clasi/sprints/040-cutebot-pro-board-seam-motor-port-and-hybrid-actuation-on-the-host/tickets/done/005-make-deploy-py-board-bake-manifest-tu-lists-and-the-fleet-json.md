@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: make_deploy.py board bake, manifest/TU lists, and the fleet JSON
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
