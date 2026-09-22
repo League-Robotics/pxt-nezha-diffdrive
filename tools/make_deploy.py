@@ -295,10 +295,16 @@ EXPECTED_CPP_FILES = [
     'src/motion/motion_engine.cpp',
     # Sprint 040 ticket 001 (board-composition seam): board_nezha.cpp is
     # the Nezha half of platform/board.h's compile-time seam -- see that
-    # file's own header comment. board_cutebot.cpp is added by a later
-    # ticket, when it exists.
+    # file's own header comment. Sprint 040 ticket 002 adds the Cutebot
+    # half (board_cutebot.cpp) and its own port implementation
+    # (cutebot_port.cpp) -- both are always compiled (PXT builds every
+    # file in pxt.json's `files`; the DIFFDRIVE_BOARD `#if` inside each
+    # board_*.cpp is the only switch), regardless of which board a given
+    # build's DIFFDRIVE_BOARD selects.
     'src/platform/board_nezha.cpp',
+    'src/platform/board_cutebot.cpp',
     'src/platform/nezha_port.cpp',
+    'src/platform/cutebot_port.cpp',
     'src/platform/otos_port.cpp',
     'src/platform/vfp_guard.cpp',
     'src/shims.cpp',

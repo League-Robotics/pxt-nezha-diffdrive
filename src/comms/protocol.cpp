@@ -111,6 +111,12 @@ constexpr const char* kVersion = "1.20260919.1";  // baked by config/hooks/versi
 // roleBuf_) is unchanged.
 #if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_NEZHA
 constexpr const char* kRole = "NEZHA2";
+#elif DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_CUTEBOT_PRO
+// The Cutebot Pro's own HELLO banner role. UNVERIFIED against a
+// real board (no Cutebot has answered a HELLO yet) -- this is a
+// naming choice, not a measurement, and is easy to change before
+// real bring-up if the stakeholder wants something else.
+constexpr const char* kRole = "CUTEBOTPRO";
 #else
 #error "protocol.cpp: kRole has no definition for this DIFFDRIVE_BOARD selection"
 #endif

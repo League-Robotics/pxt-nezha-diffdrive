@@ -148,6 +148,13 @@ _CXX11_PORTABLE_SOURCES = [
     # platform/wifi_flash_port.cpp, excluded below, tests/DESIGN.md) --
     # and has a natural .cpp of its own, so it is compiled directly.
     _SRC_DIR / "comms" / "wifi_credential_store.cpp",
+    # Sprint 040 ticket 002: platform/cutebot_port.cpp has NO pxt.h
+    # dependency at all (unlike nezha_port.cpp, which is excluded below
+    # for its own ifndef-guarded fault handlers -- see tests/DESIGN.md)
+    # -- the Cutebot's fault-context emergency-stop frame lives entirely
+    # in board_cutebot.cpp instead. Has a natural .cpp of its own, so it
+    # is compiled directly.
+    _SRC_DIR / "platform" / "cutebot_port.cpp",
 ]
 
 

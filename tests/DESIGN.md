@@ -52,7 +52,7 @@ fake HTTP getter — and neither touches hardware.
 
 ## Translation units nothing on the host compiles
 
-Eleven `.cpp` files under `src/` reach `pxt.h` — directly, or
+Twelve `.cpp` files under `src/` reach `pxt.h` — directly, or
 transitively through `platform/platform_ports.h` or
 `platform/otos_port.h`. `pxt.h` ships with the `core` dependency
 declared in `pxt.json`, brings CODAL's whole type set (`uBit`, fibers,
@@ -90,7 +90,23 @@ methods) is host-tested where it actually lives, in
 what is NOT independently host-proved is `board_nezha.cpp`'s own thin
 one-line delegation into that computation, which
 `tests/host/test_board_seam_source_pin.py` pins as source text instead.
-`platform/nezha_port.h` is no longer a route to `pxt.h` at all:
+`platform/nezha_port.h` is no longer a route to `pxt.h` at all.
+
+**Sprint 040 ticket 002 adds a twelfth: `platform/board_cutebot.cpp`**,
+the Cutebot Pro's own half of the same seam, guarded by
+`#ifndef DIFFDRIVE_HOST_BUILD` for the identical reason
+(`diffdrive_emergency_motor_stop()`'s real `uBit.i2c.write()`) and
+not host-linkable as a whole for the identical reason (its
+`CutebotBoard` singleton also constructs through the default-bus
+argument). Unlike `board_nezha.cpp`, though, `platform/cutebot_port.h`/
+`.cpp` — the Cutebot's equivalent of `nezha_port.h`/`.cpp` — has NO
+`pxt.h` route at all, not even a guarded one: the fault-context frame
+lives entirely in `board_cutebot.cpp`, so `cutebot_port.cpp` is a plain
+entry in the C++11 gate (`test_cxx11_syntax_gate.py`) rather than a row
+in this table, and is host-tested directly, over a simulated Cutebot
+bus, by `tests/host/test_cutebot_port.py`. `board_cutebot.cpp`'s own
+thin hook wiring is source-pinned the same way `board_nezha.cpp`'s is,
+by `tests/host/test_board_cutebot_source_pin.py`.
 
 | file | what binds it to the target | what gates it |
 |---|---|---|
@@ -101,17 +117,18 @@ one-line delegation into that computation, which
 | `comms/wifi_uart.cpp` | `new NRF52Serial(uBit.io.P8, uBit.io.P1, NRF_UARTE1)` — one CODAL-facing byte pipe | hex checkpoint; the whole AT state machine is `comms/wifi_link.cpp`, which **is** in the C++11 gate and host-tested (`test_wifi_link.py`) |
 | `platform/nezha_port.cpp` | the ARM fault handlers (naked `__asm`), unmoved — **inside `#ifndef DIFFDRIVE_HOST_BUILD`** | hex checkpoint for the guarded half; everything else compiles and runs on the host over a simulated brick (`tests/host/sim_nezha_bus.h`, driven by `sim_tour.py`), which is what finally put the shaping layer — quantizer, deadband, slew, write throttle, **reversal dwell** — under simulation; its new `nezhaBoardDiagValue()` free function is additionally host-tested directly by `test_board_nezha_diag.py` |
 | `platform/board_nezha.cpp` | the `NezhaBoard` singleton's default-bus port construction (no host `defaultI2CBus()` exists) AND, inside `#ifndef DIFFDRIVE_HOST_BUILD`, `diffdrive_emergency_motor_stop()`'s CODAL write — moved here from `nezha_port.cpp` (sprint 040 ticket 001) per docs/design/cutebot-pro-support.md S2.1, since a second board's frame at the same address must not answer for this one | hex checkpoint for the whole file (unlike `nezha_port.cpp`, no host-linkable half); the field mapping its `boardDiagValue()` hook delegates to is host-tested via `nezha_port.h`'s `nezhaBoardDiagValue()` (`test_board_nezha_diag.py`); the hook wiring itself is source-pinned (`test_board_seam_source_pin.py`) |
+| `platform/board_cutebot.cpp` | the `CutebotBoard` singleton's default-bus device construction (no host `defaultI2CBus()` exists) AND, inside `#ifndef DIFFDRIVE_HOST_BUILD`, `diffdrive_emergency_motor_stop()`'s CODAL write for the Cutebot's single-frame both-wheels-zero (sprint 040 ticket 002) per docs/design/cutebot-pro-support.md S1.2/S2.1 | hex checkpoint for the whole file (same shape as `board_nezha.cpp`, no host-linkable half); the Cutebot-specific field mapping its `boardDiagValue()` hook delegates to is host-tested via `cutebot_port.h`'s `cutebotBoardDiagValue()` (`test_cutebot_port.py`); the hook wiring itself is source-pinned (`test_board_cutebot_source_pin.py`) |
 | `platform/microbit_i2c_bus.cpp` | `uBit.i2c` itself: the codebase's entire CODAL I²C dependency, deliberately concentrated here so `nezha_port.cpp` need not carry it | hex checkpoint; there is no logic to test — every line forwards to `uBit.i2c`, and the interface it implements (`platform/i2c_bus.h`) is host-compiled by every `sim_tour.py` build |
 | `platform/otos_port.cpp` | SparkFun OTOS I²C transactions, via `otos_port.h` | hex checkpoint; the heading-wrap math is `core/heading_wrap.h`, host-tested |
 | `platform/vfp_guard.cpp` | `fiber_sleep()` | hex checkpoint; `test_vfp_guard_source_pin.py` |
 | `platform/wifi_flash_port.cpp` | `codal::MicroBitFlash::flash_write()`/`erase_page()` — one dedicated flash page (sprint 038 ticket 002) | hex checkpoint; on-hardware page-survival is ticket 004's job, not a host test's. Record layout, truncation-vs-reject policy, and list semantics live in `comms/wifi_credential_store.cpp`, which **is** in the C++11 gate and host-tested (`test_wifi_credential_store.py`) against a fake `WifiFlashPort` (`wifi_flash_port_shim.cpp`) |
 
-Two things cover all eleven regardless:
+Two things cover all twelve regardless:
 `host/test_include_paths_match_target.py` checks every `#include`
 under `src/` with no compiler at all, these files included, and the
 **hex checkpoint** — a real PXT build for a real target — is the only
 thing that compiles them as the robot will. `host/test_cxx11_syntax_gate.py`
-covers a deliberate list that excludes all eleven.
+covers a deliberate list that excludes all twelve.
 
 **Why no stub `pxt.h`.** A stub would only re-prove that these files
 parse, which the include gate plus the hex checkpoint already cover

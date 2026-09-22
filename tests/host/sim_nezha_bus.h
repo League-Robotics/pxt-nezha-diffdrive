@@ -96,6 +96,14 @@ class SimWheel {
   float velocity() const { return velocity_; }   // [counts/s]
   float position() const { return position_; }   // [counts]
 
+  // Zeroes the accumulated position only -- velocity/moving_ state is
+  // untouched, matching a real encoder's hardware-zero register (cmd
+  // 0x50 on the Cutebot Pro's own wire; see
+  // tests/host/sim_cutebot_bus.h, sprint 040 ticket 002). Added for
+  // that simulator; SimNezhaBus itself never calls this (the Nezha
+  // brick's own hardware-zero path was never modelled here).
+  void resetPosition() { position_ = 0.0f; }
+
  private:
   float tau_;          // [s]
   float breakaway_;    // [counts/s]
