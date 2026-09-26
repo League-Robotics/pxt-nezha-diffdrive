@@ -620,6 +620,24 @@ def test_service_wifi_prefers_flash_store_over_explicit_and_baked():
     )
 
 
+def test_store_only_mode_disables_wifi_with_an_empty_store():
+    body = _service_wifi_body()
+    assert re.search(
+        r"else\s+if\s*\(wifiStoreOnly_\)\s*\{\s*"
+        r'config\.ssid\s*=\s*""\s*;\s*config\.password\s*=\s*""\s*;\s*'
+        r"wifiLink_\.begin\(config\);", body
+    )
+    assert re.search(
+        r"void Protocol::enableStoredWifi\(\)\s*\{\s*"
+        r"wifiStoreOnly_\s*=\s*true;\s*enableWifi\(\);", _PROTOCOL_CPP_STRIPPED
+    )
+    assert re.search(
+        r"else\s+if\s*\(wifiStoreOnly_\)\s*\{\s*\}",
+        _function_body(_PROTOCOL_CPP_STRIPPED,
+                       r"void Protocol::emitWifiDebug\(\)\s*\{", "emitWifiDebug"),
+    )
+
+
 def test_service_wifi_calls_sequencer_service_not_link_service_directly():
     """Sprint architecture Overview: 'serviceWifi() calls
     sequencer.service() instead of wifiLink_.service() directly' --

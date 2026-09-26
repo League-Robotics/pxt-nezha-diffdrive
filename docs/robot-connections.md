@@ -240,6 +240,15 @@ project sees it. Real secrecy needs the VS Code + git checkout, where
 
 ### Provisioning credentials from a host tool (`WIFICRED`)
 
+For images that must never use program-supplied or baked credentials,
+call `diffDrive.enableStoredWifiLink()` instead of `setupWifi()` or
+`enableWifiLink()`. The store is checked when the link starts. An empty
+store leaves WiFi disabled, even if the firmware contains legacy
+credentials; provision with `WIFICRED SET` over USB or radio and reset
+the board. A flash mass-erases the store, so always provision after
+flashing. Other projects can continue to use `setupWifi()` or
+`enableWifiLink()` for their existing credential sources.
+
 Sprint 038's flash-backed credential store adds a wire verb so a bench
 tool can hand a board a whole list of networks -- up to 8 slots -- with
 no rebuild and no secret ever baked into a hex. Grammar, MEASURED
