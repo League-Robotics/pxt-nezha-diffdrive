@@ -143,10 +143,13 @@ _BASELINE_GROUP_ORDER = {
     # compile-time literal in shims.cpp until now, injected per robot by
     # tools/make_deploy.py and unreachable from the editor; a rewired
     # robot is the first thing anyone sets, hence ahead of track width.
+    # setupRadioForName sits right under setupRadio: the same radio link,
+    # but the channel/group come from the robot's five-letter name, so a
+    # student does not have to know either number.
     "Setup": [
         "configureMotor", "setTrackWidth", "setWheelCalibration",
-        "setupRadio", "setDefaultYawRate", "setConfigValue",
-        "setArrivalTolerance", "setDefaultSpeed",
+        "setupRadio", "setupRadioForName", "setDefaultYawRate",
+        "setConfigValue", "setArrivalTolerance", "setDefaultSpeed",
     ],
     "Remote": ["onRun", "onRunCommand"],
     "Debug": ["sendString", "sendValue"],
