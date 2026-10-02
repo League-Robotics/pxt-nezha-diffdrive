@@ -5,7 +5,8 @@
     "license": "MIT",
     "dependencies": {
         "core": "*",
-        "microphone": "*"
+        "microphone": "*",
+        "settings": "*"
     },
     "files": [
         "README.md",
@@ -76,7 +77,10 @@
         "src/blocks/pose.ts",
         "src/blocks/stop.ts",
         "src/blocks/world.ts",
-        "src/blocks/motion.ts"
+        "src/blocks/motion.ts",
+        "src/blocks/report.ts",
+        "src/blocks/calibration.ts",
+        "src/blocks/program.ts"
     ],
     "testFiles": [
         "test/test.ts",

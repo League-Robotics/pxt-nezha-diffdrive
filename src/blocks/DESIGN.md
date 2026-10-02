@@ -4,9 +4,11 @@
 
 The composition root and the student-facing MakeCode API:
 `shims.cpp` (top level, composes the `Rig` — motor ports, kernel,
-motion engine — and owns the starvation watchdog fiber) plus the six
-TypeScript block modules split out of the former `main.ts`:
-`sim.ts`, `run.ts`, `pose.ts`, `stop.ts`, `world.ts`, `motion.ts`.
+motion engine — and owns the starvation watchdog fiber) plus the
+TypeScript block modules: `sim.ts`, `run.ts`, `pose.ts`, `stop.ts`,
+`world.ts`, `motion.ts`, and the robot-setup layer `report.ts` (packed
+JSON report lines), `calibration.ts` (calibration stored in flash) and
+`program.ts` (button menu, cancel, `setupRobot()`).
 
 One part of `motion.ts` is **generated, not written**: the
 `ConfigField` enum comes from `src/comms/config_fields.h` via
