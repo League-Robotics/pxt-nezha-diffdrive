@@ -60,6 +60,10 @@ def lib(tmp_path_factory):
     lib.wlCreate.restype = ctypes.c_void_p
     lib.wlCreate.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_char_p,
                              ctypes.c_int]
+    lib.wlCreateStatic.restype = ctypes.c_void_p
+    lib.wlCreateStatic.argtypes = [ctypes.c_char_p] * 6
+    lib.wlDefaultAddress.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+    lib.wlDefaultAddress.restype = ctypes.c_int
     lib.wlDestroy.argtypes = [ctypes.c_void_p]
     lib.wlSetNow.argtypes = [ctypes.c_uint32]
     lib.wlAdvance.argtypes = [ctypes.c_uint32]
@@ -96,11 +100,15 @@ class Link:
     call (payload bytes written after a `>` prompt are returned raw)."""
 
     def __init__(self, lib, ssid="Busboom Mesh", password="hunter2", hostname="tovez",
-                 force_explicit_join=False):
+                 force_explicit_join=False, static_ip=None):
         self.lib = lib
         self.lib.wlSetNow(1000)
-        self.h = lib.wlCreate(ssid.encode(), password.encode(), hostname.encode(),
-                              1 if force_explicit_join else 0)
+        if static_ip is None:
+            self.h = lib.wlCreate(ssid.encode(), password.encode(), hostname.encode(),
+                                  1 if force_explicit_join else 0)
+        else:
+            self.h = lib.wlCreateStatic(ssid.encode(), password.encode(), hostname.encode(),
+                                        static_ip.encode(), b"10.55.255.254", b"255.255.0.0")
         self._buf = ctypes.create_string_buffer(4096)
         self.tcp_ok = True
 
@@ -153,8 +161,6 @@ class Link:
             self.step(1600)
             self.expect_command('AT+CWJAP="Busboom Mesh","hunter2"')
             self.reply("WIFI CONNECTED\r\nWIFI GOT IP\r\n\r\nOK\r\n")
-        self.expect_command("AT+CWDHCP=1,1")
-        self.reply("\r\nOK\r\n")
         self.expect_command("AT+CIPSTA?")
         self.reply(f'+CIPSTA:ip:"{own_ip}"\r\n+CIPSTA:gateway:"192.168.1.1"\r\n'
                    '+CIPSTA:netmask:"255.255.248.0"\r\n\r\nOK\r\n')
@@ -255,6 +261,77 @@ def test_configure_sequence_is_verbatim_and_in_order(link):
     assert seen == CONFIGURE_SEQUENCE
     link.step()
     assert link.state() == JOIN
+
+
+STATIC_ADDRESS_COMMAND = 'AT+CIPSTA="10.55.29.48","10.55.255.254","255.255.0.0"'
+
+
+def _configure(link):
+    for cmd in CONFIGURE_SEQUENCE:
+        link.expect_command(cmd)
+        link.reply("\r\nready\r\n" if cmd == "AT+RST" else "\r\nOK\r\n")
+
+
+def test_a_fixed_address_is_set_before_the_join_with_dhcp_off(lib):
+    link = Link(lib, static_ip="10.55.29.48")
+    try:
+        _configure(link)
+        link.expect_command("AT+CWDHCP=0,1")
+        link.reply("\r\nOK\r\n")
+        link.expect_command(STATIC_ADDRESS_COMMAND)
+        link.reply("\r\nOK\r\n")
+        link.step()
+        assert link.state() == JOIN
+        link.expect_command("AT+CWJAP?")
+    finally:
+        link.close()
+
+
+def test_a_module_that_refuses_dhcp_off_still_gets_its_fixed_address(lib):
+    link = Link(lib, static_ip="10.55.29.48")
+    try:
+        _configure(link)
+        link.expect_command("AT+CWDHCP=0,1")
+        link.reply("\r\nERROR\r\n")
+        link.expect_command(STATIC_ADDRESS_COMMAND)
+        link.reply("\r\nOK\r\n")
+        link.step()
+        assert link.state() == JOIN
+    finally:
+        link.close()
+
+
+def test_a_refused_fixed_address_restarts_bring_up(lib):
+    link = Link(lib, static_ip="10.55.29.48")
+    try:
+        _configure(link)
+        link.expect_command("AT+CWDHCP=0,1")
+        link.reply("\r\nOK\r\n")
+        link.expect_command(STATIC_ADDRESS_COMMAND)
+        link.reply("\r\nERROR\r\n")
+        link.step()
+        assert link.state() == BACKOFF
+        assert link.lib.wlRestarts(link.h) == 1
+    finally:
+        link.close()
+
+
+@pytest.mark.parametrize("name, address", [
+    ("vevov", "10.55.82.20"),
+    ("tovez", "10.55.29.48"),
+    ("zuzuz", "10.55.15.11"),
+])
+def test_the_default_address_is_10_55_group_channel(lib, name, address):
+    out = ctypes.create_string_buffer(16)
+    assert lib.wlDefaultAddress(name.encode(), out, 16) == 1
+    assert out.value.decode() == address
+
+
+@pytest.mark.parametrize("name", ["", "vevo", "vevovv", "Vevov", "vvvvv", "robot"])
+def test_a_name_that_is_not_a_robot_name_has_no_default_address(lib, name):
+    out = ctypes.create_string_buffer(b"untouched", 16)
+    assert lib.wlDefaultAddress(name.encode(), out, 16) == 0
+    assert out.value == b"untouched"
 
 
 def test_tolerant_configure_steps_advance_on_error(link):
@@ -544,7 +621,10 @@ def test_only_the_cwjap_join_call_site_passes_a_trace_override():
     # ONE: forceExplicitJoin's AT+CWQAP step in serviceJoin(), a plain
     # 3-arg call (no secret, no trace override) -- re-examined and
     # accounted for here, 10 -> 11.
-    assert len(sites) == 11, f"unexpected startCommand() call-site count: {sites}"
+    # The fixed-address change removes AT+CWDHCP=1,1 and adds
+    # AT+CWDHCP=0,1 and AT+CIPSTA=, both plain 3-arg calls carrying an
+    # address, never a secret: 11 -> 12.
+    assert len(sites) == 12, f"unexpected startCommand() call-site count: {sites}"
 
     four_arg_sites = [line for line, n in sites if n == 4]
     assert len(four_arg_sites) == 1, (

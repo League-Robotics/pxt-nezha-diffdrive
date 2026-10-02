@@ -2238,6 +2238,15 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     # non-default-value rationale as accel/decel/v_max above.
     "onboard_pid": 2.0,
     "onboard_floor": 250.0,
+    # Ordinals 45-48: per-wheel multiplier and motor port, plain stored
+    # fields on the test double.
+    "wheel_scale_left": 0.97,
+    "wheel_scale_right": -1.0,
+    "motor_port_left": 2.0,
+    "motor_port_right": 3.0,
+    # Ordinals 49-50: wheel diameter and track width, in mm.
+    "wheel_diameter": 88.5,
+    "track_width": 111.6,
 }
 
 
@@ -3254,6 +3263,11 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         # onboard_floor), NEW, declared after nudge_settle -- the
         # Cutebot Pro hybrid-actuation policy's own config surface.
         b"onboard_pid", b"onboard_floor",
+        # ordinals 45-48: per-wheel multiplier and motor port.
+        b"wheel_scale_left", b"wheel_scale_right",
+        b"motor_port_left", b"motor_port_right",
+        # ordinals 49-50: wheel diameter and track width.
+        b"wheel_diameter", b"track_width",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

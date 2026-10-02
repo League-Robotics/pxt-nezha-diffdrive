@@ -180,8 +180,6 @@ class Seq:
         """From a successful join reply already sent, drive the rest of
         bring-up (address/socket) to READY -- same sequence
         test_wifi_link.py's Link.bring_up() tail uses."""
-        self.expect_command("AT+CWDHCP=1,1")
-        self.reply("\r\nOK\r\n")
         self.expect_command("AT+CIPSTA?")
         self.reply(f'+CIPSTA:ip:"{own_ip}"\r\n+CIPSTA:gateway:"192.168.1.1"\r\n'
                    '+CIPSTA:netmask:"255.255.248.0"\r\n\r\nOK\r\n')

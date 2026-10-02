@@ -49,6 +49,7 @@
         "src/comms/radio_transport.h",
         "src/comms/radio_transport.cpp",
         "src/comms/wifi_link.h",
+        "src/comms/wifi_address.h",
         "src/comms/wifi_link.cpp",
         "src/comms/wifi_uart.h",
         "src/comms/wifi_uart.cpp",

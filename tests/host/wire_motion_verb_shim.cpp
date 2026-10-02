@@ -201,6 +201,12 @@ struct WaHandle {
   float onboardModeValue = 0.0f;    // [1] mirrors onboard_pid
   float onboardFloorMmS = 200.0f;   // [mm/s] mirrors onboard_floor
 
+  // Plain stored fields, like the two above.
+  float wheelScale[2] = {1.0f, 1.0f};  // [1] mirrors wheel_scale_left/right
+  float motorPort[2] = {1.0f, 2.0f};   // [M1..M4] mirrors motor_port_left/right
+  float wheelDiameter = 90.28f;        // [mm] mirrors wheel_diameter
+  float trackWidth = 114.2f;           // [mm] mirrors track_width
+
   // A settable override for diagValue()'s otherwise kernel/engine-
   // derived ordinals (i2cf=8, lexc=9, posl=10, posr=11, dutl=12,
   // dutr=13, cyc=16, cycovr=19, wrng=25) -- lets a scale test or the
@@ -538,6 +544,18 @@ static float waGetOnboardMode(WaHandle& h) { return h.onboardModeValue; }
 static void waSetOnboardMode(WaHandle& h, float v) { h.onboardModeValue = v; }
 static float waGetOnboardFloor(WaHandle& h) { return h.onboardFloorMmS; }
 static void waSetOnboardFloor(WaHandle& h, float v) { h.onboardFloorMmS = v; }
+static float waGetWheelScaleLeft(WaHandle& h) { return h.wheelScale[0]; }
+static void waSetWheelScaleLeft(WaHandle& h, float v) { h.wheelScale[0] = v; }
+static float waGetWheelScaleRight(WaHandle& h) { return h.wheelScale[1]; }
+static void waSetWheelScaleRight(WaHandle& h, float v) { h.wheelScale[1] = v; }
+static float waGetMotorPortLeft(WaHandle& h) { return h.motorPort[0]; }
+static void waSetMotorPortLeft(WaHandle& h, float v) { h.motorPort[0] = v; }
+static float waGetMotorPortRight(WaHandle& h) { return h.motorPort[1]; }
+static void waSetMotorPortRight(WaHandle& h, float v) { h.motorPort[1] = v; }
+static float waGetWheelDiameter(WaHandle& h) { return h.wheelDiameter; }
+static void waSetWheelDiameter(WaHandle& h, float v) { h.wheelDiameter = v; }
+static float waGetTrackWidth(WaHandle& h) { return h.trackWidth; }
+static void waSetTrackWidth(WaHandle& h, float v) { h.trackWidth = v; }
 
 struct WaConfigAccessor {
   int ordinal;
@@ -572,6 +590,12 @@ static const WaConfigAccessor kWaConfigAccessors[] = {
     {42, &waGetNudgeSettle, &waSetNudgeSettle},
     {43, &waGetOnboardMode, &waSetOnboardMode},
     {44, &waGetOnboardFloor, &waSetOnboardFloor},
+    {45, &waGetWheelScaleLeft, &waSetWheelScaleLeft},
+    {46, &waGetWheelScaleRight, &waSetWheelScaleRight},
+    {47, &waGetMotorPortLeft, &waSetMotorPortLeft},
+    {48, &waGetMotorPortRight, &waSetMotorPortRight},
+    {49, &waGetWheelDiameter, &waSetWheelDiameter},
+    {50, &waGetTrackWidth, &waSetTrackWidth},
 };
 
 static const WaConfigAccessor* waFindConfigAccessor(int ordinal) {

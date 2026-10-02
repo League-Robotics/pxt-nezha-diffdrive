@@ -148,6 +148,7 @@ _BASELINE_GROUP_ORDER = {
     # student does not have to know either number.
     "Setup": [
         "configureMotor", "setTrackWidth", "setWheelCalibration",
+        "setWheelMultiplier", "setMotorPorts",
         "setupRadio", "setupRadioForName", "setDefaultYawRate",
         "setConfigValue", "setArrivalTolerance", "setDefaultSpeed",
     ],
@@ -212,6 +213,9 @@ _BASELINE_GROUP_ORDER = {
         # (config_fields.h).
         "ConfigField.OnboardPid",    # ordinal 43
         "ConfigField.OnboardFloor",  # ordinal 44
+        "ConfigField.WheelScaleLeft", "ConfigField.WheelScaleRight",  # 45-46
+        "ConfigField.MotorPortLeft", "ConfigField.MotorPortRight",    # 47-48
+        "ConfigField.WheelDiameter", "ConfigField.TrackWidth",        # 49-50
         # 2026-09-12 (out of process, stakeholder): configureMotor's
         # three dropdowns. MotorSide/MotorPort carry their own meaning
         # (0/1 sides, 1-based brick ports); MotorDirection's values ARE

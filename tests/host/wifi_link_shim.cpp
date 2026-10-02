@@ -9,6 +9,7 @@
 #include <string>
 
 #include "comms/wifi_link.h"
+#include "comms/wifi_address.h"
 
 namespace {
 
@@ -46,7 +47,7 @@ class FakeWifiUart : public diffDrive::WifiUart {
 struct Handle {
   FakeWifiUart uart;
   diffDrive::WifiLink link;
-  std::string ssid, password, hostname;
+  std::string ssid, password, hostname, staticIp, gateway, netmask;
   Handle() : link(uart, &fakeNow) {}
 };
 
@@ -67,6 +68,30 @@ void* wlCreate(const char* ssid, const char* password, const char* hostname,
   config.forceExplicitJoin = (forceExplicitJoin != 0);
   h->link.begin(config);
   return h;
+}
+
+void* wlCreateStatic(const char* ssid, const char* password, const char* hostname,
+                     const char* staticIp, const char* gateway, const char* netmask) {
+  Handle* h = new Handle();
+  h->ssid = ssid;
+  h->password = password;
+  h->hostname = hostname;
+  h->staticIp = staticIp;
+  h->gateway = gateway;
+  h->netmask = netmask;
+  diffDrive::WifiLink::Config config;
+  config.ssid = h->ssid.c_str();
+  config.password = h->password.c_str();
+  config.hostname = h->hostname.c_str();
+  config.staticIp = h->staticIp.c_str();
+  config.gateway = h->gateway.c_str();
+  config.netmask = h->netmask.c_str();
+  h->link.begin(config);
+  return h;
+}
+
+int wlDefaultAddress(const char* name, char* out, int cap) {
+  return diffDrive::defaultWifiAddress(name, out, static_cast<size_t>(cap)) ? 1 : 0;
 }
 
 void wlDestroy(void* p) { delete static_cast<Handle*>(p); }
