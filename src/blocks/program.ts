@@ -202,9 +202,11 @@ namespace diffDrive {
     /**
      * Bring a fleet robot up: the radio link on the address this
      * micro:bit's name derives, WiFi from stored credentials, the
-     * calibration stored in flash, and the `calshow`, `calclear`,
-     * `calsave`, `calscale`, `calports`, `netshow`, `netset`, `netclear`
-     * and `reboot` run commands. Call it once, after any setTrackWidth() or
+     * calibration stored in flash, and the console's own run commands
+     * (`_calshow`, `_calclear`, `_calsave`, `_calscale`, `_calports`,
+     * `_netshow`, `_netset`, `_netclear`, `_reboot`). The leading `_`
+     * marks a command the console drives itself; the console keeps
+     * those out of the student's function list. Call it once, after any setTrackWidth() or
      * setWheelCalibration() the stored calibration should override.
      *
      * Takes the radio over: MakeCode's own radio blocks stop working in
@@ -222,38 +224,38 @@ namespace diffDrive {
         enableStoredWifiLink()
         applyStoredCalibration()
 
-        onRun("calshow", function (arg: number) { reportStoredCalibration() })
-        runSignature("calshow", "()")
-        onRun("calclear", function (arg: number) { clearStoredCalibration() })
-        runSignature("calclear", "()")
-        onRun("calsave", function (arg: number) {
+        onRun("_calshow", function (arg: number) { reportStoredCalibration() })
+        runSignature("_calshow", "()")
+        onRun("_calclear", function (arg: number) { clearStoredCalibration() })
+        runSignature("_calclear", "()")
+        onRun("_calsave", function (arg: number) {
             saveCalibration(runArg(0), runArg(1), runArg(2))
             reportStoredCalibration()
         })
-        runSignature("calsave", "(wheel:number=0, track:number=0, slip:number=0)")
-        onRun("calscale", function (arg: number) {
+        runSignature("_calsave", "(wheel:number=0, track:number=0, slip:number=0)")
+        onRun("_calscale", function (arg: number) {
             saveWheelMultipliers(runArg(0), runArg(1))
             reportStoredCalibration()
         })
-        runSignature("calscale", "(left:number=1, right:number=1)")
-        onRun("calports", function (arg: number) {
+        runSignature("_calscale", "(left:number=1, right:number=1)")
+        onRun("_calports", function (arg: number) {
             saveMotorPorts(runArg(0), runArg(1))
             reportStoredCalibration()
         })
-        runSignature("calports", "(left:number=1, right:number=2)")
-        onRun("netshow", function (arg: number) { reportWifiAddress() })
-        runSignature("netshow", "()")
-        onRun("netset", function (arg: number) {
+        runSignature("_calports", "(left:number=1, right:number=2)")
+        onRun("_netshow", function (arg: number) { reportWifiAddress() })
+        runSignature("_netshow", "()")
+        onRun("_netset", function (arg: number) {
             saveWifiAddress(runArg(0), runArg(1), runArg(2), runArg(3))
         })
-        runSignature("netset", "(a:number=10, b:number=55, c:number=0, d:number=0)")
-        onRun("netclear", function (arg: number) {
+        runSignature("_netset", "(a:number=10, b:number=55, c:number=0, d:number=0)")
+        onRun("_netclear", function (arg: number) {
             settings.remove(wifiAddressKey)
             reportWifiAddress()
         })
-        runSignature("netclear", "()")
-        onRun("reboot", function (arg: number) { reboot() })
-        runSignature("reboot", "()")
+        runSignature("_netclear", "()")
+        onRun("_reboot", function (arg: number) { reboot() })
+        runSignature("_reboot", "()")
 
         emitLine(address.length == 2
             ? "boot radio " + name + " ch " + address[0] + " grp " + address[1]
