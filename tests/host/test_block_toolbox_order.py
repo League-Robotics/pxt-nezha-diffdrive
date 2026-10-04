@@ -137,21 +137,17 @@ _BASELINE_GROUP_ORDER = {
         "startWorldTracking", "worldTrackingReady", "readWorld",
         "worldHeading", "worldX", "worldY",
     ],
-    # 2026-09-12 (out of process, stakeholder): `configureMotor` is NEW,
-    # first in Setup (reports/blocks-toolbox.csv row 31.5 -> weight 120).
-    # Which port each wheel is on and which way it runs was a
-    # compile-time literal in shims.cpp until now, injected per robot by
-    # tools/make_deploy.py and unreachable from the editor; a rewired
-    # robot is the first thing anyone sets, hence ahead of track width.
-    # setupRadioForName sits right under setupRadio: the same radio link,
-    # but the channel/group come from the robot's five-letter name, so a
-    # student does not have to know either number.
-    "Setup": [
-        "configureMotor", "setTrackWidth", "setWheelCalibration",
-        "setWheelMultiplier", "setMotorPorts",
-        "setupRadio", "setupRadioForName", "setDefaultYawRate",
-        "setConfigValue", "setArrivalTolerance", "setDefaultSpeed",
+    # The Setup subcategory is split by what a block configures.
+    "Robot": ["setupRobot"],
+    "Track and wheels": [
+        "setTrackWidth", "setRotationalSlip", "setWheelCalibration",
     ],
+    "Motors": ["configureMotor", "setMotorPorts", "setWheelMultiplier"],
+    "Speeds and tolerances": [
+        "setDefaultSpeed", "setDefaultYawRate", "setArrivalTolerance",
+        "setConfigValue",
+    ],
+    "Radio and WiFi": ["setupRadioForName", "setupRadio", "setWifiAddress"],
     "Remote": ["onRun", "onRunCommand"],
     "Debug": ["sendString", "sendValue"],
     # Sprint 029 ticket 004 (design motion-profile-unification.md S4.7):
@@ -361,7 +357,8 @@ def test_baseline_covers_every_visible_group():
 # from _BASELINE_GROUP_ORDER above, which pins WITHIN-group order.
 _EXPECTED_NAMESPACE_GROUPS = [
     "Move", "Drive", "Wheels", "GoTo", "Moving?", "Stop", "Pose",
-    "World", "Setup", "Remote", "Debug",
+    "World", "Robot", "Track and wheels", "Motors",
+    "Speeds and tolerances", "Radio and WiFi", "Remote", "Debug",
 ]
 _NAMESPACE_GROUPS_RE = re.compile(r"""//%\s*groups=(['"])(.*?)\1""")
 
