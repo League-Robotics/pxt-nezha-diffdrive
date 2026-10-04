@@ -147,7 +147,10 @@ _BASELINE_GROUP_ORDER = {
         "setDefaultSpeed", "setDefaultYawRate", "setArrivalTolerance",
         "setConfigValue",
     ],
-    "Radio and WiFi": ["setupRadioForName", "setupRadio", "setWifiAddress"],
+    "Radio and WiFi": [
+        "setupRadioForName", "setupRadio", "setupWifiForName",
+        "setWifiAddress",
+    ],
     "Remote": ["onRun", "onRunCommand"],
     "Debug": ["sendString", "sendValue"],
     # Sprint 029 ticket 004 (design motion-profile-unification.md S4.7):
