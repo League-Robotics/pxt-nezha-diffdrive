@@ -149,7 +149,7 @@ _BASELINE_GROUP_ORDER = {
     ],
     "Radio and WiFi": [
         "setupRadioForName", "setupRadio", "setupWifiForName",
-        "setWifiAddress",
+        "setupWifi", "setWifiAddress",
     ],
     "Remote": ["onRun", "onRunCommand"],
     "Debug": ["sendString", "sendValue"],

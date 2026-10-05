@@ -44,16 +44,10 @@ present".**
    between -- not even a comment. A comment inserted between the two
    fails the build with a misleading "declaration not understood" that
    names the comment line, not the shim.
-4. `test_run_ts_setup_wifi_is_block_hidden` -- defends a security
-   property, not a style choice: a visible toolbox block would invite
-   a beginner to drag `setupWifi` into a shared project and hardcode a
-   passphrase in the tracked program, exactly what the `secrets.ts`
-   split (this sprint's whole point) exists to prevent. Pinned
-   directly here, in addition to `test_block_toolbox_order.py`
-   continuing to pass unmodified (confirmed separately below) -- that
-   file's baseline is an indirect witness (it would need a new visible
-   entry if `setupWifi` ever grew a `block=` caption without staying
-   hidden), this test is the direct one.
+4. `test_run_ts_setup_wifi_is_a_setup_block` -- `setupWifi` is the
+   "setup wifi network" block in Setup's Radio and WiFi group
+   (stakeholder decision 2026-10-05, reversing this sprint's
+   hidden-only choice).
 5. `test_shims_cpp_emptiness_guard_uses_getutf8size_not_tocharrray` --
    MEASURED gopiv 2026-09-07, fw 1.20260907.1 (documented in
    `src/shims.cpp`'s own comment above `setupWifi`, and the same trap
@@ -72,16 +66,9 @@ present".**
    `sim.ts:543` and `:565` are the two precedents this test tells
    apart. Confirms both sim-local variables are assigned from the
    corresponding parameter.
-7. `test_block_toolbox_order_passes_unmodified` -- runs (via direct
-   import, not a subprocess) the two toolbox-order assertions from
-   `tests/host/test_block_toolbox_order.py` as a same-file witness that
-   ticket 002's `setupWifi` landed without joining the visible toolbox
-   baseline -- see that file's own docstring for why a hidden function
-   with no `block=` caption is excluded from its scan already. The
-   ticket's own instruction is to run that file directly and confirm
-   it needs no changes; this local call is a belt-and-braces repeat so
-   a `uv run pytest` scoped to just this file still catches a
-   toolbox-baseline regression caused by `setupWifi`.
+7. `test_block_toolbox_order_lists_setup_wifi` -- same-file witness
+   that `tests/host/test_block_toolbox_order.py` sees `setupWifi` as a
+   visible block and carries it in its baseline.
 
 Run with::
 
@@ -387,59 +374,34 @@ def test_shims_cpp_pragma_immediately_precedes_declaration():
 
 
 # ---------------------------------------------------------------------
-# 4. run.ts: setupWifi is //% blockHidden=true.
+# 4. run.ts: setupWifi is a Setup block.
 # ---------------------------------------------------------------------
 
-_BLOCK_HIDDEN_RE = re.compile(
-    r"//%\s*blockHidden=true\s*\n\s*export function setupWifi\("
+_BLOCK_CAPTION_RE = re.compile(
+    r'//%\s*block="setup wifi network %ssid password %password"\s*\n'
+    r'\s*//%\s*group="Radio and WiFi"[^\n]*\n'
+    r'\s*//%\s*subcategory="Setup"\s*\n'
+    r'\s*export function setupWifi\('
 )
 
 
-def test_run_ts_setup_wifi_is_block_hidden():
-    """Deliberate, not a style choice: a visible toolbox block would
-    invite a beginner to drag setupWifi into a shared project and
-    hardcode a passphrase in the tracked program -- exactly what the
-    secrets.ts split exists to prevent. Pins that the //% blockHidden=
-    true pragma sits directly above setupWifi's declaration (the same
-    adjacency enableWifiLink and enableRadioLink already use)."""
-    assert _BLOCK_HIDDEN_RE.search(_RUN_TS_TEXT), (
-        "src/blocks/run.ts: no '//% blockHidden=true' found "
-        "immediately above 'export function setupWifi(' -- a visible "
-        "setupWifi block would let a student drag it into the toolbox "
-        "and hardcode credentials in a tracked program, which is "
-        "exactly what the secrets.ts split exists to prevent."
+def test_run_ts_setup_wifi_is_a_setup_block():
+    """Stakeholder decision 2026-10-05: the network name and password
+    are a toolbox block, reversing sprint 036's hidden-only choice."""
+    assert _BLOCK_CAPTION_RE.search(_RUN_TS_TEXT), (
+        "src/blocks/run.ts: no 'setup wifi network %ssid password "
+        "%password' block in Setup's Radio and WiFi group found "
+        "immediately above 'export function setupWifi('."
     )
 
 
-def test_block_toolbox_order_passes_unmodified():
-    """Same-file witness, in addition to running
-    tests/host/test_block_toolbox_order.py directly per the ticket's
-    own instruction: import its extraction/order-check functions and
-    confirm setupWifi -- hidden and captionless -- did not join any
-    group's visible baseline. See that file's own docstring for why a
-    hidden function with no block= caption is excluded from its scan
-    already; this call proves that stays true for setupWifi
-    specifically, from within this file's own test run."""
+def test_block_toolbox_order_lists_setup_wifi():
     import test_block_toolbox_order as toolbox
 
     entries = toolbox._extract_entries()
     visible_names = {name for _kind, name, _grp, _cap, _w in entries}
-    assert "setupWifi" not in visible_names, (
-        "setupWifi appears among the visible toolbox entries "
-        "extracted by test_block_toolbox_order.py -- it must stay "
-        "//% blockHidden=true and out of the toolbox baseline."
-    )
-
-    rendered = toolbox._rendered_group_order(entries)
-    mismatches = {}
-    for group, expected in toolbox._BASELINE_GROUP_ORDER.items():
-        actual = rendered.get(group, [])
-        if actual != expected:
-            mismatches[group] = {"expected": expected, "actual": actual}
-    assert not mismatches, (
-        "toolbox within-group order drifted from the approved layout "
-        f"after setupWifi landed: {mismatches}"
-    )
+    assert "setupWifi" in visible_names
+    assert "setupWifi" in toolbox._BASELINE_GROUP_ORDER["Radio and WiFi"]
 
 
 # ---------------------------------------------------------------------

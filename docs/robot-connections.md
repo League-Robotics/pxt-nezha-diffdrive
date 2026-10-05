@@ -156,14 +156,15 @@ same zero-cost outcome as no WiFi module fitted at all. Useful for a
 program that wants to be certain WiFi never comes up, distinct from
 simply never calling `setupWifi()`.
 
-`setupWifi()` is **not in the toolbox** -- it is `//% blockHidden=true`,
-deliberately, the same as `enableWifiLink()` right above it. It is
-reachable from TypeScript/JavaScript but you will not find it by
-dragging blocks. That is on purpose: a visible, draggable block would
-invite a beginner to drop a real passphrase straight into a shared,
-tracked program -- exactly what the `secrets.ts` convention below
-exists to prevent. WiFi credentials are for advanced students working
-in VS Code, not a toolbox feature.
+`setupWifi()` is the **setup wifi network ... password ...** block in
+the Setup category's Radio and WiFi group. A password typed into that
+block is part of the program: anyone who opens or shares the project
+can read it. The `secrets.ts` convention below keeps it out of a
+tracked program in a VS Code checkout.
+
+It works alongside `setup wifi for robot` and `setup robot`, in either
+order: those turn WiFi on in store-only mode, and a network the program
+supplied is still used when the store is empty.
 
 If a passphrase or SSID is too long (over 32 characters for the SSID,
 63 for the password), `setupWifi()` clips it rather than overflowing --
@@ -240,11 +241,11 @@ project sees it. Real secrecy needs the VS Code + git checkout, where
 
 ### Provisioning credentials from a host tool (`WIFICRED`)
 
-For images that must never use program-supplied or baked credentials,
+For images that must never use baked credentials,
 call `diffDrive.enableStoredWifiLink()` instead of `setupWifi()` or
 `enableWifiLink()`. The store is checked when the link starts. An empty
 store leaves WiFi disabled, even if the firmware contains legacy
-credentials; provision with `WIFICRED SET` over USB or radio and reset
+credentials, unless the program also called `setupWifi()`; provision with `WIFICRED SET` over USB or radio and reset
 the board. A flash mass-erases the store, so always provision after
 flashing. Other projects can continue to use `setupWifi()` or
 `enableWifiLink()` for their existing credential sources.
