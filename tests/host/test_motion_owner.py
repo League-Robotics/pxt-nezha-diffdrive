@@ -97,14 +97,22 @@ def test_take_succeeds_from_none_and_becomes_block(lib):
     assert lib.motionOwnerTryTakeBlockOwnership(K_NONE) == K_BLOCK
 
 
-@pytest.mark.parametrize("held_by", [K_WIRE, K_JOB, K_BLOCK])
+@pytest.mark.parametrize("held_by", [K_WIRE, K_JOB])
 def test_take_is_refused_while_anything_else_holds_it(lib, held_by):
     """The Acceptance Criteria's own scenario: a block-motion call while
-    motionOwner_ == kWire (or kJob, or an already-taken kBlock) is
-    refused, never silently superseding -- signaled here as -1 (no
-    ordinal is negative), matching the seam's own contract
-    (motion_owner.h: "leave `*owner` untouched and return false")."""
+    motionOwner_ == kWire (or kJob) is refused, never silently
+    superseding -- signaled here as -1 (no ordinal is negative),
+    matching the seam's own contract (motion_owner.h: "leave `*owner`
+    untouched and return false")."""
     assert lib.motionOwnerTryTakeBlockOwnership(held_by) == -1
+
+
+def test_take_under_block_keeps_block(lib):
+    """A program updating its own continuous drive -- driveTwist() on
+    every tick of a line follower -- must not be refused by its own
+    earlier take (gopiv 2026-10-06: every steer after the first was
+    dropped and the robot drove straight)."""
+    assert lib.motionOwnerTryTakeBlockOwnership(K_BLOCK) == K_BLOCK
 
 
 def test_release_from_block_drops_to_none(lib):
@@ -144,7 +152,7 @@ def test_dispatching_fibers_own_job_call_proceeds_unchanged(lib):
     assert lib.motionOwnerTryTakeMotionOwnership(K_JOB, 1) == K_JOB
 
 
-@pytest.mark.parametrize("held_by", [K_WIRE, K_BLOCK])
+@pytest.mark.parametrize("held_by", [K_WIRE])
 def test_dispatching_fiber_still_refused_unless_owner_is_job(lib, held_by):
     """Defensive: `isDispatchingFiber` alone is not a blanket bypass --
     the bypass only fires when motionOwner_ is ALREADY kJob (the one
@@ -175,14 +183,14 @@ def test_a_genuine_block_caller_is_still_refused_while_a_job_runs(lib):
     assert lib.motionOwnerTryTakeMotionOwnership(K_JOB, 0) == -1
 
 
-@pytest.mark.parametrize("held_by", [K_WIRE, K_BLOCK])
-def test_a_genuine_block_caller_is_refused_under_wire_or_block_too(
-    lib, held_by
-):
-    """The remaining two refusal cases, unchanged from the plain kBlock
-    rule: a non-dispatching caller under a live wire motion or an
-    already-taken kBlock is refused."""
-    assert lib.motionOwnerTryTakeMotionOwnership(held_by, 0) == -1
+def test_a_genuine_block_caller_is_refused_under_wire(lib):
+    """The remaining refusal case, unchanged from the plain kBlock rule:
+    a non-dispatching caller under a live wire motion is refused."""
+    assert lib.motionOwnerTryTakeMotionOwnership(K_WIRE, 0) == -1
+
+
+def test_a_genuine_block_caller_under_block_proceeds(lib):
+    assert lib.motionOwnerTryTakeMotionOwnership(K_BLOCK, 0) == K_BLOCK
 
 
 def test_a_genuine_block_caller_from_none_takes_kblock(lib):
