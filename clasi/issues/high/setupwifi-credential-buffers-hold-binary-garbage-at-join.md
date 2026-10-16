@@ -71,3 +71,20 @@ pointer-shaped value supports that. The calibration program is large.
 If `ssid=` is `-` right after boot and turns to garbage later, the buffers
 are being overwritten. To find the writer, put a watchpoint (DWT) on
 `&protocol().wifiSsid_`.
+
+## Measured again: tigez, 2026-10-15
+
+Same board, same firmware (calibration-0.20260919.6, extension
+1.20260914.1), read through denning's robot-console over USB. Same three
+garbage bytes, three weeks later, so the corruption is deterministic for
+this build:
+
+```
+DBG:wifi state=2 ... restarts=45 cmd=AT+CIPDINFO=1 reply=..OK.. credsrc=1 trunc=0 join=- haspw=1 ssid=,\x13\x03
+DBG:wifi state=6 ... restarts=46 cmd=AT+CWJAP=",\x13\x03",*** reply=ERROR.. credsrc=1 trunc=0 join=- haspw=1 ssid=,\x13\x03
+```
+
+`WIFICRED` enumerated nothing (`ack 4 0 none`). Robot_Garage was in range
+on 2.4 GHz and the 10.55/16 robot subnet was routable from denning, so the
+network was not the cause. tigez was reflashed to template v0.20261016.1
+(extension v1.20261006.1) on 2026-10-16, which takes the flash-only path.
