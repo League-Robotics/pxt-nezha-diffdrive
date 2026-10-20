@@ -211,8 +211,12 @@ def handle(lib):
 # Mode 0: always PWM, one frame per cycle, regardless of the tap.
 # ---------------------------------------------------------------------
 
+def test_default_mode_is_board_loop_always(handle):
+    assert handle.onboard_mode() == 3
+
+
 def test_mode0_ships_pwm_only_even_at_cruise_speed(handle):
-    assert handle.onboard_mode() == 0
+    assert handle.set_onboard_mode(0) is True
     handle.tap_drive(300.0, 300.0, PHASE_CRUISE)
     handle.set_duty(0, 0.5)
     handle.set_duty(1, 0.5)
