@@ -2034,6 +2034,23 @@ int wheelSpeed(int which) {
 //%
 int probe(int what) { return diagValue(what); }
 
+// The line sensor, read under busGuard so it never lands inside the
+// drive fiber's encoder select->read window -- on a Cutebot Pro the
+// sensor and the encoders are the SAME 0x10 MCU's select state.
+//%
+int lineSensorBits() {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  const int bits = boardLineBits();
+  r.busGuard.release();
+  return bits;
+}
+
+// Which board this build composed (platform/board.h): 1 Nezha,
+// 2 Cutebot Pro.
+//%
+int boardKind() { return DIFFDRIVE_BOARD; }
+
 //%
 int otosBegin() {  // -> raw product id, for diagnostics only; readiness
                     // is OtosPort::connected(), gated on otos_port.h's

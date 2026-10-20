@@ -1535,6 +1535,9 @@ neutral tick or mode `0` (off) forces PWM unconditionally. Otherwise:
   (from `WheelCommandTap`'s `VelocityShaper::Phase`) releases, `kCruise`
   engages, and `kAccel` holds whatever the previous state was (does not
   newly engage, does not release an already-engaged run).
+- **Mode 3 (board loop always).** Every non-neutral tick ships `0x80`,
+  whatever its magnitude; no floor and no eligibility gate.
+
 - **Both-wheels eligibility gate** (used directly by mode 2, and
   implicitly by mode 1's not-yet-engaged branch): a wheel is eligible
   iff its tapped setpoint is exactly 0 or its magnitude is `>= floor`;
@@ -1562,6 +1565,19 @@ clamp), both configurable over the wire (§5). Every hysteresis-band
 and clamp constant here is a labelled POLICY CHOICE or a SOURCE READING
 of ELECFREAKS' own extension, never MEASURED — no Cutebot Pro hardware
 has run any of this yet (sprint 041's job).
+
+**MEASURED on zetuv (board firmware V2.0.1), 2026-10-19/20, on the bench
+stand.** The 200 mm/s floor exists only in the vendor's TypeScript; the
+board's own `0x80` loop holds 30 mm/s and up (30 -> 31/32, 40/-40 ->
+37/-37, 100/-100 -> 92/-92). A repeated `0x80` frame restarts that loop
+(100/-100 resent every cycle tracked 92/-17), so
+`writeOnboardFrame()` sends a setpoint only when it changes and forgets
+the last one whenever a `0x10` frame goes out. An `0x80` frame with
+exactly 0 on one wheel and non-zero on the other runs the moving wheel
+to ~500 mm/s, so a stopped wheel beside a moving one is sent as 1 mm/s.
+Unequal same-direction setpoints merge to one speed on the stand
+(150/75 -> 134/134) in every mode, raw `0x10` included; whether that is
+the stand or the board is still open.
 
 **OtosPort** (SparkFun OTOS, I2C 0x17; implements `PoseSource`).
 Ported verbatim from the reference firmware: register map, distinct

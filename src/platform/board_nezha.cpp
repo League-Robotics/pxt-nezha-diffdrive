@@ -99,6 +99,15 @@ bool boardSetOnboardFloor(float) { return false; }
 
 #ifndef DIFFDRIVE_HOST_BUILD
 
+int boardLineBits() {
+  I2CBus& bus = defaultI2CBus();
+  const uint8_t sel = 4;
+  if (bus.write(0x1A << 1, &sel, 1) != 0) return -1;
+  uint8_t v = 0;
+  if (bus.read(0x1A << 1, &v, 1) != 0) return -1;
+  return v & 0x0F;
+}
+
 // ---- fault-context emergency stop -----------------------------------
 //
 // Moved verbatim from nezha_port.cpp: the same bytes at the same

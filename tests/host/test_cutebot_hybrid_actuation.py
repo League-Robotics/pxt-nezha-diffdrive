@@ -456,3 +456,44 @@ def test_sim_0x10_write_cancels_onboard_mode(handle):
     assert handle.onboard_active() is True
     handle.write_raw_pwm_frame(wheel_sel=2, abs_l=50, abs_r=50, dirbits=0)
     assert handle.onboard_active() is False
+
+
+# ---------------------------------------------------------------------
+# Mode 3: board loop always. A repeated 0x80 frame resets the board's
+# own loop (MEASURED zetuv 2026-10-20: 100/-100 tracked 92/-17 resent
+# every cycle, 92/-92 sent once), so an unchanged setpoint is not resent.
+# ---------------------------------------------------------------------
+
+def _mode3_tick(handle, left, right, now_us):
+    handle.tap_drive(left, right, PHASE_CRUISE)
+    handle.set_duty(0, 0.3)
+    handle.set_duty(1, 0.3)
+    handle.cycle(now_us)
+
+
+def test_mode3_unchanged_setpoint_is_sent_once(handle):
+    assert handle.set_onboard_mode(3) is True
+    for i in range(5):
+        _mode3_tick(handle, 100.0, -100.0, 1000 * (i + 1))
+    assert handle.onboard_frame_count() == 1
+    _mode3_tick(handle, 120.0, -120.0, 7000)
+    assert handle.onboard_frame_count() == 2
+
+
+def test_mode3_resends_after_a_pwm_frame(handle):
+    assert handle.set_onboard_mode(3) is True
+    _mode3_tick(handle, 100.0, 100.0, 1000)
+    handle.tap_neutral()
+    handle.set_duty(0, 0.0)
+    handle.set_duty(1, 0.0)
+    handle.cycle(2000)
+    before = handle.onboard_frame_count()
+    _mode3_tick(handle, 100.0, 100.0, 3000)
+    assert handle.onboard_frame_count() == before + 1
+
+
+def test_mode3_stopped_wheel_beside_a_moving_one_is_sent_as_1(handle):
+    assert handle.set_onboard_mode(3) is True
+    _mode3_tick(handle, 100.0, 0.0, 1000)
+    frame = handle.last_onboard_frame()
+    assert (frame[0] << 8 | frame[1], frame[2] << 8 | frame[3]) == (100, 1)
