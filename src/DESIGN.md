@@ -1559,7 +1559,7 @@ the frame the policy chose; on a neutral/stop tick that arrives while
 previously engaged, it ships an `0x80` zero-both frame first, then
 falls through to the normal PWM path — both zeros are sent, since
 which one actually stops a wheel under onboard control is a sprint 041
-bench probe. **Defaults**: `onboard_pid` 3 (board loop always; MEASURED best on zetuv) and
+bench probe. **Defaults**: `onboard_pid` 0 (off, pure PWM; on the field the board loop cannot brake an arc's inner wheel) and
 `onboard_floor` 200.0 mm/s (matching the onboard loop's own hardware
 clamp), both configurable over the wire (§5). Every hysteresis-band
 and clamp constant here is a labelled POLICY CHOICE or a SOURCE READING

@@ -333,6 +333,13 @@ static Rig& ensure() {
     // 12-leg rerun before anyone bakes it.
     cfg.twistHoldGain = 4.0f;        // [1/s]
     cfg.cyclePeriod = 24;            // [ms]
+#if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_CUTEBOT_PRO
+    // MEASURED zetuv 2026-10-20 on the field: this chassis only arcs
+    // when the inner wheel is braked, which takes proportional gain;
+    // the heading hold then winds up and stalls it on one wheel.
+    cfg.kp = 4.0f;
+    cfg.twistHoldGain = 0.0f;
+#endif
     rig->kernel.setConfig(cfg);
     rig->kernel.begin();   // primes encoders, arms boot zero-write
 

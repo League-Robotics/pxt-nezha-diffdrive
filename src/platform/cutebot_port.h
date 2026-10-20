@@ -278,7 +278,7 @@ class CutebotDevice {
   bool staged_[2] = {false, false};
 
   // Hybrid actuation state.
-  int onboardMode_ = 3;            // GET/SET onboard_pid, {0,1,2,3}
+  int onboardMode_ = 0;            // GET/SET onboard_pid, {0,1,2,3}
   float onboardFloor_ = 200.0f;    // GET/SET onboard_floor [mm/s]
   CutebotActuationPolicy::PolicyState policyState_{};
 
