@@ -339,8 +339,16 @@ static Rig& ensure() {
     // the heading hold then winds up and stalls it on one wheel.
     cfg.kp = 4.0f;
     cfg.twistHoldGain = 0.0f;
+    // A pivot from rest needs ~35-40 % duty to break loose; the default
+    // ceiling left the loop at ~30 % and the turn stalled.
+    cfg.pidMax = 4000.0f;            // [counts/s]
 #endif
     rig->kernel.setConfig(cfg);
+#if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_CUTEBOT_PRO
+    // It cannot creep the last fraction of a degree; a 0.3 deg window
+    // left every turn pushing until it stalled.
+    rig->engine.limits().setArriveYaw(2.0f);
+#endif
     rig->kernel.begin();   // primes encoders, arms boot zero-write
 
     // TICK MODEL (sprint 002): the kernel's own background fiber pacer
