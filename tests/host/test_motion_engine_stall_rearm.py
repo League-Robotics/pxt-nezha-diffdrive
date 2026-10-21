@@ -202,3 +202,31 @@ def test_clear_stall_report(motion_lib):
         _stall_a_move(e)
         e.clear_stall_report()
         assert not e.stall_reported()
+
+
+def test_a_poll_before_the_kernel_step_does_not_end_the_new_move(motion_lib):
+    """updateMove() runs service() with no kernel step first. Straight after
+    a stall, the kernel has not yet applied the new command's clear, so the
+    latch still reads set; that stale latch must not end the new move."""
+    with Engine(motion_lib) as e:
+        e.ready()
+        _stall_a_move(e)
+
+        e.move_x()
+        assert e.stall_halted(), "sanity: the clear has not been applied yet"
+        assert motion_lib.meServiceMove(e._h), "the stale latch ended the new move"
+        for _ in range(5):
+            assert e.tick()
+        assert e.staged_duty(0) > 0.0 and e.staged_duty(1) > 0.0
+
+
+def test_a_poll_before_the_kernel_step_does_not_end_the_new_hold(motion_lib):
+    with Engine(motion_lib) as e:
+        e.ready()
+        _stall_a_move(e)
+
+        e.wheels_v()
+        assert motion_lib.meServiceMove(e._h), "the stale latch ended the new hold"
+        for _ in range(6):
+            assert e.tick(counts_per_tick=20.0)
+        assert e.staged_duty(0) > 0.0

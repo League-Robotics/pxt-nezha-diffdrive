@@ -118,6 +118,7 @@ void MotionEngine::wheelsV(float left, float right, uint32_t duration) {
   kernel_.clearStallLatch();  // a new command gets its own attempt
   const bool wasSegActive = seg_.active;
   const bool wasHoldActive = hold_.active;
+  const bool wasStallArmed = hold_.stallArmed;
   cancelMove();
 
   const float v = 0.5f * (left + right);      // [mm/s] target mean
@@ -131,6 +132,7 @@ void MotionEngine::wheelsV(float left, float right, uint32_t duration) {
   hold_.dominant = absLeft > absRight ? absLeft : absRight;
   hold_.until = now() + duration;
   hold_.active = true;
+  hold_.stallArmed = !wasSegActive && wasHoldActive && wasStallArmed;
 
   // A genuinely new hold restarts the shaper from the floor. A call that
   // only RETARGETS a live hold (closed-loop steering re-issuing every
@@ -219,6 +221,9 @@ void MotionEngine::moveX(float distance, float rotation, float cruise,
   const float distTarget = distance * cpm;
   const float yawTarget = rotation * 0.5f * effectiveTrackWidth() * cpm;
   beginSegment(distTarget, yawTarget, cruise, deadline);
+  if (arcYawClosure_ && seg_.active && distTarget != 0.0f && yawTarget != 0.0f) {
+    seg_.closeYaw = true;
+  }
 }
 
 void MotionEngine::moveV(float vx, float omega, uint32_t duration) {
@@ -325,11 +330,13 @@ bool MotionEngine::service() {
         seg_.wrongWay(out) &&
         std::fabs(seg_.yawProgress(out)) >= kMinYawProgressBeforeWrongWay;
     const bool expired = static_cast<int32_t>(nowVal - seg_.deadline) >= 0;
-    if (wrongWay || out.stallHalted || out.estopped || expired) {
+    if (!out.stallHalted) seg_.stallArmed = true;
+    const bool stalled = out.stallHalted && seg_.stallArmed;
+    if (wrongWay || stalled || out.estopped || expired) {
       if (wrongWay) ++wrongWayCount_;
       // The deadline had first refusal above only for WHETHER to end the
       // segment; an abort reason still wins on WHY.
-      lastSegmentEndedByDeadline_ = expired && !wrongWay && !out.stallHalted &&
+      lastSegmentEndedByDeadline_ = expired && !wrongWay && !stalled &&
                                     !out.estopped;
       kernel_.neutral();
       notifyNeutral();
@@ -357,6 +364,21 @@ bool MotionEngine::service() {
         kernel_.rearmReferences();
         beginPendingStraightPhase();
         return seg_.active;
+      }
+      if (seg_.closeYaw) {
+        // MEASURED zetuv 2026-10-21: a chassis that cannot brake an arc's
+        // inner wheel hard enough ends 45 deg arcs ~10 deg short.
+        const float shortBy = std::fabs(seg_.yawTarget) - seg_.yawProgress(out);  // [counts]
+        const float window = limits_.arriveYaw * (3.14159265f / 180.0f) *
+                             0.5f * effectiveTrackWidth() * cpm;
+        if (shortBy > window) {
+          const float remainder = seg_.yawTarget > 0.0f ? shortBy : -shortBy;
+          const float cruise = seg_.cruise;
+          const uint32_t deadline = seg_.deadline;
+          kernel_.rearmReferences();
+          beginSegment(0.0f, remainder, cruise, deadline);
+          return seg_.active;
+        }
       }
       lastSegmentEndedByDeadline_ = false;
       seg_ = Segment();
@@ -388,7 +410,8 @@ bool MotionEngine::service() {
   // ends a Segment above: without this, the kernel sits forced-neutral
   // under a hold that stays "driving" for its whole lease (up to
   // kLeaseMax), and a `while (driveTick())` loop spins over a halted robot.
-  if (out.stallHalted) {
+  if (!out.stallHalted) hold_.stallArmed = true;
+  if (out.stallHalted && hold_.stallArmed) {
     kernel_.neutral();
     notifyNeutral();
     hold_.active = false;

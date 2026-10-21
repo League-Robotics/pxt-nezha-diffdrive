@@ -353,6 +353,9 @@ static Rig& ensure() {
     // It cannot creep the last fraction of a degree; a 0.3 deg window
     // left every turn pushing until it stalled.
     rig->engine.limits().setArriveYaw(2.0f);
+    // Its arcs end ~10 deg short of a 45 deg rotation (the inner wheel
+    // is not braked hard enough), so finish them with a pivot.
+    rig->engine.setArcYawClosure(true);
 #endif
     rig->kernel.begin();   // primes encoders, arms boot zero-write
 
