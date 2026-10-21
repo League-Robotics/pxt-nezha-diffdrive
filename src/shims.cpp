@@ -339,9 +339,9 @@ static Rig& ensure() {
     // the heading hold then winds up and stalls it on one wheel.
     cfg.kp = 4.0f;
     cfg.twistHoldGain = 0.0f;
-    // A pivot from rest needs ~35-40 % duty to break loose; the default
-    // ceiling left the loop at ~30 % and the turn stalled.
-    cfg.pidMax = 4000.0f;            // [counts/s]
+    // Pivoting needs 35-90 % duty depending on the surface; a lower
+    // ceiling left turns crawling or stalled on the turn target.
+    cfg.pidMax = 9000.0f;            // [counts/s]
 #endif
     rig->kernel.setConfig(cfg);
 #if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_CUTEBOT_PRO
