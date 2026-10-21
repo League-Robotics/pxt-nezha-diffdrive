@@ -337,11 +337,16 @@ static Rig& ensure() {
     // MEASURED zetuv 2026-10-20 on the field: this chassis only arcs
     // when the inner wheel is braked, which takes proportional gain;
     // the heading hold then winds up and stalls it on one wheel.
-    cfg.kp = 4.0f;
+    cfg.kp = 2.0f;
+    cfg.ki = 15.0f;                  // [1/s]
     cfg.twistHoldGain = 0.0f;
-    // Pivoting needs 35-90 % duty depending on the surface; a lower
-    // ceiling left turns crawling or stalled on the turn target.
+    // The board reports whole wheel degrees, so velocity steps ~18 mm/s
+    // per cycle; kp 4 turned that into duty jitter (26 % per cycle vs 9 %
+    // here). The integral, capped by posErrMax, supplies the push a pivot
+    // needs to break loose instead -- up to full duty when stalled.
     cfg.pidMax = 9000.0f;            // [counts/s]
+    cfg.iMax = 9000.0f;              // [counts/s]
+    cfg.posErrMax = 200.0f;          // [counts]
 #endif
     rig->kernel.setConfig(cfg);
 #if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_CUTEBOT_PRO
