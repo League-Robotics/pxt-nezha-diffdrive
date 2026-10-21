@@ -105,7 +105,9 @@ enum ConfigField {
     //% block="wheel diameter mm"
     WheelDiameter = 49,
     //% block="track width mm"
-    TrackWidth = 50
+    TrackWidth = 50,
+    //% block="turning feedforward scale"
+    TwistFeedForward = 51
 }
 
 // Top-level, not inside the namespace: pxt renders an enum parameter as

@@ -337,13 +337,16 @@ static Rig& ensure() {
     // MEASURED zetuv 2026-10-20 on the field: this chassis only arcs
     // when the inner wheel is braked, which takes proportional gain;
     // the heading hold then winds up and stalls it on one wheel.
-    cfg.kp = 2.0f;
-    cfg.ki = 15.0f;                  // [1/s]
+    cfg.kp = 1.0f;
     cfg.twistHoldGain = 0.0f;
     // The board reports whole wheel degrees, so velocity steps ~18 mm/s
-    // per cycle; kp 4 turned that into duty jitter (26 % per cycle vs 9 %
-    // here). The integral, capped by posErrMax, supplies the push a pivot
-    // needs to break loose instead -- up to full duty when stalled.
+    // per cycle and kp turns each step into a duty kick: kp 4 jerked every
+    // drive, and ki 15-20 made both wheels hunt together (~2 Hz) in turns.
+    // A pivot scrubs, needing ~2x the duty of the same wheel speed driven
+    // straight; twist feedforward supplies that up front instead of
+    // integral. MEASURED zetuv 2026-10-21: pivot speed on target, swing at
+    // the encoder's own resolution, duty steps ~4 % per cycle.
+    cfg.twistFeedForward = 2.0f;
     cfg.pidMax = 9000.0f;            // [counts/s]
     cfg.iMax = 9000.0f;              // [counts/s]
     cfg.posErrMax = 200.0f;          // [counts]
@@ -1599,6 +1602,9 @@ void cfgSetEstopClear(Rig& r, float v) {
 // straight_trim IS a stored kernel Config field, unlike default_cruise/
 // rotational_slip above. Sign and magnitude are both meaningful; the
 // kernel setter owns the finiteness check.
+float cfgGetTwistFeedForward(Rig& r) { return r.kernel.config().twistFeedForward; }
+void cfgSetTwistFeedForward(Rig& r, float v) { r.kernel.setTwistFeedForward(v); }
+
 float cfgGetStraightTrim(Rig& r) { return r.kernel.config().straightTrim; }
 void cfgSetStraightTrim(Rig& r, float v) { r.kernel.setStraightTrim(v); }
 
@@ -1728,6 +1734,7 @@ constexpr ConfigAccessor kConfigAccessors[] = {
     {32, &cfgGetRebase, &cfgSetRebase},
     {33, &cfgGetEstopClear, &cfgSetEstopClear},
     {38, &cfgGetStraightTrim, &cfgSetStraightTrim},
+    {51, &cfgGetTwistFeedForward, &cfgSetTwistFeedForward},
     {39, &cfgGetGoToDeadline, &cfgSetGoToDeadline},
     {40, &cfgGetNudgeAmplitude, &cfgSetNudgeAmplitude},
     {41, &cfgGetNudgeWidth, &cfgSetNudgeWidth},

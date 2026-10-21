@@ -215,6 +215,7 @@ _BASELINE_GROUP_ORDER = {
         "ConfigField.WheelScaleLeft", "ConfigField.WheelScaleRight",  # 45-46
         "ConfigField.MotorPortLeft", "ConfigField.MotorPortRight",    # 47-48
         "ConfigField.WheelDiameter", "ConfigField.TrackWidth",        # 49-50
+        "ConfigField.TwistFeedForward",                               # 51
         # 2026-09-12 (out of process, stakeholder): configureMotor's
         # three dropdowns. MotorSide/MotorPort carry their own meaning
         # (0/1 sides, 1-based brick ports); MotorDirection's values ARE
