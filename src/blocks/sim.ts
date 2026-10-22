@@ -500,6 +500,13 @@ namespace diffDrive {
     export function lineSensorBits(): number { return 0 }
 
     /**
+     * One line-sensor channel's grey level, 0..255, or -1 when the
+     * board has no grey read (Nezha) or the read fails.
+     */
+    //% shim=diffDrive::lineSensorGrey
+    export function lineSensorGrey(channel: number): number { return -1 }
+
+    /**
      * Which board this firmware was built for: 1 Nezha, 2 Cutebot Pro.
      */
     //% shim=diffDrive::boardKind

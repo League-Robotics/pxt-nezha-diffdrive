@@ -108,6 +108,8 @@ int boardLineBits() {
   return v & 0x0F;
 }
 
+int boardLineGrey(int) { return -1; }
+
 // ---- fault-context emergency stop -----------------------------------
 //
 // Moved verbatim from nezha_port.cpp: the same bytes at the same

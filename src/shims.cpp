@@ -2076,6 +2076,15 @@ int lineSensorBits() {
   return bits;
 }
 
+//%
+int lineSensorGrey(int channel) {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  const int grey = boardLineGrey(channel);
+  r.busGuard.release();
+  return grey;
+}
+
 // Which board this build composed (platform/board.h): 1 Nezha,
 // 2 Cutebot Pro.
 //%

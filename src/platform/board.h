@@ -106,6 +106,10 @@ WheelCommandTap* boardWheelCommandTap();
 // must never be read outside the guard. -1 when the read fails.
 int boardLineBits();
 
+// One line-sensor channel's grey level, 0..255; -1 when the board has
+// no such read (Nezha) or the read fails.
+int boardLineGrey(int channel);
+
 int boardOnboardMode();
 bool boardSetOnboardMode(int mode);
 float boardOnboardFloor();

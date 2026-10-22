@@ -186,6 +186,15 @@ bool CutebotDevice::readLineState(uint8_t* bitsOut) {
   return true;
 }
 
+bool CutebotDevice::readLineGrey(int channel, uint8_t* greyOut) {
+  const uint8_t params[2] = {0x02, static_cast<uint8_t>(channel)};
+  if (!writeV2Frame(kCmdLine, params, 2)) return false;
+  uint8_t v = 0;
+  if (bus_.read(kAddress << 1, &v, 1) != 0) return false;
+  *greyOut = v;
+  return true;
+}
+
 bool CutebotDevice::hardwareClearEncoder(int side) {
   const uint8_t params[1] = {static_cast<uint8_t>(side)};
   return writeV2Frame(kCmdClear, params, 1);

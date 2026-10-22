@@ -202,6 +202,8 @@ class CutebotDevice {
   // channel 1, the robot's left; set = on the line). MEASURED on zetuv
   // 2026-10-19 after the sensor's own learn routine: white reads 0.
   bool readLineState(uint8_t* bitsOut);
+  // cmd 0x60 [2, ch]: one channel's grey level, 0..255.
+  bool readLineGrey(int channel, uint8_t* greyOut);
 
   int onboardMode() const { return onboardMode_; }
   bool setOnboardMode(int mode);
