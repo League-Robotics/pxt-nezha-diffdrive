@@ -13,6 +13,8 @@
 //   RUN discard [x]          carry the held can off the south mat edge
 //   RUN tune 1|2|0           start tune, stop tune, beep
 //   RUN leg x y dir          face (1) or back (-1) onto a point along a planned leg
+//   RUN fetch x y h tx ty th one can move: pickat x y h, then placeat tx ty th
+//   RUN face h               turn in place
 //   RUN home / goto x y [h] / holding 0|1 / where
 // Each long verb ends with "CB end ok|fail x y h". The firmware holds 32
 // RUN names in all; past that, registrations are silently dropped.
@@ -23,6 +25,7 @@ namespace canbot {
     const BOOT_ROBOT = "unknown"
     diffDrive.setupRobot()
     diffDrive.enableRadioLink()
+    diffDrive.enableWifiLink()
     // Camera-measured on the bb-obstacle mat 2026-10-21: 1.055 under-turned 1.7 %.
     const CUTEBOT = diffDrive.boardKind() == 2
     if (CUTEBOT) diffDrive.setRotationalSlip(1.037)
@@ -711,6 +714,18 @@ namespace canbot {
     diffDrive.runSignature("canplan", "(from:number, to:number, from2:number, to2:number, from3:number, to3:number)")
     diffDrive.addRunProgram("home", () => { start(); home(); done() })
     diffDrive.addRunProgram("leg", () => { start(); leg(a(0), a(1), a(2)); done() })
+    // One whole can move: pick at (x, y) along heading h, carry it round the
+    // obstacles, put it down at (tx, ty) along heading th, back out.
+    diffDrive.addRunProgram("fetch", () => {
+        start()
+        pickAt(a(0), a(1), a(2))
+        if (!failed) placeAt(a(3), a(4), a(5))
+        report("fetched")
+        done()
+    })
+    diffDrive.runSignature("fetch", "(x:number, y:number, h:number, tx:number, ty:number, th:number)")
+    diffDrive.addRunProgram("face", () => { start(); turnTo(a(0)); done() })
+    diffDrive.runSignature("face", "(h:number)")
     diffDrive.runSignature("leg", "(x:number, y:number, dir:number=1)")
     diffDrive.runSignature("home", "()")
 }

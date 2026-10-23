@@ -7,7 +7,7 @@
 The camera finds the robot and every can; the robot (test/canbot.ts) drives
 each leg itself and reports when it is done, so nothing waits on a timer.
 """
-import argparse, json, math, os, queue, re, subprocess, sys, tempfile, threading, time, urllib.request
+import argparse, json, math, os, queue, re, socket, subprocess, sys, tempfile, threading, time, urllib.request
 
 from aprilcam.client.discovery import Discovery
 from aprilcam.types import MountParameters, TagFamily, TagId
@@ -39,31 +39,58 @@ def use_robot(name):
     CAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"canplay_cal_{name}.json")
 
 
+def wifi_address(name):
+    """The fixed address 10.55.<group>.<channel> from the robot's radio pair."""
+    c = json.load(open(os.path.join(ROBOTS, f"{name}.json")))["connection"]
+    return f"10.55.{c['radio_group']}.{c['radio_channel']}"
+
+
 class Robot:
+    """The robot's wire: over WiFi (TCP :7654, no Pi) or, given `host`, USB serial on that Pi."""
     def __init__(self, host, name):
-        self.p = subprocess.Popen(["ssh", host, f"/opt/mbtools/bin/mbserial {name}"], stdin=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         self.q = queue.Queue()
         self.log = open(os.path.join(tempfile.gettempdir(), "canplay.log"), "a")
-        threading.Thread(target=self.reader, daemon=True).start()
         self.seq = 0
         self.point_err = 0.0
-        self.expect("connected", 40)
+        self.p = self.sock = None
+        if host:
+            self.p = subprocess.Popen(["ssh", host, f"/opt/mbtools/bin/mbserial {name}"], stdin=subprocess.PIPE,
+                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            threading.Thread(target=self.reader, args=(self.p.stdout,), daemon=True).start()
+            self.expect("connected", 40)
+        else:
+            self.sock = socket.create_connection((wifi_address(name), 7654), timeout=10)
+            self.sock.settimeout(None)
+            threading.Thread(target=self.reader, args=(self.sock.makefile("r", newline="\n"),), daemon=True).start()
+            threading.Thread(target=self.keepalive, daemon=True).start()
         self.line("STATUS")
         self.expect("status", 5)
         self.line("HELLO")
         self.expect("device", 5)
 
-    def reader(self):
-        for l in self.p.stdout:
+    def keepalive(self):
+        # the robot forgets a host after 60 s of silence; a bare newline is only framing to it
+        while self.sock:
+            time.sleep(15)
+            try:
+                self.sock.sendall(b"\n")
+            except OSError:
+                return
+
+    def reader(self, stream):
+        for l in stream:
             self.log.write(f"{time.time():.2f} < {l}")
             self.log.flush()
             self.q.put(l.rstrip())
 
     def line(self, text):
         self.log.write(f"{time.time():.2f} > {text}\n")
-        self.p.stdin.write(text + "\n")
-        self.p.stdin.flush()
+        self.log.flush()
+        if self.sock:
+            self.sock.sendall((text + "\n").encode())
+        else:
+            self.p.stdin.write(text + "\n")
+            self.p.stdin.flush()
 
     def expect(self, pattern, timeout, resend=None):
         end = time.time() + timeout
@@ -103,8 +130,12 @@ class Robot:
         return "connL=1" in st and "connR=1" in st
 
     def close(self):
-        self.p.stdin.close()
-        self.p.terminate()
+        if self.sock:
+            sock, self.sock = self.sock, None
+            sock.close()
+        else:
+            self.p.stdin.close()
+            self.p.terminate()
 
 
 class Camera:
@@ -323,6 +354,7 @@ class Game:
         self.cal = load_cal()
         self.scores = []
         self.heading_hint = None
+        self.fast = False
         self.r.run(f"gripcal {self.cal['fwd']:.2f} {self.cal['left']:.2f}")
 
     def look(self):
@@ -416,7 +448,32 @@ class Game:
         hd = approach_heading(tx, ty, others, self.cal, math.degrees(math.atan2(ty - cy, tx - cx)))
         return (hp, hd) if hp is not None and hd is not None else None
 
+    def fetch_can(self, can, tx, ty, label):
+        """One RUN for the whole move: the robot picks, carries and places on its own."""
+        t0 = time.time()
+        s = self.look()
+        hs = self.headings(s, can, tx, ty)
+        if hs is None:
+            print(f"  {label}: no safe way to pick or place can {can} without the arms touching a neighbour")
+            return False
+        x, y = self.cans(s)[can]
+        self.seed(s, skip=can)
+        end = self.r.run(f"fetch {x:.1f} {y:.1f} {hs[0]} {tx:.1f} {ty:.1f} {hs[1]}")
+        s = self.look()
+        if can not in s:
+            print(f"  {label}: can {can} not seen after the move")
+            return False
+        err = math.dist(s[can][:2], (tx, ty))
+        self.scores.append(err)
+        print(f"  {label}: can {can} error {err:.2f} cm  {time.time() - t0:.0f} s" + ("  (aborted)" if "fail" in end else ""))
+        return "fail" not in end
+
     def move_can(self, can, tx, ty, label):
+        if self.fast:
+            return self.fetch_can(can, tx, ty, label)
+        return self.move_can_careful(can, tx, ty, label)
+
+    def move_can_careful(self, can, tx, ty, label):
         """Pick `can` wherever the camera sees it and put it down at (tx, ty)."""
         t0 = time.time()
         s = self.look()
@@ -511,8 +568,9 @@ def main():
     ap.add_argument("--swap", action="store_true", help="swap the cans on the two circles given")
     ap.add_argument("--home", action="store_true", help="only drive home")
     ap.add_argument("--no-home", action="store_true", help="stay put at the end")
-    ap.add_argument("--host", default=os.environ.get("ZHOST", "jtl@192.168.4.52"))
+    ap.add_argument("--host", default=os.environ.get("ZHOST"), help="talk over USB on this Pi instead of WiFi")
     ap.add_argument("--robot", default="zetuv")
+    ap.add_argument("--fast", action="store_true", help="one fetch RUN per move; the robot carries the can blind")
     a = ap.parse_args()
     pairs = list(zip(a.circles[0::2], a.circles[1::2]))
     if a.swap:
@@ -528,6 +586,7 @@ def main():
         robot.close()
         sys.exit("motor battery is flat (STATUS connL/connR=0): charge or swap it, then run again")
     g = Game(robot, cam)
+    g.fast = a.fast
     if a.swap:
         s = g.look()
         missing = [c for c in a.circles if g.can_at(s, c) is None]

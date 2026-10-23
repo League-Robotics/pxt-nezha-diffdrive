@@ -138,8 +138,9 @@ def main():
     ap.add_argument("goals", nargs="+", help="circle, or tag:circle")
     ap.add_argument("--plan", action="store_true", help="print the plan and stop")
     ap.add_argument("--no-home", action="store_true")
-    ap.add_argument("--host", default=os.environ.get("ZHOST", "jtl@192.168.4.52"))
+    ap.add_argument("--host", default=os.environ.get("ZHOST"), help="talk over USB on this Pi instead of WiFi")
     ap.add_argument("--robot", default="zetuv")
+    ap.add_argument("--fast", action="store_true", help="one fetch RUN per move; the robot carries the can blind")
     a = ap.parse_args()
     goals = parse(a.goals)
     use_robot(a.robot)
@@ -155,6 +156,7 @@ def main():
             return "CB end ok 0 0 0"
 
     g = Game(robot or NoRobot(), cam)
+    g.fast = a.fast
     planner = Planner(g.circles, g.cal)
     s = g.look()
     pos = {k: p for k, p in g.cans(s).items() if on_mat(p)}
