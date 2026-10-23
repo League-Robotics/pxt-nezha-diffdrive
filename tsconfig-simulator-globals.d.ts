@@ -73,3 +73,10 @@ declare namespace pins {
     function i2cReadNumber(address: number, format: NumberFormat, repeated?: boolean): number;
     function i2cWriteNumber(address: number, value: number, format: NumberFormat, repeated?: boolean): void;
 }
+
+// music.playTone is a TypeScript helper in pxt_modules/core/music.ts, which
+// does not type-check under this harness's narrow file list either; the
+// session tunes in src/blocks/program.ts use it. Same signature as music.ts.
+declare namespace music {
+    function playTone(frequency: number, ms: number): void;
+}

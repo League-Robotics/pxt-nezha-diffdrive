@@ -16,6 +16,9 @@ MAT_DIR = "/Volumes/Proj/proj/robot-projects/radio-robot-lib/config/mat"
 sys.path.insert(0, MAT_DIR)
 from mattools import Mat  # noqa: E402
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from field import wrap  # noqa: E402
+
 CAM = "arducam-ov9782-usb-camera"
 ROBOT_TAG = 58
 BIAS = (1.4, -0.2)        # raised tags read this far off on this camera (cm)
@@ -179,7 +182,7 @@ def approach_heading(tx, ty, others, grip, prefer=None):
     any of `others`, closest to `prefer`; None when there is none."""
     hs = range(0, 360, 15)
     if prefer is not None:
-        hs = sorted(hs, key=lambda h: abs((h - prefer + 180) % 360 - 180))
+        hs = sorted(hs, key=lambda h: abs(wrap(h - prefer)))
     for h in hs:
         c, sn = math.cos(math.radians(h)), math.sin(math.radians(h))
         rx = tx - grip["fwd"] * c + grip["left"] * sn
@@ -206,10 +209,6 @@ TIP_CLEAR = 4.5 + 3.3 + 1.0
 CAN_FENCE = (-58.0, 56.0, -22.0, 31.0)
 GRID = 6.0
 TURN_COST = 0.15          # cm of travel a degree of pivot is worth
-
-
-def wrap(d):
-    return (d + 180) % 360 - 180
 
 
 class Router:
@@ -384,7 +383,7 @@ class Game:
         if hs is None:
             print(f"  {label}: no safe way to pick or place can {can} without the arms touching a neighbour")
             return False
-        for attempt in range(2):
+        for _attempt in range(2):
             x, y = self.cans(s)[can]
             others = [p for k, p in self.cans(s).items() if k != can]
             if self.drive_route(s, stage_pose(x, y, hs[0], self.cal), hs[0], others + [(x, y)], False):
@@ -408,7 +407,7 @@ class Game:
             hs = self.headings(s, can, tx, ty) or hs
         else:
             raise RuntimeError(f"could not pick can {can}")
-        for attempt in range(3):
+        for _attempt in range(3):
             others = [p for k, p in self.cans(s).items() if k != can]
             if self.drive_route(s, stage_pose(tx, ty, hs[1], self.cal), hs[1], others, True, skip=can):
                 s = self.look()

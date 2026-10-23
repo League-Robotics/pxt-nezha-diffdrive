@@ -10,7 +10,7 @@ free spot first. The camera is read before every move and the plan redone.
 import argparse, itertools, math, os, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from canplay import (FENCE, FREE, ROBOT_TAG, Camera, Game, Robot, approach_heading, lights_on)  # noqa: E402
+from canplay import (FENCE, FREE, Camera, Game, Robot, approach_heading, lights_on)  # noqa: E402
 
 GOAL_TOL = 1.5            # a can this close to its circle counts as placed
 MAT = (-61.0, 59.0, -25.4, 34.2)
@@ -173,7 +173,7 @@ def main():
     robot.run("tune 1")
     time.sleep(0.8)
     try:
-        for n in range(3 * len(steps) + 4):
+        for _ in range(3 * len(steps) + 4):
             s = g.look()
             pos = {k: p for k, p in g.cans(s).items() if on_mat(p)}
             missing = [k for k in target if k not in pos]
