@@ -5,12 +5,14 @@
 //   RUN setpose x y h        tell the robot its world pose (cm, deg CCW from +x)
 //   RUN obs x y [x y ...]    cans to avoid; RUN obsclear empties the list
 //   RUN pickat x y [h]       grip the can at a point, optionally along a fixed heading
-//   RUN placeat x y          put the held can down with its centre on the point
+//   RUN placeat x y [h]      put the held can down with its centre on the point
 //   RUN gripcal fwd left     gripper point in the robot frame (cm)
 //   RUN grip deg             servo S1: 0 open, ~60 arms meet, 180 squeeze
 //   RUN canplan a b [c d ..] blind, from the start square SM-6: circle moves, then home
 //   RUN cans n ...           which circles hold cans, for canplan
 //   RUN discard [x]          carry the held can off the south mat edge
+//   RUN tune 1|2|0           start tune, stop tune, beep
+//   RUN leg x y dir          face (1) or back (-1) onto a point along a planned leg
 //   RUN home / goto x y [h] / holding 0|1 / where
 // Each long verb ends with "CB end ok|fail x y h". The firmware holds 32
 // RUN names in all; past that, registrations are silently dropped.
@@ -45,7 +47,7 @@ namespace canbot {
     let GRIP_LEFT = -0.9       // [cm] ... and to its left (RUN gripcal sets both)
     const STAGE = 12           // [cm] straight run-in before the grasp point
     const BACKOUT = 15         // [cm] straight back-out so the held can clears neighbours before a pivot
-    const OPEN = 10
+    const OPEN = 10            // fully open: narrower settings push the can instead of passing round it
     const STOW = 75            // arms closed and narrow while travelling empty
     const CLOSE = 180
     const TRAVEL = 20          // [cm/s]
@@ -204,7 +206,9 @@ namespace canbot {
                     err = other
                 } else {
                     report("boxed in")
-                    step(-8, 0)
+                    const bx = wx() - 8 * Math.cos(rad(wh()))
+                    const by = wy() - 8 * Math.sin(rad(wh()))
+                    step(outside(bx, by) + inset(bx, by) > 0 ? 8 : -8, 0)
                     continue
                 }
             }
@@ -233,7 +237,11 @@ namespace canbot {
                 return
             }
             const b = Math.atan2(dy, dx) * 180 / Math.PI
-            turnTo(Math.abs(wrap(b - wh())) > 90 ? b + 180 : b)
+            // facing the point or backing onto it: the smaller turn, unless that
+            // would push a held can off the mat
+            let face = Math.abs(wrap(b - wh())) > 90 ? b + 180 : b
+            if (canOut(x, y, face) > Math.max(0.5, canOut(wx(), wy(), wh()))) face = face + 180
+            turnTo(face)
             // a stuck turn's unstick step moves the robot: measure again
             const h = rad(wh())
             step((x - wx()) * Math.cos(h) + (y - wy()) * Math.sin(h), 0)
@@ -307,6 +315,8 @@ namespace canbot {
                 wpx = cx - side * uy * (CLEAR + 3)
                 wpy = cy + side * ux * (CLEAR + 3)
             }
+            wpx = Math.max(XMIN + 3, Math.min(XMAX - 3, wpx))
+            wpy = Math.max(YMIN + 3, Math.min(YMAX - 3, wpy))
             report("detour " + b)
             driveTo(wpx, wpy)
         }
@@ -449,6 +459,14 @@ namespace canbot {
         report("point err " + diffDrive.roundTo(Math.sqrt((tx - gx()) * (tx - gx()) + (ty - gy()) * (ty - gy())), 2))
     }
 
+    // Straight back after a grip or release, as far as the fence allows.
+    function backOut(): void {
+        const h = rad(wh())
+        let d = BACKOUT
+        while (d > 3 && outside(wx() - d * Math.cos(h), wy() - d * Math.sin(h)) > 0) d -= 2
+        step(-d, 0)
+    }
+
     // Pivots catch on the mat edge behind the start square: drive out first.
     function leaveStart(): void {
         if (wx() < -46 && Math.abs(wh()) < 30) step(-44 - wx(), 0)
@@ -519,7 +537,7 @@ namespace canbot {
         holding = true
         removeObs(x, y)
         basic.pause(400)
-        step(-BACKOUT, 0)
+        backOut()
     }
 
     export function place(n: number): void {
@@ -528,15 +546,15 @@ namespace canbot {
         report("placed " + n)
     }
 
-    export function placeAt(x: number, y: number): void {
-        approach(x, y)
+    export function placeAt(x: number, y: number, fixed: number = 999): void {
+        approach(x, y, fixed)
         if (failed) return
         grip(OPEN)
         holding = false
         addObs(x, y)
         basic.pause(800)          // arms fully open before backing out, or they drag the can
         diffDrive.setDefaultSpeed(APPROACH)
-        step(-BACKOUT, 0)
+        backOut()
         diffDrive.setDefaultSpeed(TRAVEL)
         grip(STOW)
     }
@@ -563,8 +581,18 @@ namespace canbot {
         driveTo(x, YMIN + 2)
         grip(OPEN)
         basic.pause(500)
-        step(-BACKOUT, 0)
+        backOut()
         diffDrive.setDefaultSpeed(TRAVEL)
+    }
+
+    // One planned leg: face (dir 1) or face away from (dir -1) the point, then
+    // drive straight onto it. The host has checked the leg is clear.
+    export function leg(x: number, y: number, dir: number): void {
+        const b = Math.atan2(y - wy(), x - wx()) * 180 / Math.PI
+        if (Math.sqrt((x - wx()) * (x - wx()) + (y - wy()) * (y - wy())) < 1) return
+        turnTo(dir < 0 ? b + 180 : b)
+        const h = rad(wh())
+        step((x - wx()) * Math.cos(h) + (y - wy()) * Math.sin(h), 0)
     }
 
     export function home(): void {
@@ -587,7 +615,7 @@ namespace canbot {
     }
 
 
-    diffDrive.addRunProgram("setpose", () => {
+    diffDrive.onRun("setpose", (arg: number) => {
         if (diffDrive.runArgCount() < 3) {
             poseKnown = false
             report("abort pose needs x y h")
@@ -598,13 +626,13 @@ namespace canbot {
         report("pose")
     })
     diffDrive.runSignature("setpose", "(x:number=-52.48, y:number=-0.22, h:number=0)")
-    diffDrive.addRunProgram("holding", () => { holding = a(0) != 0; report("holding " + a(0)) })
+    diffDrive.onRun("holding", (arg: number) => { holding = a(0) != 0; report("holding " + a(0)) })
     diffDrive.runSignature("holding", "(yes:number=1)")
     control.inBackground(() => basic.showString(BOOT_ROBOT + " " + BOOT_VERSION))
-    diffDrive.addRunProgram("grip", () => grip(a(0)))
+    diffDrive.onRun("grip", (arg: number) => grip(a(0)))
     diffDrive.runSignature("grip", "(deg:number=180)")
     // RUN cans n n n: which spots hold cans (otherwise canplan infers it)
-    diffDrive.addRunProgram("cans", () => {
+    diffDrive.onRun("cans", (arg: number) => {
         obsX = []
         obsY = []
         for (let i = 0; i < diffDrive.runArgCount(); i++) addObs(spotX(a(i)), spotY(a(i)))
@@ -612,24 +640,31 @@ namespace canbot {
         report("cans " + diffDrive.runArgCount())
     })
     // RUN obs x y [x y ...]: add cans at world points; RUN obsclear empties the list
-    diffDrive.addRunProgram("obs", () => {
+    diffDrive.onRun("obs", (arg: number) => {
         for (let i = 0; i + 1 < diffDrive.runArgCount(); i += 2) addObs(a(i), a(i + 1))
         occKnown = true
         report("obs " + obsX.length)
     })
-    diffDrive.addRunProgram("obsclear", () => {
+    diffDrive.onRun("obsclear", (arg: number) => {
         obsX = []
         obsY = []
         report("obs 0")
     })
     diffDrive.runSignature("cans", "(a:number, b:number, c:number, d:number)")
-    diffDrive.addRunProgram("gripcal", () => {
+    diffDrive.onRun("gripcal", (arg: number) => {
         GRIP_FWD = a(0)
         GRIP_LEFT = a(1)
         report("pose")
     })
     diffDrive.runSignature("gripcal", "(fwd:number=18.7, left:number=-0.9)")
-    diffDrive.addRunProgram("where", () => report("pose"))
+    diffDrive.onRun("where", (arg: number) => report("pose"))
+    // RUN tune 1: start of a session, 2: end of it, 0: a beep between steps
+    diffDrive.onRun("tune", (arg: number) => {
+        if (arg == 1) diffDrive.playStartTune()
+        else if (arg == 2) diffDrive.playStopTune()
+        else diffDrive.beep()
+        report("pose")
+    })
     diffDrive.runSignature("where", "()")
     diffDrive.addRunProgram("goto", () => { start(); driveTo(a(0), a(1)); if (diffDrive.runArgCount() > 2) turnTo(a(2)); report("at"); done() })
     diffDrive.runSignature("goto", "(x:number, y:number, h:number)")
@@ -637,7 +672,7 @@ namespace canbot {
     diffDrive.runSignature("pickat", "(x:number, y:number, heading:number)")
     diffDrive.addRunProgram("discard", () => { start(); discard(diffDrive.runArgCount() > 0 ? a(0) : wx()); report("discarded"); done() })
     diffDrive.runSignature("discard", "(x:number)")
-    diffDrive.addRunProgram("placeat", () => { start(); placeAt(a(0), a(1)); report("placed"); done() })
+    diffDrive.addRunProgram("placeat", () => { start(); placeAt(a(0), a(1), diffDrive.runArgCount() > 2 ? a(2) : 999); report("placed"); done() })
     diffDrive.runSignature("placeat", "(x:number, y:number)")
     // Pairs of from/to spots, run in order, then home. Spot 0 is the park spot.
     function plan(): void {
@@ -662,5 +697,7 @@ namespace canbot {
     diffDrive.addRunProgram("canplan", () => { poseKnown = true; start(); plan(); done() })
     diffDrive.runSignature("canplan", "(from:number, to:number, from2:number, to2:number, from3:number, to3:number)")
     diffDrive.addRunProgram("home", () => { start(); home(); done() })
+    diffDrive.addRunProgram("leg", () => { start(); leg(a(0), a(1), a(2)); done() })
+    diffDrive.runSignature("leg", "(x:number, y:number, dir:number=1)")
     diffDrive.runSignature("home", "()")
 }
