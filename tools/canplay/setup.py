@@ -1,8 +1,8 @@
 """Put cans on chosen circles of the bb-obstacle mat with zetuv, in as few moves as it can.
 
-    uv run python tools/setup.py 13:1 63:5 64:9    these cans (by tag) on these circles
-    uv run python tools/setup.py 1 5 9             any cans on these circles
-    uv run python tools/setup.py --plan 1 5 9      print the plan, do not move
+    uv run python tools/canplay/setup.py 13:1 63:5 64:9    these cans (by tag) on these circles
+    uv run python tools/canplay/setup.py 1 5 9             any cans on these circles
+    uv run python tools/canplay/setup.py --plan 1 5 9      print the plan, do not move
 
 Cans that block a goal, or that would be swept by the arms, are parked on a
 free spot first. The camera is read before every move and the plan redone.

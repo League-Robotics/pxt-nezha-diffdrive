@@ -1,6 +1,6 @@
 // canbot.ts -- can shuffling with zetuv's gripper on the bb-obstacle mat.
 // Build: uv run python tools/make_deploy.py --program canbot.ts --robot zetuv
-// Host driver: tools/canplay.py (camera-seeded, one leg per RUN).
+// Host driver: tools/canplay/ (canplay.py, setup.py).
 //
 //   RUN setpose x y h        tell the robot its world pose (cm, deg CCW from +x)
 //   RUN obs x y [x y ...]    cans to avoid; RUN obsclear empties the list

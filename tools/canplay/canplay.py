@@ -1,8 +1,8 @@
 """Move cans between the numbered circles of the bb-obstacle mat with zetuv.
 
-    uv run python tools/canplay.py 9 5 1 7     move the can on circle 9 to 5, then 1 to 7, then go home
-    uv run python tools/canplay.py --swap 9 5  swap the cans on 9 and 5 (via the park spot)
-    uv run python tools/canplay.py --home      just drive home
+    uv run python tools/canplay/canplay.py 9 5 1 7     move the can on circle 9 to 5, then 1 to 7, then go home
+    uv run python tools/canplay/canplay.py --swap 9 5  swap the cans on 9 and 5 (via the park spot)
+    uv run python tools/canplay/canplay.py --home      just drive home
 
 The camera finds the robot and every can; the robot (test/canbot.ts) drives
 each leg itself and reports when it is done, so nothing waits on a timer.
@@ -16,7 +16,7 @@ MAT_DIR = "/Volumes/Proj/proj/robot-projects/radio-robot-lib/config/mat"
 sys.path.insert(0, MAT_DIR)
 from mattools import Mat  # noqa: E402
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from field import wrap  # noqa: E402
 
 CAM = "arducam-ov9782-usb-camera"
