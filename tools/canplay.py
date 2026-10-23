@@ -7,7 +7,7 @@
 The camera finds the robot and every can; the robot (test/canbot.ts) drives
 each leg itself and reports when it is done, so nothing waits on a timer.
 """
-import argparse, json, math, os, queue, re, socket, subprocess, sys, tempfile, threading, time, urllib.request
+import argparse, json, math, os, pty, queue, termios, re, socket, subprocess, sys, tempfile, threading, time, urllib.request
 
 from aprilcam.client.discovery import Discovery
 from aprilcam.types import MountParameters, TagFamily, TagId
@@ -45,26 +45,43 @@ def wifi_address(name):
     return f"10.55.{c['radio_group']}.{c['radio_channel']}"
 
 
+MBTOOLS = "/Volumes/Proj/proj/robot-projects/mbtools"
+
+
 class Robot:
-    """The robot's wire: over WiFi (TCP :7654, no Pi) or, given `host`, USB serial on that Pi."""
-    def __init__(self, host, name):
+    """The robot's wire: USB serial on Pi `host`, radio through the relay on Pi `relay`,
+    or else WiFi (TCP :7654)."""
+    def __init__(self, host, name, relay=None):
         self.q = queue.Queue()
         self.log = open(os.path.join(tempfile.gettempdir(), "canplay.log"), "a")
         self.seq = 0
         self.point_err = 0.0
-        self.p = self.sock = None
+        self.p = self.sock = self.pty = None
         if host:
             self.p = subprocess.Popen(["ssh", host, f"/opt/mbtools/bin/mbserial {name}"], stdin=subprocess.PIPE,
                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
             threading.Thread(target=self.reader, args=(self.p.stdout,), daemon=True).start()
             self.expect("connected", 40)
+        elif relay:
+            # mbrelay's interactive session only forwards input from a terminal
+            self.pty, slave = pty.openpty()
+            attrs = termios.tcgetattr(slave)
+            attrs[3] &= ~termios.ECHO
+            termios.tcsetattr(slave, termios.TCSANOW, attrs)
+            env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+            self.p = subprocess.Popen(["uv", "run", "--project", MBTOOLS, "mbrelay", "connect", f"{name}@{relay}"],
+                                      stdin=slave, stdout=slave, stderr=slave, close_fds=True, env=env)
+            os.close(slave)
+            threading.Thread(target=self.reader, args=(self.pty_lines(),), daemon=True).start()
+            self.expect("connected", 60)
+            time.sleep(1.5)
         else:
             self.sock = socket.create_connection((wifi_address(name), 7654), timeout=10)
             self.sock.settimeout(None)
             threading.Thread(target=self.reader, args=(self.sock.makefile("r", newline="\n"),), daemon=True).start()
             threading.Thread(target=self.keepalive, daemon=True).start()
         self.line("STATUS")
-        self.expect("status", 5)
+        self.expect("status", 8)
         self.line("HELLO")
         self.expect("device", 5)
 
@@ -77,6 +94,20 @@ class Robot:
             except OSError:
                 return
 
+    def pty_lines(self):
+        buf = b""
+        while True:
+            try:
+                chunk = os.read(self.pty, 4096)
+            except OSError:
+                return
+            if not chunk:
+                return
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                yield line.decode(errors="replace").rstrip("\r") + "\n"
+
     def reader(self, stream):
         for l in stream:
             self.log.write(f"{time.time():.2f} < {l}")
@@ -88,6 +119,8 @@ class Robot:
         self.log.flush()
         if self.sock:
             self.sock.sendall((text + "\n").encode())
+        elif self.pty:
+            os.write(self.pty, (text + "\r").encode())
         else:
             self.p.stdin.write(text + "\n")
             self.p.stdin.flush()
@@ -114,10 +147,38 @@ class Robot:
                 return l
         raise TimeoutError(f"no '{pattern}' within {timeout}s")
 
-    def run(self, cmd, until=r"CB (end|pose|obs|holding|cans)", timeout=120):
+    QUICK = ("setpose", "holding", "obs", "obsclear", "gripcal", "grip", "where", "tune", "cans", "grippin")
+
+    def run(self, cmd, until=r"CB (end|pose|obs|holding|cans)", timeout=None):
+        """Send one RUN and wait for its result line. Radio loses lines both ways,
+        so the command is resent (same id) until acked, and a lost result is
+        recovered from STATUS once the robot has stopped."""
         self.seq += 1
-        self.line(f"RUN {cmd} #{self.seq}")
-        return self.expect(until, timeout, resend=lambda: f"RUN {cmd} #{self.seq}")
+        seq = self.seq
+        text = f"RUN {cmd} #{seq}"
+        if timeout is None:
+            timeout = 6 if cmd.split()[0] in self.QUICK else 120
+        for _ in range(5):
+            self.line(text)
+            try:
+                self.expect(rf"^(ack|err \d+) {seq}\b|^ack {seq} |#{seq}$", 3, resend=lambda: f"RUN {cmd} #{self.seq}")
+                break
+            except TimeoutError:
+                continue
+        try:
+            return self.expect(until, timeout, resend=lambda: f"RUN {cmd} #{self.seq}")
+        except TimeoutError:
+            for _ in range(60):
+                self.line("STATUS")
+                try:
+                    st = self.expect("^status", 3)
+                except TimeoutError:
+                    continue
+                if "active=0" in st:
+                    self.log.write(f"{time.time():.2f} ! result of #{seq} lost; robot idle\n")
+                    return "CB end ok nan nan nan"
+                time.sleep(1)
+            raise
 
     def motors_ok(self):
         """The Cutebot reports connL/connR=0 and I2C failures when its motor battery is flat."""
@@ -133,6 +194,9 @@ class Robot:
         if self.sock:
             sock, self.sock = self.sock, None
             sock.close()
+        elif self.pty:
+            self.p.terminate()
+            os.close(self.pty)
         else:
             self.p.stdin.close()
             self.p.terminate()
@@ -528,8 +592,8 @@ class Game:
         err = math.hypot(ex, ey)
         self.scores.append(err)
         print(f"  {label}: can {can} error {err:.2f} cm (dx {ex:+.2f} dy {ey:+.2f})  {time.time() - t0:.0f} s")
-        if err > 3:
-            print("    too far off to learn the gripper offset from")
+        if err > 3 or math.isnan(hdg):
+            print("    too far off (or no heading) to learn the gripper offset from")
             return True
         if self.r.point_err > 0.6:
             print(f"    robot stopped {self.r.point_err:.1f} cm short of the target; not learning from this one")
@@ -569,6 +633,7 @@ def main():
     ap.add_argument("--home", action="store_true", help="only drive home")
     ap.add_argument("--no-home", action="store_true", help="stay put at the end")
     ap.add_argument("--host", default=os.environ.get("ZHOST"), help="talk over USB on this Pi instead of WiFi")
+    ap.add_argument("--relay", help="talk over radio through the relay on this farm Pi (e.g. magni)")
     ap.add_argument("--robot", default="zetuv")
     ap.add_argument("--fast", action="store_true", help="one fetch RUN per move; the robot carries the can blind")
     a = ap.parse_args()
@@ -581,7 +646,7 @@ def main():
     use_robot(a.robot)
     lights_on()
     cam = Camera()
-    robot = Robot(a.host, a.robot)
+    robot = Robot(a.host, a.robot, a.relay)
     if not robot.motors_ok():
         robot.close()
         sys.exit("motor battery is flat (STATUS connL/connR=0): charge or swap it, then run again")

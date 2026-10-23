@@ -139,6 +139,7 @@ def main():
     ap.add_argument("--plan", action="store_true", help="print the plan and stop")
     ap.add_argument("--no-home", action="store_true")
     ap.add_argument("--host", default=os.environ.get("ZHOST"), help="talk over USB on this Pi instead of WiFi")
+    ap.add_argument("--relay", help="talk over radio through the relay on this farm Pi (e.g. magni)")
     ap.add_argument("--robot", default="zetuv")
     ap.add_argument("--fast", action="store_true", help="one fetch RUN per move; the robot carries the can blind")
     a = ap.parse_args()
@@ -146,7 +147,7 @@ def main():
     use_robot(a.robot)
     lights_on()
     cam = Camera()
-    robot = None if a.plan else Robot(a.host, a.robot)
+    robot = None if a.plan else Robot(a.host, a.robot, a.relay)
     if robot and not robot.motors_ok():
         robot.close()
         sys.exit("motor battery is flat (STATUS connL/connR=0): charge or swap it, then run again")
