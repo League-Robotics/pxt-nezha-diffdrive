@@ -21,10 +21,22 @@ from field import wrap  # noqa: E402
 
 CAM = "arducam-ov9782-usb-camera"
 ROBOT_TAG = 58
+ROBOT_MOUNT = MountParameters(mount_x=0.53, mount_y=0.0, mount_z=11.2, mount_yaw_rad=-1.556)
+ROBOTS = "/Volumes/Proj/proj/robot-projects/radio-robot-lib/config/robots"
 BIAS = (1.4, -0.2)        # raised tags read this far off on this camera (cm)
 GRIP_FWD = 18.7
 PARK = (24.0, -10.0)
-CAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "canplay_cal.json")
+CAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "canplay_cal_zetuv.json")
+
+
+def use_robot(name):
+    """Tag, tag mount and gripper calibration file for robot `name` (its radio-robot-lib config)."""
+    global ROBOT_TAG, ROBOT_MOUNT, CAL
+    v = json.load(open(os.path.join(ROBOTS, f"{name}.json")))["vision"]
+    ROBOT_TAG = v["robot_tag_id"]
+    ROBOT_MOUNT = MountParameters(mount_x=v["tag_offset_x"] / 10, mount_y=v["tag_offset_y"] / 10,
+                                  mount_z=v["tag_offset_z"] / 10, mount_yaw_rad=math.radians(v["tag_offset_yaw"]))
+    CAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"canplay_cal_{name}.json")
 
 
 class Robot:
@@ -100,8 +112,7 @@ class Camera:
         self.d = Discovery().connect()
         cans = json.load(open(os.path.join(MAT_DIR, "cans.json")))
         self.can_ids = [t["number"] for t in cans["tags"]]
-        self.d.register_tag(TagId(TagFamily.APRILTAG, ROBOT_TAG),
-                            MountParameters(mount_x=0.53, mount_y=0.0, mount_z=11.2, mount_yaw_rad=-1.556))
+        self.d.register_tag(TagId(TagFamily.APRILTAG, ROBOT_TAG), ROBOT_MOUNT)
         for n in self.can_ids:
             self.d.register_tag(TagId(TagFamily.APRILTAG, n), MountParameters(mount_z=cans["tag_height_mm"] / 10))
 
@@ -145,7 +156,7 @@ def load_cal():
     except Exception:
         pass
     if True:
-        return {"fwd": GRIP_FWD, "left": -0.9, "n": 0}
+        return {"fwd": 16.4, "left": -1.0, "n": 0}
 
 
 def save_cal(c):
@@ -214,9 +225,12 @@ TURN_COST = 0.15          # cm of travel a degree of pivot is worth
 class Router:
     def __init__(self, obstacles, grip, holding):
         self.obs, self.grip, self.holding = obstacles, grip, holding
+        self.start = None
 
     def pose_ok(self, x, y, h):
-        if not inside(x, y, 0):
+        # the robot may start a little outside the fence: let it drive back in
+        near_start = self.start is not None and math.dist((x, y), self.start) < 12
+        if not inside(x, y, 0) and not near_start:
             return False
         if any(math.dist((x, y), o) < BODY_CLEAR for o in self.obs):
             return False
@@ -238,6 +252,7 @@ class Router:
     def route(self, start, h0, goal, hg):
         """[(x, y, dir)] legs from start (heading h0) to goal, ending able to turn to hg; None if blocked."""
         import heapq
+        self.start = start
         nodes = [start, goal] + [(x, y) for x in frange(FENCE[0], FENCE[1], GRID) for y in frange(FENCE[2], FENCE[3], GRID)]
         nodes = [nodes[0], nodes[1]] + [n for n in nodes[2:] if any(self.pose_ok(*n, h) for h in range(0, 360, 45))]
         best = {}
@@ -307,6 +322,7 @@ class Game:
         self.circles[0] = PARK
         self.cal = load_cal()
         self.scores = []
+        self.heading_hint = None
         self.r.run(f"gripcal {self.cal['fwd']:.2f} {self.cal['left']:.2f}")
 
     def look(self):
@@ -319,13 +335,14 @@ class Game:
             raise RuntimeError("robot tag not seen")
         return s
 
-    def seed(self, s, skip=None):
+    def seed(self, s, skip=None, holding=False):
         x, y, h = s[ROBOT_TAG]
         self.r.run(f"setpose {x:.2f} {y:.2f} {h:.2f}")
+        self.r.run(f"holding {1 if holding else 0}")
         self.r.run("obsclear", until="CB obs")
         pts = [v for k, v in s.items() if k != ROBOT_TAG and k != skip]
-        for i in range(0, len(pts), 4):
-            self.r.run("obs " + " ".join(f"{p[0]:.1f} {p[1]:.1f}" for p in pts[i:i + 4]), until="CB obs")
+        for i in range(0, len(pts), 2):       # a RUN line holds about two points
+            self.r.run("obs " + " ".join(f"{p[0]:.1f} {p[1]:.1f}" for p in pts[i:i + 2]), until="CB obs")
 
     def can_at(self, s, n, tol=FREE):
         cx, cy = self.circles[n]
@@ -348,7 +365,9 @@ class Game:
         cx, cy, _ = s[can]
         dx, dy = cx - x, cy - y
         fwd = dx * math.cos(math.radians(h)) + dy * math.sin(math.radians(h))
-        return abs(fwd - GRIP_FWD) < 4 and math.hypot(dx, dy) < GRIP_FWD + 4
+        # a held can leans forward in the gripper, so its tag reads a little past the grip point
+        g = self.cal["fwd"] + 1.5
+        return abs(fwd - g) < 4 and math.hypot(dx, dy) < g + 4
 
     def drive_route(self, s, goal, hg, obstacles, holding, skip=None):
         """Drive the planned legs to `goal`; False when no clear route exists."""
@@ -359,12 +378,34 @@ class Game:
         if legs is None:
             print("    no clear route; leaving the path to the robot")
             return False
-        self.seed(s, skip=skip)
+        # Wheels slip in pivots, worst with a can held, so every leg starts from
+        # a camera fix rather than from the odometry the last leg left behind.
         for lx, ly, d in legs:
+            s = self.look()
+            self.seed(s, skip=skip, holding=holding)
+            a = s[ROBOT_TAG]
             if "fail" in self.r.run(f"leg {lx:.1f} {ly:.1f} {d}"):
                 print("    leg aborted")
                 return False
+            b = self.look()[ROBOT_TAG]
+            if math.dist(a[:2], b[:2]) >= 8:
+                # the tag's yaw is biased a few degrees by where the robot faces;
+                # the line it just drove is not
+                self.heading_hint = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) + (180 if d < 0 else 0)
+        # face the run-in here, then re-fix, so the robot's own approach starts lined up
+        s = self.look_after_route()
+        self.seed(s, skip=skip, holding=holding)
+        x, y, _ = s[ROBOT_TAG]
+        self.r.run(f"goto {x:.1f} {y:.1f} {hg:.1f}")
         return True
+
+    def look_after_route(self):
+        s = self.look()
+        if self.heading_hint is not None:
+            x, y, _ = s[ROBOT_TAG]
+            s[ROBOT_TAG] = (x, y, wrap(self.heading_hint))
+            self.heading_hint = None
+        return s
 
     def headings(self, s, can, tx, ty):
         """Safe headings to pick `can` and to put it down at (tx, ty), or None."""
@@ -411,8 +452,7 @@ class Game:
             others = [p for k, p in self.cans(s).items() if k != can]
             if self.drive_route(s, stage_pose(tx, ty, hs[1], self.cal), hs[1], others, True, skip=can):
                 s = self.look()
-            self.seed(s, skip=can)
-            self.r.run("holding 1")
+            self.seed(s, skip=can, holding=True)
             self.r.point_err = 99.0
             end = self.r.run(f"placeat {tx:.2f} {ty:.2f} {hs[1]}")
             hdg = float(end.split()[-1])
@@ -431,6 +471,9 @@ class Game:
         err = math.hypot(ex, ey)
         self.scores.append(err)
         print(f"  {label}: can {can} error {err:.2f} cm (dx {ex:+.2f} dy {ey:+.2f})  {time.time() - t0:.0f} s")
+        if err > 3:
+            print("    too far off to learn the gripper offset from")
+            return True
         if self.r.point_err > 0.6:
             print(f"    robot stopped {self.r.point_err:.1f} cm short of the target; not learning from this one")
             return True
@@ -477,6 +520,7 @@ def main():
             ap.error("--swap takes two circles")
         p, q = a.circles
         pairs = [(p, 0), (q, p), (0, q)]
+    use_robot(a.robot)
     lights_on()
     cam = Camera()
     robot = Robot(a.host, a.robot)

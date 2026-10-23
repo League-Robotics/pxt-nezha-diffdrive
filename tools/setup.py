@@ -10,7 +10,7 @@ free spot first. The camera is read before every move and the plan redone.
 import argparse, itertools, math, os, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from canplay import (FENCE, FREE, Camera, Game, Robot, approach_heading, lights_on)  # noqa: E402
+from canplay import (FENCE, FREE, Camera, Game, Robot, approach_heading, lights_on, use_robot)  # noqa: E402
 
 GOAL_TOL = 1.5            # a can this close to its circle counts as placed
 MAT = (-61.0, 59.0, -25.4, 34.2)
@@ -142,6 +142,7 @@ def main():
     ap.add_argument("--robot", default="zetuv")
     a = ap.parse_args()
     goals = parse(a.goals)
+    use_robot(a.robot)
     lights_on()
     cam = Camera()
     robot = None if a.plan else Robot(a.host, a.robot)

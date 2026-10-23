@@ -24,14 +24,23 @@ namespace canbot {
     diffDrive.setupRobot()
     diffDrive.enableRadioLink()
     // Camera-measured on the bb-obstacle mat 2026-10-21: 1.055 under-turned 1.7 %.
-    diffDrive.setRotationalSlip(1.037)
+    const CUTEBOT = diffDrive.boardKind() == 2
+    if (CUTEBOT) diffDrive.setRotationalSlip(1.037)
     diffDrive.setDefaultYawRate(120)
     // Still short per 360 deg, measured by squaring on the Start line: CCW 4.4, CW 1.95.
-    const TURN_CCW = 0.0122
-    const TURN_CW = 0.0054
+    const TURN_CCW = CUTEBOT ? 0.0122 : 0
+    const TURN_CW = CUTEBOT ? 0.0054 : 0
+
+    // Nezha: a hobby servo on a brick port, J2 = P2/P12 (RUN grippin picks).
+    let gripPin = AnalogPin.P2
 
     function grip(deg: number): void {
         deg = Math.max(0, Math.min(180, Math.round(deg)))
+        if (!CUTEBOT) {
+            pins.servoWritePin(gripPin, deg)
+            diffDrive.emitLine("GRIP " + deg)
+            return
+        }
         const b = pins.createBuffer(6)
         b[0] = 0xFF
         b[1] = 0xF9
@@ -536,7 +545,7 @@ namespace canbot {
         grip(CLOSE)
         holding = true
         removeObs(x, y)
-        basic.pause(400)
+        basic.pause(CUTEBOT ? 400 : 1000)   // a hobby servo closes slower than the Cutebot's
         backOut()
     }
 
@@ -630,6 +639,10 @@ namespace canbot {
     diffDrive.runSignature("holding", "(yes:number=1)")
     control.inBackground(() => basic.showString(BOOT_ROBOT + " " + BOOT_VERSION))
     diffDrive.onRun("grip", (arg: number) => grip(a(0)))
+    diffDrive.onRun("grippin", (arg: number) => {
+        gripPin = arg == 12 ? AnalogPin.P12 : AnalogPin.P2
+        report("pose")
+    })
     diffDrive.runSignature("grip", "(deg:number=180)")
     // RUN cans n n n: which spots hold cans (otherwise canplan infers it)
     diffDrive.onRun("cans", (arg: number) => {

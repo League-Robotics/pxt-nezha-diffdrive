@@ -46,7 +46,7 @@ need more than a line; a file with no section is fully described here.
 | `field_calibration.json` | the calibration of record — per-robot tag number, mount offsets, mount-yaw residual, lever arm, parallax factor and radio channel/group. Data, not code; `camlink.py` and `robotlink.py` both read it. |
 | `field.py` | playfield geometry and the angle math the scorers need: `LIMITS`/`MARGIN`/`usable_half_extent()`, `check_path()`/`require_clear_path()`, `wrap()`, `turn_total()`, `score_corners()`, `clears_margin()`, `pose_from_registered_samples()`. Imports nothing but `math`. |
 | `reposition.py` | the one repositioning loop: put the robot on a world point at a world heading, camera-verified, position first and heading second. |
-| `canplay.py` | moves cans between the bb-obstacle mat's circles with zetuv (`test/canbot.ts`): camera-seeded, route-planned legs, approach headings that keep the open arms and the body clear of other cans, a learned gripper offset (`canplay_cal.json`). `canplay.py 9 5 1 7`, `--swap`, `--home`. |
+| `canplay.py` | moves cans between the bb-obstacle mat's circles with zetuv (`test/canbot.ts`): camera-seeded, route-planned legs, approach headings that keep the open arms and the body clear of other cans, a learned gripper offset per robot (`canplay_cal_<robot>.json`). `canplay.py 9 5 1 7`, `--swap`, `--home`, `--robot tigez`. |
 | `setup.py` | puts cans on chosen circles (`13:4 63:6`, or just `1 5 9`) in the fewest moves, parking blockers first; plans with `canplay.py`'s geometry and re-plans from the camera before every move. |
 | `park.py` | plans a park on a world pose for LEAST TOTAL ROTATION, using reverse motion where reversing is cheaper than turning around. |
 
