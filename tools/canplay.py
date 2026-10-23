@@ -208,6 +208,20 @@ class Camera:
         cans = json.load(open(os.path.join(MAT_DIR, "cans.json")))
         self.can_ids = [t["number"] for t in cans["tags"]]
         self.d.register_tag(TagId(TagFamily.APRILTAG, ROBOT_TAG), ROBOT_MOUNT)
+        # Every AprilTag that is not a robot's is a can: register any new one at can height.
+        robots = set()
+        for f in os.listdir(ROBOTS):
+            try:
+                robots.add(json.load(open(os.path.join(ROBOTS, f)))["vision"]["robot_tag_id"])
+            except Exception:
+                pass
+        seen = {t.tag.number for t in self.d.get_tags(CAM).tags if t.tag.family.value == "apriltag"}
+        new = sorted(seen - robots - set(self.can_ids))
+        if new:
+            cans["tags"] += [{"family": "apriltag", "number": k} for k in new]
+            json.dump(cans, open(os.path.join(MAT_DIR, "cans.json"), "w"), indent=1)
+            print(f"  new can tag(s) {new}: registered at {cans['tag_height_mm']} mm")
+            self.can_ids += new
         for n in self.can_ids:
             self.d.register_tag(TagId(TagFamily.APRILTAG, n), MountParameters(mount_z=cans["tag_height_mm"] / 10))
 
