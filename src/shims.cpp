@@ -333,7 +333,33 @@ static Rig& ensure() {
     // 12-leg rerun before anyone bakes it.
     cfg.twistHoldGain = 4.0f;        // [1/s]
     cfg.cyclePeriod = 24;            // [ms]
+#if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_CUTEBOT_PRO
+    // MEASURED zetuv 2026-10-20 on the field: this chassis only arcs
+    // when the inner wheel is braked, which takes proportional gain;
+    // the heading hold then winds up and stalls it on one wheel.
+    cfg.kp = 1.0f;
+    cfg.twistHoldGain = 0.0f;
+    // The board reports whole wheel degrees, so velocity steps ~18 mm/s
+    // per cycle and kp turns each step into a duty kick: kp 4 jerked every
+    // drive, and ki 15-20 made both wheels hunt together (~2 Hz) in turns.
+    // A pivot scrubs, needing ~2x the duty of the same wheel speed driven
+    // straight; twist feedforward supplies that up front instead of
+    // integral. MEASURED zetuv 2026-10-21: pivot speed on target, swing at
+    // the encoder's own resolution, duty steps ~4 % per cycle.
+    cfg.twistFeedForward = 2.0f;
+    cfg.pidMax = 9000.0f;            // [counts/s]
+    cfg.iMax = 9000.0f;              // [counts/s]
+    cfg.posErrMax = 200.0f;          // [counts]
+#endif
     rig->kernel.setConfig(cfg);
+#if DIFFDRIVE_BOARD == DIFFDRIVE_BOARD_CUTEBOT_PRO
+    // It cannot creep the last fraction of a degree; a 0.3 deg window
+    // left every turn pushing until it stalled.
+    rig->engine.limits().setArriveYaw(2.0f);
+    // Its arcs end ~10 deg short of a 45 deg rotation (the inner wheel
+    // is not braked hard enough), so finish them with a pivot.
+    rig->engine.setArcYawClosure(true);
+#endif
     rig->kernel.begin();   // primes encoders, arms boot zero-write
 
     // TICK MODEL (sprint 002): the kernel's own background fiber pacer
@@ -1576,6 +1602,9 @@ void cfgSetEstopClear(Rig& r, float v) {
 // straight_trim IS a stored kernel Config field, unlike default_cruise/
 // rotational_slip above. Sign and magnitude are both meaningful; the
 // kernel setter owns the finiteness check.
+float cfgGetTwistFeedForward(Rig& r) { return r.kernel.config().twistFeedForward; }
+void cfgSetTwistFeedForward(Rig& r, float v) { r.kernel.setTwistFeedForward(v); }
+
 float cfgGetStraightTrim(Rig& r) { return r.kernel.config().straightTrim; }
 void cfgSetStraightTrim(Rig& r, float v) { r.kernel.setStraightTrim(v); }
 
@@ -1705,6 +1734,7 @@ constexpr ConfigAccessor kConfigAccessors[] = {
     {32, &cfgGetRebase, &cfgSetRebase},
     {33, &cfgGetEstopClear, &cfgSetEstopClear},
     {38, &cfgGetStraightTrim, &cfgSetStraightTrim},
+    {51, &cfgGetTwistFeedForward, &cfgSetTwistFeedForward},
     {39, &cfgGetGoToDeadline, &cfgSetGoToDeadline},
     {40, &cfgGetNudgeAmplitude, &cfgSetNudgeAmplitude},
     {41, &cfgGetNudgeWidth, &cfgSetNudgeWidth},
@@ -2033,6 +2063,32 @@ int wheelSpeed(int which) {
 // program samples into arrays and dumps afterwards instead.
 //%
 int probe(int what) { return diagValue(what); }
+
+// The line sensor, read under busGuard so it never lands inside the
+// drive fiber's encoder select->read window -- on a Cutebot Pro the
+// sensor and the encoders are the SAME 0x10 MCU's select state.
+//%
+int lineSensorBits() {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  const int bits = boardLineBits();
+  r.busGuard.release();
+  return bits;
+}
+
+//%
+int lineSensorGrey(int channel) {
+  Rig& r = ensure();
+  r.busGuard.acquire(r.sleeper);
+  const int grey = boardLineGrey(channel);
+  r.busGuard.release();
+  return grey;
+}
+
+// Which board this build composed (platform/board.h): 1 Nezha,
+// 2 Cutebot Pro.
+//%
+int boardKind() { return DIFFDRIVE_BOARD; }
 
 //%
 int otosBegin() {  // -> raw product id, for diagnostics only; readiness

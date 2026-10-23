@@ -2247,6 +2247,7 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     # Ordinals 49-50: wheel diameter and track width, in mm.
     "wheel_diameter": 88.5,
     "track_width": 111.6,
+    "twist_ff": 2.5,
 }
 
 
@@ -3268,6 +3269,8 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"motor_port_left", b"motor_port_right",
         # ordinals 49-50: wheel diameter and track width.
         b"wheel_diameter", b"track_width",
+        # ordinal 51: turning feedforward scale.
+        b"twist_ff",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 

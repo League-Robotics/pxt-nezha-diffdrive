@@ -115,6 +115,18 @@ bool boardSetOnboardFloor(float floor) {
 
 #ifndef DIFFDRIVE_HOST_BUILD
 
+int boardLineBits() {
+  uint8_t bits = 0;
+  if (!board().device.readLineState(&bits)) return -1;
+  return bits & 0x0F;
+}
+
+int boardLineGrey(int channel) {
+  uint8_t grey = 0;
+  if (!board().device.readLineGrey(channel, &grey)) return -1;
+  return grey;
+}
+
 // ---- fault-context emergency stop -----------------------------------
 //
 // ONE frame zeroes BOTH wheels -- unlike Nezha's two independently

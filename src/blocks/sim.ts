@@ -492,6 +492,27 @@ namespace diffDrive {
     export function probe(what: number): number { return 0 }
 
     /**
+     * The four-channel line sensor: bit i set when channel i (0 = left)
+     * sees the line, or -1 when the read fails. Read under the drive
+     * fiber's bus guard, so it is safe while the robot is moving.
+     */
+    //% shim=diffDrive::lineSensorBits
+    export function lineSensorBits(): number { return 0 }
+
+    /**
+     * One line-sensor channel's grey level, 0..255, or -1 when the
+     * board has no grey read (Nezha) or the read fails.
+     */
+    //% shim=diffDrive::lineSensorGrey
+    export function lineSensorGrey(channel: number): number { return -1 }
+
+    /**
+     * Which board this firmware was built for: 1 Nezha, 2 Cutebot Pro.
+     */
+    //% shim=diffDrive::boardKind
+    export function boardKind(): number { return 1 }
+
+    /**
      * RETIRED (design S4.7/S8): no-ops kept for one
      * release so a program saved before this sprint still compiles and
      * runs. Shaping is now `set config`'s own accel/decel/jerk/v_max/

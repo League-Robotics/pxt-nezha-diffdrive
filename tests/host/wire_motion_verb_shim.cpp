@@ -496,6 +496,12 @@ static void waSetEstopClear(WaHandle& h, float v) {
   if (v != 0.0f) h.kernel.estopClear();
 }
 
+static float waGetTwistFeedForward(WaHandle& h) {
+  return h.kernel.config().twistFeedForward;
+}
+static void waSetTwistFeedForward(WaHandle& h, float v) {
+  h.kernel.setTwistFeedForward(v);
+}
 static float waGetStraightTrim(WaHandle& h) {
   return h.kernel.config().straightTrim;
 }
@@ -584,6 +590,7 @@ static const WaConfigAccessor kWaConfigAccessors[] = {
     {32, &waGetRebase, &waSetRebase},
     {33, &waGetEstopClear, &waSetEstopClear},
     {38, &waGetStraightTrim, &waSetStraightTrim},
+    {51, &waGetTwistFeedForward, &waSetTwistFeedForward},
     {39, &waGetGoToDeadline, &waSetGoToDeadline},
     {40, &waGetNudgeAmplitude, &waSetNudgeAmplitude},
     {41, &waGetNudgeWidth, &waSetNudgeWidth},

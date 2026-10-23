@@ -98,6 +98,18 @@ WheelCommandTap* boardWheelCommandTap();
 // out-of-range wire SET in this codebase gets. `SET onboard_pid 0`
 // still always ACKS on every board -- refusing the WIRE command is not
 // the same as refusing to store a value nothing on this board reads.
+// The four-channel line sensor, read under the caller's BusGuard
+// (shims.cpp's lineSensorBits()). Bit i set = channel i sees the line,
+// channel 0 on the robot's left. Nezha: the PlanetX Trackbit at 0x1A.
+// Cutebot Pro: the built-in sensor behind the 0x10 MCU (cmd 0x60 [0]),
+// which shares that MCU's select->read state with the encoders, so it
+// must never be read outside the guard. -1 when the read fails.
+int boardLineBits();
+
+// One line-sensor channel's grey level, 0..255; -1 when the board has
+// no such read (Nezha) or the read fails.
+int boardLineGrey(int channel);
+
 int boardOnboardMode();
 bool boardSetOnboardMode(int mode);
 float boardOnboardFloor();

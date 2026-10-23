@@ -253,7 +253,28 @@ def test_neutral_forces_pwm_even_if_previously_engaged(lib, mode):
 # ---------------------------------------------------------------------
 
 def test_out_of_range_mode_falls_back_to_pwm(lib):
-    onboard, engaged = decide(lib, True, 3, 300.0, 300.0, PHASE_CRUISE)
+    onboard, engaged = decide(lib, True, 4, 300.0, 300.0, PHASE_CRUISE)
+    assert (onboard, engaged) == (False, False)
+
+
+# ---------------------------------------------------------------------
+# Mode 3, board loop always: any non-neutral cycle goes onboard, below
+# the floor too; a neutral cycle still forces PWM.
+# ---------------------------------------------------------------------
+
+def test_mode3_engages_below_floor(lib):
+    onboard, engaged = decide(lib, False, 3, 30.0, 30.0, PHASE_CRUISE)
+    assert (onboard, engaged) == (True, True)
+
+
+def test_mode3_engages_on_ramp_and_brake(lib):
+    for phase in (PHASE_CRUISE,):
+        assert decide(lib, False, 3, 5.0, -5.0, phase) == (True, True)
+
+
+def test_mode3_neutral_forces_pwm(lib):
+    onboard, engaged = decide(lib, True, 3, 0.0, 0.0, PHASE_CRUISE,
+                              neutral=True)
     assert (onboard, engaged) == (False, False)
 
 

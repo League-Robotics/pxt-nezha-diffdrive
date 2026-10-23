@@ -159,6 +159,8 @@ constexpr ConfigFieldDescriptor kConfigFields[] = {
     {"wheel_diameter", 49, "mm"},
     // ConfigField.TrackWidth: "track width mm"
     {"track_width", 50, "mm"},
+    // ConfigField.TwistFeedForward: "turning feedforward scale"
+    {"twist_ff", 51, "1"},
 };
 
 constexpr int kConfigFieldCount =

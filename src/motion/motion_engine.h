@@ -65,6 +65,10 @@ class MotionEngine {
     if (slip > 0.0f) rotationalSlip_ = slip;
   }
 
+  // Finish a MOVE_X arc's missing rotation with a pivot. Off by default:
+  // a drivetrain that holds the arc's wheel ratio never needs it.
+  void setArcYawClosure(bool on) { arcYawClosure_ = on; }
+
   // [counts/mm] 1 count == 0.1 shaft degree.
   float countsPerMm() const { return 10.0f / travelCalib_; }
 
@@ -413,6 +417,7 @@ class MotionEngine {
     float twist = 0.0f;     // [mm/s] target half-differential
     float dominant = 0.0f;  // [mm/s] max(|v-twist|, |v+twist|)
     uint32_t until = 0;     // [ms] the caller's duration deadline
+    bool stallArmed = false;  // see Segment::stallArmed
   };
 
   // beginNudge()'s target, ticked by serviceNudge(). Exactly one of
@@ -524,6 +529,7 @@ class MotionEngine {
   float travelCalib_ = 0.7878f;   // [mm/deg] wheel travel per shaft degree
   float trackWidth_ = 114.2f;     // [mm] tape-measured
   float rotationalSlip_ = 0.952f; // [1] physical/odometric rotation ratio
+  bool arcYawClosure_ = false;
 
   Segment seg_;
   Hold hold_;
