@@ -1,0 +1,15 @@
+{
+ "mat": "bb-obstacle",
+ "recorded": "2026-10-24, set out by Eric; camera read, each cube within 3 cm of its circle",
+ "circles": {
+  "2": "orange",
+  "3": "green",
+  "4": "orange",
+  "7": "blue",
+  "8": "green",
+  "9": "blue",
+  "10": "blue",
+  "11": "orange",
+  "12": "green"
+ }
+}

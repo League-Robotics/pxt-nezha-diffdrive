@@ -26,13 +26,15 @@ namespace canbot {
     diffDrive.setupRobot()
     diffDrive.enableRadioLink()
     diffDrive.enableWifiLink()
-    // Camera-measured on the bb-obstacle mat 2026-10-21: 1.055 under-turned 1.7 %.
+    // calturn on the iron cross 2026-10-24, paddle gripper fitted: left 0.9636, right 0.9552.
+    // Set here as well as baked: flashing wipes the stored calibration.
     const CUTEBOT = diffDrive.boardKind() == 2
-    if (CUTEBOT) diffDrive.setRotationalSlip(1.037)
+    if (CUTEBOT) diffDrive.setRotationalSlip(0.959)
     diffDrive.setDefaultYawRate(120)
-    // Still short per 360 deg, measured by squaring on the Start line: CCW 4.4, CW 1.95.
-    const TURN_CCW = CUTEBOT ? 0.0122 : 0
-    const TURN_CW = CUTEBOT ? 0.0054 : 0
+    // Pivots stop short of a continuous spin: camera-measured on the bb-obstacle mat
+    // 2026-10-24 with the paddle gripper. RUN gripcal fwd left ccw cw retunes them.
+    let TURN_CCW = CUTEBOT ? 0.0105 : 0
+    let TURN_CW = CUTEBOT ? 0.030 : 0
 
     // Nezha: a hobby servo on a brick port, J2 = P2/P12 (RUN grippin picks).
     let gripPin = AnalogPin.P2
@@ -670,9 +672,14 @@ namespace canbot {
     diffDrive.onRun("gripcal", (arg: number) => {
         GRIP_FWD = a(0)
         GRIP_LEFT = a(1)
+        if (diffDrive.runArgCount() > 3) {
+            TURN_CCW = a(2)
+            TURN_CW = a(3)
+        }
+        diffDrive.emitLine("CB turncal " + TURN_CCW + " " + TURN_CW)
         report("pose")
     })
-    diffDrive.runSignature("gripcal", "(fwd:number=18.7, left:number=-0.9)")
+    diffDrive.runSignature("gripcal", "(fwd:number=18.7, left:number=-0.9, ccw:number=0, cw:number=0)")
     diffDrive.onRun("where", (arg: number) => report("pose"))
     // RUN tune 1: start of a session, 2: end of it, 0: a beep between steps
     diffDrive.onRun("tune", (arg: number) => {

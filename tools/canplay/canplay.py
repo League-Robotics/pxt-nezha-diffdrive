@@ -165,6 +165,8 @@ class Robot:
                 break
             except TimeoutError:
                 continue
+        if cmd.split()[0] not in self.QUICK:
+            return self.await_result(cmd, until, timeout, seq)
         try:
             return self.expect(until, timeout, resend=lambda: f"RUN {cmd} #{self.seq}")
         except TimeoutError:
@@ -179,6 +181,31 @@ class Robot:
                     return "CB end ok nan nan nan"
                 time.sleep(1)
             raise
+
+    def await_result(self, cmd, until, timeout, seq):
+        """Wait for a motion RUN's result. The result line is sometimes dropped, so
+        poll STATUS while waiting: idle with the kernel cycle count standing still
+        on two polls in a row means the program has finished."""
+        end = time.time() + timeout
+        first = time.time() + 6
+        last_cyc = None
+        while time.time() < end:
+            try:
+                l = self.expect(rf"{until}|^status", 3, resend=lambda: f"RUN {cmd} #{self.seq}")
+            except TimeoutError:
+                l = None
+            if l is not None and not l.startswith("status"):
+                return l
+            if l is not None:
+                cyc = re.search(r"cyc=(\d+)", l)
+                cyc = cyc.group(1) if cyc else None
+                if "active=0" in l and cyc is not None and cyc == last_cyc:
+                    self.log.write(f"{time.time():.2f} ! result of #{seq} lost; robot idle\n")
+                    return "CB end ok nan nan nan"
+                last_cyc = cyc if "active=0" in l else None
+            if time.time() > first:
+                self.line("STATUS")
+        raise TimeoutError(f"no result for '{cmd}' within {timeout}s")
 
     def motors_ok(self):
         """The Cutebot reports connL/connR=0 and I2C failures when its motor battery is flat."""
