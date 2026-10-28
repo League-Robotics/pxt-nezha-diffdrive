@@ -183,8 +183,14 @@ class MotionEngine {
     return lastSegmentEndedByDeadline_;
   }
 
-  // Force-end the current command now; no-op if nothing is active.
-  void endMove();
+  // Force-end the current command now; no-op if nothing is active. A
+  // live position move is hard-stopped on both ports here. Pass false
+  // endMoveStaged() is the same with no port write, for a caller that
+  // does not own the bus (another fiber holds it): the move's record is
+  // dropped but the ports stay latched live, so their own emergencyStop()
+  // sends the hard stop from the bus holder.
+  void endMove() { endMoveImpl(true); }
+  void endMoveStaged() { endMoveImpl(false); }
 
   // [0..1000] dominant-axis fraction completed; 1000 when no Segment is
   // active. A continuous hold has no notion of done and is unaffected.
@@ -544,6 +550,7 @@ class MotionEngine {
 
   // hardStop() on both ports and end posMove_ (never a 0x60).
   void stopPositionMove();
+  void endMoveImpl(bool stopPositionPorts);
 
   // Converts this segment's axis into the dominant-wheel floor/cap the
   // shaper wants. A pure turn uses the omega floor/ceiling; a straight leg

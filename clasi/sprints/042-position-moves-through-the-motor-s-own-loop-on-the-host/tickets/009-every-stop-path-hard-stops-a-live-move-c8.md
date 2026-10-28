@@ -1,7 +1,7 @@
 ---
 id: 009
 title: Every stop path hard-stops a live move (C8)
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on:
@@ -28,11 +28,11 @@ C8 (decision D1: the starvation watchdog keeps its invariant and hard-stops a li
 
 ## Acceptance Criteria
 
-- [ ] host test: a live move plus 200 ms without a tick produces `0x5F` on both ports (watchdog), and no further motion
-- [ ] `STOP`, `ESTOP`, `stop move` (`endMove()`), `softStop()` and `configureWiring()` during a live move each produce `0x5F` on both ports within one tick, then `0x60 0`
-- [ ] a stop on a non-live wheel at or below the floor sends no `0x5F` (frame log unchanged)
-- [ ] source pin: the fault frame loop covers ports 1 to 4
-- [ ] existing stop pins pass: `test_soft_stop_source_pin.py`, `test_staged_stop_source_pin.py`, `test_status_active_after_soft_stop.py`, `test_stop_move_zeros_continuous_drive.py`
+- [x] host test: a live move plus 200 ms without a tick produces `0x5F` on both ports (watchdog), and no further motion
+- [x] `STOP`, `ESTOP`, `stop move` (`endMove()`), `softStop()` and `configureWiring()` during a live move each produce `0x5F` on both ports within one tick, then `0x60 0`
+- [x] a stop on a non-live wheel at or below the floor sends no `0x5F` (frame log unchanged)
+- [x] source pin: the fault frame loop covers ports 1 to 4
+- [x] existing stop pins pass: `test_soft_stop_source_pin.py`, `test_staged_stop_source_pin.py`, `test_status_active_after_soft_stop.py`, `test_stop_move_zeros_continuous_drive.py`
 
 ## Testing
 

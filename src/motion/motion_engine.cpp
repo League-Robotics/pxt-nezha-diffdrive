@@ -462,11 +462,14 @@ bool MotionEngine::service() {
   return true;
 }
 
-void MotionEngine::endMove() {
+void MotionEngine::endMoveImpl(bool stopPositionPorts) {
   // An explicit external end is never a timeout, but a no-op call must not
   // overwrite a still-meaningful earlier verdict.
   if (seg_.active) lastSegmentEndedByDeadline_ = false;
-  if (posMove_.active) stopPositionMove();
+  if (posMove_.active) {
+    if (stopPositionPorts) stopPositionMove();
+    else posMove_.active = false;
+  }
   if (seg_.active || hold_.active) {
     kernel_.neutral();
     notifyNeutral();

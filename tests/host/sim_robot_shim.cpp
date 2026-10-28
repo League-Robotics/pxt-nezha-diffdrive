@@ -260,6 +260,39 @@ float srWheelPosition(void* handle, int side) {
 
 void srStop(void* handle) { static_cast<Handle*>(handle)->engine.endMove(); }
 
+// The stop paths in src/shims.cpp, spelled with the same calls in the same
+// order (shims.cpp cannot be compiled on the host). srSoftStop is
+// Rig::softStop() with a free bus -- also what the starvation watchdog,
+// STOP and `stop move` run; srEstopAll is estopAll() -- also the wire's
+// ESTOP.
+void srSoftStop(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMove();
+  h->kernel.neutral();
+  h->left.emergencyStop();
+  h->right.emergencyStop();
+  h->engine.settleToRest();
+}
+// Rig::softStop() with the bus held: the stage only; srDeliverStagedStop
+// is tickDrive()'s delivery of it.
+void srSoftStopStaged(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMoveStaged();
+  h->kernel.neutral();
+}
+void srDeliverStagedStop(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->left.emergencyStop();
+  h->right.emergencyStop();
+  h->engine.settleToRest();
+}
+void srEstopAll(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMove();
+  h->kernel.estop();
+  h->kernel.emergencyStopMotors();
+}
+
 // ---- the tick ------------------------------------------------------------
 
 // One simulated control cycle, in the order the real robot runs it:

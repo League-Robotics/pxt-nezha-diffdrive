@@ -450,13 +450,26 @@ static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 // release bracket every other non-kernel I2C entry point in this file
 // takes -- settleToRest() steps the kernel, which talks I2C, so it
 // needs the same protection tickDrive()'s own acquire() gives step().
+//
+// A live position move runs on the motors' own loop, so it is hard-
+// stopped first (the brick's stop that holds the count), then the usual
+// zero. Free bus: engine.endMove() sends the hard stop on both ports
+// itself. Held bus: it must not write, so it drops the move's record
+// only and the ports stay latched live; the staged port-level stop
+// below then sends the hard stop and the zero from the fiber that holds
+// the guard. A wheel at or below the kernel floor with no live move gets
+// no hard-stop frame (a kernel move's own ramp to the floor is left
+// alone; docs/code-review/2026-10-27/data/mb_probe_stops1.csv shows the
+// same rest from either stop at low speed).
 void Rig::softStop() {
-  engine.endMove();
-  kernel.neutral();
   if (busGuard.held()) {
+    engine.endMoveStaged();
+    kernel.neutral();
     pendingStop_ = true;
     return;
   }
+  engine.endMove();
+  kernel.neutral();
   busGuard.acquire(sleeper);
   left.emergencyStop();
   right.emergencyStop();
