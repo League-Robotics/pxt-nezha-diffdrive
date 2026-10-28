@@ -1,9 +1,15 @@
 ---
 id: 009
 title: Flip defaults, docs, postmortem
-status: open
-use-cases: [SUC-004]
-depends-on: ["004","005","006","007","008"]
+status: in-progress
+use-cases:
+- SUC-004
+depends-on:
+- '004'
+- '005'
+- '006'
+- '007'
+- 008
 github-issue: ''
 issue: position-mode-default-and-docs-after-acceptance.md
 completes_issue: true
