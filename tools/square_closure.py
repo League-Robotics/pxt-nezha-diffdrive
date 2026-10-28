@@ -31,6 +31,8 @@ import math
 import os
 import sys
 
+from field import wrap
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 MOVING_MMPS = 5.0   # a wheel above this speed counts as moving
@@ -58,7 +60,7 @@ def score_lap(rows):
     """
     a, b = rows[0], rows[-1]
     closure = math.hypot(b['x'] - a['x'], b['y'] - a['y'])
-    resid = ((b['h'] - a['h']) / 100.0 + 180.0) % 360.0 - 180.0
+    resid = wrap((b['h'] - a['h']) / 100.0)
     moving = [r for r in rows
               if abs(r['vl']) > MOVING_MMPS or abs(r['vr']) > MOVING_MMPS]
     lap_s = ((moving[-1]['now'] - moving[0]['now']) / 1000.0) if moving else 0.0

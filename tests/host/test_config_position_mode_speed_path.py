@@ -42,9 +42,14 @@ def test_ordinals_are_52_and_53():
     assert re.search(r'\{"speed_path", 53, "1"\}', _FIELDS)
 
 
-@pytest.mark.parametrize("name", ["position_mode", "speed_path"])
-def test_default_is_zero(wa, name):
-    assert _get(wa, name, 1) == 0.0
+def test_speed_path_default_is_zero(wa):
+    assert _get(wa, "speed_path", 1) == 0.0
+
+
+def test_position_mode_default_is_one(wa):
+    # Straights and pivots run through the motor's own position loop; arcs
+    # stay on the kernel. 0 gives the kernel back.
+    assert _get(wa, "position_mode", 1) == 1.0
 
 
 @pytest.mark.parametrize("name,value", [
@@ -58,7 +63,7 @@ def test_round_trip(wa, name, value):
 
 
 def test_shims_position_mode_is_range_checked_and_stored_on_rig():
-    assert "int positionMode = 0;" in _SHIMS
+    assert "int positionMode = MotionEngine::kDefaultPositionMode;" in _SHIMS
     body = re.search(r"void cfgSetPositionMode\(Rig& r, float v\) \{(.*?)\n\}",
                      _SHIMS, re.DOTALL).group(1)
     assert "v < 0.0f || v > 2.0f" in body

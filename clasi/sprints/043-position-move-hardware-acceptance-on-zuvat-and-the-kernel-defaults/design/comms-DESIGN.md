@@ -48,7 +48,8 @@ points somewhere.
 ## Position-move routing and config
 
 `config_fields.h` gains `position_mode` (0 kernel, 1 built-in for
-straights and pivots, 2 built-in for arcs too; default 0) and
+straights and pivots, 2 built-in for arcs too; default 1, arcs stay
+on the kernel) and
 `speed_path` (0 `0x60`, 1 `0x77`+`0x70` mode 3; default 0). `WHEELS_X`,
 `MOVE_X`, `GO_TO_R/W` use `PositionMove` when the mode allows and the
 composed board's ports `supportsPositionMove()`; `WHEELS_V`, `MOVE_V`
@@ -56,11 +57,16 @@ never do. `STATUS` carries a position-move flag naming the path that ran.
 
 ## Position-move defaults (sprint 043)
 
-Sprint 043 settles the baked defaults from hardware evidence (captures
-under `captures/zuvat-position-<date>/` and the bench 50 cm captures):
-`position_mode` becomes the accepted mode (1, or 2 if arcs pass) and
-`speed_path` follows its A/B. The text above (default 0 for both) is
-updated in ticket 009 only, and each default names its capture path.
-Per-robot kernel constants (`v_floor`, `decel`, `stop_distance`,
-`omega_floor`, `v_max`, `pid_ki`) are baked in the robot config files
-with a capture citation beside each (ticket 007).
+The defaults come from zuvat hardware evidence (captures under
+`captures/zuvat-position-2026-10-27/`, all ENCODER truth). `position_mode`
+boots at 1: straights and pivots run through the motor's own position
+loop (50 cm worst 0.49 mm per wheel against 11.8 mm on the kernel,
+`fiftycm/position.csv` vs `fiftycm/kernel.csv`; pivots 0.17 deg against
+1.30 deg, `pivots/analysis_output.txt`; square closure mean 1.8 mm against
+9.8 mm, `square/closure.csv`). Mode 2 is not the default: its arcs run both
+wheels at nearly equal speed (`circle/closure_radial.csv`). The boot value
+is one constant, `MotionEngine::kDefaultPositionMode`, which the Rig seeds
+`GET position_mode` from, so a fresh engine routes a straight `MOVE_X` to
+the position path with no `SET`. `speed_path` stays 0 (`speedpath/wheels_summary.csv`). Per-robot kernel constants are baked in the robot
+config files with a capture citation beside each; zuvat bakes `decel` 1000
+and `stop_distance_mm` 0.3 (`kdefaults/kd_summary.csv`).

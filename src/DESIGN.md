@@ -570,7 +570,8 @@ a Cutebot-composed board (sprint 040 ticket 004) installs a
 in-flight command beside `Segment`, `Hold` and `Nudge`; exactly one is
 live. `wheelsX`, `moveX` and `goTo` plan it from the segment maths
 (`rotationalSlip`, `effectiveTrackWidth`) when `position_mode` allows
-(0 never, 1 straights and pivots, 2 arcs too; default 0) and both wheels'
+(0 never, 1 straights and pivots, 2 arcs too; default 1, the kernel keeps
+arcs) and both wheels'
 `DiffDrive::PositionMotor` reports `supportsPositionMove()`; `wheelsV`,
 `moveV`, twist and line following never use it. Per-wheel count targets
 are rounded to the port's `positionQuantum()` with the rounding error

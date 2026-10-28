@@ -48,8 +48,18 @@ points somewhere.
 ## Position-move routing and config
 
 `config_fields.h` gains `position_mode` (0 kernel, 1 built-in for
-straights and pivots, 2 built-in for arcs too; default 0) and
+straights and pivots, 2 built-in for arcs too; default 1, arcs stay
+on the kernel) and
 `speed_path` (0 `0x60`, 1 `0x77`+`0x70` mode 3; default 0). `WHEELS_X`,
 `MOVE_X`, `GO_TO_R/W` use `PositionMove` when the mode allows and the
 composed board's ports `supportsPositionMove()`; `WHEELS_V`, `MOVE_V`
 never do. `STATUS` carries a position-move flag naming the path that ran.
+
+`position_mode` boots at 1 from one constant,
+`MotionEngine::kDefaultPositionMode`, which the Rig also seeds
+`GET position_mode` from, so a fresh engine routes a straight `MOVE_X` to
+the position path with no `SET`; `SET position_mode 0` gives the kernel
+back. Evidence (ENCODER truth, zuvat):
+`captures/zuvat-position-2026-10-27/` (`fiftycm/position.csv`,
+`pivots/analysis_output.txt`, `square/closure.csv`,
+`circle/closure_radial.csv`).

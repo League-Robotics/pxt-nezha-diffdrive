@@ -103,6 +103,28 @@ def test_straights_and_pivots_take_the_brick_loop(lib, name, mode):
         assert r.f.srBusViolations1D(r.h) == 0
 
 
+@pytest.mark.parametrize("name", STRAIGHTS_AND_PIVOTS)
+def test_fresh_rig_routes_straights_and_pivots_without_any_set(lib, name):
+    """Boot default is position_mode 1: no SET, no setter call."""
+    with Rig(lib) as r:
+        r.tick(4)
+        _moves(r, name)
+        assert r.f.srPositionMoveActive(r.h) == 1
+        r.run_out()
+        assert r.op_count(OP_MOVE) >= 1
+        assert r.f.srBusViolations1D(r.h) == 0
+
+
+@pytest.mark.parametrize("name", ARCS)
+def test_fresh_rig_keeps_arcs_on_the_kernel(lib, name):
+    with Rig(lib) as r:
+        r.tick(4)
+        _moves(r, name)
+        assert r.f.srPositionMoveActive(r.h) == 0
+        r.run_out()
+        assert r.op_count(OP_MOVE) == 0
+
+
 @pytest.mark.parametrize("name", STRAIGHTS_AND_PIVOTS + ARCS)
 def test_mode_zero_never_sends_a_move_frame(lib, name):
     with _rig(lib, 0) as r:
@@ -193,6 +215,15 @@ def _body(signature):
     m = re.search(re.escape(signature) + r" \{(.*?)\n\}", _SHIMS, re.DOTALL)
     assert m, signature
     return m.group(1)
+
+
+def test_rig_position_mode_seeds_from_the_engine_default():
+    # GET (Rig::positionMode) and the routing (engine) must agree at boot.
+    assert ("int positionMode = MotionEngine::kDefaultPositionMode;"
+            in _SHIMS)
+    assert "kDefaultPositionMode = 1;" in (
+        pathlib.Path(__file__).resolve().parents[2] / "src" / "motion" /
+        "motion_engine.h").read_text()
 
 
 def test_position_mode_setter_reaches_the_engine():

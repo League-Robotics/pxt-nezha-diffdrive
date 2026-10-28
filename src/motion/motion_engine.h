@@ -422,6 +422,14 @@ class MotionEngine {
   // never by wheelsV()/moveV(), which are velocity commands, nor by a
   // go-to that splits into a pivot and a chord (two phases). Where the
   // ports do not support position moves the mode has no effect.
+  //
+  // The boot default is 1: straights and pivots run through the motor's
+  // own position loop (docs/code-review/2026-10-27/data/mb_probe_stops1.csv
+  // for the stop travel; captures/zuvat-position-2026-10-27/fiftycm/position.csv
+  // and pivots/analysis_output.txt for the accuracy it buys). Arcs stay on
+  // the kernel (captures/zuvat-position-2026-10-27/circle/closure_radial.csv).
+  // Rig::positionMode seeds from this constant so GET reads what routes.
+  static constexpr int kDefaultPositionMode = 1;
   void setPositionMode(int mode) { positionMode_ = mode; }
   int positionMode() const { return positionMode_; }
 
@@ -615,7 +623,7 @@ class MotionEngine {
   Hold hold_;
   Nudge nudge_;
   PositionMove posMove_;
-  int positionMode_ = 0;  // [0..2] see setPositionMode()
+  int positionMode_ = kDefaultPositionMode;  // [0..2] see setPositionMode()
   DiffDrive::PositionMotor* posLeft_ = nullptr;   // not owned
   DiffDrive::PositionMotor* posRight_ = nullptr;  // not owned
   VelocityShaper shaper_;

@@ -42,6 +42,9 @@ diffDrive.move(0, 90)                // pivot 90 degrees CCW
 diffDrive.goTo(30, 20)               // curved path to a point
                                      // (x forward, y left, robot frame)
 
+// (a pure straight or pivot runs through the motor's own position loop;
+// a curve or goTo uses the robot's control loop — see "Position moves")
+
 // loop form — your code runs DURING the move; leaving the loop ends it
 diffDrive.whileMoving(50, 0, function (x, y, heading) {
     if (input.buttonIsPressed(Button.A)) diffDrive.stopMove()
@@ -65,6 +68,26 @@ that loop running instead of exiting on its first iteration.
 Defaults are tuned for the standard Nezha kit; adjust with the Setup
 blocks (`set track width`, `set wheel calibration`, `set default
 speed`, and the advanced `set config` escape hatch).
+
+## Position moves
+
+`move(20, 0)` (a straight) and `move(0, 90)` (a pivot) run through the
+motor's own position loop by default (config `position_mode` 1): the
+motor is told the distance and drives to that encoder count itself, and
+stops there. On zuvat that lands a 50 cm straight within 0.5 mm per wheel
+and a 90 degree pivot within 0.2 degree (encoder truth, no camera:
+`captures/zuvat-position-2026-10-27/fiftycm/position.csv`,
+`.../pivots/analysis_output.txt`). A move that both travels and turns
+(`move(20, 45)`, `goTo`) is a curve and stays on the robot's own control
+loop. `setWheelSpeeds`, `driveTwist` and line following never use the
+motor position loop.
+
+`SET position_mode 0` (or the `position move mode` config block) gives
+the robot's own control loop back for every move; `position_mode 2` also
+sends curves to the motors but is not recommended (the two wheels run at
+nearly equal speed on an arc). Boards whose motors have no position loop
+(Cutebot) always use the control loop. Wheel-speed commands pick their
+actuator with `speed_path` (default 0, integer percent).
 
 ## The tick contract
 

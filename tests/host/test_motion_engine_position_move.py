@@ -202,6 +202,7 @@ def test_stall_ends_with_hard_stop_after_the_window(rig):
 
 def test_starting_another_command_cancels_the_position_move(rig):
     _runs(rig)
+    rig.f.srSetPositionMode(rig.h, 0)   # a kernel segment as the other command
     rig.f.srMoveX(rig.h, 100.0, 0.0, 100.0, 5000)
     assert rig.f.srPositionMoveActive(rig.h) == 0
     assert rig.count_op(0x5F, LEFT_PORT) >= 1
@@ -210,6 +211,7 @@ def test_starting_another_command_cancels_the_position_move(rig):
 
 
 def test_position_move_cancels_a_live_segment(rig):
+    rig.f.srSetPositionMode(rig.h, 0)   # srMoveX must be a kernel segment here
     rig.f.srMoveX(rig.h, 200.0, 0.0, 100.0, 5000)
     for _ in range(3):
         rig.tick()
