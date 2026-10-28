@@ -1,0 +1,9 @@
+case,speed,command,capture,ref_kind,x_at_ref_mm,x_final_mm_telemetry,travel_after_mm_telemetry,t_ref_to_first_zero_frame_ms,last_moving_frame_to_first_zero_ms,last_moving_vl_vr,first_zero_vl_vr,peak_vel_mms,i2cf_first,i2cf_last
+STOP 30%,75 mm/s,MOVE_X 600 @75,stop_30_run1.log,host send of command,251.1,254,2.9,128,132,73/76,0/0,99,8,10
+STOP 100%,250 mm/s,MOVE_X 600 @250,stop_100_run1.log,host send of command,301.3,310,8.7,125,129,269/269,0/0,332,16,17
+ESTOP 30%,75 mm/s,MOVE_X 600 @75,estop_30_run1.log,host send of command,249.0,252,3.0,54,55,73/83,67/87,93,79,81
+ESTOP 100%,250 mm/s,MOVE_X 600 @250,estop_100_run1.log,host send of command,307.2,315,7.8,44,55,274/265,238/268,311,90,91
+deadline 30%,75 mm/s,MOVE_X 600 @75 timeout 2000,deadline_30.log,send+deadline/lease,149.2,154,4.8,132,137,83/83,0/0,101,46,48
+deadline 100%,250 mm/s,MOVE_X 600 @250 timeout 1000,deadline_100.log,send+deadline/lease,241.6,259,17.4,153,193,266/266,0/0,331,52,53
+lease 30% (WHEELS_V),75 mm/s,WHEELS_V 75 75 1500,watchdog_lease_30.log,send+deadline/lease,91.4,97,5.6,90,129,73/63,0/0,83,20,29
+lease 100% (WHEELS_V),250 mm/s,WHEELS_V 250 250 1000,watchdog_lease_100.log,send+deadline/lease,149.2,176,26.8,179,207,258/254,0/0,284,35,42
