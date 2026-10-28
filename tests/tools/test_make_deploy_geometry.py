@@ -72,6 +72,7 @@ _LIMITS_HEADER = """\
   float lag = 0.0f;          // [s] drivetrain response lag
   float stopDistance = 0.0f; // [mm] per-wheel coast after the last
   float accel = 400.0f;      // [mm/s^2] dominant-wheel accel ceiling
+  float decel = 400.0f;      // [mm/s^2] dominant-wheel decel ceiling
 """
 
 
@@ -455,3 +456,20 @@ def test_measured_zero_is_a_legal_bake_for_the_motion_limits_keys(tmp_path, monk
                             "trackwidth": 0.0}})))
     with pytest.raises(SystemExit):
         make_deploy._inject_geometry(str(_deploy(tmp_path / "b")), "tovez")
+
+
+def test_decel_bakes_only_motion_limits(tmp_path, monkeypatch):
+    """A bake naming ONLY decel must not touch motion_engine.h, accel,
+    lag or stopDistance (zuvat bakes decel 1000 with stop_distance_mm
+    0.3: captures/zuvat-position-2026-10-27/kdefaults/kd_summary.csv)."""
+    deploy = _deploy(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "zuvat",
+                                    {"firmware_bake": {"decel": 1000.0}})))
+    applied = make_deploy._inject_geometry(str(deploy), "zuvat")
+    assert dict(applied) == {"decel": 1000.0}
+    assert _read_engine(deploy) == _ENGINE_HEADER
+    limits = _read_limits(deploy)
+    assert "float decel = 1000.0f;" in limits
+    assert "float accel = 400.0f;" in limits
+    assert "float stopDistance = 0.0f;" in limits

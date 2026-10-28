@@ -570,3 +570,55 @@ keeps the default 0; path 1 is worth offering as the explicit fine-speed option 
 
 ## Restored state
 `speedpath/restore_readback.log`: speed_path 0, position_mode 0, v_max 250, v_floor 70, decel 400, stop_distance 0, TLM off, `active=0 posmove=0`.
+
+---
+
+# Ticket 007: kernel defaults A/B (zuvat, 2026-10-27)
+
+Files in `kdefaults/`: harness `kd_run.py`, analysis `kd_analyze.py` -> `kd_summary.csv`, `om_analyze.py`, one CSV per leg
+(`<exp>_<setting>_<trial>_<fwd|rev>.csv`). All ENCODER truth (0.079322 mm/count; heading = (dR-dL)/111.6, the zuvat.json
+placeholder trackwidth, so heading is a repeatability figure, not a calibrated angle; the kernel runs b_eff = 111.6/0.969, which is why
+a "90 deg" pivot reads 93 here). Legs: `MOVE_X +-600 0 <cruise> 8000`, position_mode 0, v_max 250, STOP between legs, settings interleaved
+(A fwd, B fwd, A rev, B rev, ...), 4 legs per setting. Heading/lateral are expressed in the leg's own frame (sign-normalised by direction).
+Boot readback (`restore` lines): v_floor 70, decel 400, stop_distance 0, pid_ki 6, omega_floor 20. Config names are as in config_fields.h.
+
+## A/B tables (600 mm legs, cruise 150 unless noted; err = travel - 600 mm per wheel, L wheel is the one that overruns)
+| exp | setting | n | worst L | worst R | mean err L | mean err R | mean abs heading deg | mean abs lat mm | worst lat | time ms | i2cf/leg |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| a | boot (70/400/0) | 4 | 4.35 | 0.86 | +3.78 | +0.49 | 1.69 | 11.1 | 17.5 | 4214 | 0.8 |
+| a | decel 1000 + stop_distance 0.3 | 4 | 2.93 | 0.64 | +2.05 | +0.03 | 1.04 | 5.8 | 12.0 | 4168 | 0.8 |
+| b | v_floor 70 (boot decel) | 4 | 4.35 | 0.86 | +3.84 | +0.65 | 1.64 | 10.8 | 13.6 | 4214 | 0.5 |
+| b | v_floor 50 (boot decel) | 4 | 3.32 | 2.39 | +2.53 | -0.82 | 1.72 | 10.3 | 17.3 | 4284 | 1.0 |
+| b2 | v_floor 70 + new decel/sd | 4 | 2.85 | 1.52 | +2.07 | -0.70 | 1.43 | 7.9 | 11.9 | 4127 | 0.8 |
+| b2 | v_floor 50 + new decel/sd | 4 | 3.72 | 2.63 | +2.29 | -1.89 | 2.15 | 12.7 | 17.9 | 4176 | 1.0 |
+| c150b | pid_ki 6 + new decel/sd | 4 | 2.37 | 1.36 | +2.11 | -0.76 | 1.48 | 8.6 | 11.9 | 4148 | 0.5 |
+| c150b | pid_ki 0 + new decel/sd | 4 | 7.45 | 2.39 | +5.35 | -1.26 | 3.39 | 22.7 | 32.4 | 4074 | 0.5 |
+| c250b | pid_ki 6 + new decel/sd, cruise 250 | 4 | 2.21 | 1.99 | +1.58 | -1.06 | 1.35 | 5.3 | 9.4 | 2736 | 0.8 |
+| c250b | pid_ki 0 + new decel/sd, cruise 250 | 4 | 5.07 | 1.12 | +3.76 | -0.19 | 2.03 | 8.3 | 11.3 | 2840 | 0.8 |
+
+## Decisions
+- **Baked (zuvat only, radio-robot-lib/config/robots/zuvat.json firmware_bake): `decel` 1000, `stop_distance_mm` 0.3.** Evidence:
+  experiment a, and the three more 4-leg sets that ran with this pair (b2 v_floor 70, c150b ki6, acceptance run). Pooled, 16 legs vs the 8 boot legs
+  (a boot + b vf70): mean |err L| 3.81 -> 2.21 mm, mean |err R| 0.63 -> 0.63, mean |heading| 1.66 -> 1.39 deg, mean |lateral| 10.9 -> 9.1 mm,
+  worst L 4.35 -> 3.96, worst lateral 17.5 -> 25.1 (one leg, `after150_after_3_rev.csv`). The gain is real on the left-wheel overrun
+  (all four sets 2.05..2.59 vs 3.8) but modest and the lateral spread did not improve reliably; the pair was measured jointly, not separately.
+  This needed a new `decel` key in `tools/make_deploy.py` (`_GEOMETRY_BAKE_RES`, MotionLimits::decel); `stop_distance_mm` already existed.
+  Compiled fleet defaults (config_fields.h / motion_limits.h) are NOT changed: the evidence is one robot (the bench rig supports the same values,
+  but a different drivetrain and rig); no default-pinning test changed.
+- **v_floor stays 70.** 50 gave no gain (b: worst R 0.86 -> 2.39; b2: heading 1.43 -> 2.15, lateral 7.9 -> 12.7). 40 is not supported (ticket 006: WHEELS_V 40 on
+  speed_path 0 did not move the robot, i2cf +80).
+- **pid_ki stays 6.** Opposite of the bench: on zuvat ki 0 is worse at cruise 150 (worst L 7.45 vs 2.37, lateral 22.7 vs 8.6) and 250 (5.07 vs 2.21).
+- **omega_floor stays 20 deg/s.** Pivots `MOVE_X 0 +-1571 <cruise> 6000` (files `omega_c*`): clean down to wheel cruise 40 mm/s (body rate ~41 deg/s, 2.3-2.5 s,
+  i2cf 0-3, no mid-move stall frames); at cruise 20 (the floor) it moves but takes 5.2 s with i2cf +69..+90. SET omega_floor 40 at cruise 20 (`omf20_*`):
+  2.5 s, i2cf +18..+53, still elevated; 10 deg pivots at cruise 150 (`om10_*`) are unchanged by the floor (10.4-11.5 deg, either setting). So raising it would only
+  affect sub-40 mm/s pivot requests; not shown to matter for any normal move, left unchanged. The ticket's "about 45 deg/s" is not needed on this evidence.
+- **v_max stays 250.** No evidence for a higher wire ceiling; raising it toward 0.9 x full-duty velocity needs its own run (stakeholder decision).
+- accel, lag, jerk, arrive_*: not examined, unchanged.
+
+## Acceptance run (after the bake)
+Done with live `SET decel 1000` / `SET stop_distance 0.3` (not reflashed; reflashing is ticket 009's job): `after150_after_*` in `kd_summary.csv`,
+4 legs: err L +1.02/+3.01/+2.37/+3.96, err R -1.04/-0.17/-0.17/-1.04, mean |heading| 1.64 deg, mean |lateral| 14.0 mm (worst 25.1), 4144 ms, i2cf 1.2/leg.
+Before = the 8 boot legs above (mean err L +3.81). Bar not claimed: the final-error improvement is on the L wheel only, and heading/lateral are within leg-to-leg noise.
+
+## Restored state
+Every run ends with boot values re-applied and read back (v_floor 70, decel 400, stop_distance 0, pid_ki 6, omega_floor 20), TLM off, position_mode 0.
