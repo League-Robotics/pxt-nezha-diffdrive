@@ -468,3 +468,11 @@ short, constant per wheel (quantisation of 0.079 mm/count).
 ## Restored state
 `restore_readback.log`: v_floor 70, decel 400, stop_distance 0, position_mode 0, v_max 250 (these are the
 `getall.log` boot values), TLM off, `active=0 posmove=0`.
+
+## Coordinator decision (ticket 001)
+Accepted as done. The 1.2 s bar came from the bench rig at 100 % duty (about 1150 deg/s, roughly 830 mm/s on an
+83 mm wheel, nezha-esp32/docs/fifty-cm.md); it is unreachable on this wire (MOVE_X cruise ceiling v_max 250 mm/s,
+500 mm needs 2.0 s with no ramps). Measured 2.53 to 2.58 s (`fiftycm/position.csv`). Raising the ceiling is a
+decision for ticket 007 and the stakeholder. Findings recorded above: stale `v_max` 200 (a live SET from an earlier
+session survived; kernel set rerun at 250) and kernel trial-6 outlier (L -11.76 / R +11.64 mm, i2cf +22,
+`fiftycm/kernel_75_6.csv`).

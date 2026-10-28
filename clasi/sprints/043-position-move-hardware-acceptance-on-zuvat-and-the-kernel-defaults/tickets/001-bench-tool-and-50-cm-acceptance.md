@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: Bench tool and 50 cm acceptance
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on: []
@@ -18,7 +18,7 @@ Port `/Volumes/Proj/proj/robot-projects/nezha-esp32/tools/mb50.py` (Wire class, 
 
 ## Acceptance Criteria
 - [x] `tools/mb50.py` in this repo supports `--mode position`; a host test of its STATUS/posmove parsing passes (`uv run pytest`).
-- [ ] 24 position-mode trials: every trial stops within 0.5 mm of 500 mm (MET, worst 0.49 mm per wheel); time at 100 % under 1.2 s (NOT MET: 2.53-2.58 s; 500 mm at v_max 250 mm/s needs >= 2.0 s; recorded per rules, nothing tuned).
+- [x] 24 position-mode trials: every trial stops within 0.5 mm of 500 mm (MET, worst 0.49 mm per wheel); time at 100 % under 1.2 s (NOT MET: 2.53-2.58 s; 500 mm at v_max 250 mm/s needs >= 2.0 s; recorded per rules, nothing tuned). Accepted by the coordinator: the 1.2 s bar came from the bench rig at 100 % duty (about 1150 deg/s, roughly 830 mm/s on an 83 mm wheel, nezha-esp32/docs/fifty-cm.md) and is unreachable on this wire, whose MOVE_X cruise ceiling is v_max 250 mm/s (500 mm needs 2.0 s with no ramps); measured 2.53 to 2.58 s at 250 mm/s (captures/zuvat-position-2026-10-27/fiftycm/position.csv). Raising the wire ceiling is a separate decision for ticket 007 and the stakeholder.
 - [x] `posmove=1` seen mid-move in every trial (and `0` after), cited per trial in the CSV.
 - [x] Kernel-mode comparison set (same 30/60/100 %, 4 trials each direction) captured with the same tool.
 - [x] `captures/zuvat-position-2026-10-27/fiftycm/` holds the CSVs and summary tables, with `notes.md` and the hex one level up (path superseded, see Scope note).
