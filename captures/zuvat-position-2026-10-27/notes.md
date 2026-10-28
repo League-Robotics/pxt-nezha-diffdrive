@@ -297,3 +297,81 @@ heading residual up to 3.05 deg), so it meets the target on the mean and four of
 also faster per lap (15.0 vs 17.1 s) but starts legs with a near-step in wheel speed (peaks 261 to 278 mm/s over a ~210 mm/s
 plateau) and doubles the failed-I2C growth (35.8 vs 16.0 per lap, wedge stayed 0). These closure numbers say the wheel counts
 return to the start; they cannot show whether the floor square closes, which needs the camera or a tape measure.
+
+
+# Arcs: position_mode 2 vs the kernel (zuvat, circle r=20 cm, 2026-10-27)
+
+Files (all in `circle/`): per-lap recordings `m<mode>_lap<n>_tlm.csv` (+ `_pose.csv`, `_vel.csv`, `.meta.json`), scorer output
+`closure.csv` / `closure.md` (`tools/square_closure.py`), `closure_radial.csv` (new `--circle-cm` option: per-lap mean and max
+distance of the track from the commanded circle), lap-normalised copies in `norm/`, charts `m0_lap1_chart.png`,
+`m0_lap3_chart.png`, `m1_lap2_chart.png`, `m2_lap1_chart.png`, `m2_lap3_chart.png` (`tools/tour_chart.py --circle-cm 20`, new
+option: dashed = commanded circle), `final_reset.log`, and `switch_check/` (see below).
+Run: `tools/tour_capture.py --wifi 127.0.0.1 --run 'circle 20 1' --set position_mode=<m>`, i.e. board `RUN circle 20 1` =
+`circleRun(20, ccw)` = 8 x `tickedMove(arc length 157 mm, +45 deg)`; one lap per capture, `STOP` between laps. Mode 0 x5 laps,
+then mode 1 x3, then mode 2 x5. Same session, same build as the square tour (042 hex `binary-zuvat-042.hex`), same floor
+patch; the odometry drifted from (30,-39) to (-160,216) mm over the session (the pose is not reset between laps; each lap is
+scored on its own first and last frame, idle at both). All laps CCW.
+
+**Every figure is ENCODER truth (kernel wheel odometry). No camera.** Closure in encoder terms says the wheel counts came
+back; it does not see slip, scrub, or trackwidth / `travel_calib` error (vevov placeholder geometry), and a motor position loop
+that drives each wheel to its own count target will close in counts by construction. The radial-deviation column below is
+the commanded-path check that does not have that weakness (still odometry, so it inherits any geometry error).
+
+## Per lap (closure.csv, closure_radial.csv)
+| mode | lap | closure [mm] | heading residual [deg] | radial dev mean / max [mm] | lap time [s] | i2cf growth |
+|---|---|---|---|---|---|---|
+| 0 | 1 | 46.2 | -11.54 | 9.0 / 18.4 | 11.5 | 7 |
+| 0 | 2 | 56.9 | -15.81 | 10.1 / 22.0 | 11.5 | 2 |
+| 0 | 3 | 58.7 | -15.44 | 11.2 / 24.3 | 11.5 | 2 |
+| 0 | 4 | 55.3 | -15.57 | 10.3 / 23.4 | 11.4 | 4 |
+| 0 | 5 | 68.6 | -18.53 | 12.0 / 26.8 | 11.4 | 5 |
+| 1 | 1 | 66.5 | -17.54 | 12.0 / 24.1 | 11.4 | 3 |
+| 1 | 2 | 15.3 | -5.74 | 6.1 / 13.9 | 11.7 | 4 |
+| 1 | 3 | 39.1 | -11.27 | 7.5 / 16.7 | 11.6 | 5 |
+| 2 | 1 | 48.0 | -0.44 | 37.2 / 68.5 | 9.1 | 56 |
+| 2 | 2 | 1.4 | -0.52 | 30.7 / 67.9 | 9.0 | 57 |
+| 2 | 3 | 1.4 | -0.45 | 30.6 / 66.9 | 9.0 | 57 |
+| 2 | 4 | 2.2 | -0.34 | 30.3 / 66.9 | 9.0 | 57 |
+| 2 | 5 | 1.4 | -0.59 | 31.0 / 67.5 | 9.0 | 57 |
+Heading residual = end heading - start heading mod 360 (a full circle should read 0).
+
+## Comparison
+| mode | laps | closure mean [mm] | closure worst [mm] | heading mean abs [deg] | heading worst abs [deg] | radial dev mean of means / worst max [mm] | lap [s] | i2cf per lap |
+|---|---|---|---|---|---|---|---|---|
+| 0 (kernel) | 5 | 57.1 | 68.6 | 15.38 | 18.53 | 10.5 / 26.8 | 11.5 | 4.0 |
+| 1 (falls back to kernel on arcs) | 3 | 40.3 | 66.5 | 11.52 | 17.54 | 8.5 / 24.1 | 11.6 | 4.0 |
+| 2 (motor position loop) | 5 | 10.9 (laps 2-5: 1.6) | 48.0 (lap 1) | 0.47 | 0.59 | 32.0 / 68.5 | 9.0 | 56.8 |
+Mode 0 and mode 1 are the same behaviour: the kernel arcs under-rotate by 5 to 18 deg per lap and leave 15 to 69 mm closure
+(lap to lap spread is large: mode 1 laps 15, 39, 67 mm), the mode 1 lap time (11.6 s), i2cf growth (4 per lap) and wheel-speed ratio
+(median vl/vr 0.55, mode 0 0.56) all match mode 0, so mode 1 does fall back to the kernel on arcs
+(`m1_lap2_tlm.csv`, `m0_lap3_tlm.csv`; `posmove` was not sampled mid-run here). The two are equal within noise.
+
+## What mode 2 does on an arc (the charts, `m2_lap3_chart.png` vs `m0_lap3_chart.png`)
+Mode 2 returns the heading to the start within 0.6 deg and, in laps 2 to 5, the position within 1.4 to 2.2 mm (`closure.csv`),
+and is 22 % faster (9.0 vs 11.5 s). But the speed panel shows each arc as the two wheels running at nearly the SAME speed (median
+vl/vr 1.07 over the frames where both exceed 50 mm/s, `m2_lap3_tlm.csv`; the circle needs 0.56, which the kernel delivers:
+0.56 in `m0_lap3_tlm.csv`), the left (inner) wheel finishing early (left runs ~0.6 s, right ~1.1 s per arc) and the right wheel
+then finishing alone. The speeds are not proportional to the commanded arc lengths, so each 45 deg arc is a near-straight run
+plus a one-wheel pivot at the end: the track is a bumpy octagon, offset about 60 mm sideways of the commanded circle
+(`m2_lap3_chart.png`), and strays 30 mm on average and 67 to 69 mm at worst from the commanded circle against 6 to 12 mm mean /
+14 to 27 mm max for the kernel (`closure_radial.csv`). Peak wheel speed 264 to 291 mm/s against 139 to 231 mm/s for the kernel
+(`m*_lap3_tlm.csv`). It also costs 57 failed I2C transactions per lap against 4 (`closure.csv`), the same ratio-of-ten-ish
+excess the pivots and square showed. Mode 2 lap 1 ended 48 mm off (x +48) while laps 2 to 5 ended 1.4 to 2.2 mm off. A repeat with a clean
+0 -> 2 switch (`switch_check/s0a` kernel 27.1 mm / -7.5 deg, then `s2a` 2.0 mm, `s2b` 1.4 mm, `switch_check/closure.md`) did NOT reproduce the outlier, so
+the cause of lap 1 is UNVERIFIED (it came right after the mode 1 laps; one occurrence).
+
+## Decision
+**Mode 2 default for arcs: NO. Keep position_mode 1** (arcs on the kernel). Numbers: mode 2 wins on encoder closure (laps 2-5
+1.6 mm mean vs 57 mm kernel; heading 0.47 deg vs 15.4 deg) and lap time (9.0 vs 11.5 s), but loses on path fidelity (radial
+deviation 32 mm mean vs 10.5, 68 mm max vs 27), has a 48 mm lap-1 outlier, and runs the arcs as straight-plus-pivot segments
+with wheel speeds in ratio 1.07 instead of 0.56, plus 14x the I2C failures (57 vs 4 per lap). The kernel arcs close poorly in
+encoder terms (heading short by 15 deg per 360) but follow the commanded circle. The closure advantage is also partly
+by construction: a per-wheel position loop lands each wheel on its count target whatever path it took between them. Mode 2 is
+NOT equal within noise, so the "equal, keep the lower-risk mode" clause does not even apply; the choice rests on shape fidelity.
+Follow-up for the team lead: the arc case of the mode 2 path appears not to apply per-wheel proportional speeds (a defect or
+missing feature in the arc route; not diagnosed here, no tuning done). Re-run if that is fixed.
+
+## After the runs
+The first reset attempt (`final_reset.log`) used ids that did not match the board's counter and did not take (mode still 2, TLM
+still on). The corrected sequence in `final_check.log` read position_mode back 2, set it to 0, read it back 0.000000, TLM off
+(`tlm=off`), `active=0 posmove=0`: robot idle, TLM off, position_mode 0.

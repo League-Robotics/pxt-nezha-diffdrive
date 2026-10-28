@@ -99,3 +99,37 @@ def test_short_csv_rejected(tmp_path):
     p.write_text(','.join(HEADER) + '\n1,1,1,0,0,0,0,0,0,0,0,0\n')
     with pytest.raises(ValueError):
         sc.read_tlm_csv(p)
+
+
+def test_circle_lap_scores_like_any_closed_loop(tmp_path):
+    """A full circle returns heading to the start: 360 deg + 2 reads +2;
+    a CW circle (-360 deg - 2) reads -2. The scorer is shape-agnostic."""
+    p = tmp_path / 'c_tlm.csv'
+    write_lap(p, (0, 0, 0), (6, 8), turned_cdeg=36200)
+    lap = sc.score_lap(sc.read_tlm_csv(p))
+    assert lap['closure_mm'] == pytest.approx(10.0)
+    assert lap['heading_deg'] == pytest.approx(2.0)
+    write_lap(p, (0, 0, 0), (0, 0), turned_cdeg=-36200)
+    assert sc.score_lap(sc.read_tlm_csv(p))['heading_deg'] == \
+        pytest.approx(-2.0)
+
+
+def test_chart_circle_overlay_geometry():
+    """tour_chart --circle-cm: the dashed circle passes through the origin
+    and its centre is r to the left (CCW) or right (CW)."""
+    src = (_TOOLS / 'tour_chart.py').read_text()
+    assert '--circle-cm' in src and '--cw' in src
+
+
+def test_radial_deviation_of_a_perfect_circle(tmp_path):
+    import math
+    r, rows = 200.0, []
+    for i in range(73):
+        a = 2 * math.pi * i / 72
+        rows.append({'now': 1000.0 + i, 'x': r * math.sin(a),
+                     'y': r - r * math.cos(a), 'h': math.degrees(a) * 100.0,
+                     'vl': 0.0, 'vr': 0.0, 'i2cf': 0.0})
+    mean, worst = sc.radial_deviation(rows, r, ccw=True)
+    assert worst < 1.0 and mean < 1.0           # integer rounding only
+    mean, worst = sc.radial_deviation(rows, r, ccw=False)
+    assert worst == pytest.approx(2 * r, abs=2.0)   # wrong side: far off

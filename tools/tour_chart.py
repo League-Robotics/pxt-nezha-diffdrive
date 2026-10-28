@@ -66,6 +66,13 @@ def main():
                     help='LEGACY: an origin-anchored SQUARE of this side '
                          'instead. Not the current tour; kept for old '
                          'captures only.')
+    ap.add_argument('--circle-cm', type=float, default=None, metavar='R',
+                    help='overlay a commanded CIRCLE of this radius (cm) '
+                         'for a lap normalised to start at the origin '
+                         'heading 0 (square_closure.py --normalize-dir); '
+                         'its centre is R to the left (CCW) of the start')
+    ap.add_argument('--cw', action='store_true',
+                    help='with --circle-cm: the circle was driven clockwise')
     ap.add_argument('--travel-calib', type=float, default=0.7878)
     ap.add_argument('--title', default='Square Tour')
     # Overhead-camera track (t_host, x_cm, y_cm, yaw_rad). The only one
@@ -236,7 +243,15 @@ def main():
     ex, ey = pose[-1][1], pose[-1][2]
     closure = ((ex - sx) ** 2 + (ey - sy) ** 2) ** 0.5
     end_h = pose[-1][3] / 100.0
-    if a.side_mm is not None:
+    if a.circle_cm is not None:
+        r_mm = a.circle_cm * 10.0
+        cy = -r_mm if a.cw else r_mm
+        cmd_x = [r_mm * math.sin(2 * math.pi * i / 72) for i in range(73)]
+        cmd_y = [cy - math.copysign(r_mm, cy) * math.cos(2 * math.pi * i / 72)
+                 for i in range(73)]
+        clabel = (f'commanded r={a.circle_cm:g} cm circle '
+                  f'({"CW" if a.cw else "CCW"})')
+    elif a.side_mm is not None:
         sq = a.side_mm
         cmd_x, cmd_y = [0, sq, sq, 0, 0], [0, 0, sq, sq, 0]
         clabel = f'commanded {sq:.0f} mm square (legacy)'

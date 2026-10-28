@@ -102,6 +102,17 @@ def normalize_lap(rows):
     return pose, vel
 
 
+def radial_deviation(rows, radius_mm, ccw=True):
+    """-> (mean_mm, max_mm): how far the track strays from the commanded
+    circle. The lap is moved to start at the origin heading 0 first, so the
+    commanded centre is radius_mm to the left (CCW) or right (CW) of it.
+    Encoder truth, like everything else here."""
+    pose, _ = normalize_lap(rows)
+    cy = radius_mm if ccw else -radius_mm
+    dev = [abs(math.hypot(p['x'], p['y'] - cy) - radius_mm) for p in pose]
+    return sum(dev) / len(dev), max(dev)
+
+
 def write_normalized(rows, prefix):
     import tlm
     pose, vel = normalize_lap(rows)
@@ -156,7 +167,14 @@ def main(argv=None):
                     help='writes <prefix>.csv and <prefix>.md')
     ap.add_argument('--target-mm', type=float, default=11.0)
     ap.add_argument('--normalize-dir', default=None)
+    ap.add_argument('--circle-cm', type=float, default=None, metavar='R',
+                    help='the path is a circle of this radius: also write '
+                         '<prefix>_radial.csv with the per-lap mean and max '
+                         'distance of the track from the commanded circle')
+    ap.add_argument('--cw', action='store_true',
+                    help='with --circle-cm: driven clockwise')
     a = ap.parse_args(argv)
+    radial = []
 
     per_lap, summaries = [], []
     for text in a.mode:
@@ -165,6 +183,9 @@ def main(argv=None):
         for p in paths:
             rows = read_tlm_csv(p)
             laps.append((lap_name(p), score_lap(rows)))
+            if a.circle_cm is not None:
+                radial.append((label, lap_name(p), *radial_deviation(
+                    rows, a.circle_cm * 10.0, not a.cw)))
             if a.normalize_dir:
                 os.makedirs(a.normalize_dir, exist_ok=True)
                 write_normalized(rows, os.path.join(
@@ -192,6 +213,13 @@ def main(argv=None):
                         f"{s['heading_worst_deg']:.3f}",
                         f"{s['lap_mean_s']:.2f}", f"{s['i2cf_mean']:.1f}",
                         verdict(s, a.target_mm)])
+    if radial:
+        with open(a.out_prefix + '_radial.csv', 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['mode', 'lap', 'radial_dev_mean_mm',
+                        'radial_dev_max_mm'])
+            for label, name, mean, worst in radial:
+                w.writerow([label, name, f'{mean:.1f}', f'{worst:.1f}'])
     md = render_markdown(per_lap, summaries, a.target_mm)
     with open(a.out_prefix + '.md', 'w') as f:
         f.write(md)
