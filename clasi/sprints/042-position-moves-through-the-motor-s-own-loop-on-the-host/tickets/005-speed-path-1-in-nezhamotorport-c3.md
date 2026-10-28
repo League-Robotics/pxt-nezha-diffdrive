@@ -1,9 +1,11 @@
 ---
 id: '005'
 title: speed_path 1 in NezhaMotorPort (C3)
-status: open
-use-cases: ["SUC-004"]
-depends-on: ["004"]
+status: in-progress
+use-cases:
+- SUC-004
+depends-on:
+- '004'
 github-issue: ''
 issue: fine-velocity-actuator-behind-a-speed-path-switch.md
 completes_issue: true
