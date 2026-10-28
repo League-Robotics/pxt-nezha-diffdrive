@@ -1,9 +1,13 @@
 ---
 id: '007'
 title: Config ordinals position_mode and speed_path (C6)
-status: open
-use-cases: ["SUC-003", "SUC-004"]
-depends-on: ["005", "006"]
+status: in-progress
+use-cases:
+- SUC-003
+- SUC-004
+depends-on:
+- '005'
+- '006'
 github-issue: ''
 issue: position-moves-through-the-motors-own-position-loop.md
 completes_issue: false
