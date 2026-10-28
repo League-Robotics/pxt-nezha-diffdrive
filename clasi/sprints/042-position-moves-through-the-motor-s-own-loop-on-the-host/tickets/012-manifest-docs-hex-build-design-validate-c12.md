@@ -1,7 +1,7 @@
 ---
 id: '012'
 title: Manifest, docs, hex build, design validate (C12)
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-005
@@ -47,13 +47,13 @@ C12 and the sprint's proof. Make the build manifest and deploy tooling carry the
 
 ## Acceptance Criteria
 
-- [ ] `test_pxt_manifest_completeness.py` passes with the new files
-- [ ] full host + tools suite green
-- [ ] a hex exists at `.tmp/deploy-head/built/binary.hex` from the cloud-compile command above
-- [ ] `clasi design validate` is clean (or the remaining finding is reported with a reason)
-- [ ] `src/DESIGN.md` sections 3 and 7 describe `PositionMove`, the latch, both speed paths and the stop paths, with no sprint history
-- [ ] README tick contract states D1
-- [ ] kernel files byte-identical; no `0x1D` in `src/` (`grep -rn "0x1D\|03 1D" src/` shows nothing emitted)
+- [x] `test_pxt_manifest_completeness.py` passes with the new files
+- [x] full host + tools suite green
+- [x] a hex exists at `.tmp/deploy-head/built/binary.hex` from the cloud-compile command above
+- [x] `clasi design validate` is clean (or the remaining finding is reported with a reason)
+- [x] `src/DESIGN.md` sections 3 and 7 describe `PositionMove`, the latch, both speed paths and the stop paths, with no sprint history
+- [x] README tick contract states D1
+- [x] kernel files byte-identical; no `0x1D` in `src/` (`grep -rn "0x1D\|03 1D" src/` shows nothing emitted)
 
 ## Testing
 
@@ -70,3 +70,10 @@ C12 and the sprint's proof. Make the build manifest and deploy tooling carry the
 - Defaults this sprint: `position_mode` 0, `speed_path` 0.
 - Sources: `docs/code-review/2026-10-27/change-plan.md` section 2, `docs/code-review/2026-10-27/motor-path-review.md` (sections 4, 6).
 - Design docs for this sprint are in `clasi/sprints/042-*/design/` (overlay); do not edit canonical `DESIGN.md` files except where the ticket says so.
+
+## Results
+
+- Full suite (`tests`, excluding test_field_dance_accel_bake.py): 2593 passed, 3 skipped.
+- vevov hex (cloud compile, --no-otos): `-rw-r--r-- 1956566 Oct 27 19:48 .tmp/deploy-head/built/binary.hex` (kept at `.tmp/binary-vevov-042.hex`).
+- zuvat hex: 1956656 bytes (kept at `.tmp/binary-zuvat-042.hex`).
+- `clasi design validate`: valid (tools/canplay/DESIGN.md added).

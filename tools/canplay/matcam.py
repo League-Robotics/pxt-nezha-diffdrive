@@ -13,7 +13,7 @@ import numpy as np, cv2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from canplay import CAM, MAT_DIR, ROBOTS, Mat  # noqa: E402
+from canplay import CAM, ROBOTS, Mat, wrap  # noqa: E402
 
 SAVE = os.path.join(HERE, "matcam.json")
 OLD_PPC, OLD_W, OLD_H = 5.95681310498883, 134.3, 89.3      # the daemon's deskew frame
@@ -106,7 +106,7 @@ class MatCam:
         ox, oy = vision["tag_offset_x"] / 10, vision["tag_offset_y"] / 10
         x = cx - (ox * math.cos(r) - oy * math.sin(r))
         y = cy - (ox * math.sin(r) + oy * math.cos(r))
-        return x, y, (hd + 180) % 360 - 180
+        return x, y, wrap(hd)
 
 
 class MatSeer:

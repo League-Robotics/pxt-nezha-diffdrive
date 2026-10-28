@@ -29,3 +29,25 @@ contracts are in §1's layer map table, and `encoder_glitch_armor.h`'s
 consumer (`NezhaMotorPort::collect()`) is described in §7. This file
 does not duplicate that content — it exists so `ls src/core/` points
 somewhere.
+
+## position_motor.h — the position-move port seam
+
+`position_motor.h` (`DiffDrive::PositionMotor`, libc only) is a second
+interface a hardware port may implement beside `DiffDrive::Motor`. It
+lets the motion engine hand a wheel a relative target and let the motor's
+own position loop run it, instead of streaming velocity.
+
+- `supportsPositionMove()` — does this port have a built-in move.
+- `positionQuantum()` [counts] — the smallest step the motor honours (10
+  on the Nezha brick).
+- `beginMove(deltaCounts, degPerSec)` — start a relative move; returns
+  the delta actually used after quantum rounding.
+- `hardStop()` — stop now and hold the current count.
+- `moveLive()` — a built-in move is in flight on this wheel.
+- `driven()` — the wheel is being driven by either path.
+
+Boundary: no I2C, no timing, no engine knowledge. The kernel
+(`diffdrive.*`) neither includes nor knows about it and stays
+byte-identical to the vendored copy; a port that implements both
+interfaces keeps the kernel out of the way with a move-live latch
+(`src/DESIGN.md` §7).

@@ -74,8 +74,8 @@ class Planner:
             if sum(1 for st in steps if st[2]) >= batch:
                 break
             def options():
-                middle = [] if self.layout else g.clear_middle(pose, cubes_now)
-                return middle or g.candidates(pose, cubes_now) or g.parking(pose, cubes_now)
+                middle = [] if self.layout else g.clear_middle(pose, cubes_now)  # noqa: B023
+                return middle or g.candidates(pose, cubes_now) or g.parking(pose, cubes_now)  # noqa: B023
             g.v_open = V_OPEN
             mv = options()
             if not mv:
@@ -217,6 +217,7 @@ def main():
     p = Planner(g, bool(a.layout))
     t0 = time.time()
     looks = 0
+    predicted = []
     if not a.plan and not a.quiet:
         robot.run("tune 1")
     try:

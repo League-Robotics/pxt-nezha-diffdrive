@@ -27,7 +27,7 @@ PORTS = (1, 2)
 @pytest.fixture(scope="module")
 def lib(tmp_path_factory):
     f = _bind(build(tmp_path_factory.mktemp("position_routing")))
-    P, F, I = ctypes.c_void_p, ctypes.c_float, ctypes.c_int
+    P, I = ctypes.c_void_p, ctypes.c_int
     f.srPositionMoveActive.argtypes = [P]
     f.srPositionMoveActive.restype = I
     f.srIsDriving.argtypes = [P]

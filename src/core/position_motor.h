@@ -7,9 +7,10 @@
 // no CODAL, no I2C, no timing. The velocity kernel (diffdrive.h /
 // diffdrive.cpp) neither includes nor knows about this header.
 //
-// Reference for the Nezha brick this models: the opcode map and frame
-// bytes in docs/knowledge/2026-10-27-nezha-brick-opcodes.md (hardStop()
-// is the brick's 0x5F). Nothing here claims a hardware result.
+// Models the Nezha brick's built-in position move: the opcode map and
+// frame bytes are in the brick opcode reference under docs/knowledge/
+// (hardStop() is the brick's hard-stop opcode). Nothing here claims a
+// hardware result.
 //
 // Rounding contract: a port rounds the deltaCounts passed to beginMove()
 // to its positionQuantum(). The caller reads the delta actually
@@ -33,7 +34,7 @@ class PositionMotor {
   // [deg/s]. Returns false if the port refuses the move.
   virtual bool beginMove(float deltaCounts, float degPerSec) = 0;
 
-  // Stop now and hold the current count (brick 0x5F).
+  // Stop now and hold the current count (the brick's hard-stop opcode).
   virtual bool hardStop() = 0;
 
   // A built-in move is in flight on this wheel.

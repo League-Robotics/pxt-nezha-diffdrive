@@ -11,7 +11,6 @@ here is a hardware result.
 """
 
 import ctypes
-import pathlib
 
 import pytest
 

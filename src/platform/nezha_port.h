@@ -76,14 +76,14 @@ class NezhaMotorPort final : public DiffDrive::Motor,
   bool driven() const override;
   float lastMoveCounts() const override { return lastMove_; }
 
-  // speed_path selector (sprint 042 ticket 005, change-plan C3). 0 (the
+  // speed_path selector (config ordinal 53). 0 (the
   // default) is today's 0x60 duty path, byte-identical. 1 drives the
   // wheel through the motor's own speed loop: each changed shaped duty
   // ships `0x77 round(|pct| x 11.5)` (deg/s) then `0x70` mode 3 with
   // n = 1 (a timed run of (10n - 3) x 100 ms = 0.7 s, so a starved
-  // firmware self-stops), and a stop from speed is `0x5F`. Opcode doc
-  // docs/knowledge/2026-10-27-nezha-brick-opcodes.md sections 1, 3, 4
-  // and 7a. Ticket 007 wires the config ordinal to this setter.
+  // firmware self-stops), and a stop from speed is the hard-stop
+  // opcode. Frame bytes: the brick opcode reference under docs/knowledge/.
+  // The speed_path config ordinal calls this setter.
   void setSpeedPath(int path) { speedPath_ = path == 1 ? 1 : 0; }
   int speedPath() const { return speedPath_; }
 
@@ -123,15 +123,15 @@ class NezhaMotorPort final : public DiffDrive::Motor,
   static constexpr uint8_t kMoveModeTimed = 3;     // timed run, speed_path 1
   static constexpr uint8_t kTimedRunUnits = 1;     // n: (10n-3) x 100 ms
   // 11.5 deg/s per percent: ESP32 rig speed-step runs, 2026-10-27
-  // (nezha-esp32/docs/motor-characterization.md, opcode doc section 1).
+  // (ESP32 rig motor characterization, brick opcode reference section 1).
   // UNVERIFIED through the brick: that rig drove the motor over UART.
   static constexpr float kDegPerSecPerPercent = 11.5f;  // [deg/s per %]
   // Re-send 0x70 before the 0.7 s timed run lapses when the speed has
   // not changed (a steady command would otherwise coast to a stop).
   static constexpr uint64_t kTimedRefresh = 400000;  // [us]
-  // A stop that starts at or below the kernel floor keeps 0x60 0: 0x5F
-  // and 0x60 0 travel the same 0.6 mm from the 8% floor (opcode doc
-  // section 7a, mb_probe_stops1.csv).
+  // A stop that starts at or below the kernel floor keeps 0x60 0: the hard stop
+  // and 0x60 0 travel the same 0.6 mm from the 8% floor
+  // (docs/code-review/2026-10-27/data/mb_probe_stops1.csv).
   static constexpr int kStopFromSpeedFloor = 8;    // [pct]
   static constexpr float kPositionQuantum = 10.0f; // [counts] = 1 deg
   static constexpr int kMaxMoveDegrees = 65535;
@@ -139,7 +139,7 @@ class NezhaMotorPort final : public DiffDrive::Motor,
   // Move-done test: within this many counts of the target (capped at
   // half the commanded move so a 1-degree move cannot start "done"), and
   // the position unchanged for kMoveRestTicks ticks. The 5-degree figure
-  // is the 0x5F hold accuracy in the opcode doc section 3 rule 4.
+  // is the hard-stop hold accuracy (brick opcode reference, section 3).
   static constexpr float kMoveDoneBand = 50.0f;    // [counts]
   static constexpr int kMoveRestTicks = 3;
   static constexpr int8_t kNeverWritten = -128;  // first-write sentinel

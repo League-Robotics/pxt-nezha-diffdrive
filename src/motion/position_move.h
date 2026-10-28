@@ -1,8 +1,9 @@
 // diffDrive::PositionMove -- one in-flight move run by the motors' own
 // position loops (DiffDrive::PositionMotor), the fourth command beside
 // Segment, Hold and Nudge. Plain data; MotionEngine plans it
-// (beginPositionMove) and ticks it (servicePositionMove). See DESIGN.md
-// and docs/knowledge/2026-10-27-nezha-brick-opcodes.md.
+// (beginPositionMove) and ticks it (servicePositionMove). See the
+// motion subsystem design doc and the brick opcode reference under
+// docs/knowledge/.
 #pragma once
 
 #include <cstdint>

@@ -49,7 +49,7 @@ struct BoardMotors {
 // Constructs (on first call) and returns this build's motor pair.
 BoardMotors boardMotors();
 
-// The side's built-in position move (sprint 042), or nullptr when the
+// The side's built-in position move or nullptr when the
 // composed board's port has none (Cutebot Pro). side: 0 = left, 1 = right.
 // shims.cpp's ensure() hands both to MotionEngine::setPositionMotors().
 DiffDrive::PositionMotor* boardPositionMotor(int side);
@@ -116,7 +116,7 @@ int boardLineBits();
 // no such read (Nezha) or the read fails.
 int boardLineGrey(int channel);
 
-// speed_path (config ordinal 53, sprint 042): 0 = 0x60 duty, 1 = 0x77 +
+// speed_path (config ordinal 53): 0 = 0x60 duty, 1 = 0x77 +
 // 0x70 mode 3. Applies to both Nezha ports; a board with no such path
 // (Cutebot Pro) reads back 0 and refuses (returns false) every SET.
 int boardSpeedPath();

@@ -8,7 +8,8 @@ without an entry here.
 
 Host-side Python for building, deploying, driving, measuring and
 charting the robot. One flat root plus two self-contained
-subdirectories (`rogo/`, `linefollow/`, `canplay/`). Everything runs under `uv`
+subdirectories (`rogo/`, `linefollow/`, `canplay/`, the last with its own
+[`DESIGN.md`](canplay/DESIGN.md)). Everything runs under `uv`
 (`uv run python tools/<script>.py`) in this repo's single venv —
 including `camlink.py`, which reads the aprilcam daemon in this
 interpreter because `aprilcam[daemon]` is a declared dependency of it.
@@ -125,6 +126,11 @@ WiFi. See [`README.md`](canplay/README.md).
 | `canplay/canplay.py` | moves cans circle to circle: camera-seeded, route-planned legs, approach headings that keep the open arms and the body clear of other cans, a learned gripper offset per robot; also the camera, link and planning code the other two use. |
 | `canplay/setup.py` | puts cans on chosen circles (`13:4 63:6`, or just `1 5 9`) in the fewest moves, parking blockers first; re-plans from the camera before every move. |
 | `canplay/demo_loop.py` | keeps a robot moving for a demo: `setup.py` round after round over a list of layouts. |
+| `canplay/duo.py` | two gripper robots share the mat and move cans to a layout together: one worker process per robot, a coordinator that reserves the strip of field each move needs and lets both drive only when their strips are well apart. |
+| `canplay/cubeplay.py` | sorts coloured cubes into their garages with a paddle-gripper robot, camera read before every leg. |
+| `canplay/cubeplan.py` | the same sort by planning ahead: one camera look, a simulated batch of moves driven blind on odometry, then a re-look and replan. |
+| `canplay/cubes.py` | finds the coloured cubes on the mat in the overhead camera's deskewed frame. |
+| `canplay/matcam.py` | fits the overhead camera straight to the mat (homography through the 12 red circles) and reports a robot's mat pose from its tag. |
 | `canplay/canplay_cal_zetuv.json` | zetuv's learned gripper offset (forward, left, sample count). |
 | `canplay/canplay_cal_tigez.json` | tigez's learned gripper offset. |
 

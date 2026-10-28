@@ -100,11 +100,22 @@ run log is not copied; the travel numbers below are from that section.
    +90 degree move issued at 300 ms ended 95 degrees past the position at
    the command) and the old target is dropped.
 4. `0x5F` stops within 5 degrees (5 degrees more travel, at rest 144 ms
-   later) and drops the target. From 150 deg/s it added 0.0 degrees
-   (`mb_probe_fine1.csv`, supersede rows).
+   later) and drops the target. How far a hard stop adds from 150 deg/s
+   is UNVERIFIED: the `supersede` rows of `mb_probe_fine1.csv` have an
+   integer-0 column that was never filled, so it is not a measurement.
+   The stop-table fit (section 5a) predicts about 1.5 degrees.
 5. `0x77` is per-port and persists across moves; the most recent write to
    that port governs, whichever port byte set it.
 6. Negative degrees (direction byte 2) mirror all of the above.
+
+Simulator constants. The simulator's accel/decel of 4200 deg/s^2, the
+2200 deg/s^2 decel for a `0x60 0` during a move, the 20.6 ms hard-stop
+ramp and the 980 deg/s ceiling are fits to the rows cited above
+(`mb_probe_stops1.csv`, `mb_probe_fine1.csv`) and are UNVERIFIED beyond
+them.
+
+Steady hold. With `speed_path 1` the port re-issues a bare `0x70` mode 3
+every 400 ms during a steady hold, so the 0.7 s timed run never lapses.
 
 ## 4. The three frames sprint 042 emits
 

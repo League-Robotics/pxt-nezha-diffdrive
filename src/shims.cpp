@@ -283,7 +283,7 @@ static Rig& ensure() {
     // hook) the composed board offers -- nullptr for Nezha, which
     // MotionEngine already treats as "no tap installed".
     rig->engine.setWheelCommandTap(boardWheelCommandTap());
-    // Position moves (sprint 042): the board's ports that have a built-in
+    // Position moves: the board's ports that have a built-in
     // one; nullptr on a board without (Cutebot) keeps the kernel segment.
     rig->engine.setPositionMotors(boardPositionMotor(0), boardPositionMotor(1));
     // Kernel defaults: the tovez bake (boot_calibration.cpp) with

@@ -782,7 +782,7 @@ bool MotionEngine::beginPositionMove(float distance, float rotation,
 
 void MotionEngine::stopPositionMove() {
   // Both ports, always: a wheel that was not moved still gets the hold,
-  // and a repeat 0x5F on a finished wheel is harmless.
+  // and a repeat hard stop on a finished wheel is harmless.
   posLeft_->hardStop();
   posRight_->hardStop();
   posMove_.active = false;

@@ -205,8 +205,8 @@ void NezhaMotorPort::emergencyStop() {
   // stage AND write zero through the never-shaped stop path now.
   stagedDuty_ = 0.0f;
   if (moveLive_) {
-    // Stop the brick's own move first (0x5F holds the count, opcode doc
-    // section 3 rule 4), then the usual 0x60 0. The latch drops either
+    // Stop the brick's own move first (the hard-stop opcode holds the
+    // count), then the usual 0x60 0. The latch drops either
     // way: e-stop owns the wheel now. lastWritten_ is forgotten so the
     // 0x60 0 is not deduped against a pre-move value.
     writeBrickFrame(0, kRegHardStop, 0, 0xF5, 0);
@@ -415,7 +415,7 @@ void NezhaMotorPort::writeRawDuty(float duty, uint64_t now,  // [-1,1] [us]
   }
 
   if (speedPath_ == 1 && (stopping || pct == 0)) {
-    // Stop from speed is 0x5F; from at/below the kernel floor (or with
+    // Stop from speed is the hard stop; from at/below the kernel floor (or with
     // no timed run outstanding) it stays 0x60 0, falling through below.
     const int last = lastWritten_ == kNeverWritten ? 0 : lastWritten_;
     if (speedRunning_ && (last > kStopFromSpeedFloor ||
@@ -666,7 +666,7 @@ void NezhaMotorPort::configureWiring(uint8_t port, int8_t fwdSign) {
   zeroSince_ = 0;
   dwelling_ = false;
   dwellStart_ = 0;
-  moveLive_ = false;  // emergencyStop() above already sent the 0x5F
+  moveLive_ = false;  // emergencyStop() above already sent the hard stop
   stopHold_ = false;
   speedRunning_ = false;
   lastTimedWrite_ = 0;
