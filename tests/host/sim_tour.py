@@ -188,6 +188,19 @@ def _bind(lib):
         getattr(f, name).argtypes = [P, ctypes.c_int]
         getattr(f, name).restype = F
     f.srBusWrites.argtypes = [P]; f.srBusWrites.restype = ctypes.c_uint32
+    # Brick frame log (sprint 042 ticket 003).
+    f.srBusFrameCount.argtypes = [P]
+    f.srBusFrameCount.restype = ctypes.c_uint32
+    f.srBusFrame.argtypes = [P, ctypes.c_uint32,
+                             ctypes.POINTER(ctypes.c_uint8)]
+    f.srBusFrame.restype = ctypes.c_int
+    for name in ("srBusFrames60", "srBusFrames60WhileLive"):
+        getattr(f, name).argtypes = [P, ctypes.c_int]
+        getattr(f, name).restype = ctypes.c_uint32
+    f.srBusViolations1D.argtypes = [P]
+    f.srBusViolations1D.restype = ctypes.c_uint32
+    f.srBusMoveLive.argtypes = [P, ctypes.c_int]
+    f.srBusMoveLive.restype = ctypes.c_int
     return f
 
 

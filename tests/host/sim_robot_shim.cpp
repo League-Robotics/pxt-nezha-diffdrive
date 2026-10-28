@@ -303,4 +303,30 @@ uint32_t srBusWrites(void* handle) {
   return static_cast<Handle*>(handle)->bus.writes();
 }
 
+// ---- brick frame log (sprint 042 ticket 003) -----------------------------
+// What the simulated brick received, for tests of the position-move path:
+// byte-exact frames and per-port 0x60 counts. See sim_nezha_bus.h.
+uint32_t srBusFrameCount(void* handle) {
+  return static_cast<Handle*>(handle)->bus.frameCount();
+}
+// Copies accepted frame `index` into out[8]; returns 1, or 0 if out of range.
+int srBusFrame(void* handle, uint32_t index, uint8_t* out) {
+  return static_cast<Handle*>(handle)->bus.frameBytes(index, out) ? 1 : 0;
+}
+uint32_t srBusFrames60(void* handle, int port) {
+  return static_cast<Handle*>(handle)->bus.frames60(
+      static_cast<uint8_t>(port));
+}
+uint32_t srBusFrames60WhileLive(void* handle, int port) {
+  return static_cast<Handle*>(handle)->bus.frames60WhileLive(
+      static_cast<uint8_t>(port));
+}
+uint32_t srBusViolations1D(void* handle) {
+  return static_cast<Handle*>(handle)->bus.violations1D();
+}
+int srBusMoveLive(void* handle, int port) {
+  return static_cast<Handle*>(handle)->bus.moveLive(
+             static_cast<uint8_t>(port)) ? 1 : 0;
+}
+
 }  // extern "C"
