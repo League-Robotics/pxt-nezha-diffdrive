@@ -128,6 +128,12 @@ bool NezhaMotorPort::writeFrame(uint8_t arg, uint8_t reg, uint8_t val) {
   return bus_.write(kAddress << 1, frame, 8) == 0;
 }
 
+bool NezhaMotorPort::writeBrickFrame(uint8_t arg, uint8_t reg, uint8_t hi,
+                                     uint8_t mode, uint8_t lo) {
+  uint8_t frame[8] = {0xFF, 0xF9, port_, arg, reg, hi, mode, lo};
+  return bus_.write(kAddress << 1, frame, 8) == 0;
+}
+
 bool NezhaMotorPort::readEncoderRaw(int32_t* raw) {
   uint8_t data[4] = {0, 0, 0, 0};
   if (bus_.read(kAddress << 1, data, 4) != 0) return false;
@@ -187,6 +193,10 @@ void NezhaMotorPort::begin() {
 // ---- command staging + shaping --------------------------------------
 
 void NezhaMotorPort::setDuty(float duty) {
+  // Move-live latch: the brick's own loop owns the wheel, the kernel's
+  // per-tick duty (including its setDuty(0)) must not reach the wire or
+  // advance any shaping state. Review F3.
+  if (moveLive_) return;
   stagedDuty_ = clampf(duty, -1.0f, 1.0f);
 }
 
@@ -194,7 +204,99 @@ void NezhaMotorPort::emergencyStop() {
   // The one call that must not depend on a healthy tick(): zero the
   // stage AND write zero through the never-shaped stop path now.
   stagedDuty_ = 0.0f;
+  if (moveLive_) {
+    // Stop the brick's own move first (0x5F holds the count, opcode doc
+    // section 3 rule 4), then the usual 0x60 0. The latch drops either
+    // way: e-stop owns the wheel now. lastWritten_ is forgotten so the
+    // 0x60 0 is not deduped against a pre-move value.
+    writeBrickFrame(0, kRegHardStop, 0, 0xF5, 0);
+    moveLive_ = false;
+    lastWritten_ = kNeverWritten;
+  }
   writeShapedDuty(0.0f, static_cast<uint32_t>(lastTick_ / 1000));
+}
+
+// ---- position moves (PositionMotor) ----------------------------------
+
+bool NezhaMotorPort::beginMove(float delta, float degPerSec) {
+  lastMove_ = 0.0f;
+  const long deg = std::lround(std::fabs(delta) / kPositionQuantum);
+  const long speed = std::lround(degPerSec);
+  if (deg < 1 || deg > kMaxMoveDegrees) return false;
+  if (speed < 1) return false;
+  const int store = speed > kMaxSpeedStore ? kMaxSpeedStore
+                                           : static_cast<int>(speed);
+  // 0x77 only when this port's stored speed differs (the brick keeps it
+  // per port across moves, opcode doc section 3 rule 5).
+  if (store != lastSpeedStore_) {
+    if (!writeBrickFrame(0, kRegSpeedStore,
+                         static_cast<uint8_t>(store >> 8), 0,
+                         static_cast<uint8_t>(store & 0xFF))) {
+      connected_ = false;
+      lastSpeedStore_ = -1;
+      return false;
+    }
+    lastSpeedStore_ = store;
+  }
+  // The brick's counter runs with the raw sign; position() applies
+  // fwdSign_, so a robot-forward delta maps to direction fwdSign_ * sign.
+  const bool forward = (delta >= 0.0f) == (fwdSign_ > 0);
+  if (!writeBrickFrame(forward ? kDirCw : kDirCcw, kRegMove,
+                       static_cast<uint8_t>(deg >> 8), kMoveModeDegrees,
+                       static_cast<uint8_t>(deg & 0xFF))) {
+    connected_ = false;
+    return false;
+  }
+  lastMove_ = (delta >= 0.0f ? 1.0f : -1.0f) *
+                    static_cast<float>(deg) * kPositionQuantum;
+  moveTarget_ = lastPosition_ + lastMove_;
+  moveLive_ = true;
+  stopHold_ = false;
+  moveRestTicks_ = 0;
+  moveLastPosition_ = lastPosition_;
+  // The move supersedes whatever 0x60 the wheel was running: the
+  // shaping pipeline restarts from "brick at rest, last duty 0".
+  stagedDuty_ = 0.0f;
+  dutyCarry_ = 0.0f;
+  lastWritten_ = 0;
+  lastNonzeroSign_ = 0;
+  atZero_ = true;
+  dwelling_ = false;
+  return true;
+}
+
+bool NezhaMotorPort::hardStop() {
+  if (!writeBrickFrame(0, kRegHardStop, 0, 0xF5, 0)) {
+    connected_ = false;
+    return false;  // latch stays: the move may still be running
+  }
+  moveLive_ = false;
+  // The brick brings the wheel to rest itself; a 0x60 0 while it is
+  // still above rest would turn the hard stop into a ramp and drop the
+  // hold (doc section 3 rule 1), so stopNotTaken stands down until the
+  // wheel reads at rest.
+  stopHold_ = true;
+  stagedDuty_ = 0.0f;
+  dutyCarry_ = 0.0f;
+  lastWritten_ = 0;
+  return true;
+}
+
+bool NezhaMotorPort::driven() const {
+  return moveLive_ || std::fabs(appliedDuty()) > kMotionThreshold;
+}
+
+void NezhaMotorPort::trackMove() {
+  const float remaining = std::fabs(moveTarget_ - lastPosition_);
+  float band = std::fabs(lastMove_) * 0.5f;
+  if (band > kMoveDoneBand) band = kMoveDoneBand;
+  if (lastPosition_ == moveLastPosition_) ++moveRestTicks_;
+  else moveRestTicks_ = 0;
+  moveLastPosition_ = lastPosition_;
+  if (remaining <= band && moveRestTicks_ >= kMoveRestTicks) {
+    moveLive_ = false;  // completed: wheel at rest at/near the target
+    stopHold_ = true;
+  }
 }
 
 void NezhaMotorPort::writeShapedDuty(float duty, uint32_t now) {  // [-1,1] [ms]
@@ -265,7 +367,7 @@ void NezhaMotorPort::writeRawDuty(float duty, uint64_t now,  // [-1,1] [us]
   // reads motion, regardless of the dedupe cache -- the brick latches
   // its last speed and one lost zero write is permanent.
   const bool stopNotTaken =
-      pct == 0 && std::fabs(velocity_) > kStopConfirmVelocity;
+      pct == 0 && !stopHold_ && std::fabs(velocity_) > kStopConfirmVelocity;
   if (pct == lastWritten_ && !stopNotTaken) return;
 
   // Min-write throttle -- stop writes always bypass it.
@@ -284,6 +386,8 @@ void NezhaMotorPort::writeRawDuty(float duty, uint64_t now,  // [-1,1] [us]
     else if (step < -maxStep) pct = lastWritten_ - maxStep;
   }
 
+  if (!stopping) stopHold_ = false;  // a real run command: the 0x60 path
+                                     // owns the wheel again
   const int signed_pct = pct * fwdSign_;
   const uint8_t direction = signed_pct >= 0 ? kDirCw : kDirCcw;
   const uint8_t magnitude =
@@ -390,8 +494,7 @@ void NezhaMotorPort::collect(uint64_t now) {  // [us]
     // the RAW value (not the offset-adjusted pos) and hasLastTick_ so
     // it can never fire on the very first sample this port ever takes.
     if (decision == EncoderGlitchArmor::Decision::kAccept && hasLastTick_ &&
-        raw == previousGoodRaw &&
-        std::fabs(appliedDuty()) > kMotionThreshold) {
+        raw == previousGoodRaw && driven()) {
       lastPosition_ = pos;  // already equal to lastPosition_ by construction
       return;  // sampleTime_ HOLDS -- velocity_ holds its prior value
     }
@@ -412,13 +515,19 @@ void NezhaMotorPort::collect(uint64_t now) {  // [us]
 void NezhaMotorPort::tick(uint64_t now) {  // [us]
   lastTick_ = now;
   collect(now);
-  writeShapedDuty(stagedDuty_, static_cast<uint32_t>(now / 1000));
+  if (moveLive_) {
+    trackMove();  // the brick's loop owns the wheel: no 0x60 at all
+  } else {
+    writeShapedDuty(stagedDuty_, static_cast<uint32_t>(now / 1000));
+    if (stopHold_ && std::fabs(velocity_) <= kStopConfirmVelocity)
+      stopHold_ = false;
+  }
 
   // Wedge detector: consecutive IDENTICAL position reads, raw and
   // unconditional; the suspect flavor additionally requires drive.
   if (lastPosition_ == lastWedgeCheckPosition_ && connected_) {
     ++identicalReads_;
-    if (std::fabs(appliedDuty()) > kMotionThreshold) {
+    if (driven()) {
       ++identicalReadsDriven_;
       if (identicalReadsDriven_ > maxDrivenStreak_)
         maxDrivenStreak_ = identicalReadsDriven_;
@@ -479,6 +588,11 @@ void NezhaMotorPort::configureWiring(uint8_t port, int8_t fwdSign) {
   zeroSince_ = 0;
   dwelling_ = false;
   dwellStart_ = 0;
+  moveLive_ = false;  // emergencyStop() above already sent the 0x5F
+  stopHold_ = false;
+  lastSpeedStore_ = -1;  // the 0x77 store is per port: unknown on the new one
+  lastMove_ = 0.0f;
+  moveRestTicks_ = 0;
 
   // Encoder state likewise. The new port has its own free-running
   // counter, so drop the offset measured against the old one and let
