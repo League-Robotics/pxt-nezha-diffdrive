@@ -1,7 +1,7 @@
 ---
 id: '043'
 title: Position-move hardware acceptance on zuvat and the kernel defaults
-status: ticketing
+status: executing
 branch: sprint/043-position-move-hardware-acceptance-on-zuvat-and-the-kernel-defaults
 use-cases: []
 issues:

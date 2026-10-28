@@ -1,9 +1,11 @@
 ---
 id: '003'
 title: Zuvat pivots and two-wheel start skew
-status: open
-use-cases: [SUC-001]
-depends-on: ["002"]
+status: in-progress
+use-cases:
+- SUC-001
+depends-on:
+- '002'
 github-issue: ''
 issue: position-move-hardware-acceptance-and-the-zuvat-square.md
 completes_issue: false
