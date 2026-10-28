@@ -213,3 +213,14 @@ cause not diagnosed here.
 - Start skew < 10 ms: **UNVERIFIED** (bound <= ~65 ms, one frame; 29/30 within the first frame).
 - Leg drift mode 1 vs mode 0 with conclusion: done (no correction needed at mode 1).
 - Charts, CSVs, notes: done.
+
+## Finding: MOVE_X rotation is milliradians (wire doc check)
+MOVE_X's rotation field is an integer in milliradians (`mradToRad()` in src/comms/wire_adapter.cpp; `execMoveX` in
+src/comms/wire_handler.cpp; tests/host/test_wire_motion_verbs.py and tests/calibration/turn_calibration.py both send
+`MOVE_X 0 <mrad> ...`). No markdown doc in the repo gives a degrees grammar for MOVE_X (searched outside clasi/,
+captures/, .tmp), so no doc fix was needed. This ticket's first probe sent 90 and turned 5.2 deg.
+
+## Acceptance addendum (coordinator decision)
+Ticket accepted as done with two recorded gaps: no-lurch (literal >cruise not measurable at 55-65 ms frames; plateau
+17-23 % over cruise is common to both modes; mode 1 starts as a near-step; physical lurch UNVERIFIED) and start skew
+(10 ms UNVERIFIED; one-frame bound, 29/30 mode-1 runs both wheels in the first frame, mode 0 one wheel at zero in 21/30).
