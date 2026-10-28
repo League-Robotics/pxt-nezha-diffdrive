@@ -750,14 +750,14 @@ diffDrive.runSignature("brick", "(deg:number,pct:number)")
 //   arg2 pctMotor:  0x77 with motor byte 1 (M1 only), 0 = skip
 //   arg3 action during the move: 0 none, 1 opcode 0x5F stop, 2 opcode 0x60
 //        speed 0, 3 a second 0x70 move of +90 deg, 4 0x60 run at 20 %
-//   arg4 delayMs before the action
+//   arg4 delay [ms] before the action
 // Emits the count delta at the action and at rest, and the timings.
 diffDrive.onRun("brickx", function (arg: number) {
     const deg = diffDrive.runArg(0)
     const pctGlobal = diffDrive.runArg(1)
     const pctMotor = diffDrive.runArg(2)
     const action = diffDrive.runArg(3)
-    const delayMs = diffDrive.runArg(4)
+    const delay = diffDrive.runArg(4)   // [ms]
     const motor = 1
     if (pctGlobal > 0) {
         const s = pctGlobal * 9
@@ -781,7 +781,7 @@ diffDrive.onRun("brickx", function (arg: number) {
     let now = before
     while (control.millis() - t0 < 15000) {
         basic.pause(20)
-        if (!acted && control.millis() - t0 >= delayMs) {
+        if (!acted && control.millis() - t0 >= delay) {
             atAction = brickAngle(motor) - before
             actionAt = control.millis() - t0
             if (action == 1) brickCmd(motor, 0, 0x5F, 0, 0xF5, 0)
@@ -800,7 +800,7 @@ diffDrive.onRun("brickx", function (arg: number) {
         + ":action=" + action + ":actionAt=" + actionAt + ":atAction=" + atAction
         + ":delta=" + (now - before) + ":restAt=" + (lastChange - t0))
 })
-diffDrive.runSignature("brickx", "(deg:number,pctGlobal:number,pctMotor:number,action:number,delayMs:number)")
+diffDrive.runSignature("brickx", "(deg:number,pctGlobal:number,pctMotor:number,action:number,delay:number)")
 
 // Any brick frame, byte by byte: FF F9 <motor> <arg> <op> <hi> <mode> <lo>.
 // hilo packs the two value bytes as hi * 256 + lo. For the sniffer bench
@@ -864,7 +864,7 @@ diffDrive.onRun("brickstop", function (arg: number) {
     }
     diffDrive.emitLine("BRICKSTOP:pct=" + pct + ":ms=" + ms + ":how=" + how
         + ":before=" + before + ":atStop=" + atStop + ":rest=" + now
-        + ":afterStop=" + (now - atStop) + ":restMs=" + (lastChange - tStop))
+        + ":afterStop=" + (now - atStop) + ":settle=" + (lastChange - tStop))
 })
 diffDrive.runSignature("brickstop", "(pct:number,ms:number,how:number,motor:number)")
 
