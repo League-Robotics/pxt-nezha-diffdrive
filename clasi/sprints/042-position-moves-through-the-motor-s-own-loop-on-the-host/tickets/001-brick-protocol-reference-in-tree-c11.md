@@ -1,8 +1,9 @@
 ---
 id: '001'
 title: Brick protocol reference in-tree (C11)
-status: open
-use-cases: ["SUC-005"]
+status: done
+use-cases:
+- SUC-005
 depends-on: []
 github-issue: ''
 issue: nezha-brick-opcode-reference-in-tree.md
@@ -37,11 +38,11 @@ Sources to read (outside this repo, read-only):
 
 ## Acceptance Criteria
 
-- [ ] `docs/knowledge/2026-10-27-nezha-brick-opcodes.md` exists with the opcode map, the three-frame byte table, the behaviour rules and the 7a/7b/7c/50 cm tables
-- [ ] every number in the doc names its board, date and a file under `docs/code-review/2026-10-27/data/` (or is marked UNVERIFIED)
-- [ ] the four CSVs are in `docs/code-review/2026-10-27/data/`, byte-identical to the originals (`cmp` clean)
-- [ ] the doc says `0x1D` is never sent
-- [ ] `grep -n "measured" docs/knowledge/2026-10-27-nezha-brick-opcodes.md` shows no claim without an adjacent file path
+- [x] `docs/knowledge/2026-10-27-nezha-brick-opcodes.md` exists with the opcode map, the three-frame byte table, the behaviour rules and the 7a/7b/7c/50 cm tables
+- [x] every number in the doc names its board, date and a file under `docs/code-review/2026-10-27/data/` (or is marked UNVERIFIED)
+- [x] the four CSVs are in `docs/code-review/2026-10-27/data/`, byte-identical to the originals (`cmp` clean)
+- [x] the doc says `0x1D` is never sent
+- [x] `grep -n "measured" docs/knowledge/2026-10-27-nezha-brick-opcodes.md` shows no claim without an adjacent file path
 
 ## Testing
 
