@@ -1,9 +1,11 @@
 ---
 id: '005'
 title: 'Arcs: position_mode 2 vs kernel'
-status: open
-use-cases: [SUC-001]
-depends-on: ["004"]
+status: in-progress
+use-cases:
+- SUC-001
+depends-on:
+- '004'
 github-issue: ''
 issue: position-move-hardware-acceptance-and-the-zuvat-square.md
 completes_issue: true
