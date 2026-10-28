@@ -682,6 +682,192 @@ diffDrive.onRun("nudge", function (arg: number) {
 diffDrive.runSignature("nudge",
     "(left_cms:number,right_cms:number,ticks:number)")
 
+// Terminal correction experiment (nezha-esp32 docs/microbit-comparison.md):
+// after a wire WHEELS_X lands, the host measures the residual on the LEFT
+// wheel and asks for a closing nudge of exactly that much, left wheel only.
+// arg0: residual in mm x100 (signed). Emits the measured left-wheel count
+// delta so the host can confirm where the wheel ended.
+diffDrive.onRun("nudgel", function (arg: number) {
+    const mm = diffDrive.runArg(0) / 100
+    const before = diffDrive.probe(10)
+    const t0 = control.millis()
+    const measured = diffDrive.nudge(mm, 0)
+    diffDrive.emitLine("NUDGEL:req_x100=" + Math.round(mm * 100)
+        + ":measured_x100=" + Math.round(measured * 100)
+        + ":countsDelta=" + (diffDrive.probe(10) - before)
+        + ":ms=" + (control.millis() - t0))
+})
+diffDrive.runSignature("nudgel", "(mm_x100:number)")
+
+// The brick's OWN positioning move (opcode 0x70, degrees mode) on M1, with
+// the move speed set through 0x77 (percent * 9, the motor's own scaling).
+// Reads the brick's raw M1 counter (0x46) before, and polls it after until
+// it stops changing, then emits the delta. Bypasses the kernel entirely;
+// the kernel's next tick will see the counter jump and rebaseline, which
+// keeps its own position continuous. arg0: degrees (signed), arg1: percent.
+function brickCmd(motor: number, arg: number, op: number, hi: number, mode: number, lo: number) {
+    const b = pins.createBuffer(8)
+    b[0] = 0xFF; b[1] = 0xF9; b[2] = motor; b[3] = arg
+    b[4] = op; b[5] = hi; b[6] = mode; b[7] = lo
+    pins.i2cWriteBuffer(0x10, b)
+}
+function brickAngle(motor: number): number {
+    basic.pause(4)
+    brickCmd(motor, 0, 0x46, 0, 0xF5, 0)
+    basic.pause(4)
+    const a = pins.i2cReadBuffer(0x10, 4)
+    return (a[3] << 24) | (a[2] << 16) | (a[1] << 8) | a[0]
+}
+diffDrive.onRun("brick", function (arg: number) {
+    const deg = diffDrive.runArg(0)
+    const pct = diffDrive.runArg(1)
+    const motor = 1
+    const speed = pct * 9
+    brickCmd(0, 0, 0x77, (speed >> 8) & 0xFF, 0, speed & 0xFF)
+    basic.pause(5)
+    const before = brickAngle(motor)
+    const t0 = control.millis()
+    const value = Math.abs(deg)
+    brickCmd(motor, deg >= 0 ? 1 : 2, 0x70, (value >> 8) & 0xFF, 2, value & 0xFF)
+    let last = before
+    let lastChange = control.millis()
+    let now = before
+    while (control.millis() - t0 < 15000) {
+        basic.pause(40)
+        now = brickAngle(motor)
+        if (now != last) { last = now; lastChange = control.millis() }
+        if (control.millis() - t0 > 300 && control.millis() - lastChange > 400) break
+    }
+    diffDrive.emitLine("BRICK:deg=" + deg + ":pct=" + pct
+        + ":before=" + before + ":after=" + now
+        + ":delta=" + (now - before)
+        + ":ms=" + (lastChange - t0))
+})
+diffDrive.runSignature("brick", "(deg:number,pct:number)")
+
+// Brick built-in move experiments. Same move as "brick" above, plus:
+//   arg1 pctGlobal: 0x77 with motor byte 0 (all ports), 0 = skip
+//   arg2 pctMotor:  0x77 with motor byte 1 (M1 only), 0 = skip
+//   arg3 action during the move: 0 none, 1 opcode 0x5F stop, 2 opcode 0x60
+//        speed 0, 3 a second 0x70 move of +90 deg, 4 0x60 run at 20 %
+//   arg4 delayMs before the action
+// Emits the count delta at the action and at rest, and the timings.
+diffDrive.onRun("brickx", function (arg: number) {
+    const deg = diffDrive.runArg(0)
+    const pctGlobal = diffDrive.runArg(1)
+    const pctMotor = diffDrive.runArg(2)
+    const action = diffDrive.runArg(3)
+    const delayMs = diffDrive.runArg(4)
+    const motor = 1
+    if (pctGlobal > 0) {
+        const s = pctGlobal * 9
+        brickCmd(0, 0, 0x77, (s >> 8) & 0xFF, 0, s & 0xFF)
+        basic.pause(5)
+    }
+    if (pctMotor > 0) {
+        const s = pctMotor * 9
+        brickCmd(motor, 0, 0x77, (s >> 8) & 0xFF, 0, s & 0xFF)
+        basic.pause(5)
+    }
+    const before = brickAngle(motor)
+    const t0 = control.millis()
+    const value = Math.abs(deg)
+    brickCmd(motor, deg >= 0 ? 1 : 2, 0x70, (value >> 8) & 0xFF, 2, value & 0xFF)
+    let atAction = 0
+    let actionAt = 0
+    let acted = action == 0
+    let last = before
+    let lastChange = control.millis()
+    let now = before
+    while (control.millis() - t0 < 15000) {
+        basic.pause(20)
+        if (!acted && control.millis() - t0 >= delayMs) {
+            atAction = brickAngle(motor) - before
+            actionAt = control.millis() - t0
+            if (action == 1) brickCmd(motor, 0, 0x5F, 0, 0xF5, 0)
+            else if (action == 2) brickCmd(motor, 1, 0x60, 0, 0xF5, 0)
+            else if (action == 3) brickCmd(motor, deg >= 0 ? 1 : 2, 0x70, 0, 2, 90)
+            else if (action == 4) brickCmd(motor, 1, 0x60, 20, 0xF5, 0)
+            acted = true
+            lastChange = control.millis()
+        }
+        now = brickAngle(motor)
+        if (now != last) { last = now; lastChange = control.millis() }
+        if (control.millis() - t0 > 300 && control.millis() - lastChange > 500) break
+    }
+    if (action == 4) brickCmd(motor, 1, 0x60, 0, 0xF5, 0)
+    diffDrive.emitLine("BRICKX:deg=" + deg + ":pctGlobal=" + pctGlobal + ":pctMotor=" + pctMotor
+        + ":action=" + action + ":actionAt=" + actionAt + ":atAction=" + atAction
+        + ":delta=" + (now - before) + ":restAt=" + (lastChange - t0))
+})
+diffDrive.runSignature("brickx", "(deg:number,pctGlobal:number,pctMotor:number,action:number,delayMs:number)")
+
+// Any brick frame, byte by byte: FF F9 <motor> <arg> <op> <hi> <mode> <lo>.
+// hilo packs the two value bytes as hi * 256 + lo. For the sniffer bench
+// (nezha-esp32 docs/motor-protocol.md): the brick's M3 is cabled to the
+// ESP32's M3 with TX and RX crossed, and the ESP32 logs what the brick sends.
+diffDrive.onRun("brickraw", function (arg: number) {
+    const motor = diffDrive.runArg(0)
+    const argByte = diffDrive.runArg(1)
+    const op = diffDrive.runArg(2)
+    const hilo = diffDrive.runArg(3)
+    const mode = diffDrive.runArg(4)
+    const t0 = control.millis()
+    brickCmd(motor, argByte, op, (hilo >> 8) & 0xFF, mode, hilo & 0xFF)
+    diffDrive.emitLine("BRICKRAW:motor=" + motor + ":arg=" + argByte + ":op=" + op
+        + ":hilo=" + hilo + ":mode=" + mode + ":ms=" + (control.millis() - t0))
+})
+diffDrive.runSignature("brickraw", "(motor:number,arg:number,op:number,hilo:number,mode:number)")
+
+// A brick register read: select <reg> on <motor>, wait 4 ms, read 4 bytes.
+diffDrive.onRun("brickread", function (arg: number) {
+    const motor = diffDrive.runArg(0)
+    const reg = diffDrive.runArg(1)
+    const t0 = control.millis()
+    brickCmd(motor, 0, reg, 0, 0xF5, 0)
+    basic.pause(4)
+    const a = pins.i2cReadBuffer(0x10, 4)
+    diffDrive.emitLine("BRICKREAD:motor=" + motor + ":reg=" + reg
+        + ":b0=" + a[0] + ":b1=" + a[1] + ":b2=" + a[2] + ":b3=" + a[3]
+        + ":value=" + ((a[3] << 24) | (a[2] << 16) | (a[1] << 8) | a[0])
+        + ":ms=" + (control.millis() - t0))
+})
+diffDrive.runSignature("brickread", "(motor:number,reg:number)")
+
+// Stop comparison on a real motor: run 0x60 at pct for ms, then stop with
+// how = 0 (0x60 speed 0, the motor's ramp) or 1 (0x5F, the brick's hard
+// stop: a zero relative move at 100 %). Emits the raw counter at the stop
+// command and at rest, and the time to rest. arg3 motor (default 1).
+diffDrive.onRun("brickstop", function (arg: number) {
+    const pct = diffDrive.runArg(0)
+    const ms = diffDrive.runArg(1)
+    const how = diffDrive.runArg(2)
+    const motor = diffDrive.runArg(3) > 0 ? diffDrive.runArg(3) : 1
+    const before = brickAngle(motor)
+    const t0 = control.millis()
+    brickCmd(motor, pct >= 0 ? 1 : 2, 0x60, Math.abs(pct), 0xF5, 0)
+    while (control.millis() - t0 < ms) {
+        basic.pause(5)
+    }
+    const atStop = brickAngle(motor)
+    const tStop = control.millis()
+    if (how == 1) brickCmd(motor, 0, 0x5F, 0, 0xF5, 0)
+    else brickCmd(motor, 1, 0x60, 0, 0xF5, 0)
+    let last = atStop
+    let lastChange = control.millis()
+    let now = atStop
+    while (control.millis() - tStop < 3000) {
+        basic.pause(10)
+        now = brickAngle(motor)
+        if (now != last) { last = now; lastChange = control.millis() }
+        if (control.millis() - lastChange > 300) break
+    }
+    diffDrive.emitLine("BRICKSTOP:pct=" + pct + ":ms=" + ms + ":how=" + how
+        + ":before=" + before + ":atStop=" + atStop + ":rest=" + now
+        + ":afterStop=" + (now - atStop) + ":restMs=" + (lastChange - tStop))
+})
+diffDrive.runSignature("brickstop", "(pct:number,ms:number,how:number,motor:number)")
+
 // arg encodes one configureMotor() call as SPD: Side*100 + Port*10 + Dir,
 // Dir 1 = forward, 2 = reversed. Left M2 reversed is 22; right M1
 // forward is 111. One integer because onRun carries exactly one.
