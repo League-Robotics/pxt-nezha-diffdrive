@@ -1,0 +1,11 @@
+DBG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=64 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=0 trunc=0 join=- haspw=1 ssid=Robot_Garage
+> GET position_mode #5
+ack 5 9 stop
+get position_mode 2.000000
+> SET position_mode 0 #6
+ack 6 9 stop
+> GET position_mode #7
+ack 7 9 stop
+get position_mode 0.000000
+> STATUS #8
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1068 cyc=21114 tlm=off next=8 done=9 reason=stop wifi=0 radio=0 channel=60 group=64 posmove=0

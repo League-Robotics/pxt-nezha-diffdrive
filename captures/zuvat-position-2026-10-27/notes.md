@@ -622,3 +622,53 @@ Before = the 8 boot legs above (mean err L +3.81). Bar not claimed: the final-er
 
 ## Restored state
 Every run ends with boot values re-applied and read back (v_floor 70, decel 400, stop_distance 0, pid_ki 6, omega_floor 20), TLM off, position_mode 0.
+
+
+# Ticket 009: flipped defaults, reflash and square re-run (zuvat, 2026-10-27)
+
+Hex: `binary-zuvat-043.hex` (this directory; built from the ticket 009 tree, `make_deploy.py --robot zuvat --no-otos`; includes
+ticket 007's zuvat bake and ticket 008's scaffolding removal). Flashed with `mbdeploy deploy` (first erase failed with 0x67, the tool
+did the CTRL-AP mass erase and retried, programmed 435200 bytes, "zuvat re-announced as NEZHA2 (flash_count=2)"). Smoke logs in `flash043/`.
+
+## Readbacks on the flashed build (`flash043/smoke.log`, `flash043/funcs.log`)
+- `id diffdrive zuvat 0.20261027.1 zuvat`, `ver 0.20261027.1`.
+- FUNCS lists clearestop, abort, tour, straight, cal, fix, arm, wire, spinone, nudge, nudgel, setwire, probe, gap, seed, seedxy, goto, face,
+  pivot, arc, turnrate, square, diamond, circle, infinity, snake; no `brick*` (`grep -c brick flash043/funcs.log` is 0).
+- `GET position_mode` = 1.000000 with NO SET (fresh boot), `GET speed_path` = 0.000000, `GET decel` = 1000.000061, `GET stop_distance` = 0.300000.
+  One `STOP #5` acked; STATUS idle, `wedge=0`, `posmove=0`.
+
+## Square tour on the new build (`square2/`), ENCODER truth, no camera
+`tools/tour_capture.py --wifi 127.0.0.1 --run 'square 50'`: 5 laps at the flashed default (no SET; `square2/m1_default_check.log`
+reads position_mode 1.000000 first) and 3 laps with `--set position_mode=0` as the kernel reference (`GET` after the last lap read 0.000000,
+`square2/final_restore.log`). Pose not reset between laps (each lap scored on its own first and last frame); the pose started at the
+reboot origin. Scored with `tools/square_closure.py` (`square2/closure.csv`, `closure.md`), charts `square2/m1_lap3_chart.png`,
+`square2/m0_lap3_chart.png`, overlay `square2/progress_2026-10-27_flashed.png` (sets "mode 1 default (flashed)" and "mode 0 kernel").
+
+| mode | lap | closure [mm] | heading residual [deg] | lap time [s] | i2cf growth |
+|---|---|---|---|---|---|
+| 1 (default) | 1 | 6.1 | +2.43 | 15.5 | 62 |
+| 1 (default) | 2 | 3.2 | -0.38 | 15.0 | 39 |
+| 1 (default) | 3 | 5.4 | -0.53 | 15.0 | 36 |
+| 1 (default) | 4 | 2.8 | -0.46 | 15.0 | 39 |
+| 1 (default) | 5 | 2.2 | -0.38 | 15.0 | 41 |
+| 0 (kernel) | 1 | 13.9 | +1.99 | 17.1 | 9 |
+| 0 (kernel) | 2 | 14.4 | +1.44 | 17.2 | 38 |
+| 0 (kernel) | 3 | 7.0 | -0.03 | 17.2 | 29 |
+
+| mode | laps | closure mean [mm] | closure worst [mm] | heading mean abs [deg] | heading worst abs [deg] | lap mean [s] | i2cf per lap | target < 11 mm |
+|---|---|---|---|---|---|---|---|---|
+| 1 (flashed default) | 5 | 3.9 | 6.1 | 0.84 | 2.43 | 15.1 | 43.4 | MET on every lap |
+| 0 (kernel) | 3 | 11.8 | 14.4 | 1.15 | 1.99 | 17.2 | 25.3 | NOT MET on the mean (2 of 3 laps over 11 mm) |
+
+The progress chart reads its closure from the lap-normalised pose files, so its mode 0 figures (mean 11.6, worst 13.9) differ from
+`closure.csv` by 0.2 to 0.5 mm of normalisation rounding; `closure.csv` is the table of record. Against the 042-build run in `square/`
+(mode 1 mean 1.8 / worst 3.6 mm, mode 0 mean 9.8 / worst 26.4 mm): mode 1 is 2 mm looser this time (the first lap after the reboot ended
+at +2.43 deg and 6.1 mm; laps 2 to 5 are 2.2 to 5.4 mm) and the kernel reference is the same size as before (mean 11.8 against 9.8, laps
+inside noise of each other with n = 3 and n = 5). The ordering is unchanged: mode 1 is about 3x tighter on the mean and meets the 11 mm
+target on every lap; the kernel does not. Mode 1 laps are 2.1 s faster (15.1 vs 17.2 s), start legs with the same near-step, and fail
+about 1.7x as many I2C transactions per lap (43.4 vs 25.3; wedge stayed 0, `closure.csv`). Same caveat as before: these say the wheel
+counts came home, not that the floor square closed (no camera; wheel slip and the placeholder trackwidth are invisible to the encoders).
+
+## Restored state
+`square2/final_restore.log`: position_mode set back to 1 (the new flashed default) and read back 1.000000, `TLM OFF` acked, `STOP` acked,
+STATUS `active=0 posmove=0`, tlm=off. Robot idle.
