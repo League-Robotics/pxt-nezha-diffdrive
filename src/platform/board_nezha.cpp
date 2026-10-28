@@ -68,6 +68,12 @@ BoardMotors boardMotors() {
   return BoardMotors{b.left, b.right};
 }
 
+DiffDrive::PositionMotor* boardPositionMotor(int side) {
+  NezhaBoard& b = board();
+  return side == 0 ? static_cast<DiffDrive::PositionMotor*>(&b.left)
+                   : static_cast<DiffDrive::PositionMotor*>(&b.right);
+}
+
 MotorWiring boardWiring(int side) {
   const NezhaBoard& b = board();
   const NezhaMotorPort& p = (side == 0) ? b.left : b.right;

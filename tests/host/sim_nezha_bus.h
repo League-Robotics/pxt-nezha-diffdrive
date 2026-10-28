@@ -272,6 +272,10 @@ class SimNezhaBus final : public diffDrive::I2CBus {
   // 0x77 value last stored for the port [deg/s].
   uint16_t speedStore(uint8_t port) const { return speedStore_[port]; }
 
+  // Test hook: pin a port's wheel (a jammed or blocked shaft). The brick
+  // keeps trying (its mode and target stand) but the shaft does not turn.
+  void setBlocked(uint8_t port, bool blocked) { blocked_[port] = blocked; }
+
   // A position move, a timed run, or an owned 0x60 run is in progress.
   bool moveLive(uint8_t port) const {
     const Brick& b = brick_[port];
@@ -458,6 +462,10 @@ class SimNezhaBus final : public diffDrive::I2CBus {
 
   void stepBrick(uint8_t port, SimWheel& w, float dt) {
     Brick& b = brick_[port];
+    if (blocked_[port] && b.mode != BrickMode::kLegacy) {
+      w.driveKinematic(0.0f, dt);
+      return;
+    }
     float v = w.velocity();
     switch (b.mode) {
       case BrickMode::kMove: {
@@ -515,6 +523,7 @@ class SimNezhaBus final : public diffDrive::I2CBus {
   float ownedRunScale_ = 0.0f;
   uint16_t speedStore_[3] = {0, 0, 0};
   Brick brick_[3];
+  bool blocked_[3] = {false, false, false};
   std::vector<FrameRecord> frames_;
   uint32_t frames60_[3] = {0, 0, 0};
   uint32_t frames60WhileLive_[3] = {0, 0, 0};

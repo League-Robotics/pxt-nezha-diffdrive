@@ -22,6 +22,7 @@
 
 #include "../core/diffdrive.h"
 #include "../core/motor_wiring.h"
+#include "../core/position_motor.h"
 #include "../motion/wheel_command_tap.h"
 
 #define DIFFDRIVE_BOARD_NEZHA 1
@@ -47,6 +48,11 @@ struct BoardMotors {
 
 // Constructs (on first call) and returns this build's motor pair.
 BoardMotors boardMotors();
+
+// The side's built-in position move (sprint 042), or nullptr when the
+// composed board's port has none (Cutebot Pro). side: 0 = left, 1 = right.
+// shims.cpp's ensure() hands both to MotionEngine::setPositionMotors().
+DiffDrive::PositionMotor* boardPositionMotor(int side);
 
 // Which physical port/sign one side of the composed board is
 // currently wired to, and applying a change to it -- the two halves

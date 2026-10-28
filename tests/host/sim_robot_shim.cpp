@@ -106,7 +106,9 @@ struct Handle {
         right(rightPort, rightSign, bus),
         kernel(left, right, clock, sleeper, launcher),
         engine(kernel, clock),
-        odometry(engine) {}
+        odometry(engine) {
+    engine.setPositionMotors(&left, &right);
+  }
 };
 
 }  // namespace
@@ -201,6 +203,43 @@ void srMoveX(void* handle, float distance, float rotation, float cruise,
              uint32_t timeoutMs) {
   static_cast<Handle*>(handle)->engine.moveX(distance, rotation, cruise,
                                              timeoutMs);
+}
+
+// Sprint 042 ticket 006: MotionEngine::beginPositionMove(). Returns 1 if
+// a position move is live afterwards.
+int srPositionMove(void* handle, float distance, float rotation,
+                   float cruise, uint32_t timeoutMs) {
+  Handle* h = static_cast<Handle*>(handle);
+  return h->engine.beginPositionMove(distance, rotation, cruise, timeoutMs) &&
+                 h->engine.isPositionMoveActive()
+             ? 1 : 0;
+}
+// Detach (0) or attach (1) the ports as position motors -- 0 models a
+// board without a built-in position move (Cutebot): the engine must fall
+// back to the kernel segment.
+void srSetPositionMotors(void* handle, int enable) {
+  Handle* h = static_cast<Handle*>(handle);
+  if (enable) h->engine.setPositionMotors(&h->left, &h->right);
+  else h->engine.setPositionMotors(nullptr, nullptr);
+}
+int srPositionMoveActive(void* handle) {
+  return static_cast<Handle*>(handle)->engine.isPositionMoveActive() ? 1 : 0;
+}
+int srPositionMoveArrived(void* handle) {
+  return static_cast<Handle*>(handle)->engine.lastPositionMoveArrived() ? 1 : 0;
+}
+int srIsDriving(void* handle) {
+  return static_cast<Handle*>(handle)->engine.isDriving() ? 1 : 0;
+}
+void srEstop(void* handle) { static_cast<Handle*>(handle)->kernel.estop(); }
+void srBlockWheel(void* handle, int port, int blocked) {
+  static_cast<Handle*>(handle)->bus.setBlocked(static_cast<uint8_t>(port),
+                                               blocked != 0);
+}
+// Port-side (sign-corrected) wheel position, side 0 = left [counts].
+float srWheelPosition(void* handle, int side) {
+  Handle* h = static_cast<Handle*>(handle);
+  return side == 0 ? h->left.position() : h->right.position();
 }
 
 void srStop(void* handle) { static_cast<Handle*>(handle)->engine.endMove(); }

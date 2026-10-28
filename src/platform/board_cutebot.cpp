@@ -75,6 +75,10 @@ BoardMotors boardMotors() {
   return BoardMotors{b.left, b.right};
 }
 
+// The Cutebot Pro has no built-in position move: MotionEngine falls back
+// to the kernel segment when this answers nullptr.
+DiffDrive::PositionMotor* boardPositionMotor(int) { return nullptr; }
+
 MotorWiring boardWiring(int side) {
   const CutebotBoard& b = board();
   const CutebotMotorPort& p = (side == 0) ? b.left : b.right;
