@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: PositionMotor port interface (C1)
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
@@ -43,10 +43,10 @@ class PositionMotor {
 
 ## Acceptance Criteria
 
-- [ ] `src/core/position_motor.h` compiles under the project's C++11 syntax gate with libc only (no `pxt.h`, no I2C)
-- [ ] header listed in `pxt.json`; `test_pxt_manifest_completeness.py` passes
-- [ ] `src/core/diffdrive.h` / `diffdrive.cpp` byte-identical (checksum before/after)
-- [ ] no file under `src/core/` other than the new header changes
+- [x] `src/core/position_motor.h` compiles under the project's C++11 syntax gate with libc only (no `pxt.h`, no I2C)
+- [x] header listed in `pxt.json`; `test_pxt_manifest_completeness.py` passes
+- [x] `src/core/diffdrive.h` / `diffdrive.cpp` byte-identical (checksum before/after)
+- [x] no file under `src/core/` other than the new header changes
 
 ## Testing
 
