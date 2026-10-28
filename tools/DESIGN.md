@@ -54,14 +54,11 @@ need more than a line; a file with no section is fully described here.
 | file | what it is for |
 |---|---|
 | `tlm.py` | the single v6 telemetry parser (`TlmStream`, header-keyed), its fail-loud guards, and the one on-disk pose-CSV codec. |
-| `mb50.py` | 50 cm straight moves scored per wheel from each wheel's own encoder (`posl`/`posr` in the FULL frame); `--mode position` runs the motor's own position loop and confirms STATUS `posmove` mid-move, `--mode kernel` is the comparison set; works over USB or the `--wifi` tunnel. |
 | `tour_capture.py` | the standard triggered recorder: starts a named tour, records the `thdr`/`t` stream to the pose/wheel CSVs. |
 | `tour_watch.py` | the same recording, triggered by the robot's own button instead of a host command; charts each run as it lands. |
 | `tour_run.py` | the canonical run — stage through `reposition.py`, camera fix at the start, the robot drives all four legs alone, camera fix at the end. |
 | `tour_practice.py` | repeated camera-scored runs from the start dot, repositioning between them, charting each. |
 | `tour_chart.py` | the standard two-panel matplotlib plot of a recording (x-y trajectory with closure, wheel speeds), with outlier hygiene. |
-| `square_closure.py` | per-lap start-to-end closure (mm) and heading residual (deg) of square-tour recordings, mean/worst per mode, markdown + CSV; ENCODER truth only. |
-| `square_progress.py` | one PNG progress gauge for the square tour: every lap of each set overlaid on the commanded square plus per-lap closure dots against the 11 mm target; ENCODER truth only. |
 | `practice_chart.py` | the per-run practice plot: one recorded tour against its camera track. |
 | `leg_analysis.py` | turns a recording into a per-leg believed-vs-commanded table with a classification per leg. |
 
@@ -860,3 +857,14 @@ host-side parser. `DIAG` is retired with no replacement — a recorder
 that wants wheel speeds reads `vl`/`vr` out of the telemetry frame,
 which needs no calibration constant and survives the radio, where
 mid-move polling is forbidden outright.
+
+## Hardware acceptance tooling (sprint 043)
+
+`tools/mb50.py` is ported from `nezha-esp32/tools/` into this repo as the
+one-wheel bench driver. `--mode position` drives `MOVE_X` under
+`SET position_mode 1` and reads `posmove` from `STATUS` mid-move to
+confirm the path; after the `RUN brick*` scaffolding is removed it uses
+only real verbs. Zuvat square captures reuse `tour_capture.py` and
+`tour_chart.py`; a small closure-metrics helper (start-to-end distance and
+heading residual per lap) is added beside them. Encoder truth only on
+zuvat (no camera), labelled as such in every output.

@@ -55,11 +55,18 @@ on the kernel) and
 composed board's ports `supportsPositionMove()`; `WHEELS_V`, `MOVE_V`
 never do. `STATUS` carries a position-move flag naming the path that ran.
 
-`position_mode` boots at 1 from one constant,
-`MotionEngine::kDefaultPositionMode`, which the Rig also seeds
+## Position-move defaults (sprint 043)
+
+The defaults come from zuvat hardware evidence (captures under
+`captures/zuvat-position-2026-10-27/`, all ENCODER truth). `position_mode`
+boots at 1: straights and pivots run through the motor's own position
+loop (50 cm worst 0.49 mm per wheel against 11.8 mm on the kernel,
+`fiftycm/position.csv` vs `fiftycm/kernel.csv`; pivots 0.17 deg against
+1.30 deg, `pivots/analysis_output.txt`; square closure mean 1.8 mm against
+9.8 mm, `square/closure.csv`). Mode 2 is not the default: its arcs run both
+wheels at nearly equal speed (`circle/closure_radial.csv`). The boot value
+is one constant, `MotionEngine::kDefaultPositionMode`, which the Rig seeds
 `GET position_mode` from, so a fresh engine routes a straight `MOVE_X` to
-the position path with no `SET`; `SET position_mode 0` gives the kernel
-back. Evidence (ENCODER truth, zuvat):
-`captures/zuvat-position-2026-10-27/` (`fiftycm/position.csv`,
-`pivots/analysis_output.txt`, `square/closure.csv`,
-`circle/closure_radial.csv`).
+the position path with no `SET`. `speed_path` stays 0 (`speedpath/wheels_summary.csv`). Per-robot kernel constants are baked in the robot
+config files with a capture citation beside each; zuvat bakes `decel` 1000
+and `stop_distance_mm` 0.3 (`kdefaults/kd_summary.csv`).
