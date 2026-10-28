@@ -61,6 +61,7 @@ need more than a line; a file with no section is fully described here.
 | `tour_practice.py` | repeated camera-scored runs from the start dot, repositioning between them, charting each. |
 | `tour_chart.py` | the standard two-panel matplotlib plot of a recording (x-y trajectory with closure, wheel speeds), with outlier hygiene. |
 | `square_closure.py` | per-lap start-to-end closure (mm) and heading residual (deg) of square-tour recordings, mean/worst per mode, markdown + CSV; ENCODER truth only. |
+| `square_progress.py` | one PNG progress gauge for the square tour: every lap of each set overlaid on the commanded square plus per-lap closure dots against the 11 mm target; ENCODER truth only. |
 | `practice_chart.py` | the per-run practice plot: one recorded tour against its camera track. |
 | `leg_analysis.py` | turns a recording into a per-leg believed-vs-commanded table with a classification per leg. |
 
