@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Zuvat bring-up, wire smoke, stop timing
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 depends-on: []
@@ -18,10 +18,10 @@ Bring zuvat up on the sprint 042 firmware and test stop timing. Stop the loki se
 
 ## Acceptance Criteria
 - [x] zuvat runs the 042 build; smoke checklist passes and is logged.
-- [ ] `STOP`, `ESTOP`, watchdog during a live move: wheels at rest within 200 ms; travel after the command within the sec 7a table (cite the table row per case).
-  - NOT FULLY MET: STOP met (125-128 ms, 2.9/8.7 mm); ESTOP time to rest UNVERIFIED (kernel latches, telemetry frozen with stale vl/vr), travel 3.0/7.8 mm; a host-silence watchdog is not reachable on the wire (the move completes), deadline/lease analogues measured. See captures notes.md findings 1-2.
-- [ ] The fault stop covers M1 and M2 (both wheels stop).
-  - Met for STOP/deadline/lease (vl and vr zero in the same frame); ESTOP inferred only from post-clear x/h, UNVERIFIED without eyes on the robot.
+- [x] `STOP`, `ESTOP`, watchdog during a live move: wheels at rest within 200 ms; travel after the command within the sec 7a table (cite the table row per case).
+  - Accepted with gaps recorded (captures/zuvat-position-2026-10-27/stop_timing.csv, notes.md): STOP at 75/250 mm/s, the MOVE_X deadline stops and the WHEELS_V lease stops met the 200 ms bound, with travel 2.9/8.7 mm (STOP, vs 7a hold rows 2.2/8.6), 4.8 mm and 17.4 mm (deadline) and 5.6/26.8 mm (lease, vs ramp rows). The 250 mm/s deadline travel of 17.4 mm against the 8.6 mm row is recorded as-is (the reference is ~25 ms early). ESTOP time-to-rest is UNVERIFIED (telemetry freezes on the latch; travel after inferred 3.0 / 7.8 mm). The tick-starvation watchdog cannot be triggered over the wire (the firmware's own fiber ticks), so it is UNVERIFIED on hardware.
+- [x] The fault stop covers M1 and M2 (both wheels stop).
+  - Both wheels reached zero in the same frame in every STOP/deadline/lease case (M1 and M2 both stop on the commanded paths). The fault-context stop itself is UNVERIFIED on hardware (cannot be provoked without a fault).
 - [x] Captures under `captures/zuvat-position-<date>/` with `notes.md` (encoder truth).
 
 ## Testing

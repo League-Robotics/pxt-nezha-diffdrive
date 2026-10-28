@@ -92,3 +92,11 @@ MOVE_X legs that brought the robot back to x~0 between cases (also valid data of
 `aborted_estop_trigger_not_armed.log` is a discarded run in which the harness never fired (trigger not
 armed); the move simply completed to x=599, then was returned (`return_8.log`).
 No PNG plots: matplotlib is not installed on this host.
+
+## Percent mapping
+30 % and 100 % were taken as 75 and 250 mm/s of v_max 250 mm/s (getall.log). 250 mm/s is the wire's ceiling (the kernel v_max), so "100 %" here is not the rig's 100 % duty.
+
+## Summary of UNVERIFIED items and i2cf (for the ticket record)
+- UNVERIFIED: ESTOP time to rest (telemetry freezes on the latch; travel after inferred 3.0 / 7.8 mm from the first x after estop_clear).
+- UNVERIFIED: the tick-starvation watchdog hard-stop; it cannot be triggered over the wire because the firmware's own fiber ticks (hostsilent_30.log shows the move completing). The fault-context stop is also UNVERIFIED (cannot be provoked without a fault).
+- i2cf growth: 2 to 4 per position move, 7 to 9 per 1.5 s of WHEELS_V, 117 by session end, wedge=0 throughout.
