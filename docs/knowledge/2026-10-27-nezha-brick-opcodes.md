@@ -19,6 +19,12 @@ and `sniff_detail1.log` (micro:bit brick to an ESP32 acting as a fake
 motor on M3, 2026-10-27); those logs are not copied here, so the opcode
 map below is cited to them but is not reproducible from this tree.
 
+Note (sprint 043): the `brickCmd`, `RUN brick`, `RUN brickx`, `brickraw`,
+`brickread` and `brickstop` handlers cited here as the measurement method were
+removed from `test/test.ts` in sprint 043. The text above is history. The
+surviving raw-brick probe path is in the sibling repo `nezha-esp32/tools`
+(`mb50.py`, `mb_probe.py`, `sniff.py`).
+
 ## 1. The units, stated once
 
 **The `0x77` value is degrees per second.** The vendor's MakeCode block
