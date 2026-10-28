@@ -1,0 +1,18 @@
+device NEZHA2 robot zuvat 2708918799
+ack 1 54 stop
+ack 2 54 stop
+ack 3 54 stop
+ack 4 54 stop
+ack 5 54 stop
+ack 6 54 stop
+ack 7 54 stop
+get v_floor 70.000000
+ack 8 54 stop
+get decel 400.000031
+ack 9 54 stop
+get stop_distance 0.000000
+ack 10 54 stop
+get position_mode 0.000000
+ack 11 54 stop
+get v_max 250.000015
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1421 cyc=36802 tlm=off next=12 done=54 reason=stop wifi=0 radio=0 channel=60 group=64 posmove=0

@@ -1070,6 +1070,7 @@ _GEOMETRY_BAKE_RES = {
     'lag_s': re.compile(r'(float lag = )[-+0-9.eE]+(f;)'),
     'stop_distance_mm': re.compile(r'(float stopDistance = )[-+0-9.eE]+(f;)'),
     'accel': re.compile(r'(float accel = )[-+0-9.eE]+(f;)'),
+    'decel': re.compile(r'(float decel = )[-+0-9.eE]+(f;)'),
 }
 
 # Which `src/motion/*.h` file each `_GEOMETRY_BAKE_RES` key's regex
@@ -1086,6 +1087,7 @@ _GEOMETRY_BAKE_FILES = {
     'lag_s': 'motion_limits.h',
     'stop_distance_mm': 'motion_limits.h',
     'accel': 'motion_limits.h',
+    'decel': 'motion_limits.h',
 }
 
 # OLD bake key -> NEW bake key, for a robot config that has not yet been
@@ -1295,6 +1297,11 @@ def _inject_geometry(deploy_dir, robot):
             f.write(text)
         applied.extend(file_applied)
     return applied
+
+
+# `decel` -- MotionLimits::decel (motion_limits.h), the dominant-wheel
+# decel ceiling; fleet default 400.0f unchanged. A robot bakes it only
+# with its own capture path in the robot config's provenance note.
 
 
 # ---- per-robot motor mapping bake ----------------------------------------

@@ -115,3 +115,21 @@ def test_unknown_tour_name_is_rejected_by_argparse(monkeypatch, tmp_path):
 
     with pytest.raises(SystemExit):
         tour_capture.main()
+
+
+def test_run_flag_sends_the_given_run_line(monkeypatch, tmp_path):
+    fake = _run_main(monkeypatch, tmp_path, ['--run', 'square 50'])
+
+    assert fake.sent_until == ['RUN square 50']
+
+
+def test_set_flag_sends_set_lines_before_the_run(monkeypatch, tmp_path):
+    sent = []
+    monkeypatch.setattr(tour_capture.time, 'sleep', lambda s: None)
+    monkeypatch.setattr(FakeLink, 'send',
+                        lambda self, line, repeat=1: sent.append(line))
+    fake = _run_main(monkeypatch, tmp_path,
+                     ['--run', 'square 50', '--set', 'position_mode=1'])
+
+    assert 'SET position_mode 1' in sent
+    assert fake.sent_until == ['RUN square 50']

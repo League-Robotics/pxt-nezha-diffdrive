@@ -1,0 +1,75 @@
+0.0132 < t 19 104288 31 100 1 0 0 0 0 0 0 4
+0.0506 < DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=2 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=0 trunc=0 join=- haspw=1 ssid=Robot_Garage
+0.0693 < t 20 104344 31 100 1 0 0 0 0 0 0 4
+0.1276 < t 21 104400 31 100 1 0 0 0 0 0 0 4
+0.1836 < t 22 104456 31 100 1 0 0 0 0 0 0 4
+0.2403 < t 23 104512 31 100 1 0 0 0 0 0 0 4
+0.2955 < t 24 104568 31 100 1 0 0 0 0 0 0 4
+0.3067 > HELLO
+0.3585 > GET #1
+0.3586 < device NEZHA2 robot zuvat 2708918799
+0.3586 < t 25 104624 31 100 1 0 0 0 0 0 0 4
+0.4216 < ack 1 3 stop
+0.4216 < get max_duty 100.000008
+0.4216 < get full_duty_velocity 10795.000977
+0.4216 < get pid_kp 0.000000
+0.4216 < get pid_ki 6.000000
+0.4216 < get pid_i_max 765.600037
+0.4216 < get accel_kaff 0.000000
+0.4216 < get pid_max 1276.000000
+0.4216 < get twist_hold_gain 4.000000
+0.4216 < get v_floor 70.000000
+0.4216 < get pos_err_max 127.600006
+0.4216 < get stall_speed 191.400009
+0.4216 < get stall_demand 510.400024
+0.4216 < get stall_window 500.000031
+0.4216 < get lambda_enabled 0.000000
+0.4216 < get crawl_pulse 0.000000
+0.4216 < get default_cruise 150.000000
+0.4216 < get rotational_slip 0.969000
+0.4217 < get stall_clear 0.000000
+0.4217 < get stop_distance 0.000000
+0.4228 < get accel 400.000031
+0.4228 < get decel 400.000031
+0.4237 < get v_max 250.000015
+0.4246 < get jerk 0.000000
+0.4281 < get omega_max 0.000000
+0.4292 < get estop_clear 0.000000
+0.4324 < get omega_floor 20.000000
+0.4345 < get arrive_dist 1.000000
+0.4369 < get arrive_yaw 0.300000
+0.4425 < get lag 0.040000
+0.4425 < get straight_trim 0.000000
+0.4478 < get goto_timeout 0.000000
+0.4478 < get nudge_amplitude 15.000001
+0.4489 < get nudge_width 2.000000
+0.4512 < get nudge_settle 0.000000
+0.4531 < get onboard_pid 0.000000
+0.4551 < get onboard_floor 0.000000
+0.4586 < get wheel_scale_left 1.000000
+0.4609 < get wheel_scale_right 1.000000
+0.4641 < get motor_port_left 1.000000
+0.4670 < get motor_port_right 2.000000
+0.4701 < get wheel_diameter 90.899002
+0.4722 < get track_width 111.600006
+0.4743 < get twist_ff 1.000000
+0.4764 < get position_mode 1.000000
+0.4795 < get speed_path 0.000000
+0.4826 < t 26 104751 31 100 1 0 0 0 0 0 0 4
+0.5353 < t 27 104808 31 100 1 0 0 0 0 0 0 4
+0.5916 < t 28 104864 31 100 1 0 0 0 0 0 0 4
+0.6483 < t 29 104920 31 100 1 0 0 0 0 0 0 4
+0.7039 < t 30 104976 31 100 1 0 0 0 0 0 0 4
+0.7596 < t 31 105032 31 100 1 0 0 0 0 0 0 4
+0.8159 < t 32 105088 31 100 1 0 0 0 0 0 0 4
+0.8694 < t 33 105144 31 100 1 0 0 0 0 0 0 4
+0.9281 < t 34 105200 31 100 1 0 0 0 0 0 0 4
+0.9838 < thdr seq now flags x y h ox oy oh vl vr i2cf
+0.9859 < t 35 105256 31 100 1 0 0 0 0 0 0 4
+1.0403 < t 36 105312 31 100 1 0 0 0 0 0 0 4
+1.0961 < t 37 105368 31 100 1 0 0 0 0 0 0 4
+1.1515 < t 38 105424 31 100 1 0 0 0 0 0 0 4
+1.2081 < t 39 105480 31 100 1 0 0 0 0 0 0 4
+1.2650 < t 40 105536 31 100 1 0 0 0 0 0 0 4
+1.3198 < t 41 105592 31 100 1 0 0 0 0 0 0 4
+1.3743 < t 42 105648 31 100 1 0 0 0 0 0 0 4

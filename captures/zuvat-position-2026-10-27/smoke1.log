@@ -1,0 +1,56 @@
+0.3054 > HELLO
+0.3199 < device NEZHA2 robot zuvat 2708918799
+0.3640 > PING
+0.3802 < pong 81248
+0.4230 > ID
+0.4388 < id diffdrive zuvat 1.20261006.1 zuvat
+0.4820 > VER
+0.4920 < ver 1.20261006.1
+0.5361 > STATUS
+0.5614 < status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none wifi=0 radio=0 channel=60 group=64 posmove=0
+0.5946 > GET position_mode #1
+0.6114 < ack 1 0 none
+0.6144 < get position_mode 0.000000
+0.6471 > SET position_mode 1 #2
+0.6603 < ack 2 0 none
+0.7037 > GET position_mode #3
+0.7154 < ack 3 0 none
+0.7181 < get position_mode 1.000000
+0.7620 > GET speed_path #4
+0.7795 < ack 4 0 none
+0.7814 < get speed_path 0.000000
+0.8153 > TLM POSE #5
+0.8279 < ack 5 0 none
+0.8497 < thdr seq now flags x y h ox oy oh vl vr i2cf
+0.8497 < t 1 81712 0 0 0 0 0 0 0 0 0 0
+0.9044 < t 2 81768 0 0 0 0 0 0 0 0 0 0
+0.9611 < t 3 81824 0 0 0 0 0 0 0 0 0 0
+1.0201 < t 4 81880 0 0 0 0 0 0 0 0 0 0
+1.0757 < t 5 81936 0 0 0 0 0 0 0 0 0 0
+1.1260 < t 6 81992 0 0 0 0 0 0 0 0 0 0
+1.1847 < t 7 82048 0 0 0 0 0 0 0 0 0 0
+1.2405 < t 8 82104 0 0 0 0 0 0 0 0 0 0
+1.2934 < t 9 82160 0 0 0 0 0 0 0 0 0 0
+1.3525 < t 10 82216 0 0 0 0 0 0 0 0 0 0
+1.4091 < t 11 82272 0 0 0 0 0 0 0 0 0 0
+1.4654 < t 12 82328 0 0 0 0 0 0 0 0 0 0
+1.5210 < t 13 82384 0 0 0 0 0 0 0 0 0 0
+1.5792 < t 14 82440 0 0 0 0 0 0 0 0 0 0
+1.6332 < t 15 82496 0 0 0 0 0 0 0 0 0 0
+1.6875 < t 16 82552 0 0 0 0 0 0 0 0 0 0
+1.7443 < t 17 82608 0 0 0 0 0 0 0 0 0 0
+1.8008 < t 18 82664 0 0 0 0 0 0 0 0 0 0
+1.8559 < t 19 82720 0 0 0 0 0 0 0 0 0 0
+1.9119 < thdr seq now flags x y h ox oy oh vl vr i2cf
+1.9130 < t 20 82776 0 0 0 0 0 0 0 0 0 0
+1.9679 < t 21 82832 0 0 0 0 0 0 0 0 0 0
+2.0243 < t 22 82888 0 0 0 0 0 0 0 0 0 0
+2.0809 < t 23 82944 0 0 0 0 0 0 0 0 0 0
+2.1361 < t 24 83000 0 0 0 0 0 0 0 0 0 0
+2.1937 < t 25 83056 0 0 0 0 0 0 0 0 0 0
+2.2479 < t 26 83112 0 0 0 0 0 0 0 0 0 0
+2.3017 < t 27 83168 0 0 0 0 0 0 0 0 0 0
+2.3731 > STATUS
+2.3779 < t 28 83224 0 0 0 0 0 0 0 0 0 0
+2.4307 < status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=pose next=6 done=0 reason=none wifi=0 radio=0 channel=60 group=64 posmove=0
+2.4307 < t 29 83280 0 0 0 0 0 0 0 0 0 0

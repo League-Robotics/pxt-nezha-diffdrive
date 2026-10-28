@@ -324,6 +324,15 @@ namespace diffDrive {
      * a small distance with a big yaw runs one wheel backwards, a
      * negative distance drives the same arc in reverse, and a yaw
      * past 360 keeps going round. Waits until the move is done.
+     *
+     * A pure straight (yaw 0) or a pure turn on the spot (distance 0) runs through
+     * the motor's own position loop, so it lands on its encoder count
+     * (zuvat, encoder truth: 50 cm within 0.5 mm per wheel, 90 degree
+     * turns on the spot within 0.2 degree; captures/zuvat-position-2026-10-27/
+     * fiftycm/position.csv and the turns analysis). A curve
+     * (both set) is driven by the robot's own control loop instead.
+     * `position move mode` 0 puts straights and turns back on that
+     * control loop.
      * @param distance distance to travel, eg: 20
      * @param yaw angle to turn CCW+, eg: 0
      */
@@ -399,6 +408,9 @@ namespace diffDrive {
     /**
      * Drive a curved path to a point in robot coordinates, then stop.
      * x is forward, y is left. Waits until the move is done.
+     * The curved path is driven by the robot's own control loop; the
+     * motor's own position loop is used only for pure straights and
+     * pivots (see move()).
      * @param x forward distance, eg: 20
      * @param y leftward distance, eg: 10
      */
@@ -413,6 +425,8 @@ namespace diffDrive {
 
     /**
      * Start a move without waiting. Poll isMoving() / call stopMove().
+     * Routes like move(): a pure straight or pivot runs through the
+     * motor's own position loop, a curve through the control loop.
      * KNOWN GAP under the tick model: this poll pattern does not, by
      * itself, advance the move -- something must still call
      * driveTick() (or otherwise tick the control loop) concurrently,

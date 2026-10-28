@@ -259,8 +259,10 @@ struct Rig {
   uint32_t goToDeadline = 0;  // [ms]
   // position_mode (config ordinal 52): 0 kernel, 1 built-in position
   // move for straights and pivots, 2 for arcs too. Mirrored into
-  // MotionEngine::setPositionMode(), which does the routing.
-  int positionMode = 0;  // [0..2]
+  // MotionEngine::setPositionMode(), which does the routing. Seeded from
+  // the engine's own boot default so GET and the routing agree before
+  // any SET.
+  int positionMode = MotionEngine::kDefaultPositionMode;  // [0..2]
 
   // The go-to entry point's own yaw-rate ceiling
   // (engineSetGoToYawRate()/engineGoToRArmed() below) -- a SEPARATE

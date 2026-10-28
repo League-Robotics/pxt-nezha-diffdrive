@@ -1,0 +1,5 @@
+> HELLO
+device NEZHA2 robot zuvat 2708918799
+> GET position_mode #1
+ack 1 0 none
+get position_mode 1.000000

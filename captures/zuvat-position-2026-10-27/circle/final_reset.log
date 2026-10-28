@@ -1,0 +1,8 @@
+ 31 -157 246 924584 0 0 0 0 0 1068
+ack 3 9 stop
+ 31 -157 246 924584 0 0 0 0 0 1068
+ack 3 9 stop
+ 31 -157 246 924584 0 0 0 0 0 1068
+ack 3 9 stop
+ -157 246 924584 0 0 0 0 0 1068
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1068 cyc=21114 tlm=pose next=4 done=9 reason=stop wifi=0 radio=0 channel=60 group=64 posmove=0

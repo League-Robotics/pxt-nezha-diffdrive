@@ -242,7 +242,8 @@ struct WaHandle {
   // Plain stored fields, like the two above.
   float wheelScale[2] = {1.0f, 1.0f};  // [1] mirrors wheel_scale_left/right
   float motorPort[2] = {1.0f, 2.0f};   // [M1..M4] mirrors motor_port_left/right
-  float positionModeValue = 0.0f;   // [1] mirrors position_mode
+  float positionModeValue =
+      static_cast<float>(diffDrive::MotionEngine::kDefaultPositionMode);  // [1] mirrors position_mode
   float speedPathValue = 0.0f;      // [1] mirrors speed_path
   float wheelDiameter = 90.28f;        // [mm] mirrors wheel_diameter
   float trackWidth = 114.2f;           // [mm] mirrors track_width

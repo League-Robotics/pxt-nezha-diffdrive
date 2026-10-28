@@ -1,0 +1,22 @@
+{
+  "frames": 274,
+  "dropped": 5,
+  "loss_pct": 1.7921146953405018,
+  "orphan_frames": 8,
+  "malformed": 0,
+  "columns": [
+    "seq",
+    "now",
+    "flags",
+    "x",
+    "y",
+    "h",
+    "ox",
+    "oy",
+    "oh",
+    "vl",
+    "vr",
+    "i2cf"
+  ],
+  "duration": 19.868
+}

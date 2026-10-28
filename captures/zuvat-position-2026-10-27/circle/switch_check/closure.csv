@@ -1,0 +1,7 @@
+mode,lap,closure_mm,heading_deg,lap_s,i2cf_growth
+x,s0a,27.07,-7.480,11.57,4
+x,s2a,2.00,-0.470,9.02,57
+x,s2b,1.41,-0.470,9.05,57
+
+mode,n,closure_mean_mm,closure_worst_mm,heading_mean_abs_deg,heading_worst_abs_deg,lap_mean_s,i2cf_mean,target_11mm
+x,3,10.16,27.07,2.807,7.480,9.88,39.3,not met

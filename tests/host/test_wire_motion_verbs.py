@@ -4380,6 +4380,22 @@ def test_velocity_verb_cancels_a_routed_move(wa):
 
 
 
+def test_fresh_engine_routes_a_straight_without_any_set(wa):
+    """Boot default position_mode 1: no SET and no direct setter call."""
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.attach_position_ports()
+    wa.set_now_ms(1000)
+    wa.feed(b"GET position_mode #1\n")
+    assert b"1.000000" in wa.take_sink()
+    wa.feed(b"MOVE_X 200 0 150 5000 #2\n")
+    assert wa.take_sink() == _ack(2)
+    assert _routed(wa)
+    assert wa.position_move_active()
+    assert _status_posmove(wa) == b"1"
+
+
 def test_wire_set_position_mode_reaches_the_engine(wa):
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(1000.0)

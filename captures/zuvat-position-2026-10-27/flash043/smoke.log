@@ -1,0 +1,27 @@
+> HELLO
+device NEZHA2 robot zuvat 2708918799
+> ID
+id diffdrive zuvat 0.20261027.1 zuvat
+DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=0 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=0 trunc=0 join=- haspw=1 ssid=Robot_Garage
+> VER
+ver 0.20261027.1
+> FUNCS
+nack 1 0 none
+D> GET position_mode #1
+BG:wifi state=6 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=0 trunc=0 join=- haspw=1 ssid=Robot_Garage
+ack 1 0 none
+get position_mode 1.000000
+> GET speed_path #2
+ack 2 0 none
+get speed_path 0.000000
+> GET decel #3
+ack 3 0 none
+get decel 1000.000061
+> GET stop_distance #4
+ack 4 0 none
+get stop_distance 0.300000
+> STOP #5
+ack 5 0 none
+> STATUS
+status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 flags=31 i2cf=1 cyc=1 tlm=off next=6 done=0 reason=none wifi=0 radio=0 channel=60 group=64 posmove=0
+DBG:wifi state=1 ip=- peer=-:0 tcp=0/0 to=4 restarts=1 sent=0 rx=0 drop=0 mdns=0/0 cmd=AT+CWMODE=1 reply= credsrc=0 trunc=0 join=- haspw=1 ssid=Robot_Garage

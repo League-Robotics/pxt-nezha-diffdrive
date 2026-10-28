@@ -1,0 +1,13 @@
+mode,lap,closure_mm,heading_deg,lap_s,i2cf_growth
+1,m1_lap1,6.08,2.430,15.48,62
+1,m1_lap2,3.16,-0.380,15.05,39
+1,m1_lap3,5.39,-0.530,15.05,36
+1,m1_lap4,2.83,-0.460,14.98,39
+1,m1_lap5,2.24,-0.380,15.00,41
+0,m0_lap1,13.89,1.990,17.09,9
+0,m0_lap2,14.42,1.440,17.21,38
+0,m0_lap3,7.00,-0.030,17.23,29
+
+mode,n,closure_mean_mm,closure_worst_mm,heading_mean_abs_deg,heading_worst_abs_deg,lap_mean_s,i2cf_mean,target_11mm
+1,5,3.94,6.08,0.836,2.430,15.11,43.4,met
+0,3,11.77,14.42,1.153,1.990,17.18,25.3,not met

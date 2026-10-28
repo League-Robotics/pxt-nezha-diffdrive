@@ -277,7 +277,7 @@ class SimRobot:
                  # --- tovez motor bake: left = port 2 (-1), right = port 1
                  left_port=2, left_sign=-1, right_port=1, right_sign=1,
                  ground_gain_1=1.0, ground_gain_2=1.0,
-                 settle_ticks=16, jerk=0.0, position_mode=0):
+                 settle_ticks=16, jerk=0.0, position_mode=None):
         self.f = lib
         cpm = 10.0 / travel_calib  # [counts/mm]
         self.cpm = cpm
@@ -292,7 +292,9 @@ class SimRobot:
         lib.srConfigureShaping(self.h, output_deadband, reversal_dwell,
                                slew_rate, write_throttle)
         lib.srSetGroundGains(self.h, ground_gain_1, ground_gain_2)
-        lib.srSetPositionMode(self.h, position_mode)
+        # None leaves the engine at its own boot default (no SET).
+        if position_mode is not None:
+            lib.srSetPositionMode(self.h, position_mode)
         assert lib.srBegin(self.h) == 0, "kernel.begin() refused"
         # Ticks spent at commanded zero between moves. NOT cosmetic:
         # `writeShapedDuty()` CREDITS time already spent at commanded
