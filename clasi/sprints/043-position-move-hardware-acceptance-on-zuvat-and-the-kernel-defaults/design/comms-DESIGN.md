@@ -53,3 +53,14 @@ straights and pivots, 2 built-in for arcs too; default 0) and
 `MOVE_X`, `GO_TO_R/W` use `PositionMove` when the mode allows and the
 composed board's ports `supportsPositionMove()`; `WHEELS_V`, `MOVE_V`
 never do. `STATUS` carries a position-move flag naming the path that ran.
+
+## Position-move defaults (sprint 043)
+
+Sprint 043 settles the baked defaults from hardware evidence (captures
+under `captures/zuvat-position-<date>/` and the bench 50 cm captures):
+`position_mode` becomes the accepted mode (1, or 2 if arcs pass) and
+`speed_path` follows its A/B. The text above (default 0 for both) is
+updated in ticket 009 only, and each default names its capture path.
+Per-robot kernel constants (`v_floor`, `decel`, `stop_distance`,
+`omega_floor`, `v_max`, `pid_ki`) are baked in the robot config files
+with a capture citation beside each (ticket 007).

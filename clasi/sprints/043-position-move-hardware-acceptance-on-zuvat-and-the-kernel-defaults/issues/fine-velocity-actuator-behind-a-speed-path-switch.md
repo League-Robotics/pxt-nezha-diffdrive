@@ -1,8 +1,9 @@
 ---
-status: done
-sprint: '042'
+status: in-progress
+sprint: '043'
 tickets:
 - 042-005
+- 043-006
 ---
 
 # Fine velocity actuator through the brick, behind a `speed_path` switch

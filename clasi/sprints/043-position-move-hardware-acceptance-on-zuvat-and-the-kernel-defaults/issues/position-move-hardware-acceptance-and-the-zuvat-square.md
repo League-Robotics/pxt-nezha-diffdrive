@@ -1,6 +1,12 @@
 ---
-status: pending
+status: in-progress
 sprint: '043'
+tickets:
+- 043-001
+- 043-002
+- 043-003
+- 043-004
+- 043-005
 ---
 
 # Hardware acceptance of position moves: bench 50 cm, then a square tour on zuvat

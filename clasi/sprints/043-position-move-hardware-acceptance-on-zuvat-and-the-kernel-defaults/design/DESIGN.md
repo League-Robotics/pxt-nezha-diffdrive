@@ -857,3 +857,14 @@ host-side parser. `DIAG` is retired with no replacement — a recorder
 that wants wheel speeds reads `vl`/`vr` out of the telemetry frame,
 which needs no calibration constant and survives the radio, where
 mid-move polling is forbidden outright.
+
+## Hardware acceptance tooling (sprint 043)
+
+`tools/mb50.py` is ported from `nezha-esp32/tools/` into this repo as the
+one-wheel bench driver. `--mode position` drives `MOVE_X` under
+`SET position_mode 1` and reads `posmove` from `STATUS` mid-move to
+confirm the path; after the `RUN brick*` scaffolding is removed it uses
+only real verbs. Zuvat square captures reuse `tour_capture.py` and
+`tour_chart.py`; a small closure-metrics helper (start-to-end distance and
+heading residual per lap) is added beside them. Encoder truth only on
+zuvat (no camera), labelled as such in every output.

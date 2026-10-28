@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '043'
+tickets:
+- 043-007
 ---
 
 # Kernel defaults for the modes that stay on the kernel

@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '043'
+tickets:
+- 043-008
 ---
 
 # Remove the `RUN brick*` probe scaffolding from the test program

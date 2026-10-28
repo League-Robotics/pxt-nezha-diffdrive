@@ -1,6 +1,8 @@
 ---
-status: pending
+status: in-progress
 sprint: '043'
+tickets:
+- 043-009
 ---
 
 # Flip the position-move defaults on the evidence and document the new move
