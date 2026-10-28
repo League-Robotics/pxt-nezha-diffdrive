@@ -1,9 +1,13 @@
 ---
 id: '007'
 title: Kernel defaults baked from the evidence
-status: open
-use-cases: [SUC-004]
-depends-on: ["001","004","006"]
+status: in-progress
+use-cases:
+- SUC-004
+depends-on:
+- '001'
+- '004'
+- '006'
 github-issue: ''
 issue: kernel-defaults-from-the-fifty-cm-evidence.md
 completes_issue: true
