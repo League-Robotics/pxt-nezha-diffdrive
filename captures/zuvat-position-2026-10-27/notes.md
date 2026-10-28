@@ -476,3 +476,97 @@ Accepted as done. The 1.2 s bar came from the bench rig at 100 % duty (about 115
 decision for ticket 007 and the stakeholder. Findings recorded above: stale `v_max` 200 (a live SET from an earlier
 session survived; kernel set rerun at 250) and kernel trial-6 outlier (L -11.76 / R +11.64 mm, i2cf +22,
 `fiftycm/kernel_75_6.csv`).
+
+# Ticket 006: speed_path A/B (zuvat, 2026-10-27)
+
+Scope change: the one-wheel bench rig no longer exists (its micro:bit is zuvat), so "both rigs" collapses to zuvat and the
+per-rig table is a per-path table on zuvat. Everything is ENCODER truth (TLM FULL `posl`/`posr` raw counts, 0.079322 mm/count;
+heading from (dR-dL)/111.6 mm, zuvat.json trackwidth placeholder, so heading is UNVERIFIED in absolute terms but comparable
+between paths). Driver `speedpath/sp_run.py`, analysis `speedpath/sp_analyze.py`, raw per-run CSVs in `speedpath/`
+(`wheels_p<path>_<speed>_<dir>.csv`, `leg_p<path>_<i>_<dir>.csv`, `refresh_p1_120.csv`), summaries `speedpath/wheels_summary.csv`,
+`speedpath/legs_summary.csv`, `speedpath/refresh_p1_120_speed.csv`, tables `speedpath/tables.md`.
+`speed_path` was read back (GET) at the start of every block (`sp_run.py` asserts it). WHEELS_V grammar: `WHEELS_V L R duration_ms #n`,
+duration is the lease (`src/comms/wire_handler.cpp` execWheelsV, ceiling 5000 ms); each hold used a 2400 ms lease and a STOP at about
+2.0 s, so the lease never expired during a hold. Directions alternated (fwd then rev) so the robot stays in place.
+
+## 1. WHEELS_V hold, 5 speeds x 2 directions per path (steady window = onset+0.7 s .. +1.5 s; speeds in mm/s per wheel)
+Mean = encoder displacement / device time over the window. sd = sd of the TLM `vl`/`vr` frames in the window (about 56 ms apart).
+`min` = lowest per-frame encoder speed in the window. "stall frames" = frames with zero count change on that wheel while running
+(-1 = the wheel never moved). i2cf = growth over the whole run (STOP and settle included). Source: `speedpath/wheels_summary.csv`.
+
+| path | cmd mm/s | dir | mean L | mean R | err L | err R | sd L (tlm) | sd R (tlm) | min L / R | stall frames L/R | i2cf |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 40 | fwd | 4.2 | 0.0 | -35.8 | -40.0 | 9.2 | 0.0 | 0.0 / 0.0 | 18/25 | 81.0 |
+| 0 | 40 | rev | 0.0 | 0.0 | -40.0 | -40.0 | 0.0 | 0.0 | 0.0 / 0.0 | -1/-1 | 80.0 |
+| 0 | 70 | fwd | 70.2 | 71.6 | 0.2 | 1.6 | 5.4 | 7.0 | 56.2 / 57.3 | 0/0 | 16.0 |
+| 0 | 70 | rev | 78.0 | 60.3 | 8.0 | -9.7 | 16.5 | 15.7 | 51.3 / 36.1 | 5/0 | 31.0 |
+| 0 | 120 | fwd | 120.4 | 119.9 | 0.4 | -0.1 | 9.9 | 8.0 | 103.8 / 99.5 | 0/0 | 2.0 |
+| 0 | 120 | rev | 119.0 | 117.9 | -1.0 | -2.1 | 10.1 | 10.3 | 102.8 / 95.2 | 0/0 | 5.0 |
+| 0 | 200 | fwd | 201.7 | 200.5 | 1.7 | 0.5 | 7.2 | 7.7 | 164.4 / 168.7 | 0/0 | 1.0 |
+| 0 | 200 | rev | 201.2 | 199.6 | 1.2 | -0.4 | 5.7 | 9.7 | 168.7 / 168.7 | 0/0 | 3.0 |
+| 0 | 250 | fwd | 253.4 | 252.3 | 3.4 | 2.3 | 9.6 | 9.7 | 216.3 / 215.9 | 0/0 | 1.0 |
+| 0 | 250 | rev | 253.4 | 253.6 | 3.4 | 3.6 | 7.1 | 7.6 | 220.3 / 219.2 | 0/0 | 3.0 |
+| 1 | 40 | fwd | 38.4 | 33.2 | -1.6 | -6.8 | 14.4 | 19.5 | 26.8 / 13.4 | 0/0 | 10.0 |
+| 1 | 40 | rev | 39.1 | 41.4 | -0.9 | 1.4 | 18.7 | 12.0 | 28.1 / 25.4 | 0/0 | 4.0 |
+| 1 | 70 | fwd | 70.6 | 72.2 | 0.6 | 2.2 | 35.7 | 34.0 | 29.9 / 37.4 | 0/0 | 4.0 |
+| 1 | 70 | rev | 74.3 | 71.4 | 4.3 | 1.4 | 31.5 | 26.4 | 37.4 / 28.4 | 0/0 | 1.0 |
+| 1 | 120 | fwd | 120.9 | 116.1 | 0.9 | -3.9 | 31.9 | 41.0 | 79.3 / 70.3 | 0/0 | 2.0 |
+| 1 | 120 | rev | 119.3 | 116.5 | -0.7 | -3.5 | 37.8 | 45.5 | 74.8 / 67.3 | 0/0 | 4.0 |
+| 1 | 200 | fwd | 183.4 | 179.2 | -16.6 | -20.8 | 77.7 | 76.6 | 101.5 / 98.8 | 0/0 | 2.0 |
+| 1 | 200 | rev | 180.9 | 185.3 | -19.1 | -14.7 | 65.1 | 59.8 | 119.7 / 104.8 | 0/0 | 2.0 |
+| 1 | 250 | fwd | 228.6 | 216.3 | -21.4 | -33.7 | 87.8 | 85.3 | 133.2 / 116.7 | 0/0 | 2.0 |
+| 1 | 250 | rev | 232.5 | 229.2 | -17.5 | -20.8 | 56.4 | 53.8 | 145.2 / 116.7 | 0/0 | 2.0 |
+
+Findings (wheels):
+- Path 0 (0x60 integer percent) holds 70..250 mm/s to within 0.2..3.6 mm/s (mean), sd 5..10 mm/s, no stalls, except 70 mm/s reverse
+  (L 78.0 / R 60.3, sd 16, 5 stall frames on L) and **40 mm/s, which does not run at all**: forward L 4.2 / R 0.0 mm/s
+  (net 19 mm / 0.2 mm), reverse zero on both wheels. i2cf grew by 81 and 80 in those two runs against 1..5 elsewhere, so the
+  too-low command also floods the bus with faults (not diagnosed).
+- Path 1 (0x77 + 0x70 mode 3) runs 40 mm/s (mean 33..41, err -6.8..+1.4) and 70 mm/s, which path 0 cannot do at 40. But its
+  speed is far less steady: sd 14..45 at 40..120 and 54..88 at 200..250 against 5..10 on path 0, per-frame speed swings
+  between roughly half and 1.7x the command, and above 120 it under-delivers: 200 mm/s gives 179..185 (err -15..-21), 250 gives
+  216..233 (err -17..-34). No frame with a wheel at zero in any path-1 run (stall frames 0, `speedpath/wheels_summary.csv`).
+- i2cf growth: path 0 1..5 per run (excluding the sub-floor 40 runs and the 70 rev run: 16 and 31); path 1 1..10 per run.
+  Path 1 does not cost more faults per run than path 0, so the two-frames-per-change plus refresh traffic is not visible in i2cf.
+
+## 2. 600 mm kernel legs (`MOVE_X +-600 0 150 8000`, position_mode 0), 6 per path, alternating direction
+Source: `speedpath/legs_summary.csv`. Travel L/R from posl/posr (`speedpath/leg_p*_*.csv`). Heading = encoder-derived, lateral =
+deviation in the start-heading frame (y), both ENCODER truth.
+
+| path | leg | dir | travel L | travel R | err L | err R | heading deg | lateral mm | time ms | i2cf |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 0 | fwd | 603.32 | 600.63 | +3.32 | +0.63 | -1.39 | -5.7 | 4254.0 | 1.0 |
+| 0 | 1 | rev | 603.96 | 600.23 | +3.96 | +0.23 | +1.91 | -10.5 | 4254.0 | 0.0 |
+| 0 | 2 | fwd | 603.72 | 600.23 | +3.72 | +0.23 | -1.79 | -10.1 | 4307.0 | 1.0 |
+| 0 | 3 | rev | 603.96 | 600.23 | +3.96 | +0.23 | +1.91 | -11.7 | 4254.0 | 0.0 |
+| 0 | 4 | fwd | 604.20 | 598.48 | +4.20 | -1.52 | -2.93 | -21.1 | 4254.0 | 2.0 |
+| 0 | 5 | rev | 604.20 | 600.63 | +4.20 | +0.63 | +1.83 | -12.0 | 4307.0 | 0.0 |
+| 1 | 0 | fwd | 602.85 | 601.26 | +2.85 | +1.26 | -0.81 | -10.3 | 4595.0 | 0.0 |
+| 1 | 1 | rev | 604.83 | 599.28 | +4.83 | -0.72 | +2.85 | -25.1 | 4541.0 | 2.0 |
+| 1 | 2 | fwd | 603.24 | 600.15 | +3.24 | +0.15 | -1.59 | -16.2 | 4598.0 | 0.0 |
+| 1 | 3 | rev | 604.35 | 599.99 | +4.35 | -0.01 | +2.24 | -17.3 | 4493.0 | 2.0 |
+| 1 | 4 | fwd | 602.85 | 600.47 | +2.85 | +0.47 | -1.22 | -8.8 | 4598.0 | 2.0 |
+| 1 | 5 | rev | 605.54 | 598.88 | +5.54 | -1.12 | +3.42 | -26.9 | 4421.0 | 1.0 |
+
+path 0: heading mean abs 1.96 deg, lateral mean abs 11.8 mm, err L +3.89 R +0.07, time 4272 ms, i2cf mean 0.7
+path 1: heading mean abs 2.02 deg, lateral mean abs 17.4 mm, err L +3.94 R +0.00, time 4541 ms, i2cf mean 1.2
+
+Findings (legs): final distance error is the same on both paths (L about +3.9 mm, R about 0 mm; a constant left-versus-right count
+scale offset, not a speed_path effect). Heading change over the leg is about 2 deg on both paths (forward legs drift negative,
+reverse legs positive, so it is a path-independent mechanical or encoder-scale bias). Lateral deviation is worse on path 1 (mean abs 17.4 mm
+vs 11.8 mm). Path 1 legs take about 270 ms longer (4541 vs 4272 ms) because of the slower, rougher speed. i2cf growth 0..2 per leg on both.
+
+## 3. Explicit refresh check: WHEELS_V 120 120 3600, held ~3 s, path 1 (`speedpath/refresh_p1_120.csv`, `speedpath/refresh_p1_120_speed.csv`)
+Run 2977 ms from first motion to last, 68 frames. In the steady part (0.3..2.7 s, 41 frames) the lowest per-frame encoder speed was
+L 61.4 / R 49.4 mm/s against 120 commanded and never zero; the speed varies 50..210 mm/s frame to frame with no visible period matching the
+400 ms refresh. Verdict: the 400 ms bare 0x70 refresh does keep the motor running (no stall, no zero frame), but speed ripples by about +-50 %
+within and between refreshes, so "never drops" holds only in the sense of never stopping.
+
+## Decision line
+`speed_path` default stays 0. Path 1 is clearly better in one place only (40 mm/s, where path 0 does not run and floods the bus),
+and it is stall-free, but it is noticeably worse everywhere else (speed sd 3 to 8 times larger, 10 to 14 percent low at 200..250 mm/s,
+17.4 vs 11.8 mm lateral on a 600 mm leg, 270 ms slower), and equal on final distance and heading. Not "clearly better". Ticket 009
+keeps the default 0; path 1 is worth offering as the explicit fine-speed option below v_floor only. Bar not met / nothing tuned.
+
+## Restored state
+`speedpath/restore_readback.log`: speed_path 0, position_mode 0, v_max 250, v_floor 70, decel 400, stop_distance 0, TLM off, `active=0 posmove=0`.
