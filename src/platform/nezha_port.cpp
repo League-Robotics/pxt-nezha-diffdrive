@@ -252,6 +252,7 @@ bool NezhaMotorPort::beginMove(float delta, float degPerSec) {
   moveTarget_ = lastPosition_ + lastMove_;
   moveLive_ = true;
   stopHold_ = false;
+  speedRunning_ = false;  // the mode 2 move supersedes any timed run
   moveRestTicks_ = 0;
   moveLastPosition_ = lastPosition_;
   // The move supersedes whatever 0x60 the wheel was running: the
@@ -271,6 +272,7 @@ bool NezhaMotorPort::hardStop() {
     return false;  // latch stays: the move may still be running
   }
   moveLive_ = false;
+  speedRunning_ = false;
   // The brick brings the wheel to rest itself; a 0x60 0 while it is
   // still above rest would turn the hard stop into a ramp and drop the
   // hold (doc section 3 rule 1), so stopNotTaken stands down until the
@@ -357,6 +359,11 @@ void NezhaMotorPort::writeRawDuty(float duty, uint64_t now,  // [-1,1] [us]
   if (stopping) {
     dutyCarry_ = 0.0f;
     pct = 0;
+  } else if (speedPath_ == 1) {
+    // speed_path 1 bypasses the dither: the 0x77 field is 1 deg/s wide
+    // (0.087 %), so the sigma-delta carry has nothing to add.
+    dutyCarry_ = 0.0f;
+    pct = static_cast<int>(std::lround(duty * 100.0f));
   } else {
     float wanted = clampf(duty * 100.0f + dutyCarry_, -100.0f, 100.0f);
     pct = static_cast<int>(std::lround(wanted));
@@ -368,7 +375,15 @@ void NezhaMotorPort::writeRawDuty(float duty, uint64_t now,  // [-1,1] [us]
   // its last speed and one lost zero write is permanent.
   const bool stopNotTaken =
       pct == 0 && !stopHold_ && std::fabs(velocity_) > kStopConfirmVelocity;
-  if (pct == lastWritten_ && !stopNotTaken) return;
+  bool refreshOnly = false;  // speed_path 1: keep the timed run alive
+  if (pct == lastWritten_ && !stopNotTaken) {
+    if (speedPath_ == 1 && !stopping && pct != 0 && speedRunning_ &&
+        now - lastTimedWrite_ >= kTimedRefresh) {
+      refreshOnly = true;
+    } else {
+      return;
+    }
+  }
 
   // Min-write throttle -- stop writes always bypass it.
   if (!stopping && writeThrottle_ > 0.0f &&
@@ -384,6 +399,56 @@ void NezhaMotorPort::writeRawDuty(float duty, uint64_t now,  // [-1,1] [us]
     const int maxStep = static_cast<int>(slewRate_);
     if (step > maxStep) pct = lastWritten_ + maxStep;
     else if (step < -maxStep) pct = lastWritten_ - maxStep;
+  }
+
+  if (speedPath_ == 1 && (stopping || pct == 0)) {
+    // Stop from speed is 0x5F; from at/below the kernel floor (or with
+    // no timed run outstanding) it stays 0x60 0, falling through below.
+    const int last = lastWritten_ == kNeverWritten ? 0 : lastWritten_;
+    if (speedRunning_ && (last > kStopFromSpeedFloor ||
+                          last < -kStopFromSpeedFloor)) {
+      if (writeBrickFrame(0, kRegHardStop, 0, 0xF5, 0)) {
+        lastWritten_ = 0;
+        lastWriteTime_ = now;
+        speedRunning_ = false;
+        stopHold_ = true;  // brick stops itself; no stopNotTaken 0x60 0
+      } else {
+        connected_ = false;
+      }
+      return;
+    }
+    speedRunning_ = false;
+    pct = 0;
+  }
+
+  if (speedPath_ == 1 && pct != 0) {
+    stopHold_ = false;
+    const int sp = pct * fwdSign_;
+    const uint8_t dir = sp >= 0 ? kDirCw : kDirCcw;
+    const int mag = sp >= 0 ? sp : -sp;
+    const int store = static_cast<int>(
+        std::lround(static_cast<float>(mag) * kDegPerSecPerPercent));
+    // 0x77 only when this port's stored speed changes; a 0x77 alone
+    // does not retarget (opcode doc section 3 rule 5), so 0x70 follows.
+    if (!refreshOnly && store != lastSpeedStore_) {
+      if (!writeBrickFrame(0, kRegSpeedStore,
+                           static_cast<uint8_t>(store >> 8), 0,
+                           static_cast<uint8_t>(store & 0xFF))) {
+        connected_ = false;
+        lastSpeedStore_ = -1;
+        return;
+      }
+      lastSpeedStore_ = store;
+    }
+    if (writeBrickFrame(dir, kRegMove, 0, kMoveModeTimed, kTimedRunUnits)) {
+      lastWritten_ = static_cast<int8_t>(pct);
+      lastWriteTime_ = now;
+      lastTimedWrite_ = now;
+      speedRunning_ = true;
+    } else {
+      connected_ = false;
+    }
+    return;
   }
 
   if (!stopping) stopHold_ = false;  // a real run command: the 0x60 path
@@ -590,6 +655,8 @@ void NezhaMotorPort::configureWiring(uint8_t port, int8_t fwdSign) {
   dwellStart_ = 0;
   moveLive_ = false;  // emergencyStop() above already sent the 0x5F
   stopHold_ = false;
+  speedRunning_ = false;
+  lastTimedWrite_ = 0;
   lastSpeedStore_ = -1;  // the 0x77 store is per port: unknown on the new one
   lastMove_ = 0.0f;
   moveRestTicks_ = 0;

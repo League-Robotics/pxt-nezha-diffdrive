@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: speed_path 1 in NezhaMotorPort (C3)
-status: in-progress
+status: done
 use-cases:
 - SUC-004
 depends-on:
@@ -34,9 +34,9 @@ C3, under decision D2: the fine-velocity actuator behind `speed_path`. This tick
 
 ## Acceptance Criteria
 
-- [ ] a ramp 0 -> 60 -> 0 % at `speed_path 1` yields the expected `0x77`/`0x70` pairs (each pair only on change) and exactly one `0x5F`
-- [ ] at `speed_path 0` the frame log is unchanged against the existing pin (find the pin among existing tests, e.g. the creep/dither tests, and keep it passing)
-- [ ] no `0x1D` frame anywhere
+- [x] a ramp 0 -> 60 -> 0 % at `speed_path 1` yields the expected `0x77`/`0x70` pairs (each pair only on change) and exactly one `0x5F`
+- [x] at `speed_path 0` the frame log is unchanged against the existing pin (find the pin among existing tests, e.g. the creep/dither tests, and keep it passing)
+- [x] no `0x1D` frame anywhere
 
 ## Testing
 

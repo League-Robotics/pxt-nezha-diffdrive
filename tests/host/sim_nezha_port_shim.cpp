@@ -71,6 +71,7 @@ void npTick(void* h) {
   r->port.tick(r->now);
   r->bus.step(static_cast<float>(kTickUs) / 1e6f);
 }
+void npSetSpeedPath(void* h, int p) { R(h)->port.setSpeedPath(p); }
 void npSetDuty(void* h, float d) { R(h)->port.setDuty(d); }
 void npEmergencyStop(void* h) { R(h)->port.emergencyStop(); }
 int npBeginMove(void* h, float delta, float dps) {
