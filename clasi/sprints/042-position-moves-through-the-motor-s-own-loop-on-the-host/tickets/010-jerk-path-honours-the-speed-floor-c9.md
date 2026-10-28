@@ -1,8 +1,9 @@
 ---
 id: '010'
 title: Jerk path honours the speed floor (C9)
-status: open
-use-cases: ["SUC-005"]
+status: in-progress
+use-cases:
+- SUC-005
 depends-on: []
 github-issue: ''
 issue: jerk-path-skips-the-speed-floor.md
