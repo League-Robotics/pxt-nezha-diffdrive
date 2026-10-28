@@ -1,9 +1,12 @@
 ---
 id: 008
 title: Remove RUN brick scaffolding
-status: open
-use-cases: [SUC-002]
-depends-on: ["001","002"]
+status: in-progress
+use-cases:
+- SUC-002
+depends-on:
+- '001'
+- '002'
 github-issue: ''
 issue: remove-the-run-brick-scaffolding.md
 completes_issue: true
