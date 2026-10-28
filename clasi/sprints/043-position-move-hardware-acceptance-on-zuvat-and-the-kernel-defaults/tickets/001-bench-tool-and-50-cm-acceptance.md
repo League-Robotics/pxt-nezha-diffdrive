@@ -1,8 +1,9 @@
 ---
 id: '001'
 title: Bench tool and 50 cm acceptance
-status: open
-use-cases: [SUC-002]
+status: in-progress
+use-cases:
+- SUC-002
 depends-on: []
 github-issue: ''
 issue: position-move-hardware-acceptance-and-the-zuvat-square.md
