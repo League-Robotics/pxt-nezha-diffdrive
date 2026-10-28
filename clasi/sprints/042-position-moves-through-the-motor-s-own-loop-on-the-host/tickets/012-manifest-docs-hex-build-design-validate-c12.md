@@ -1,9 +1,22 @@
 ---
 id: '012'
 title: Manifest, docs, hex build, design validate (C12)
-status: open
-use-cases: ["SUC-001", "SUC-005"]
-depends-on: ["001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011"]
+status: in-progress
+use-cases:
+- SUC-001
+- SUC-005
+depends-on:
+- '001'
+- '002'
+- '003'
+- '004'
+- '005'
+- '006'
+- '007'
+- 008
+- 009
+- '010'
+- '011'
 github-issue: ''
 issue: position-moves-through-the-motors-own-position-loop.md
 completes_issue: true
