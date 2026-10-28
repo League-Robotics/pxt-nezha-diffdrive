@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 ---
 
 # `tests/tools` is red on master after the canplay commit
