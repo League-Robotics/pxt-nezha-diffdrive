@@ -115,6 +115,9 @@ _CXX11_PORTABLE_SOURCES = [
     # something to compile.
     _TEST_DIR / "motion_owner_syntax_check.cpp",
     _TEST_DIR / "fiber_identity_syntax_check.cpp",
+    # core/position_motor.h (sprint 042 ticket 002): libc-only interface
+    # header, no natural .cpp, so a dedicated syntax-check unit.
+    _TEST_DIR / "position_motor_syntax_check.cpp",
     # comms/reply_backpressure.h (2026-09-13) has no pxt.h dependency --
     # the host-portable wait Protocol::writeWifi() uses so a long WiFi
     # reply is not cut off at the 8-slot transmit ring -- but no .cpp.
