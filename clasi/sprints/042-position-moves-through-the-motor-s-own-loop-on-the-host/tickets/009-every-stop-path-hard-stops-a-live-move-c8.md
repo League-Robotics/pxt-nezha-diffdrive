@@ -1,7 +1,7 @@
 ---
 id: 009
 title: Every stop path hard-stops a live move (C8)
-status: open
+status: in-progress
 use-cases:
 - SUC-002
 depends-on:
