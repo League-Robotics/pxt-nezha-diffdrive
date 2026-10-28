@@ -1,9 +1,12 @@
 ---
 id: '006'
 title: speed_path A/B on WHEELS_V and a kernel leg
-status: open
-use-cases: [SUC-004]
-depends-on: ["001","002"]
+status: in-progress
+use-cases:
+- SUC-004
+depends-on:
+- '001'
+- '002'
 github-issue: ''
 issue: fine-velocity-actuator-behind-a-speed-path-switch.md
 completes_issue: true
