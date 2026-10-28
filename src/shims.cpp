@@ -761,17 +761,21 @@ bool updateMove() {
 static constexpr uint32_t kNudgeTimeout = 20000;
 
 //%
-void beginNudgeWheels(int left, int right) {  // [mm] [mm]
+void beginNudgeWheels(int left, int right) {  // [0.01 mm] [0.01 mm]
   if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
-  const float distance = 0.5f * static_cast<float>(left + right);  // [mm]
+  // The shim boundary is int32, so the distance travels as hundredths
+  // of a millimetre; the engine takes float millimetres.
+  const float leftDist = static_cast<float>(left) / 100.0f;    // [mm]
+  const float rightDist = static_cast<float>(right) / 100.0f;  // [mm]
+  const float distance = 0.5f * (leftDist + rightDist);          // [mm]
   // Inverse of beginNudge()'s own yawTarget formula (motion_engine.h):
   // yawTarget = rotation * 0.5 * effectiveTrackWidth() * cpm, and the
   // SAME half-difference wheelsX() reduces onto yawTarget directly
   // (0.5*(right-left)*cpm) must come out equal, so
   // rotation = (right-left) / effectiveTrackWidth().
   const float rotation =                                          // [rad]
-      static_cast<float>(right - left) / r.engine.effectiveTrackWidth();
+      (rightDist - leftDist) / r.engine.effectiveTrackWidth();
   r.engine.beginNudge(distance, rotation, kNudgeTimeout);
 }
 

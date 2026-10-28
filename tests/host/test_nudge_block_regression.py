@@ -91,12 +91,18 @@ def _zero_origin(e, sample_time_us=1_000):
 
 
 def _begin_nudge_wheels(e, left_mm, right_mm, timeout_ms=20_000):
-    """Python restatement of shims.cpp's beginNudgeWheels(): distance is
+    """Python restatement of shims.cpp's beginNudgeWheels() as reached
+    from nudge(): the block scales mm by 100 onto the int32 shim
+    boundary and the shim divides by 100.0f. Distance is
     the mean of the two per-wheel requests, rotation is the inverse of
     beginNudge()'s own yawTarget formula (motion_engine.h) -- the exact
     formula this ticket's shim uses, so wheelsX()'s own half-difference
     reduction and beginNudge()'s (distance, rotation) pair agree on the
     SAME physical per-wheel target."""
+    left_hundredths = round(left_mm * 100)    # [0.01 mm] shim argument
+    right_hundredths = round(right_mm * 100)  # [0.01 mm] shim argument
+    left_mm = left_hundredths / 100.0
+    right_mm = right_hundredths / 100.0
     distance = 0.5 * (left_mm + right_mm)  # [mm]
     rotation = (right_mm - left_mm) / e.effective_track_width()  # [rad]
     e.begin_nudge(distance, rotation, timeout_ms)
@@ -240,3 +246,47 @@ def test_nudge_measured_rotation_reports_the_armed_delta_not_the_request(
         assert measured != _approx(requested_deg), (
             "nudgeMeasuredRotation() reported the REQUESTED angle, not "
             "the encoder-measured one")
+
+
+# ---- hundredths-of-a-mm shim boundary -----------------------------------
+
+import pathlib
+import re
+
+_SRC = pathlib.Path(__file__).resolve().parents[2] / "src"
+
+
+def test_half_mm_nudge_reaches_the_engine_as_50_hundredths(motion_lib):
+    assert round(0.5 * 100) == 50
+    with Engine(motion_lib) as e:
+        _ready(e)
+        _zero_origin(e)
+        distance, rotation = _begin_nudge_wheels(e, 0.5, 0.5)
+        assert distance == _approx(0.5)
+        assert rotation == _approx(0.0)
+        assert e.is_nudge_active()
+
+
+def test_whole_mm_nudge_gives_same_engine_inputs_as_before(motion_lib):
+    with Engine(motion_lib) as e:
+        _ready(e)
+        _zero_origin(e)
+        distance, rotation = _begin_nudge_wheels(e, 6.0, 2.0)
+        assert distance == _approx(4.0)
+        assert rotation == _approx(-4.0 / e.effective_track_width())
+
+
+def test_nudge_block_scales_to_hundredths_and_shim_divides_back():
+    motion_ts = (_SRC / "blocks" / "motion.ts").read_text()
+    assert "_beginNudgeWheels(Math.round(left * 100), "\
+        "Math.round(right * 100))" in motion_ts
+    shims = (_SRC / "shims.cpp").read_text()
+    m = re.search(r"void beginNudgeWheels\(int left, int right\) \{"
+                  r"\s*//\s*\[0\.01 mm\] \[0\.01 mm\]", shims)
+    assert m, "beginNudgeWheels() arity/unit comment is not hundredths"
+    body = shims[m.start():m.start() + 1500]
+    assert "static_cast<float>(left) / 100.0f" in body
+    assert "static_cast<float>(right) / 100.0f" in body
+    sim_ts = (_SRC / "blocks" / "sim.ts").read_text()
+    assert re.search(r"_beginNudgeWheels\(left: number, right: number\)"
+                     r": void \{\s*//\s*\[0\.01 mm\]", sim_ts)
