@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '042'
+tickets:
+- 042-001
 ---
 
 # The Nezha brick's opcode map and the measured tables belong in this repo

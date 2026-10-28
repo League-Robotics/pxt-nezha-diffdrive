@@ -1,5 +1,14 @@
 ---
-status: pending
+status: in-progress
+sprint: '042'
+tickets:
+- 042-002
+- 042-003
+- 042-004
+- 042-006
+- 042-007
+- 042-008
+- 042-012
 ---
 
 # Position moves through the motor's own position loop (brick 0x70), not the velocity kernel

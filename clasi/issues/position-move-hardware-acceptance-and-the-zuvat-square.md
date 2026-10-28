@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '043'
 ---
 
 # Hardware acceptance of position moves: bench 50 cm, then a square tour on zuvat

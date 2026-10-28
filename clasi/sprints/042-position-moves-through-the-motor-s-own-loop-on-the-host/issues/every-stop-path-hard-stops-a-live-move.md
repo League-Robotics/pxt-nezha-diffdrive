@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '042'
+tickets:
+- 042-009
 ---
 
 # Every stop path hard-stops a live move; the fault stop covers M1 to M4

@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '042'
+tickets:
+- 042-010
 ---
 
 # The jerk-limited path skips the speed floor and overshoots 13 mm at full speed

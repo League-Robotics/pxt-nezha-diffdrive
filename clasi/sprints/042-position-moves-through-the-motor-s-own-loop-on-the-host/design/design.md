@@ -210,7 +210,10 @@ Exactly two background fibers exist: the protocol loop and a
 starvation watchdog that port-level-stops the motors ~100–150 ms after
 the last tick if something still looks like it is driving. "The robot
 only moves while something ticks" is a system invariant, unchanged by
-this collapse. See `src/DESIGN.md` §8 for the full mechanism
+this collapse. It holds for position moves too: a move run by the
+motor's own position loop (`position_mode` 1 or 2) would finish by
+itself, but a live one still counts as "driving", so the watchdog
+hard-stops it (`0x5F`) when the host stops ticking. See `src/DESIGN.md` §8 for the full mechanism
 (`dispatchJob()`, `_registerRunDispatch()`, the component diagram) and
 sprint 028's own record for the design rationale.
 

@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '042'
+tickets:
+- 042-011
 ---
 
 # `nudge()` and `beginNudgeWheels()` round to whole millimetres

@@ -1,5 +1,6 @@
 ---
 status: pending
+sprint: '043'
 ---
 
 # Remove the `RUN brick*` probe scaffolding from the test program
