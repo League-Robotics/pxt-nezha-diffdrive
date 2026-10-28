@@ -1,0 +1,46 @@
+PIVOT TABLE (ENCODER truth: odometry heading change at rest minus commanded; deg)
+mode cruise angle dir  n  mean_err  sd  worst|err|  peak_wheel_speed(max)  peak/cruise  lurch(>cruise)  lurch(>1.2*cruise)  mean_i2cf/run
+1 150 90 + 5 -0.11 0.00 0.11 241 1.61 yes yes 4.8
+1 150 90 - 5 +0.11 0.00 0.11 238 1.59 yes yes 4.0
+1 150 180 + 5 -0.17 0.00 0.17 221 1.47 yes yes 4.0
+1 150 180 - 5 +0.17 0.00 0.17 218 1.45 yes yes 5.0
+1 250 90 + 1 -0.11 nan 0.11 404 1.62 yes yes 6.0
+1 250 90 - 1 +0.11 nan 0.11 413 1.65 yes yes 4.0
+1 250 180 + 1 -0.25 nan 0.25 367 1.47 yes yes 5.0
+1 250 180 - 1 +0.25 nan 0.25 366 1.46 yes yes 4.0
+0 150 90 + 5 +0.33 0.21 0.53 185 1.23 yes yes 2.8
+0 150 90 - 5 -0.64 0.46 1.12 182 1.21 yes yes 3.2
+0 150 180 + 5 +0.78 0.58 1.30 185 1.23 yes yes 3.6
+0 150 180 - 5 -0.12 0.39 0.43 175 1.17 yes no 4.4
+0 250 90 + 1 +0.29 nan 0.29 192 0.77 no no 2.0
+0 250 90 - 1 +0.03 nan 0.03 192 0.77 no no 5.0
+0 250 180 + 1 +0.62 nan 0.62 268 1.07 yes no 3.0
+0 250 180 - 1 -1.05 nan 1.05 274 1.10 yes no 4.0
+
+LEG TABLE (600 mm, cruise 150; ENCODER truth)
+mode dir n  mean_dh(deg) sd  mean_lateral(mm,in start-heading frame) sd  worst|lat|  mean_x_err(mm)  peak_speed  i2cf/run
+1 fwd 3 -0.08 0.00 -2.7 0.8 3 -1.3 231 5.0
+1 rev 3 +0.04 0.07 -3.8 0.4 4 +1.7 212 6.0
+0 fwd 3 +1.05 2.35 +18.4 25.3 47 -3.3 185 2.3
+0 rev 3 +0.71 0.30 -8.7 4.4 13 +3.3 175 1.0
+leg {'mode': 1, 'val': 600.0, 'dx': -1.0, 'dy': -1.809055282161811, 'dyw': 30, 'h0': 3.04, 'dh': -0.08, 'pk': 202, 'i2': 4}
+leg {'mode': 1, 'val': -600.0, 'dx': 1.0, 'dy': -4.02168160993908, 'dyw': -35, 'h0': 2.96, 'dh': 0.08, 'pk': 212, 'i2': 6}
+leg {'mode': 1, 'val': 600.0, 'dx': -1.0, 'dy': -2.8076480361692546, 'dyw': 29, 'h0': 3.04, 'dh': -0.08, 'pk': 231, 'i2': 5}
+leg {'mode': 1, 'val': -600.0, 'dx': 2.0, 'dy': -4.073320378549134, 'dyw': -35, 'h0': 2.96, 'dh': -0.04, 'pk': 192, 'i2': 6}
+leg {'mode': 1, 'val': 600.0, 'dx': -2.0, 'dy': -3.4981061998897225, 'dyw': 27, 'h0': 2.92, 'dh': -0.08, 'pk': 195, 'i2': 6}
+leg {'mode': 1, 'val': -600.0, 'dx': 2.0, 'dy': -3.3303295570745703, 'dyw': -33, 'h0': 2.84, 'dh': 0.08, 'pk': 182, 'i2': 6}
+leg {'mode': 0, 'val': 600.0, 'dx': -3.0, 'dy': 47.48661879556231, 'dyw': 78, 'h0': 2.92, 'dh': 3.75, 'pk': 185, 'i2': 6}
+leg {'mode': 0, 'val': -600.0, 'dx': 3.0, 'dy': -8.13009813797413, 'dyw': -78, 'h0': 6.67, 'dh': 0.75, 'pk': 175, 'i2': 1}
+leg {'mode': 0, 'val': 600.0, 'dx': -3.0, 'dy': 1.240842246958536, 'dyw': 79, 'h0': 7.42, 'dh': -0.51, 'pk': 185, 'i2': 0}
+leg {'mode': 0, 'val': -600.0, 'dx': 3.0, 'dy': -4.61556645049501, 'dyw': -77, 'h0': 6.91, 'dh': 0.39, 'pk': 175, 'i2': 0}
+leg {'mode': 0, 'val': 600.0, 'dx': -4.0, 'dy': 6.596732008567571, 'dyw': 83, 'h0': 7.3, 'dh': -0.08, 'pk': 175, 'i2': 1}
+leg {'mode': 0, 'val': -600.0, 'dx': 4.0, 'dy': -13.389303914595487, 'dyw': -89, 'h0': 7.22, 'dh': 0.99, 'pk': 175, 'i2': 2}
+
+START SKEW (first frame where either wheel moves)
+mode 1: n=30 frames-until-both-wheels-moving: median 0.0 worst 1; first-frame min/max speed ratio median 0.91 worst(lowest) 0.01 p10 0.84; lag histogram {0: 29, 1: 1}
+   pivot: n=24 median lag 0.0 worst 1 median first-frame t after host send 0.096s
+   leg: n=6 median lag 0.0 worst 0 median first-frame t after host send 0.097s
+mode 0: n=30 frames-until-both-wheels-moving: median 1.0 worst 3; first-frame min/max speed ratio median 0.00 worst(lowest) 0.00 p10 0.00; lag histogram {2: 10, 1: 7, 0: 9, 3: 4}
+   pivot: n=24 median lag 2.0 worst 3 median first-frame t after host send 0.115s
+   leg: n=6 median lag 0.0 worst 2 median first-frame t after host send 0.112s
+i2cf first/last of session: [('183', '187')] 183

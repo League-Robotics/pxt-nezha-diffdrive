@@ -18,10 +18,11 @@ completes_issue: false
 On zuvat at `position_mode 1`: 90 deg and 180 deg pivots (both directions, several repeats each) and 600 mm straight legs; derive the two-wheel start skew (time between left and right wheel first motion) from v6 telemetry. Also record mid-leg twist (heading drift over a 600 mm leg) against the kernel's twist hold (`position_mode 0`, same leg) to decide whether straights need a correction. Use `tools/pivot_truth.py` / `tools/tour_capture.py` as suitable.
 
 ## Acceptance Criteria
-- [ ] Encoder-side pivot error within 0.5 deg for 90 and 180 deg, at least 5 repeats per angle and direction; no lurch (no wheel-speed spike > the commanded speed in the speed panel).
-- [ ] Two-wheel start skew under 10 ms from telemetry (give the median and worst).
-- [ ] 600 mm leg heading drift at mode 1 vs mode 0 recorded with a stated conclusion on whether a straight correction is needed.
-- [ ] Charts + CSVs + `notes.md` in the captures dir, labelled encoder truth.
+- [x] Encoder-side pivot error within 0.5 deg for 90 and 180 deg, at least 5 repeats per angle and direction (met at position_mode 1: worst 0.11/0.17 deg, ENCODER truth).
+- [ ] No lurch (no wheel-speed spike > the commanded speed in the speed panel). BAR NOT MET: mode 1 first sample 1.45-1.65 x cruise, plateau ~1.2 x (captures/zuvat-position-2026-10-27/pivots/, notes.md).
+- [ ] Two-wheel start skew under 10 ms from telemetry (give the median and worst). UNVERIFIED: 55-65 ms frames; supported bound one frame (29/30 runs both wheels in the first moving frame).
+- [x] 600 mm leg heading drift at mode 1 vs mode 0 recorded with a stated conclusion on whether a straight correction is needed.
+- [x] Charts + CSVs + `notes.md` in the captures dir, labelled encoder truth.
 
 ## Hardware rules (apply to every run in this ticket)
 
