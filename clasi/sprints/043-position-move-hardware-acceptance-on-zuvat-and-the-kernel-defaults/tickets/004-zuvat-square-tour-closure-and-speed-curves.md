@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: Zuvat square tour closure and speed curves
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
@@ -21,12 +21,12 @@ THE stakeholder deliverable (2026-10-27): "run a square tour with two motors and
 On zuvat run the square tour (`RUN:tour:square:<side>` from `test/test.ts` `squareTour`, 4 x tickedMove(side,0) + tickedMove(0,90); sides 50 or 60 cm) at `position_mode 0` and `position_mode 1`, at least 5 laps each (reset pose at the start of each lap or capture start/end per lap), captured with `tools/tour_capture.py --wifi 127.0.0.1`, charted with `tools/tour_chart.py` (`uv run --with numpy --with matplotlib`; x-y path with start-to-end closure and the wheel-speed panel). Copy the layout of `captures/vevov-square-20260829/`. Add a small helper (e.g. `tools/square_closure.py`, with a host test on a synthetic CSV) that computes, per lap: start-to-end distance (mm) and heading residual (deg), plus mean/worst across laps, and writes a comparison table (markdown + CSV). Run `position_mode 2` too if arcs are exercised in the same session (otherwise ticket 005).
 
 ## Acceptance Criteria
-- [ ] Per lap, per mode: closure distance (mm) and heading residual (deg), >= 5 laps per mode, in a CSV and a table in `notes.md`.
-- [ ] Comparison table mode 0 vs mode 1 (mean, worst) with a target line: closure better than 11 mm (the sprint 031 figure); state met / not met.
-- [ ] tour_chart PNGs for each mode showing the x-y path with closure and the left/right wheel-speed curves.
-- [ ] Every figure labelled ENCODER truth (no camera); a short note on what the encoders cannot see (wheel slip, trackwidth error).
-- [ ] Summary paragraph ready to paste into the sprint postmortem (ticket 009).
-- [ ] Helper has a passing host test.
+- [x] Per lap, per mode: closure distance (mm) and heading residual (deg), >= 5 laps per mode, in a CSV and a table in `notes.md`.
+- [x] Comparison table mode 0 vs mode 1 (mean, worst) with a target line: closure better than 11 mm (the sprint 031 figure); state met / not met.
+- [x] tour_chart PNGs for each mode showing the x-y path with closure and the left/right wheel-speed curves.
+- [x] Every figure labelled ENCODER truth (no camera); a short note on what the encoders cannot see (wheel slip, trackwidth error).
+- [x] Summary paragraph ready to paste into the sprint postmortem (ticket 009).
+- [x] Helper has a passing host test.
 
 ## Hardware rules (apply to every run in this ticket)
 

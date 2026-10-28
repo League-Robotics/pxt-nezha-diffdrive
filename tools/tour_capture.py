@@ -17,6 +17,7 @@ survives the radio where mid-move polling is forbidden outright.
 
 Usage:
   python3 tools/tour_capture.py [PORT] [--radio] [--tour world|robot|wheels]
+      [--run 'square 50'] [--set position_mode=1]
       [--timeout 60] [--out-prefix .tmp/tour]
 """
 import argparse
@@ -50,6 +51,16 @@ def main():
                          "close their loops on an IMU that never rotates "
                          "and an OTOS that never translates with the "
                          "wheels off the ground.")
+    ap.add_argument('--run', default=None, metavar='"VERB ARGS"',
+                    help="send `RUN <this>` instead of `RUN tour <name>` "
+                         "(for example --run 'square 50'); the tour "
+                         "verbs that announce themselves with DBG:tour= "
+                         "are the ones this recorder can wait on")
+    ap.add_argument('--set', dest='sets', action='append', default=[],
+                    metavar='KEY=VALUE',
+                    help="send `SET KEY VALUE` before the run and read "
+                         "it back with GET (repeatable), e.g. "
+                         "--set position_mode=1")
     ap.add_argument('--timeout', type=float, default=60.0)
     ap.add_argument('--out-prefix', default='.tmp/tour')
     a = ap.parse_args()
@@ -72,7 +83,11 @@ def main():
     # is anywhere near done, and a repeat does NOT hit the firmware's
     # re-entry guard: MessageBus events queue and run one after another,
     # so each resend runs the whole tour again.
-    cmd = f'RUN tour {a.tour}'
+    for kv in a.sets:
+        key, _, val = kv.partition('=')
+        link.send(f'SET {key} {val}')
+        time.sleep(0.3)
+    cmd = f'RUN {a.run}' if a.run else f'RUN tour {a.tour}'
     seen = link.send_until(cmd, 'DBG:tour=', tries=3, wait=6.0)
     if not any(x.startswith('DBG:tour=') for x in seen):
         print(f'  WARNING: no DBG:tour= receipt for {cmd} -- the tour may '

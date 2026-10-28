@@ -224,3 +224,76 @@ captures/, .tmp), so no doc fix was needed. This ticket's first probe sent 90 an
 Ticket accepted as done with two recorded gaps: no-lurch (literal >cruise not measurable at 55-65 ms frames; plateau
 17-23 % over cruise is common to both modes; mode 1 starts as a near-step; physical lurch UNVERIFIED) and start skew
 (10 ms UNVERIFIED; one-frame bound, 29/30 mode-1 runs both wheels in the first frame, mode 0 one wheel at zero in 21/30).
+
+---
+
+# Square tour closure and speed curves (zuvat, 042 build, 2026-10-27)
+
+Files (all in `square/`): per-lap raw recordings `m<mode>_lap<n>_tlm.csv` (+ `_pose.csv`, `_vel.csv`, `.meta.json`),
+scorer output `closure.csv` / `closure.md` (from `tools/square_closure.py`), lap-normalised copies in `norm/`,
+charts `m0_lap1_chart.png`, `m0_lap3_chart.png`, `m1_lap1_chart.png`, `m1_lap3_chart.png` (made by `tools/tour_chart.py`
+from the normalised CSVs: lap start at the origin, start heading 0, dashed = commanded 500 mm square), set/readback logs
+`m1_set.log`, `m0_check.log`, `m1_check.log`, `final_reset.log`.
+Run: `tools/tour_capture.py --wifi 127.0.0.1 --run 'square 50'` (new `--run` / `--set` flags), i.e. board `RUN square 50` =
+`squareTour(50)`: 4 x (500 mm straight, 90 deg left pivot), one lap per capture, 5 laps per mode, `STOP` between laps.
+Mode 0 laps: position_mode read back 0 (`m0_check.log`); mode 1: `SET position_mode 1`, read back 1 (`m1_set.log`,
+`m1_check.log`). The pose is NOT reset between laps (squareTour does not call resetPose), so each lap is scored on its own
+first and last telemetry frame (robot idle at both); the robot drifted physically over the session (odometry end of the
+last lap x=30, y=-39 mm from the session origin; the odometry frame is the robot's own, no floor reference). All laps ran CCW
+(the tour only turns left). After the runs: position_mode 0 (read back), TLM OFF (`final_reset.log`), robot idle.
+
+**Every figure below is ENCODER truth (kernel wheel odometry). No camera.** The encoders cannot see wheel slip or tyre scrub
+(the wheel turned but the chassis did not), nor a wrong trackwidth or `travel_calib`: zuvat's geometry is vevov's
+placeholder (trackwidth 111.6, travel_calib 0.79324), so a lap that closes in odometry can still fail to close on the floor
+by the same factor on every lap (a pure scale error cancels in a closed loop and stays invisible). Closure here says the
+two wheels' counts return to where they started, no more.
+
+## Per lap (closure.csv; closure = start-to-end distance in the odometry plane, residual = end heading - start heading mod 360)
+| mode | lap | closure [mm] | heading residual [deg] | lap time [s] | i2cf growth |
+|---|---|---|---|---|---|
+| 0 | 1 | 26.4 | +3.05 | 17.1 | 22 |
+| 0 | 2 | 3.2 | -0.22 | 17.3 | 24 |
+| 0 | 3 | 5.8 | +0.10 | 17.1 | 4 |
+| 0 | 4 | 8.6 | -0.57 | 17.1 | 16 |
+| 0 | 5 | 5.1 | -1.88 | 17.1 | 14 |
+| 1 | 1 | 3.6 | -0.65 | 14.9 | 34 |
+| 1 | 2 | 2.2 | -0.46 | 15.0 | 37 |
+| 1 | 3 | 1.0 | -0.41 | 15.0 | 35 |
+| 1 | 4 | 0.0 | -0.50 | 15.0 | 36 |
+| 1 | 5 | 2.2 | -0.29 | 15.0 | 37 |
+Lap time = first to last frame with a wheel above 5 mm/s (device clock). i2cf growth = counter at the lap's last frame minus
+its first frame.
+
+## Comparison, target closure better than 11 mm (the sprint 031 figure)
+| mode | laps | closure mean [mm] | closure worst [mm] | heading mean abs [deg] | heading worst abs [deg] | lap mean [s] | i2cf per lap | target < 11 mm |
+|---|---|---|---|---|---|---|---|---|
+| 0 (kernel) | 5 | 9.8 | 26.4 | 1.16 | 3.05 | 17.1 | 16.0 | MEAN met (9.8), WORST NOT MET (26.4, lap 1) |
+| 1 (brick position loop) | 5 | 1.8 | 3.6 | 0.46 | 0.65 | 15.0 | 35.8 | **MET** (every lap, worst 3.6) |
+The scorer's verdict column applies the target to the worst lap, so mode 0 reads "not met": four of five mode-0 laps close
+inside 11 mm (3.2 to 8.6), lap 1 does not (26.4 mm, 3.05 deg; it is the first lap after the earlier session, the 600 mm-leg
+outlier of the pivot ticket is the same kind of kernel twist-hold excursion). Mode 1 meets the target on all five laps and is
+~5x tighter on the mean; mode 1's heading residual is a consistent -0.3 to -0.65 deg (the same small undershoot seen at the
+pivots). Mode 1 laps are also 12 % faster (15.0 vs 17.1 s).
+
+## Speed curves (charts, `square/m*_lap*_chart.png`)
+Both modes cruise the 500 mm legs at about 200 to 220 mm/s per wheel (the plateau in the chart), and pivot with one wheel
+forward and one back at about 100 mm/s (the right wheel +, the left -). Mode 0 ramps up smoothly over ~0.5 s; mode 1 starts
+as a near-step and spikes above the plateau at the start of legs (per-lap peak of max(|vl|,|vr|): mode 1 261 to 278 mm/s,
+mode 0 222 to 241 mm/s, `m*_lap*_tlm.csv`), consistent with the pivot ticket's no-lurch finding (speeds from encoder
+differences over 55-65 ms frames; whether the chassis lurches is UNVERIFIED, no camera). Mode 0 telemetry dropped 5 frames
+per lap (1.8 %), mode 1 none (`*_tlm.meta.json`).
+
+## i2cf
+Per lap +4 to +24 at mode 0 (mean 16) and +34 to +37 at mode 1 (mean 35.8): the position path fails about twice as many I2C
+transactions per lap as the kernel path, again consistent with the pivot ticket. Counter 375 at the start of this block,
+634 at the end (`m1_check.log`); `wedge=0`, no stall. Known open issue, cause not diagnosed here.
+
+## Postmortem-ready summary
+On zuvat (042 build, two motors on M1/M2, 50 cm square, 5 CCW laps per mode, ENCODER truth only: odometry closure, no camera,
+no wheel-slip or trackwidth check, geometry is vevov's placeholder), the position-loop path (position_mode 1) closes the square
+to a mean of 1.8 mm and a worst of 3.6 mm start-to-end with a heading residual under 0.65 deg, meeting the 11 mm target on every
+lap; the kernel path (position_mode 0) closes to a mean of 9.8 mm and a worst of 26.4 mm (one lap of five outside the target,
+heading residual up to 3.05 deg), so it meets the target on the mean and four of five laps but not on the worst lap. Mode 1 is
+also faster per lap (15.0 vs 17.1 s) but starts legs with a near-step in wheel speed (peaks 261 to 278 mm/s over a ~210 mm/s
+plateau) and doubles the failed-I2C growth (35.8 vs 16.0 per lap, wedge stayed 0). These closure numbers say the wheel counts
+return to the start; they cannot show whether the floor square closes, which needs the camera or a tape measure.
