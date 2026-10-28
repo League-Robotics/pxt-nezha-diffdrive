@@ -87,9 +87,13 @@ bool OtosPort::begin() {
   // Zero the chip's scalar AND offset registers on every boot: the
   // chip is never power-cycled by an nRF reset, so it inherits
   // whatever an earlier session wrote (reference driver's measured
-  // 42.7 mm phantom-circle failure). Scalar 0 == scale 1.000.
+  // 42.7 mm phantom-circle failure). Scalar 0 == scale 1.000; the
+  // angular scalar is this robot's baked gain, 0.001 per LSB.
   writeReg8(kRegLinearScalar, 0);
-  writeReg8(kRegAngularScalar, 0);
+  long angular = std::lround((angularScale_ - 1.0f) / 0.001f);
+  if (angular > 127) angular = 127;
+  if (angular < -127) angular = -127;
+  writeReg8(kRegAngularScalar, static_cast<uint8_t>(static_cast<int8_t>(angular)));
   writePoseMm(kRegOffsetXl, 0.0f, 0.0f, 0.0f);
   writePoseMm(kRegPositionXl, 0.0f, 0.0f, 0.0f);
 

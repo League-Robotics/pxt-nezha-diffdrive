@@ -567,7 +567,7 @@ def test_onneutral_on_nudge_convergence(motion_lib):
 
 def test_phase_transitions_accel_cruise_brake_on_a_long_move_x(motion_lib):
     """A move long enough to reach cruise and hold it for a while (600 mm
-    at a 200 mm/s ceiling, against the default 400 mm/s^2 accel/decel)
+    at a 200 mm/s ceiling, against the default 200 mm/s^2 accel/decel)
     must show the phase sequence accel -> cruise -> brake, monotonic
     (never regressing from a later phase back to an earlier one, and
     reaching every one of the three at least once)."""
@@ -576,8 +576,8 @@ def test_phase_transitions_accel_cruise_brake_on_a_long_move_x(motion_lib):
     assert phases, "expected at least one onDrive() call across the move"
 
     assert PHASE_CRUISE in phases, (
-        "a 600 mm move at 200 mm/s cruise (vs ~94 mm of combined accel+"
-        "brake distance at the default 400 mm/s^2) must reach a genuine "
+        "a 600 mm move at 200 mm/s cruise (vs ~200 mm of combined accel+"
+        "brake distance at the default 200 mm/s^2) must reach a genuine "
         "cruise plateau"
     )
     assert PHASE_BRAKE in phases, "the move must brake to a stop somewhere"
@@ -595,7 +595,7 @@ def test_phase_transitions_accel_cruise_brake_on_a_long_move_x(motion_lib):
 def test_phase_never_reports_cruise_on_a_short_move_with_no_plateau(motion_lib):
     """A move short enough that the brake-to-stop ceiling (vBrake) is
     already below the cruise target on tick 1 -- 20 mm at 200 mm/s vs.
-    the default 400 mm/s^2 decel gives vBrake = sqrt(2*400*20) ~= 126
+    the default 200 mm/s^2 decel gives vBrake = sqrt(2*200*20) ~= 89
     mm/s < 200 -- must NEVER report kCruise: there is no speed the
     shaper ever settles at and holds, only a truncated ramp straight
     into the brake ceiling."""

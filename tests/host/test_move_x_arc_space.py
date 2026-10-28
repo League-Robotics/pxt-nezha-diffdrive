@@ -52,6 +52,7 @@ from test_goto_block_regression import (
 # residual, so 10 mm is generous everywhere in the gallery.
 _LANDING_TOLERANCE_MM = 10.0
 _HEADING_TOLERANCE_RAD = math.radians(1.0)
+_V_FLOOR_MM_S = 70.0
 
 
 def _arc_end(distance_mm, rotation_rad):
@@ -86,8 +87,12 @@ def test_move_x_lands_on_the_arc_endpoint(motion_lib, distance_mm,
             f"{label}: landed {miss:.1f} mm from the arc endpoint "
             f"({e.probe_x():.0f}, {e.probe_y():.0f}) vs "
             f"({expected_x:.0f}, {expected_y:.0f})")
+        # one floor-speed tick on the dominant wheel is the heading's own
+        # arrival window, wider than 1 deg on an arc tighter than b/2
+        dominant_radius = abs(distance_mm / rotation) + 0.5 * e.effective_track_width()
+        window = _V_FLOOR_MM_S * _PERIOD_MS / 1000.0 / dominant_radius
         assert e.probe_heading() == pytest.approx(
-            rotation, abs=_HEADING_TOLERANCE_RAD), label
+            rotation, abs=max(_HEADING_TOLERANCE_RAD, window)), label
 
 
 def test_move_x_never_produces_the_old_corner(motion_lib):

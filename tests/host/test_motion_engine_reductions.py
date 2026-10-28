@@ -200,13 +200,13 @@ class Engine:
         self.service_move()
         self.step()
 
-    def land_steady_state_hold(self, start_us=0, advance_us=1_000_000):
+    def land_steady_state_hold(self, start_us=0, advance_us=2_000_000):
         """For a continuous wheelsV()/moveV() hold: the CALLER must have
         set_clock(start_us) BEFORE issuing the wheelsV()/moveV() call
         (so Hold's own lastTickMs_ anchors there). Lands the shaper's
         STEADY-STATE command rather than its transient first tick, by
         giving its own first service() call a large `dt` (comfortably
-        past accel/decel=400 mm/s^2's own ramp time for any speed this
+        past accel/decel=200 mm/s^2's own ramp time for any speed this
         test tree commands) -- see this file's own module docstring for
         why a hold needs this now and _first_tick_duty_pair()'s own
         comment for the (different) case of a fresh Segment, which

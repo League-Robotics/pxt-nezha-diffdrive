@@ -90,6 +90,10 @@ void odoUpdate(void* handle, float positionLeft, float positionRight,
 
 void odoReset(void* handle) { static_cast<Handle*>(handle)->odometry.reset(); }
 
+void odoFuseHeading(void* handle, float sensor) {  // [rad]
+  static_cast<Handle*>(handle)->odometry.fuseHeading(sensor);
+}
+
 void odoSeed(void* handle, float x, float y, float heading) {
   // [mm] [mm] [rad]
   static_cast<Handle*>(handle)->odometry.seed(x, y, heading);

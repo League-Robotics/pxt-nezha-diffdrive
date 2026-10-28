@@ -583,7 +583,7 @@ class WireAdapterHandle:
         (motion_limits.h). Sprint 029 ticket 003: this used to switch
         MOVE_X/GO_TO_R/GO_TO_W's `cruise`/`speed == 0` resolution over to
         the distance-aware v_default(D) at a nonzero value ("shaped
-        mode"); MotionLimits::decel defaults to 400 (never 0 -- design
+        mode"); MotionLimits::decel defaults to 200 (never 0 -- design
         S8: "now always active, no legacy mode"), so that resolution is
         now UNCONDITIONAL -- see engineADecelMmS2()'s own comment,
         wire_motion_verb_shim.cpp. Kept for tests that want a specific
@@ -617,7 +617,7 @@ class WireAdapterHandle:
         encoder position armed (so `remain` never shrinks and the
         segment never falsely arrives): runs `ticks` REALISTIC (24 ms,
         matching tickDrive()'s own cadence) step()+service_move() cycles
-        so the shaper's own accel ramp (400 mm/s^2) climbs from the
+        so the shaper's own accel ramp (200 mm/s^2) climbs from the
         floor to its real target (whatever `cruise`/cap/vMax resolves
         to) and PLATEAUS there -- unlike land_first_command()
         (design S6.1's floor, the transient FIRST tick) or
@@ -633,7 +633,7 @@ class WireAdapterHandle:
             self.service_move()
             self.step()
 
-    def land_steady_state_hold(self, start_ms=0, advance_ms=1_000):
+    def land_steady_state_hold(self, start_ms=0, advance_ms=2_000):
         """For a continuous WHEELS_V/MOVE_V hold -- see
         test_motion_engine_reductions.py's own
         Engine.land_steady_state_hold() for the full explanation. Caller
@@ -1911,7 +1911,7 @@ def test_move_x_negative_cruise_is_range_error(wa):
 # this call's OWN `distance` argument (or wheel-travel, for a pure pivot)
 # as D. There is no more "legacy vs shaped mode" toggle to select this
 # (design S8: "accel/decel ... now always active, no legacy mode") --
-# MotionLimits::decel defaults to 400 and can never be set back to 0, so
+# MotionLimits::decel defaults to 200 and can never be set back to 0, so
 # the flat `default_cruise` field (still real, still settable, still what
 # WHEELS_X's own cruise==0 sentinel reads unconditionally -- see
 # test_wheels_x_cruise_zero_uses_configured_default above) is simply
@@ -1957,7 +1957,7 @@ def test_move_x_cruise_zero_always_uses_distance_aware_default(wa):
     b = wa.effective_track_width()
 
     distance = 100.0  # sqrt(decel*D) stays comfortably under vMax (250)
-    resolved_cruise = math.sqrt(400.0 * distance)  # design S8, limits().decel
+    resolved_cruise = math.sqrt(200.0 * distance)  # design S8, limits().decel
     assert resolved_cruise != pytest.approx(150.0)
 
     wa.feed(f"MOVE_X {distance:.0f} 0 0 5000 #1\n".encode())
@@ -1986,7 +1986,7 @@ def test_move_x_cruise_zero_reverse_distance_uses_magnitude(wa):
     b = wa.effective_track_width()
 
     distance = -100.0
-    resolved_cruise = math.sqrt(400.0 * abs(distance))
+    resolved_cruise = math.sqrt(200.0 * abs(distance))
 
     wa.feed(f"MOVE_X {distance:.0f} 0 0 5000 #1\n".encode())
     assert wa.take_sink() == _ack(1)  # NOT a range refusal
@@ -2020,7 +2020,7 @@ def test_move_x_cruise_zero_pure_pivot_uses_wheel_travel_default(wa):
     rotation_mrad = 300
     rotation_rad = rotation_mrad / 1000.0
     wheel_travel = abs(rotation_rad) * b / 2.0
-    resolved_cruise = math.sqrt(400.0 * wheel_travel)
+    resolved_cruise = math.sqrt(200.0 * wheel_travel)
     assert resolved_cruise != pytest.approx(150.0)
 
     wa.feed(f"MOVE_X 0 {rotation_mrad} 0 5000 #1\n".encode())
@@ -2651,9 +2651,8 @@ def test_go_to_r_speed_zero_uses_chord_distance_default(wa):
     x, y = 200.0, 50.0
     chord = math.hypot(x, y)
     # design S8: v_default(D) = min(vMax, sqrt(decel*D)) -- this chord's
-    # own sqrt(400*206.16)=287 mm/s exceeds the default vMax (250), so
-    # the resolved speed is vMax-clamped, not the raw formula value.
-    resolved_speed = min(250.0, math.sqrt(400.0 * chord))
+    # own sqrt(200*206.16)=203 mm/s is under the default vMax (250).
+    resolved_speed = min(250.0, math.sqrt(200.0 * chord))
     assert resolved_speed != pytest.approx(150.0)
 
     wa.feed(b"GO_TO_R 200 50 0 0 5000 #1\n")
@@ -2819,7 +2818,7 @@ def test_go_to_w_speed_zero_uses_target_distance_default(wa):
 
     x, y = 200.0, 50.0
     chord = math.hypot(x, y)
-    resolved_speed = min(250.0, math.sqrt(400.0 * chord))
+    resolved_speed = min(250.0, math.sqrt(200.0 * chord))
     assert resolved_speed != pytest.approx(150.0)
 
     wa.feed(b"GO_TO_W 200 50 0 0 5000 #1\n")
@@ -2865,8 +2864,8 @@ def test_go_to_w_speed_zero_uses_true_chord_not_world_origin_distance(wa):
     assert real_chord == pytest.approx(5.0)
     assert world_origin_distance > 700.0  # the WRONG distance, pre-fix
 
-    resolved_speed = math.sqrt(400.0 * real_chord)
-    wrong_speed_from_origin = min(250.0, math.sqrt(400.0 * world_origin_distance))
+    resolved_speed = math.sqrt(200.0 * real_chord)
+    wrong_speed_from_origin = min(250.0, math.sqrt(200.0 * world_origin_distance))
     # The corrected speed is small and sane for a 5 mm hop; the
     # pre-fix speed would have been far larger -- this is the failure
     # SUC-003 exists to prevent, now avoided.
@@ -2881,7 +2880,7 @@ def test_go_to_w_speed_zero_uses_true_chord_not_world_origin_distance(wa):
         target_x - pose_x, target_y - pose_y, heading)
     theta, s = _go_to_r_theta_s(body_x, body_y)
     # design S6.1's floor is "the ONLY floor in the system" -- it wins
-    # even over a resolved cruise below it (this 5 mm hop's own 44.7
+    # even over a resolved cruise below it (this 5 mm hop's own 31.6
     # mm/s resolved speed is under v_floor's 70 mm/s), so the ACTUAL
     # steady-state driving speed is v_floor, not the raw resolved value.
     driven_speed = max(_V_FLOOR_MM_S, resolved_speed)
@@ -3214,13 +3213,13 @@ def test_wheels_x_timeout_above_2_31_survives_starvation_window(wa):
     # rolling 500 ms kernel lease at the new time -- see
     # test_motion_engine_reductions.py's own
     # test_move_x_timeout_is_a_real_backstop_on_a_blocked_robot for why.
-    wa.set_now_ms(1_000_000 + 200)
+    wa.set_now_ms(1_000_000 + 500)
     assert wa.has_live_motion_obligation()
     assert wa.service_move()
     wa.step()
-    # A real 200 ms has now passed (unlike land_first_command()'s own
+    # A real 500 ms has now passed (unlike land_first_command()'s own
     # ~0 ms first tick), long enough for the shaper's accel ramp
-    # (400 mm/s^2) to climb all the way from the floor to this segment's
+    # (200 mm/s^2) to climb all the way from the floor to this segment's
     # own cruise (150 mm/s) and plateau there -- so this checkpoint now
     # reads the STEADY-STATE duty, not the floor.
     steady_left, steady_right = _expected_wheels_x_duty_pair(
@@ -4380,20 +4379,22 @@ def test_velocity_verb_cancels_a_routed_move(wa):
 
 
 
-def test_fresh_engine_routes_a_straight_without_any_set(wa):
-    """Boot default position_mode 1: no SET and no direct setter call."""
+def test_fresh_engine_drives_a_straight_on_the_kernel_without_any_set(wa):
+    """Boot default position_mode 0: no SET and no direct setter call."""
     wa.set_max_duty(100.0)
     wa.set_full_duty_velocity(1000.0)
     assert wa.begin() == STATUS_OK
     wa.attach_position_ports()
     wa.set_now_ms(1000)
     wa.feed(b"GET position_mode #1\n")
-    assert b"1.000000" in wa.take_sink()
+    assert b"0.000000" in wa.take_sink()
     wa.feed(b"MOVE_X 200 0 150 5000 #2\n")
     assert wa.take_sink() == _ack(2)
-    assert _routed(wa)
-    assert wa.position_move_active()
-    assert _status_posmove(wa) == b"1"
+    assert not _routed(wa)
+    assert not wa.position_move_active()
+    assert wa.wire_move_active()
+    assert _status_posmove(wa) == b"0"
+    assert _kernel_staged(wa)
 
 
 def test_wire_set_position_mode_reaches_the_engine(wa):

@@ -529,8 +529,8 @@ def test_design_s6_3_table_remeasured_with_the_fix(motion_lib):
 # linked issue -- a `WHEELS_V 200 200` step overshoots to 226-256 mm/s
 # on hardware today (`kp=0, ki=6`, shims.cpp's tovez defaults) with
 # measured acceleration up to 993 mm/s^2 on a 400-limited command
-# (accel=400 mm/s^2 is this engine's own compiled MotionLimits default,
-# confirmed via `Rig.limits_accel()` below -- so this sprint's own
+# (accel=400 mm/s^2 was this engine's compiled MotionLimits default when
+# this bar was set -- so this sprint's own
 # "<=1.5x accel" bar is <=600 mm/s^2). `WHEELS_V` calls
 # MotionEngine::wheelsV() directly (motion_engine.cpp) -- unlike a
 # MOVE_X segment it never goes through VelocityShaper's braking/arrival
@@ -810,7 +810,7 @@ def test_wheels_v_ramp_never_exceeds_accel_per_tick(motion_lib):
         r.wheels_v(200.0, 200.0, 5000)
 
         speeds = []
-        for _ in range(30):
+        for _ in range(60):
             r.tick()
             speeds.append(r.speed_log[-1])
         # Rig.tick()'s very first call reads back whatever duty was
@@ -834,7 +834,7 @@ def test_wheels_v_ramp_never_exceeds_accel_per_tick(motion_lib):
         )
         assert speeds[-1] == pytest.approx(200.0, abs=1.0), (
             f"WHEELS_V(200, 200) had not reached its steady-state 200 "
-            f"mm/s by tick 29: {speeds[-1]:.1f}"
+            f"mm/s by tick 59: {speeds[-1]:.1f}"
         )
 
 

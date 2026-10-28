@@ -280,7 +280,7 @@ def test_gentle_arc_reaches_near_full_scale_before_its_own_taper(motion_lib):
     (exactly the 25% distFloor) before the original fix -- must NOT
     spend its whole duration pinned at the floor. With no encoder
     progress armed (remain stays at the full 500 mm target throughout),
-    the shaper's own accel ramp (400 mm/s^2) has comfortably reached
+    the shaper's own accel ramp (200 mm/s^2) has comfortably reached
     its steady-state cruise well before this checkpoint -- there is no
     180-count yaw window left to pin it at 25% regardless of how small
     the 2 deg total yaw target is."""

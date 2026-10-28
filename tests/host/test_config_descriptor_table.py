@@ -197,8 +197,8 @@ def wa(descriptor_table_lib):
 # a mismatch against the field's real default instead of passing by
 # coincidence.
 _DESIGN_TABLE_FIELDS = {
-    "accel": 500.0,          # ordinal 19, [mm/s^2], default 400
-    "decel": 700.0,          # ordinal 20, [mm/s^2], default 400
+    "accel": 500.0,          # ordinal 19, [mm/s^2], default 200
+    "decel": 700.0,          # ordinal 20, [mm/s^2], default 200
     "v_max": 300.0,          # ordinal 21, [mm/s], default 250
     "jerk": 4000.0,          # ordinal 28, [mm/s^3], default 0
     "omega_max": 90.0,       # ordinal 30, [deg/s], default 0

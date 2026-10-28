@@ -123,6 +123,8 @@ class OtosPort : public PoseSource {
                              float offsetX, float offsetY,
                              float& sensorXOut, float& sensorYOut);
 
+  float angularScale_ = 1.0f;  // [1] chip heading gain, baked per robot
+
   float offsetX_ = 0.0f;    // [mm] body frame
   float offsetY_ = 0.0f;    // [mm] body frame
   float offsetYaw_ = 0.0f;  // [rad] sensor mounting rotation

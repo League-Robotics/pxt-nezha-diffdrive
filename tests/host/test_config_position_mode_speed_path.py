@@ -46,10 +46,8 @@ def test_speed_path_default_is_zero(wa):
     assert _get(wa, "speed_path", 1) == 0.0
 
 
-def test_position_mode_default_is_one(wa):
-    # Straights and pivots run through the motor's own position loop; arcs
-    # stay on the kernel. 0 gives the kernel back.
-    assert _get(wa, "position_mode", 1) == 1.0
+def test_position_mode_default_is_zero(wa):
+    assert _get(wa, "position_mode", 1) == 0.0
 
 
 @pytest.mark.parametrize("name,value", [

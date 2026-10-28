@@ -185,6 +185,7 @@ struct Rig {
   // heading reset stay SYNCHRONOUS, as before -- only the OTOS write
   // becomes deferred.
   bool pendingOtosZero = false;
+  uint8_t otosSampleTick = 0;  // tickDrive() refreshes the OTOS cache every 4th tick
   // Staged cross-fiber stop: a stop requested while busGuard is held
   // (i.e. some fiber is mid kernel.step(), possibly parked in its own
   // encoder settle sleep) cannot write the motor ports immediately
@@ -958,6 +959,20 @@ bool tickDrive() {
     r.busGuard.acquire(r.sleeper);
     otosRef().setPose(0.0f, 0.0f, 0.0f);
     r.busGuard.release();
+  }
+
+  // The chip tracks on its own; fetching its heading here is what lets
+  // odometry correct heading after the fact (Odometry::fuseHeading()).
+  // Every tick once the drive goes idle, so the at-rest pose is fresh.
+  if (++r.otosSampleTick >= 4 || !r.engine.isDriving()) {
+    r.otosSampleTick = 0;
+    OtosPort& otos = otosRef();
+    if (otos.connected()) {
+      r.busGuard.acquire(r.sleeper);
+      const bool ok = otos.read();
+      r.busGuard.release();
+      if (ok) r.odometry.fuseHeading(otos.heading());
+    }
   }
 
   // Service hook: fires exactly here on EVERY call -- after this tick's
@@ -1984,59 +1999,24 @@ void engineGoToRArmed(float x, float y, float speed, float arrive) {
   engineGoToR(x, y, cruise, arrive, r.goToDeadline);
 }
 
-// GO_TO_W's own PoseSource selection: the ONE place this project
-// decides which PoseSource serves a GO_TO_W call, via
-// selectPoseSource() (motion/odometry.h) -- this file's
-// `gOtos`/otosRef() lazy singleton when `connected()` (initialized AND
-// actually talking to the chip), the Rig-owned `odometry`
-// (dead-reckoned, drifting, but always available) otherwise. A robot
-// with no OTOS fitted, or one whose OTOS was never begun/matched, now
-// drives on encoder odometry instead of refusing the call outright --
-// GO_TO_W is no longer a no-op on the fleet's OTOS-less robots (tovez,
-// gopiv, zeguz).
-//
-// This always dispatches onto MotionEngine::goToW() now, so the bool
-// return is unconditionally true; kept (rather than void) only because
-// wire_adapter.cpp's contract for this entry point ("was a live pose
-// actually available") is otherwise unchanged. The return value still
-// does NOT distinguish "served by OTOS" (accurate) from "served by
-// encoder odometry" (drifts, no correction) -- a caller that needs to
-// know reads STATUS's `otos=` flag.
-//
-// Mid-move OTOS disconnection is not a race to guard against: goToW()
-// reads its PoseSource exactly ONCE, at call time, before ever
-// delegating to goToR() -- nothing re-reads or re-selects a pose source
-// while a move is in flight.
+// GO_TO_W plans from the Rig's odometry: encoder distance along a heading
+// the OTOS gyro corrects after the fact (tickDrive(), Odometry::
+// fuseHeading()). The OTOS's own x/y are never used -- they need a lever
+// arm and a linear scale per robot, and its heading alone fixes the
+// error that accumulates. With no OTOS this is plain encoder odometry.
+// goToW() reads the pose once, at call time.
 bool engineGoToW(float x, float y, float speed, float arrive,
                 uint32_t timeout) {  // [ms]
-  OtosPort& otos = otosRef();
   Rig& r = ensure();
-  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.odometry);
-  r.engine.goToW(pose, x, y, speed, arrive, timeout);
+  r.engine.goToW(r.odometry, x, y, speed, arrive, timeout);
   return true;
 }
 
-// SUC-003: GO_TO_W's own D input for
-// engineDefaultCruiseForDistance() above -- the TRUE body-frame
-// chord from the robot's CURRENT pose to this call's WORLD-frame
-// (worldX, worldY) target, not the target's distance from the world
-// origin (hypot(worldX, worldY) alone, which is wrong whenever the
-// robot is not sitting at the origin). Reuses the exact SAME
-// PoseSource selection engineGoToW() above applies -- OtosPort when
-// connected(), the Rig-owned odometry otherwise -- so this resolves
-// against the pose the move will actually run from. Both PoseSource
-// implementations' reads are plain accessors over already-cached state
-// (otos_port.h / motion/odometry.h -- Odometry::x()/y() read the
-// current frame and do not themselves integrate; only update() does,
-// and this function does not call it) -- reading x()/y() here, a
-// second time before engineGoToW() reads them again for the real
-// dispatch, mutates nothing and cannot observe a different value than
-// that dispatch will.
+// GO_TO_W's own D input for engineDefaultCruiseForDistance(): the chord
+// from the pose the move will plan from to the world target.
 float engineGoToWChord(float worldX, float worldY) {
-  OtosPort& otos = otosRef();
   Rig& r = ensure();
-  PoseSource& pose = selectPoseSource(otos.connected(), otos, r.odometry);
-  return std::hypot(worldX - pose.x(), worldY - pose.y());
+  return std::hypot(worldX - r.odometry.x(), worldY - r.odometry.y());
 }
 
 // RETIRED (sprint 029 ticket 003/004, design motion-profile-

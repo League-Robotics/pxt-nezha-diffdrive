@@ -1071,6 +1071,7 @@ _GEOMETRY_BAKE_RES = {
     'stop_distance_mm': re.compile(r'(float stopDistance = )[-+0-9.eE]+(f;)'),
     'accel': re.compile(r'(float accel = )[-+0-9.eE]+(f;)'),
     'decel': re.compile(r'(float decel = )[-+0-9.eE]+(f;)'),
+    'otos_angular_scale': re.compile(r'(float angularScale_ = )[-+0-9.eE]+(f;)'),
 }
 
 # Which `src/motion/*.h` file each `_GEOMETRY_BAKE_RES` key's regex
@@ -1088,6 +1089,7 @@ _GEOMETRY_BAKE_FILES = {
     'stop_distance_mm': 'motion_limits.h',
     'accel': 'motion_limits.h',
     'decel': 'motion_limits.h',
+    'otos_angular_scale': '../platform/otos_port.h',
 }
 
 # OLD bake key -> NEW bake key, for a robot config that has not yet been

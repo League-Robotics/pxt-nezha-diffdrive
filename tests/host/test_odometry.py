@@ -165,6 +165,8 @@ def lib(tmp_path_factory):
         ctypes.c_void_p, ctypes.c_float, ctypes.c_float, ctypes.c_float,
     ]
     loaded.odoSeed.restype = None
+    loaded.odoFuseHeading.argtypes = [ctypes.c_void_p, ctypes.c_float]
+    loaded.odoFuseHeading.restype = None
     for name in ("odoX", "odoY", "odoHeading", "odoPoseSourceX"):
         fn = getattr(loaded, name)
         fn.argtypes = [ctypes.c_void_p]
@@ -203,6 +205,14 @@ class Odometry:
 
     def seed(self, x, y, heading):
         self._lib.odoSeed(self._handle, x, y, heading)
+
+    def fuse(self, sensor):
+        self._lib.odoFuseHeading(self._handle, sensor)
+
+    def pivot_counts(self, angle):
+        """Left/right counts for an in-place turn of `angle` rad."""
+        mm = 0.5 * angle * self.effective_track_width()
+        return -mm * self.counts_per_mm(), mm * self.counts_per_mm()
 
     def frame(self):
         return (self._lib.odoX(self._handle), self._lib.odoY(self._handle),
@@ -419,3 +429,69 @@ def test_reads_through_the_pose_source_interface_agree(lib):
         odom.update(0.0, 0.0)
         odom.update(1250.0, 1250.0)
         assert odom.pose_source_x() == pytest.approx(odom.frame()[0])
+
+
+# ---- fuseHeading(): after-the-fact heading from an absolute sensor ---------
+
+def _deg(d):
+    return math.radians(d)
+
+
+def test_first_sensor_sample_only_anchors(lib):
+    with Odometry(lib) as odom:
+        odom.update(0.0, 0.0)
+        odom.fuse(_deg(37.0))
+        assert odom.frame()[2] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_sensor_heading_replaces_encoder_heading_after_a_pivot(lib):
+    with Odometry(lib) as odom:
+        odom.update(0.0, 0.0)
+        odom.fuse(_deg(10.0))
+        odom.update(*odom.pivot_counts(_deg(90.0)))
+        odom.fuse(_deg(103.0))  # the body really turned 93
+        assert odom.frame()[2] == pytest.approx(_deg(93.0), abs=1e-4)
+
+
+def test_position_integrates_along_the_fused_heading(lib):
+    with Odometry(lib) as odom:
+        odom.update(0.0, 0.0)
+        odom.fuse(0.0)
+        odom.update(0.0, 0.0)
+        odom.fuse(_deg(0.5))  # at rest: within the slack, so it lands
+        odom.update(1250.0, 1250.0)  # 100 mm straight
+        x, y, _ = odom.frame()
+        assert y == pytest.approx(100.0 * math.sin(_deg(0.5)), abs=1e-2)
+
+
+def test_frozen_sensor_is_dropped_and_reanchored(lib):
+    with Odometry(lib) as odom:
+        odom.update(0.0, 0.0)
+        odom.fuse(_deg(5.0))
+        left, right = odom.pivot_counts(_deg(90.0))
+        odom.update(left, right)
+        odom.fuse(_deg(5.0))  # no change while the wheels turned 90
+        assert odom.frame()[2] == pytest.approx(_deg(90.0), abs=1e-4)
+        l2, r2 = odom.pivot_counts(_deg(10.0))
+        odom.update(left + l2, right + r2)
+        odom.fuse(_deg(16.0))  # tracking again: +11 from the new anchor
+        assert odom.frame()[2] == pytest.approx(_deg(101.0), abs=1e-4)
+
+
+def test_fused_heading_stays_unwrapped_across_the_sensor_wrap(lib):
+    with Odometry(lib) as odom:
+        odom.update(0.0, 0.0)
+        odom.fuse(_deg(170.0))
+        left, right = odom.pivot_counts(_deg(20.0))
+        odom.update(left, right)
+        odom.fuse(_deg(-169.0))  # sensor wrapped; body turned 21
+        assert odom.frame()[2] == pytest.approx(_deg(21.0), abs=1e-4)
+
+
+def test_seed_reanchors(lib):
+    with Odometry(lib) as odom:
+        odom.update(0.0, 0.0)
+        odom.fuse(_deg(40.0))
+        odom.seed(0.0, 0.0, _deg(-90.0))
+        odom.fuse(_deg(41.0))
+        assert odom.frame()[2] == pytest.approx(_deg(-90.0), abs=1e-6)

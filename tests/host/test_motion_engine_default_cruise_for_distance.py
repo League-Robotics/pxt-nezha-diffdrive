@@ -147,15 +147,15 @@ def test_setting_decel_to_zero_is_a_no_op_default_stays_positive(motion_lib):
     """MotionLimits::setDecel() (motion_limits.h) is a "positive, else
     keep" setter -- decel can never be driven to 0.0 through the public
     surface, so this resolver's `sqrt(decel * D)` term can never divide
-    the field's own compiled-in default (400.0) away to nothing. A
+    the field's own compiled-in default (200.0) away to nothing. A
     caller passing 0.0 (or a negative value) leaves the prior decel in
     effect, not a broken resolver."""
     with Engine(motion_lib) as e:
         e.set_v_max(1000.0)  # far above anything these D values can reach
-        e.set_decel(0.0)  # rejected -- decel stays at its 400.0 default
+        e.set_decel(0.0)  # rejected -- decel stays at its 200.0 default
 
         for d in (10.0, 1000.0):
-            expected = math.sqrt(400.0 * d)
+            expected = math.sqrt(200.0 * d)
             assert e.default_cruise_for_distance(d) == pytest.approx(
                 expected, rel=1e-5)
 

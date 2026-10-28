@@ -557,7 +557,7 @@ class MLimits:
 
 
 @pytest.mark.parametrize("field,default", [
-    ("Accel", 400.0), ("Decel", 400.0), ("Jerk", 0.0), ("VMax", 250.0),
+    ("Accel", 200.0), ("Decel", 200.0), ("Jerk", 0.0), ("VMax", 250.0),
     ("OmegaMax", 0.0), ("VFloor", 70.0), ("OmegaFloor", 20.0),
     ("Lag", 0.0), ("StopDistance", 0.0), ("ArriveDist", 1.0),
     ("ArriveYaw", 0.3),

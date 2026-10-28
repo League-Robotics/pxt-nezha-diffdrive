@@ -123,8 +123,8 @@ def test_defaults_are_the_fleet_bake_and_no_field_selects_legacy_mode(
     jerk/omegaMax default to 0, but that 0 is each field's own
     documented off/none value (design S4.1), not a global mode switch."""
     with Limits(motion_lib) as lim:
-        assert lim.accel() == pytest.approx(400.0)
-        assert lim.decel() == pytest.approx(400.0)
+        assert lim.accel() == pytest.approx(200.0)
+        assert lim.decel() == pytest.approx(200.0)
         assert lim.jerk() == pytest.approx(0.0)       # 0 = no jerk rounding
         assert lim.v_max() == pytest.approx(250.0)
         assert lim.omega_max() == pytest.approx(0.0)  # 0 = no cap
