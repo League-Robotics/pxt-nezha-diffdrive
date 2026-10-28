@@ -1,9 +1,12 @@
 ---
 id: 008
 title: Route verbs and blocks to PositionMove (C7)
-status: open
-use-cases: ["SUC-001", "SUC-003"]
-depends-on: ["007"]
+status: done
+use-cases:
+- SUC-001
+- SUC-003
+depends-on:
+- '007'
 github-issue: ''
 issue: position-moves-through-the-motors-own-position-loop.md
 completes_issue: false
@@ -32,12 +35,12 @@ C7. Route the position verbs to `PositionMove` (ticket 006) when `position_mode`
 
 ## Acceptance Criteria
 
-- [ ] each position verb takes the built-in path at mode 1 (arcs also at 2) and the kernel path at 0, asserted from the sim-bus frame log (`0x70` present/absent)
-- [ ] `WHEELS_V`/`MOVE_V`/twist never produce a `0x70`
-- [ ] `STATUS` flag set only during a built-in move
-- [ ] `test_continuous_drive_command_looks_active.py` still passes
-- [ ] sim tour closes with `position_mode 1`
-- [ ] the full motion-verb test file passes with the new cases
+- [x] each position verb takes the built-in path at mode 1 (arcs also at 2) and the kernel path at 0, asserted from the sim-bus frame log (`0x70` present/absent)
+- [x] `WHEELS_V`/`MOVE_V`/twist never produce a `0x70`
+- [x] `STATUS` flag set only during a built-in move
+- [x] `test_continuous_drive_command_looks_active.py` still passes
+- [x] sim tour closes with `position_mode 1`
+- [x] the full motion-verb test file passes with the new cases
 
 ## Testing
 

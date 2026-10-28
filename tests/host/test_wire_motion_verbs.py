@@ -346,6 +346,25 @@ def _bind(lib):
     lib.waOutputPositionEpochRight.argtypes = [ctypes.c_void_p]
     lib.waOutputPositionEpochRight.restype = ctypes.c_uint32
 
+    # position-move routing probes
+    lib.waAttachPositionPorts.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+    lib.waAttachPositionPorts.restype = None
+    for name in ("waPosBeginCalls", "waPosStopCalls"):
+        fn = getattr(lib, name)
+        fn.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        fn.restype = ctypes.c_int
+    lib.waPosLastDelta.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.waPosLastDelta.restype = ctypes.c_float
+    lib.waSetPositionModeDirect.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    lib.waSetPositionModeDirect.restype = None
+    lib.waPosFinish.argtypes = [ctypes.c_void_p]
+    lib.waPosFinish.restype = None
+    for name in ("waPositionMoveActive", "waIsDriving", "waWireMoveActive"):
+        fn = getattr(lib, name)
+        fn.argtypes = [ctypes.c_void_p]
+        fn.restype = ctypes.c_int
+
     return lib
 
 
@@ -636,6 +655,34 @@ class WireAdapterHandle:
 
     def step(self):
         self._lib.waStep(self._handle)
+
+    # ---- position-move routing probes (recording ports) -------------
+
+    def attach_position_ports(self, supported=True):
+        self._lib.waAttachPositionPorts(self._handle, 1, 1 if supported else 0)
+
+    def pos_begin_calls(self, side):
+        return self._lib.waPosBeginCalls(self._handle, side)
+
+    def pos_stop_calls(self, side):
+        return self._lib.waPosStopCalls(self._handle, side)
+
+    def pos_last_delta(self, side):
+        return self._lib.waPosLastDelta(self._handle, side)
+
+    def pos_finish(self):
+        self._lib.waPosFinish(self._handle)
+
+    def position_move_active(self):
+        return bool(self._lib.waPositionMoveActive(self._handle))
+
+    def wire_move_active(self):
+        """What the wire's done/ack channel reads (shims.cpp's
+        engineMoveActive): a kernel segment OR a live position move."""
+        return bool(self._lib.waWireMoveActive(self._handle))
+
+    def is_driving(self):
+        return bool(self._lib.waIsDriving(self._handle))
 
     def service_move(self):
         """MotionEngine::serviceMove() (sprint 005 ticket 004) -- unlike
@@ -2248,6 +2295,9 @@ _KFIELDS_REPRESENTATIVE_VALUES = {
     "wheel_diameter": 88.5,
     "track_width": 111.6,
     "twist_ff": 2.5,
+    # Ordinals 52-53: position_mode and speed_path, whole numbers.
+    "position_mode": 1.0,
+    "speed_path": 1.0,
 }
 
 
@@ -3271,6 +3321,8 @@ def test_get_bare_dumps_all_sixteen_fields_no_wheels_entry(wa):
         b"wheel_diameter", b"track_width",
         # ordinal 51: turning feedforward scale.
         b"twist_ff",
+        # ordinals 52-53: position_mode and speed_path.
+        b"position_mode", b"speed_path",
     ]
     assert b"wheels" not in b" ".join(names).lower()
 
@@ -4104,3 +4156,237 @@ def test_run_pulse_unknown_name_is_still_unknown(wa):
 
     wa.feed(b"RUN some_unregistered_name #1\n")
     assert wa.take_sink() == _ack(1) + _err(1, 1)  # ERR_UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# Position-move routing (position_mode). The double attaches recording
+# position ports (wire_motion_verb_shim.cpp, RecordingPositionPort) so the
+# REAL WireAdapter -> MotionEngine routing is observable: a routed verb
+# calls beginMove() on the ports and leaves the kernel unstaged; a kernel
+# verb stages duty and never touches the ports. The brick-side frame log
+# (0x70 present/absent) for the same engine over the simulated bus is in
+# test_sim_position_routing.py.
+# ---------------------------------------------------------------------------
+
+POS_MODE_STRAIGHT_PIVOT = 1
+POS_MODE_ARCS_TOO = 2
+
+
+def _set_position_mode(wa, mode):
+    # Direct, so it does not consume the test's own #1.. id run; the wire
+    # SET path has its own test below.
+    wa._lib.waSetPositionModeDirect(wa._handle, mode)
+
+
+def _pos_ready(wa, mode, supported=True):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.attach_position_ports(supported)
+    _set_position_mode(wa, mode)
+    wa.set_now_ms(1000)
+
+
+def _status_posmove(wa):
+    wa.feed(b"STATUS\n")
+    line = wa.take_sink()
+    assert line.startswith(b"status ") and line.endswith(b"\n")
+    return dict(kv.split(b"=") for kv in line.strip().split(b" ")[1:])[b"posmove"]
+
+
+def _routed(wa):
+    return wa.pos_begin_calls(LEFT) + wa.pos_begin_calls(RIGHT) > 0
+
+
+def _kernel_staged(wa, hold=False):
+    if hold:
+        wa.land_steady_state_hold()
+    else:
+        wa.land_first_command()
+    return (wa.motor_last_staged_duty(LEFT) != 0.0
+            or wa.motor_last_staged_duty(RIGHT) != 0.0)
+
+
+@pytest.mark.parametrize("line", [
+    b"MOVE_X 200 0 150 5000 #1\n",        # straight
+    b"MOVE_X 0 1571 150 5000 #1\n",       # pivot
+    b"WHEELS_X 200 200 150 5000 #1\n",    # straight
+    b"WHEELS_X -50 50 150 5000 #1\n",     # pivot
+])
+def test_mode1_straight_and_pivot_verbs_take_the_position_path(wa, line):
+    _pos_ready(wa, POS_MODE_STRAIGHT_PIVOT)
+    wa.feed(line)
+    assert wa.take_sink() == _ack(1)
+    assert _routed(wa)
+    assert wa.position_move_active()
+    assert wa.is_driving()
+    assert wa.wire_move_active()
+    assert _status_posmove(wa) == b"1"
+    assert not _kernel_staged(wa)  # the kernel stages no wheel command
+
+
+def test_mode1_pivot_moves_the_wheels_opposite_ways(wa):
+    _pos_ready(wa, POS_MODE_STRAIGHT_PIVOT)
+    wa.feed(b"MOVE_X 0 1571 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.pos_last_delta(LEFT) < 0.0 < wa.pos_last_delta(RIGHT)
+
+
+def test_mode1_arc_stays_on_the_kernel(wa):
+    _pos_ready(wa, POS_MODE_STRAIGHT_PIVOT)
+    wa.feed(b"MOVE_X 200 785 150 5000 #1\n")  # distance and rotation both set
+    assert wa.take_sink() == _ack(1)
+    assert not _routed(wa)
+    assert not wa.position_move_active()
+    assert _status_posmove(wa) == b"0"
+    assert _kernel_staged(wa)
+
+
+def test_mode2_arc_takes_the_position_path(wa):
+    _pos_ready(wa, POS_MODE_ARCS_TOO)
+    wa.feed(b"MOVE_X 200 785 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert _routed(wa)
+    assert wa.position_move_active()
+    assert _status_posmove(wa) == b"1"
+
+
+@pytest.mark.parametrize("mode", [0, 1, 2])
+@pytest.mark.parametrize("line", [
+    b"WHEELS_V 100 100 5000 #1\n",
+    b"MOVE_V 100 0 5000 #1\n",
+])
+def test_velocity_verbs_never_take_the_position_path(wa, mode, line):
+    _pos_ready(wa, mode)
+    wa.set_now_ms(0)
+    wa.feed(line)
+    assert wa.take_sink() == _ack(1)
+    assert not _routed(wa)
+    assert not wa.position_move_active()
+    assert _status_posmove(wa) == b"0"
+    assert _kernel_staged(wa, hold=True)
+
+
+@pytest.mark.parametrize("line", [
+    b"MOVE_X 200 0 150 5000 #1\n",
+    b"MOVE_X 0 1571 150 5000 #1\n",
+    b"WHEELS_X 200 200 150 5000 #1\n",
+    b"GO_TO_R 200 0 150 5 5000 #1\n",
+])
+def test_mode0_is_the_kernel_path_even_with_position_ports(wa, line):
+    _pos_ready(wa, 0)
+    wa.feed(line)
+    assert wa.take_sink() == _ack(1)
+    assert not _routed(wa)
+    assert _status_posmove(wa) == b"0"
+    assert _kernel_staged(wa)
+
+
+@pytest.mark.parametrize("line", [
+    b"MOVE_X 200 0 150 5000 #1\n",
+    b"MOVE_X 0 1571 150 5000 #1\n",
+    b"WHEELS_X 200 200 150 5000 #1\n",
+])
+def test_ports_without_position_support_fall_back_to_the_kernel(wa, line):
+    _pos_ready(wa, POS_MODE_ARCS_TOO, supported=False)
+    wa.feed(line)
+    assert wa.take_sink() == _ack(1)
+    assert not _routed(wa)
+    assert _status_posmove(wa) == b"0"
+    assert _kernel_staged(wa)
+
+
+def test_no_position_ports_at_all_fall_back_to_the_kernel(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    _set_position_mode(wa, 2)
+    wa.feed(b"MOVE_X 200 0 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert not wa.position_move_active()
+    assert _kernel_staged(wa)
+
+
+def test_go_to_r_straight_routes_in_mode1_and_arc_only_in_mode2(wa):
+    _pos_ready(wa, POS_MODE_STRAIGHT_PIVOT)
+    wa.feed(b"GO_TO_R 200 0 150 5 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.position_move_active()
+    wa.pos_finish()
+    # A gentle arc target (|theta| below the pivot-first threshold): one
+    # blended arc, so mode 1 keeps it on the kernel.
+    wa.feed(b"GO_TO_R 200 40 150 5 5000 #2\n")
+    assert wa.take_sink().startswith(b"ack 2 ")
+    assert not wa.position_move_active()
+    wa.feed(b"STOP #3\n")
+    wa.take_sink()
+    _set_position_mode(wa, 2)
+    wa.feed(b"GO_TO_R 200 40 150 5 5000 #4\n")
+    assert wa.take_sink().startswith(b"ack 4 ")
+    assert wa.position_move_active()
+
+
+def test_go_to_w_straight_routes_in_mode1(wa):
+    _pos_ready(wa, POS_MODE_STRAIGHT_PIVOT)
+    wa.set_pose(0.0, 0.0, 0.0)
+    wa.feed(b"GO_TO_W 200 0 150 5 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.position_move_active()
+
+
+def test_routed_move_reports_done_when_the_brick_finishes(wa):
+    """The done/ack channel keys off the position move, not the segment."""
+    _pos_ready(wa, POS_MODE_STRAIGHT_PIVOT)
+    cpm = wa.counts_per_mm()
+    wa.feed(b"MOVE_X 200 0 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    assert wa.wire_move_active()
+    assert wa.last_done_reason() == DONE_NONE
+    assert wa.has_live_motion_obligation()
+
+    # The brick reaches its target: ports done, encoders at the goal.
+    wa.pos_finish()
+    wa.arm_motor_position(LEFT, 200.0 * cpm, sample_time_us=1)
+    wa.arm_motor_position(RIGHT, 200.0 * cpm, sample_time_us=1)
+    wa.step()
+    assert not wa.service_move()
+    assert not wa.wire_move_active()
+    assert not wa.position_move_active()
+    assert not wa.has_live_motion_obligation()
+    assert wa.last_done() == 1
+    assert wa.last_done_reason() == DONE_STOP
+    assert _status_posmove(wa) == b"0"
+
+
+def test_stop_ends_a_routed_move_and_holds_the_ports(wa):
+    _pos_ready(wa, POS_MODE_STRAIGHT_PIVOT)
+    wa.feed(b"MOVE_X 200 0 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.feed(b"STOP #2\n")
+    assert wa.take_sink().startswith(_ack(2))
+    assert not wa.position_move_active()
+    assert wa.pos_stop_calls(LEFT) >= 1 and wa.pos_stop_calls(RIGHT) >= 1
+    assert wa.last_done_reason() == DONE_STOP
+
+
+def test_velocity_verb_cancels_a_routed_move(wa):
+    _pos_ready(wa, POS_MODE_STRAIGHT_PIVOT)
+    wa.feed(b"MOVE_X 200 0 150 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.feed(b"WHEELS_V 100 100 1000 #2\n")
+    assert wa.take_sink().startswith(_ack(2))
+    assert not wa.position_move_active()
+    assert wa.pos_stop_calls(LEFT) >= 1
+
+
+
+def test_wire_set_position_mode_reaches_the_engine(wa):
+    wa.set_max_duty(100.0)
+    wa.set_full_duty_velocity(1000.0)
+    assert wa.begin() == STATUS_OK
+    wa.attach_position_ports()
+    wa.feed(b"SET position_mode 1 #1\n")
+    assert wa.take_sink() == _ack(1)
+    wa.feed(b"MOVE_X 200 0 150 5000 #2\n")
+    assert wa.take_sink() == _ack(2)
+    assert wa.position_move_active()

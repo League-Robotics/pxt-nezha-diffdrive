@@ -201,6 +201,16 @@ void MotionEngine::beginPendingStraightPhase() {
 
 void MotionEngine::wheelsX(float left, float right, float cruise,
                            uint32_t timeout) {
+  {
+    // The same reduction the position path takes: a pure straight has
+    // left == right, a pure pivot has left == -right.
+    const float distance = 0.5f * (left + right);               // [mm]
+    const float rotation = (right - left) / effectiveTrackWidth();  // [rad]
+    if (takesPositionPath(distance, rotation) &&
+        beginPositionMove(distance, rotation, cruise, timeout)) {
+      return;
+    }
+  }
   kernel_.clearStallLatch();  // a new command gets its own attempt
   const uint32_t deadline = now() + timeout;
   const float cpm = countsPerMm();
@@ -211,6 +221,10 @@ void MotionEngine::wheelsX(float left, float right, float cruise,
 
 void MotionEngine::moveX(float distance, float rotation, float cruise,
                          uint32_t timeout) {
+  if (takesPositionPath(distance, rotation) &&
+      beginPositionMove(distance, rotation, cruise, timeout)) {
+    return;
+  }
   kernel_.clearStallLatch();  // a new command gets its own attempt
   // One blended constant-ratio segment for EVERY (distance, rotation).
   // R = distance / rotation is always a driveable arc: |R| < b/2 only

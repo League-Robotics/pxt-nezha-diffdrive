@@ -999,7 +999,7 @@ def test_status_golden_vector(wg):
     assert wg.take_sink() == (
         b"status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 "
         b"flags=a i2cf=26 cyc=147 tlm=pose next=1 done=0 reason=none "
-        b"wifi=0 radio=0 channel=0 group=0\n"
+        b"wifi=0 radio=0 channel=0 group=0 posmove=0\n"
     )
 
 
@@ -1013,11 +1013,11 @@ def test_status_carries_wifi_and_radio_channel_group(wg):
     wg.set_transport_status(wifi=True, radio=False, channel=55, group=114)
     wg.feed(b"STATUS #1\n")
     line = wg.take_sink()
-    assert line.endswith(b" reason=none wifi=1 radio=0 channel=55 group=114\n")
+    assert line.endswith(b" reason=none wifi=1 radio=0 channel=55 group=114 posmove=0\n")
     wg.set_transport_status(wifi=False, radio=True, channel=255, group=255)
     wg.feed(b"STATUS #2\n")
     line = wg.take_sink()
-    assert line.endswith(b" wifi=0 radio=1 channel=255 group=255\n")
+    assert line.endswith(b" wifi=0 radio=1 channel=255 group=255 posmove=0\n")
     assert len(line) <= 240
 
 

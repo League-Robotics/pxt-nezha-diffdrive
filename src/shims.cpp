@@ -258,8 +258,8 @@ struct Rig {
   // contract.
   uint32_t goToDeadline = 0;  // [ms]
   // position_mode (config ordinal 52): 0 kernel, 1 built-in position
-  // move for straights and pivots, 2 for arcs too. Stored only; the
-  // verb routing that reads it is sprint 042 ticket 008.
+  // move for straights and pivots, 2 for arcs too. Mirrored into
+  // MotionEngine::setPositionMode(), which does the routing.
   int positionMode = 0;  // [0..2]
 
   // The go-to entry point's own yaw-rate ceiling
@@ -613,7 +613,8 @@ void enginePulseWheels(float ampLeft, float ampRight, int32_t widthTicks,
 // gives for staying separate from setWheels(). `rig == nullptr` (a wire
 // session with no prior motion verb) answers false.
 bool engineMoveActive() {
-  return rig != nullptr && rig->engine.isMoveActive();
+  return rig != nullptr &&
+         (rig->engine.isMoveActive() || rig->engine.isPositionMoveActive());
 }
 
 // The second such read -- true iff the most recent Segment to go
@@ -696,7 +697,7 @@ bool updateMove() {
   // odomUpdate() only while a move was actually active -- pose stays
   // lazily updated (poseX()/Y()/heading() on demand) otherwise.
   const bool wasActive = r.engine.isMoveActive();
-  if (wasActive) odomUpdate(r);
+  if (wasActive || r.engine.isPositionMoveActive()) odomUpdate(r);
   const bool moveActive = r.engine.service();
   // Cross-fiber stop delivery (sprint 006 ticket 002, BLK-01(b)): this
   // poller's own call path -- isMoving() (moveProgress() is read-only;
@@ -710,6 +711,9 @@ bool updateMove() {
   // the other three stop paths -- this branch used to call the
   // port-write half alone. See that method's own comment above for why
   // the two calls it gains are inert on this particular path.
+  // wasActive is the kernel segment alone: a position move ends with the
+  // brick holding the count itself, and a soft stop's port write would
+  // only disturb that hold.
   if (wasActive && !moveActive) r.softStop();
   return moveActive;
 }
@@ -1073,7 +1077,10 @@ static void watchdogEntry(void* context) {
 }
 
 //%
-bool moving() { return rig != nullptr && rig->engine.isMoveActive(); }
+bool moving() {
+  return rig != nullptr &&
+         (rig->engine.isMoveActive() || rig->engine.isPositionMoveActive());
+}
 
 //%
 int progress() {  // [0..1000]
@@ -1287,6 +1294,9 @@ int diagValue(int what) {
     // watching the wheel. Board-generic, see the note on case 21 above.
     case 39: return boardDiagValue(what);
     case 40: return boardDiagValue(what);
+    // 41: the last-started move went down the position path and is still
+    // live (STATUS `posmove=`).
+    case 41: return ensure().engine.isPositionMoveActive() ? 1 : 0;
     default: return 0;
   }
 }
@@ -1673,6 +1683,7 @@ void cfgSetPositionMode(Rig& r, float v) {
   const float rounded = std::round(v);
   if (rounded != v) return;
   r.positionMode = static_cast<int>(rounded);
+  r.engine.setPositionMode(r.positionMode);
 }
 
 // speed_path: 0 or 1, forwarded to both Nezha ports through the board

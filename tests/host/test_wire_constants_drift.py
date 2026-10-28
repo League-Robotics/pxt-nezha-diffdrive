@@ -513,6 +513,7 @@ _KDIAG_ORDINALS = {
     "kDiagCycleCount": 16,
     "kDiagCycleOverrunCount": 19,
     "kDiagWrongWayCount": 25,
+    "kDiagPositionMoveLive": 41,
 }
 
 # Per-ordinal token expected to appear on shims.cpp diagValue()'s
@@ -540,6 +541,7 @@ _KDIAG_EXPECTED_TOKEN = {
     16: "out.cycleCount",
     19: "out.cycleOverrunCount",
     25: "wrongWayCount",
+    41: "isPositionMoveActive",
 }
 
 

@@ -404,10 +404,27 @@ class MotionEngine {
   // Supersedes any in-flight command. Where position moves are not
   // supported it falls back to moveX() and returns true. Returns false
   // (nothing live) when the port refuses, the kernel is e-stopped, or
-  // the move rounds to nothing. Nothing selects this path yet: the
-  // wire verbs route to it in a later ticket.
+  // the move rounds to nothing. wheelsX()/moveX() select this path
+  // themselves under setPositionMode().
   bool beginPositionMove(float distance, float rotation, float cruise,
                          uint32_t timeout);  // [mm] [rad] [mm/s] [ms]
+
+  // position_mode: which position verbs go down the position path.
+  // 0 never (the kernel segment, as before), 1 pure straights and pure
+  // pivots (distance or rotation exactly zero), 2 arcs too. Honoured by
+  // wheelsX(), moveX() and, through its blended arc, goToR()/goToW();
+  // never by wheelsV()/moveV(), which are velocity commands, nor by a
+  // go-to that splits into a pivot and a chord (two phases). Where the
+  // ports do not support position moves the mode has no effect.
+  void setPositionMode(int mode) { positionMode_ = mode; }
+  int positionMode() const { return positionMode_; }
+
+  // True when a (distance, rotation) move would take the position path
+  // under the current position_mode and the composed ports.
+  bool takesPositionPath(float distance, float rotation) const {  // [mm] [rad]
+    if (positionMode_ < 1 || !positionMoveSupported()) return false;
+    return positionMode_ >= 2 || distance == 0.0f || rotation == 0.0f;
+  }
 
   // A position move is in flight (service() is dispatching to
   // servicePositionMove()).
@@ -591,6 +608,7 @@ class MotionEngine {
   Hold hold_;
   Nudge nudge_;
   PositionMove posMove_;
+  int positionMode_ = 0;  // [0..2] see setPositionMode()
   DiffDrive::PositionMotor* posLeft_ = nullptr;   // not owned
   DiffDrive::PositionMotor* posRight_ = nullptr;  // not owned
   VelocityShaper shaper_;

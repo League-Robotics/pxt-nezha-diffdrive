@@ -222,6 +222,22 @@ void srSetPositionMotors(void* handle, int enable) {
   if (enable) h->engine.setPositionMotors(&h->left, &h->right);
   else h->engine.setPositionMotors(nullptr, nullptr);
 }
+// position_mode (0 kernel, 1 straights and pivots, 2 arcs too): the
+// engine routes moveX()/wheelsX()/goToR() on it.
+void srSetPositionMode(void* handle, int mode) {
+  static_cast<Handle*>(handle)->engine.setPositionMode(mode);
+}
+void srWheelsX(void* handle, float left, float right, float cruise,
+               uint32_t timeoutMs) {
+  static_cast<Handle*>(handle)->engine.wheelsX(left, right, cruise, timeoutMs);
+}
+void srWheelsV(void* handle, float left, float right, uint32_t durationMs) {
+  static_cast<Handle*>(handle)->engine.wheelsV(left, right, durationMs);
+}
+void srGoToR(void* handle, float x, float y, float speed, float arrive,
+             uint32_t timeoutMs) {
+  static_cast<Handle*>(handle)->engine.goToR(x, y, speed, arrive, timeoutMs);
+}
 int srPositionMoveActive(void* handle) {
   return static_cast<Handle*>(handle)->engine.isPositionMoveActive() ? 1 : 0;
 }
