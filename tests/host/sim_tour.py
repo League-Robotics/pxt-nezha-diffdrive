@@ -179,6 +179,10 @@ def _bind(lib):
     f.srSetGroundGains.argtypes = [P, F, F]
     f.srMoveX.argtypes = [P, F, F, F, ctypes.c_uint32]
     f.srStop.argtypes = [P]
+    f.srSetPositionMode.argtypes = [P, ctypes.c_int]
+    f.srWheelsX.argtypes = [P, F, F, F, ctypes.c_uint32]
+    f.srWheelsV.argtypes = [P, F, F, ctypes.c_uint32]
+    f.srGoToR.argtypes = [P, F, F, F, F, ctypes.c_uint32]
     f.srTick.argtypes = [P, ctypes.c_uint32]; f.srTick.restype = ctypes.c_int
     for name in ("srPoseX", "srPoseY", "srPoseHeading", "srCountsPerMm",
                  "srEffectiveTrackWidth"):
@@ -188,6 +192,19 @@ def _bind(lib):
         getattr(f, name).argtypes = [P, ctypes.c_int]
         getattr(f, name).restype = F
     f.srBusWrites.argtypes = [P]; f.srBusWrites.restype = ctypes.c_uint32
+    # Brick frame log (sprint 042 ticket 003).
+    f.srBusFrameCount.argtypes = [P]
+    f.srBusFrameCount.restype = ctypes.c_uint32
+    f.srBusFrame.argtypes = [P, ctypes.c_uint32,
+                             ctypes.POINTER(ctypes.c_uint8)]
+    f.srBusFrame.restype = ctypes.c_int
+    for name in ("srBusFrames60", "srBusFrames60WhileLive"):
+        getattr(f, name).argtypes = [P, ctypes.c_int]
+        getattr(f, name).restype = ctypes.c_uint32
+    f.srBusViolations1D.argtypes = [P]
+    f.srBusViolations1D.restype = ctypes.c_uint32
+    f.srBusMoveLive.argtypes = [P, ctypes.c_int]
+    f.srBusMoveLive.restype = ctypes.c_int
     return f
 
 
@@ -260,7 +277,7 @@ class SimRobot:
                  # --- tovez motor bake: left = port 2 (-1), right = port 1
                  left_port=2, left_sign=-1, right_port=1, right_sign=1,
                  ground_gain_1=1.0, ground_gain_2=1.0,
-                 settle_ticks=16, jerk=0.0):
+                 settle_ticks=16, jerk=0.0, position_mode=0):
         self.f = lib
         cpm = 10.0 / travel_calib  # [counts/mm]
         self.cpm = cpm
@@ -275,6 +292,7 @@ class SimRobot:
         lib.srConfigureShaping(self.h, output_deadband, reversal_dwell,
                                slew_rate, write_throttle)
         lib.srSetGroundGains(self.h, ground_gain_1, ground_gain_2)
+        lib.srSetPositionMode(self.h, position_mode)
         assert lib.srBegin(self.h) == 0, "kernel.begin() refused"
         # Ticks spent at commanded zero between moves. NOT cosmetic:
         # `writeShapedDuty()` CREDITS time already spent at commanded

@@ -1,9 +1,11 @@
 ---
 id: '006'
 title: MotionEngine PositionMove (C5)
-status: open
-use-cases: ["SUC-001"]
-depends-on: ["004"]
+status: done
+use-cases:
+- SUC-001
+depends-on:
+- '004'
 github-issue: ''
 issue: position-moves-through-the-motors-own-position-loop.md
 completes_issue: false
@@ -33,12 +35,12 @@ C5. `MotionEngine::PositionMove`: a fourth in-flight command beside `Segment`, `
 
 ## Acceptance Criteria
 
-- [ ] 50 cm straight, 90 degree pivot and a 300 mm / 45 degree arc on the sim bus land within one quantum of target
-- [ ] cancel, e-stop and deadline each produce `0x5F` on both ports within one tick
-- [ ] a stall (target unreachable, wheel pinned) ends with `hardStop()` after `stallWindow`
-- [ ] arc: the two wheels' moves finish within one tick of each other
-- [ ] exactly one of seg_/hold_/nudge_/posMove_ live (starting one cancels the others)
-- [ ] kernel files byte-identical; no `0x60` frame while live
+- [x] 50 cm straight, 90 degree pivot and a 300 mm / 45 degree arc on the sim bus land within one quantum of target
+- [x] cancel, e-stop and deadline each produce `0x5F` on both ports within one tick
+- [x] a stall (target unreachable, wheel pinned) ends with `hardStop()` after `stallWindow`
+- [x] arc: the two wheels' moves finish within one tick of each other
+- [x] exactly one of seg_/hold_/nudge_/posMove_ live (starting one cancels the others)
+- [x] kernel files byte-identical; no `0x60` frame while live
 
 ## Testing
 

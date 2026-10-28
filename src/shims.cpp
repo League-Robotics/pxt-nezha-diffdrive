@@ -257,6 +257,10 @@ struct Rig {
   // overwritten by the next block-issued go-to. That ORDERING is the
   // contract.
   uint32_t goToDeadline = 0;  // [ms]
+  // position_mode (config ordinal 52): 0 kernel, 1 built-in position
+  // move for straights and pivots, 2 for arcs too. Mirrored into
+  // MotionEngine::setPositionMode(), which does the routing.
+  int positionMode = 0;  // [0..2]
 
   // The go-to entry point's own yaw-rate ceiling
   // (engineSetGoToYawRate()/engineGoToRArmed() below) -- a SEPARATE
@@ -279,6 +283,9 @@ static Rig& ensure() {
     // hook) the composed board offers -- nullptr for Nezha, which
     // MotionEngine already treats as "no tap installed".
     rig->engine.setWheelCommandTap(boardWheelCommandTap());
+    // Position moves: the board's ports that have a built-in
+    // one; nullptr on a board without (Cutebot) keeps the kernel segment.
+    rig->engine.setPositionMotors(boardPositionMotor(0), boardPositionMotor(1));
     // Kernel defaults: the tovez bake (boot_calibration.cpp) with
     // NEUTRAL wheel gains -- a generic kit starts uncorrected.
     DiffDrive::DifferentialDrive::Config cfg;
@@ -443,13 +450,26 @@ static void odomUpdate(Rig& r) { r.odometry.update(r.kernel.output()); }
 // release bracket every other non-kernel I2C entry point in this file
 // takes -- settleToRest() steps the kernel, which talks I2C, so it
 // needs the same protection tickDrive()'s own acquire() gives step().
+//
+// A live position move runs on the motors' own loop, so it is hard-
+// stopped first (the brick's stop that holds the count), then the usual
+// zero. Free bus: engine.endMove() sends the hard stop on both ports
+// itself. Held bus: it must not write, so it drops the move's record
+// only and the ports stay latched live; the staged port-level stop
+// below then sends the hard stop and the zero from the fiber that holds
+// the guard. A wheel at or below the kernel floor with no live move gets
+// no hard-stop frame (a kernel move's own ramp to the floor is left
+// alone; docs/code-review/2026-10-27/data/mb_probe_stops1.csv shows the
+// same rest from either stop at low speed).
 void Rig::softStop() {
-  engine.endMove();
-  kernel.neutral();
   if (busGuard.held()) {
+    engine.endMoveStaged();
+    kernel.neutral();
     pendingStop_ = true;
     return;
   }
+  engine.endMove();
+  kernel.neutral();
   busGuard.acquire(sleeper);
   left.emergencyStop();
   right.emergencyStop();
@@ -606,7 +626,8 @@ void enginePulseWheels(float ampLeft, float ampRight, int32_t widthTicks,
 // gives for staying separate from setWheels(). `rig == nullptr` (a wire
 // session with no prior motion verb) answers false.
 bool engineMoveActive() {
-  return rig != nullptr && rig->engine.isMoveActive();
+  return rig != nullptr &&
+         (rig->engine.isMoveActive() || rig->engine.isPositionMoveActive());
 }
 
 // The second such read -- true iff the most recent Segment to go
@@ -689,7 +710,7 @@ bool updateMove() {
   // odomUpdate() only while a move was actually active -- pose stays
   // lazily updated (poseX()/Y()/heading() on demand) otherwise.
   const bool wasActive = r.engine.isMoveActive();
-  if (wasActive) odomUpdate(r);
+  if (wasActive || r.engine.isPositionMoveActive()) odomUpdate(r);
   const bool moveActive = r.engine.service();
   // Cross-fiber stop delivery (sprint 006 ticket 002, BLK-01(b)): this
   // poller's own call path -- isMoving() (moveProgress() is read-only;
@@ -703,6 +724,9 @@ bool updateMove() {
   // the other three stop paths -- this branch used to call the
   // port-write half alone. See that method's own comment above for why
   // the two calls it gains are inert on this particular path.
+  // wasActive is the kernel segment alone: a position move ends with the
+  // brick holding the count itself, and a soft stop's port write would
+  // only disturb that hold.
   if (wasActive && !moveActive) r.softStop();
   return moveActive;
 }
@@ -737,17 +761,21 @@ bool updateMove() {
 static constexpr uint32_t kNudgeTimeout = 20000;
 
 //%
-void beginNudgeWheels(int left, int right) {  // [mm] [mm]
+void beginNudgeWheels(int left, int right) {  // [0.01 mm] [0.01 mm]
   if (!protocolTryTakeMotionOwnership()) return;
   Rig& r = ensure();
-  const float distance = 0.5f * static_cast<float>(left + right);  // [mm]
+  // The shim boundary is int32, so the distance travels as hundredths
+  // of a millimetre; the engine takes float millimetres.
+  const float leftDist = static_cast<float>(left) / 100.0f;    // [mm]
+  const float rightDist = static_cast<float>(right) / 100.0f;  // [mm]
+  const float distance = 0.5f * (leftDist + rightDist);          // [mm]
   // Inverse of beginNudge()'s own yawTarget formula (motion_engine.h):
   // yawTarget = rotation * 0.5 * effectiveTrackWidth() * cpm, and the
   // SAME half-difference wheelsX() reduces onto yawTarget directly
   // (0.5*(right-left)*cpm) must come out equal, so
   // rotation = (right-left) / effectiveTrackWidth().
   const float rotation =                                          // [rad]
-      static_cast<float>(right - left) / r.engine.effectiveTrackWidth();
+      (rightDist - leftDist) / r.engine.effectiveTrackWidth();
   r.engine.beginNudge(distance, rotation, kNudgeTimeout);
 }
 
@@ -1066,7 +1094,10 @@ static void watchdogEntry(void* context) {
 }
 
 //%
-bool moving() { return rig != nullptr && rig->engine.isMoveActive(); }
+bool moving() {
+  return rig != nullptr &&
+         (rig->engine.isMoveActive() || rig->engine.isPositionMoveActive());
+}
 
 //%
 int progress() {  // [0..1000]
@@ -1280,6 +1311,9 @@ int diagValue(int what) {
     // watching the wheel. Board-generic, see the note on case 21 above.
     case 39: return boardDiagValue(what);
     case 40: return boardDiagValue(what);
+    // 41: the last-started move went down the position path and is still
+    // live (STATUS `posmove=`).
+    case 41: return ensure().engine.isPositionMoveActive() ? 1 : 0;
     default: return 0;
   }
 }
@@ -1657,6 +1691,26 @@ void cfgSetOnboardMode(Rig&, float v) {
 float cfgGetOnboardFloor(Rig&) { return boardOnboardFloor(); }
 void cfgSetOnboardFloor(Rig&, float v) { boardSetOnboardFloor(v); }
 
+// position_mode: stored on Rig, 0..2 only. Anything else (including a
+// non-integer) is ignored, the same silent-refusal shape the other
+// range-checked rows here use.
+float cfgGetPositionMode(Rig& r) { return static_cast<float>(r.positionMode); }
+void cfgSetPositionMode(Rig& r, float v) {
+  if (!std::isfinite(v) || v < 0.0f || v > 2.0f) return;
+  const float rounded = std::round(v);
+  if (rounded != v) return;
+  r.positionMode = static_cast<int>(rounded);
+  r.engine.setPositionMode(r.positionMode);
+}
+
+// speed_path: 0 or 1, forwarded to both Nezha ports through the board
+// hook; read back from the port, so it cannot disagree with it.
+float cfgGetSpeedPath(Rig&) { return static_cast<float>(boardSpeedPath()); }
+void cfgSetSpeedPath(Rig&, float v) {
+  if (v != 0.0f && v != 1.0f) return;
+  boardSetSpeedPath(static_cast<int>(v));
+}
+
 // Commanded speed x this = what the wheel does. 1 is a stock wheel; a
 // negative value runs it the other way round from stock; the magnitude
 // is the kernel's wheel-correction gain.
@@ -1747,6 +1801,8 @@ constexpr ConfigAccessor kConfigAccessors[] = {
     {48, &cfgGetMotorPortRight, &cfgSetMotorPortRight},
     {49, &cfgGetWheelDiameter, &cfgSetWheelDiameter},
     {50, &cfgGetTrackWidth, &cfgSetTrackWidth},
+    {52, &cfgGetPositionMode, &cfgSetPositionMode},
+    {53, &cfgGetSpeedPath, &cfgSetSpeedPath},
 };
 
 const ConfigAccessor* findConfigAccessor(int ordinal) {

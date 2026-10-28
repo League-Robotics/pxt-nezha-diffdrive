@@ -103,7 +103,9 @@ If nothing ticks the loop — it exits, your program pauses, a button
 handler returns — a starvation watchdog stops the robot for you,
 within about 150 ms. It's a safety net, not an emergency stop: it
 doesn't latch, and there's nothing to clear — a fresh `move()` or
-`driveTick()` loop resumes driving right away.
+`driveTick()` loop resumes driving right away. A position move running
+on the motors' own loop is stopped the same way: it is hard-stopped
+100 to 150 ms after the last tick, like any other move.
 
 ### Keep the loop body quick
 

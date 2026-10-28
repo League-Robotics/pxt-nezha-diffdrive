@@ -1,9 +1,13 @@
 ---
 id: '003'
 title: Simulated brick learns the sniffed opcodes (C4)
-status: open
-use-cases: ["SUC-001", "SUC-004"]
-depends-on: ["001", "002"]
+status: done
+use-cases:
+- SUC-001
+- SUC-004
+depends-on:
+- '001'
+- '002'
 github-issue: ''
 issue: position-moves-through-the-motors-own-position-loop.md
 completes_issue: false
@@ -34,11 +38,11 @@ C4. Teach the simulated Nezha brick the behaviour recorded in `docs/knowledge/20
 
 ## Acceptance Criteria
 
-- [ ] `test_sim_nezha_bus_brick_opcodes.py` reproduces every row of the ticket 001 reference that has a measured number (7a stop travel ramp vs hard, 7b fine velocity), each assertion citing the doc row and CSV
-- [ ] a test asserts `0x77` alone leaves a running wheel and a pending move unchanged
-- [ ] a test asserts a second `0x70` supersedes from the current position
-- [ ] the simulator counts `0x60` frames per port and exposes a `0x1D` violation counter that stays 0
-- [ ] existing sim consumers still pass
+- [x] `test_sim_nezha_bus_brick_opcodes.py` reproduces every row of the ticket 001 reference that has a measured number (7a stop travel ramp vs hard, 7b fine velocity), each assertion citing the doc row and CSV
+- [x] a test asserts `0x77` alone leaves a running wheel and a pending move unchanged
+- [x] a test asserts a second `0x70` supersedes from the current position
+- [x] the simulator counts `0x60` frames per port and exposes a `0x1D` violation counter that stays 0
+- [x] existing sim consumers still pass
 
 ## Testing
 

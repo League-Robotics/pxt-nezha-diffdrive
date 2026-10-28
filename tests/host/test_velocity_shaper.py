@@ -294,6 +294,36 @@ def test_jerk_limited_start_does_not_jump_to_the_floor(lib):
         assert not arriving
 
 
+def test_jerk_ramp_down_stops_at_the_floor_not_below_it(lib):
+    """With jerk > 0 a stop ramps down to the floor and never through
+    it: the last nonzero command is >= the floor, and the ramp is still
+    jerk-limited on every tick above the floor."""
+    with Shaper(lib) as vs:
+        lim = Limits(accel=400.0, decel=400.0, jerk=800.0, vFloor=70.0,
+                     stopDistance=2.0)
+        dt = 0.02
+        remain = 400.0
+        prev_a = 0.0
+        last_nonzero = 0.0
+        for _ in range(3000):
+            vcmd, arriving = vs.advance(
+                target=200.0, remain=remain, floor=lim.vFloor, cap=1e9,
+                dt=dt, lim=lim,
+            )
+            a = vs.acceleration
+            if vcmd > lim.vFloor + 1e-3:
+                assert abs(a - prev_a) <= lim.jerk * dt + 1e-3
+            prev_a = a
+            if vcmd > 0.0:
+                last_nonzero = vcmd
+            if arriving:
+                break
+            remain -= vcmd * dt
+        else:
+            pytest.fail("never arrived")
+        assert last_nonzero >= lim.vFloor - 1e-4
+
+
 def test_arrival_fires_exactly_when_predicted_by_the_stop_condition(lib):
     """design S6.3: `arriving = remain >= 0 and remain <= vNext*dt +
     stopDistance` -- tested here not by re-deriving the formula but by

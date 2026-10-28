@@ -1,8 +1,9 @@
 ---
 id: '011'
 title: nudge in hundredths of a millimetre (C10)
-status: open
-use-cases: ["SUC-005"]
+status: done
+use-cases:
+- SUC-005
 depends-on: []
 github-issue: ''
 issue: nudge-rounds-to-whole-millimetres.md
@@ -25,10 +26,10 @@ C10. `nudge()` and `beginNudgeWheels()` pass distance as an integer mm, so a 1.7
 
 ## Acceptance Criteria
 
-- [ ] a 0.5 mm nudge request reaches the engine as 50 hundredths and as 0.5 mm distance
-- [ ] shim arity/units source pin updated and passing
-- [ ] sim parity: whole-mm nudges give the same engine inputs and pulse counts as before
-- [ ] no caller left passing whole mm to `beginNudgeWheels`
+- [x] a 0.5 mm nudge request reaches the engine as 50 hundredths and as 0.5 mm distance
+- [x] shim arity/units source pin updated and passing
+- [x] sim parity: whole-mm nudges give the same engine inputs and pulse counts as before
+- [x] no caller left passing whole mm to `beginNudgeWheels`
 
 ## Testing
 

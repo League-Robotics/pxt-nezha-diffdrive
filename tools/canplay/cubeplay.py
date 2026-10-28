@@ -9,7 +9,7 @@ blocked by another cube waits; if nothing can move, the blocking cube is
 parked on the north or south edge first. The camera is read before every
 leg; an annotated frame is saved after every move.
 """
-import argparse, json, math, os, sys, time
+import argparse, math, os, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -444,7 +444,7 @@ class CubeGame(Game):
               + ("  (in its garage)" if self.board.home(col, *c[1:]) else ""))
         # robot-frame error at release -> gripper offset, as canplay learns it
         h = math.radians(rpose[2])
-        ef, el = ex * math.cos(h) + ey * math.sin(h), -ex * math.sin(h) + ey * math.cos(h)
+        ef = ex * math.cos(h) + ey * math.sin(h)
         if abs(ef) < 6:
             self.cal = dict(self.cal, overshoot=self.cal.get("overshoot", 0.0) + 0.5 * ef, n=self.cal.get("n", 0) + 1)
             canplay.save_cal(self.cal)

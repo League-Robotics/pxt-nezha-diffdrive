@@ -67,6 +67,10 @@ _SUFFIX_RE = re.compile("(?:" + "|".join(_SUFFIXES) + r")_?$")
 # conversion"). One line each -- why this specific name earns the
 # exception, not a blanket category.
 _ALLOWED = {
+    # NezhaMotorPort overrides this virtual of DiffDrive::PositionMotor
+    # (core/position_motor.h, where the name is fixed and unscanned); the
+    # override cannot be renamed without renaming the interface.
+    "lastMoveCounts": "interface override: DiffDrive::PositionMotor::lastMoveCounts (position_motor.h)",
     # wire's milliradian integer -> the kernel/motion-engine's own
     # radian scale (wire_adapter.cpp) -- named explicitly in the ticket.
     "mradToRad": "conversion function: milliradians -> radians (wire_adapter.cpp)",

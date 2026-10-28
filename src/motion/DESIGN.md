@@ -48,3 +48,26 @@ real consumer: a Cutebot-composed board installs a `CutebotTapAdapter`
 Detail lives in [`src/DESIGN.md`](../DESIGN.md) §3. This file does not
 duplicate that content — it exists so `ls src/motion/` points
 somewhere.
+
+## position_move.h — moves run by the motor's own loop
+
+`position_move.h` (`PositionMove`) is a fourth in-flight command beside
+`Segment`, `Hold` and `Nudge`; exactly one of the four is live.
+`MotionEngine` plans it from the same segment maths (`rotationalSlip`,
+`effectiveTrackWidth`): per-wheel count targets, rounded to the port's
+`positionQuantum()` with the rounding error split across the two wheels
+in opposite directions, and per-wheel degrees-per-second proportional to
+each wheel's share of the dominant distance so an arc's two moves finish
+together. Two `beginMove()` calls go out back to back.
+
+While a position move is live the engine still calls `kernel_.step()`,
+so encoder reads, `Output` positions and `Odometry` stay continuous, but
+it stages no wheel commands. Completion is both wheels within
+`arriveDist`/`arriveYaw` and `atRest()`. The deadline, e-stop,
+cancel and a stall test (no progress for `stallWindow` while live) end it
+through `hardStop()`. `isDriving()` is true for the move's duration.
+Routing between this path and the kernel is `position_mode` (config);
+`WHEELS_V`, `MOVE_V`, twist and line following never use it.
+
+`VelocityShaper` with `jerk > 0` ramps down to the speed floor and never
+through it, so the last nonzero commanded speed is at least the floor.

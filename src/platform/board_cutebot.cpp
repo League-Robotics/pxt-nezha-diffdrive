@@ -75,6 +75,10 @@ BoardMotors boardMotors() {
   return BoardMotors{b.left, b.right};
 }
 
+// The Cutebot Pro has no built-in position move: MotionEngine falls back
+// to the kernel segment when this answers nullptr.
+DiffDrive::PositionMotor* boardPositionMotor(int) { return nullptr; }
+
 MotorWiring boardWiring(int side) {
   const CutebotBoard& b = board();
   const CutebotMotorPort& p = (side == 0) ? b.left : b.right;
@@ -108,6 +112,8 @@ WheelCommandTap* boardWheelCommandTap() { return &board().tap; }
 
 int boardOnboardMode() { return board().device.onboardMode(); }
 bool boardSetOnboardMode(int mode) { return board().device.setOnboardMode(mode); }
+int boardSpeedPath() { return 0; }
+bool boardSetSpeedPath(int) { return false; }
 float boardOnboardFloor() { return board().device.onboardFloor(); }
 bool boardSetOnboardFloor(float floor) {
   return board().device.setOnboardFloor(floor);

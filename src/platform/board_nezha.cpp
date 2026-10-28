@@ -68,6 +68,12 @@ BoardMotors boardMotors() {
   return BoardMotors{b.left, b.right};
 }
 
+DiffDrive::PositionMotor* boardPositionMotor(int side) {
+  NezhaBoard& b = board();
+  return side == 0 ? static_cast<DiffDrive::PositionMotor*>(&b.left)
+                   : static_cast<DiffDrive::PositionMotor*>(&b.right);
+}
+
 MotorWiring boardWiring(int side) {
   const NezhaBoard& b = board();
   const NezhaMotorPort& p = (side == 0) ? b.left : b.right;
@@ -83,6 +89,14 @@ void boardConfigureWiring(int side, uint8_t port, int8_t sign) {
 int boardDiagValue(int ordinal) {
   const NezhaBoard& b = board();
   return nezhaBoardDiagValue(b.left, b.right, ordinal);
+}
+
+int boardSpeedPath() { return board().left.speedPath(); }
+bool boardSetSpeedPath(int path) {
+  NezhaBoard& b = board();
+  b.left.setSpeedPath(path);
+  b.right.setSpeedPath(path);
+  return true;
 }
 
 // ---- hybrid actuation --------------------------------------------------
@@ -122,7 +136,8 @@ int boardLineGrey(int) { return -1; }
 // that call moves with the board
 // selection.
 //
-// Writes "run at 0" to BOTH motor ports over I2C with no dependency on
+// Writes "run at 0" to ALL FOUR motor ports (M1 to M4: the wiring
+// hooks allow a robot on M3/M4) over I2C with no dependency on
 // any object, fiber, scheduler or kernel state -- so it is callable
 // from a fault handler, where none of those can be trusted. See
 // nezha_port.cpp's own (unmoved) comment on why a plain reboot is not
@@ -131,7 +146,7 @@ int boardLineGrey(int) { return -1; }
 extern "C" void diffdrive_emergency_motor_stop() {
   // Same frame shape as NezhaMotorPort::writeFrame(), inlined so this
   // needs no instance: {0xFF, 0xF9, port, arg, reg, val, 0xF5, 0x00}.
-  for (uint8_t port = 1; port <= 2; ++port) {
+  for (uint8_t port = 1; port <= 4; ++port) {
     uint8_t frame[8] = {0xFF, 0xF9, port, NezhaMotorPort::kDirCw,
                         NezhaMotorPort::kRegMotorRun, 0x00, 0xF5, 0x00};
 #if MICROBIT_CODAL

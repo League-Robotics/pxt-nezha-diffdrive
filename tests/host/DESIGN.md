@@ -150,6 +150,14 @@ Three kinds of file, one pattern:
   `compile_shared_lib()` (defined in `test_kernel_harness.py`,
   reused by every later suite: same compiler invocation, no CMake)
   and asserts through the handle.
+- **Extended sim bus.** `sim_nezha_bus.h` also models the brick's own
+  position and speed loops (opcodes `0x77`, `0x70` modes 2 and 3, `0x5F`,
+  and `0x60` taking over a running move), with constants fitted to the
+  tables in `docs/knowledge/2026-10-27-nezha-brick-opcodes.md`. That
+  reference is cited by `test_sim_nezha_bus_brick_opcodes.py`,
+  `test_nezha_port_position_move.py`, `test_position_move_stop_paths.py`,
+  `test_motion_engine_position_move.py` and `test_sim_position_routing.py`.
+  The bus never emits `0x1D`; it only recognises the byte to fail a test.
 - **Whole-stack tour shims** (`sim_robot_shim.cpp`, and — sprint 040
   ticket 006 — `sim_cutebot_robot_shim.cpp`) are a DELIBERATE exception
   to "a new module gets its own shim only when it has its own class

@@ -68,4 +68,5 @@ def test_existing_status_keys_are_unchanged(lib):
     for key in ("ready", "active", "connL", "connR", "otos", "wedge", "flags",
                 "i2cf", "cyc", "tlm", "next", "done", "reason"):
         assert key in keys
-    assert keys[-4:] == ["wifi", "radio", "channel", "group"]
+    # posmove is appended after the transport keys, last of all.
+    assert keys[-5:] == ["wifi", "radio", "channel", "group", "posmove"]

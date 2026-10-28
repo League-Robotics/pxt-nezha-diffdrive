@@ -1,7 +1,7 @@
 ---
 id: '042'
 title: Position moves through the motor's own loop, on the host
-status: ticketing
+status: done
 branch: sprint/042-position-moves-through-the-motor-s-own-loop-on-the-host
 use-cases:
 - SUC-001

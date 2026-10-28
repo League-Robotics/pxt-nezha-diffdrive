@@ -102,6 +102,39 @@ struct WvHandle {
 // (wire_adapter.h's own header comment) observable from a host test.
 uint32_t waNowMs();
 
+// A position-capable port that only records what the engine asked of it:
+// the routing tests read beginMove()/hardStop() counts, never a plant.
+// A move stays live until the test calls finish(), standing in for the
+// brick reaching its target. The quantum is the brick's (10 counts).
+class RecordingPositionPort final : public DiffDrive::PositionMotor {
+ public:
+  bool supportsPositionMove() const override { return supported; }
+  float positionQuantum() const override { return 10.0f; }
+  bool beginMove(float deltaCounts, float degPerSec) override {
+    ++beginCalls;
+    lastDelta = std::round(deltaCounts / 10.0f) * 10.0f;
+    lastRate = degPerSec;
+    live = true;
+    return true;
+  }
+  bool hardStop() override {
+    ++stopCalls;
+    live = false;
+    return true;
+  }
+  bool moveLive() const override { return live; }
+  bool driven() const override { return live; }
+  float lastMoveCounts() const override { return lastDelta; }
+  void finish() { live = false; }
+
+  bool supported = true;
+  bool live = false;
+  int beginCalls = 0;
+  int stopCalls = 0;
+  float lastDelta = 0.0f;  // [counts]
+  float lastRate = 0.0f;   // [deg/s]
+};
+
 struct WaHandle {
   FakeMotor motorLeft;
   FakeMotor motorRight;
@@ -126,6 +159,11 @@ struct WaHandle {
   // disconnected-sensor test double.
   FakePoseSource pose;
   bool poseSourceAvailable = true;
+  // The ports the engine hands position moves to. Attached only when a
+  // test asks (waAttachPositionPorts), so every existing test keeps the
+  // kernel-only composition it always had.
+  RecordingPositionPort posLeft;
+  RecordingPositionPort posRight;
   diffDrive::WireAdapter adapter;
   RecordingSink sink;
   Wire::WireHandler handler;
@@ -204,6 +242,8 @@ struct WaHandle {
   // Plain stored fields, like the two above.
   float wheelScale[2] = {1.0f, 1.0f};  // [1] mirrors wheel_scale_left/right
   float motorPort[2] = {1.0f, 2.0f};   // [M1..M4] mirrors motor_port_left/right
+  float positionModeValue = 0.0f;   // [1] mirrors position_mode
+  float speedPathValue = 0.0f;      // [1] mirrors speed_path
   float wheelDiameter = 90.28f;        // [mm] mirrors wheel_diameter
   float trackWidth = 114.2f;           // [mm] mirrors track_width
 
@@ -563,6 +603,15 @@ static void waSetWheelDiameter(WaHandle& h, float v) { h.wheelDiameter = v; }
 static float waGetTrackWidth(WaHandle& h) { return h.trackWidth; }
 static void waSetTrackWidth(WaHandle& h, float v) { h.trackWidth = v; }
 
+static float waGetPositionMode(WaHandle& h) { return h.positionModeValue; }
+static void waSetPositionMode(WaHandle& h, float v) {
+  h.positionModeValue = v;
+  // Mirrors shims.cpp's cfgSetPositionMode(): the engine does the routing.
+  h.engine.setPositionMode(static_cast<int>(v));
+}
+static float waGetSpeedPath(WaHandle& h) { return h.speedPathValue; }
+static void waSetSpeedPath(WaHandle& h, float v) { h.speedPathValue = v; }
+
 struct WaConfigAccessor {
   int ordinal;
   float (*get)(WaHandle&);        // [unscaled]
@@ -603,6 +652,8 @@ static const WaConfigAccessor kWaConfigAccessors[] = {
     {48, &waGetMotorPortRight, &waSetMotorPortRight},
     {49, &waGetWheelDiameter, &waSetWheelDiameter},
     {50, &waGetTrackWidth, &waSetTrackWidth},
+    {52, &waGetPositionMode, &waSetPositionMode},
+    {53, &waGetSpeedPath, &waSetSpeedPath},
 };
 
 static const WaConfigAccessor* waFindConfigAccessor(int ordinal) {
@@ -784,7 +835,8 @@ float engineGoToWChord(float worldX, float worldY) {
 // separate notion of "active."
 bool engineMoveActive() {
   if (g_activeWaHandle == nullptr) return false;
-  return g_activeWaHandle->engine.isMoveActive();
+  return g_activeWaHandle->engine.isMoveActive() ||
+         g_activeWaHandle->engine.isPositionMoveActive();
 }
 
 // Stands in for protocol.cpp's own protocolOfferRun() -- the seam
@@ -873,6 +925,7 @@ int diagValue(int what) {
     case 16: return static_cast<int>(out.cycleCount);
     case 19: return static_cast<int>(out.cycleOverrunCount);
     case 25: return static_cast<int>(g_activeWaHandle->engine.wrongWayCount());
+    case 41: return g_activeWaHandle->engine.isPositionMoveActive() ? 1 : 0;
     default: return 0;
   }
 }
@@ -1208,6 +1261,46 @@ int waBegin(void* handle) {
   return static_cast<int>(static_cast<WaHandle*>(handle)->kernel.begin());
 }
 void waStep(void* handle) { static_cast<WaHandle*>(handle)->kernel.step(); }
+
+// ---- position-move routing probes ----------------------------------------
+// Attach (1) or detach (0) the recording ports as the engine's position
+// motors; `supported` 0 models a board whose ports refuse position moves.
+void waAttachPositionPorts(void* handle, int attach, int supported) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  h->posLeft.supported = supported != 0;
+  h->posRight.supported = supported != 0;
+  if (attach) h->engine.setPositionMotors(&h->posLeft, &h->posRight);
+  else h->engine.setPositionMotors(nullptr, nullptr);
+}
+void waSetPositionModeDirect(void* handle, int mode) {
+  diffDrive::waSetPositionMode(*static_cast<WaHandle*>(handle),
+                               static_cast<float>(mode));
+}
+int waPosBeginCalls(void* handle, int side) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  return (side == 0 ? h->posLeft : h->posRight).beginCalls;
+}
+int waPosStopCalls(void* handle, int side) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  return (side == 0 ? h->posLeft : h->posRight).stopCalls;
+}
+float waPosLastDelta(void* handle, int side) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  return (side == 0 ? h->posLeft : h->posRight).lastDelta;
+}
+// The brick reached its target on both wheels.
+void waPosFinish(void* handle) {
+  WaHandle* h = static_cast<WaHandle*>(handle);
+  h->posLeft.finish();
+  h->posRight.finish();
+}
+int waPositionMoveActive(void* handle) {
+  return static_cast<WaHandle*>(handle)->engine.isPositionMoveActive() ? 1 : 0;
+}
+int waWireMoveActive(void*) { return diffDrive::engineMoveActive() ? 1 : 0; }
+int waIsDriving(void* handle) {
+  return static_cast<WaHandle*>(handle)->engine.isDriving() ? 1 : 0;
+}
 
 // Sprint 005 ticket 004: waStep() above only steps the KERNEL -- unlike
 // production's tickDrive() (shims.cpp), it never also calls

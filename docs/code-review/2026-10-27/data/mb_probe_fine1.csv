@@ -1,0 +1,14 @@
+test,pct,how,trial,after_stop_deg,after_stop_mm,rest_ms,velocity_dps
+finevel,60,0,0,0,0,0,60.5
+finevel,100,0,0,0,0,0,100.5
+finevel,105,0,0,0,0,0,105.7
+finevel,300,0,0,0,0,0,302.7
+finevel,450,0,0,0,0,0,454.6
+finevel,900,0,0,0,0,0,907.4
+finevel,905,0,0,0,0,0,909.5
+finevel,1000,0,0,0,0,0,977.8
+finevel,1100,0,0,0,0,0,981.4
+finevel,1200,0,0,0,0,0,990.8
+supersede,300,0,0,0.0,0,0,302.9
+supersede,150,0,1,0,0,0,151.4
+supersede,-150,0,2,0,0,0,-152.3

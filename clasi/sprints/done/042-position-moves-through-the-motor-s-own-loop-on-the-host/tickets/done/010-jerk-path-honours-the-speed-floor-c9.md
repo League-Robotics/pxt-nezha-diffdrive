@@ -1,8 +1,9 @@
 ---
 id: '010'
 title: Jerk path honours the speed floor (C9)
-status: open
-use-cases: ["SUC-005"]
+status: done
+use-cases:
+- SUC-005
 depends-on: []
 github-issue: ''
 issue: jerk-path-skips-the-speed-floor.md
@@ -25,9 +26,9 @@ Keep the "a jerk-limited reference must ramp through it instead of stepping to i
 
 ## Acceptance Criteria
 
-- [ ] with `jerk > 0`, the last nonzero command is >= the floor
-- [ ] with `jerk > 0`, the ramp is still jerk-limited (no step above the jerk bound before the floor)
-- [ ] all existing `test_velocity_shaper.py` cases pass unchanged (or an updated case is justified in the ticket)
+- [x] with `jerk > 0`, the last nonzero command is >= the floor
+- [x] with `jerk > 0`, the ramp is still jerk-limited (no step above the jerk bound before the floor)
+- [x] all existing `test_velocity_shaper.py` cases pass unchanged (or an updated case is justified in the ticket)
 
 ## Testing
 

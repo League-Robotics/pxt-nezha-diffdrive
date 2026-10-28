@@ -10,7 +10,7 @@ import math, os, sys, time
 import numpy as np, cv2
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from canplay import CAM, MAT_DIR, Mat  # noqa: E402
+from canplay import CAM, Mat  # noqa: E402
 
 PX2W = np.array([[0.1697, -0.0037, -69.9161], [-0.0046, -0.1689, 44.3513]])
 W2PX = np.linalg.inv(np.vstack([PX2W, [0, 0, 1]]))[:2]

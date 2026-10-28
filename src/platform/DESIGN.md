@@ -75,3 +75,36 @@ Detail lives in [`src/DESIGN.md`](../DESIGN.md) §1 (layer map) and §7
 (the full behavioral detail for every port, the board-composition seam,
 and the actuation policy). This file does not duplicate that content —
 it exists so `ls src/platform/` points somewhere.
+
+## Position moves, the move-live latch and the two speed paths
+
+`NezhaMotorPort` implements `DiffDrive::PositionMotor`
+(`core/position_motor.h`) as well as `Motor`.
+
+- **Position move.** `beginMove()` writes `0x77 <deg/s>` (per port,
+  only when the value changed) then `0x70` direction mode 2 with the
+  distance in integer degrees; quantum 10 counts. `hardStop()` writes
+  `0x5F` (servo hold at the current count).
+- **Move-live latch.** From `beginMove()` until completion,
+  `hardStop()` or e-stop, `setDuty()` is a no-op and `driven()` is true.
+  This is what keeps the kernel's stop-enforcement (`setDuty(0)` every
+  tick while a wheel reads above rest) from sending `0x60 0`, which
+  would cancel the brick's move. `emergencyStop()` on a live move sends
+  `0x5F` first, then `0x60 0`. No `0x60` frame is written to a live
+  port.
+- **Speed path (`speed_path`).** 0 (default) is the `0x60` integer
+  percent actuator with sigma-delta dither. 1 sends `0x77 round(pct x
+  11.5)` (only on change) plus `0x70` direction mode 3 timed run
+  (`(10n-3) x 100 ms`, n = 1) per change; the deadband, dwell, slew and
+  throttle stay in front, the dither is bypassed, and a stop from speed
+  is `0x5F`.
+- **Stops.** Every stop path (`Rig::softStop()`, the starvation
+  watchdog, `endMove()`, `STOP`, `ESTOP`, `configureWiring()`, the
+  fault-context `diffdrive_emergency_motor_stop()`) hard-stops a live
+  move or a wheel above the floor first. The fault frame covers ports
+  M1 to M4.
+
+Never send brick opcode `0x1D` (motor reset). The opcode map and the
+measured tables are in `docs/knowledge/2026-10-27-nezha-brick-opcodes.md`.
+`tests/host/sim_nezha_bus.h` implements the brick behaviour the
+reference records.

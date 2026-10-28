@@ -566,6 +566,24 @@ a Cutebot-composed board (sprint 040 ticket 004) installs a
   window regardless of how small the yaw target was, 2026-08-22, is not
   a reachable code path any more).
 
+**Position moves (`motion/position_move.h`, `PositionMove`).** A fourth
+in-flight command beside `Segment`, `Hold` and `Nudge`; exactly one is
+live. `wheelsX`, `moveX` and `goTo` plan it from the segment maths
+(`rotationalSlip`, `effectiveTrackWidth`) when `position_mode` allows
+(0 never, 1 straights and pivots, 2 arcs too; default 0) and both wheels'
+`DiffDrive::PositionMotor` reports `supportsPositionMove()`; `wheelsV`,
+`moveV`, twist and line following never use it. Per-wheel count targets
+are rounded to the port's `positionQuantum()` with the rounding error
+split across the wheels in opposite directions, and per-wheel deg/s is
+proportional to each wheel's share of the dominant distance so an arc's
+wheels finish together. While a move is live the engine still calls
+`kernel_.step()`, so encoder reads, `Output` and `Odometry` stay
+continuous, but it stages no wheel commands and `isDriving()` is true.
+Completion is both wheels within `arriveDist`/`arriveYaw` and at rest;
+the deadline, e-stop, cancel and a no-progress stall test (`stallWindow`)
+end the move through `hardStop()` on both wheels. `STATUS` carries
+`posmove=` while a position move is live.
+
 ## 4. Wire grammar — `comms/wire_handler.h/.cpp` (`Wire::WireHandler`)
 
 **Responsibility.** Protocol v6's ASCII line-grammar mechanics plus
@@ -1716,6 +1734,34 @@ reason. `uBit.i2c`, `radio.datagram.send`, async serial read and
 `create_fiber`). `Sleeper` is the single choke point through which the
 vendored kernel's encoder settle sleeps yield, which is why guarding it
 covers `core/diffdrive.cpp` without editing it.
+
+**Position path, move-live latch and speed paths
+(`platform/nezha_port.*`, `core/position_motor.h`).** `NezhaMotorPort`
+implements `DiffDrive::PositionMotor` as well as `Motor`.
+`beginMove()` writes `0x77 <deg/s>` (when changed) then `0x70` direction
+mode 2 with the distance in integer degrees (quantum 10 counts);
+`hardStop()` writes `0x5F`, which holds the current count. From
+`beginMove()` until completion, `hardStop()` or e-stop the port's
+move-live latch makes `setDuty()` a no-op and `driven()` true, so the
+kernel's stop enforcement (`setDuty(0)` each tick while a wheel reads
+above rest) never sends `0x60 0`, which would cancel the brick's move:
+no `0x60` frame is written to a live port. `emergencyStop()` on a live
+move sends `0x5F` then `0x60 0`.
+
+Two speed paths, selected by `speed_path` (config ordinal 53, default 0;
+`position_mode` is ordinal 52): 0 is the `0x60` integer-percent actuator
+with sigma-delta dither; 1 sends `0x77 round(pct x 11.5)` (on change)
+plus `0x70` mode 3, a timed run of `(10n-3) x 100 ms` with n = 1 (0.7 s,
+so a starved firmware self-stops), re-issued every 400 ms during a steady
+hold; deadband, dwell, slew and throttle stay in front, the dither is
+bypassed, and a stop from speed is `0x5F`. A stop from at or below the
+8 % kernel floor keeps `0x60 0`. Every stop path (`Rig::softStop()`, the
+starvation watchdog, `endMove()`, `STOP`, `ESTOP`, `configureWiring()`
+and the fault-context `diffdrive_emergency_motor_stop()`, whose frame
+covers M1 to M4) hard-stops a live move or a wheel above the floor
+first. Never send opcode `0x1D`. Opcode map and measured tables:
+`docs/knowledge/2026-10-27-nezha-brick-opcodes.md`; the 11.5 deg/s per
+percent figure is from the ESP32 rig and UNVERIFIED through the brick.
 
 ## 8. Protocol composition — `comms/protocol.h/.cpp` (`diffDrive::Protocol`)
 

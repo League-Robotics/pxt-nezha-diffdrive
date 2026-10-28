@@ -38,6 +38,13 @@ _EXCLUDED = {_SRC_DIR / "core" / "diffdrive.h", _SRC_DIR / "core" / "diffdrive.c
 _PRODUCT_ID_RE = re.compile(r"0[xX]5[fF]\b")
 
 
+# The Nezha brick's hard-stop opcode is a different register that happens
+# to share the value 0x5F. It is allowed exactly where it is defined, as
+# the kRegHardStop constant; any other 0x5F outside otos_port.h (a comment
+# included) still fails, so the OTOS pin is otherwise intact.
+_HARD_STOP_DEFINITION = ("platform/nezha_port.h", "kRegHardStop = 0x5F;")
+
+
 def _find_product_id_literal_occurrences():
     """Every `0x5F`/`0x5f` occurrence anywhere under src/ (excluding the
     vendored kernel), as (path-relative-to-src, line-number, line-text)
@@ -51,6 +58,9 @@ def _find_product_id_literal_occurrences():
         text = path.read_text()
         for lineno, line in enumerate(text.splitlines(), start=1):
             if _PRODUCT_ID_RE.search(line):
+                rel = path.relative_to(_SRC_DIR).as_posix()
+                if rel == _HARD_STOP_DEFINITION[0] and _HARD_STOP_DEFINITION[1] in line:
+                    continue
                 hits.append((path.relative_to(_SRC_DIR), lineno, line.strip()))
     return hits
 

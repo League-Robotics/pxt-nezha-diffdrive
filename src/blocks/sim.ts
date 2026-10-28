@@ -165,13 +165,13 @@ namespace diffDrive {
     let simNudgeRotation = 0  // [cdeg] last requested, reported "measured"
 
     //% shim=diffDrive::beginNudgeWheels
-    export function _beginNudgeWheels(left: number, right: number): void {  // [mm] [mm]
+    export function _beginNudgeWheels(left: number, right: number): void {  // [0.01 mm] [0.01 mm]
         simIntegrate()
-        const distance = 0.5 * (left + right)  // [mm]
+        const distance = 0.5 * (left + right) / 100  // [mm]
         // Mirrors beginNudgeWheels()'s own reduction in shims.cpp:
         // rotation = (right - left) / effectiveTrackWidth().
         const rotation =                                // [rad]
-            (right - left) / (simTrackWidth / simRotationalSlip)
+            ((right - left) / 100) / (simTrackWidth / simRotationalSlip)
         simNudgeDistance = Math.round(distance)
         simNudgeRotation = Math.round(rotation * 180 / Math.PI * 100)
         if (simEstopped) return

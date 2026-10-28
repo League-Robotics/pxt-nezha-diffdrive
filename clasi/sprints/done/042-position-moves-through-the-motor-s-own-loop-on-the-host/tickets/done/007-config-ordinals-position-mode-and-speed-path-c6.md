@@ -1,9 +1,13 @@
 ---
 id: '007'
 title: Config ordinals position_mode and speed_path (C6)
-status: open
-use-cases: ["SUC-003", "SUC-004"]
-depends-on: ["005", "006"]
+status: done
+use-cases:
+- SUC-003
+- SUC-004
+depends-on:
+- '005'
+- '006'
 github-issue: ''
 issue: position-moves-through-the-motors-own-position-loop.md
 completes_issue: false
@@ -25,11 +29,11 @@ C6. Two config ordinals and their plumbing, using the single-source generator fl
 
 ## Acceptance Criteria
 
-- [ ] `position_mode` and `speed_path` appear in the descriptor table, the generated block enum, and `set config` by name and ordinal
-- [ ] defaults are 0 and 0
-- [ ] values outside the documented range are refused with the existing config error shape
-- [ ] `test_config_descriptor_table.py` and `test_config_surface_single_source.py` pass (extend them for the new rows)
-- [ ] generator run leaves a clean second run (idempotent)
+- [x] `position_mode` and `speed_path` appear in the descriptor table, the generated block enum, and `set config` by name and ordinal
+- [x] defaults are 0 and 0
+- [x] values outside the documented range are refused with the existing config error shape
+- [x] `test_config_descriptor_table.py` and `test_config_surface_single_source.py` pass (extend them for the new rows)
+- [x] generator run leaves a clean second run (idempotent)
 
 ## Testing
 

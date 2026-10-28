@@ -19,3 +19,12 @@ both; do not hand-edit the enum. See [`src/DESIGN.md`](../DESIGN.md) §5.
 Detail lives in [`src/DESIGN.md`](../DESIGN.md) §9. This file does not
 duplicate that content — it exists so `ls src/blocks/` points
 somewhere.
+
+## Stop paths and the watchdog under position moves
+
+The starvation watchdog keeps its invariant: the robot moves only while
+something ticks. A live position move counts as driving
+(`commandLooksActive()`), so a stalled host gets `hardStop()` on both
+wheels 100 to 150 ms after the last tick, not a move that finishes
+unattended. `Rig::softStop()` hard-stops live moves first. The `nudge()`
+block and `beginNudgeWheels()` take hundredths of a millimetre.

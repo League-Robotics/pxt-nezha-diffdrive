@@ -1,9 +1,13 @@
 ---
 id: '004'
 title: NezhaMotorPort position moves and move-live latch (C2)
-status: open
-use-cases: ["SUC-001", "SUC-002"]
-depends-on: ["002", "003"]
+status: done
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '002'
+- '003'
 github-issue: ''
 issue: position-moves-through-the-motors-own-position-loop.md
 completes_issue: false
@@ -33,11 +37,11 @@ C2. `NezhaMotorPort` implements `PositionMotor` (ticket 002). A move-live latch 
 
 ## Acceptance Criteria
 
-- [ ] frames byte-exact against the ticket 001 reference: `0x77` written once per speed change per port (not repeated for an unchanged speed), then `0x70` dir mode 2 with integer degrees
-- [ ] zero `0x60` frames on a live port, even when the kernel calls `setDuty(0)` every tick while the wheel reads above rest (the F3 regression, pinned in a named test)
-- [ ] `hardStop()` emits exactly one `0x5F` and clears the latch; `emergencyStop()` on a live move emits `0x5F` then `0x60 0`
-- [ ] a wedge/frozen-read test shows a frozen counter mid-move is still detected as a wedge
-- [ ] with the latch never set, the frame log of the existing tour is byte-identical to before (no regression)
+- [x] frames byte-exact against the ticket 001 reference: `0x77` written once per speed change per port (not repeated for an unchanged speed), then `0x70` dir mode 2 with integer degrees
+- [x] zero `0x60` frames on a live port, even when the kernel calls `setDuty(0)` every tick while the wheel reads above rest (the F3 regression, pinned in a named test)
+- [x] `hardStop()` emits exactly one `0x5F` and clears the latch; `emergencyStop()` on a live move emits `0x5F` then `0x60 0`
+- [x] a wedge/frozen-read test shows a frozen counter mid-move is still detected as a wedge
+- [x] with the latch never set, the frame log of the existing tour is byte-identical to before (no regression)
 
 ## Testing
 

@@ -106,7 +106,9 @@ struct Handle {
         right(rightPort, rightSign, bus),
         kernel(left, right, clock, sleeper, launcher),
         engine(kernel, clock),
-        odometry(engine) {}
+        odometry(engine) {
+    engine.setPositionMotors(&left, &right);
+  }
 };
 
 }  // namespace
@@ -203,7 +205,93 @@ void srMoveX(void* handle, float distance, float rotation, float cruise,
                                              timeoutMs);
 }
 
+// Sprint 042 ticket 006: MotionEngine::beginPositionMove(). Returns 1 if
+// a position move is live afterwards.
+int srPositionMove(void* handle, float distance, float rotation,
+                   float cruise, uint32_t timeoutMs) {
+  Handle* h = static_cast<Handle*>(handle);
+  return h->engine.beginPositionMove(distance, rotation, cruise, timeoutMs) &&
+                 h->engine.isPositionMoveActive()
+             ? 1 : 0;
+}
+// Detach (0) or attach (1) the ports as position motors -- 0 models a
+// board without a built-in position move (Cutebot): the engine must fall
+// back to the kernel segment.
+void srSetPositionMotors(void* handle, int enable) {
+  Handle* h = static_cast<Handle*>(handle);
+  if (enable) h->engine.setPositionMotors(&h->left, &h->right);
+  else h->engine.setPositionMotors(nullptr, nullptr);
+}
+// position_mode (0 kernel, 1 straights and pivots, 2 arcs too): the
+// engine routes moveX()/wheelsX()/goToR() on it.
+void srSetPositionMode(void* handle, int mode) {
+  static_cast<Handle*>(handle)->engine.setPositionMode(mode);
+}
+void srWheelsX(void* handle, float left, float right, float cruise,
+               uint32_t timeoutMs) {
+  static_cast<Handle*>(handle)->engine.wheelsX(left, right, cruise, timeoutMs);
+}
+void srWheelsV(void* handle, float left, float right, uint32_t durationMs) {
+  static_cast<Handle*>(handle)->engine.wheelsV(left, right, durationMs);
+}
+void srGoToR(void* handle, float x, float y, float speed, float arrive,
+             uint32_t timeoutMs) {
+  static_cast<Handle*>(handle)->engine.goToR(x, y, speed, arrive, timeoutMs);
+}
+int srPositionMoveActive(void* handle) {
+  return static_cast<Handle*>(handle)->engine.isPositionMoveActive() ? 1 : 0;
+}
+int srPositionMoveArrived(void* handle) {
+  return static_cast<Handle*>(handle)->engine.lastPositionMoveArrived() ? 1 : 0;
+}
+int srIsDriving(void* handle) {
+  return static_cast<Handle*>(handle)->engine.isDriving() ? 1 : 0;
+}
+void srEstop(void* handle) { static_cast<Handle*>(handle)->kernel.estop(); }
+void srBlockWheel(void* handle, int port, int blocked) {
+  static_cast<Handle*>(handle)->bus.setBlocked(static_cast<uint8_t>(port),
+                                               blocked != 0);
+}
+// Port-side (sign-corrected) wheel position, side 0 = left [counts].
+float srWheelPosition(void* handle, int side) {
+  Handle* h = static_cast<Handle*>(handle);
+  return side == 0 ? h->left.position() : h->right.position();
+}
+
 void srStop(void* handle) { static_cast<Handle*>(handle)->engine.endMove(); }
+
+// The stop paths in src/shims.cpp, spelled with the same calls in the same
+// order (shims.cpp cannot be compiled on the host). srSoftStop is
+// Rig::softStop() with a free bus -- also what the starvation watchdog,
+// STOP and `stop move` run; srEstopAll is estopAll() -- also the wire's
+// ESTOP.
+void srSoftStop(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMove();
+  h->kernel.neutral();
+  h->left.emergencyStop();
+  h->right.emergencyStop();
+  h->engine.settleToRest();
+}
+// Rig::softStop() with the bus held: the stage only; srDeliverStagedStop
+// is tickDrive()'s delivery of it.
+void srSoftStopStaged(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMoveStaged();
+  h->kernel.neutral();
+}
+void srDeliverStagedStop(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->left.emergencyStop();
+  h->right.emergencyStop();
+  h->engine.settleToRest();
+}
+void srEstopAll(void* handle) {
+  Handle* h = static_cast<Handle*>(handle);
+  h->engine.endMove();
+  h->kernel.estop();
+  h->kernel.emergencyStopMotors();
+}
 
 // ---- the tick ------------------------------------------------------------
 
@@ -301,6 +389,32 @@ float srEffectiveTrackWidth(void* handle) {
 }
 uint32_t srBusWrites(void* handle) {
   return static_cast<Handle*>(handle)->bus.writes();
+}
+
+// ---- brick frame log (sprint 042 ticket 003) -----------------------------
+// What the simulated brick received, for tests of the position-move path:
+// byte-exact frames and per-port 0x60 counts. See sim_nezha_bus.h.
+uint32_t srBusFrameCount(void* handle) {
+  return static_cast<Handle*>(handle)->bus.frameCount();
+}
+// Copies accepted frame `index` into out[8]; returns 1, or 0 if out of range.
+int srBusFrame(void* handle, uint32_t index, uint8_t* out) {
+  return static_cast<Handle*>(handle)->bus.frameBytes(index, out) ? 1 : 0;
+}
+uint32_t srBusFrames60(void* handle, int port) {
+  return static_cast<Handle*>(handle)->bus.frames60(
+      static_cast<uint8_t>(port));
+}
+uint32_t srBusFrames60WhileLive(void* handle, int port) {
+  return static_cast<Handle*>(handle)->bus.frames60WhileLive(
+      static_cast<uint8_t>(port));
+}
+uint32_t srBusViolations1D(void* handle) {
+  return static_cast<Handle*>(handle)->bus.violations1D();
+}
+int srBusMoveLive(void* handle, int port) {
+  return static_cast<Handle*>(handle)->bus.moveLive(
+             static_cast<uint8_t>(port)) ? 1 : 0;
 }
 
 }  // extern "C"
