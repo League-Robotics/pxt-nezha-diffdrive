@@ -1,9 +1,13 @@
 ---
 id: '003'
 title: Simulated brick learns the sniffed opcodes (C4)
-status: open
-use-cases: ["SUC-001", "SUC-004"]
-depends-on: ["001", "002"]
+status: in-progress
+use-cases:
+- SUC-001
+- SUC-004
+depends-on:
+- '001'
+- '002'
 github-issue: ''
 issue: position-moves-through-the-motors-own-position-loop.md
 completes_issue: false
