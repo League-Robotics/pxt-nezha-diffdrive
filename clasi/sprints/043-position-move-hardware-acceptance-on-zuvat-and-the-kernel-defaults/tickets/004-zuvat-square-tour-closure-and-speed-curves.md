@@ -1,9 +1,12 @@
 ---
 id: '004'
 title: Zuvat square tour closure and speed curves
-status: open
-use-cases: [SUC-001]
-depends-on: ["002","003"]
+status: in-progress
+use-cases:
+- SUC-001
+depends-on:
+- '002'
+- '003'
 github-issue: ''
 issue: position-move-hardware-acceptance-and-the-zuvat-square.md
 completes_issue: false
