@@ -64,3 +64,9 @@ Without a reproduced baseline, the sprint 027 fix is verified by a
 before/after pair on identical hardware. That is still good evidence,
 but any future "the serial link died" report cannot be triaged against a
 known-good reproduction recipe until this is resolved.
+
+---
+
+## Triage 2026-10-27 — LOW
+
+Forensics on why a pre-fix build stopped wedging. The fix is in and has held since 2026-09-02; this only matters if a serial-link death ever needs a known-bad recipe.

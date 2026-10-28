@@ -62,3 +62,9 @@ later lines, which imitates this exact bug).
 starvation watchdog is re-armed by a fiber that then blocks, so the one
 mechanism meant to stop the wheels during a hang can be starved by the
 hang itself. Worth testing in the same session.
+
+---
+
+## Triage 2026-10-27 — LOW
+
+Seen twice on 2026-09-15, then 0 failures in 22 reversals on the fixed build, and never since on any robot. Record stands as an intermittent fault; the old-firmware repro is not worth a session unless it comes back.

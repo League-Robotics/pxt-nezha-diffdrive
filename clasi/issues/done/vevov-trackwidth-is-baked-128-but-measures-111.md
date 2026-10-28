@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 ---
 
 # vevov's baked trackwidth is 128.0 mm; the stakeholder measures 111 mm
@@ -123,3 +123,9 @@ Not part of sprint 039. Ticket 003's pulse gate is unaffected: it
 measures straight-line wheel travel from the encoders, cross-checked
 against the camera over a cumulative burst, and never pivots. But vevov
 should not be used for turning work until this is settled.
+
+---
+
+## Triage 2026-10-27 — DONE
+
+Resolved 2026-09-17 in `radio-robot-lib/config/robots/vevov.json` (commit 1f79693, "retire the 128.0 trackwidth"): trackwidth 111.6 mm, rotational_slip 0.969, with the provenance note recording that 128.0 was an outside-to-outside span, not the track. That answers the caliper-span question this issue asked. vevov has not been driven since (last capture 2026-09-16), so the post-reflash dance is still unrun; do it the next time vevov is on the farm, as a pre-flight, not as a ticket.

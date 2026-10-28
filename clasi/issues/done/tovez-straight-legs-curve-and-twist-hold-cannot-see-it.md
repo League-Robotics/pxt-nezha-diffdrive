@@ -1,6 +1,6 @@
 ---
 title: "tovez's straight legs curve ~1.1%; twist hold cannot correct an encoder-invisible curvature by construction"
-status: pending
+status: done
 created: 2026-09-05
 ---
 
@@ -53,3 +53,9 @@ tuned this gain.
   slower 8/8. An OBSERVATION only; see the sampling-order caveat above.
 - Pivot repeatability sd ~1.8 deg after the slip fix; `stop_distance` 0
   and `lag` 0.13 (the step value, not a pivot fit) are the S10.2 knobs.
+
+---
+
+## Triage 2026-10-27 — DONE (withdrawn)
+
+The framing was withdrawn by `docs/sprint-031-postmortem.md` section 2.2a, measured the same day: the discriminator runs (`captures/session-b-20260905/discriminator-20260905{,-v2}/`) showed a variable, sign-inconsistent start-of-leg breakaway on direction reversal, not a constant curvature. `straight_trim` shipped (sprint 031 ticket 019) at default 0 and tovez's value stays 0. The breakaway itself resurfaced as the lurch bar in sprint 043 ticket 003 on zuvat, which is where it is tracked now.

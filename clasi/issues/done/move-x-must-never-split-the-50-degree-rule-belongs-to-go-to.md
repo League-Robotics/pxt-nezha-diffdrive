@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 ---
 
 # `move_x` must never split; the 50° pivot-first rule belongs to `go_to` only
@@ -87,3 +87,9 @@ circle from a camera fix at field centre).
   `test_run_tour_programs.py`,
   `test_sim_geometry_matches_kernel_and_setters_apply.py`,
   `test_heading_wrap.py`, `motion_engine_shim.cpp`.
+
+---
+
+## Triage 2026-10-27 — DONE
+
+The defect was fixed on master 2026-09-07 (header of this file); only the bench check of the tight-arc `remaining()` fix was left UNVERIFIED. Seven weeks of arcs have run on that code since, most recently sprint 043 ticket 005's r=20 cm circles on zuvat (`captures/zuvat-position-2026-10-27/`), which is the standing arc gauge now. Reopen only if a tight arc is seen landing short.

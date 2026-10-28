@@ -45,3 +45,9 @@ In the doc's §8 order, every step a capture under
 6. Encoder-resolution decision (§3.A: raw pulses, longer velocity
    window, or accept); WiFi pin answer (§5); the servo verb for the
    gripper (`0x40`).
+
+---
+
+## Triage 2026-10-27 — HIGH
+
+Sprint 041 is still at `status: roadmap` and nothing has happened on the Cutebot Pro since 2026-09-21; the bench time went to the Nezha position-move work (sprints 042/043). Still a planned sprint, just not the next one. The sprint file's `issues:` entry still names this file by its bare name.

@@ -38,3 +38,9 @@ or log the number came from and cite it; otherwise rewrite the claim as
 UNVERIFIED and say what would settle it. For item 3, `git add -f` the
 two present artifacts (the JPEG only if it is the evidence) and drop or
 repoint the absent one.
+
+---
+
+## Triage 2026-10-27 — LOW
+
+Citation hygiene on claims nobody has acted on since. Fix each one when the file it lives in is next edited; not a ticket of its own.

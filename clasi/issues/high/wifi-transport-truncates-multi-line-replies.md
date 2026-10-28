@@ -104,3 +104,9 @@ until a 22-line reply existed to expose it.
 Use the USB serial daemon or radio for `FUNCS` and bare `GET`. Every
 single-line verb — `PING`, `STATUS`, `ID`, `RUN <name>`, the motion verbs
 — is unaffected and verified working over WiFi on both boards.
+
+---
+
+## Triage 2026-10-27 — HIGH
+
+A real design defect with a working workaround (use USB or radio for `FUNCS` and bare `GET`). Do it together with `wifi-starves-telemetry-frames-trace-shows-chords`: both are the WiFi send-slot policy, and one redesign should settle both.

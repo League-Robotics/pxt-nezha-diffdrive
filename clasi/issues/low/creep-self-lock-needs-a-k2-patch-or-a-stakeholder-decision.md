@@ -91,3 +91,9 @@ sprint-039-sized ticket. Two paths forward, not mutually exclusive:
 - Host-sim artifact (SIM, not hardware):
   `tests/host/test_creep_self_lock_stiction_sim.py`, all three tests
   passing as of sprint 039 ticket 006.
+
+---
+
+## Triage 2026-10-27 — LOW
+
+Stakeholder decision, taken by default: no K2 patch. Sprint 042/043 moved small and slow moves onto the motor's own position loop (`position_mode` boots at 1), which is the sub-floor tool now; the kernel creep case this describes is no longer the path anyone drives slowly on. Reopen only if a kernel-mode sub-floor hold is wanted again.

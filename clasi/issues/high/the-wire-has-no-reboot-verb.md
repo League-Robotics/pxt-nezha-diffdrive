@@ -54,3 +54,9 @@ playfield for the middle step.
 - `src/platform/` — the actual reset call
 - `tools/robotlink.py` — `_V6_VERBS` mirror
 - `docs/robot-connections.md`
+
+---
+
+## Triage 2026-10-27 — HIGH
+
+Worth having for scripted fleet provisioning, but no session has needed a remote reboot since 2026-09-09. Pick it up when the next credential-store or provisioning sprint comes around.

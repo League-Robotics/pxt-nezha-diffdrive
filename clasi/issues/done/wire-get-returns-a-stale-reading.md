@@ -1,6 +1,6 @@
 ---
 title: "turn_calibration.py's wire_get() returns a stale reading, so every gate banner can lie"
-status: pending
+status: done
 created: 2026-09-05
 ---
 
@@ -104,3 +104,9 @@ giving `Link` a request/response correlation for `GET` the way
 `seqd()` has one for acks. The window fix is correct for a serialised
 caller (every current one), but two concurrent `GET`s of the same field
 would still be ambiguous. Left open for whoever touches `Link` next.
+
+---
+
+## Triage 2026-10-27 — DONE
+
+All three acceptance boxes were ticked on 2026-09-05 (Progress section above). The one residue, a request/response correlation for `GET` in `Link`, only matters for concurrent GETs of the same field, which no caller does. Not worth its own issue.

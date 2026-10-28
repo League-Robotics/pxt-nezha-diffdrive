@@ -47,3 +47,9 @@ whenever that slot is free rather than only when the whole engine is
 idle, and replace purge-on-reply with "a newer frame replaces the
 queued one". Count telemetry frames refused and purged separately in
 `dropCount_` and show them on `STATUS`. Then re-measure the table above.
+
+---
+
+## Triage 2026-10-27 — HIGH
+
+Recent (2026-10-17) and real, but it is the robot console's trace quality over WiFi, not the current zuvat work, which runs over a serial bridge. Same fix area as `wifi-transport-truncates-multi-line-replies`; do the two as one ticket.

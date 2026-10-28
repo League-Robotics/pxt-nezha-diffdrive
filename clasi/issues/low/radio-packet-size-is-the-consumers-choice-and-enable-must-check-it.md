@@ -131,3 +131,9 @@ a build test shows the scan tolerates it.
   radio RX allocating during a live motor step; resolved by the VFP guard
   and retested over THIS transport, never over PXT's radio path under
   motor load. Build A above covers that.
+
+---
+
+## Triage 2026-10-27 — LOW
+
+Every effect listed is a source reading, none measured, and the student template has shipped with the 250-byte define alongside MakeCode radio for two months without a reported problem. Multi-repo change plus a hardware test; not worth it unless a student build shows radio trouble under motor load.

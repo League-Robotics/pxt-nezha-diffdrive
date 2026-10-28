@@ -92,3 +92,9 @@ connR=1` throughout every run once the kernel ticked, and the OTOS is
 not in the wheel-odometry or camera measurement path. Boot 1
 (`otos=1`) and boots 2-3 (`otos=0`) agree on both headline numbers,
 which is itself evidence the OTOS state did not affect them.
+
+---
+
+## Triage 2026-10-27 — LOW
+
+Real one-shot-`otosBegin()` defect with a cheap fix, but no current rig has an OTOS (zuvat and tigez run encoder odometry) and vevov's is marked untrusted for distance anyway. Do the bounded retry if the OTOS comes back into use.

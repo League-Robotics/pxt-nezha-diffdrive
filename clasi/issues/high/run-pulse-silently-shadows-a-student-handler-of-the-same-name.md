@@ -47,3 +47,9 @@ style of `tests/host/test_wire_motion_verbs.py`.
 
 Out of scope for sprint 039 tickets 001-002 (stakeholder approved those
 two only). Found by team-lead review of ticket 001, 2026-09-15.
+
+---
+
+## Triage 2026-10-27 — HIGH
+
+Latent student-facing silent failure, but nothing registers `pulse` and no one has hit it in six weeks. Option 1 plus 2 is a small change; do it with the next `onRun` or FUNCS work rather than on its own.

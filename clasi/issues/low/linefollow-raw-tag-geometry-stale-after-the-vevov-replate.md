@@ -60,3 +60,9 @@ staging that read these keys.
 - `.claude/rules/tag-yaw-is-the-front-edge-not-the-hat.md`
 - `clasi/sprints/done/031-drivetrain-tuning-and-gate-acceptance-on-tovez/issues/done/parallax-k-and-registered-mount-z-correct-twice.md`
 - `reports/pf2-recal-20260905/NOTES.md`
+
+---
+
+## Triage 2026-10-27 — LOW
+
+`tools/linefollow/` has not been touched since 2026-09-07 and vevov has not been driven since 2026-09-16. The `_linefollow_hazard` note in `tools/field_calibration.json` already warns the next user. Re-fit only when line following on vevov resumes.

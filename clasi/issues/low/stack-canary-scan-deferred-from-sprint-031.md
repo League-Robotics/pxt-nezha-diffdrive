@@ -30,3 +30,9 @@ depends on it.
 
 Original ticket text preserved at
 `clasi/sprints/031-drivetrain-tuning-and-gate-acceptance-on-tovez/tickets/`.
+
+---
+
+## Triage 2026-10-27 — LOW
+
+Instrumentation for a stack-overflow hypothesis nobody is pursuing. The build variant and its tests exist if it is ever wanted.

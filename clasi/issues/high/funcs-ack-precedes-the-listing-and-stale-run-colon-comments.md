@@ -54,3 +54,9 @@ Also worth a line in the protocol docs, measured the same session: a
 lowercase verb (`funcs #1`, `run trace 0 #4`) is dropped with no nack
 and no err and does not consume its id (S2.1 by design), and a
 non-numeric first argument reaches the handler as 0 with no error.
+
+---
+
+## Triage 2026-10-27 — HIGH
+
+Comment and protocol-doc corrections on the FUNCS/RUN seam. The console was built on top of FUNCS without hitting these, so they are not blocking anyone; do them the next time `wire_adapter` or `robotlink.py` is open, together with `high/colon-run-form-is-silently-not-dispatched`.

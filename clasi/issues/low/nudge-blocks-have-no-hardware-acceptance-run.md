@@ -54,3 +54,9 @@ line and needs nudge-turns to within 1 degree. It is the reason sprint
 039 existed. Until this run happens, that program should keep treating
 `diffDrive.move(0, angle)` as its interim turn step and verify by line
 reading rather than odometry.
+
+---
+
+## Triage 2026-10-27 — LOW
+
+Never run in six weeks, and the position-move work (sprints 042/043) now does 5-10 mm and small-angle moves through the motor's own loop, which is likely to make nudge pulses redundant for `calibrateL`. Decide whether nudge mode survives before spending a camera session on it.
