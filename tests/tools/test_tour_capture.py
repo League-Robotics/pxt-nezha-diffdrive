@@ -126,7 +126,6 @@ def test_run_flag_sends_the_given_run_line(monkeypatch, tmp_path):
 def test_set_flag_sends_set_lines_before_the_run(monkeypatch, tmp_path):
     sent = []
     monkeypatch.setattr(tour_capture.time, 'sleep', lambda s: None)
-    orig = FakeLink.send
     monkeypatch.setattr(FakeLink, 'send',
                         lambda self, line, repeat=1: sent.append(line))
     fake = _run_main(monkeypatch, tmp_path,

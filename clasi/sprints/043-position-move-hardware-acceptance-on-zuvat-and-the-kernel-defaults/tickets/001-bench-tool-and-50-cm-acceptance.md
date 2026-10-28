@@ -17,11 +17,19 @@ completes_issue: false
 Port `/Volumes/Proj/proj/robot-projects/nezha-esp32/tools/mb50.py` (Wire class, run_line, STATUS parsing; read-only source) into this repo's `tools/` and add `--mode position`: set `SET position_mode 1 #n`, drive `MOVE_X` for 500 mm, read `posmove` from `STATUS` mid-move to confirm the built-in path, then read the final travel. Keep the existing brick mode working for now (ticket 008 moves it onto real verbs). Protocol: `nezha-esp32/docs/fifty-cm.md`. Rig: one motor on M1, 83 mm wheel, micro:bit on local USB; flash the 042 hex using the recipe in memory (`nezha-microbit-bench-harness`: cloud compile with blank `PXT_FORCE_LOCAL`, copy hex to /Volumes/MICROBIT). Run 50 cm at 30/60/100 %, four trials each direction (24 trials). Record `v_floor 40`, `decel` <= 1000, `stop_distance 0.3` kernel runs (`--mode position` off, `position_mode 0`) as the comparison set; ticket 007 uses them.
 
 ## Acceptance Criteria
-- [ ] `tools/mb50.py` in this repo supports `--mode position`; a host test of its STATUS/posmove parsing passes (`uv run pytest`).
-- [ ] 24 position-mode trials: every trial stops within 0.5 mm of 500 mm; time at 100 % under 1.2 s. (If not met: record, per rules.)
-- [ ] `posmove=1` seen mid-move in every trial (and `0` after), cited per trial in the CSV.
-- [ ] Kernel-mode comparison set (same 30/60/100 %, 4 trials each direction) captured with the same tool.
-- [ ] `captures/bench-position-<date>/` holds hex, CSVs, summary table, `notes.md`.
+- [x] `tools/mb50.py` in this repo supports `--mode position`; a host test of its STATUS/posmove parsing passes (`uv run pytest`).
+- [ ] 24 position-mode trials: every trial stops within 0.5 mm of 500 mm (MET, worst 0.49 mm per wheel); time at 100 % under 1.2 s (NOT MET: 2.53-2.58 s; 500 mm at v_max 250 mm/s needs >= 2.0 s; recorded per rules, nothing tuned).
+- [x] `posmove=1` seen mid-move in every trial (and `0` after), cited per trial in the CSV.
+- [x] Kernel-mode comparison set (same 30/60/100 %, 4 trials each direction) captured with the same tool.
+- [x] `captures/zuvat-position-2026-10-27/fiftycm/` holds the CSVs and summary tables, with `notes.md` and the hex one level up (path superseded, see Scope note).
+
+## Scope note
+The one-wheel bench rig named above no longer exists on local USB: its micro:bit became zuvat and is on the
+farm with two motors. The 50 cm acceptance ran on zuvat over the loki tunnel (`--wifi 127.0.0.1`), scoring each
+wheel from its own encoder (`posl`/`posr` in the TLM FULL frame, read at rest before and after each leg). "Percent"
+became cruise mm/s of v_max 250 (75/150/250). 24 trials per mode means 4 per direction per cruise (8 per cruise).
+Evidence is under `captures/zuvat-position-2026-10-27/fiftycm/`, not `captures/bench-position-<date>/`.
+Result: per-wheel bar met in position mode (worst 0.49 mm), time-at-100 % bar not met, posmove 24/24.
 
 ## Testing
 - Existing: `uv run pytest tests/tools`. New: parser test for the new mode. Hardware: the runs above.

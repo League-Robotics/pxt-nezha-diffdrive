@@ -375,3 +375,96 @@ missing feature in the arc route; not diagnosed here, no tuning done). Re-run if
 The first reset attempt (`final_reset.log`) used ids that did not match the board's counter and did not take (mode still 2, TLM
 still on). The corrected sequence in `final_check.log` read position_mode back 2, set it to 0, read it back 0.000000, TLM off
 (`tlm=off`), `active=0 posmove=0`: robot idle, TLM off, position_mode 0.
+
+# Ticket 001: 50 cm acceptance on zuvat (2026-10-27)
+
+Scope change: the one-wheel micro:bit bench rig is gone (its board became zuvat), so the 50 cm protocol
+ran on zuvat over the loki tunnel, replacing `captures/bench-position-<date>/`. Evidence is in `fiftycm/`
+(per-trial CSV `position.csv` / `kernel.csv`, per-trial frame CSVs `<tag>_<cruise>_<trial>.csv`,
+`<tag>_summary.csv`, stdout `../fiftycm_position.log` / `../fiftycm_kernel.log`,
+`restore_readback.log`). Hex: `binary-zuvat-042.hex` (this directory; no reflash for this ticket).
+Tool: `tools/mb50.py --wifi 127.0.0.1 --mode position|kernel`.
+
+All numbers are ENCODER truth. Nobody watched the robot and there is no camera or OTOS.
+
+## Method
+- Per-wheel read: the TLM FULL frame carries `posl` / `posr`, the raw wheel counts. Each trial reads both
+  at rest (two or more consecutive frames, both wheels |v| <= 2 mm/s, counts unchanged) before the move and
+  0.3 s after it. 1 count = 0.1 deg of shaft; `GET wheel_diameter` = 90.899 mm, so 0.079322 mm/count
+  (`getall.log` has the same diameter). Error = signed travel along the commanded direction minus 500 mm.
+- Cross-checks in the CSV: `int_l_mm`/`int_r_mm` (vl/vr trapezoid-integrated over the device clock) and
+  `odo_mm` (hypot of x/y odometry). Odometry vs the mean of the two encoder travels differs by at most
+  0.9 mm in either set.
+- "Percent" is cruise mm/s of v_max 250: 75 / 150 / 250. MOVE_X +-500 0 <cruise> 8000, 8 legs per cruise
+  (4 forward, 4 reverse, alternating), 24 per mode. STOP between runs.
+- posmove: one STATUS sent at max(0.4 s, 0.4 x nominal duration) after the ack, and one STATUS after the
+  move; both are columns `posmove_mid` / `posmove_after` in the trial CSV.
+- Time: host clock from the MOVE_X ack to the first frame with both wheels at rest (|v| <= 2 mm/s); the
+  device-clock span first-moving frame to first-rest frame (`ms_device`) agrees within 5 ms.
+- Kernel set: `position_mode 0` with `v_floor 40`, `decel 1000`, `stop_distance 0.3`. The config names
+  exist as written in `src/comms/config_fields.h` (`v_floor`, `decel`, `stop_distance`, `v_max`,
+  `position_mode`).
+
+## Position mode (position_mode 1), `fiftycm/position_summary.csv`
+Err = travel - 500 mm, per wheel, mm. Time = ack to rest, ms.
+
+| cruise | dir | wheel | n | mean | sd | worst | time |
+|---|---|---|---|---|---|---|---|
+| 75 | fwd | L | 4 | -0.26 | 0.00 | -0.26 | 6656 |
+| 75 | fwd | R | 4 | -0.36 | 0.12 | -0.42 | 6656 |
+| 75 | rev | L | 4 | -0.26 | 0.00 | -0.26 | 6674 |
+| 75 | rev | R | 4 | -0.36 | 0.12 | -0.42 | 6674 |
+| 150 | fwd | L | 4 | -0.26 | 0.00 | -0.26 | 3375 |
+| 150 | fwd | R | 4 | -0.18 | 0.00 | -0.18 | 3375 |
+| 150 | rev | L | 4 | -0.26 | 0.00 | -0.26 | 3367 |
+| 150 | rev | R | 4 | -0.18 | 0.00 | -0.18 | 3367 |
+| 250 | fwd | L | 4 | -0.26 | 0.00 | -0.26 | 2564 |
+| 250 | fwd | R | 4 | -0.08 | 0.08 | -0.18 | 2564 |
+| 250 | rev | L | 4 | -0.26 | 0.00 | -0.26 | 2542 |
+| 250 | rev | R | 4 | -0.41 | 0.15 | -0.49 | 2542 |
+
+Worst of 48 wheel readings: 0.49 mm, short. `posmove` read 1 mid-move and 0 after in 24 of 24 trials
+(`position.csv`); `reason=stop` in all. The ~0.26 mm short is the 3 or 4 counts the wheel always stops
+short, constant per wheel (quantisation of 0.079 mm/count).
+
+## Kernel set (position_mode 0), `fiftycm/kernel_summary.csv`
+| cruise | dir | wheel | n | mean | sd | worst | time |
+|---|---|---|---|---|---|---|---|
+| 75 | fwd | L | 4 | -1.59 | 7.67 | -11.76 | 6833 |
+| 75 | fwd | R | 4 | 2.34 | 7.11 | 11.64 | 6833 |
+| 75 | rev | L | 4 | 0.73 | 1.33 | 2.36 | 6751 |
+| 75 | rev | R | 4 | 1.35 | 1.57 | 3.07 | 6751 |
+| 150 | fwd | L | 4 | 1.11 | 1.11 | 2.36 | 3530 |
+| 150 | fwd | R | 4 | -0.79 | 1.79 | -2.87 | 3530 |
+| 150 | rev | L | 4 | -1.03 | 2.10 | -3.35 | 3560 |
+| 150 | rev | R | 4 | 2.18 | 1.04 | 3.31 | 3560 |
+| 250 | fwd | L | 4 | -0.64 | 1.61 | -2.72 | 2471 |
+| 250 | fwd | R | 4 | 1.01 | 1.49 | 2.84 | 2471 |
+| 250 | rev | L | 4 | -0.14 | 1.26 | 1.57 | 2450 |
+| 250 | rev | R | 4 | 0.46 | 1.83 | 2.36 | 2359-2480 |
+
+`posmove` stayed 0 throughout (mid and after) in all 24. The 75 fwd outlier is trial 6
+(`kernel_75_6.csv`): L -11.76 / R +11.64, opposite signs, so the robot yawed rather than mis-stopped;
+`i2cf_delta` was 22 for that leg against a median of 3 (`kernel.csv`). Not diagnosed
+(see `clasi/issues/zuvat-i2c-fault-count-grows-during-position-moves.md`).
+
+## Bars
+- Every trial within 0.5 mm of 500 mm, per wheel (position set): MET, worst 0.49 mm (`position.csv`).
+  The kernel set misses it by 5 to 25x (worst 11.8 mm); that is the comparison, not a bar.
+- Time at 100 % (250 mm/s) under 1.2 s: **NOT MET**. Measured 2.53 to 2.58 s, ack to rest
+  (`position.csv`, cruise 250). Physical floor: 500 mm at v_max 250 mm/s takes at least 2.0 s even with
+  no ramps, so 1.2 s is unreachable on this wire (the old rig's 100 % was ~792 mm/s). Not tuned.
+- posmove=1 mid-move in every position trial and 0 after: MET, 24 of 24.
+
+## Things found on the way
+- `v_max` read 200 (not the 250 of `getall.log`) when this ticket began, left over from an earlier
+  session on this board (unknown which). A first kernel set at 250 therefore clamped at ~220 mm/s;
+  it was discarded and rerun with `SET v_max 250` first (`fiftycm_kernel.log` is the rerun; the position
+  set is unaffected since the motor runs its own profile). The first kernel run's numbers are not kept.
+- Position mode peaks above the commanded cruise on vl/vr (258 on 250; 201 on 150 in trial 0),
+  as the 042 notes already said (~5-10 % over).
+- `i2cf` growth per leg: mean 4.9 (position) vs 4.0 (kernel) (`i2cf_delta`).
+
+## Restored state
+`restore_readback.log`: v_floor 70, decel 400, stop_distance 0, position_mode 0, v_max 250 (these are the
+`getall.log` boot values), TLM off, `active=0 posmove=0`.

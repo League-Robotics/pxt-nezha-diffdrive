@@ -54,6 +54,7 @@ need more than a line; a file with no section is fully described here.
 | file | what it is for |
 |---|---|
 | `tlm.py` | the single v6 telemetry parser (`TlmStream`, header-keyed), its fail-loud guards, and the one on-disk pose-CSV codec. |
+| `mb50.py` | 50 cm straight moves scored per wheel from each wheel's own encoder (`posl`/`posr` in the FULL frame); `--mode position` runs the motor's own position loop and confirms STATUS `posmove` mid-move, `--mode kernel` is the comparison set; works over USB or the `--wifi` tunnel. |
 | `tour_capture.py` | the standard triggered recorder: starts a named tour, records the `thdr`/`t` stream to the pose/wheel CSVs. |
 | `tour_watch.py` | the same recording, triggered by the robot's own button instead of a host command; charts each run as it lands. |
 | `tour_run.py` | the canonical run — stage through `reposition.py`, camera fix at the start, the robot drives all four legs alone, camera fix at the end. |
