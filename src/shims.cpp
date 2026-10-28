@@ -257,6 +257,10 @@ struct Rig {
   // overwritten by the next block-issued go-to. That ORDERING is the
   // contract.
   uint32_t goToDeadline = 0;  // [ms]
+  // position_mode (config ordinal 52): 0 kernel, 1 built-in position
+  // move for straights and pivots, 2 for arcs too. Stored only; the
+  // verb routing that reads it is sprint 042 ticket 008.
+  int positionMode = 0;  // [0..2]
 
   // The go-to entry point's own yaw-rate ceiling
   // (engineSetGoToYawRate()/engineGoToRArmed() below) -- a SEPARATE
@@ -1660,6 +1664,25 @@ void cfgSetOnboardMode(Rig&, float v) {
 float cfgGetOnboardFloor(Rig&) { return boardOnboardFloor(); }
 void cfgSetOnboardFloor(Rig&, float v) { boardSetOnboardFloor(v); }
 
+// position_mode: stored on Rig, 0..2 only. Anything else (including a
+// non-integer) is ignored, the same silent-refusal shape the other
+// range-checked rows here use.
+float cfgGetPositionMode(Rig& r) { return static_cast<float>(r.positionMode); }
+void cfgSetPositionMode(Rig& r, float v) {
+  if (!std::isfinite(v) || v < 0.0f || v > 2.0f) return;
+  const float rounded = std::round(v);
+  if (rounded != v) return;
+  r.positionMode = static_cast<int>(rounded);
+}
+
+// speed_path: 0 or 1, forwarded to both Nezha ports through the board
+// hook; read back from the port, so it cannot disagree with it.
+float cfgGetSpeedPath(Rig&) { return static_cast<float>(boardSpeedPath()); }
+void cfgSetSpeedPath(Rig&, float v) {
+  if (v != 0.0f && v != 1.0f) return;
+  boardSetSpeedPath(static_cast<int>(v));
+}
+
 // Commanded speed x this = what the wheel does. 1 is a stock wheel; a
 // negative value runs it the other way round from stock; the magnitude
 // is the kernel's wheel-correction gain.
@@ -1750,6 +1773,8 @@ constexpr ConfigAccessor kConfigAccessors[] = {
     {48, &cfgGetMotorPortRight, &cfgSetMotorPortRight},
     {49, &cfgGetWheelDiameter, &cfgSetWheelDiameter},
     {50, &cfgGetTrackWidth, &cfgSetTrackWidth},
+    {52, &cfgGetPositionMode, &cfgSetPositionMode},
+    {53, &cfgGetSpeedPath, &cfgSetSpeedPath},
 };
 
 const ConfigAccessor* findConfigAccessor(int ordinal) {

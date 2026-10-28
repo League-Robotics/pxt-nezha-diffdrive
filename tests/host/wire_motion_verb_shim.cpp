@@ -204,6 +204,8 @@ struct WaHandle {
   // Plain stored fields, like the two above.
   float wheelScale[2] = {1.0f, 1.0f};  // [1] mirrors wheel_scale_left/right
   float motorPort[2] = {1.0f, 2.0f};   // [M1..M4] mirrors motor_port_left/right
+  float positionModeValue = 0.0f;   // [1] mirrors position_mode
+  float speedPathValue = 0.0f;      // [1] mirrors speed_path
   float wheelDiameter = 90.28f;        // [mm] mirrors wheel_diameter
   float trackWidth = 114.2f;           // [mm] mirrors track_width
 
@@ -563,6 +565,11 @@ static void waSetWheelDiameter(WaHandle& h, float v) { h.wheelDiameter = v; }
 static float waGetTrackWidth(WaHandle& h) { return h.trackWidth; }
 static void waSetTrackWidth(WaHandle& h, float v) { h.trackWidth = v; }
 
+static float waGetPositionMode(WaHandle& h) { return h.positionModeValue; }
+static void waSetPositionMode(WaHandle& h, float v) { h.positionModeValue = v; }
+static float waGetSpeedPath(WaHandle& h) { return h.speedPathValue; }
+static void waSetSpeedPath(WaHandle& h, float v) { h.speedPathValue = v; }
+
 struct WaConfigAccessor {
   int ordinal;
   float (*get)(WaHandle&);        // [unscaled]
@@ -603,6 +610,8 @@ static const WaConfigAccessor kWaConfigAccessors[] = {
     {48, &waGetMotorPortRight, &waSetMotorPortRight},
     {49, &waGetWheelDiameter, &waSetWheelDiameter},
     {50, &waGetTrackWidth, &waSetTrackWidth},
+    {52, &waGetPositionMode, &waSetPositionMode},
+    {53, &waGetSpeedPath, &waSetSpeedPath},
 };
 
 static const WaConfigAccessor* waFindConfigAccessor(int ordinal) {

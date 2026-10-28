@@ -116,6 +116,12 @@ int boardLineBits();
 // no such read (Nezha) or the read fails.
 int boardLineGrey(int channel);
 
+// speed_path (config ordinal 53, sprint 042): 0 = 0x60 duty, 1 = 0x77 +
+// 0x70 mode 3. Applies to both Nezha ports; a board with no such path
+// (Cutebot Pro) reads back 0 and refuses (returns false) every SET.
+int boardSpeedPath();
+bool boardSetSpeedPath(int path);
+
 int boardOnboardMode();
 bool boardSetOnboardMode(int mode);
 float boardOnboardFloor();

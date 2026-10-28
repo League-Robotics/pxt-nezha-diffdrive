@@ -112,6 +112,8 @@ WheelCommandTap* boardWheelCommandTap() { return &board().tap; }
 
 int boardOnboardMode() { return board().device.onboardMode(); }
 bool boardSetOnboardMode(int mode) { return board().device.setOnboardMode(mode); }
+int boardSpeedPath() { return 0; }
+bool boardSetSpeedPath(int) { return false; }
 float boardOnboardFloor() { return board().device.onboardFloor(); }
 bool boardSetOnboardFloor(float floor) {
   return board().device.setOnboardFloor(floor);

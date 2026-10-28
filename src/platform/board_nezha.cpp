@@ -91,6 +91,14 @@ int boardDiagValue(int ordinal) {
   return nezhaBoardDiagValue(b.left, b.right, ordinal);
 }
 
+int boardSpeedPath() { return board().left.speedPath(); }
+bool boardSetSpeedPath(int path) {
+  NezhaBoard& b = board();
+  b.left.setSpeedPath(path);
+  b.right.setSpeedPath(path);
+  return true;
+}
+
 // ---- hybrid actuation --------------------------------------------------
 //
 // The Nezha brick has no onboard speed loop, so none of this means
