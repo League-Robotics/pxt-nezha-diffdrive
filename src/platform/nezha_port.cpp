@@ -212,6 +212,19 @@ void NezhaMotorPort::emergencyStop() {
     writeBrickFrame(0, kRegHardStop, 0, 0xF5, 0);
     moveLive_ = false;
     lastWritten_ = kNeverWritten;
+  } else if (lastWritten_ != kNeverWritten &&
+             (lastWritten_ > kStopFromSpeedFloor ||
+              lastWritten_ < -kStopFromSpeedFloor)) {
+    // No live move, but the wheel was last driven above the kernel
+    // floor: stop it with the hard stop, as the speed path does. Travel
+    // after a stop is the same at 8 % and 5 to 12 times shorter above
+    // it (docs/code-review/2026-10-27/data/mb_probe_stops1.csv). At or
+    // below the floor, or with nothing written, the plain 0x60 0 below
+    // is all that is sent.
+    writeBrickFrame(0, kRegHardStop, 0, 0xF5, 0);
+    speedRunning_ = false;
+    stopHold_ = true;  // stopNotTaken must not follow with more 0x60 0
+    lastWritten_ = kNeverWritten;
   }
   writeShapedDuty(0.0f, static_cast<uint32_t>(lastTick_ / 1000));
 }

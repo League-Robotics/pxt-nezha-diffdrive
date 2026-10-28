@@ -247,11 +247,30 @@ def test_emergency_stop_live_sends_5f_then_0x60_zero(rig, lib):
     assert lib.npMoveLive(rig.h) == 0
 
 
-def test_emergency_stop_not_live_is_unchanged(rig, lib):
-    rig.tick(10, duty=0.4)
+def test_emergency_stop_not_live_at_or_below_floor_is_unchanged(rig, lib):
+    rig.tick(10, duty=0.05)  # 5 %: at or below the 8 % floor
     lib.npClearLog(rig.h)
     lib.npEmergencyStop(rig.h)
     assert rig.cmds() == [RUN0]
+
+
+def test_emergency_stop_nothing_written_is_unchanged(rig, lib):
+    lib.npClearLog(rig.h)
+    lib.npEmergencyStop(rig.h)
+    assert rig.cmds() == [RUN0]
+
+
+def test_emergency_stop_above_floor_not_live_hard_stops_first(rig, lib):
+    """Stop table docs/code-review/2026-10-27/data/mb_probe_stops1.csv."""
+    rig.tick(10, duty=0.4)
+    lib.npClearLog(rig.h)
+    lib.npEmergencyStop(rig.h)
+    assert rig.cmds() == [STOP5F, RUN0]
+    assert all(f[4] != 0x1D for f in rig.cmds())
+    # the coasting wheel must not draw further 0x60 0 frames
+    lib.npClearLog(rig.h)
+    rig.tick(10, duty=0.0)
+    assert lib.npFrames60(rig.h) == 0
 
 
 def test_frozen_counter_mid_move_is_still_a_wedge(rig, lib):
