@@ -42,6 +42,8 @@
         "src/platform/cutebot_actuation_policy.h",
         "src/platform/cutebot_actuation_policy.cpp",
         "src/platform/board_cutebot.cpp",
+        "src/platform/gyro_source.h",
+        "src/platform/sensor_config.h",
         "src/platform/otos_port.h",
         "src/platform/otos_port.cpp",
         "src/platform/wifi_flash_port.h",

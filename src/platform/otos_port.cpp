@@ -157,7 +157,24 @@ bool OtosPort::read() {
   vx_ = rotVx;
   vy_ = rotVy;
   omega_ = static_cast<float>(rvh) * kOmegaPerLsb;
+  opticalFresh_ = true;
   return true;
+}
+
+bool OtosPort::takeOpticalIncrement(float& dx, float& dy) {
+  dx = 0.0f;
+  dy = 0.0f;
+  if (!opticalFresh_) return false;
+  opticalFresh_ = false;
+  const bool baselined = opticalBaselined_;
+  if (baselined) {
+    dx = x_ - opticalTakenX_;
+    dy = y_ - opticalTakenY_;
+  }
+  opticalTakenX_ = x_;
+  opticalTakenY_ = y_;
+  opticalBaselined_ = true;
+  return baselined;
 }
 
 // The lever arm rotates with the robot: at heading h the sensor sits
@@ -219,6 +236,7 @@ void OtosPort::setPose(float x, float y, float heading) {
   const float xF = c * sensorX + s * sensorY;
   const float yF = -s * sensorX + c * sensorY;
   writePoseMm(kRegPositionXl, xF, yF, wrapRadians(heading));
+  opticalBaselined_ = false;
 }
 
 void OtosPort::resetTracking() {

@@ -1,8 +1,9 @@
 ---
 id: '001'
 title: GyroSource interface, SimGyro and sensor-configuration probe
-status: open
-use-cases: [SUC-001]
+status: done
+use-cases:
+- SUC-001
 depends-on: []
 github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
@@ -24,14 +25,23 @@ Define the generic gyro interface and the three-way sensor configuration, so eve
 
 ## Acceptance Criteria
 
-- [ ] Interface header compiles host-side under the C++11 syntax gate
-- [ ] SimGyro supports bias, wander, noise, dropout, freeze, read failure
-- [ ] Probe selects each of the three configurations from fakes; unit tested
-- [ ] OtosPort adapter builds on target with no behaviour change
-- [ ] Follow-on ticket text for the real gyro driver noted in the sprint/ticket
+- [x] Interface header compiles host-side under the C++11 syntax gate
+- [x] SimGyro supports bias, wander, noise, dropout, freeze, read failure
+- [x] Probe selects each of the three configurations from fakes; unit tested
+- [x] OtosPort adapter builds on target with no behaviour change
+- [x] Follow-on ticket text for the real gyro driver noted in the sprint/ticket
 
 ## Testing
 
 - **Existing tests to run**: `uv run pytest`, `tests/host` suites touching odometry/motion_engine
 - **New tests to write**: See acceptance criteria; host tests under tests/host
 - **Verification command**: `uv run pytest`
+
+## Follow-on: real gyro driver
+
+When the non-OTOS gyro part is chosen, a new ticket adds its driver as a
+platform class implementing `GyroSource` only (`present()`,
+`readGyro()` returning ok/failed/stale, `gyroHeading()`/`gyroRate()`,
+`providesHeading()`/`providesRate()`). It must not touch the estimator;
+`probeSensorConfig()` already selects `kGyroOnly` for it. Not created in
+this sprint: the part is undecided.

@@ -169,6 +169,9 @@ _CXX11_PORTABLE_SOURCES = [
     # is a pure virtual), so this dedicated translation unit exists
     # solely to give this gate something to compile.
     _TEST_DIR / "wheel_command_tap_syntax_check.cpp",
+    # Sprint 044 ticket 001: platform/gyro_source.h and sensor_config.h
+    # are host-portable interface/probe headers with no natural .cpp.
+    _TEST_DIR / "gyro_source_syntax_check.cpp",
 ]
 
 
