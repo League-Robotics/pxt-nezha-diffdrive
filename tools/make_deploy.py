@@ -1149,6 +1149,9 @@ def _resolve_geometry_bake_aliases(robot, bake):
     return resolved
 
 
+BAKE_OVERRIDES = {}
+
+
 def _read_robot_firmware_bake(robot):
     """Read `geometry.firmware_bake` from `robot`'s radio-robot-lib
     config, or `{}` when the robot declares none.
@@ -1159,7 +1162,7 @@ def _read_robot_firmware_bake(robot):
     opinion."""
     path = _robot_config_path(robot)
     if not os.path.exists(path):
-        return {}
+        return dict(BAKE_OVERRIDES)
     try:
         with open(path) as f:
             config = json.load(f)
@@ -1170,7 +1173,7 @@ def _read_robot_firmware_bake(robot):
     if not isinstance(bake, dict):
         sys.exit(f"make_deploy: geometry.firmware_bake in {path} is "
                   f"{type(bake).__name__}, expected an object")
-    return bake
+    return {**bake, **BAKE_OVERRIDES}
 
 
 # ---- per-robot board selection bake --------------------------------------
@@ -1665,7 +1668,16 @@ def main():
                           "test.ts build only. Empty (default) leaves "
                           "the profile as plain <robot>, unchanged from "
                           "before this flag existed")
+    ap.add_argument('--bake', action='append', default=[], metavar='KEY=VALUE',
+                     help="override one geometry.firmware_bake key for this "
+                          "build only, e.g. --bake otos_angular_scale=0.990")
     a = ap.parse_args()
+    for item in a.bake:
+        key, _, value = item.partition('=')
+        try:
+            BAKE_OVERRIDES[key] = float(value)
+        except ValueError:
+            ap.error(f'--bake {item!r} must be KEY=NUMBER')
     if a.no_otos and (a.fault_spin or a.testrig or a.program != 'test.ts'):
         ap.error('--no-otos is supported only by the primary test.ts build')
     if a.profile_suffix and (a.fault_spin or a.testrig

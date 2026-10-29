@@ -513,3 +513,25 @@ def test_otos_arm_accepts_zero_and_rejects_non_numbers(tmp_path, monkeypatch):
                                 "otos_arm_x": bad}})))
         with pytest.raises(SystemExit):
             make_deploy._inject_geometry(str(deploy), "vevov")
+
+
+def test_bake_override_wins_over_the_robot_config(tmp_path, monkeypatch):
+    deploy = _deploy(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov",
+                                    {"firmware_bake": {"travel_calib": 0.7122,
+                                                       "trackwidth": 128.0}})))
+    monkeypatch.setattr(make_deploy, "BAKE_OVERRIDES", {"trackwidth": 111.6})
+    make_deploy._inject_geometry(str(deploy), "vevov")
+    engine_text = _read_engine(deploy)
+    assert "float travelCalib_ = 0.7122f;" in engine_text
+    assert "float trackWidth_ = 111.6f;" in engine_text
+
+
+def test_bake_override_applies_without_a_config_file(tmp_path, monkeypatch):
+    deploy = _deploy(tmp_path)
+    (tmp_path / "lib" / "config" / "robots").mkdir(parents=True)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB", str(tmp_path / "lib"))
+    monkeypatch.setattr(make_deploy, "BAKE_OVERRIDES", {"trackwidth": 111.6})
+    make_deploy._inject_geometry(str(deploy), "nosuch")
+    assert "float trackWidth_ = 111.6f;" in _read_engine(deploy)
