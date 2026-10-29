@@ -64,6 +64,8 @@ def lib(tmp_path_factory):
         getattr(loaded, name).argtypes = [vp, f]
     loaded.peGyroWander.argtypes = [vp, f, f]
     loaded.peGyroSeed.argtypes = [vp, u]
+    loaded.peGyroLatency.argtypes = [vp, f]
+    loaded.peSetMaxPlausibleRate.argtypes = [vp, f]
     for name in ("peGyroDropout", "peGyroFreeze", "peGyroReadFail",
                  "peOpticalFreeze", "peOpticalDropout"):
         getattr(loaded, name).argtypes = [vp, i]
@@ -90,9 +92,11 @@ def lib(tmp_path_factory):
 
 
 class Rig:
-    def __init__(self, lib, config, track_error=1.0):
+    def __init__(self, lib, config, track_error=1.0, max_plausible_rate=None):
         self.lib = lib
         self.h = lib.peCreate()
+        if max_plausible_rate is not None:
+            lib.peSetMaxPlausibleRate(self.h, max_plausible_rate)
         lib.peSetGeometry(self.h, _TRAVEL_CALIB, _TRACK_WIDTH, _ROTATIONAL_SLIP)
         lib.peSetTrackError(self.h, track_error)
         lib.peAttach(self.h, config)
@@ -141,8 +145,8 @@ class Rig:
 def make(lib):
     rigs = []
 
-    def build(config, track_error=1.0):
-        rig = Rig(lib, config, track_error)
+    def build(config, track_error=1.0, max_plausible_rate=None):
+        rig = Rig(lib, config, track_error, max_plausible_rate)
         rigs.append(rig)
         return rig
 

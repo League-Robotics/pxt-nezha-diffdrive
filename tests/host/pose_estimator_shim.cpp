@@ -13,6 +13,7 @@
 // Test scaffolding only: nothing under src/ knows this file exists.
 #include <cmath>
 #include <cstdint>
+#include <new>
 
 #include "core/diffdrive.h"
 #include "fake_ports.h"
@@ -116,6 +117,18 @@ void peGyroFreeze(void* handle, int on) { as(handle)->gyro.setFreeze(on != 0); }
 void peGyroReadFail(void* handle, int on) { as(handle)->gyro.setReadFail(on != 0); }
 void peGyroStep(void* handle, float delta) { as(handle)->gyro.stepHeading(delta); }
 void peGyroGlitch(void* handle, float offset) { as(handle)->gyro.setGlitch(offset); }
+void peGyroLatency(void* handle, float seconds) { as(handle)->gyro.setLatency(seconds); }
+
+// Rebuilds the estimator with a different maxPlausibleRate [rad/s]; 0 makes
+// every in-motion disagreement a glitch, which is the pre-ticket-012 gate.
+// Call before peAttach().
+void peSetMaxPlausibleRate(void* handle, float rate) {
+  Handle* h = as(handle);
+  diffDrive::PoseEstimatorParams params;
+  params.maxPlausibleRate = rate;
+  h->estimator.~PoseEstimator();
+  new (&h->estimator) diffDrive::PoseEstimator(h->engine, params);
+}
 
 void peOpticalScale(void* handle, float v) { as(handle)->optical.setScale(v); }
 void peOpticalFreeze(void* handle, int on) { as(handle)->optical.setFreeze(on != 0); }

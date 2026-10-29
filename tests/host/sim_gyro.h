@@ -12,6 +12,7 @@
 //   step        the chip heading jumps once and stays there  [rad]
 //   wrap        latched heading wrapped to (-pi, pi], as OtosPort does
 //   glitch      reads carry an extra heading offset, until cleared  [rad]
+//   latency     reads deliver what the chip held this long ago     [s]
 // Only freeze is silent; the estimator has to detect it from the data.
 //
 // Test scaffolding only: nothing under src/ knows this file exists.
@@ -40,6 +41,7 @@ class SimGyro : public diffDrive::GyroSource {
   void stepHeading(float delta) { chipHeading_ += delta; }      // [rad]
   void setWrap(bool on) { wrap_ = on; }
   void setGlitch(float offset) { glitch_ = offset; }            // [rad]
+  void setLatency(float seconds) { latency_ = seconds; }        // [s]
 
   // Advances the chip by dt with the robot turning at trueRate.
   void advance(float dt, float trueRate) {  // [s] [rad/s]
@@ -48,6 +50,11 @@ class SimGyro : public diffDrive::GyroSource {
     trueRate_ = trueRate;
     chipRate_ = trueRate + bias() + noise_ * gaussian();
     chipHeading_ += chipRate_ * dt;
+    slot_ = (slot_ + 1) % kHistory;
+    times_[slot_] = time_;
+    headings_[slot_] = chipHeading_;
+    rates_[slot_] = chipRate_;
+    if (filled_ < kHistory) ++filled_;
   }
 
   float bias() const {  // [rad/s] bias in effect now
@@ -76,9 +83,14 @@ class SimGyro : public diffDrive::GyroSource {
     if (readFail_) return diffDrive::GyroReadStatus::kFailed;
     if (dropout_) return diffDrive::GyroReadStatus::kStale;
     if (!frozen_) {
-      latchedHeading_ = chipHeading_ + glitch_;
+      const bool delayed = latency_ > 0.0f && filled_ > 0;
+      int slot = slot_;
+      for (int back = 1; back < filled_ && times_[slot] > time_ - latency_; ++back) {
+        slot = (slot_ - back + kHistory) % kHistory;
+      }
+      latchedHeading_ = (delayed ? headings_[slot] : chipHeading_) + glitch_;
       if (wrap_) latchedHeading_ = diffDrive::wrapRadians(latchedHeading_);
-      latchedRate_ = chipRate_;
+      latchedRate_ = delayed ? rates_[slot] : chipRate_;
     }
     return diffDrive::GyroReadStatus::kOk;
   }
@@ -97,6 +109,13 @@ class SimGyro : public diffDrive::GyroSource {
     return sum - 6.0f;
   }
 
+  static constexpr int kHistory = 128;
+  float times_[kHistory] = {};
+  float headings_[kHistory] = {};
+  float rates_[kHistory] = {};
+  int slot_ = 0;
+  int filled_ = 0;
+  float latency_ = 0.0f;  // [s]
   bool present_ = true;
   bool dropout_ = false;
   bool frozen_ = false;

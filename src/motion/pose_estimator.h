@@ -14,9 +14,12 @@
 // to the output, and the position follows the optical track. A gyro rate
 // well above any plausible bias says the same with no optical track.
 //
-// Heading never re-anchors on a rejected sample: the sample is skipped,
-// the output follows the encoders for that interval, and the gyro stays
-// the reference for the next sample.
+// In motion the gyro outranks the encoders: a change they disagree with is
+// rotation they missed (slip) or saw early (the gyro lags at pivot ends),
+// so it is taken. Only a read faster than the robot can turn is a glitch;
+// that read's excess over the encoders is skipped, the output follows the
+// encoders until the jump holds steady, and then the heading is the gyro's
+// without it. The encoders never become the reference.
 #pragma once
 
 #include <cmath>
@@ -41,6 +44,11 @@ struct PoseEstimatorParams {
   float gateFraction = 0.3f;     // [1]
   int confirmSamples = 3;        // consecutive consistent samples that make a
                                  // rejected jump the new reference
+
+  // No read of a turning robot exceeds this. Twice the 120 deg/s the closed
+  // profile turns at (the MotionLimits omegaMax default of the fleet); a
+  // slower-reading or faster-turning robot must move it.
+  float maxPlausibleRate = 4.18879f;  // [rad/s] 240 deg/s
 
   // Disturbance gate, over a window the wheels are still. The raw sensor
   // track moved at most 1.2 mm in any window up to 200 s on all four fleet
@@ -134,6 +142,7 @@ class PoseEstimator : public PoseSource {
     pendingX_ = pendingY_ = pendingPath_ = 0.0f;
     holdX_ = holdY_ = 0.0f;
     agree_ = 0;
+    skipped_ = 0.0f;
   }
   void reset() { seed(0.0f, 0.0f, 0.0f); }
 
@@ -202,6 +211,7 @@ class PoseEstimator : public PoseSource {
       anchor(raw);
       previousRaw_ = raw;
       previousRate_ = rate;
+      previousTime_ = time_;
       return;
     }
     if (!gyroUp_) {
@@ -220,6 +230,7 @@ class PoseEstimator : public PoseSource {
       }
       previousRaw_ = raw;
       previousRate_ = rate;
+      previousTime_ = time_;
       sinceReadTurn_ = 0.0f;
       return;
     }
@@ -241,19 +252,30 @@ class PoseEstimator : public PoseSource {
       watching_ = false;
     }
     const float change = wrapRadians(raw - anchorRaw_);  // [rad]
+    if (!still) watchGlitch(raw);
     if (still && !disturbed()) {
       holdAtRest(change);
     } else if (still) {
       followDisturbance(change);
-    } else if (consistent(change, sinceAnchorTurn_)) {
+    } else if (consistent(change, sinceAnchorTurn_) || skipped_ == 0.0f) {
       acceptMoving(change);
     } else {
       rejectJump(raw);
     }
     previousRaw_ = raw;
     previousRate_ = rate;
+    previousTime_ = time_;
     sinceReadTurn_ = 0.0f;
     if (optical_ != nullptr) sampleOptical(raw, take, still);
+  }
+
+  void watchGlitch(float raw) {  // [rad]
+    const float sinceRead = wrapRadians(raw - previousRaw_);  // [rad]
+    const float readTime = time_ - previousTime_;             // [s]
+    if (std::fabs(sinceRead) >
+        params_.maxPlausibleRate * readTime + params_.gateSlack) {
+      skipped_ += sinceRead - sinceReadTurn_;
+    }
   }
 
   void anchor(float raw) {
@@ -261,6 +283,7 @@ class PoseEstimator : public PoseSource {
     anchorHeading_ = heading_;
     sinceAnchorTime_ = sinceAnchorTurn_ = 0.0f;
     agree_ = 0;
+    skipped_ = 0.0f;
   }
 
   // Wheels and sensor both still: collect evidence of a bump or lift.
@@ -299,6 +322,7 @@ class PoseEstimator : public PoseSource {
     anchorHeading_ = heading_;
     sinceAnchorTime_ = sinceAnchorTurn_ = 0.0f;
     agree_ = 0;
+    skipped_ = 0.0f;
   }
 
   // Still: the true rate is zero, so the whole change is bias (or a step).
@@ -317,29 +341,31 @@ class PoseEstimator : public PoseSource {
     anchorHeading_ = heading_;
     sinceAnchorTime_ = sinceAnchorTurn_ = 0.0f;
     agree_ = 0;
+    skipped_ = 0.0f;
   }
 
-  void acceptMoving(float change) {  // [rad]
-    heading_ = anchorHeading_ + change - bias_.rate() * sinceAnchorTime_;
-    gyroTurn_ += change;
+  void acceptMoving(float change, float glitch = 0.0f) {  // [rad] [rad]
+    const float turn = change - glitch;  // [rad]
+    heading_ = anchorHeading_ + turn - bias_.rate() * sinceAnchorTime_;
+    gyroTurn_ += turn;
     anchorRaw_ = wrapRadians(anchorRaw_ + change);
     anchorHeading_ = heading_;
     sinceAnchorTime_ = sinceAnchorTurn_ = 0.0f;
     agree_ = 0;
+    skipped_ = 0.0f;
     bias_.observeMotion(time_, gyroTurn_, encoderTurn_);
   }
 
   // The output stays on the encoders. Only a jump that then holds steady
-  // for confirmSamples becomes the new reference, and the gyro turn it
-  // skipped is credited from the encoders so the bias fit sees no step.
+  // for confirmSamples becomes the new reference; the heading then comes
+  // from the gyro since the anchor with the glitch taken out.
   void rejectJump(float raw) {  // [rad]
     ++rejected_;
     const float sinceRead = wrapRadians(raw - previousRaw_);  // [rad]
     agree_ = consistent(sinceRead, sinceReadTurn_) ? agree_ + 1 : 0;
     if (agree_ < params_.confirmSamples) return;
     ++steps_;
-    gyroTurn_ += sinceAnchorTurn_;
-    anchor(raw);
+    acceptMoving(wrapRadians(raw - anchorRaw_), skipped_);
   }
 
   void readOptical(OpticalTake& take) {
@@ -458,6 +484,8 @@ class PoseEstimator : public PoseSource {
   float sinceAnchorTurn_ = 0.0f; // [rad] encoder turn
   float previousRaw_ = 0.0f;     // [rad] last fresh reading, folded in or not
   float previousRate_ = 0.0f;    // [rad/s]
+  float previousTime_ = 0.0f;    // [s]
+  float skipped_ = 0.0f;         // [rad] glitch excess since the anchor
   float sinceReadTurn_ = 0.0f;   // [rad] encoder turn since that reading
   float stillTurn_ = 0.0f;       // [rad] encoder turn while readings repeat
 

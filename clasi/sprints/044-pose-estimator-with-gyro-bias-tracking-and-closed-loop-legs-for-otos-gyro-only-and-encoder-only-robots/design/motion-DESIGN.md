@@ -75,11 +75,16 @@ I2C; driven by `tests/host` with scripted/simulated sensors.
   (gyro heading, encoder distance along it), `EncodersOnly` (today's
   `Odometry` maths, bit-identical). Position and heading are integrated
   by the estimator itself from `Odometry`'s per-update steps.
-- **Heading** = gyro heading minus an estimated bias angle. There is no
-  permanent re-anchor: a rejected sample is skipped (the output follows
-  the encoders for that interval) and the gyro stays the reference. A
-  jump that then holds steady for 3 reads becomes the new reference
-  without entering the bias. Gyro heading is differenced wrap-aware.
+- **Heading** = gyro heading minus an estimated bias angle. In motion
+  the gyro outranks the encoders (ticket 012): a change they disagree
+  with is slip they missed or the gyro's lag at pivot ends, and is taken.
+  Only a read faster than `maxPlausibleRate` (240 deg/s, twice the closed
+  profile's 120 deg/s) is a glitch: its excess over the encoders is
+  skipped and the output follows the encoders. A jump that then holds
+  steady for 3 reads becomes the new reference; the heading is then the
+  gyro since the last accepted anchor minus the glitch, never the
+  encoders' over the rejected interval. Gyro heading is differenced
+  wrap-aware.
 - **Bias** has two observations. Rest (ZARU): encoders unchanged for
   0.25 s means the true rate is zero, so the heading is HELD and the gyro
   change feeds the rate (2 s windows, duration-weighted running mean that
