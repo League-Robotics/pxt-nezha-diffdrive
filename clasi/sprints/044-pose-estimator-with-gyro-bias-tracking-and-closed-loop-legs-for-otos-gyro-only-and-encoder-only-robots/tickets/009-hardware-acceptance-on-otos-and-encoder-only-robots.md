@@ -62,3 +62,9 @@ Findings that became tickets tonight: 012 (motion steps baked encoder slip), 013
 (STATUS active dropped inside GO_TO_W). Harness fixes: devlink send_move waits for
 `done`; camlink fix() refuses a stalled or tagless stream; otos_drift stops on a
 camera/OTOS chord mismatch.
+
+Later the same night (tovez, same final build):
+- stationary 30 min (`tovez-rest1.jsonl`): estimator heading change 0.00 deg
+  while the raw OTOS drifted -25.9 deg; dist 0. MEETS < 2 deg.
+- speed 200, 17.5 m: arrival median 1.07 / p90 1.77 cm, heading rms 0.90 deg.
+- speed 300, 15.1 m: arrival median 1.14 / p90 1.66 cm, heading rms 1.60 deg.
