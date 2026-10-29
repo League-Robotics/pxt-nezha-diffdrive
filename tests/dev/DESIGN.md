@@ -32,5 +32,20 @@ sensor sits from the circle it draws while pivoting) and `otos_drift.py`
 (random go-tos for a set distance, never re-zeroed, logging camera,
 odometry, OTOS and raw wheel counts at every stop).
 
+Sprint 044 overnight acceptance, 2026-10-28/29 (logs and findings in
+`captures/sprint044-acceptance-20261028/`, see its NOTES.md):
+`peek.py` (read-only ID, STATUS and one TLM row), `otos_straight.py`
+(forward/back straights: OTOS distance vs camera, no turns),
+`otos_pivots.py` (in-place pivots: the OTOS centre track should not
+move; fits the residual lever arm), `tlm_stream_move.py` (TLM FULL
+through one move and the rest after it), `rest_hold.py` (stationary
+hold on the idle read path, never commanded), `goto_probe.py` (GO_TO_W
+legs with delayed TLM reads to expose a stale pose), `status_trace.py`
+(STATUS active/done against wheel counts through one verb) and
+`sprint044_score.py` (scores an `otos_drift.py` log taken on sprint 044
+firmware). `devlink.py` gained `DEVLINK_WIFI` and `send_move` now waits
+for `done`, because `active` drops inside a GO_TO_W. `otos_drift.py`
+gained `--xmin/--xmax` lanes so two robots can share the field.
+
 The parent [`tests/DESIGN.md`](../DESIGN.md) table is the authority on
 what each `tests/` subdirectory needs.

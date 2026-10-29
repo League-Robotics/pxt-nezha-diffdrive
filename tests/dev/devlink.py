@@ -91,19 +91,17 @@ def status(link):
 
 
 def send_move(link, cmd, limit=30.0, on_poll=None):
-    """Send a motion verb and return once it has started AND finished.
-    Waiting for active=0 alone races a command still in flight."""
+    """Send a motion verb and return once it has finished: `done` moved on
+    AND active=0. active alone drops to 0 inside a GO_TO_W (pivot-closure
+    dwell, residual trims), so it cannot mark the end of a command."""
     before = status(link).get('done')
     link.send(cmd)
     t0 = time.time()
-    started = False
     while time.time() - t0 < limit:
         if on_poll:
             on_poll()
         st = status(link)
-        if st.get('active') == '1' or st.get('done') != before:
-            started = True
-        if started and st.get('active') == '0':
+        if st.get('done') != before and st.get('active') == '0':
             return st
         time.sleep(0.1)
     return status(link)
