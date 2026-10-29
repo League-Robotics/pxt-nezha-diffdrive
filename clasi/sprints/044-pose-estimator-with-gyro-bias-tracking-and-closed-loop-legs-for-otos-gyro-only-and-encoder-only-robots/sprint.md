@@ -2,7 +2,7 @@
 id: '044'
 title: Pose estimator with gyro bias tracking and closed-loop legs for OTOS, gyro-only
   and encoder-only robots
-status: ticketing
+status: closing
 branch: sprint/044-pose-estimator-with-gyro-bias-tracking-and-closed-loop-legs-for-otos-gyro-only-and-encoder-only-robots
 use-cases: []
 issues:
@@ -126,14 +126,25 @@ motion stays below platform.
   track (12 cm rms/100 m).
 - **Doctrine change**: "OTOS at move boundaries only, never steered in
   flight" (design.md Sensor doctrine) is superseded; recorded in the
-  overlay. This follows the stakeholder issue; flagged as Open Question 1.
+  overlay. Confirmed by the stakeholder 2026-10-28.
 - **Target-behind = pivot then forward straight** (simple, always
   forward), versus a deliberate reverse straight: chosen for fewer
-  code paths on every config; reverse may return later.
+  code paths on every config; reverse may return later. Confirmed by the
+  stakeholder 2026-10-28.
 - **Split risk**: ~9 tickets with firmware + hardware. Natural split:
   044 = tickets 001-005 (estimator, sensors, TLM) and 006 (stall fix);
   045 = 007-009. Kept as one sprint because 007-008 cannot be validated
-  without the estimator; decision for the stakeholder (Open Question 2).
+  without the estimator. Stakeholder chose one sprint 2026-10-28.
+
+### Stakeholder Decisions (2026-10-28)
+
+1. Sensor doctrine superseded: the estimator steers legs in flight.
+2. One sprint, tickets 001-009.
+3. Target behind: pivot, then forward straight.
+4. Encoders-only acceptance robot for ticket 009: tigez.
+5. Chip `calibrateImu(255)` after verified stillness is allowed as a
+   fallback only, if software bias tracking alone misses the stationary
+   criterion.
 
 ### Migration Concerns
 
@@ -193,11 +204,11 @@ None.
 
 Before tickets can be created, all of the following must be true:
 
-- [ ] Sprint planning document is complete (sprint.md, including its
+- [x] Sprint planning document is complete (sprint.md, including its
       Architecture and Use Cases sections)
-- [ ] Architecture review passed (or skipped, for changes with no
+- [x] Architecture review passed (or skipped, for changes with no
       architectural impact)
-- [ ] Stakeholder has approved the sprint plan
+- [x] Stakeholder has approved the sprint plan (2026-10-28)
 
 ## Tickets
 

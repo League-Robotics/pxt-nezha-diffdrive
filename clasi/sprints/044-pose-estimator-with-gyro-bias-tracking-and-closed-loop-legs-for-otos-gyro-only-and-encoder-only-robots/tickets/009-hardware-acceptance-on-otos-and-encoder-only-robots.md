@@ -14,14 +14,14 @@ completes_issue: true
 
 ## Description
 
-Camera-truthed acceptance. (a) vevov (OTOS): 100 m random run with tests/dev/otos_drift.py, no camera re-zero, plus stationary 30 min with tests/dev/otos_gyro.py. (b) one encoders-only robot: same leg run, checking no wrong-way stalls and arrival accuracy. Score with otos_drift_report.py; write results to captures/ with date and board; every measured figure cites its capture file per .claude/rules/measurement-citations.md; anything not run is marked UNVERIFIED. Follow the repo rules for connecting to a robot, camera-checked steps, and not driving blind. Requires stakeholder-arranged robot access.
+Camera-truthed acceptance. (a) vevov (OTOS): 100 m random run with tests/dev/otos_drift.py, no camera re-zero, plus stationary 30 min with tests/dev/otos_gyro.py. (b) tigez (encoders only, chosen by the stakeholder 2026-10-28): same leg run, checking no wrong-way stalls and arrival accuracy. Score with otos_drift_report.py; write results to captures/ with date and board; every measured figure cites its capture file per .claude/rules/measurement-citations.md; anything not run is marked UNVERIFIED. Follow the repo rules for connecting to a robot, camera-checked steps, and not driving blind. Requires stakeholder-arranged robot access.
 
 ## Acceptance Criteria
 
 - [ ] OTOS: pose error <= 15 cm rms, heading <= 3 deg rms (2nd half), zero wrong-way stalls
 - [ ] OTOS: arrival median < 1 cm, p90 < 2 cm
 - [ ] Stationary 30 min: heading change < 2 deg after settling
-- [ ] Encoders-only robot: zero stalls; arrival results recorded (target documented honestly if sensor-less accuracy is lower)
+- [ ] tigez (encoders only): zero stalls; arrival results recorded (target documented honestly if sensor-less accuracy is lower)
 - [ ] Captures committed under captures/ and cited
 
 ## Testing
