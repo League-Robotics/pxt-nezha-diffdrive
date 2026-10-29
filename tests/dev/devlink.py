@@ -53,9 +53,11 @@ def open_serial(name='vevov'):
 
 
 def fix(cam, n):
-    """Median pose (x cm, y cm, heading deg); turns the garage lights on if the tag is lost."""
+    """Median pose (x cm, y cm, heading deg); turns the garage lights on if the tag is lost.
+    A few tagless frames already refuse the fix: the PIR switches the lights off
+    and the last pose must not be reused while the robot may have moved."""
     for _ in range(3):
-        p = cam.fix(n=n)
+        p = cam.fix(n=n, stale_after=4)
         if p is not None:
             return p
         urllib.request.urlopen(LIGHTS, timeout=5).read()
