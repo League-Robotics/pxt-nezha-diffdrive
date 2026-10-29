@@ -243,6 +243,9 @@ uint32_t peRunMove(void* handle, float fullDutyVelocity, uint32_t periodMs,
 void peSetOmegaFloor(void* handle, float floor) {  // [deg/s]
   as(handle)->engine.limits().setOmegaFloor(floor);
 }
+void peSetVFloor(void* handle, float floor) {  // [mm/s]
+  as(handle)->engine.limits().setVFloor(floor);
+}
 void peSetSampleEvery(void* handle, int every) { as(handle)->sampleEvery = every; }
 
 void peSetPivotClosure(void* handle, int enabled, uint32_t dwellMs,
@@ -263,6 +266,30 @@ int pePivotCorrections(void* handle) {
 float pePivotResidual(void* handle) { return as(handle)->engine.lastPivotResidual(); }
 int pePivotTimedOut(void* handle) {
   return as(handle)->engine.lastPivotClosureTimedOut() ? 1 : 0;
+}
+void peSetSteering(void* handle, int enabled, float lookahead, float gain,
+                   float maxRateDeg, float maxShare) {
+  diffDrive::StraightSteering& c = as(handle)->engine.straightSteering();
+  c.enabled = enabled != 0;
+  c.lookahead = lookahead;
+  c.gain = gain;
+  c.maxRate = maxRateDeg;
+  c.maxShare = maxShare;
+}
+void peSetResidualTrim(void* handle, int enabled, float band, float deadband,
+                       uint32_t dwellMs, int maxTrims, uint32_t timeoutMs) {
+  diffDrive::ResidualTrim& c = as(handle)->engine.residualTrim();
+  c.enabled = enabled != 0;
+  c.band = band;
+  c.deadband = deadband;
+  c.dwell = dwellMs;
+  c.maxTrims = maxTrims;
+  c.timeout = timeoutMs;
+}
+int peTrimCount(void* handle) { return as(handle)->engine.lastTrimCount(); }
+float peTrimResidual(void* handle) { return as(handle)->engine.lastTrimResidual(); }
+int peTrimTimedOut(void* handle) {
+  return as(handle)->engine.lastTrimTimedOut() ? 1 : 0;
 }
 int peMoveActive(void* handle) { return as(handle)->engine.isMoveActive() ? 1 : 0; }
 

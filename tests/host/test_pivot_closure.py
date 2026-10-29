@@ -55,6 +55,7 @@ def lib(estimator_lib):
     lib.peSetSampleEvery.argtypes = [vp, i]
     lib.peSetOmegaFloor.argtypes = [vp, f]
     lib.peSetPivotClosure.argtypes = [vp, i, u, f, f, f, i, u]
+    lib.peSetSteering.argtypes = [vp, i, f, f, f, f]
     lib.pePivotCorrections.argtypes = [vp]
     lib.pePivotCorrections.restype = i
     lib.pePivotResidual.argtypes = [vp]
@@ -149,6 +150,7 @@ def test_slip_without_closure_misses_so_the_closure_is_what_lands_it(lib):
     rig, p = _rig(lib, GYRO_ONLY, 1.05)
     try:
         lib.peSetPivotClosure(rig.h, 0, 250, 0.25, 45.0, 1.0, 3, 2500)
+        lib.peSetSteering(rig.h, 0, 150.0, 4.0, 20.0, 0.15)
         _go(lib, rig, p, 120)
         assert abs(_truth_error(lib, rig, 120)) > 3.0
     finally:

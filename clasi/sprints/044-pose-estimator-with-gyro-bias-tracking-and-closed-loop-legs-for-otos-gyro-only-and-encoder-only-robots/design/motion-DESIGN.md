@@ -125,10 +125,53 @@ Correction cruise is 1 mm/s, which the shaper raises to the per-robot omega
 floor, so the correction runs at the floor with no accel ramp. A source with
 no heading reference (`EncodersOnly`, Odometry, OtosPort, test fakes) skips
 the closure entirely: no dwell, no correction, timing unchanged. If the gyro
-drops mid-closure the next evaluation ends it. The straight phase and final
-residual are unchanged (ticket 008). `PivotClosure` is an engine struct with
-no wire config; `lastPivotCorrections()`, `lastPivotResidual()` and
-`lastPivotClosureTimedOut()` expose the last closure.
+drops mid-closure the next evaluation ends it. `PivotClosure` is an engine
+struct with no wire config; `lastPivotCorrections()`, `lastPivotResidual()`
+and `lastPivotClosureTimedOut()` expose the last closure.
+
+**Straight steering** (ticket 008). When the pose source `tracksMotion()`
+(the estimator, Odometry; not a hand-set test fake) the pivot-then-straight
+leg keeps a `Goal` (target, pose source, line origin and direction). When the
+pivot has settled the straight is re-planned from where the robot actually
+stands: the chord and the line to the target are recomputed from pose, since
+the pivot closure moves heading but not position. Each service tick of the
+straight then steers on the world cross-track error to that line. The law
+is Stanley/pure-pursuit shaped: the wanted heading is the line's heading less
+`atan(crossTrack / lookahead)`, and the yaw trim is `gain` times the heading
+error, clamped to `maxRate` and to `maxShare` of the dominant wheel speed.
+The trim is a redistribution of the dominant wheel's speed (mean speed drops by
+|trim|), so the outer wheel stays at the shaper's command: the wheel ceiling
+and the stiction floor it enforces still hold. It was chosen over a heading-only
+hold because pivot error, wheel slip and sensor offsets all show up as
+cross-track, and over a bare bearing-to-target law because that law is
+ill-conditioned inside the last centimetres; the line is fixed at straight
+start so it is not. It needs no model of the 10 Hz sensor cadence: the
+estimator dead-reckons on encoders between reads, and the gain (4 /s) is
+slow against both. A straight segment has no yaw target, so `wrongWay()` can
+never fire on the trim, and the trim is too small to look like a stall.
+`StraightSteering` (`lookahead` 150 mm, `gain` 4 /s, `maxRate` 20 deg/s,
+`maxShare` 0.15) is an engine struct with no wire config. EncodersOnly steers
+the same way on the odometry pose: odometry already holds its own heading, so the
+trim is near zero and the leg reduces to today's, now re-planned from the pose.
+
+**Final residual trim** (ticket 008). A straight ends on encoder distance. If
+the pose source tracks motion, the leg then rests `dwell` (250 ms), reads the
+along-heading distance to the target and, when the whole residual is within
+`band` (30 mm), runs a short straight of that distance (forward or reverse)
+instead of a re-pivot, at most `maxTrims` (2) within `timeout` (3000 ms from
+the first rest). A trim smaller than `max(deadband, vFloor * tick)` is not
+run. Trims run at the floor speed the shaper enforces and are not steered.
+
+*Reverse exception.* Stakeholder decision 3 forbids reversing to reach a
+target behind the robot: that target is a pivot then a forward straight.
+That rule stays for every leg whose residual exceeds `band`. The one
+exception is a final residual within `band` that is mostly along the heading
+(`|bodyX| >= |bodyY|`): a `goToW()` that starts that close is driven as a
+short straight without a pivot, reversing if the target is behind, and the same
+applies to the trim after a straight. Without it ticket 006's `x < 0` rule
+pivots up to 180 deg for a 1 cm overshoot. A within-band residual that is mostly
+cross-track still takes the pivot path. `lastTrimCount()`, `lastTrimResidual()`
+and `lastTrimTimedOut()` expose the last leg's trim.
 
 ## position_move.h — moves run by the motor's own loop
 

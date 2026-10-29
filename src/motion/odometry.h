@@ -76,6 +76,7 @@ class Odometry : public PoseSource {
   // [rad] world frame, CCW+, UNWRAPPED -- one of the two conventions
   // PoseSource permits. Do not difference two reads across implementations.
   float heading() const override { return heading_; }
+  bool tracksMotion() const override { return true; }
 
  private:
   void consume(const DiffDrive::DifferentialDrive::Output& out) {

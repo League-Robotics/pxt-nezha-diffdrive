@@ -117,6 +117,7 @@ void MotionEngine::cancelMove() {
   if (posMove_.active) stopPositionMove();
   seg_ = Segment();
   closure_ = ClosureState();
+  goal_ = Goal();
   hold_.active = false;
   nudge_.active = false;
 }
@@ -197,11 +198,93 @@ void MotionEngine::queuePivotThenStraight(float pivotRotation,
 
 void MotionEngine::beginPendingStraightPhase() {
   // Captured before beginSegment() below resets seg_.
-  const float distance = seg_.pendingDistance;
+  float distance = seg_.pendingDistance;
   const float cruise = seg_.pendingCruise;
   const uint32_t deadline = seg_.deadline;
   const float cpm = countsPerMm();
-  beginSegment(distance * cpm, 0.0f, cruise, deadline);
+  if (goal_.pose != nullptr) {
+    // The call-time chord is stale once the pivot has landed; the line to
+    // the target is drawn from where the robot actually stands.
+    const float dx = goal_.x - goal_.pose->x();  // [mm]
+    const float dy = goal_.y - goal_.pose->y();  // [mm]
+    const float chord = std::hypot(dx, dy);      // [mm]
+    if (chord > 0.0f) {
+      goal_.startX = goal_.pose->x();
+      goal_.startY = goal_.pose->y();
+      goal_.unitX = dx / chord;
+      goal_.unitY = dy / chord;
+      goal_.steered = straightSteering_.enabled;
+      distance = chord;
+    }
+  }
+  beginGoalStraight(distance, cruise, deadline, goal_.steered);
+}
+
+void MotionEngine::beginGoalStraight(float distance, float cruise,
+                                     uint32_t deadline, bool steered) {
+  Goal carried = goal_;
+  carried.steered = steered;
+  beginSegment(distance * countsPerMm(), 0.0f, cruise, deadline);
+  if (seg_.active) goal_ = carried;
+}
+
+float MotionEngine::steeringTwist(float vCmd) const {
+  const StraightSteering& s = straightSteering_;
+  const PoseSource& pose = *goal_.pose;
+  const float rx = pose.x() - goal_.startX;  // [mm]
+  const float ry = pose.y() - goal_.startY;  // [mm]
+  const float cross = -rx * goal_.unitY + ry * goal_.unitX;  // [mm] left of the line
+  const float wanted =
+      std::atan2(goal_.unitY, goal_.unitX) - std::atan2(cross, s.lookahead);
+  const float error = std::remainder(wanted - pose.heading(), 2.0f * kPi);  // [rad]
+  const float limit = s.maxRate * (kPi / 180.0f);  // [rad/s]
+  float rate = s.gain * error;
+  rate = rate > limit ? limit : (rate < -limit ? -limit : rate);
+  const float cap = s.maxShare * vCmd;  // [mm/s]
+  const float twist = rate * 0.5f * effectiveTrackWidth();
+  return twist > cap ? cap : (twist < -cap ? -cap : twist);
+}
+
+bool MotionEngine::legClosed(uint32_t nowVal, float dt) {
+  if (goal_.pose == nullptr || !residualTrim_.enabled) return true;
+  if (!goal_.resting) {
+    goal_.resting = true;
+    goal_.restUntil = nowVal + residualTrim_.dwell;
+    if (goal_.trims == 0) goal_.giveUp = nowVal + residualTrim_.timeout;
+  }
+  seg_.settling = true;
+  if (static_cast<int32_t>(nowVal - goal_.restUntil) < 0) return false;
+
+  const float dx = goal_.x - goal_.pose->x();  // [mm]
+  const float dy = goal_.y - goal_.pose->y();  // [mm]
+  const float heading = goal_.pose->heading();
+  const float along = dx * std::cos(heading) + dy * std::sin(heading);  // [mm]
+  const float residual = std::hypot(dx, dy);                            // [mm]
+  const bool timedOut = static_cast<int32_t>(nowVal - goal_.giveUp) >= 0;
+  // A trim cannot be finer than one tick at the floor speed.
+  const float tickTravel = limits_.vFloor * dt;  // [mm]
+  const float band =
+      residualTrim_.deadband > tickTravel ? residualTrim_.deadband : tickTravel;
+  lastTrimResidual_ = residual;
+  lastTrimCount_ = goal_.trims;
+  const bool done = std::fabs(along) <= band || residual > residualTrim_.band ||
+                    goal_.trims >= residualTrim_.maxTrims || timedOut;
+  if (done) {
+    lastTrimTimedOut_ = timedOut;
+    return true;
+  }
+
+  const uint32_t deadline = seg_.deadline;
+  const float cruise = std::fmin(
+      goal_.speed, defaultCruiseForDistance(std::fabs(along)));  // [mm/s]
+  Goal carried = goal_;
+  ++carried.trims;
+  carried.resting = false;
+  carried.steered = false;
+  kernel_.rearmReferences();
+  beginSegment(along * countsPerMm(), 0.0f, cruise, deadline);
+  if (seg_.active) goal_ = carried;
+  return false;
 }
 
 void MotionEngine::wheelsX(float left, float right, float cruise,
@@ -286,7 +369,38 @@ void MotionEngine::goToW(const PoseSource& pose, float x, float y,
   const float bodyX = dx * cosH + dy * sinH;
   const float bodyY = -dx * sinH + dy * cosH;
 
+  const float chord = std::hypot(bodyX, bodyY);  // [mm]
+  lastTrimCount_ = 0;
+  lastTrimResidual_ = 0.0f;
+  lastTrimTimedOut_ = false;
+
+  // A target this close and mostly along the heading is a short straight,
+  // forward or reverse -- the one place a goToW() leg may reverse. Left to
+  // goToR() a target behind pivots up to 180 deg for a 1 cm overshoot.
+  if (residualTrim_.enabled && pose.tracksMotion() && chord > arrive &&
+      chord <= residualTrim_.band && std::fabs(bodyX) > arrive &&
+      std::fabs(bodyX) >= std::fabs(bodyY)) {
+    kernel_.clearStallLatch();
+    const float cruise = std::fmin(speed, defaultCruiseForDistance(std::fabs(bodyX)));
+    cancelMove();
+    goal_.pose = &pose;
+    goal_.x = x;
+    goal_.y = y;
+    goal_.speed = speed;
+    beginGoalStraight(bodyX, cruise, now() + timeout, false);
+    return;
+  }
+
   goToR(bodyX, bodyY, speed, arrive, timeout);
+
+  if (pose.tracksMotion() &&
+      (straightSteering_.enabled || residualTrim_.enabled) && seg_.active &&
+      seg_.hasPending) {
+    goal_.pose = &pose;
+    goal_.x = x;
+    goal_.y = y;
+    goal_.speed = seg_.pendingCruise;
+  }
 
   if (pivotClosure_.enabled && std::hypot(bodyX, bodyY) > arrive &&
       seg_.active && seg_.hasPending && pose.hasHeadingReference()) {
@@ -336,6 +450,7 @@ bool MotionEngine::pivotClosed(uint32_t nowVal, float dt) {
   const float pendingCruise = seg_.pendingCruise;
   const uint32_t deadline = seg_.deadline;
   ClosureState carried = closure_;
+  const Goal carriedGoal = goal_;
   ++carried.corrections;
   carried.resting = false;
   kernel_.rearmReferences();
@@ -346,6 +461,7 @@ bool MotionEngine::pivotClosed(uint32_t nowVal, float dt) {
   seg_.pendingDistance = pendingDistance;
   seg_.pendingCruise = pendingCruise;
   closure_ = carried;
+  goal_ = carriedGoal;
   return false;
 }
 
@@ -450,6 +566,7 @@ bool MotionEngine::service() {
         beginPendingStraightPhase();
         return seg_.active;
       }
+      if (goal_.pose != nullptr && !legClosed(nowVal, dt)) return seg_.active;
       if (seg_.closeYaw) {
         // MEASURED zetuv 2026-10-21: a chassis that cannot brake an arc's
         // inner wheel hard enough ends 45 deg arcs ~10 deg short.
@@ -473,8 +590,13 @@ bool MotionEngine::service() {
 
     // The (uLeft, uRight) ratio is implied by (distTarget, yawTarget),
     // recomputed from step.vCmd every tick rather than stored.
-    const float velocity = (seg_.distTarget / seg_.dominant) * step.vCmd;
-    const float twist = (seg_.yawTarget / seg_.dominant) * step.vCmd;
+    float velocity = (seg_.distTarget / seg_.dominant) * step.vCmd;
+    float twist = (seg_.yawTarget / seg_.dominant) * step.vCmd;
+    if (goal_.steered && goal_.pose != nullptr && seg_.distTarget > 0.0f &&
+        seg_.yawTarget == 0.0f) {
+      twist = steeringTwist(step.vCmd);
+      velocity -= std::fabs(twist);
+    }
     const DiffDrive::DifferentialDrive::Status driveStatus =
         kernel_.drive(velocity * cpm, twist * cpm, 500u, limits_.lag);
     notifyDrive(velocity - twist, velocity + twist, step.phase);
@@ -547,6 +669,7 @@ void MotionEngine::endMoveImpl(bool stopPositionPorts) {
     notifyNeutral();
   }
   seg_ = Segment();
+  goal_ = Goal();
   hold_ = Hold();
   shaper_.reset();
 }
