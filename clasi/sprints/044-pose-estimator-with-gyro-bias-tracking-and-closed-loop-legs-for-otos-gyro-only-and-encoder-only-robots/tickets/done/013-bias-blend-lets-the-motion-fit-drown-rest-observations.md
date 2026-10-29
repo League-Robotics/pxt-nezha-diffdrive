@@ -1,10 +1,12 @@
 ---
-id: "013"
-title: "Bias blend lets the motion fit drown rest observations"
+id: '013'
+title: Bias blend lets the motion fit drown rest observations
 status: done
-use-cases: [SUC-001]
-depends-on: ['012']
-github-issue: ""
+use-cases:
+- SUC-001
+depends-on:
+- '012'
+github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
 ---
