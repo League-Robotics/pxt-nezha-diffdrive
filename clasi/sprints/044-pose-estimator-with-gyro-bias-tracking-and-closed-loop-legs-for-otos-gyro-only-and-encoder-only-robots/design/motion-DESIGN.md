@@ -58,25 +58,47 @@ Inputs are the kernel `Output` (encoders, always), an optional
 an optional optical position source (the OTOS x/y). Host-portable, no
 I2C; driven by `tests/host` with scripted/simulated sensors.
 
+- **Shape** (ticket 002). `PoseEstimator(const MotionEngine&, params)`;
+  `attachSensors(GyroSource*, OpticalPositionSource*, SensorConfig)`;
+  `update(const Output&, dt, sampleSensors = true)` folds the encoders every
+  call and reads the sensors only when `sampleSensors`, so the shim owns
+  the read cadence; `seed()`/`reset()` as `Odometry`; `config()` is the
+  effective configuration now; `atRest()`, `biasRate()` [rad/s],
+  `rejectedCount()`, `stepCount()` feed TLM. `GyroBiasTracker`
+  (`gyro_bias_tracker.h`) is the separate bias model:
+  `observeRest(change, dt)`, `observeMotion(time, gyroTurn, encoderTurn)`,
+  `rate()`; gains live in `GyroBiasParams`/`PoseEstimatorParams`.
+  `Odometry` gained `stepCentre()`/`stepHeading()` (what the last
+  `update()` folded in) and is otherwise unchanged.
 - **Configurations** (set by what the boot probe found, re-evaluated
   on sensor failure): `Optical` (OTOS x/y + gyro heading), `GyroOnly`
   (gyro heading, encoder distance along it), `EncodersOnly` (today's
-  `Odometry` maths unchanged). `Odometry` stays as the encoders-only
-  integrator inside the estimator.
+  `Odometry` maths, bit-identical). Position and heading are integrated
+  by the estimator itself from `Odometry`'s per-update steps.
 - **Heading** = gyro heading minus an estimated bias angle. There is no
-  permanent re-anchor: a rejected sample is skipped and the sensor
-  remains the reference.
-- **Bias** has two observations: ZARU (drive idle, both encoders
-  unchanged: every gyro heading change is bias; low-gain rate update)
-  and an encoder comparison in motion (running least-squares fit of
-  gyro-minus-encoder heading on [1, time, encoder net turn]). Idle
-  gyro reads must therefore continue while no move is active.
-- **Position** in `Optical` is the OTOS's own x/y increments rotated by
-  the bias-corrected heading (arm applied in software); encoders are the
-  fallback when the sensor is absent, frozen or failing.
-- **Degrade rule**: on dropout the estimator keeps the current heading
-  and carries on from the next-lower configuration, rebasing its
-  reference so no step appears in the output.
+  permanent re-anchor: a rejected sample is skipped (the output follows
+  the encoders for that interval) and the gyro stays the reference. A
+  jump that then holds steady for 3 reads becomes the new reference
+  without entering the bias. Gyro heading is differenced wrap-aware.
+- **Bias** has two observations. Rest (ZARU): encoders unchanged for
+  0.25 s means the true rate is zero, so the heading is HELD and the gyro
+  change feeds the rate (2 s windows, duration-weighted running mean that
+  settles to a 180 s time constant; windows above 0.1 deg/s are steps and
+  skipped). Motion: running least-squares of gyro-minus-encoder heading on
+  [1, time, encoder net turn], blended by inverse variance at 0.3 trust.
+  Idle gyro reads must therefore continue while no move is active (ticket 004).
+- **Position** in `Optical`: the source's centre-referenced increments
+  (arm already removed by the port with the chip's heading) rotated by
+  corrected-heading minus raw-gyro heading, which also corrects the arm's
+  heading dependence; encoder motion fills between takes. A take is
+  skipped when it disagrees with the encoders (30 mm + 50%) and the source
+  is dropped after 8 in a row or when it falls 40 mm short of the encoders
+  beyond a 20% allowance (frozen). Increments are ignored at rest.
+- **Degrade rule**: 8 failed/stale reads, or identical readings while the
+  encoders turn 3 deg, drop the gyro (and with it the optical source);
+  8 takes with no fix or a freeze drop only the optical source. Heading is
+  already on the encoders in every such interval, so nothing steps; 10 good
+  reads bring a source back with the output as the new anchor.
 
 Leg control (sprint 044): `goToW()` ends the pivot on estimator heading,
 steers the straight toward the world target on estimator pose, and handles

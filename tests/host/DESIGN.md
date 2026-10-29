@@ -56,6 +56,13 @@ Three kinds of file, one pattern:
   encoder, clock or control loop in the link — the first host coverage
   of the dead-reckoning math, which lived in `shims.cpp` (`pxt.h`-bound,
   unlinkable here) until `Odometry` made it portable.
+  `pose_estimator_shim.cpp` (sprint 044) bundles a real
+  `diffDrive::PoseEstimator` with `SimGyro` (`sim_gyro.h`) and
+  `SimOptical` (`sim_optical.h`, an OTOS-like lever-arm source) over a
+  true two-wheel robot: `peDrive()` moves the wheels, derives the encoder
+  `Output`, advances both simulated sensors from the same truth and ticks
+  the estimator, so `test_pose_estimator.py` measures heading and
+  position error against truth in all three sensor configurations.
   `transport_sink_shim.cpp` (sprint 033) exposes
   `diffDrive::TransportSink` and the `wireLineContentLength()` decision
   behind it — the outbound half of the same kind of extraction: three

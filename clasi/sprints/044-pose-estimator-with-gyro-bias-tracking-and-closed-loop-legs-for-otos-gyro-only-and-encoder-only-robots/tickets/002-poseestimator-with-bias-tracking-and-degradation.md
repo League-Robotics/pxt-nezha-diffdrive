@@ -1,9 +1,11 @@
 ---
 id: '002'
 title: PoseEstimator with bias tracking and degradation
-status: open
-use-cases: [SUC-001]
-depends-on: ['001']
+status: done
+use-cases:
+- SUC-001
+depends-on:
+- '001'
 github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
@@ -24,11 +26,12 @@ Implement `PoseEstimator` (motion/pose_estimator.h) replacing `Odometry::fuseHea
 
 ## Acceptance Criteria
 
-- [ ] Estimator is a PoseSource; EncodersOnly output equals existing Odometry golden frames
-- [ ] Constant simulated bias (50 deg/h) is learned and removed at rest and in motion in Optical and GyroOnly
-- [ ] Rejected samples never produce a persistent heading offset (regression for fuseHeading re-anchor)
-- [ ] Dropout and freeze mid-run: heading step < 1 deg at the transition, all config pairs
-- [ ] test_odometry goldens still pass; uv run pytest green
+- [x] Estimator is a PoseSource; EncodersOnly output equals existing Odometry golden frames
+- [x] Constant simulated bias (50 deg/h) is learned and removed at rest and in motion in Optical and GyroOnly
+- [x] Slowly ramping bias (0 to +-35 deg/h over 30 min) and a large constant bias (+-150 deg/h): a 30-min stationary SimGyro run holds heading change under 2 deg after settling, in Optical and GyroOnly (the sprint's stationary criterion)
+- [x] Rejected samples never produce a persistent heading offset (regression for fuseHeading re-anchor)
+- [x] Dropout and freeze mid-run: heading step < 1 deg at the transition, all config pairs
+- [x] test_odometry goldens still pass; uv run pytest tests/host green
 
 ## Testing
 

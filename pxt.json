@@ -21,6 +21,8 @@
         "src/motion/velocity_shaper.cpp",
         "src/motion/wheel_command_tap.h",
         "src/motion/odometry.h",
+        "src/motion/gyro_bias_tracker.h",
+        "src/motion/pose_estimator.h",
         "src/platform/vfp_guard.h",
         "src/platform/vfp_guard.cpp",
         "src/platform/platform_ports.h",

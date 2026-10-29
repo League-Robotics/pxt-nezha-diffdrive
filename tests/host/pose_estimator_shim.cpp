@@ -1,0 +1,150 @@
+// pose_estimator_shim.cpp -- extern "C" ctypes surface for
+// src/motion/pose_estimator.h. Handle-plus-free-functions shape, "peXxx"
+// prefix (tests/host/DESIGN.md S2).
+//
+// The handle carries a true robot: peDrive() moves two wheels, derives the
+// encoder Output the kernel would publish, advances SimGyro and SimOptical
+// from the same truth, and ticks the estimator. peOutput() instead feeds a
+// raw scripted Output (no sensors) for the Odometry golden comparison.
+//
+// Test scaffolding only: nothing under src/ knows this file exists.
+#include <cmath>
+#include <cstdint>
+
+#include "core/diffdrive.h"
+#include "fake_ports.h"
+#include "motion/motion_engine.h"
+#include "motion/pose_estimator.h"
+#include "sim_gyro.h"
+#include "sim_optical.h"
+
+namespace {
+
+struct Handle {
+  FakeMotor left;
+  FakeMotor right;
+  FakeClock clock;
+  FakeSleeper sleeper;
+  FakeFiberLauncher launcher;
+  DiffDrive::DifferentialDrive kernel;
+  diffDrive::MotionEngine engine;
+  SimGyro gyro;
+  SimOptical optical;
+  diffDrive::PoseEstimator estimator;
+
+  float trackError = 1.0f;  // true track width / the engine's
+  float posLeft = 0.0f, posRight = 0.0f;  // [counts]
+  float truthX = 0.0f, truthY = 0.0f, truthHeading = 0.0f;  // [mm] [rad]
+
+  Handle()
+      : kernel(left, right, clock, sleeper, launcher),
+        engine(kernel, clock),
+        estimator(engine) {
+    gyro.setWrap(true);
+  }
+};
+
+Handle* as(void* handle) { return static_cast<Handle*>(handle); }
+
+}  // namespace
+
+extern "C" {
+
+void* peCreate() { return new Handle(); }
+void peDestroy(void* handle) { delete as(handle); }
+
+void peSetGeometry(void* handle, float travelCalib, float trackWidth,
+                   float rotationalSlip) {  // [mm/deg] [mm] [1]
+  Handle* h = as(handle);
+  h->engine.setTravelCalib(travelCalib);
+  h->engine.setTrackWidth(trackWidth);
+  h->engine.setRotationalSlip(rotationalSlip);
+}
+void peSetTrackError(void* handle, float ratio) { as(handle)->trackError = ratio; }
+
+// 0 optical, 1 gyro-only, 2 encoders-only
+void peAttach(void* handle, int config) {
+  Handle* h = as(handle);
+  h->estimator.attachSensors(&h->gyro, &h->optical,
+                             static_cast<diffDrive::SensorConfig>(config));
+}
+
+void peGyroBias(void* handle, float v) { as(handle)->gyro.setBias(v); }
+void peGyroWander(void* handle, float a, float p) { as(handle)->gyro.setWander(a, p); }
+void peGyroNoise(void* handle, float v) { as(handle)->gyro.setNoise(v); }
+void peGyroSeed(void* handle, uint32_t v) { as(handle)->gyro.setSeed(v); }
+void peGyroDropout(void* handle, int on) { as(handle)->gyro.setDropout(on != 0); }
+void peGyroFreeze(void* handle, int on) { as(handle)->gyro.setFreeze(on != 0); }
+void peGyroReadFail(void* handle, int on) { as(handle)->gyro.setReadFail(on != 0); }
+void peGyroStep(void* handle, float delta) { as(handle)->gyro.stepHeading(delta); }
+void peGyroGlitch(void* handle, float offset) { as(handle)->gyro.setGlitch(offset); }
+
+void peOpticalScale(void* handle, float v) { as(handle)->optical.setScale(v); }
+void peOpticalFreeze(void* handle, int on) { as(handle)->optical.setFreeze(on != 0); }
+void peOpticalDropout(void* handle, int on) { as(handle)->optical.setDropout(on != 0); }
+void peOpticalJump(void* handle, float dx, float dy) { as(handle)->optical.jump(dx, dy); }
+
+// Wheel speeds [mm/s] held for dt [s].
+void peDrive(void* handle, float dt, float speedLeft, float speedRight,
+             int sampleSensors) {
+  Handle* h = as(handle);
+  const float cpm = h->engine.countsPerMm();
+  const float dLeft = speedLeft * dt;    // [mm]
+  const float dRight = speedRight * dt;  // [mm]
+  h->posLeft += dLeft * cpm;
+  h->posRight += dRight * cpm;
+  const float dCentre = 0.5f * (dLeft + dRight);
+  const float dHeading =
+      (dRight - dLeft) / (h->engine.effectiveTrackWidth() * h->trackError);
+  const float mid = h->truthHeading + 0.5f * dHeading;
+  const float dx = dCentre * std::cos(mid);
+  const float dy = dCentre * std::sin(mid);
+  h->truthX += dx;
+  h->truthY += dy;
+  h->truthHeading += dHeading;
+  h->gyro.advance(dt, dHeading / dt);
+  h->optical.advance(dx, dy, h->truthHeading, h->gyro.chipHeading());
+
+  DiffDrive::DifferentialDrive::Output out;
+  out.positionLeft = h->posLeft;
+  out.positionRight = h->posRight;
+  h->estimator.update(out, dt, sampleSensors != 0);
+}
+
+// A scripted Output, no sensors read.
+void peOutput(void* handle, float dt, float positionLeft, float positionRight,
+              uint32_t epochLeft, uint32_t epochRight) {
+  DiffDrive::DifferentialDrive::Output out;
+  out.positionLeft = positionLeft;
+  out.positionRight = positionRight;
+  out.positionEpochLeft = epochLeft;
+  out.positionEpochRight = epochRight;
+  as(handle)->estimator.update(out, dt, false);
+}
+
+void peSeed(void* handle, float x, float y, float heading) {
+  as(handle)->estimator.seed(x, y, heading);
+}
+void peReset(void* handle) { as(handle)->estimator.reset(); }
+
+float peX(void* handle) { return as(handle)->estimator.x(); }
+float peY(void* handle) { return as(handle)->estimator.y(); }
+float peHeading(void* handle) { return as(handle)->estimator.heading(); }
+float pePoseSourceX(void* handle) {
+  const diffDrive::PoseSource& pose = as(handle)->estimator;
+  return pose.x();
+}
+int peConfig(void* handle) {
+  return static_cast<int>(as(handle)->estimator.config());
+}
+int peAtRest(void* handle) { return as(handle)->estimator.atRest() ? 1 : 0; }
+float peBiasRate(void* handle) { return as(handle)->estimator.biasRate(); }
+uint32_t peRejected(void* handle) { return as(handle)->estimator.rejectedCount(); }
+uint32_t peSteps(void* handle) { return as(handle)->estimator.stepCount(); }
+
+float peTruthX(void* handle) { return as(handle)->truthX; }
+float peTruthY(void* handle) { return as(handle)->truthY; }
+float peTruthHeading(void* handle) { return as(handle)->truthHeading; }
+float peTrueBias(void* handle) { return as(handle)->gyro.bias(); }
+
+}  // extern "C"

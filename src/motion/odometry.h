@@ -32,6 +32,8 @@ class Odometry : public PoseSource {
     const bool rebased =
         primed_ && (out.positionEpochLeft != positionEpochLeft_ ||
                     out.positionEpochRight != positionEpochRight_);
+    stepCentre_ = 0.0f;
+    stepHeading_ = 0.0f;
     if (!primed_ || rebased) {
       consume(out);
       primed_ = true;
@@ -48,7 +50,13 @@ class Odometry : public PoseSource {
     x_ += dCenter * std::cos(midHeading);
     y_ += dCenter * std::sin(midHeading);
     heading_ += dHeading;
+    stepCentre_ = dCenter;
+    stepHeading_ = dHeading;
   }
+
+  // What the last update() folded in; zero on a prime or a rebase.
+  float stepCentre() const { return stepCentre_; }    // [mm]
+  float stepHeading() const { return stepHeading_; }  // [rad]
 
   // Zeroes the frame. The wheel baseline is deliberately untouched:
   // callers call update() first, so pending motion is folded in and then
@@ -114,6 +122,8 @@ class Odometry : public PoseSource {
   float x_ = 0.0f, y_ = 0.0f;  // [mm] world frame
   float heading_ = 0.0f;       // [rad] world frame, CCW+, unwrapped
   float posLeft_ = 0.0f, posRight_ = 0.0f;  // [counts] last consumed
+  float stepCentre_ = 0.0f;   // [mm]
+  float stepHeading_ = 0.0f;  // [rad]
   bool primed_ = false;
   uint32_t positionEpochLeft_ = 0, positionEpochRight_ = 0;
 };

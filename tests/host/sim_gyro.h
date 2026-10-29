@@ -9,6 +9,9 @@
 //   dropout     reads succeed but deliver nothing (kStale)
 //   freeze      reads succeed (kOk) but the latched values never change
 //   readFail    reads fail outright (kFailed), as an I2C NACK would
+//   step        the chip heading jumps once and stays there  [rad]
+//   wrap        latched heading wrapped to (-pi, pi], as OtosPort does
+//   glitch      reads carry an extra heading offset, until cleared  [rad]
 // Only freeze is silent; the estimator has to detect it from the data.
 //
 // Test scaffolding only: nothing under src/ knows this file exists.
@@ -17,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 
+#include "core/heading_wrap.h"
 #include "platform/gyro_source.h"
 
 class SimGyro : public diffDrive::GyroSource {
@@ -33,6 +37,9 @@ class SimGyro : public diffDrive::GyroSource {
   void setFreeze(bool on) { frozen_ = on; }
   void setReadFail(bool on) { readFail_ = on; }
   void failNextReads(int count) { failReads_ = count; }
+  void stepHeading(float delta) { chipHeading_ += delta; }      // [rad]
+  void setWrap(bool on) { wrap_ = on; }
+  void setGlitch(float offset) { glitch_ = offset; }            // [rad]
 
   // Advances the chip by dt with the robot turning at trueRate.
   void advance(float dt, float trueRate) {  // [s] [rad/s]
@@ -52,6 +59,7 @@ class SimGyro : public diffDrive::GyroSource {
     return b;
   }
   float trueHeading() const { return trueHeading_; }  // [rad]
+  float chipHeading() const { return chipHeading_; }  // [rad] unwrapped
 
   bool present() const override { return present_; }
   bool providesHeading() const override { return true; }
@@ -68,7 +76,8 @@ class SimGyro : public diffDrive::GyroSource {
     if (readFail_) return diffDrive::GyroReadStatus::kFailed;
     if (dropout_) return diffDrive::GyroReadStatus::kStale;
     if (!frozen_) {
-      latchedHeading_ = chipHeading_;
+      latchedHeading_ = chipHeading_ + glitch_;
+      if (wrap_) latchedHeading_ = diffDrive::wrapRadians(latchedHeading_);
       latchedRate_ = chipRate_;
     }
     return diffDrive::GyroReadStatus::kOk;
@@ -91,6 +100,7 @@ class SimGyro : public diffDrive::GyroSource {
   bool present_ = true;
   bool dropout_ = false;
   bool frozen_ = false;
+  bool wrap_ = false;
   bool readFail_ = false;
   int failReads_ = 0;
   uint32_t rng_ = 2463534242u;
@@ -98,6 +108,7 @@ class SimGyro : public diffDrive::GyroSource {
   float wanderAmplitude_ = 0.0f;
   float wanderPeriod_ = 0.0f;
   float noise_ = 0.0f;
+  float glitch_ = 0.0f;
   float time_ = 0.0f;
   float trueHeading_ = 0.0f;
   float trueRate_ = 0.0f;
