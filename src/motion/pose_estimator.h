@@ -120,6 +120,7 @@ class PoseEstimator : public PoseSource {
   float x() const override { return x_; }              // [mm] world frame
   float y() const override { return y_; }              // [mm] world frame
   float heading() const override { return heading_; }  // [rad] unwrapped
+  bool hasHeadingReference() const override { return gyroUp_; }
 
   SensorConfig config() const {
     if (!gyroUp_) return SensorConfig::kEncodersOnly;

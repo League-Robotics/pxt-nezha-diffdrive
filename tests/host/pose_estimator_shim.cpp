@@ -55,6 +55,8 @@ struct Handle {
   ScriptedOptical scripted;
   diffDrive::PoseEstimator estimator;
 
+  int sampleEvery = 1;  // peRunMove reads the sensors every Nth tick
+  uint32_t tick = 0;
   float trackError = 1.0f;  // true track width / the engine's
   float posLeft = 0.0f, posRight = 0.0f;  // [counts]
   float truthX = 0.0f, truthY = 0.0f, truthHeading = 0.0f;  // [mm] [rad]
@@ -226,7 +228,8 @@ uint32_t peRunMove(void* handle, float fullDutyVelocity, uint32_t periodMs,
     const float cpm = h->engine.countsPerMm();
     const float speedLeft = h->left.appliedDuty() * fullDutyVelocity / cpm;
     const float speedRight = h->right.appliedDuty() * fullDutyVelocity / cpm;
-    peDrive(handle, dt, speedLeft, speedRight, 1);
+    peDrive(handle, dt, speedLeft, speedRight,
+            h->tick++ % static_cast<uint32_t>(h->sampleEvery) == 0 ? 1 : 0);
     h->left.nextPositionValue = h->posLeft;
     h->right.nextPositionValue = h->posRight;
     h->clock.nowUs += static_cast<uint64_t>(periodMs) * 1000ull;
@@ -236,6 +239,32 @@ uint32_t peRunMove(void* handle, float fullDutyVelocity, uint32_t periodMs,
   }
   return ticks;
 }
+
+void peSetOmegaFloor(void* handle, float floor) {  // [deg/s]
+  as(handle)->engine.limits().setOmegaFloor(floor);
+}
+void peSetSampleEvery(void* handle, int every) { as(handle)->sampleEvery = every; }
+
+void peSetPivotClosure(void* handle, int enabled, uint32_t dwellMs,
+                       float deadbandDeg, float maxCorrectionDeg, float speed,
+                       int maxCorrections, uint32_t timeoutMs) {
+  diffDrive::PivotClosure& c = as(handle)->engine.pivotClosure();
+  c.enabled = enabled != 0;
+  c.dwell = dwellMs;
+  c.deadband = deadbandDeg;
+  c.maxCorrection = maxCorrectionDeg;
+  c.speed = speed;
+  c.maxCorrections = maxCorrections;
+  c.timeout = timeoutMs;
+}
+int pePivotCorrections(void* handle) {
+  return as(handle)->engine.lastPivotCorrections();
+}
+float pePivotResidual(void* handle) { return as(handle)->engine.lastPivotResidual(); }
+int pePivotTimedOut(void* handle) {
+  return as(handle)->engine.lastPivotClosureTimedOut() ? 1 : 0;
+}
+int peMoveActive(void* handle) { return as(handle)->engine.isMoveActive() ? 1 : 0; }
 
 int peEndedByWrongWay(void* handle) {
   return as(handle)->engine.lastSegmentEndedByWrongWay() ? 1 : 0;

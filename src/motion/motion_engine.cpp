@@ -116,6 +116,7 @@ void MotionEngine::cancelMove() {
   // record is not enough, the brick would carry on to its target.
   if (posMove_.active) stopPositionMove();
   seg_ = Segment();
+  closure_ = ClosureState();
   hold_.active = false;
   nudge_.active = false;
 }
@@ -286,6 +287,66 @@ void MotionEngine::goToW(const PoseSource& pose, float x, float y,
   const float bodyY = -dx * sinH + dy * cosH;
 
   goToR(bodyX, bodyY, speed, arrive, timeout);
+
+  if (pivotClosure_.enabled && std::hypot(bodyX, bodyY) > arrive &&
+      seg_.active && seg_.hasPending && pose.hasHeadingReference()) {
+    closure_.pose = &pose;
+    closure_.target = heading + std::atan2(bodyY, bodyX);
+    lastPivotCorrections_ = 0;
+    lastPivotResidual_ = 0.0f;
+    lastPivotTimedOut_ = false;
+  }
+}
+
+bool MotionEngine::pivotClosed(uint32_t nowVal, float dt) {
+  if (closure_.pose == nullptr) return true;
+  if (!closure_.resting) {
+    closure_.resting = true;
+    closure_.restUntil = nowVal + pivotClosure_.dwell;
+    if (closure_.corrections == 0) closure_.giveUp = nowVal + pivotClosure_.timeout;
+  }
+  seg_.settling = true;
+  if (static_cast<int32_t>(nowVal - closure_.restUntil) < 0) return false;
+
+  const float error =
+      wrapToPi(closure_.target - closure_.pose->heading());  // [rad]
+  const float degree = kPi / 180.0f;  // [rad]
+  const bool timedOut = static_cast<int32_t>(nowVal - closure_.giveUp) >= 0;
+  // A pivot cannot be made finer than one tick at the floor speed, and a
+  // correction smaller than that overshoots by more than it fixes.
+  const float tickTravel = limits_.omegaFloor * dt;  // [deg]
+  const float band =
+      pivotClosure_.deadband > tickTravel ? pivotClosure_.deadband : tickTravel;
+  const bool done = !closure_.pose->hasHeadingReference() ||
+                    std::fabs(error) <= band * degree ||
+                    closure_.corrections >= pivotClosure_.maxCorrections ||
+                    timedOut;
+  lastPivotResidual_ = error;
+  lastPivotCorrections_ = closure_.corrections;
+  if (done) {
+    lastPivotTimedOut_ = timedOut;
+    return true;
+  }
+
+  const float limit = pivotClosure_.maxCorrection * degree;
+  const float step = error > limit ? limit : (error < -limit ? -limit : error);
+  const float cruise =
+      pivotClosure_.speed > 0.0f ? pivotClosure_.speed : seg_.cruise;
+  const float pendingDistance = seg_.pendingDistance;
+  const float pendingCruise = seg_.pendingCruise;
+  const uint32_t deadline = seg_.deadline;
+  ClosureState carried = closure_;
+  ++carried.corrections;
+  carried.resting = false;
+  kernel_.rearmReferences();
+  beginSegment(0.0f, step * 0.5f * effectiveTrackWidth() * countsPerMm(),
+               cruise, deadline);
+  if (!seg_.active) return false;
+  seg_.hasPending = true;
+  seg_.pendingDistance = pendingDistance;
+  seg_.pendingCruise = pendingCruise;
+  closure_ = carried;
+  return false;
 }
 
 bool MotionEngine::service() {
@@ -384,6 +445,7 @@ bool MotionEngine::service() {
         if (seg_.restSamples < 2) return true;
       }
       if (seg_.hasPending) {
+        if (!pivotClosed(nowVal, dt)) return seg_.active;
         kernel_.rearmReferences();
         beginPendingStraightPhase();
         return seg_.active;

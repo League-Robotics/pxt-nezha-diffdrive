@@ -38,6 +38,25 @@ class PoseSource {
   // goToW() consume this only through cos()/sin(). A caller that
   // DIFFERENCES two reads must not assume a shared convention.
   virtual float heading() const = 0;
+
+  // The heading comes from a sensor independent of the wheels, so a pivot
+  // measured against it can differ from the pivot the encoders counted.
+  // Only then does goToW() close its pivot on heading.
+  virtual bool hasHeadingReference() const { return false; }
+};
+
+// goToW()'s pivot closure: after the encoder-counted pivot settles, read the
+// pose heading and pivot the remaining error, up to maxCorrections within
+// timeout, then carry on to the straight with whatever heading was reached.
+struct PivotClosure {
+  bool enabled = true;
+  uint32_t dwell = 250u;         // [ms] rest before the heading is read
+  float deadband = 0.25f;        // [deg] error at or below this is closed, or one tick
+                                 // of travel at the omega floor if that is larger
+  float maxCorrection = 45.0f;   // [deg] largest single correction pivot
+  float speed = 1.0f;            // [mm/s] correction cruise; the shaper raises it to the omega floor
+  int maxCorrections = 3;        // [pivots]
+  uint32_t timeout = 2500u;      // [ms] from the first rest to giving up
 };
 
 class MotionEngine {
@@ -452,6 +471,15 @@ class MotionEngine {
   // to deadline, stall, e-stop or cancel).
   bool lastPositionMoveArrived() const { return posMove_.arrived; }
 
+  PivotClosure& pivotClosure() { return pivotClosure_; }
+  const PivotClosure& pivotClosure() const { return pivotClosure_; }
+
+  // The last goToW() pivot closure: correction pivots fired, the heading
+  // error left when it ended, and whether it ended on its timeout.
+  int lastPivotCorrections() const { return lastPivotCorrections_; }
+  float lastPivotResidual() const { return lastPivotResidual_; }  // [rad]
+  bool lastPivotClosureTimedOut() const { return lastPivotTimedOut_; }
+
   // The one settable shaping surface. This engine holds no shaping knob.
   MotionLimits& limits() { return limits_; }
   const MotionLimits& limits() const { return limits_; }
@@ -538,6 +566,11 @@ class MotionEngine {
 
   uint32_t now() const;  // [ms]
 
+  // service()'s pivot-to-straight handoff while a closure is live. True
+  // when the straight phase should start now; false while resting or after
+  // starting a correction pivot.
+  bool pivotClosed(uint32_t nowVal, float dt);  // [ms] [s]
+
   // The shared rest test settleToRest() and serviceNudge() both use --
   // mirrors the existing rest test rather than inventing a second
   // definition of "stopped".
@@ -622,6 +655,21 @@ class MotionEngine {
   float trackWidth_ = 114.2f;     // [mm] tape-measured
   float rotationalSlip_ = 0.952f; // [1] physical/odometric rotation ratio
   bool arcYawClosure_ = false;
+
+  struct ClosureState {
+    const PoseSource* pose = nullptr;  // not owned; null = no closure
+    float target = 0.0f;               // [rad] pose heading to end the pivot on
+    bool resting = false;
+    uint32_t restUntil = 0;            // [ms]
+    uint32_t giveUp = 0;               // [ms]
+    int corrections = 0;
+  };
+
+  PivotClosure pivotClosure_;
+  ClosureState closure_;
+  int lastPivotCorrections_ = 0;
+  float lastPivotResidual_ = 0.0f;  // [rad]
+  bool lastPivotTimedOut_ = false;
 
   Segment seg_;
   Hold hold_;

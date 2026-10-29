@@ -106,6 +106,30 @@ a small final residual with a short straight. "Target behind" is an
 explicit policy (pivot then forward straight), never a near-zero-yaw
 reverse arc; a wrong-way termination is reported as its own reason.
 
+**Pivot closure** (ticket 007). When `goToW()`'s pose source reports
+`hasHeadingReference()` (the estimator with a gyro up), the pivot phase
+no longer hands straight to the straight phase. After the encoder pivot
+arrives it rests `dwell` (250 ms, enough for fresh sensor reads), reads the
+pose heading, and if the error to the bearing target (pose heading at call
+plus the body-frame bearing, wrapped) exceeds the band it runs a correction
+pivot of that error, then rests and reads again. Rotational slip varies per
+surface and speed, so the correction is measured, not modelled; the first
+pivot still uses the nominal slip. Bounded three ways: `maxCorrections` (3),
+`maxCorrection` per pivot (45 deg, so a bad estimate cannot swing the robot),
+and `timeout` (2500 ms from the first rest, after which the straight starts
+with the heading reached; the segment deadline still spans everything). The
+band is `max(deadband, omegaFloor * tick)`: a pivot cannot be finer than one
+tick at the floor speed, and a smaller correction overshoots by more than it
+fixes, so landing accuracy is floor-limited (about one tick of floor travel).
+Correction cruise is 1 mm/s, which the shaper raises to the per-robot omega
+floor, so the correction runs at the floor with no accel ramp. A source with
+no heading reference (`EncodersOnly`, Odometry, OtosPort, test fakes) skips
+the closure entirely: no dwell, no correction, timing unchanged. If the gyro
+drops mid-closure the next evaluation ends it. The straight phase and final
+residual are unchanged (ticket 008). `PivotClosure` is an engine struct with
+no wire config; `lastPivotCorrections()`, `lastPivotResidual()` and
+`lastPivotClosureTimedOut()` expose the last closure.
+
 ## position_move.h — moves run by the motor's own loop
 
 `position_move.h` (`PositionMove`) is a fourth in-flight command beside

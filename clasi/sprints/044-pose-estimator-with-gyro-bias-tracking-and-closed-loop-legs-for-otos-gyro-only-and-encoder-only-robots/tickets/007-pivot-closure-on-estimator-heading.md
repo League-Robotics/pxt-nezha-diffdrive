@@ -1,9 +1,13 @@
 ---
 id: '007'
 title: Pivot closure on estimator heading
-status: open
-use-cases: [SUC-002]
-depends-on: ['002', '006', '011']
+status: done
+use-cases:
+- SUC-002
+depends-on:
+- '002'
+- '006'
+- '011'
 github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
@@ -18,10 +22,10 @@ End the pivot phase of a GO_TO_W leg on the estimator's heading rather than enco
 
 ## Acceptance Criteria
 
-- [ ] Pivot lands within 0.5 deg of the commanded heading on estimator heading in sim (Optical, GyroOnly); EncodersOnly unchanged within today tolerance
-- [ ] Bounded: correction cannot loop; times out cleanly
-- [ ] No heading discontinuity when sensor drops mid-pivot
-- [ ] uv run pytest green
+- [x] Pivot lands within 0.5 deg of the commanded heading on estimator heading in sim (Optical, GyroOnly); EncodersOnly unchanged within today tolerance
+- [x] Bounded: correction cannot loop; times out cleanly
+- [x] No heading discontinuity when sensor drops mid-pivot
+- [x] uv run pytest green
 
 ## Testing
 
