@@ -7,6 +7,9 @@
 // from the same truth, and ticks the estimator. peOutput() instead feeds a
 // raw scripted Output (no sensors) for the Odometry golden comparison.
 //
+// peReplay() is the third drive path: recorded encoder counts and gyro
+// heading, plus an optical increment, fed straight in (no true robot).
+//
 // Test scaffolding only: nothing under src/ knows this file exists.
 #include <cmath>
 #include <cstdint>
@@ -20,6 +23,25 @@
 
 namespace {
 
+class ScriptedOptical : public diffDrive::OpticalPositionSource {
+ public:
+  void add(float dx, float dy) {
+    pendingX_ += dx;
+    pendingY_ += dy;
+  }
+  bool opticalPresent() const override { return true; }
+  bool opticalValid() const override { return true; }
+  bool takeOpticalIncrement(float& dx, float& dy) override {
+    dx = pendingX_;
+    dy = pendingY_;
+    pendingX_ = pendingY_ = 0.0f;
+    return true;
+  }
+
+ private:
+  float pendingX_ = 0.0f, pendingY_ = 0.0f;  // [mm]
+};
+
 struct Handle {
   FakeMotor left;
   FakeMotor right;
@@ -30,6 +52,7 @@ struct Handle {
   diffDrive::MotionEngine engine;
   SimGyro gyro;
   SimOptical optical;
+  ScriptedOptical scripted;
   diffDrive::PoseEstimator estimator;
 
   float trackError = 1.0f;  // true track width / the engine's
@@ -66,6 +89,12 @@ void peSetTrackError(void* handle, float ratio) { as(handle)->trackError = ratio
 void peAttach(void* handle, int config) {
   Handle* h = as(handle);
   h->estimator.attachSensors(&h->gyro, &h->optical,
+                             static_cast<diffDrive::SensorConfig>(config));
+}
+
+void peAttachScripted(void* handle, int config) {
+  Handle* h = as(handle);
+  h->estimator.attachSensors(&h->gyro, &h->scripted,
                              static_cast<diffDrive::SensorConfig>(config));
 }
 
@@ -120,6 +149,20 @@ void peOutput(void* handle, float dt, float positionLeft, float positionRight,
   out.positionEpochLeft = epochLeft;
   out.positionEpochRight = epochRight;
   as(handle)->estimator.update(out, dt, false);
+}
+
+// Recorded wheel counts, the chip heading [rad, unwrapped] it would latch,
+// and the optical centre movement [mm] since the previous call.
+void peReplay(void* handle, float dt, float positionLeft, float positionRight,
+              float gyroHeading, float opticalDx, float opticalDy,
+              int sampleSensors) {
+  Handle* h = as(handle);
+  h->gyro.stepHeading(gyroHeading - h->gyro.chipHeading());
+  h->scripted.add(opticalDx, opticalDy);
+  DiffDrive::DifferentialDrive::Output out;
+  out.positionLeft = positionLeft;
+  out.positionRight = positionRight;
+  h->estimator.update(out, dt, sampleSensors != 0);
 }
 
 void peSeed(void* handle, float x, float y, float heading) {

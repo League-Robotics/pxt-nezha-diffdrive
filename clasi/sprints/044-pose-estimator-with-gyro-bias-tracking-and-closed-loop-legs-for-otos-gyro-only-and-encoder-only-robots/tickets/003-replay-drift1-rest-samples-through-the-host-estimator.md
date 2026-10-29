@@ -1,9 +1,12 @@
 ---
 id: '003'
 title: Replay drift1 rest samples through the host estimator
-status: open
-use-cases: [SUC-001, SUC-004]
-depends-on: ['002']
+status: done
+use-cases:
+- SUC-001
+- SUC-004
+depends-on:
+- '002'
 github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
@@ -18,10 +21,11 @@ Host test replaying `captures/vevov-otos-drift-20261028/drift1.jsonl` (and gyro1
 
 ## Acceptance Criteria
 
-- [ ] Test loads drift1.jsonl and gyro1.jsonl from captures/
-- [ ] Estimated bias within stated tolerance of the issue figures; tolerances justified in test header with artifact citation
-- [ ] Gyro-only variant (encoder distance, same heading) also asserted
-- [ ] uv run pytest green
+- [x] Test loads drift1.jsonl and gyro1.jsonl (copied unmodified to tests/host/fixtures/pose_estimator/, since captures/ is gitignored)
+- [x] Estimated bias within stated tolerance of the issue figures; tolerances justified in test header with artifact citation
+- [x] Gyro-only variant (encoder distance, same heading) also asserted
+- [x] Fleet stationary fixtures (gopiv, vevov, tovez, zuvat) hold heading < 2 deg over 30 min after settling, in OPTICAL and GYRO_ONLY, and the learned rate tracks the logged rate
+- [x] uv run pytest green
 
 ## Testing
 
