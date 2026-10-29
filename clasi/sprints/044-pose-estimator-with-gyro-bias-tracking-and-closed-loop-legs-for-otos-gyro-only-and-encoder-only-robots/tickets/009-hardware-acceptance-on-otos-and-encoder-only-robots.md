@@ -3,7 +3,7 @@ id: 009
 title: Hardware acceptance on OTOS and encoder-only robots
 status: open
 use-cases: [SUC-001, SUC-002, SUC-003]
-depends-on: ['008', '005', '010']
+depends-on: ['008', '005', '010', '012']
 github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: true

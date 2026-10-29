@@ -23,11 +23,16 @@ ap.add_argument('--tag', type=int, default=53)
 ap.add_argument('--metres', type=float, default=100.0)
 ap.add_argument('--speed', type=int, default=120)
 ap.add_argument('--xlim', type=float, default=50.0)
+ap.add_argument('--xmin', type=float, help='lane: targets and guard keep x >= this')
+ap.add_argument('--xmax', type=float, help='lane: targets and guard keep x <= this')
 ap.add_argument('--ylim', type=float, default=30.0)
 ap.add_argument('--log', default=str(CAPTURES / 'vevov-otos-drift-20261028' / 'drift1.jsonl'))
 a = ap.parse_args()
 
 GUARD_X, GUARD_Y = 58.0, 36.0
+XMIN = a.xmin if a.xmin is not None else -a.xlim
+XMAX = a.xmax if a.xmax is not None else a.xlim
+GX0, GX1 = max(XMIN - 10, -GUARD_X), min(XMAX + 10, GUARD_X)
 cam = Cam(tag=a.tag).start()
 link = open_serial(a.robot)
 out = open(a.log, 'a')
@@ -35,7 +40,7 @@ out = open(a.log, 'a')
 
 def guard():
     q = cam.latest
-    if q and (abs(q[0]) > GUARD_X or abs(q[1]) > GUARD_Y):
+    if q and (not GX0 <= q[0] <= GX1 or abs(q[1]) > GUARD_Y):
         link.send('STOP')
         sys.exit(f'STOPPED: robot at ({q[0]:.1f},{q[1]:.1f}) left the guard box')
 
@@ -57,7 +62,7 @@ while travelled < a.metres * 100:
     n += 1
     cx, cy, ch = r['cam']
     while True:
-        tx, ty = random.uniform(-a.xlim, a.xlim), random.uniform(-a.ylim, a.ylim)
+        tx, ty = random.uniform(XMIN, XMAX), random.uniform(-a.ylim, a.ylim)
         if math.hypot(tx - cx, ty - cy) >= 25:
             break
     hc = math.radians(ch)

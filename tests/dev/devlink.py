@@ -5,6 +5,7 @@ Run from the repo root:
 """
 import math
 import os
+import socket
 import sys
 import time
 import urllib.request
@@ -19,7 +20,7 @@ from field import DOTS, wrap  # noqa: E402
 from mbtools.registry.client import SOCKET_ENV_VAR, RegistryClient, find_local_api_address  # noqa: E402
 from mbtools.registry.remote_client import RemoteRegistryClient  # noqa: E402
 from mbtools.serial import remote_connect  # noqa: E402
-from robotlink import Link  # noqa: E402
+from robotlink import Link, WifiSerial  # noqa: E402
 
 LIGHTS = 'http://192.168.6.122/rpc/Switch.Set?id=0&on=true'
 CAPTURES = REPO / 'captures'
@@ -29,7 +30,12 @@ __all__ = ['Cam', 'DOTS', 'wrap', 'open_serial', 'fix', 'settled', 'still_pose',
 
 def open_serial(name='vevov'):
     """Serial link to `name` through whichever registry node holds it.
-    DEVLINK_NODE=host[:port] skips the local registry when it has not peered."""
+    DEVLINK_NODE=host[:port] skips the local registry when it has not peered.
+    DEVLINK_WIFI=name[,name...] talks to those robots over WiFi (<name>.home)."""
+    if name in os.environ.get('DEVLINK_WIFI', '').split(','):
+        link = Link(WifiSerial(socket.gethostbyname(f'{name}.home')), False)
+        link.hello()
+        return link
     node = os.environ.get('DEVLINK_NODE')
     if node:
         host, _, port = node.partition(':')
