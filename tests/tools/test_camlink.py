@@ -492,3 +492,14 @@ def test_start_waits_for_a_first_sample_rather_than_returning_empty():
 def test_a_default_cam_follows_the_documented_default_tag():
     cam = camlink.Cam(client=FakeStreamingClient([]), stream=False)
     assert cam.tag == camlink.DEFAULT_TAG == 53
+
+
+def test_fix_returns_none_once_frames_stop_arriving():
+    """A stalled stream (no frames at all, so `notag` never moves) must
+    not hand back the frozen last pose -- a frozen pose also passes a
+    settle test."""
+    cam = _reader(FakeStreamingClient([_frame(_tag(53, 0.0, 1.0, 2.0))]))
+    assert cam.fix(n=1) == pytest.approx((1.0, 2.0, 0.0))
+    cam.frame_at -= 5.0
+    assert cam.fix(n=1) is None
+    assert cam.fix(n=1, max_age=None) == pytest.approx((1.0, 2.0, 0.0))

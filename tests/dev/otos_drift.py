@@ -73,7 +73,13 @@ while travelled < a.metres * 100:
     gx = t['x'] + 10 * (bx * math.cos(ho) - by * math.sin(ho))
     gy = t['y'] + 10 * (bx * math.sin(ho) + by * math.cos(ho))
     st = send_move(link, f'GO_TO_W {int(round(gx))} {int(round(gy))} {a.speed} 5 30000', 35, guard)
+    prev_tlm = r['tlm']
     r = record(n, [tx, ty], st)
+    cam_chord = math.hypot(r['cam'][0] - cx, r['cam'][1] - cy)
+    otos_chord = math.hypot(r['tlm']['ox'] - prev_tlm['ox'], r['tlm']['oy'] - prev_tlm['oy']) / 10
+    if abs(cam_chord - otos_chord) > 12:
+        link.send('STOP')
+        sys.exit(f'STOPPED: leg {n} camera chord {cam_chord:.1f} cm vs OTOS {otos_chord:.1f} cm -- stale camera or lost robot')
     travelled += math.hypot(r['cam'][0] - cx, r['cam'][1] - cy)
     t = r['tlm']
     print(f'{n:4d} {travelled / 100:6.2f} m  miss {math.hypot(r["cam"][0] - tx, r["cam"][1] - ty):4.1f} cm  '
