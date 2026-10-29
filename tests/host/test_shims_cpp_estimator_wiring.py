@@ -16,8 +16,8 @@ import math
 import pathlib
 import re
 
-from shims_cpp_rig import (DIAG_BIAS, DIAG_CONFIG, DIAG_REJECTED, DIAG_STEPS,
-                           ENCODERS_ONLY, OPTICAL)
+from shims_cpp_rig import (DIAG_BIAS, DIAG_CONFIG, DIAG_DISTURBS, DIAG_REJECTED,
+                           DIAG_STEPS, ENCODERS_ONLY, OPTICAL)
 from test_bus_guard_source_pin import _function_body, _strip_comments
 
 _SRC = pathlib.Path(__file__).resolve().parents[2] / "src"
@@ -194,6 +194,57 @@ def test_a_sitting_robot_with_no_bias_learns_none(make_rig):
     rig.advance_s(1.0)
     _bursts_over(rig, 120.0, step_ms=20)
     assert abs(rig.diag(DIAG_BIAS)) <= 2
+
+
+def test_a_baked_arm_is_not_overridden_by_the_program():
+    port = _strip_comments((_SRC / "platform" / "otos_port.cpp").read_text())
+    match = re.search(r"void OtosPort::setOffset\(.*?\n\}", port, re.DOTALL)
+    assert match is not None
+    body = match.group(0)
+    assert re.search(r"bakedArmX_\s*==\s*0\.0f\s*&&\s*bakedArmY_\s*==\s*0\.0f", body)
+    assert "offsetYaw_ = yaw" in body
+
+
+def _idle_for(rig, seconds):
+    _bursts_over(rig, seconds, step_ms=20)
+
+
+def test_a_bump_while_the_wheels_are_still_is_counted_and_followed(make_rig):
+    rig = make_rig()
+    rig.ensure()
+    rig.advance_s(1.0)
+    _idle_for(rig, 5.0)
+    x, y = rig.poseX(), rig.poseY()
+    assert rig.diag(DIAG_DISTURBS) == 0
+    rig.otosMoveSensor(40.0, -25.0)
+    _idle_for(rig, 3.0)
+    assert rig.diag(DIAG_DISTURBS) == 1
+    assert abs(rig.poseX() - (x + 40)) <= 3
+    assert abs(rig.poseY() - (y - 25)) <= 3
+
+
+def test_a_hand_turn_while_the_wheels_are_still_reaches_the_heading(make_rig):
+    rig = make_rig(bias_rad_s=50 * _DPH)
+    rig.ensure()
+    rig.advance_s(1.0)
+    _idle_for(rig, 60.0)
+    before, chip = rig.poseHeading(), rig.otosChipHeading()
+    rig.otosSetBias(math.radians(30.0) + 50 * _DPH)
+    _idle_for(rig, 1.0)
+    rig.otosSetBias(50 * _DPH)
+    _idle_for(rig, 4.0)
+    turned = math.degrees(rig.otosChipHeading() - chip) * 100  # [cdeg] the sim clock runs on
+    assert turned > 2500
+    assert abs((rig.poseHeading() - before) - turned) <= 100
+    assert rig.diag(DIAG_DISTURBS) == 1
+
+
+def test_a_sitting_robot_is_never_disturbed(make_rig):
+    rig = make_rig(bias_rad_s=150 * _DPH)
+    rig.ensure()
+    rig.advance_s(1.0)
+    _idle_for(rig, 600.0)
+    assert rig.diag(DIAG_DISTURBS) == 0
 
 
 # ---- what stays a source pin ------------------------------------------

@@ -42,6 +42,7 @@ DIAG_BIAS = 42          # [cdeg/min]
 DIAG_REJECTED = 43
 DIAG_STEPS = 44
 DIAG_CONFIG = 45        # 0 optical, 1 gyro, 2 encoders only
+DIAG_DISTURBS = 46      # bumps and lifts seen at rest
 
 OPTICAL, GYRO_ONLY, ENCODERS_ONLY = 0, 1, 2
 
@@ -73,6 +74,8 @@ _SIGNATURES = {
     "scOtosChipHeading": (_F, []),
     "scOtosSetPresent": (None, [_I]),
     "scOtosFailBursts": (None, [_I]),
+    "scOtosMoveSensor": (None, [_F, _F]),
+    "scOtosSetBias": (None, [_F]),
 }
 
 

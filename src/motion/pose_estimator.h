@@ -7,6 +7,13 @@
 // supplies position. Losing a sensor drops to the next configuration with
 // the output carried over, so nothing steps.
 //
+// Still means the wheels are still. With an optical source the sensor's raw
+// track (lever arm not applied) must be still too: a diff-drive robot cannot
+// slide sideways under its own power, so a still-wheeled robot whose sensor
+// moves was bumped or lifted. Then the gyro change is real rotation and goes
+// to the output, and the position follows the optical track. A gyro rate
+// well above any plausible bias says the same with no optical track.
+//
 // Heading never re-anchors on a rejected sample: the sample is skipped,
 // the output follows the encoders for that interval, and the gyro stays
 // the reference for the next sample.
@@ -34,6 +41,21 @@ struct PoseEstimatorParams {
   float gateFraction = 0.3f;     // [1]
   int confirmSamples = 3;        // consecutive consistent samples that make a
                                  // rejected jump the new reference
+
+  // Disturbance gate, over a window the wheels are still. The raw sensor
+  // track moved at most 1.2 mm in any window up to 200 s on all four fleet
+  // robots at rest (TLM 1 mm resolution; arm-corrected centre creep removed;
+  // captures/otos-gyro-fleet-20261028/{gopiv,vevov,tovez,zuvat}.jsonl), so
+  // 5 mm is 4x that floor and still well under a hand bump. The gyro rate
+  // limit is 3 deg/s: 30x the bias ceiling `bias.maxRate`, 70x the largest
+  // bias seen (150 deg/h, vevov after a power cycle,
+  // captures/vevov-otos-drift-20261028/gyro3-bench-afterboot.jsonl), and
+  // over 10 sd of the white rate noise the bias tracker's 0.3 deg heading
+  // random walk implies at a 96 ms read; a hand turn is faster.
+  float disturbDistance = 5.0f;     // [mm] raw sensor track within one window
+  float disturbRate = 0.0523599f;   // [rad/s] gyro rate beyond bias
+  float disturbWindow = 1.0f;       // [s] evidence window; a disturbance lasts
+                                    // this long past the last evidence
 
   int dropoutReads = 8;   // consecutive failed or stale reads that drop a sensor
   int recoverReads = 10;  // consecutive good reads that bring it back
@@ -71,6 +93,7 @@ class PoseEstimator : public PoseSource {
     gyroUp_ = gyro_ != nullptr;
     opticalUp_ = optical_ != nullptr;
     gyroPrimed_ = false;
+    awaitBaseline_ = true;
   }
 
   // One tick. The encoders are folded in every call; the sensors are read
@@ -109,13 +132,18 @@ class PoseEstimator : public PoseSource {
     heading_ = anchorHeading_ = heading;
     sinceAnchorTime_ = sinceAnchorTurn_ = 0.0f;
     pendingX_ = pendingY_ = pendingPath_ = 0.0f;
+    holdX_ = holdY_ = 0.0f;
     agree_ = 0;
   }
   void reset() { seed(0.0f, 0.0f, 0.0f); }
 
   // The optical source was re-seeded: take the next gyro reading as the new
-  // reference instead of reading the jump as a step.
-  void reprime() { gyroPrimed_ = false; }
+  // reference instead of reading the jump as a step, and the next optical
+  // take as a baseline that carries no motion.
+  void reprime() {
+    gyroPrimed_ = false;
+    awaitBaseline_ = true;
+  }
 
   float x() const override { return x_; }              // [mm] world frame
   float y() const override { return y_; }              // [mm] world frame
@@ -133,9 +161,17 @@ class PoseEstimator : public PoseSource {
   const GyroBiasTracker& bias() const { return bias_; }
   uint32_t rejectedCount() const { return rejected_; }  // gyro + optical
   uint32_t stepCount() const { return steps_; }  // jumps taken as the new reference
+  uint32_t disturbCount() const { return disturbs_; }  // bumps and lifts seen
+  bool disturbed() const { return time_ < disturbedUntil_; }
   const PoseEstimatorParams& params() const { return params_; }
 
  private:
+  struct OpticalTake {
+    bool got = false;
+    float dx = 0.0f, dy = 0.0f;        // [mm] centre
+    float rawDx = 0.0f, rawDy = 0.0f;  // [mm] sensor track
+  };
+
   bool consistent(float change, float expected) const {  // [rad] [rad]
     return std::fabs(change - expected) <=
            params_.gateSlack + params_.gateFraction * std::fabs(expected);
@@ -195,9 +231,20 @@ class PoseEstimator : public PoseSource {
       return;
     }
 
+    OpticalTake take;
+    if (optical_ != nullptr) readOptical(take);
+
+    const bool still = atRest() && sinceAnchorTurn_ == 0.0f;
+    if (still) {
+      watchRest(rate, take);
+    } else {
+      watching_ = false;
+    }
     const float change = wrapRadians(raw - anchorRaw_);  // [rad]
-    if (atRest() && sinceAnchorTurn_ == 0.0f) {
+    if (still && !disturbed()) {
       holdAtRest(change);
+    } else if (still) {
+      followDisturbance(change);
     } else if (consistent(change, sinceAnchorTurn_)) {
       acceptMoving(change);
     } else {
@@ -206,11 +253,49 @@ class PoseEstimator : public PoseSource {
     previousRaw_ = raw;
     previousRate_ = rate;
     sinceReadTurn_ = 0.0f;
-    if (optical_ != nullptr) sampleOptical(raw);
+    if (optical_ != nullptr) sampleOptical(raw, take, still);
   }
 
   void anchor(float raw) {
     anchorRaw_ = raw;
+    anchorHeading_ = heading_;
+    sinceAnchorTime_ = sinceAnchorTurn_ = 0.0f;
+    agree_ = 0;
+  }
+
+  // Wheels and sensor both still: collect evidence of a bump or lift.
+  void watchRest(float rate, const OpticalTake& take) {  // [rad/s]
+    if (!watching_) {
+      watching_ = true;
+      watchStart_ = time_;
+      watchX_ = watchY_ = 0.0f;
+    }
+    bool evidence = false;
+    if (opticalUp_) {
+      watchX_ += take.rawDx;
+      watchY_ += take.rawDy;
+      evidence = std::hypot(watchX_, watchY_) > params_.disturbDistance;
+    }
+    evidence = evidence ||
+               std::fabs(rate - bias_.rate()) > params_.disturbRate;
+    if (evidence) {
+      if (!disturbed()) ++disturbs_;
+      disturbedUntil_ = time_ + params_.disturbWindow;
+    }
+    if (evidence || time_ - watchStart_ >= params_.disturbWindow) {
+      watchStart_ = time_;
+      watchX_ = watchY_ = 0.0f;
+      if (!evidence && !disturbed()) holdX_ = holdY_ = 0.0f;
+    }
+  }
+
+  // The wheels say still and the gyro says otherwise: the robot was moved
+  // by hand, so the change is real rotation. It is kept out of the bias
+  // fit on both sides, as a step is.
+  void followDisturbance(float change) {  // [rad]
+    heading_ = anchorHeading_ + change - bias_.rate() * sinceAnchorTime_;
+    gyroTurn_ += sinceAnchorTurn_;
+    anchorRaw_ = wrapRadians(anchorRaw_ + change);
     anchorHeading_ = heading_;
     sinceAnchorTime_ = sinceAnchorTurn_ = 0.0f;
     agree_ = 0;
@@ -257,16 +342,32 @@ class PoseEstimator : public PoseSource {
     anchor(raw);
   }
 
-  void sampleOptical(float raw) {  // [rad]
-    float dx = 0.0f, dy = 0.0f;  // [mm]
-    const bool got = optical_->takeOpticalIncrement(dx, dy);
-    if (!got) {
+  void readOptical(OpticalTake& take) {
+    take.got = optical_->takeOpticalIncrement(take.dx, take.dy, take.rawDx,
+                                              take.rawDy);
+    if (take.got) {
+      noFix_ = 0;
+      awaitBaseline_ = false;
+    } else if (awaitBaseline_) {
+      awaitBaseline_ = false;
+      baseX_ = x_;
+      baseY_ = y_;
+      pendingX_ = pendingY_ = pendingPath_ = 0.0f;
+    } else {
       recovered_ = 0;
       if (++noFix_ >= params_.dropoutReads && opticalUp_) opticalUp_ = false;
-      return;
     }
-    noFix_ = 0;
-    if (atRest()) {
+  }
+
+  void sampleOptical(float raw, const OpticalTake& take, bool still) {  // [rad]
+    if (!take.got) return;
+    const float dx = take.dx;  // [mm]
+    const float dy = take.dy;  // [mm]
+    const bool follow = still && disturbed();
+    if (still && !follow) {
+      const float turn = wrapRadians(heading_ - raw);  // [rad]
+      holdX_ += params_.opticalScale * (std::cos(turn) * dx - std::sin(turn) * dy);
+      holdY_ += params_.opticalScale * (std::sin(turn) * dx + std::cos(turn) * dy);
       baseX_ = x_;
       baseY_ = y_;
       pendingX_ = pendingY_ = pendingPath_ = 0.0f;
@@ -276,8 +377,23 @@ class PoseEstimator : public PoseSource {
     const float c = std::cos(turn);
     const float s = std::sin(turn);
     const float scale = params_.opticalScale;
-    const float ix = scale * (c * dx - s * dy);  // [mm]
-    const float iy = scale * (s * dx + c * dy);  // [mm]
+    const float ix = scale * (c * dx - s * dy) + holdX_;  // [mm]
+    const float iy = scale * (s * dx + c * dy) + holdY_;  // [mm]
+    holdX_ = holdY_ = 0.0f;
+    if (follow) {
+      if (opticalUp_) {
+        baseX_ += ix;
+        baseY_ += iy;
+        rejectRun_ = 0;
+        x_ = baseX_;
+        y_ = baseY_;
+      } else {
+        baseX_ = x_;
+        baseY_ = y_;
+      }
+      pendingX_ = pendingY_ = pendingPath_ = 0.0f;
+      return;
+    }
 
     deficit_ = std::fmax(0.0f, deficit_ +
                                    (1.0f - kOpticalAllowance) *
@@ -327,6 +443,7 @@ class PoseEstimator : public PoseSource {
   OpticalPositionSource* optical_ = nullptr;
   bool gyroUp_ = false, opticalUp_ = false;
   bool gyroPrimed_ = false, frozenDown_ = false;
+  bool awaitBaseline_ = false;  // the next take only sets the source's baseline
 
   float x_ = 0.0f, y_ = 0.0f;  // [mm]
   float heading_ = 0.0f;       // [rad]
@@ -348,9 +465,16 @@ class PoseEstimator : public PoseSource {
   float pendingX_ = 0.0f, pendingY_ = 0.0f;  // [mm] encoder motion since then
   float pendingPath_ = 0.0f;                 // [mm]
   float deficit_ = 0.0f;                     // [mm]
+  float holdX_ = 0.0f, holdY_ = 0.0f;        // [mm] optical motion seen while still,
+                                             // applied if the wheels start moving
+
+  bool watching_ = false;
+  float watchStart_ = 0.0f;                  // [s]
+  float watchX_ = 0.0f, watchY_ = 0.0f;      // [mm] raw track since then
+  float disturbedUntil_ = 0.0f;              // [s]
 
   int silent_ = 0, noFix_ = 0, agree_ = 0, recovered_ = 0, rejectRun_ = 0;
-  uint32_t rejected_ = 0, steps_ = 0;
+  uint32_t rejected_ = 0, steps_ = 0, disturbs_ = 0;
 };
 
 }  // namespace diffDrive

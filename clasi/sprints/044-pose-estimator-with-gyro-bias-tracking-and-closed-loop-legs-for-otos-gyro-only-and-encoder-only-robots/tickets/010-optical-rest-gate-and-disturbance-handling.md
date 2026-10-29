@@ -1,10 +1,12 @@
 ---
-id: "010"
-title: "Optical rest gate and disturbance handling"
-status: open
-use-cases: [SUC-001]
-depends-on: ['004']
-github-issue: ""
+id: '010'
+title: Optical rest gate and disturbance handling
+status: done
+use-cases:
+- SUC-001
+depends-on:
+- '004'
+github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
 ---
@@ -73,18 +75,19 @@ Change the estimator:
 
 ## Acceptance Criteria
 
-- [ ] Optical: wheels still and raw track still gives rest; ZARU and the
+- [x] Optical: wheels still and raw track still gives rest; ZARU and the
       hold behave as in ticket 002 (ticket 002/003 tests stay green)
-- [ ] Optical: wheels still and raw track moving gives a disturbance; a
+- [x] Optical: wheels still and raw track moving gives a disturbance; a
       simulated hand rotation of 30° appears in the output heading
       within 1°, and the bias estimate moves less than 2°/h
-- [ ] Optical: the arm-induced centre creep at rest (gyro drift × arm)
+- [x] Optical: the arm-induced centre creep at rest (gyro drift × arm)
       does not trip the gate (regression built from the fleet numbers)
-- [ ] GyroOnly: a hand rotation at rest is output, not held
-- [ ] Disturbance count exposed for TLM/STATUS
-- [ ] Threshold and window are named params, justified from the fleet
+- [x] GyroOnly: a hand rotation at rest is output, not held
+- [x] Disturbance count exposed for TLM (`dist`); STATUS has no room under
+      its 240 B cap
+- [x] Threshold and window are named params, justified from the fleet
       captures and cited
-- [ ] `uv run pytest` green
+- [x] `uv run pytest` green
 
 ## Testing
 

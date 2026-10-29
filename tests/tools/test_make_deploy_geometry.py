@@ -473,3 +473,43 @@ def test_decel_bakes_only_motion_limits(tmp_path, monkeypatch):
     assert "float decel = 1000.0f;" in limits
     assert "float accel = 400.0f;" in limits
     assert "float stopDistance = 0.0f;" in limits
+
+
+_OTOS_HEADER = """\
+  float bakedArmX_ = 0.0f;  // [mm] body frame, baked per robot
+  float bakedArmY_ = 0.0f;  // [mm] body frame, baked per robot
+"""
+
+
+def _deploy_with_otos(tmp_path):
+    deploy = _deploy(tmp_path)
+    platform = deploy / "src" / "platform"
+    platform.mkdir(parents=True)
+    (platform / "otos_port.h").write_text(_OTOS_HEADER)
+    return deploy
+
+
+def test_otos_arm_bakes_signed_values_into_otos_port(tmp_path, monkeypatch):
+    deploy = _deploy_with_otos(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov", {"firmware_bake": {
+                            "otos_arm_x": -43.0, "otos_arm_y": 2.0}})))
+    applied = make_deploy._inject_geometry(str(deploy), "vevov")
+    text = (deploy / "src" / "platform" / "otos_port.h").read_text()
+    assert "float bakedArmX_ = -43.0f;" in text
+    assert "float bakedArmY_ = 2.0f;" in text
+    assert dict(applied) == {"otos_arm_x": -43.0, "otos_arm_y": 2.0}
+
+
+def test_otos_arm_accepts_zero_and_rejects_non_numbers(tmp_path, monkeypatch):
+    deploy = _deploy_with_otos(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov", {"firmware_bake": {
+                            "otos_arm_x": 0.0}})))
+    make_deploy._inject_geometry(str(deploy), "vevov")
+    for bad in ("-43", None, True):
+        monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                            str(_config(tmp_path, "vevov", {"firmware_bake": {
+                                "otos_arm_x": bad}})))
+        with pytest.raises(SystemExit):
+            make_deploy._inject_geometry(str(deploy), "vevov")

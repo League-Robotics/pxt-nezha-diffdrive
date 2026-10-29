@@ -25,21 +25,28 @@ namespace {
 
 class ScriptedOptical : public diffDrive::OpticalPositionSource {
  public:
-  void add(float dx, float dy) {
+  void add(float dx, float dy) { add(dx, dy, dx, dy); }
+  void add(float dx, float dy, float rawDx, float rawDy) {
     pendingX_ += dx;
     pendingY_ += dy;
+    pendingRawX_ += rawDx;
+    pendingRawY_ += rawDy;
   }
   bool opticalPresent() const override { return true; }
   bool opticalValid() const override { return true; }
-  bool takeOpticalIncrement(float& dx, float& dy) override {
+  bool takeOpticalIncrement(float& dx, float& dy, float& rawDx,
+                            float& rawDy) override {
     dx = pendingX_;
     dy = pendingY_;
-    pendingX_ = pendingY_ = 0.0f;
+    rawDx = pendingRawX_;
+    rawDy = pendingRawY_;
+    pendingX_ = pendingY_ = pendingRawX_ = pendingRawY_ = 0.0f;
     return true;
   }
 
  private:
   float pendingX_ = 0.0f, pendingY_ = 0.0f;  // [mm]
+  float pendingRawX_ = 0.0f, pendingRawY_ = 0.0f;  // [mm]
 };
 
 struct Handle {
@@ -142,6 +149,27 @@ void peDrive(void* handle, float dt, float speedLeft, float speedRight,
   h->estimator.update(out, dt, sampleSensors != 0);
 }
 
+// A hand moves the robot with the wheels still: it translates at (vx, vy)
+// [mm/s] and turns at omega [rad/s] for dt [s]. Truth moves, the sensors see
+// it, the encoders do not.
+void peHand(void* handle, float dt, float vx, float vy, float omega,
+            int sampleSensors) {
+  Handle* h = as(handle);
+  const float dHeading = omega * dt;
+  const float mid = h->truthHeading + 0.5f * dHeading;
+  const float dx = (vx * std::cos(mid) - vy * std::sin(mid)) * dt;
+  const float dy = (vx * std::sin(mid) + vy * std::cos(mid)) * dt;
+  h->truthX += dx;
+  h->truthY += dy;
+  h->truthHeading += dHeading;
+  h->gyro.advance(dt, omega);
+  h->optical.advance(dx, dy, h->truthHeading, h->gyro.chipHeading());
+  DiffDrive::DifferentialDrive::Output out;
+  out.positionLeft = h->posLeft;
+  out.positionRight = h->posRight;
+  h->estimator.update(out, dt, sampleSensors != 0);
+}
+
 // A scripted Output, no sensors read.
 void peOutput(void* handle, float dt, float positionLeft, float positionRight,
               uint32_t epochLeft, uint32_t epochRight) {
@@ -161,6 +189,19 @@ void peReplay(void* handle, float dt, float positionLeft, float positionRight,
   Handle* h = as(handle);
   h->gyro.stepHeading(gyroHeading - h->gyro.chipHeading());
   h->scripted.add(opticalDx, opticalDy);
+  DiffDrive::DifferentialDrive::Output out;
+  out.positionLeft = positionLeft;
+  out.positionRight = positionRight;
+  h->estimator.update(out, dt, sampleSensors != 0);
+}
+
+// As peReplay(), with the sensor's raw track (lever arm not applied) too.
+void peReplayRaw(void* handle, float dt, float positionLeft, float positionRight,
+                 float gyroHeading, float opticalDx, float opticalDy,
+                 float rawDx, float rawDy, int sampleSensors) {
+  Handle* h = as(handle);
+  h->gyro.stepHeading(gyroHeading - h->gyro.chipHeading());
+  h->scripted.add(opticalDx, opticalDy, rawDx, rawDy);
   DiffDrive::DifferentialDrive::Output out;
   out.positionLeft = positionLeft;
   out.positionRight = positionRight;
@@ -187,6 +228,8 @@ int peAtRest(void* handle) { return as(handle)->estimator.atRest() ? 1 : 0; }
 float peBiasRate(void* handle) { return as(handle)->estimator.biasRate(); }
 uint32_t peRejected(void* handle) { return as(handle)->estimator.rejectedCount(); }
 uint32_t peSteps(void* handle) { return as(handle)->estimator.stepCount(); }
+uint32_t peDisturbs(void* handle) { return as(handle)->estimator.disturbCount(); }
+int peDisturbed(void* handle) { return as(handle)->estimator.disturbed() ? 1 : 0; }
 
 float peTruthX(void* handle) { return as(handle)->truthX; }
 float peTruthY(void* handle) { return as(handle)->truthY; }

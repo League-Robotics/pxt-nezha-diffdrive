@@ -43,10 +43,13 @@ class OpticalPositionSource {
   virtual bool opticalValid() const = 0;
 
   // Position change since the previous successful take, in the source's
-  // own world frame, robot-centre referenced. Returns false (outputs 0)
-  // when there is no new valid fix, or when this take only established a
-  // new baseline (first take, or after the source was re-seeded).
-  virtual bool takeOpticalIncrement(float& dx, float& dy) = 0;  // [mm] [mm]
+  // own world frame. (dx, dy) is robot-centre referenced; (rawDx, rawDy)
+  // is the sensor's own track with the lever arm NOT applied, which is
+  // what stays still when the wheels do. Returns false (outputs 0) when
+  // there is no new valid fix, or when this take only established a new
+  // baseline (first take, or after the source was re-seeded).
+  virtual bool takeOpticalIncrement(float& dx, float& dy, float& rawDx,
+                                    float& rawDy) = 0;  // [mm] x4
 };
 
 }  // namespace diffDrive

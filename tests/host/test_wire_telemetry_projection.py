@@ -41,6 +41,7 @@ from test_wire_motion_verbs import (  # noqa: F401 -- wa/motion_verb_lib re-expo
     DIAG_GYRO_BIAS,
     DIAG_REJECT_COUNT,
     DIAG_SENSOR_CONFIG,
+    DIAG_DISTURB_COUNT,
     DIAG_STEP_COUNT,
     DIAG_ESTOPPED,
     DIAG_I2C_FAULT,
@@ -240,6 +241,7 @@ _REALISTIC_FULL_DIAG_OVERRIDES = {
     DIAG_GYRO_BIAS: -300000,
     DIAG_REJECT_COUNT: 99999,
     DIAG_STEP_COUNT: 9999,
+    DIAG_DISTURB_COUNT: 9999,
 }
 
 
@@ -253,7 +255,7 @@ def test_widest_realistic_full_frame_fits_under_radio_cap(wa):
     wa.set_now_ms(123456789)
 
     snapshot = wa.build_snapshot()
-    assert snapshot.count == 23  # POSE's 12 plus FULL's 11
+    assert snapshot.count == 24  # POSE's 12 plus FULL's 12
 
     wa.emit_telemetry(snapshot)
     lines = wa.take_sink().split(b"\n")
@@ -263,21 +265,21 @@ def test_widest_realistic_full_frame_fits_under_radio_cap(wa):
     # Measured, not guessed -- pinned here as a regression, and this
     # ticket's own final report restates the exact numbers for ticket
     # 005's bench handoff notes to re-state to the stakeholder in turn.
-    assert len(thdr_line) == 100
-    assert len(t_line) == 157
+    assert len(thdr_line) == 105
+    assert len(t_line) == 162
     assert len(t_line) < 200  # RadioTransport::kMaxPayloadBytes
 
 
-def test_full_appends_bias_rej_step_after_cycovr(wa):
+def test_full_appends_bias_rej_step_dist_after_cycovr(wa):
     wa.on_tlm(TLM_FULL)
     names = [name for name, _, _ in wa.build_snapshot().columns()]
-    assert names[-4:] == ["cycovr", "bias", "rej", "step"]
+    assert names[-5:] == ["cycovr", "bias", "rej", "step", "dist"]
 
 
 def test_pose_mode_carries_no_estimator_columns(wa):
     wa.on_tlm(TLM_POSE)
     names = [name for name, _, _ in wa.build_snapshot().columns()]
-    assert not {"bias", "rej", "step"} & set(names)
+    assert not {"bias", "rej", "step", "dist"} & set(names)
 
 
 def test_full_estimator_columns_are_plain_diag_passthrough(wa):
@@ -285,10 +287,12 @@ def test_full_estimator_columns_are_plain_diag_passthrough(wa):
     wa.set_diag_override(DIAG_GYRO_BIAS, -1234)
     wa.set_diag_override(DIAG_REJECT_COUNT, 17)
     wa.set_diag_override(DIAG_STEP_COUNT, 3)
+    wa.set_diag_override(DIAG_DISTURB_COUNT, 2)
     cols = _column_map(wa.build_snapshot())
     assert cols["bias"] == (-1234, False)
     assert cols["rej"] == (17, False)
     assert cols["step"] == (3, False)
+    assert cols["dist"] == (2, False)
 
 
 def test_status_wrng_and_sens_share_the_diag_sources(wa):
@@ -305,6 +309,7 @@ def test_shim_estimator_diag_cases_and_idle_refresh_are_pinned():
     shims = (_SRC_DIR / "shims.cpp").read_text()
     for token in ("estimator.biasRate() * kRadToCdeg * 60.0f",
                   "estimator.rejectedCount()", "estimator.stepCount()",
+                  "estimator.disturbCount()",
                   "estimator.config()"):
         assert token in shims
     idle = re.search(r"void idleSense\(\) \{(.*?)\n\}", shims, re.DOTALL)

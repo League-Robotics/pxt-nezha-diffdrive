@@ -3,7 +3,7 @@
 // and integrates translation with its OWN heading, so its x/y frame is
 // rotated by the gyro's accumulated error; takeOpticalIncrement() returns
 // the centre-referenced change the way OtosPort does (arm removed with the
-// chip's heading).
+// chip's heading), and the raw sensor track beside it.
 //
 // Impairments, all off by default:
 //   scale       linear scale error                           [1]
@@ -53,9 +53,9 @@ class SimOptical : public diffDrive::OpticalPositionSource {
   bool opticalPresent() const override { return present_; }
   bool opticalValid() const override { return present_; }
 
-  bool takeOpticalIncrement(float& dx, float& dy) override {
-    dx = 0.0f;
-    dy = 0.0f;
+  bool takeOpticalIncrement(float& dx, float& dy, float& rawDx,
+                            float& rawDy) override {
+    dx = dy = rawDx = rawDy = 0.0f;
     if (dropout_) return false;
     if (frozen_) return baselined_;
     const float centreX = sensorX_ - (std::cos(chipHeading_) * armX_ -
@@ -66,9 +66,13 @@ class SimOptical : public diffDrive::OpticalPositionSource {
     if (baselined) {
       dx = centreX - takenX_;
       dy = centreY - takenY_;
+      rawDx = sensorX_ - takenRawX_;
+      rawDy = sensorY_ - takenRawY_;
     }
     takenX_ = centreX;
     takenY_ = centreY;
+    takenRawX_ = sensorX_;
+    takenRawY_ = sensorY_;
     baselined_ = true;
     return baselined;
   }
@@ -85,4 +89,5 @@ class SimOptical : public diffDrive::OpticalPositionSource {
   float armDx_ = 0.0f, armDy_ = 0.0f;      // [mm]
   float chipHeading_ = 0.0f;               // [rad]
   float takenX_ = 0.0f, takenY_ = 0.0f;    // [mm]
+  float takenRawX_ = 0.0f, takenRawY_ = 0.0f;  // [mm]
 };

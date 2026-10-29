@@ -62,7 +62,8 @@ class OtosPort : public PoseSource,
   // OpticalPositionSource: increments of the cached centre position.
   bool opticalPresent() const override { return initialized_; }
   bool opticalValid() const override { return initialized_ && connected_; }
-  bool takeOpticalIncrement(float& dx, float& dy) override;  // [mm] [mm]
+  bool takeOpticalIncrement(float& dx, float& dy, float& rawDx,
+                            float& rawDy) override;  // [mm] x4
 
   // PoseSource overrides (motion_engine.h) -- world/centre pose, with
   // the lever arm already applied (setOffset()). "no mount offset" below
@@ -90,6 +91,11 @@ class OtosPort : public PoseSource,
   // own offset register is deliberately held at ZERO -- applying it in
   // both places double-corrects (reference measured a pure pivot
   // tracing a 42.7 mm circle instead of holding the centre still).
+  //
+  // The arm is the robot's, not the program's: a robot whose config bakes
+  // a non-zero arm (firmware_bake otos_arm_x / otos_arm_y) keeps it and
+  // setOffset() changes only the yaw. A robot with no baked arm takes the
+  // program's, as before.
   void setOffset(float x, float y, float yaw);  // [mm] [mm] [rad]
   float offsetX() const { return offsetX_; }
   float offsetY() const { return offsetY_; }
@@ -142,8 +148,11 @@ class OtosPort : public PoseSource,
 
   float angularScale_ = 1.0f;  // [1] chip heading gain, baked per robot
 
-  float offsetX_ = 0.0f;    // [mm] body frame
-  float offsetY_ = 0.0f;    // [mm] body frame
+  float bakedArmX_ = 0.0f;  // [mm] body frame, baked per robot
+  float bakedArmY_ = 0.0f;  // [mm] body frame, baked per robot
+
+  float offsetX_ = bakedArmX_;  // [mm] body frame
+  float offsetY_ = bakedArmY_;  // [mm] body frame
   float offsetYaw_ = 0.0f;  // [rad] sensor mounting rotation
 
   bool initialized_ = false;
@@ -157,10 +166,15 @@ class OtosPort : public PoseSource,
   float vy_ = 0.0f;       // [mm/s]
   float omega_ = 0.0f;    // [rad/s]
 
+  float rawX_ = 0.0f;     // [mm] sensor track, arm not applied
+  float rawY_ = 0.0f;     // [mm]
+
   bool opticalFresh_ = false;     // read() succeeded since the last take
   bool opticalBaselined_ = false;
   float opticalTakenX_ = 0.0f;    // [mm]
   float opticalTakenY_ = 0.0f;    // [mm]
+  float opticalTakenRawX_ = 0.0f; // [mm]
+  float opticalTakenRawY_ = 0.0f; // [mm]
 };
 
 }  // namespace diffDrive

@@ -70,6 +70,7 @@ def lib(tmp_path_factory):
     loaded.peOpticalJump.argtypes = [vp, f, f]
     loaded.peDrive.argtypes = [vp, f, f, f, i]
     loaded.peOutput.argtypes = [vp, f, f, f, u, u]
+    loaded.peHand.argtypes = [vp, f, f, f, f, i]
     loaded.peSeed.argtypes = [vp, f, f, f]
     loaded.peReset.argtypes = [vp]
     loaded.peReprime.argtypes = [vp]
@@ -80,7 +81,9 @@ def lib(tmp_path_factory):
     for name in ("peConfig", "peAtRest"):
         getattr(loaded, name).argtypes = [vp]
         getattr(loaded, name).restype = i
-    for name in ("peRejected", "peSteps"):
+    loaded.peDisturbed.argtypes = [vp]
+    loaded.peDisturbed.restype = i
+    for name in ("peRejected", "peSteps", "peDisturbs"):
         getattr(loaded, name).argtypes = [vp]
         getattr(loaded, name).restype = u
     return loaded
@@ -118,6 +121,11 @@ class Rig:
             self.still(0.5)
             self.spin(seconds, -rate_deg)
             self.still(0.5)
+
+    def hand(self, seconds, vx=0.0, vy=0.0, omega=0.0, dt=0.01, every=4):
+        # [mm/s] [mm/s] [rad/s]: a hand moves the robot, the wheels stay still
+        for k in range(int(round(seconds / dt))):
+            self.lib.peHand(self.h, dt, vx, vy, omega, 1 if k % every == 0 else 0)
 
     @property
     def error(self):  # [rad] heading error against truth
@@ -416,9 +424,10 @@ def test_still_robot_position_does_not_wander_on_optical_noise(lib, make):
     rig.drive(3.0, 150.0, 150.0)
     rig.still(1.0)
     x, y = lib.peX(rig.h), lib.peY(rig.h)
-    lib.peOpticalJump(rig.h, 5.0, 5.0)
+    lib.peOpticalJump(rig.h, 2.0, 2.0)
     rig.still(30.0)
     assert math.hypot(lib.peX(rig.h) - x, lib.peY(rig.h) - y) < 5.0
+    assert lib.peDisturbs(rig.h) == 0
 
 
 @pytest.mark.parametrize("config", SENSOR_CONFIGS)
@@ -446,3 +455,115 @@ def test_reprime_after_a_reseed_takes_the_new_gyro_frame_without_a_step(
     assert lib.peHeading(rig.h) == pytest.approx(0.5, abs=0.2 * DEG)
     assert lib.peSteps(rig.h) == steps
     assert lib.peRejected(rig.h) == rejected
+
+
+def _settled(rig, lib, bias=50.0, seconds=120.0, noise=0.3 * DEG):
+    lib.peGyroNoise(rig.h, noise)
+    lib.peGyroSeed(rig.h, 7)
+    lib.peGyroBias(rig.h, bias * PER_HOUR)
+    rig.still(seconds, every=4)
+
+
+@pytest.mark.parametrize("config", SENSOR_CONFIGS)
+def test_a_hand_turn_at_rest_is_output_and_leaves_the_bias_alone(lib, make, config):
+    rig = make(config)
+    _settled(rig, lib)
+    bias = lib.peBiasRate(rig.h)
+    rig.hand(1.0, omega=30.0 * DEG)
+    rig.still(5.0)
+    assert lib.peTruthHeading(rig.h) == pytest.approx(30.0 * DEG, abs=0.01)
+    assert abs(rig.error) < 1.0 * DEG
+    assert abs(lib.peBiasRate(rig.h) - bias) < 2.0 * PER_HOUR
+    assert lib.peDisturbs(rig.h) == 1
+    assert lib.peSteps(rig.h) == 0
+
+
+def test_a_hand_turn_is_followed_whichever_side_the_bias_is_on(lib, make):
+    for bias, turn in ((150.0, -45.0), (-150.0, 90.0)):
+        rig = make(OPTICAL)
+        _settled(rig, lib, bias=bias)
+        rig.hand(1.5, omega=turn * DEG / 1.5)
+        rig.still(3.0)
+        assert abs(rig.error) < 1.0 * DEG
+
+
+def test_a_sideways_bump_moves_the_position_not_the_heading(lib, make):
+    rig = make(OPTICAL)
+    _settled(rig, lib)
+    rig.drive(2.0, 100.0, 100.0)
+    rig.still(2.0)
+    rig.hand(0.5, vy=200.0)
+    rig.still(3.0)
+    assert lib.peDisturbs(rig.h) == 1
+    assert rig.position_error < 3.0
+    assert abs(rig.error) < 0.5 * DEG
+
+
+def test_a_large_optical_jump_at_rest_is_a_disturbance_and_followed(lib, make):
+    rig = make(OPTICAL)
+    rig.drive(3.0, 150.0, 150.0)
+    rig.still(1.0)
+    x, y = lib.peX(rig.h), lib.peY(rig.h)
+    lib.peOpticalJump(rig.h, 5.0, 5.0)
+    rig.still(3.0)
+    assert lib.peDisturbs(rig.h) == 1
+    assert lib.peX(rig.h) == pytest.approx(x + 5.0, abs=0.5)
+    assert lib.peY(rig.h) == pytest.approx(y + 5.0, abs=0.5)
+
+
+def test_lifting_and_turning_with_the_fix_lost_still_turns_the_heading(lib, make):
+    rig = make(OPTICAL)
+    _settled(rig, lib)
+    x, y = lib.peX(rig.h), lib.peY(rig.h)
+    lib.peOpticalDropout(rig.h, 1)
+    rig.hand(1.0, omega=30.0 * DEG)
+    rig.still(3.0)
+    assert abs(rig.error) < 1.0 * DEG
+    assert lib.peDisturbs(rig.h) == 1
+    assert lib.peConfig(rig.h) == GYRO_ONLY
+    assert math.hypot(lib.peX(rig.h) - x, lib.peY(rig.h) - y) < 1.0
+
+
+def test_encoders_only_has_no_gyro_to_notice_a_hand_turn(lib, make):
+    rig = make(ENCODERS_ONLY)
+    rig.still(5.0)
+    rig.hand(1.0, omega=30.0 * DEG)
+    rig.still(3.0)
+    assert lib.peHeading(rig.h) == 0.0
+    assert lib.peDisturbs(rig.h) == 0
+
+
+@pytest.mark.parametrize("config", SENSOR_CONFIGS)
+def test_a_chip_step_with_no_rate_is_still_a_step_not_a_disturbance(lib, make, config):
+    rig = make(config)
+    _settled(rig, lib)
+    lib.peGyroStep(rig.h, 20.0 * DEG)
+    rig.still(3.0)
+    assert lib.peSteps(rig.h) == 1
+    assert lib.peDisturbs(rig.h) == 0
+    assert abs(rig.error) < 1.0 * DEG
+
+
+@pytest.mark.parametrize("bias", [150.0, -150.0])
+def test_arm_creep_at_rest_does_not_trip_the_gate(lib, make, bias):
+    rig = make(OPTICAL)
+    lib.peGyroNoise(rig.h, 0.3 * DEG)
+    lib.peGyroSeed(rig.h, 3)
+    lib.peGyroBias(rig.h, bias * PER_HOUR)
+    rig.still(1800.0, dt=0.02, every=5)
+    assert lib.peDisturbs(rig.h) == 0
+    assert rig.position_error < 5.0
+    assert abs(rig.error) < 2.0 * DEG
+
+
+def test_optical_motion_seen_before_the_wheels_move_is_kept(lib, make):
+    rig = make(OPTICAL)
+    rig.drive(2.0, 100.0, 100.0)
+    rig.still(3.0)
+    x, truth = lib.peX(rig.h), lib.peTruthX(rig.h)
+    lib.peOpticalJump(rig.h, 2.0, 0.0)
+    rig.still(0.2)
+    rig.drive(0.5, 100.0, 100.0)
+    assert lib.peDisturbs(rig.h) == 0
+    assert lib.peX(rig.h) - x == pytest.approx(
+        lib.peTruthX(rig.h) - truth + 2.0, abs=1.0)

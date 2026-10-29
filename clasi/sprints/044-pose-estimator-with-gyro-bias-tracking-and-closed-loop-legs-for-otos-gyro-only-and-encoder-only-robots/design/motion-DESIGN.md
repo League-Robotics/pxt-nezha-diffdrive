@@ -84,7 +84,7 @@ I2C; driven by `tests/host` with scripted/simulated sensors.
   0.25 s means the true rate is zero, so the heading is HELD and the gyro
   change feeds the rate (2 s windows, duration-weighted running mean that
   settles to a 180 s time constant; windows above 0.1 deg/s are steps and
-  skipped). Motion: running least-squares of gyro-minus-encoder heading on
+  skipped). Rest requires the sensors to agree (see Disturbance). Motion: running least-squares of gyro-minus-encoder heading on
   [1, time, encoder net turn], blended by inverse variance at 0.3 trust.
   Idle gyro reads must therefore continue while no move is active (ticket 004).
 - **Position** in `Optical`: the source's centre-referenced increments
@@ -93,7 +93,28 @@ I2C; driven by `tests/host` with scripted/simulated sensors.
   heading dependence; encoder motion fills between takes. A take is
   skipped when it disagrees with the encoders (30 mm + 50%) and the source
   is dropped after 8 in a row or when it falls 40 mm short of the encoders
-  beyond a 20% allowance (frozen). Increments are ignored at rest.
+  beyond a 20% allowance (frozen). Increments seen while the wheels are
+  still and the sensor is still are held for the 1 s window and applied if
+  the wheels start moving (the chip sees a start before the encoders do),
+  else dropped. The first take after `attachSensors()`/`reprime()` is only a
+  baseline: the encoder motion before it stays in the output.
+- **Disturbance** (ticket 010). A diff-drive robot cannot slide sideways
+  under its own power, so with the wheels still the OTOS raw track (lever
+  arm NOT applied; `takeOpticalIncrement` returns it beside the centre
+  increment) stays still. Rest therefore means wheels still AND raw track
+  within `disturbDistance` (5 mm) over `disturbWindow` (1 s). Beyond it, or
+  with a gyro rate beyond bias above `disturbRate` (3 deg/s; the only test
+  when no optical fix is up), the robot was bumped or lifted: no ZARU, the
+  gyro change is real rotation and goes to the output (kept out of the bias
+  fit and the step count), position follows the optical track while the fix
+  holds and stays put when it is lost, and `disturbCount()` (TLM `dist`)
+  counts it. The state lasts `disturbWindow` past the last evidence. The
+  gate uses the raw track because the arm-corrected centre creeps at rest by
+  arm x gyro drift (5-10 mm per 30 min on the fleet). The arm is a pure
+  position correction here, never a rotation or bias observer: pivot skid of
+  0.2-2.4 cm per 90 deg swamps it. Limit: a hand turn slower than 3 deg/s
+  moving the sensor less than 5 mm/s is indistinguishable from bias and is
+  held. `EncodersOnly` has no gyro to disturb.
 - **Degrade rule**: 8 failed/stale reads, or identical readings while the
   encoders turn 3 deg, drop the gyro (and with it the optical source);
   8 takes with no fix or a freeze drop only the optical source. Heading is

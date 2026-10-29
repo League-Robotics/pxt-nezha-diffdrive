@@ -1083,7 +1083,9 @@ sample; `otosGet(0)`/`otosGet(1)` are 0.1 mm, `otosGet(2)` is already
 centidegrees — do not also divide it); and `wheelSpeed`. POSE's 12
 columns (`seq now flags x y h ox oy oh vl vr i2cf`) are always
 present; FULL adds 8 more (`cyc posl posr dutl dutr lexc wrng cycovr`)
-only in `TlmMode::kFull`. **Sprint 008**: `TlmMode::kAuto` and
+only in `TlmMode::kFull`. Sprint 044 appends `bias rej step` (ticket 005) and
+`dist` (ticket 010, bumps and lifts at rest; diag 46), filling the 24 slots;
+STATUS has no room for it (240 B cap). **Sprint 008**: `TlmMode::kAuto` and
 `TlmMode::kBuffer`'s previously-undocumented fall-through to POSE's
 column set is now a stated decision, not an accident:
 `TlmMode::kAuto` is a documented alias for `TlmMode::kPose` (same 12

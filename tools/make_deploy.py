@@ -1072,6 +1072,8 @@ _GEOMETRY_BAKE_RES = {
     'accel': re.compile(r'(float accel = )[-+0-9.eE]+(f;)'),
     'decel': re.compile(r'(float decel = )[-+0-9.eE]+(f;)'),
     'otos_angular_scale': re.compile(r'(float angularScale_ = )[-+0-9.eE]+(f;)'),
+    'otos_arm_x': re.compile(r'(float bakedArmX_ = )[-+0-9.eE]+(f;)'),
+    'otos_arm_y': re.compile(r'(float bakedArmY_ = )[-+0-9.eE]+(f;)'),
 }
 
 # Which `src/motion/*.h` file each `_GEOMETRY_BAKE_RES` key's regex
@@ -1090,6 +1092,8 @@ _GEOMETRY_BAKE_FILES = {
     'accel': 'motion_limits.h',
     'decel': 'motion_limits.h',
     'otos_angular_scale': '../platform/otos_port.h',
+    'otos_arm_x': '../platform/otos_port.h',
+    'otos_arm_y': '../platform/otos_port.h',
 }
 
 # OLD bake key -> NEW bake key, for a robot config that has not yet been
@@ -1274,12 +1278,12 @@ def _inject_geometry(deploy_dir, robot):
             # 20260904d/pivot-gates-gain2.log); the geometry scales
             # must stay strictly positive.
             zero_ok = key in ('lag_s', 'stop_distance_mm')
-            if (not isinstance(value, (int, float)) or value < 0
-                    or (value == 0 and not zero_ok)):
+            signed = key in ('otos_arm_x', 'otos_arm_y')
+            if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                    or (not signed and (value < 0 or (value == 0 and not zero_ok)))):
                 sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
-                          f"'{robot}' is {value!r}; expected a "
-                          f"{'non-negative' if zero_ok else 'positive'} "
-                          f"number")
+                          f"'{robot}' is {value!r}; expected "
+                          f"{'a number' if signed else 'a non-negative number' if zero_ok else 'a positive number'}")
             # MUST keep a decimal point: `%g` renders 128.0 as `128`, and
             # `128f` is not a valid C++ literal (an integer literal
             # cannot take an `f` suffix) -- it fails the build, and did

@@ -91,9 +91,20 @@ sensor through: `readGyro()` (status ok / failed / stale), integrated
 `providesRate()` say which), and `present()`. A stale read succeeded
 but delivered no new sample; a failed one left the latched values
 untouched. `OpticalPositionSource` is the optional companion:
-`opticalPresent()`, `opticalValid()` and `takeOpticalIncrement(dx, dy)`,
-the centre-position change since the previous take (false on the take
-that only re-baselines, after the first read or a `setPose()`).
+`opticalPresent()`, `opticalValid()` and
+`takeOpticalIncrement(dx, dy, rawDx, rawDy)`, the centre-position change
+since the previous take plus the sensor's own track with the lever arm
+not applied (false on the take that only re-baselines, after the first
+read or a `setPose()`).
+
+The lever arm belongs to the robot: `geometry.firmware_bake.otos_arm_x` /
+`otos_arm_y` ([mm], body frame, signed) in the robot's radio-robot-lib
+config are baked into `OtosPort::bakedArmX_/Y_` by `make_deploy.py`, the
+same path as `otos_angular_scale`. A non-zero baked arm wins:
+`setOffset()` (the `setWorldSensorOffset` block) then changes only the
+sensor yaw. With no baked arm the program's offset applies, as before.
+The template never calls it, so before this the centre was sensor-
+referenced on every robot that didn't.
 
 Implementations: `OtosPort` (target-only, `otos_port.h`; both
 interfaces, fed by the one burst `read()`), and `SimGyro`

@@ -169,10 +169,7 @@ def test_residual_within_the_band_is_a_short_straight_not_a_pivot(
         _leg(lib, rig, p, x, y)
         assert abs(lib.peTruthHeading(rig.h)) < 0.3 * DEG
         assert abs(lib.peX(rig.h) - x) < 3.0
-        # The optical source drops its first samples off the line (ticket 010),
-        # so only the wheels' own truth is held to the target.
-        if config != OPTICAL:
-            assert abs(lib.peTruthX(rig.h) - x) < 3.0
+        assert abs(lib.peTruthX(rig.h) - x) < 3.0
         assert lib.peWrongWayCount(rig.h) == 0
         assert (lib.peTruthX(rig.h) > 0.0) == (x > 0.0)
     finally:

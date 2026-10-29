@@ -215,6 +215,7 @@ constexpr int kDiagGyroBias = 42;          // -> `bias`  [cdeg/min]
 constexpr int kDiagRejectCount = 43;       // -> `rej`
 constexpr int kDiagStepCount = 44;         // -> `step`
 constexpr int kDiagSensorConfig = 45;      // -> STATUS `sens=`
+constexpr int kDiagDisturbCount = 46;      // -> `dist`
 
 // LOCAL flags layout's own free function, extracted (unchanged bit
 // layout) so STATUS's `flags=` and the telemetry `flags` column read
@@ -967,6 +968,8 @@ const Wire::Snapshot& WireAdapter::buildSnapshot() {
     columns_[i++] = {"rej", static_cast<int32_t>(diagValue(kDiagRejectCount)),
                      false};
     columns_[i++] = {"step", static_cast<int32_t>(diagValue(kDiagStepCount)),
+                     false};
+    columns_[i++] = {"dist", static_cast<int32_t>(diagValue(kDiagDisturbCount)),
                      false};
   }
 

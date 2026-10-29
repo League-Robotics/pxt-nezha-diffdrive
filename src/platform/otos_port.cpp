@@ -152,6 +152,8 @@ bool OtosPort::read() {
   const float rotVx = c * vxF - s * vyF;
   const float rotVy = s * vxF + c * vyF;
 
+  rawX_ = rotX;
+  rawY_ = rotY;
   sensorToCentre(rotX, rotY, hF, offsetX_, offsetY_, x_, y_);
   heading_ = hF;   // heading takes no mounting offset
   vx_ = rotVx;
@@ -161,18 +163,22 @@ bool OtosPort::read() {
   return true;
 }
 
-bool OtosPort::takeOpticalIncrement(float& dx, float& dy) {
-  dx = 0.0f;
-  dy = 0.0f;
+bool OtosPort::takeOpticalIncrement(float& dx, float& dy, float& rawDx,
+                                    float& rawDy) {
+  dx = dy = rawDx = rawDy = 0.0f;
   if (!opticalFresh_) return false;
   opticalFresh_ = false;
   const bool baselined = opticalBaselined_;
   if (baselined) {
     dx = x_ - opticalTakenX_;
     dy = y_ - opticalTakenY_;
+    rawDx = rawX_ - opticalTakenRawX_;
+    rawDy = rawY_ - opticalTakenRawY_;
   }
   opticalTakenX_ = x_;
   opticalTakenY_ = y_;
+  opticalTakenRawX_ = rawX_;
+  opticalTakenRawY_ = rawY_;
   opticalBaselined_ = true;
   return baselined;
 }
@@ -199,8 +205,10 @@ void OtosPort::centreToSensor(float centreX, float centreY, float heading,
 }
 
 void OtosPort::setOffset(float x, float y, float yaw) {
-  offsetX_ = x;
-  offsetY_ = y;
+  if (bakedArmX_ == 0.0f && bakedArmY_ == 0.0f) {
+    offsetX_ = x;
+    offsetY_ = y;
+  }
   offsetYaw_ = yaw;
   if (!initialized_) return;
   // Keep the CHIP's own offset register at zero -- the arm is applied

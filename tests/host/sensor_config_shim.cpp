@@ -13,9 +13,9 @@ class FakeOptical : public diffDrive::OpticalPositionSource {
   bool present = false;
   bool opticalPresent() const override { return present; }
   bool opticalValid() const override { return present; }
-  bool takeOpticalIncrement(float& dx, float& dy) override {
-    dx = 0.0f;
-    dy = 0.0f;
+  bool takeOpticalIncrement(float& dx, float& dy, float& rawDx,
+                            float& rawDy) override {
+    dx = dy = rawDx = rawDy = 0.0f;
     return false;
   }
 };

@@ -147,5 +147,7 @@ int scOtosPoseWrites() { return gWorld->otos.poseWrites(); }
 float scOtosChipHeading() { return gWorld->otos.chipHeading(); }
 void scOtosSetPresent(int present) { gWorld->otos.setPresent(present != 0); }
 void scOtosFailBursts(int on) { gWorld->otos.failBursts(on != 0); }
+void scOtosMoveSensor(float dx, float dy) { gWorld->otos.moveSensor(dx, dy); }
+void scOtosSetBias(float rate) { gWorld->otos.setBias(rate); }
 
 }  // extern "C"

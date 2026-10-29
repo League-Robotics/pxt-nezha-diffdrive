@@ -133,6 +133,7 @@ def rlib(lib):  # noqa: F811
     f, i, v = ctypes.c_float, ctypes.c_int, ctypes.c_void_p
     lib.peAttachScripted.argtypes = [v, i]
     lib.peReplay.argtypes = [v, f, f, f, f, f, f, i]
+    lib.peReplayRaw.argtypes = [v, f, f, f, f, f, f, f, f, i]
     return lib
 
 
@@ -312,6 +313,50 @@ def replay_still(lib, rows, config):
     rate = lib.peBiasRate(h) / PER_HOUR
     lib.peDestroy(h)
     return worst / DEG, rate
+
+
+def replay_still_with_track(lib, rows):
+    h = estimator(lib, 0.08, OPTICAL)
+    t0 = rows[0]["t"]
+    times = [r["t"] - t0 for r in rows]
+    heads = [math.radians(r["tlm"]["oh"] / 100) for r in rows]
+    centre = [(r["tlm"]["ox"], r["tlm"]["oy"]) for r in rows]
+    raw = [(cx + ARM[0] * math.cos(g) - ARM[1] * math.sin(g),
+            cy + ARM[0] * math.sin(g) + ARM[1] * math.cos(g))
+           for (cx, cy), g in zip(centre, heads)]
+    posl, posr = rows[0]["tlm"]["posl"], rows[0]["tlm"]["posr"]
+
+    def at(track, j, frac):
+        return (track[j][0] + frac * (track[j + 1][0] - track[j][0]),
+                track[j][1] + frac * (track[j + 1][1] - track[j][1]))
+
+    j, t = 0, 0.0
+    last_centre, last_raw = centre[0], raw[0]
+    while t < times[-1]:
+        while times[j + 1] < t:
+            j += 1
+        frac = (t - times[j]) / (times[j + 1] - times[j])
+        g = heads[j] + frac * wrap(heads[j + 1] - heads[j])
+        c, r = at(centre, j, frac), at(raw, j, frac)
+        lib.peReplayRaw(h, DT, posl, posr, quantise(g),
+                        c[0] - last_centre[0], c[1] - last_centre[1],
+                        r[0] - last_raw[0], r[1] - last_raw[1], 1)
+        last_centre, last_raw = c, r
+        t += DT
+    result = (lib.peDisturbs(h), math.hypot(lib.peX(h), lib.peY(h)))
+    lib.peDestroy(h)
+    return result
+
+
+@pytest.mark.parametrize("name", [f"fleet-{r}.jsonl" for r in FLEET])
+def test_arm_creep_in_the_fleet_runs_does_not_trip_the_disturbance_gate(rlib, name):
+    rows = still_rows(name)
+    centre = [(r["tlm"]["ox"], r["tlm"]["oy"]) for r in rows]
+    creep = max(math.hypot(c[0] - centre[0][0], c[1] - centre[0][1]) for c in centre)
+    disturbs, wander = replay_still_with_track(rlib, rows)
+    assert creep >= 5.0  # arm x gyro drift: 5.6, 5.3, 9.8, 8.3 mm at 43 mm
+    assert disturbs == 0
+    assert wander < 2.0
 
 
 def trailing_rate(rows, minutes=10.0, stride=3):
