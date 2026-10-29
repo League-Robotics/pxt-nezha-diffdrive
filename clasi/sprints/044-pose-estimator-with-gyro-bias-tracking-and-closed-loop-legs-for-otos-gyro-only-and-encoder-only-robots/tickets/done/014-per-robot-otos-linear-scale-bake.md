@@ -1,10 +1,12 @@
 ---
-id: "014"
-title: "Per-robot OTOS linear scale bake"
+id: '014'
+title: Per-robot OTOS linear scale bake
 status: done
-use-cases: [SUC-002]
-depends-on: ['013']
-github-issue: ""
+use-cases:
+- SUC-002
+depends-on:
+- '013'
+github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
 ---

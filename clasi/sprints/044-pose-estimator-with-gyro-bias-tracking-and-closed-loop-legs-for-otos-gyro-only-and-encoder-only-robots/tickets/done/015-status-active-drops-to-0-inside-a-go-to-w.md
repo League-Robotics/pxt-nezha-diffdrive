@@ -1,10 +1,12 @@
 ---
-id: "015"
-title: "STATUS active drops to 0 inside a GO_TO_W"
+id: '015'
+title: STATUS active drops to 0 inside a GO_TO_W
 status: done
-use-cases: [SUC-002]
-depends-on: ['014']
-github-issue: ""
+use-cases:
+- SUC-002
+depends-on:
+- '014'
+github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
 ---
