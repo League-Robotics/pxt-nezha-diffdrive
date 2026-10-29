@@ -88,8 +88,12 @@ bool OtosPort::begin() {
   // chip is never power-cycled by an nRF reset, so it inherits
   // whatever an earlier session wrote (reference driver's measured
   // 42.7 mm phantom-circle failure). Scalar 0 == scale 1.000; the
-  // angular scalar is this robot's baked gain, 0.001 per LSB.
-  writeReg8(kRegLinearScalar, 0);
+  // linear and angular scalars are this robot's baked gains, 0.001 per
+  // LSB, signed (SparkFun OTOS datasheet / setLinearScalar).
+  long linear = std::lround((linearScale_ - 1.0f) / 0.001f);
+  if (linear > 127) linear = 127;
+  if (linear < -127) linear = -127;
+  writeReg8(kRegLinearScalar, static_cast<uint8_t>(static_cast<int8_t>(linear)));
   long angular = std::lround((angularScale_ - 1.0f) / 0.001f);
   if (angular > 127) angular = 127;
   if (angular < -127) angular = -127;

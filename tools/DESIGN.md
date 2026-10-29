@@ -84,7 +84,7 @@ need more than a line; a file with no section is fully described here.
 
 | file | what it is for |
 |---|---|
-| `make_deploy.py` | builds a flashable hex in a scratch copy of the repo, bakes the target robot's radio channel/name/geometry/motors/board, and triages the build result. |
+| `make_deploy.py` | builds a flashable hex in a scratch copy of the repo, bakes the target robot's radio channel/name/geometry/motors/board, and triages the build result. Geometry keys include `otos_angular_scale` and `otos_linear_scale` (scale = camera / OTOS over straights on camera; lever arms measured in chip units must be multiplied by it). |
 | `gen_config_field_enum.py` | the repo's one code generator: writes `src/blocks/motion.ts`'s `ConfigField` enum from `src/comms/config_fields.h`. `--check` reports drift without writing. |
 | `publish_extension.py` | assembles the student-facing MakeCode extension from `pxt.json`'s `files` plus `extension/`, and pushes it to its own generated repository. |
 | `publish_wiki.py` | renders a Markdown doc from this repo onto the Robot Garage DokuWiki. |

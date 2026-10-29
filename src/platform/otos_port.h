@@ -146,6 +146,7 @@ class OtosPort : public PoseSource,
                              float offsetX, float offsetY,
                              float& sensorXOut, float& sensorYOut);
 
+  float linearScale_ = 1.0f;   // [1] chip distance gain, baked per robot
   float angularScale_ = 1.0f;  // [1] chip heading gain, baked per robot
 
   float bakedArmX_ = 0.0f;  // [mm] body frame, baked per robot

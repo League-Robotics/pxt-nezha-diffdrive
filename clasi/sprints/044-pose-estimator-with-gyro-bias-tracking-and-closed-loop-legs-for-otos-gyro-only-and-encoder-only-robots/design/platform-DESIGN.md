@@ -100,7 +100,11 @@ read or a `setPose()`).
 The lever arm belongs to the robot: `geometry.firmware_bake.otos_arm_x` /
 `otos_arm_y` ([mm], body frame, signed) in the robot's radio-robot-lib
 config are baked into `OtosPort::bakedArmX_/Y_` by `make_deploy.py`, the
-same path as `otos_angular_scale`. A non-zero baked arm wins:
+same path as `otos_angular_scale`. `otos_linear_scale` (`linearScale_`)
+is baked the same way and written to the chip's linear scalar register
+in `begin()` (value = round((scale - 1) / 0.001), clamped to +-127).
+Measure it from straights on camera: scale = camera / OTOS. A lever arm
+measured in the chip's own units must be multiplied by the same scale. A non-zero baked arm wins:
 `setOffset()` (the `setWorldSensorOffset` block) then changes only the
 sensor yaw. With no baked arm the program's offset applies, as before.
 The template never calls it, so before this the centre was sensor-
