@@ -91,6 +91,11 @@ I2C; driven by `tests/host` with scripted/simulated sensors.
   settles to a 180 s time constant; windows above 0.1 deg/s are steps and
   skipped). Rest requires the sensors to agree (see Disturbance). Motion: running least-squares of gyro-minus-encoder heading on
   [1, time, encoder net turn], blended by inverse variance at 0.3 trust.
+  The motion weight is capped at (moved / 300 s)^2 times the rest weight,
+  where moved is the driving time since the last rest observation, so
+  fresh rest evidence leads and the fit only takes over after a long
+  drive (ticket 013). The assumed noise density is 0.012 deg/sqrt(s), twice
+  the worst fleet value.
   Idle gyro reads must therefore continue while no move is active (ticket 004).
 - **Position** in `Optical`: the source's centre-referenced increments
   (arm already removed by the port with the chip's heading) rotated by

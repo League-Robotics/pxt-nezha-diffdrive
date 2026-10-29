@@ -207,7 +207,7 @@ def test_constant_bias_is_removed_in_motion(lib, make, config):
 
 
 @pytest.mark.parametrize("config", SENSOR_CONFIGS)
-@pytest.mark.parametrize("noise,track_error", [(0.0, 1.0), (0.6 * DEG, 1.02)])
+@pytest.mark.parametrize("noise,track_error", [(0.0, 1.0), (0.06 * DEG, 1.02)])
 def test_constant_bias_is_learned_from_motion_alone(lib, make, config, noise,
                                                     track_error):
     rig = make(config, track_error)

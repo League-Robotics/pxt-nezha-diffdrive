@@ -32,9 +32,20 @@ struct GyroBiasParams {
   // so this leaves 2.4x margin.
   float maxRate = 0.0017453f;  // [rad/s] 0.1 deg/s
 
-  // Heading noise as a random walk: 0.3 deg sd over a 20 s window
-  // (captures/otos-gyro-fleet-20261028/, 3 of 4 robots; zuvat 0.7 deg).
-  float noiseDensity = 0.00117f;  // [rad/sqrt(s)]
+  // Heading noise as a random walk. The second difference of the idle
+  // heading gives 0.0032-0.0057 deg/sqrt(s) on the four fleet robots
+  // (tests/host/fixtures/pose_estimator/fleet-*.jsonl); this is twice the
+  // worst, 0.012 deg/sqrt(s).
+  float noiseDensity = 0.000209f;  // [rad/sqrt(s)]
+
+  // The motion fit treats encoder slip, which is correlated in time, as
+  // white noise, so its variance is far too small. Its weight is held to
+  // (moved / restStale)^2 times the rest weight, where `moved` is the time
+  // spent driving since the last rest observation: rest evidence leads
+  // while it is fresh, and the fit takes over only after a drive this long
+  // (the weights are equal at 300 s, 4:1 at 600 s). With no rest evidence
+  // at all the fit is unlimited.
+  float restStale = 300.0f;  // [s]
 
   // Motion fit: a heading sample is taken at most this often, the fit
   // forgets over this long, and its blend weight is scaled down because
@@ -56,6 +67,7 @@ class GyroBiasTracker {
     restRate_ = 0.0f;
     restLearned_ = 0.0f;
     motionSamples_ = 0;
+    movedSinceRest_ = 0.0f;
     lastMotionTime_ = -1.0f;
     residual_ = kResidualFloor;
     for (int i = 0; i < 3; ++i) {
@@ -66,6 +78,7 @@ class GyroBiasTracker {
 
   // The robot was still for dt; the gyro heading changed by `change`.
   void observeRest(float change, float dt) {  // [rad] [s]
+    movedSinceRest_ = 0.0f;
     restTime_ += dt;
     restChange_ += change;
     if (restTime_ < params_.restWindow) return;
@@ -86,6 +99,7 @@ class GyroBiasTracker {
     }
     const float gap = lastMotionTime_ < 0.0f ? 0.0f : time - lastMotionTime_;  // [s]
     lastMotionTime_ = time;
+    movedSinceRest_ += std::fmin(gap, kMovedGapLimit);
     const float forget = std::exp(-gap / params_.motionForgetting);
     const float phi[3] = {1.0f, time * kTimeScale, encoderTurn};
     const float y = gyroTurn - encoderTurn;
@@ -133,6 +147,7 @@ class GyroBiasTracker {
   static constexpr float kInitialCovariance = 1000.0f;
   static constexpr float kResidualFloor = 4.0e-6f;  // [rad^2] (0.11 deg)^2
   static constexpr int kMotionWarmup = 12;
+  static constexpr float kMovedGapLimit = 1.0f;  // [s] longer gaps were idle
 
   float restWeightNow() const {  // [s^2/rad^2]
     const float memory = std::fmin(restLearned_, params_.timeConstant);
@@ -144,7 +159,10 @@ class GyroBiasTracker {
     const float variance =
         p_[1][1] * residual_ * kTimeScale * kTimeScale;  // [rad^2/s^2]
     if (!(variance > 0.0f)) return 0.0f;
-    return params_.motionTrust / variance;
+    const float weight = params_.motionTrust / variance;
+    if (restLearned_ <= 0.0f) return weight;
+    const float fresh = movedSinceRest_ / params_.restStale;  // [1]
+    return std::fmin(weight, restWeightNow() * fresh * fresh);
   }
 
   GyroBiasParams params_;
@@ -152,6 +170,7 @@ class GyroBiasTracker {
   float restRate_ = 0.0f;                      // [rad/s]
   float restLearned_ = 0.0f;                   // [s]
   float lastMotionTime_ = -1.0f;               // [s]
+  float movedSinceRest_ = 0.0f;                // [s]
   int motionSamples_ = 0;
   float residual_ = kResidualFloor;            // [rad^2]
   float theta_[3];

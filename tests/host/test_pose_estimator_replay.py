@@ -48,7 +48,7 @@ on the fixtures above (the bounds below are these plus the margin noted):
               rate +43.9, +22.7, +19.5, -33.4, +35.5 deg/h against the
               data's trailing 10 min +44.3, +21.6, +20.4, -33.5, +33.6
   noise       random-walk density of the logged heading 0.003-0.006
-              deg/sqrt(s) on the four fleet robots; the tracker assumes 0.067
+              deg/sqrt(s) on the four fleet robots; the tracker assumes 0.012
 
 Run with::
 
@@ -388,14 +388,14 @@ def test_thirty_minutes_still_holds_heading_and_learns_the_rate(rlib, name, conf
 
 def test_assumed_noise_density_is_not_below_what_the_fleet_shows():
     # Second difference of the logged heading, 20 s apart: for a random walk
-    # its variance is 2 * step variance. The default 0.067 deg/sqrt(s) was
-    # taken from a 20 s sd that included the rate ramp; this is the walk alone.
-    assumed = 0.00117 / DEG  # [deg/sqrt(s)]
+    # its variance is 2 * step variance. The assumed 0.012 deg/sqrt(s) is twice the worst
+    # fleet density, measured as the walk alone.
+    assumed = 0.000209 / DEG  # [deg/sqrt(s)]
     for robot in FLEET:
         rows = load(f"fleet-{robot}.jsonl")
         x = [r["tlm"]["oh"] / 100 for r in rows]
         dt = (rows[-1]["t"] - rows[0]["t"]) / (len(rows) - 1)
         d2 = [x[i + 1] - 2 * x[i] + x[i - 1] for i in range(1, len(x) - 1)]
         density = rms(d2) / math.sqrt(2.0) / math.sqrt(dt)
-        assert density < assumed / 5.0
+        assert density < assumed / 2.0
 
