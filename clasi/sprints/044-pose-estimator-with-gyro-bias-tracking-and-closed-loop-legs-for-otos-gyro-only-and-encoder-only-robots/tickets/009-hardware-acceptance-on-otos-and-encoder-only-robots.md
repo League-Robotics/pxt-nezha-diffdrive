@@ -30,3 +30,35 @@ Camera-truthed acceptance. (a) vevov (OTOS): 100 m random run with tests/dev/oto
 - **Existing tests to run**: `uv run pytest` (host suites unaffected)
 - **New tests to write**: Hardware runs described above
 - **Verification command**: `uv run pytest`
+
+## Overnight results, 2026-10-28/29 (team lead; stakeholder asleep)
+
+Full log, citations and incident notes: `captures/sprint044-acceptance-20261028/NOTES.md`
+(captures/ is gitignored; files are local on gala).
+
+OTOS acceptance ran on **tovez** (tag 52), not vevov: vevov's Pi Zero `zilch` went
+unreachable at ~23:05, so vevov could not be re-flashed after the overnight fixes
+(tickets 012-015). The final build is sprint branch at 54b5f4d plus
+`--bake otos_angular_scale=0.990 --bake otos_linear_scale=1.021`
+(`tovez-015-lin.hex`).
+
+100 m random GO_TO_W run, one rebase, never re-zeroed (`tovez-drift5.jsonl`, 273
+legs, 82 min):
+- pose err, 2nd-half rms 11.5 cm (max 14.0): meets <= 15 cm
+- heading err, 2nd-half rms 2.35 deg: meets <= 3 deg. Raw OTOS drifted -87 deg
+  (-64 deg/h) over the same run.
+- wrong-way stalls 0
+- arrival median 0.99 cm, p90 1.76 cm: meets < 1 / < 2
+
+Not yet done (needs the stakeholder):
+- encoders-only robot (tigez) leg run
+- bump and lift-and-turn disturbance check (ticket 010)
+- vevov re-flash with its measured arm (-105.9, 2.9 mm, chip units scaled) and
+  linear scale 1.033 (`vevov-015.hex` is built)
+- stationary 30 min on the final build: running now (`tovez-rest1.jsonl`)
+
+Findings that became tickets tonight: 012 (motion steps baked encoder slip), 013
+(bias blend ignored rest evidence), 014 (per-robot OTOS linear scale bake), 015
+(STATUS active dropped inside GO_TO_W). Harness fixes: devlink send_move waits for
+`done`; camlink fix() refuses a stalled or tagless stream; otos_drift stops on a
+camera/OTOS chord mismatch.
