@@ -79,7 +79,10 @@ MotionEngine::GoToRPlan MotionEngine::decomposeGoToR(float x, float y) {
   const float thetaRaw = 2.0f * bearingRaw;   // [rad] |.| < 2*pi
   const float theta = wrapToPi(thetaRaw);     // [rad] |.| <= pi
   const float chord = std::hypot(x, y);       // [mm] >= 0
-  const bool willSplit = std::fabs(theta) >= kTurnFirstAngle;
+  // A target behind the robot (x < 0) is never reached by reversing:
+  // doubling a bearing near +-pi wraps to a near-zero arc whose reverse
+  // travel the wrong-way check then kills.
+  const bool willSplit = std::fabs(theta) >= kTurnFirstAngle || x < 0.0f;
 
   // Blended-arc reduction via the signed radius R = (x^2+y^2)/(2y),
   // s = R*theta -- algebraically arc = radius*angle, but with no sin()
@@ -172,6 +175,7 @@ void MotionEngine::beginSegment(float distTarget, float yawTarget,
   seg_.deadline = deadline;
   seg_.active = true;
   lastSegmentEndedByDeadline_ = false;
+  lastSegmentEndedByWrongWay_ = false;
 
   shaper_.reset();
   lastTick_ = now();
@@ -356,6 +360,7 @@ bool MotionEngine::service() {
       // segment; an abort reason still wins on WHY.
       lastSegmentEndedByDeadline_ = expired && !wrongWay && !stalled &&
                                     !out.estopped;
+      lastSegmentEndedByWrongWay_ = wrongWay;
       kernel_.neutral();
       notifyNeutral();
       seg_ = Segment();
@@ -399,6 +404,7 @@ bool MotionEngine::service() {
         }
       }
       lastSegmentEndedByDeadline_ = false;
+      lastSegmentEndedByWrongWay_ = false;
       seg_ = Segment();
       return false;
     }
@@ -416,6 +422,7 @@ bool MotionEngine::service() {
     // looking exactly like a move that ran.
     if (driveStatus != DiffDrive::DifferentialDrive::Status::kOk) {
       lastSegmentEndedByDeadline_ = false;
+      lastSegmentEndedByWrongWay_ = false;
       kernel_.neutral();
       notifyNeutral();
       seg_ = Segment();
@@ -465,7 +472,10 @@ bool MotionEngine::service() {
 void MotionEngine::endMoveImpl(bool stopPositionPorts) {
   // An explicit external end is never a timeout, but a no-op call must not
   // overwrite a still-meaningful earlier verdict.
-  if (seg_.active) lastSegmentEndedByDeadline_ = false;
+  if (seg_.active) {
+    lastSegmentEndedByDeadline_ = false;
+    lastSegmentEndedByWrongWay_ = false;
+  }
   if (posMove_.active) {
     if (stopPositionPorts) stopPositionMove();
     else posMove_.active = false;
@@ -777,6 +787,7 @@ bool MotionEngine::beginPositionMove(float distance, float rotation,
   }
   posMove_.active = true;
   lastSegmentEndedByDeadline_ = false;
+  lastSegmentEndedByWrongWay_ = false;
   return true;
 }
 
@@ -827,6 +838,7 @@ bool MotionEngine::servicePositionMove() {
         std::fabs(0.5f * (errRight - errLeft)) <= yawWindow;
     posMove_.active = false;  // the brick holds the count itself
     lastSegmentEndedByDeadline_ = false;
+    lastSegmentEndedByWrongWay_ = false;
     return false;
   }
 
@@ -838,6 +850,7 @@ bool MotionEngine::servicePositionMove() {
   if (stalled || expired) {
     if (stalled) stallReported_ = true;
     lastSegmentEndedByDeadline_ = expired && !stalled;
+    lastSegmentEndedByWrongWay_ = false;
     posMove_.arrived = false;
     stopPositionMove();
     return false;

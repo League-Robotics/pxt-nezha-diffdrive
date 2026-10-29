@@ -248,6 +248,7 @@ enum class DoneReason : uint8_t {
   kEstop,    // -> "estop"   -- a panic stop ended it
   kAborted,  // -> "aborted" -- the caller abandoned it
   kStall,    // -> "stall"   -- the kernel's stall latch halted the drivetrain
+  kWrongWay, // -> "wrongway" -- the engine aborted a segment moving the wrong way
 };
 
 // Adapter -- the seam behind every verb this file currently dispatches:

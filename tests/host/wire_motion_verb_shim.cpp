@@ -883,6 +883,11 @@ bool engineMoveEndedByDeadline() {
   return g_activeWaHandle->engine.lastSegmentEndedByDeadline();
 }
 
+bool engineMoveEndedByWrongWay() {
+  if (g_activeWaHandle == nullptr) return false;
+  return g_activeWaHandle->engine.lastSegmentEndedByWrongWay();
+}
+
 // Mirrors the subset of shims.cpp's real diagValue() switch
 // wire_adapter.cpp's status() actually reads (see that file's kDiag*
 // constants) -- read straight off the SAME kernel setWheelsTimed()/

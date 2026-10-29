@@ -1,9 +1,11 @@
 ---
 id: '006'
 title: GO_TO_W target-behind policy and distinct wrong-way reason
-status: open
-use-cases: [SUC-003]
-depends-on: ['002']
+status: done
+use-cases:
+- SUC-003
+depends-on:
+- '002'
 github-issue: ''
 issue:
 - otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
@@ -20,10 +22,10 @@ Make "target behind" an explicit policy in decomposeGoToR/goToW: pivot then forw
 
 ## Acceptance Criteria
 
-- [ ] Host sweep of bearings: no leg terminates early; target behind pivots then drives forward
-- [ ] Wrong-way termination produces a distinct reason; unit tested
-- [ ] Behaviour for forward targets unchanged (existing motion_engine tests green)
-- [ ] Runs against FakePoseSource and the estimator in all three configurations
+- [x] Host sweep of bearings: no leg terminates early; target behind pivots then drives forward
+- [x] Wrong-way termination produces a distinct reason; unit tested
+- [x] Behaviour for forward targets unchanged (existing motion_engine tests green)
+- [x] Runs against FakePoseSource and the estimator in all three configurations
 
 ## Testing
 

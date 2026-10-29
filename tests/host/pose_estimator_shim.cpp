@@ -191,4 +191,57 @@ float peTruthY(void* handle) { return as(handle)->truthY; }
 float peTruthHeading(void* handle) { return as(handle)->truthHeading; }
 float peTrueBias(void* handle) { return as(handle)->gyro.bias(); }
 
+void peBeginKernel(void* handle, float maxDuty, float fullDutyVelocity) {
+  Handle* h = as(handle);
+  h->kernel.setMaxDuty(maxDuty);
+  h->kernel.setFullDutyVelocity(fullDutyVelocity);
+  h->kernel.begin();
+}
+
+void peSetLimits(void* handle, float accel, float decel, float vMax,
+                 float omegaMax) {  // [mm/s^2] [mm/s^2] [mm/s] [deg/s]
+  diffDrive::MotionLimits& lim = as(handle)->engine.limits();
+  lim.setAccel(accel);
+  lim.setDecel(decel);
+  lim.setVMax(vMax);
+  lim.setOmegaMax(omegaMax);
+}
+
+void peGoToW(void* handle, float x, float y, float speed, float arrive,
+             uint32_t timeoutMs) {
+  Handle* h = as(handle);
+  h->engine.goToW(h->estimator, x, y, speed, arrive, timeoutMs);
+}
+
+// Plays the engine against the true robot until its move ends: wheel
+// duty becomes wheel speed, which peDrive() integrates into truth, the
+// encoders and the estimator. Returns the ticks run; equal to maxTicks
+// means the move never ended.
+uint32_t peRunMove(void* handle, float fullDutyVelocity, uint32_t periodMs,
+                   uint32_t maxTicks) {
+  Handle* h = as(handle);
+  const float dt = static_cast<float>(periodMs) / 1000.0f;
+  uint32_t ticks = 0;
+  for (; ticks < maxTicks && h->engine.isMoveActive(); ++ticks) {
+    const float cpm = h->engine.countsPerMm();
+    const float speedLeft = h->left.appliedDuty() * fullDutyVelocity / cpm;
+    const float speedRight = h->right.appliedDuty() * fullDutyVelocity / cpm;
+    peDrive(handle, dt, speedLeft, speedRight, 1);
+    h->left.nextPositionValue = h->posLeft;
+    h->right.nextPositionValue = h->posRight;
+    h->clock.nowUs += static_cast<uint64_t>(periodMs) * 1000ull;
+    h->left.nextSampleTimeUs = h->right.nextSampleTimeUs = h->clock.nowUs;
+    h->kernel.step();
+    h->engine.service();
+  }
+  return ticks;
+}
+
+int peEndedByWrongWay(void* handle) {
+  return as(handle)->engine.lastSegmentEndedByWrongWay() ? 1 : 0;
+}
+uint32_t peWrongWayCount(void* handle) {
+  return as(handle)->engine.wrongWayCount();
+}
+
 }  // extern "C"

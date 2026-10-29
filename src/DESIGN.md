@@ -255,6 +255,12 @@ wrong-way abort, pivot-then-straight splitting, deadline backstop.
   unchanged, so a second caller can share it instead of re-deriving it;
   `MotionEngine::goToR()`'s own signature, and `queuePivotThenStraight()`,
   are unchanged by either addition.
+  **Sprint 044 ticket 006**: a target behind the robot (`x < 0`) always
+  splits — pivot to `bearingRaw`, then drive the chord forward. It never
+  reverses: doubling a bearing near ±π wraps to a near-zero arc whose
+  reverse travel `wrongWay()` used to kill after ~3°. `service()` latches
+  `lastSegmentEndedByWrongWay()`, which the wire adapter reports as done
+  reason `wrongway` instead of `stop`.
 - Move servicing: `service()` (renamed from `serviceMove()`, motion
   profile unification, sprint 029) — one ~40-line tick (design §5) that
   dispatches whichever of `seg_`/`hold_` is active through the ONE

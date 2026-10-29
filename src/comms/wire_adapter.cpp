@@ -148,6 +148,7 @@ int protocolRadioGroup();
 // whenever STATUS/ack traffic happens to poll late). Same "no stored
 // engine reference" contract as engineMoveActive().
 bool engineMoveEndedByDeadline();
+bool engineMoveEndedByWrongWay();
 
 namespace {
 
@@ -702,6 +703,7 @@ Wire::DoneReason WireAdapter::resolvePendingReason() const {
     // this file's own forward declaration of it above and
     // MotionEngine::lastSegmentEndedByDeadline()'s doc comment
     // (motion_engine.h) for the full fix.
+    if (engineMoveEndedByWrongWay()) return Wire::DoneReason::kWrongWay;
     return engineMoveEndedByDeadline() ? Wire::DoneReason::kTimeout
                                         : Wire::DoneReason::kStop;
   }

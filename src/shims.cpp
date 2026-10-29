@@ -671,6 +671,12 @@ bool engineMoveEndedByDeadline() {
   return rig != nullptr && rig->engine.lastSegmentEndedByDeadline();
 }
 
+// True iff the most recent Segment was aborted by the engine's wrong-way
+// check. `rig == nullptr` answers false.
+bool engineMoveEndedByWrongWay() {
+  return rig != nullptr && rig->engine.lastSegmentEndedByWrongWay();
+}
+
 // ---- move engine ----------------------------------------------------
 
 //%

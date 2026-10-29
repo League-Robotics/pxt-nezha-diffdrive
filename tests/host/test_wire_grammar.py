@@ -60,6 +60,8 @@ DONE_STOP = 1
 DONE_TIMEOUT = 2
 DONE_ESTOP = 3
 DONE_ABORTED = 4
+DONE_STALL = 5
+DONE_WRONGWAY = 6
 
 _DONE_REASON_NAME = {
     DONE_NONE: "none",
@@ -67,6 +69,8 @@ _DONE_REASON_NAME = {
     DONE_TIMEOUT: "timeout",
     DONE_ESTOP: "estop",
     DONE_ABORTED: "aborted",
+    DONE_STALL: "stall",
+    DONE_WRONGWAY: "wrongway",
 }
 
 # Wire::TlmMode's DECLARATION-ORDER ordinal.

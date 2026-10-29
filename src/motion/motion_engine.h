@@ -133,7 +133,7 @@ class MotionEngine {
     float theta;       // [rad] wrapped 2*bearingRaw -- the blended rotation
     float chord;       // [mm] hypot(x, y) -- the straight phase when willSplit
     float arcLength;   // [mm] the blended segment's signed distance
-    bool willSplit;    // |theta| >= kTurnFirstAngle
+    bool willSplit;    // |theta| >= kTurnFirstAngle, or the target is behind (x < 0)
   };
   static GoToRPlan decomposeGoToR(float x, float y);  // [mm] [mm]
 
@@ -181,6 +181,13 @@ class MotionEngine {
   // until the next segment starts.
   bool lastSegmentEndedByDeadline() const {
     return lastSegmentEndedByDeadline_;
+  }
+
+  // The most recent Segment was aborted by wrongWay() rather than ending
+  // by arriving, deadline, stall, e-stop or cancel. Latched on the tick
+  // it ended; valid until the next segment starts.
+  bool lastSegmentEndedByWrongWay() const {
+    return lastSegmentEndedByWrongWay_;
   }
 
   // Force-end the current command now; no-op if nothing is active. A
@@ -645,6 +652,7 @@ class MotionEngine {
   uint32_t wrongWayCount_ = 0;
 
   bool lastSegmentEndedByDeadline_ = false;
+  bool lastSegmentEndedByWrongWay_ = false;
 
   bool stallReported_ = false;
 };

@@ -171,6 +171,8 @@ def _bind_motion_lib(lib):
     lib.meMoveX.restype = None
     lib.meWrongWayCount.argtypes = [ctypes.c_void_p]
     lib.meWrongWayCount.restype = ctypes.c_uint32
+    lib.meLastSegmentEndedByWrongWay.argtypes = [ctypes.c_void_p]
+    lib.meLastSegmentEndedByWrongWay.restype = ctypes.c_int
     lib.meLimitsSetAccel.argtypes = [ctypes.c_void_p, ctypes.c_float]
     lib.meLimitsSetAccel.restype = None
     lib.meLimitsSetDecel.argtypes = [ctypes.c_void_p, ctypes.c_float]

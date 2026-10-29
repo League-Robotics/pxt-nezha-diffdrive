@@ -744,6 +744,7 @@ const char* WireHandler::doneReasonWireName(DoneReason reason) {
     case DoneReason::kEstop: return "estop";
     case DoneReason::kAborted: return "aborted";
     case DoneReason::kStall: return "stall";
+    case DoneReason::kWrongWay: return "wrongway";
   }
   return "none";  // unreachable with every enumerator handled above
 }
@@ -890,7 +891,7 @@ void WireHandler::execStatus(char** fields, size_t fieldCount, uint32_t id,
   adapter_.status(status);
   // Worst case ~160 B: "status " + 8 single-digit bools +
   // flags=ffffffff + i2cf=-2147483648 + cyc/next/done at 10 digits each
-  // + tlm's longest wire name ("buffer") + reason's longest ("aborted")
+  // + tlm's longest wire name ("buffer") + reason's longest ("wrongway")
   // + wifi/radio + channel/group at 3 digits + posmove + wrng (10 digits) + sens
   // (~235 B) + '\n'. 240, the wire's line cap, leaves margin. `i2cf` and `cyc` are decimal, not hex
   // like `flags` -- a copy-pasted hex bit would silently turn i2cf=26
