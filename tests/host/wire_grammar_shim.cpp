@@ -252,6 +252,14 @@ void wgSetStatus(void* handle, int ready, int active, int connL, int connR,
   s.tlm = tlm;
 }
 
+// `sens` must outlive its use, same borrowed-pointer contract as
+// wgSetIdentity above.
+void wgSetPoseStatus(void* handle, uint32_t wrng, const char* sens) {
+  Wire::StatusFields& s = static_cast<Handle*>(handle)->adapter.statusToReturn;
+  s.wrng = wrng;
+  s.sens = sens;
+}
+
 void wgSetTransportStatus(void* handle, int wifi, int radio, int channel,
                           int group) {
   Wire::StatusFields& s = static_cast<Handle*>(handle)->adapter.statusToReturn;

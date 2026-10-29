@@ -583,7 +583,14 @@ continuous, but it stages no wheel commands and `isDriving()` is true.
 Completion is both wheels within `arriveDist`/`arriveYaw` and at rest;
 the deadline, e-stop, cancel and a no-progress stall test (`stallWindow`)
 end the move through `hardStop()` on both wheels. `STATUS` carries
-`posmove=` while a position move is live.
+`posmove=` while a position move is live. It also ends with `wrng=`
+(wrong-way segment aborts, the `wrng` column's own source) and `sens=`
+(`optical`, `gyro` or `enc`, the pose estimator's sensor configuration).
+TLM FULL's `bias` is the gyro bias estimate in cdeg/min (diagValue 42),
+`rej` the rejected-sample count (43) and `step` the optical jumps taken
+as the new reference (44); sprint 044's disturbance counter is one more
+`kDiag*` ordinal plus one `columns_` line. The pose estimator and OTOS
+cache refresh at 10 Hz while idle (`idleSense()`), so these move at rest.
 
 ## 4. Wire grammar — `comms/wire_handler.h/.cpp` (`Wire::WireHandler`)
 
@@ -1034,7 +1041,8 @@ in the Nezha encoder's select→read settle window destroys the encoder
 sample; `otosGet(0)`/`otosGet(1)` are 0.1 mm, `otosGet(2)` is already
 centidegrees — do not also divide it); and `wheelSpeed`. POSE's 12
 columns (`seq now flags x y h ox oy oh vl vr i2cf`) are always
-present; FULL adds 8 more (`cyc posl posr dutl dutr lexc wrng cycovr`)
+present; FULL adds 11 more (`cyc posl posr dutl dutr lexc wrng cycovr bias rej
+step`: gyro bias [cdeg/min], rejected samples, optical steps)
 only in `TlmMode::kFull`. **Sprint 008**: `TlmMode::kAuto` and
 `TlmMode::kBuffer`'s previously-undocumented fall-through to POSE's
 column set is now a stated decision, not an accident:

@@ -1340,6 +1340,14 @@ int diagValue(int what) {
     // 41: the last-started move went down the position path and is still
     // live (STATUS `posmove=`).
     case 41: return ensure().engine.isPositionMoveActive() ? 1 : 0;
+    // 42-45: the pose estimator -- gyro bias [cdeg/min], rejected
+    // samples, optical steps taken, sensor configuration (SensorConfig).
+    case 42:
+      return static_cast<int>(
+          std::lround(ensure().estimator.biasRate() * kRadToCdeg * 60.0f));
+    case 43: return static_cast<int>(ensure().estimator.rejectedCount());
+    case 44: return static_cast<int>(ensure().estimator.stepCount());
+    case 45: return static_cast<int>(ensure().estimator.config());
     default: return 0;
   }
 }

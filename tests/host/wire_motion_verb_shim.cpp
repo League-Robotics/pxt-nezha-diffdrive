@@ -250,7 +250,8 @@ struct WaHandle {
 
   // A settable override for diagValue()'s otherwise kernel/engine-
   // derived ordinals (i2cf=8, lexc=9, posl=10, posr=11, dutl=12,
-  // dutr=13, cyc=16, cycovr=19, wrng=25) -- lets a scale test or the
+  // dutr=13, cyc=16, cycovr=19, wrng=25, bias=42, rej=43,
+  // step=44, sens=45) -- lets a scale test or the
   // widest-FULL-frame byte-budget test pin an EXACT raw value (e.g.
   // i2cf=26) with no need to drive dozens of simulated I2C faults (etc.)
   // through the real kernel just to land on one. An armed ordinal wins
@@ -258,7 +259,7 @@ struct WaHandle {
   // (the default) still reads the real computed value, keeping this
   // shim's mirror of shims.cpp's own diagValue() switch meaningful for
   // every other already-tested boolean ordinal (0-7, 14, 15).
-  static constexpr int kMaxDiagOverride = 32;
+  static constexpr int kMaxDiagOverride = 64;
   bool diagOverrideArmed[kMaxDiagOverride] = {};
   int diagOverrideValue[kMaxDiagOverride] = {};
 
@@ -927,6 +928,7 @@ int diagValue(int what) {
     case 19: return static_cast<int>(out.cycleOverrunCount);
     case 25: return static_cast<int>(g_activeWaHandle->engine.wrongWayCount());
     case 41: return g_activeWaHandle->engine.isPositionMoveActive() ? 1 : 0;
+    case 45: return 2;  // no sensors: SensorConfig::kEncodersOnly
     default: return 0;
   }
 }

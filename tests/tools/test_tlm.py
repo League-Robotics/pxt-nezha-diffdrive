@@ -353,6 +353,15 @@ def test_real_captured_full_frame_decodes_all_20_columns():
     assert stream.orphan_frames == 0
 
 
+def test_feed_binds_the_estimator_columns_by_name():
+    stream = tlm.TlmStream()
+    stream.feed(FULL_THDR + ' bias rej step')
+    row = stream.feed(FULL_T_LIVE + ' -420 3 1')
+    assert (row['bias'], row['rej'], row['step']) == (-420, 3, 1)
+    assert row['cycovr'] == 0
+    assert stream.malformed == 0
+
+
 def test_duty_pct_undoes_the_wire_double_x100_scale():
     """The FULL frame's dutl/dutr are percent multiplied by 100 twice
     over (see tlm.py's own header comment for the fraction -> percent

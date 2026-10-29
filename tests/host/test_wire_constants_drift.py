@@ -513,6 +513,10 @@ _KDIAG_ORDINALS = {
     "kDiagCycleCount": 16,
     "kDiagCycleOverrunCount": 19,
     "kDiagWrongWayCount": 25,
+    "kDiagGyroBias": 42,
+    "kDiagRejectCount": 43,
+    "kDiagStepCount": 44,
+    "kDiagSensorConfig": 45,
     "kDiagPositionMoveLive": 41,
 }
 
@@ -542,6 +546,10 @@ _KDIAG_EXPECTED_TOKEN = {
     19: "out.cycleOverrunCount",
     25: "wrongWayCount",
     41: "isPositionMoveActive",
+    42: "biasRate",
+    43: "rejectedCount",
+    44: "stepCount",
+    45: "estimator.config",
 }
 
 

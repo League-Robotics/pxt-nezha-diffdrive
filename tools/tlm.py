@@ -17,8 +17,12 @@ Wire shape (protocol.md S5.2):
 Two column sets exist and can appear in the SAME capture:
 
     POSE (12 cols): seq now flags x y h ox oy oh vl vr i2cf
-    FULL (20 cols): seq now flags x y h ox oy oh vl vr i2cf cyc posl
-                    posr dutl dutr lexc wrng cycovr
+    FULL (23 cols): seq now flags x y h ox oy oh vl vr i2cf cyc posl
+                    posr dutl dutr lexc wrng cycovr bias rej step
+
+`bias` is the estimated gyro bias in centidegrees per minute; `rej` and
+`step` count rejected gyro/optical samples and optical jumps taken as
+the new reference.
 
 Binding by NAME rather than by index is what makes a mid-stream switch
 between the two -- or a firmware upgrade that adds a column -- free.
