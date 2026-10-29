@@ -4,6 +4,7 @@ Run from the repo root:
     uv run --with intelhex --with zeroconf --with psutil python tests/dev/<script>.py
 """
 import math
+import os
 import sys
 import time
 import urllib.request
@@ -23,16 +24,23 @@ from robotlink import Link  # noqa: E402
 LIGHTS = 'http://192.168.6.122/rpc/Switch.Set?id=0&on=true'
 CAPTURES = REPO / 'captures'
 
-__all__ = ['Cam', 'DOTS', 'wrap', 'open_serial', 'fix', 'settled', 'still_pose', 'status', 'send_move', 'movex', 'CAPTURES']
+__all__ = ['Cam', 'DOTS', 'wrap', 'open_serial', 'fix', 'settled', 'still_pose', 'status', 'send_move', 'tlm', 'movex', 'CAPTURES']
 
 
 def open_serial(name='vevov'):
-    """Serial link to `name` through whichever registry node holds it."""
-    with RegistryClient(find_local_api_address(None, SOCKET_ENV_VAR)) as c:
-        dev = c.find(name)
-    host, _, port = dev['endpoint'].rpartition(':')
+    """Serial link to `name` through whichever registry node holds it.
+    DEVLINK_NODE=host[:port] skips the local registry when it has not peered."""
+    node = os.environ.get('DEVLINK_NODE')
+    if node:
+        host, _, port = node.partition(':')
+        port = port or '7440'
+    else:
+        with RegistryClient(find_local_api_address(None, SOCKET_ENV_VAR)) as c:
+            dev = c.find(name)
+        host, _, port = dev['endpoint'].rpartition(':')
     rc = RemoteRegistryClient(host, int(port))
     rc.__enter__()
+    dev = rc.find(name)
     link = Link(remote_connect.connect(rc, dev['uid']), False)
     link.hello()
     return link
@@ -93,6 +101,32 @@ def send_move(link, cmd, limit=30.0, on_poll=None):
             return st
         time.sleep(0.1)
     return status(link)
+
+
+def tlm(link, secs=1.2, tries=3):
+    """Latest TLM FULL row as a dict: x y [mm], h oh [cdeg], ox oy [mm], posl posr [counts]."""
+    for _ in range(tries):
+        row = _tlm_once(link, secs)
+        if row:
+            return row
+    raise SystemExit('no TLM row from the robot')
+
+
+def _tlm_once(link, secs):
+    hdr, row = [], {}
+    link.send('TLM FULL')
+    for s in link.lines(secs):
+        f = s.split()
+        if f and f[0] == 'thdr':
+            hdr = f[1:]
+        elif f and f[0] == 't' and hdr and len(f) - 1 == len(hdr):
+            try:
+                row = dict(zip(hdr, (float(v) for v in f[1:])))
+            except ValueError:
+                pass
+    link.send('TLM OFF')
+    list(link.lines(0.4))
+    return row
 
 
 def movex(link, cam, mm, deg, cruise):

@@ -26,5 +26,11 @@ one camera zero, scored by camera), `park.py` (centre to a point,
 camera-guided) and `otos_probe.py` (encoder vs OTOS vs encoder-distance-
 on-OTOS-heading pose, scored at every rest point).
 
+OTOS characterisation, 2026-10-28 (logs in
+`captures/vevov-otos-drift-20261028/`): `otos_arm.py` (fits where the
+sensor sits from the circle it draws while pivoting) and `otos_drift.py`
+(random go-tos for a set distance, never re-zeroed, logging camera,
+odometry, OTOS and raw wheel counts at every stop).
+
 The parent [`tests/DESIGN.md`](../DESIGN.md) table is the authority on
 what each `tests/` subdirectory needs.

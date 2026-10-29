@@ -1,6 +1,8 @@
 ---
-status: pending
-sprint:
+status: in-progress
+sprint: '044'
+tickets:
+- 044-005
 ---
 
 # `RUN:goto` under the closed profile terminates legs 5–11 cm in, with a clean `GOTO:end` and no latched state
