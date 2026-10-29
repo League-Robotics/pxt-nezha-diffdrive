@@ -3,7 +3,7 @@ id: '007'
 title: Pivot closure on estimator heading
 status: open
 use-cases: [SUC-002]
-depends-on: ['002', '006']
+depends-on: ['002', '006', '011']
 github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
