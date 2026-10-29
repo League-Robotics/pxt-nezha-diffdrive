@@ -63,6 +63,21 @@ Three kinds of file, one pattern:
   `Output`, advances both simulated sensors from the same truth and ticks
   the estimator, so `test_pose_estimator.py` measures heading and
   position error against truth in all three sensor configurations.
+  `shims_cpp_shim.cpp` (sprint 044 ticket 011) is the one shim over the
+  REAL `src/shims.cpp`: the whole `Rig`, with the real kernel, engine,
+  estimator, `board_nezha.cpp` ports and `otos_port.cpp` beneath it,
+  compiled against `pxt_host_stub/pxt.h` and talking I2C to `SimNezhaBus`
+  and `SimOtosBus` (`sim_otos_bus.h`, an OTOS slave with a gyro bias
+  integrating against the stub's clock). Only the `protocol*()` functions
+  `shims.cpp` forward-declares are faked. The stub is NOT inert: the test
+  owns the clock, `fiber_sleep()` advances it, `create_fiber()` records the
+  entry, and `uBit.i2c` routes each address to a registered slave.
+  `shims_cpp_rig.py` holds the source list, flags and ctypes binding;
+  `shims.cpp`'s `Rig` is a process-lifetime singleton, so the `make_rig`
+  fixture (conftest) loads a private copy of the built library per test.
+  This does NOT merge with `wire_motion_verb_shim.cpp`'s test doubles of the
+  same free functions: they stay separate shared objects. Driven by
+  `test_shims_cpp_estimator_wiring.py`.
   `transport_sink_shim.cpp` (sprint 033) exposes
   `diffDrive::TransportSink` and the `wireLineContentLength()` decision
   behind it — the outbound half of the same kind of extraction: three
@@ -209,7 +224,11 @@ radio-robot-lib's `tests/protocol` harness.
 
 ## 3. Constraints and Invariants
 
-- **Only portable sources compile here.** A shim's source list may
+- **Only portable sources compile here, except the shims.cpp build.** The
+  one exemption is `shims_cpp_rig.SOURCES`, whose pxt-bound files compile
+  against `pxt_host_stub/pxt.h` (the stub's `-I` is passed to those
+  `src/` sources only, via `compile_shared_lib(production_flags=...)`, so
+  a misspelled include still fails). Every other shim's source list may
   include `src/core/diffdrive.cpp`, `motion/motion_engine.cpp`,
   `comms/wire_handler.cpp`, `comms/wire_adapter.cpp` — never a `pxt.h`-including
   file. If a link fails because a "portable" file grew a CODAL
@@ -301,10 +320,16 @@ matters" test); and `TLM AUTO`/`BUFFER` `thdr`/`err` pinning.
 Not covered, by design (CODAL-bound) — the canonical list, per file,
 with what gates each one instead, is `tests/DESIGN.md` "Translation
 units nothing on the host compiles", held against the tree by
-`test_pxt_bound_exclusion_is_current.py`. In summary: `nezha_port`, `otos_port`, the
-transports, `protocol.cpp`'s fiber loop and RUN bridge, and
-`shims.cpp`'s real Rig composition/watchdog — hardware sessions are
-their only test. Where a decision inside one of those has been pulled
+`test_pxt_bound_exclusion_is_current.py`. In summary: the
+transports, `protocol.cpp`'s fiber loop and RUN bridge, `nezha_port`'s
+fault handlers and `board_nezha`'s guarded half — hardware sessions are
+their only test. `shims.cpp` and `otos_port.cpp` are no longer among
+them: since sprint 044 ticket 011 they run here against the stub, and
+`test_shims_cpp_estimator_wiring.py` executes the estimator wiring
+(boot probe, idle sensing and its gates, the 4th-tick sample, the re-prime
+after a seed or rebase, bias learning at rest). What it still cannot run
+is `protocol.cpp`'s motion-owner gate around `idleSense()`, which is pinned
+as source text there. Where a decision inside one of those has been pulled
 into a header with no CODAL in it, the decision IS covered and only
 its wiring is not: `radioRxClassify()`'s dispositions and counters are
 host-tested while the `onDatagram()` call and the diag ordinals

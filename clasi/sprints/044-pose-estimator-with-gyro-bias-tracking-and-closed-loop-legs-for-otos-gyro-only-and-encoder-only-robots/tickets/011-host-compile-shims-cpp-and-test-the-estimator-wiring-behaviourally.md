@@ -1,10 +1,14 @@
 ---
-id: "011"
-title: "Host-compile shims.cpp and test the estimator wiring behaviourally"
-status: open
-use-cases: [SUC-001, SUC-004]
-depends-on: ['005', '006']
-github-issue: ""
+id: '011'
+title: Host-compile shims.cpp and test the estimator wiring behaviourally
+status: done
+use-cases:
+- SUC-001
+- SUC-004
+depends-on:
+- '005'
+- '006'
+github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
 ---
@@ -76,14 +80,14 @@ Do:
 
 ## Acceptance Criteria
 
-- [ ] `shims.cpp` compiles and links on the host in the test build
-- [ ] Behavioural tests cover the probe, the idle-read cadence and
+- [x] `shims.cpp` compiles and links on the host in the test build
+- [x] Behavioural tests cover the probe, the idle-read cadence and
       gates, the drive sampling, the reprime and the idle bias
       convergence
-- [ ] Ticket 004's text pins are replaced, or justified where kept
-- [ ] Exclusion table, its guard test and the host-test DESIGN docs
+- [x] Ticket 004's text pins are replaced, or justified where kept
+- [x] Exclusion table, its guard test and the host-test DESIGN docs
       updated
-- [ ] Hex builds via `tools/make_deploy.py`; `uv run pytest tests/host` green
+- [x] Hex builds via `tools/make_deploy.py`; `uv run pytest tests/host` green
 
 ## Testing
 

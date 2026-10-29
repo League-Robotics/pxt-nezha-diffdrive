@@ -363,3 +363,35 @@ def motion_lib(tmp_path_factory):
         out_name="libmotion_engine_shim.so",
     )
     return _bind_motion_lib(ctypes.CDLL(str(lib_path)))
+
+
+@pytest.fixture(scope="session")
+def shims_cpp_built(tmp_path_factory):
+    """Build the host copy of the real src/shims.cpp once per session; see
+    `shims_cpp_rig.py` for the recipe."""
+    import shims_cpp_rig
+
+    lib_path = compile_shared_lib(
+        tmp_path_factory, sources=shims_cpp_rig.SOURCES,
+        out_name="libshims_cpp.so",
+        production_flags=shims_cpp_rig.PRODUCTION_FLAGS,
+    )
+    return lib_path, tmp_path_factory.mktemp("shims_cpp_copies")
+
+
+@pytest.fixture
+def make_rig(shims_cpp_built):
+    """Factory for independent `ShimsRig`s: `make_rig(otos_present=True,
+    bias_rad_s=0.0)`. Each call gets its own library copy and so its own
+    shims.cpp singleton."""
+    import shims_cpp_rig
+
+    built, copy_dir = shims_cpp_built
+    count = [0]
+
+    def make(**kwargs):
+        count[0] += 1
+        return shims_cpp_rig.ShimsRig(built, copy_dir, f"{id(count)}_{count[0]}",
+                                      **kwargs)
+
+    return make

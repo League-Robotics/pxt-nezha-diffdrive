@@ -64,6 +64,13 @@ Everything here is CODAL/`pxt.h`-bound **except** `board.h`,
 host-portable by construction (no `pxt.h` at all) and are host-tested
 directly rather than only proved by a hex checkpoint.
 
+`otos_port.cpp`, `vfp_guard.cpp` and `microbit_i2c_bus.cpp` are the
+exception to the exception: since sprint 044 ticket 011 they compile on
+the host against a stub `pxt.h` inside the `shims.cpp` host build, so the
+real `OtosPort` runs over a simulated OTOS slave
+(`tests/host/sim_otos_bus.h`). The stub is test scaffolding; the files
+themselves are unchanged.
+
 Sprint 033 removed this directory's one previously host-portable file,
 `encoder_pose_source.h` — the dead-reckoning `PoseSource` fallback
 `goToW()` uses on OTOS-less robots is now `Odometry`

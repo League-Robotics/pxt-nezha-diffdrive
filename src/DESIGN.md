@@ -46,6 +46,15 @@ definitions; the host harness supplies its own test-double definitions
 of the same signatures. This is what keeps `wire_adapter.cpp` and
 `shims.cpp` decoupled while sharing one `MotionEngine` singleton.
 
+**Host build of `shims.cpp` (sprint 044 ticket 011).** `shims.cpp`
+and the pxt-bound platform files under it compile on the host against a
+stub `pxt.h` (`tests/host/pxt_host_stub/`) and run over simulated I2C
+slaves (`tests/host/shims_cpp_rig.py`, `shims_cpp_shim.cpp`), so the
+estimator wiring in it is executed by `test_shims_cpp_estimator_wiring.py`.
+This is a test-only seam: nothing in `src/` was changed for it, and
+`protocol.cpp` stays excluded, with the `protocol*()` forward declarations
+faked in the shim.
+
 **Include-path rule (sprint 013).** Every `#include "X"` naming a file
 under one of these subdirectories is qualified relative to `src/`'s
 root (e.g. `motion_engine.h` including the kernel needs
