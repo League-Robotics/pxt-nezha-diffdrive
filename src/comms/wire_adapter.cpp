@@ -216,6 +216,7 @@ constexpr int kDiagRejectCount = 43;       // -> `rej`
 constexpr int kDiagStepCount = 44;         // -> `step`
 constexpr int kDiagSensorConfig = 45;      // -> STATUS `sens=`
 constexpr int kDiagDisturbCount = 46;      // -> `dist`
+constexpr int kDiagLegLive = 47;           // -> STATUS `active`
 
 // LOCAL flags layout's own free function, extracted (unchanged bit
 // layout) so STATUS's `flags=` and the telemetry `flags` column read
@@ -332,10 +333,12 @@ void WireAdapter::status(Wire::StatusFields& out) const {
   // block for why that distinction is load-bearing).
   out.otos = otosGet(kOtosConnected) != 0;
   out.wedge = diagValue(kDiagWedgeLeft) != 0 || diagValue(kDiagWedgeRight) != 0;
-  // "active": ready, not halted, and a wheel is measurably moving.
+  // "active": ready, not halted, and a wheel is measurably moving or a
+  // GO_TO_W command is between its segments.
   out.active = out.ready && !estopped && !leaseExpired && !stallHalted &&
                (diagValue(kDiagVelocityLeft) != 0 ||
-                diagValue(kDiagVelocityRight) != 0);
+                diagValue(kDiagVelocityRight) != 0 ||
+                diagValue(kDiagLegLive) != 0);
 
   out.flags = computeFlags();
   out.i2cf = diagValue(kDiagI2cFault);

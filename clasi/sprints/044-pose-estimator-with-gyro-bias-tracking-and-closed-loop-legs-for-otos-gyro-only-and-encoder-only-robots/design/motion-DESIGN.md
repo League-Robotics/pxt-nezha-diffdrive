@@ -226,3 +226,12 @@ Routing between this path and the kernel is `position_mode` (config);
 
 `VelocityShaper` with `jerk > 0` ramps down to the speed floor and never
 through it, so the last nonzero commanded speed is at least the floor.
+
+## Leg liveness (sprint 044 ticket 015)
+
+`isLegLive()` is `seg_.active && (closure_.pose || goal_.pose)`. `closure_`
+and `goal_` are set only by `goToW()` and cleared by `cancelMove()` and when
+the segment ends, so it is true from the call until the command's done, across
+the closure dwell, correction pivots, the pending straight and the trims. It
+is read through `diagValue(47)` for STATUS `active`; `moving()` / `progress()`
+already follow `seg_.active`, which spans the same interval.

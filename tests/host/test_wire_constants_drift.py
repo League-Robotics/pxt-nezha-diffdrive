@@ -518,6 +518,7 @@ _KDIAG_ORDINALS = {
     "kDiagStepCount": 44,
     "kDiagSensorConfig": 45,
     "kDiagDisturbCount": 46,
+    "kDiagLegLive": 47,
     "kDiagPositionMoveLive": 41,
 }
 
@@ -552,6 +553,7 @@ _KDIAG_EXPECTED_TOKEN = {
     44: "stepCount",
     45: "estimator.config",
     46: "disturbCount",
+    47: "isLegLive",
 }
 
 

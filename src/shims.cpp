@@ -1356,6 +1356,7 @@ int diagValue(int what) {
     case 44: return static_cast<int>(ensure().estimator.stepCount());
     case 45: return static_cast<int>(ensure().estimator.config());
     case 46: return static_cast<int>(ensure().estimator.disturbCount());
+    case 47: return ensure().engine.isLegLive() ? 1 : 0;
     default: return 0;
   }
 }

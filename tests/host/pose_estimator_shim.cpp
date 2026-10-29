@@ -65,6 +65,7 @@ struct Handle {
 
   int sampleEvery = 1;  // peRunMove reads the sensors every Nth tick
   uint32_t tick = 0;
+  uint32_t legLiveTicks = 0, legDeadTicks = 0;  // active ticks by isLegLive()
   float trackError = 1.0f;  // true track width / the engine's
   float posLeft = 0.0f, posRight = 0.0f;  // [counts]
   float truthX = 0.0f, truthY = 0.0f, truthHeading = 0.0f;  // [mm] [rad]
@@ -281,6 +282,7 @@ uint32_t peRunMove(void* handle, float fullDutyVelocity, uint32_t periodMs,
   const float dt = static_cast<float>(periodMs) / 1000.0f;
   uint32_t ticks = 0;
   for (; ticks < maxTicks && h->engine.isMoveActive(); ++ticks) {
+    (h->engine.isLegLive() ? h->legLiveTicks : h->legDeadTicks)++;
     const float cpm = h->engine.countsPerMm();
     const float speedLeft = h->left.appliedDuty() * fullDutyVelocity / cpm;
     const float speedRight = h->right.appliedDuty() * fullDutyVelocity / cpm;
@@ -347,6 +349,9 @@ float peTrimResidual(void* handle) { return as(handle)->engine.lastTrimResidual(
 int peTrimTimedOut(void* handle) {
   return as(handle)->engine.lastTrimTimedOut() ? 1 : 0;
 }
+uint32_t peLegLiveTicks(void* handle) { return as(handle)->legLiveTicks; }
+uint32_t peLegDeadTicks(void* handle) { return as(handle)->legDeadTicks; }
+int peLegLive(void* handle) { return as(handle)->engine.isLegLive() ? 1 : 0; }
 int peMoveActive(void* handle) { return as(handle)->engine.isMoveActive() ? 1 : 0; }
 
 int peEndedByWrongWay(void* handle) {

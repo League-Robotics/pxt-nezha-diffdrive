@@ -633,6 +633,15 @@ target-behind uses pivot-then-straight. `Segment::wrongWay` termination
 sets a distinct stop reason and `wrng` appears in STATUS. TLM FULL gains
 `bias` (cdeg/min) and a reject counter (§5).
 
+**STATUS `active` across a leg (ticket 015).** `active` is the wheels-moving
+bit OR `diagValue(47)` (`MotionEngine::isLegLive()`: a segment is live and a
+`goToW()` closure or goal is attached). A leg's closure dwell, correction
+pivots, pending straight and trims are separate segments with the wheels at
+rest between them; without the OR `active` read 0 there while `done` had not
+advanced. `done` and ack timing are unchanged; `active` falls on the tick the
+segment ends, the same tick `done` resolves. Plain `MOVE_X`, `WHEELS_*` and
+`MOVE_V` never attach a closure or goal, so their `active` is unchanged.
+
 ## 4. Wire grammar — `comms/wire_handler.h/.cpp` (`Wire::WireHandler`)
 
 **Responsibility.** Protocol v6's ASCII line-grammar mechanics plus

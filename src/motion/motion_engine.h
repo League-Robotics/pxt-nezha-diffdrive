@@ -218,6 +218,12 @@ class MotionEngine {
   // A position-mode Segment is in flight. A continuous hold does not count.
   bool isMoveActive() const { return seg_.active; }
 
+  // A goToW() command is live: its closure dwell, correction pivots,
+  // pending straight and trims all sit inside it with the wheels at rest.
+  bool isLegLive() const {
+    return seg_.active && (closure_.pose != nullptr || goal_.pose != nullptr);
+  }
+
   // Either a Segment or a Hold is driving. Callers inferring "something is
   // driving" must read this, not the kernel's applied duty, which is one
   // tick stale after a command is armed.

@@ -933,6 +933,7 @@ int diagValue(int what) {
     case 19: return static_cast<int>(out.cycleOverrunCount);
     case 25: return static_cast<int>(g_activeWaHandle->engine.wrongWayCount());
     case 41: return g_activeWaHandle->engine.isPositionMoveActive() ? 1 : 0;
+    case 47: return g_activeWaHandle->engine.isLegLive() ? 1 : 0;
     case 45: return 2;  // no sensors: SensorConfig::kEncodersOnly
     default: return 0;
   }
