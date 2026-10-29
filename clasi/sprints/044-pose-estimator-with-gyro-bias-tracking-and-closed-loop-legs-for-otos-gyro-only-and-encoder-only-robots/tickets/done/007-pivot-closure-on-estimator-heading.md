@@ -23,6 +23,7 @@ End the pivot phase of a GO_TO_W leg on the estimator's heading rather than enco
 ## Acceptance Criteria
 
 - [x] Pivot lands within 0.5 deg of the commanded heading on estimator heading in sim (Optical, GyroOnly); EncodersOnly unchanged within today tolerance
+  - Measured on sim truth: within 0.5 deg only with the sim omega floor at 10 deg/s (288/288 cases). At the default 20 deg/s floor, within 1.0 deg. A correction cannot be finer than one tick of travel at the floor speed (about 0.48 deg at 20 deg/s, about 1.5 deg on zetuv's 60 deg/s pivot floor). Real-robot landing is bounded by that quantum; ticket 008's cross-track steering absorbs the remainder. Annotated by team-lead 2026-10-28.
 - [x] Bounded: correction cannot loop; times out cleanly
 - [x] No heading discontinuity when sensor drops mid-pivot
 - [x] uv run pytest green
