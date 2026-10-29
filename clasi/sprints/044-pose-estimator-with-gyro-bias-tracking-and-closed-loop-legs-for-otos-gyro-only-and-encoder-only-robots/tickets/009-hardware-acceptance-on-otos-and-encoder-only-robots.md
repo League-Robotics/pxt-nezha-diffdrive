@@ -3,7 +3,7 @@ id: 009
 title: Hardware acceptance on OTOS and encoder-only robots
 status: open
 use-cases: [SUC-001, SUC-002, SUC-003]
-depends-on: ['008', '005']
+depends-on: ['008', '005', '010']
 github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: true
@@ -22,6 +22,7 @@ Camera-truthed acceptance. (a) vevov (OTOS): 100 m random run with tests/dev/oto
 - [ ] OTOS: arrival median < 1 cm, p90 < 2 cm
 - [ ] Stationary 30 min: heading change < 2 deg after settling
 - [ ] tigez (encoders only): zero stalls; arrival results recorded (target documented honestly if sensor-less accuracy is lower)
+- [ ] Disturbance check (ticket 010): bump and lift-and-turn a still robot on camera; count increments, heading follows camera
 - [ ] Captures committed under captures/ and cited
 
 ## Testing

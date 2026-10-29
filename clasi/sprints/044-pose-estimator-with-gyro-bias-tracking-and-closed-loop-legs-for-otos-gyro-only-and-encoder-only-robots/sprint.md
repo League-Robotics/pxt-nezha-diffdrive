@@ -222,6 +222,7 @@ Before tickets can be created, all of the following must be true:
 | 006 | GO_TO_W target-behind policy and distinct wrong-way reason | 002 |
 | 007 | Pivot closure on estimator heading | 002, 006 |
 | 008 | Straight steering on estimator pose and final residual trim | 007 |
-| 009 | Hardware acceptance on OTOS and encoder-only robots | 008, 005 |
+| 009 | Hardware acceptance on OTOS and encoder-only robots | 008, 005, 010 |
+| 010 | Optical rest gate and disturbance handling (added 2026-10-28, stakeholder direction) | 004 |
 
-Tickets execute serially in the order listed.
+Tickets execute serially in dependency order (010 runs before 009).
