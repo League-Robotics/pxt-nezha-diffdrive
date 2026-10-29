@@ -169,6 +169,7 @@ void peSeed(void* handle, float x, float y, float heading) {
   as(handle)->estimator.seed(x, y, heading);
 }
 void peReset(void* handle) { as(handle)->estimator.reset(); }
+void peReprime(void* handle) { as(handle)->estimator.reprime(); }
 
 float peX(void* handle) { return as(handle)->estimator.x(); }
 float peY(void* handle) { return as(handle)->estimator.y(); }

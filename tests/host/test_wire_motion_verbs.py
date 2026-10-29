@@ -3633,7 +3633,7 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     assert match, "shims.cpp's cfgSetRebase() (rebase) body was not found"
     body = match.group(1)
     assert "r.kernel.rebasePosition();" in body, body
-    assert "r.odometry.reset();" in body, body
+    assert "r.estimator.reset();" in body, body
     assert "r.pendingOtosZero = true;" in body, body
     assert "otosRef().setPose" not in body, (
         "case 32 still calls otosRef().setPose(...) synchronously -- "

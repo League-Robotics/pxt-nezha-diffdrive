@@ -68,32 +68,6 @@ class Odometry : public PoseSource {
     x_ = x;
     y_ = y;
     heading_ = heading;
-    anchored_ = false;
-  }
-
-  // Pull heading onto an absolute heading sensor (the OTOS gyro) after
-  // the fact; position keeps integrating encoder distance along it. The
-  // first sample after a seed only anchors the two frames. A sample whose
-  // change disagrees with the encoders' by more than 1 deg + 30% (a
-  // frozen or lifted sensor) is dropped and the next one re-anchors, so
-  // a bad sensor costs only its own drift, never a heading jump.
-  void fuseHeading(float sensor) {  // [rad] sensor's own frame, wrapped
-    if (anchored_) {
-      const float sensorStep = wrapRadians(sensor - lastSensor_);
-      const float encoderStep = heading_ - lastHeading_;
-      if (std::fabs(sensorStep - encoderStep) <=
-          kFuseSlack + kFuseFraction * std::fabs(encoderStep)) {
-        heading_ += wrapRadians(sensor + offset_ - heading_);
-      } else {
-        anchored_ = false;
-      }
-    }
-    if (!anchored_) {
-      offset_ = heading_ - sensor;
-      anchored_ = true;
-    }
-    lastSensor_ = sensor;
-    lastHeading_ = heading_;
   }
 
   float x() const override { return x_; }  // [mm] world frame
@@ -111,14 +85,7 @@ class Odometry : public PoseSource {
     positionEpochRight_ = out.positionEpochRight;
   }
 
-  static constexpr float kFuseSlack = 0.0174533f;  // [rad] 1 deg
-  static constexpr float kFuseFraction = 0.3f;
-
   const MotionEngine& engine_;
-  bool anchored_ = false;
-  float offset_ = 0.0f;       // [rad] odometry heading - sensor heading
-  float lastSensor_ = 0.0f;   // [rad]
-  float lastHeading_ = 0.0f;  // [rad]
   float x_ = 0.0f, y_ = 0.0f;  // [mm] world frame
   float heading_ = 0.0f;       // [rad] world frame, CCW+, unwrapped
   float posLeft_ = 0.0f, posRight_ = 0.0f;  // [counts] last consumed

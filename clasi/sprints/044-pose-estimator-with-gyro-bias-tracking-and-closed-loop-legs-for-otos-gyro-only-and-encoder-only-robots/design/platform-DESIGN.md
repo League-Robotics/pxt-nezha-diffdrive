@@ -101,9 +101,11 @@ additionally needs `opticalPresent()`. The caller (shims, ticket 004)
 runs `OtosPort::begin()` first.
 
 Follow-on (no ticket yet): the real driver for the non-OTOS gyro part,
-once the part is chosen, implements `GyroSource` only. `OtosPort`
-additionally gains an idle sampling path and may re-run
-`calibrateImu()` after verified stillness.
+once the part is chosen, implements `GyroSource` only. `OtosPort` is
+also read while idle, by `idleSense()` at 10 Hz from the protocol fiber's
+idle pass under the bus guard (DESIGN.md, Sprint 044). It does not re-run
+`calibrateImu()` after stillness; that stays a fallback only if software
+bias tracking fails the stationary criterion on hardware.
 
 ## Position moves, the move-live latch and the two speed paths
 

@@ -28,6 +28,10 @@ namespace diffDrive {
 // no header of its own; keep signatures compatible.
 bool tickDrive();
 
+// One idle-pass sensor read (shims.cpp): keeps the pose estimator fed when
+// nothing is ticking the kernel. Rate-limits and guards itself.
+void idleSense();
+
 // Runs the ONE registered RUN dispatch action (test.ts's onRun()/
 // onRunCommand() handlers all share it), on the caller's own fiber --
 // see handleRun()/dispatchJob() below. Returns false with nothing registered
@@ -1102,6 +1106,7 @@ void Protocol::run() {
       if (motionOwner_ == MotionOwner::kWire) {
         motionOwner_ = MotionOwner::kNone;
       }
+      if (motionOwner_ == MotionOwner::kNone) idleSense();
       // Cooperative yield -- lets the kernel's own fiber (and any
       // other) run between polls; never spins.
       //

@@ -1,9 +1,12 @@
 ---
 id: '004'
 title: Wire estimator into the shim with idle sensor read path
-status: open
-use-cases: [SUC-001, SUC-004]
-depends-on: ['002']
+status: done
+use-cases:
+- SUC-001
+- SUC-004
+depends-on:
+- '002'
 github-issue: ''
 issue: otos-fusion-drifts-worse-than-the-sensor-and-legs-miss-cross-track.md
 completes_issue: false
@@ -18,14 +21,22 @@ Integrate the estimator into shims.cpp: boot probe selects configuration; tickDr
 
 ## Acceptance Criteria
 
-- [ ] Idle sensing reads at a few Hz with the robot stationary and no move active; TLM ox/oy/oh update at rest
-- [ ] Bus guard respected; no read inside the encoder settle window (existing bus tests green)
-- [ ] No OTOS fitted: behaviour identical to today (encoders-only)
-- [ ] Idle-path mechanism and its rationale recorded in design overlay/DESIGN.md
-- [ ] Firmware builds (pxt build) and uv run pytest green
+- [x] Idle sensing reads at a few Hz with the robot stationary and no move active; TLM ox/oy/oh update at rest
+- [x] Bus guard respected; no read inside the encoder settle window (existing bus tests green)
+- [x] No OTOS fitted: behaviour identical to today (encoders-only)
+- [x] Idle-path mechanism and its rationale recorded in design overlay/DESIGN.md
+- [x] Firmware builds (pxt build) and uv run pytest green
 
 ## Testing
 
 - **Existing tests to run**: `uv run pytest`, `tests/host` suites touching odometry/motion_engine
 - **New tests to write**: See acceptance criteria; host tests under tests/host
 - **Verification command**: `uv run pytest`
+
+## Implementation notes
+
+- Idle path: `idleSense()` in `shims.cpp`, called from the protocol fiber's idle pass when `motionOwner_ == kNone`; 10 Hz, skips when no OTOS, when any fiber ticked within 150 ms, or when the bus guard is held. Recorded in the sprint overlay DESIGN.md.
+- `OtosPort::begin()` and the probe run in `ensure()` under the bus guard; `otosBegin()` re-probes.
+- `fuseHeading()` is removed; `PoseEstimator` replaces it. `calibrateImu(255)` after stillness is not added (fallback only, per stakeholder decision).
+- `opticalScale` stays 1.0: there is no OTOS linear-scale config key to reuse.
+- Target build: `tools/make_deploy.py` produced a hex; no flash (hardware validation is ticket 009).

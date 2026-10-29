@@ -590,11 +590,35 @@ end the move through `hardStop()` on both wheels. `STATUS` carries
 `PoseEstimator` (`motion/pose_estimator.h`) replaces
 `Odometry::fuseHeading()` as the `PoseSource` `goToW()` reads; `Odometry`
 remains its encoder integrator. `tickDrive()` feeds it encoder output
-every tick and gyro/OTOS samples every 4th tick while driving and at a
-low rate while idle (the idle path must run without a TS
-`while (_tickDrive())` loop being active — the ticket decides the
-mechanism, bounded by the §8/§9 single-executor rule). `goToW()` legs:
-pivot ends on estimator heading; straight steers on estimator pose
+every tick and gyro/OTOS samples every 4th tick (96 ms) while a caller is
+ticking. The sensors come up in `ensure()` (firmware init), not in the user
+program: `OtosPort::begin()` then `probeSensorConfig()`, under the bus
+guard, and `otosBegin()` re-probes. No OTOS answering gives `EncodersOnly`,
+which does no I2C and keeps the `Odometry` arithmetic.
+
+**Idle read mechanism (ticket 004).** When nothing ticks the kernel the
+protocol fiber's idle pass (`Protocol::run()`, the branch with no live wire
+obligation) calls `idleSense()` (`shims.cpp`) while `motionOwner_ ==
+kNone`. It reads at most every 100 ms (10 Hz, the driving cadence: one
+12-byte burst plus two 4 ms bus gaps per sample, and a 2 s ZARU window still
+sees ~20 samples). It does nothing in `EncodersOnly`, while any fiber ticked
+within 150 ms or a command looks active, or while `busGuard.held()` (so it
+never blocks and never lands inside a `step()` settle window); otherwise it
+takes the guard, applies a pending OTOS zero, and runs
+`estimator.update(out, realDt, true)`. This stays inside the §8/§9 single
+executor: the protocol fiber is the wire's tick source, the guard is the one
+bus owner, and a block program or RUN job that owns the drivetrain
+(`kBlock`/`kJob`/`kWire`) is sampled by its own `tickDrive()` instead. A
+user program's own I2C to other devices outside the guard cannot be
+excluded. `calibrateImu(255)` after verified stillness is not wired: the
+ticket-003 replay shows ZARU alone holds heading, so it stays a fallback
+only if ticket 009 shows otherwise. Every `odomUpdate()` passes the real
+elapsed time, which the rest detector (0.25 s) and the ZARU windows need.
+`seedPose()` and the deferred SET rebase zero write the OTOS and then
+`reprime()` the estimator so the pose jump is not read as a gyro step.
+`opticalScale` stays 1.0: no per-robot OTOS linear-scale key exists.
+
+`goToW()` legs: pivot ends on estimator heading; straight steers on estimator pose
 toward the world target; a residual <= ~3 cm is a short straight;
 target-behind uses pivot-then-straight. `Segment::wrongWay` termination
 sets a distinct stop reason and `wrng` appears in STATUS. TLM FULL gains

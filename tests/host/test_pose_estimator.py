@@ -72,6 +72,7 @@ def lib(tmp_path_factory):
     loaded.peOutput.argtypes = [vp, f, f, f, u, u]
     loaded.peSeed.argtypes = [vp, f, f, f]
     loaded.peReset.argtypes = [vp]
+    loaded.peReprime.argtypes = [vp]
     for name in ("peX", "peY", "peHeading", "pePoseSourceX", "peBiasRate",
                  "peTruthX", "peTruthY", "peTruthHeading", "peTrueBias"):
         getattr(loaded, name).argtypes = [vp]
@@ -418,3 +419,30 @@ def test_still_robot_position_does_not_wander_on_optical_noise(lib, make):
     lib.peOpticalJump(rig.h, 5.0, 5.0)
     rig.still(30.0)
     assert math.hypot(lib.peX(rig.h) - x, lib.peY(rig.h) - y) < 5.0
+
+
+@pytest.mark.parametrize("config", SENSOR_CONFIGS)
+def test_idle_reads_at_ten_hz_learn_the_bias_at_rest(lib, make, config):
+    rig = make(config)
+    lib.peGyroBias(rig.h, 40.0 * PER_HOUR)
+    rig.still(300.0, every=10)
+    assert lib.peBiasRate(rig.h) == pytest.approx(40.0 * PER_HOUR,
+                                                  abs=5.0 * PER_HOUR)
+    assert abs(rig.error) < 0.2 * DEG
+
+
+@pytest.mark.parametrize("config", SENSOR_CONFIGS)
+def test_reprime_after_a_reseed_takes_the_new_gyro_frame_without_a_step(
+        lib, make, config):
+    rig = make(config)
+    rig.spin(1.0, 45.0)
+    rig.still(1.0)
+    steps = lib.peSteps(rig.h)
+    rejected = lib.peRejected(rig.h)
+    lib.peGyroStep(rig.h, 30.0 * DEG)
+    lib.peSeed(rig.h, 0.0, 0.0, 0.5)
+    lib.peReprime(rig.h)
+    rig.still(2.0)
+    assert lib.peHeading(rig.h) == pytest.approx(0.5, abs=0.2 * DEG)
+    assert lib.peSteps(rig.h) == steps
+    assert lib.peRejected(rig.h) == rejected

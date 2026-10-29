@@ -1,5 +1,5 @@
 // diffDrive::PoseEstimator -- the robot's pose from whatever sensors it has,
-// and the PoseSource goToW() reads. Replaces Odometry::fuseHeading().
+// and the PoseSource goToW() reads.
 //
 // Encoders always integrate (through an Odometry used only to difference
 // them). A gyro, when present, is the heading reference; its rate bias is
@@ -29,7 +29,7 @@ struct PoseEstimatorParams {
   float restDwell = 0.25f;  // [s]
 
   // A gyro change is believed when it agrees with the encoders' to within
-  // slack + fraction of theirs (the rule fuseHeading() used).
+  // slack + fraction of theirs.
   float gateSlack = 0.0174533f;  // [rad] 1 deg
   float gateFraction = 0.3f;     // [1]
   int confirmSamples = 3;        // consecutive consistent samples that make a
@@ -112,6 +112,10 @@ class PoseEstimator : public PoseSource {
     agree_ = 0;
   }
   void reset() { seed(0.0f, 0.0f, 0.0f); }
+
+  // The optical source was re-seeded: take the next gyro reading as the new
+  // reference instead of reading the jump as a step.
+  void reprime() { gyroPrimed_ = false; }
 
   float x() const override { return x_; }              // [mm] world frame
   float y() const override { return y_; }              // [mm] world frame
