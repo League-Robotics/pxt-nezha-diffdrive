@@ -169,8 +169,9 @@ def test_field_calibration_vevov_entry_change_is_documented_not_silent():
     assert vevov['lever_cm'] == [0.0, 0.0]
     # the change must stay loudly documented, in the file and as an issue
     assert 'linefollow' in vevov['_linefollow_hazard']
-    issue = (_REPO_ROOT / 'clasi' / 'issues' /
-             'linefollow-raw-tag-geometry-stale-after-the-vevov-replate.md')
-    assert issue.exists(), (
+    issues = [p for p in (_REPO_ROOT / 'clasi' / 'issues').rglob(
+        'linefollow-raw-tag-geometry-stale-after-the-vevov-replate.md')
+        if 'done' not in p.parts]
+    assert issues, (
         'vevov\'s raw-tag geometry is stale after the replate; the issue '
         'recording that must not be deleted while the placeholders stand')

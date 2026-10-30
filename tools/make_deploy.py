@@ -1071,7 +1071,10 @@ _GEOMETRY_BAKE_RES = {
     'stop_distance_mm': re.compile(r'(float stopDistance = )[-+0-9.eE]+(f;)'),
     'accel': re.compile(r'(float accel = )[-+0-9.eE]+(f;)'),
     'decel': re.compile(r'(float decel = )[-+0-9.eE]+(f;)'),
+    'otos_linear_scale': re.compile(r'(float linearScale_ = )[-+0-9.eE]+(f;)'),
     'otos_angular_scale': re.compile(r'(float angularScale_ = )[-+0-9.eE]+(f;)'),
+    'otos_arm_x': re.compile(r'(float bakedArmX_ = )[-+0-9.eE]+(f;)'),
+    'otos_arm_y': re.compile(r'(float bakedArmY_ = )[-+0-9.eE]+(f;)'),
 }
 
 # Which `src/motion/*.h` file each `_GEOMETRY_BAKE_RES` key's regex
@@ -1089,7 +1092,10 @@ _GEOMETRY_BAKE_FILES = {
     'stop_distance_mm': 'motion_limits.h',
     'accel': 'motion_limits.h',
     'decel': 'motion_limits.h',
+    'otos_linear_scale': '../platform/otos_port.h',
     'otos_angular_scale': '../platform/otos_port.h',
+    'otos_arm_x': '../platform/otos_port.h',
+    'otos_arm_y': '../platform/otos_port.h',
 }
 
 # OLD bake key -> NEW bake key, for a robot config that has not yet been
@@ -1145,6 +1151,9 @@ def _resolve_geometry_bake_aliases(robot, bake):
     return resolved
 
 
+BAKE_OVERRIDES = {}
+
+
 def _read_robot_firmware_bake(robot):
     """Read `geometry.firmware_bake` from `robot`'s radio-robot-lib
     config, or `{}` when the robot declares none.
@@ -1155,7 +1164,7 @@ def _read_robot_firmware_bake(robot):
     opinion."""
     path = _robot_config_path(robot)
     if not os.path.exists(path):
-        return {}
+        return dict(BAKE_OVERRIDES)
     try:
         with open(path) as f:
             config = json.load(f)
@@ -1166,7 +1175,7 @@ def _read_robot_firmware_bake(robot):
     if not isinstance(bake, dict):
         sys.exit(f"make_deploy: geometry.firmware_bake in {path} is "
                   f"{type(bake).__name__}, expected an object")
-    return bake
+    return {**bake, **BAKE_OVERRIDES}
 
 
 # ---- per-robot board selection bake --------------------------------------
@@ -1274,12 +1283,12 @@ def _inject_geometry(deploy_dir, robot):
             # 20260904d/pivot-gates-gain2.log); the geometry scales
             # must stay strictly positive.
             zero_ok = key in ('lag_s', 'stop_distance_mm')
-            if (not isinstance(value, (int, float)) or value < 0
-                    or (value == 0 and not zero_ok)):
+            signed = key in ('otos_arm_x', 'otos_arm_y')
+            if (not isinstance(value, (int, float)) or isinstance(value, bool)
+                    or (not signed and (value < 0 or (value == 0 and not zero_ok)))):
                 sys.exit(f"make_deploy: geometry.firmware_bake.{key} for "
-                          f"'{robot}' is {value!r}; expected a "
-                          f"{'non-negative' if zero_ok else 'positive'} "
-                          f"number")
+                          f"'{robot}' is {value!r}; expected "
+                          f"{'a number' if signed else 'a non-negative number' if zero_ok else 'a positive number'}")
             # MUST keep a decimal point: `%g` renders 128.0 as `128`, and
             # `128f` is not a valid C++ literal (an integer literal
             # cannot take an `f` suffix) -- it fails the build, and did
@@ -1661,7 +1670,16 @@ def main():
                           "test.ts build only. Empty (default) leaves "
                           "the profile as plain <robot>, unchanged from "
                           "before this flag existed")
+    ap.add_argument('--bake', action='append', default=[], metavar='KEY=VALUE',
+                     help="override one geometry.firmware_bake key for this "
+                          "build only, e.g. --bake otos_angular_scale=0.990")
     a = ap.parse_args()
+    for item in a.bake:
+        key, _, value = item.partition('=')
+        try:
+            BAKE_OVERRIDES[key] = float(value)
+        except ValueError:
+            ap.error(f'--bake {item!r} must be KEY=NUMBER')
     if a.no_otos and (a.fault_spin or a.testrig or a.program != 'test.ts'):
         ap.error('--no-otos is supported only by the primary test.ts build')
     if a.profile_suffix and (a.fault_spin or a.testrig

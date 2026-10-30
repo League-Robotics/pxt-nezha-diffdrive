@@ -161,7 +161,7 @@ class Eye:
 
     def snap(self, path, img, robot, cubes, note=""):
         out = img.copy()
-        for col, sx, sy, wide in SQUARES:
+        for _col, sx, sy, wide in SQUARES:
             hx, hy = HALF if wide else HALF[::-1]
             cv2.rectangle(out, to_px(sx - hx, sy + hy), to_px(sx + hx, sy - hy), (255, 255, 255), 1)
         for col, x, y in cubes:

@@ -1,0 +1,32 @@
+   1   0.25 m  miss  1.5 cm  cam   -11.2  odo   -139.6  otos  -139.2  i2cf 2006.0
+   2   1.01 m  miss  5.3 cm  cam  -147.9  odo   -277.7  otos   +83.1  i2cf 2033.0
+   3   1.69 m  miss  2.2 cm  cam   +11.9  odo   -117.4  otos  -116.4  i2cf 2035.0
+   4   1.98 m  miss  0.2 cm  cam   +72.8  odo    -58.4  otos   -56.7  i2cf 2047.0
+   5   2.31 m  miss  1.3 cm  cam  -125.5  odo   +103.4  otos  +105.4  i2cf 2058.0
+leg 6: no camera fix even with lights on; holding still and retrying
+leg 6: no camera fix even with lights on; holding still and retrying
+   6   2.66 m  miss  0.1 cm  cam  -165.6  odo    +64.8  otos   +68.2  i2cf 2058.0
+   7   3.00 m  miss  0.2 cm  cam  +119.7  odo     -9.8  otos    -6.0  i2cf 2072.0
+   8   3.54 m  miss  1.9 cm  cam    -0.7  odo   -129.6  otos  -125.5  i2cf 2089.0
+   9   3.98 m  miss  3.3 cm  cam  -131.7  odo   -262.0  otos  +102.4  i2cf 2107.0
+  10   4.58 m  miss  2.1 cm  cam   +28.7  odo   -103.0  otos   -98.2  i2cf 2108.0
+  11   4.97 m  miss  1.4 cm  cam  -158.9  odo    +70.9  otos   +75.8  i2cf 2111.0
+  12   5.30 m  miss  0.4 cm  cam  +133.5  odo     +2.8  otos    +8.0  i2cf 2125.0
+  13   5.71 m  miss  0.7 cm  cam  -143.2  odo    +86.4  otos   +91.9  i2cf 2127.0
+  14   6.35 m  miss  2.4 cm  cam   +31.6  odo   +262.1  otos   -92.1  i2cf 2138.0
+  15   6.62 m  miss  1.1 cm  cam   -47.6  odo   +181.3  otos  -172.6  i2cf 2153.0
+  16   7.06 m  miss  1.7 cm  cam  -154.4  odo    +74.2  otos   +80.6  i2cf 2171.0
+  17   7.39 m  miss  0.3 cm  cam   +92.4  odo    -37.7  otos   -31.0  i2cf 2184.0
+  18   7.79 m  miss  1.3 cm  cam   -59.9  odo   -189.8  otos  +177.2  i2cf 2200.0
+  19   8.24 m  miss  1.1 cm  cam  +106.7  odo    -23.9  otos   -16.6  i2cf 2222.0
+  20   8.83 m  miss  2.0 cm  cam   -52.0  odo   -182.5  otos  -174.9  i2cf 2236.0
+  21   9.52 m  miss  1.2 cm  cam  -178.1  odo   -308.6  otos   +59.4  i2cf 2247.0
+  22  10.00 m  miss  1.3 cm  cam   +58.9  odo   -431.6  otos   -63.2  i2cf 2263.0
+  23  10.41 m  miss  1.0 cm  cam   -30.8  odo   -521.3  otos  -152.5  i2cf 2276.0
+  24  10.67 m  miss  0.8 cm  cam   -61.1  odo   -551.6  otos  +177.4  i2cf 2296.0
+  25  11.20 m  miss  2.6 cm  cam  +139.7  odo   -709.6  otos   +19.7  i2cf 2312.0
+  26  11.66 m  miss  1.6 cm  cam   -52.8  odo   -542.7  otos  -173.1  i2cf 2325.0
+  27  12.21 m  miss  2.9 cm  cam  +134.8  odo   -714.8  otos   +15.1  i2cf 2333.0
+  28  12.62 m  miss  0.7 cm  cam  -137.3  odo   -625.6  otos  +104.6  i2cf 2342.0
+  29  12.94 m  miss  1.5 cm  cam   +16.0  odo   -472.9  otos  -102.4  i2cf 2344.0
+  30  13.37 m  miss  1.8 cm  cam   +29.1  odo   -459.6  otos   -88.8  i2cf 2346.0

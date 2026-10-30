@@ -60,6 +60,8 @@ DONE_STOP = 1
 DONE_TIMEOUT = 2
 DONE_ESTOP = 3
 DONE_ABORTED = 4
+DONE_STALL = 5
+DONE_WRONGWAY = 6
 
 _DONE_REASON_NAME = {
     DONE_NONE: "none",
@@ -67,6 +69,8 @@ _DONE_REASON_NAME = {
     DONE_TIMEOUT: "timeout",
     DONE_ESTOP: "estop",
     DONE_ABORTED: "aborted",
+    DONE_STALL: "stall",
+    DONE_WRONGWAY: "wrongway",
 }
 
 # Wire::TlmMode's DECLARATION-ORDER ordinal.
@@ -166,6 +170,10 @@ def _bind(lib):
         ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
     ]
     lib.wgSetTransportStatus.restype = None
+    lib.wgSetPoseStatus.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint32, ctypes.c_char_p,
+    ]
+    lib.wgSetPoseStatus.restype = None
     lib.wgSetGetOverride.argtypes = [
         ctypes.c_void_p, ctypes.c_char_p, ctypes.c_float,
     ]
@@ -339,6 +347,9 @@ class WireGrammar:
     def set_transport_status(self, wifi=False, radio=False, channel=0, group=0):
         self._lib.wgSetTransportStatus(self._handle, int(wifi), int(radio),
                                        channel, group)
+
+    def set_pose_status(self, wrng=0, sens: bytes = b"enc"):
+        self._lib.wgSetPoseStatus(self._handle, wrng, sens)
 
     def set_get_override(self, name: bytes, value: float):
         self._lib.wgSetGetOverride(self._handle, name, value)
@@ -999,8 +1010,14 @@ def test_status_golden_vector(wg):
     assert wg.take_sink() == (
         b"status ready=1 active=0 connL=1 connR=1 otos=0 wedge=0 "
         b"flags=a i2cf=26 cyc=147 tlm=pose next=1 done=0 reason=none "
-        b"wifi=0 radio=0 channel=0 group=0 posmove=0\n"
+        b"wifi=0 radio=0 channel=0 group=0 posmove=0 wrng=0 sens=enc\n"
     )
+
+
+def test_status_carries_wrng_and_sens_after_posmove(wg):
+    wg.set_pose_status(wrng=7, sens=b"optical")
+    wg.feed(b"STATUS #1\n")
+    assert wg.take_sink().endswith(b" posmove=0 wrng=7 sens=optical\n")
 
 
 def test_status_carries_wifi_and_radio_channel_group(wg):
@@ -1013,11 +1030,11 @@ def test_status_carries_wifi_and_radio_channel_group(wg):
     wg.set_transport_status(wifi=True, radio=False, channel=55, group=114)
     wg.feed(b"STATUS #1\n")
     line = wg.take_sink()
-    assert line.endswith(b" reason=none wifi=1 radio=0 channel=55 group=114 posmove=0\n")
+    assert line.endswith(b" reason=none wifi=1 radio=0 channel=55 group=114 posmove=0 wrng=0 sens=enc\n")
     wg.set_transport_status(wifi=False, radio=True, channel=255, group=255)
     wg.feed(b"STATUS #2\n")
     line = wg.take_sink()
-    assert line.endswith(b" wifi=0 radio=1 channel=255 group=255 posmove=0\n")
+    assert line.endswith(b" wifi=0 radio=1 channel=255 group=255 posmove=0 wrng=0 sens=enc\n")
     assert len(line) <= 240
 
 

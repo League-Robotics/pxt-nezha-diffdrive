@@ -93,6 +93,7 @@ DONE_TIMEOUT = 2
 DONE_ESTOP = 3
 DONE_ABORTED = 4
 DONE_STALL = 5
+DONE_WRONGWAY = 6
 _DONE_REASON_NAME = {
     DONE_NONE: "none",
     DONE_STOP: "stop",
@@ -100,6 +101,7 @@ _DONE_REASON_NAME = {
     DONE_ESTOP: "estop",
     DONE_ABORTED: "aborted",
     DONE_STALL: "stall",
+    DONE_WRONGWAY: "wrongway",
 }
 
 # DiffDrive::DifferentialDrive::Status's DECLARATION order (src/core/diffdrive.h).
@@ -136,6 +138,18 @@ DIAG_APPLIED_DUTY_RIGHT = 13
 DIAG_CYCLE_COUNT = 16
 DIAG_CYCLE_OVERRUN_COUNT = 19
 DIAG_WRONG_WAY_COUNT = 25
+DIAG_GYRO_BIAS = 42
+DIAG_REJECT_COUNT = 43
+DIAG_STEP_COUNT = 44
+DIAG_SENSOR_CONFIG = 45
+DIAG_DISTURB_COUNT = 46
+DIAG_ACCEL_X = 48
+DIAG_ACCEL_Y = 49
+DIAG_ACCEL_Z = 50
+DIAG_ACCEL_PEAK = 51
+DIAG_BUS_FAIL_COUNT = 52
+DIAG_STALE_COUNT = 53
+DIAG_GLITCH_COUNT = 54
 
 
 def _ack(n, last_done=0, reason=DONE_NONE):
@@ -3633,7 +3647,7 @@ def test_rebase_shims_cpp_zeroes_encoder_frame_and_reseeds_otos():
     assert match, "shims.cpp's cfgSetRebase() (rebase) body was not found"
     body = match.group(1)
     assert "r.kernel.rebasePosition();" in body, body
-    assert "r.odometry.reset();" in body, body
+    assert "r.estimator.reset();" in body, body
     assert "r.pendingOtosZero = true;" in body, body
     assert "otosRef().setPose" not in body, (
         "case 32 still calls otosRef().setPose(...) synchronously -- "

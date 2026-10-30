@@ -38,6 +38,18 @@ from test_wire_motion_verbs import (  # noqa: F401 -- wa/motion_verb_lib re-expo
     DIAG_CONN_RIGHT,
     DIAG_CYCLE_COUNT,
     DIAG_CYCLE_OVERRUN_COUNT,
+    DIAG_GYRO_BIAS,
+    DIAG_REJECT_COUNT,
+    DIAG_SENSOR_CONFIG,
+    DIAG_DISTURB_COUNT,
+    DIAG_ACCEL_PEAK,
+    DIAG_ACCEL_X,
+    DIAG_ACCEL_Y,
+    DIAG_ACCEL_Z,
+    DIAG_BUS_FAIL_COUNT,
+    DIAG_GLITCH_COUNT,
+    DIAG_STALE_COUNT,
+    DIAG_STEP_COUNT,
     DIAG_ESTOPPED,
     DIAG_I2C_FAULT,
     DIAG_LEASE_EXPIRED,
@@ -233,6 +245,17 @@ _REALISTIC_FULL_DIAG_OVERRIDES = {
     DIAG_CYCLE_COUNT: 12345678,
     DIAG_CYCLE_OVERRUN_COUNT: 9999,
     DIAG_WRONG_WAY_COUNT: 9999,
+    DIAG_GYRO_BIAS: -300000,
+    DIAG_REJECT_COUNT: 99999,
+    DIAG_STEP_COUNT: 9999,
+    DIAG_DISTURB_COUNT: 9999,
+    DIAG_ACCEL_X: -2048,
+    DIAG_ACCEL_Y: -2048,
+    DIAG_ACCEL_Z: -2048,
+    DIAG_ACCEL_PEAK: 4096,
+    DIAG_BUS_FAIL_COUNT: 99999,
+    DIAG_STALE_COUNT: 99999,
+    DIAG_GLITCH_COUNT: 9999,
 }
 
 
@@ -246,7 +269,7 @@ def test_widest_realistic_full_frame_fits_under_radio_cap(wa):
     wa.set_now_ms(123456789)
 
     snapshot = wa.build_snapshot()
-    assert snapshot.count == 20  # POSE's 12 plus FULL's 8
+    assert snapshot.count == 31  # POSE's 12 plus FULL's 19
 
     wa.emit_telemetry(snapshot)
     lines = wa.take_sink().split(b"\n")
@@ -256,9 +279,79 @@ def test_widest_realistic_full_frame_fits_under_radio_cap(wa):
     # Measured, not guessed -- pinned here as a regression, and this
     # ticket's own final report restates the exact numbers for ticket
     # 005's bench handoff notes to re-state to the stakeholder in turn.
-    assert len(thdr_line) == 86
-    assert len(t_line) == 138
-    assert len(t_line) < 200  # RadioTransport::kMaxPayloadBytes
+    assert len(thdr_line) == 131
+    assert len(t_line) == 202
+    assert len(t_line) < 240  # RadioTransport::kMaxPayloadBytes
+
+
+def test_full_appends_estimator_then_accelerometer_after_cycovr(wa):
+    wa.on_tlm(TLM_FULL)
+    names = [name for name, _, _ in wa.build_snapshot().columns()]
+    assert names[-12:] == ["cycovr", "bias", "rej", "step", "dist",
+                           "ax", "ay", "az", "apk", "busf", "stl", "glt"]
+
+
+def test_pose_mode_carries_no_estimator_columns(wa):
+    wa.on_tlm(TLM_POSE)
+    names = [name for name, _, _ in wa.build_snapshot().columns()]
+    assert not {"bias", "rej", "step", "dist", "ax", "ay", "az", "apk",
+                "busf", "stl", "glt"} & set(names)
+
+
+def test_full_estimator_columns_are_plain_diag_passthrough(wa):
+    wa.on_tlm(TLM_FULL)
+    wa.set_diag_override(DIAG_GYRO_BIAS, -1234)
+    wa.set_diag_override(DIAG_REJECT_COUNT, 17)
+    wa.set_diag_override(DIAG_STEP_COUNT, 3)
+    wa.set_diag_override(DIAG_DISTURB_COUNT, 2)
+    cols = _column_map(wa.build_snapshot())
+    assert cols["bias"] == (-1234, False)
+    assert cols["rej"] == (17, False)
+    assert cols["step"] == (3, False)
+    assert cols["dist"] == (2, False)
+
+
+def test_full_accelerometer_columns_are_plain_diag_passthrough(wa):
+    wa.on_tlm(TLM_FULL)
+    for ordinal, value in ((DIAG_ACCEL_X, 15), (DIAG_ACCEL_Y, -40),
+                           (DIAG_ACCEL_Z, -1002), (DIAG_ACCEL_PEAK, 310)):
+        wa.set_diag_override(ordinal, value)
+    cols = _column_map(wa.build_snapshot())
+    assert [cols[k] for k in ("ax", "ay", "az", "apk")] == [
+        (15, False), (-40, False), (-1002, False), (310, False)]
+
+
+def test_full_i2cf_cause_columns_are_plain_diag_passthrough(wa):
+    wa.on_tlm(TLM_FULL)
+    for ordinal, value in ((DIAG_BUS_FAIL_COUNT, 3), (DIAG_STALE_COUNT, 41),
+                           (DIAG_GLITCH_COUNT, 2)):
+        wa.set_diag_override(ordinal, value)
+    cols = _column_map(wa.build_snapshot())
+    assert [cols[k] for k in ("busf", "stl", "glt")] == [
+        (3, False), (41, False), (2, False)]
+
+
+def test_status_wrng_and_sens_share_the_diag_sources(wa):
+    wa.set_diag_override(DIAG_WRONG_WAY_COUNT, 4)
+    for ordinal, name in ((0, b"optical"), (1, b"gyro"), (2, b"enc")):
+        wa.set_diag_override(DIAG_SENSOR_CONFIG, ordinal)
+        wa.feed(b"STATUS #1\n")
+        assert wa.take_sink().endswith(b" wrng=4 sens=" + name + b"\n")
+    wa.on_tlm(TLM_FULL)
+    assert _column_map(wa.build_snapshot())["wrng"] == (4, False)
+
+
+def test_shim_estimator_diag_cases_and_idle_refresh_are_pinned():
+    shims = (_SRC_DIR / "shims.cpp").read_text()
+    for token in ("estimator.biasRate() * kRadToCdeg * 60.0f",
+                  "estimator.rejectedCount()", "estimator.stepCount()",
+                  "estimator.disturbCount()",
+                  "estimator.config()"):
+        assert token in shims
+    idle = re.search(r"void idleSense\(\) \{(.*?)\n\}", shims, re.DOTALL)
+    assert idle is not None
+    assert "odomUpdate(r, true)" in idle.group(1)
+    assert "kIdleSensePeriod" in idle.group(1)
 
 
 # ---------------------------------------------------------------------------

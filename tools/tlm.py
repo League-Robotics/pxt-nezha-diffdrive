@@ -17,8 +17,19 @@ Wire shape (protocol.md S5.2):
 Two column sets exist and can appear in the SAME capture:
 
     POSE (12 cols): seq now flags x y h ox oy oh vl vr i2cf
-    FULL (20 cols): seq now flags x y h ox oy oh vl vr i2cf cyc posl
-                    posr dutl dutr lexc wrng cycovr
+    FULL (31 cols): seq now flags x y h ox oy oh vl vr i2cf cyc posl
+                    posr dutl dutr lexc wrng cycovr bias rej step dist
+                    ax ay az apk busf stl glt
+
+`bias` is the estimated gyro bias in centidegrees per minute; `rej` and
+`step` count rejected gyro/optical samples and optical jumps taken as
+the new reference; `dist` counts bumps and lifts seen at rest. `ax ay az`
+are the micro:bit accelerometer in milli-g and `apk` the largest
+per-axis jump between its 50 Hz reads since the previous row. `i2cf`
+counts cycles where either wheel's sample did not advance; `busf` (NAK'd
+encoder select or read), `stl` (acked read unchanged while driven) and
+`glt` (glitch rejects and re-anchors) are its causes, summed over both
+wheels, so a cycle where both wheels miss counts once in `i2cf`, twice there.
 
 Binding by NAME rather than by index is what makes a mid-stream switch
 between the two -- or a firmware upgrade that adds a column -- free.

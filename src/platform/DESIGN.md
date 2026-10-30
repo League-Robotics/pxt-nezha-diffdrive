@@ -64,6 +64,13 @@ Everything here is CODAL/`pxt.h`-bound **except** `board.h`,
 host-portable by construction (no `pxt.h` at all) and are host-tested
 directly rather than only proved by a hex checkpoint.
 
+`otos_port.cpp`, `vfp_guard.cpp` and `microbit_i2c_bus.cpp` are the
+exception to the exception: since sprint 044 ticket 011 they compile on
+the host against a stub `pxt.h` inside the `shims.cpp` host build, so the
+real `OtosPort` runs over a simulated OTOS slave
+(`tests/host/sim_otos_bus.h`). The stub is test scaffolding; the files
+themselves are unchanged.
+
 Sprint 033 removed this directory's one previously host-portable file,
 `encoder_pose_source.h` — the dead-reckoning `PoseSource` fallback
 `goToW()` uses on OTOS-less robots is now `Odometry`
@@ -75,6 +82,52 @@ Detail lives in [`src/DESIGN.md`](../DESIGN.md) §1 (layer map) and §7
 (the full behavioral detail for every port, the board-composition seam,
 and the actuation policy). This file does not duplicate that content —
 it exists so `ls src/platform/` points somewhere.
+
+## gyro_source.h and sensor_config.h — generic gyro interface (sprint 044)
+
+`GyroSource` is the narrow interface the pose estimator reads a heading
+sensor through: `readGyro()` (status ok / failed / stale), integrated
+`gyroHeading()` and/or `gyroRate()` (`providesHeading()` /
+`providesRate()` say which), and `present()`. A stale read succeeded
+but delivered no new sample; a failed one left the latched values
+untouched. `OpticalPositionSource` is the optional companion:
+`opticalPresent()`, `opticalValid()` and
+`takeOpticalIncrement(dx, dy, rawDx, rawDy)`, the centre-position change
+since the previous take plus the sensor's own track with the lever arm
+not applied (false on the take that only re-baselines, after the first
+read or a `setPose()`).
+
+The lever arm belongs to the robot: `geometry.firmware_bake.otos_arm_x` /
+`otos_arm_y` ([mm], body frame, signed) in the robot's radio-robot-lib
+config are baked into `OtosPort::bakedArmX_/Y_` by `make_deploy.py`, the
+same path as `otos_angular_scale`. `otos_linear_scale` (`linearScale_`)
+is baked the same way and written to the chip's linear scalar register
+in `begin()` (value = round((scale - 1) / 0.001), clamped to +-127).
+Measure it from straights on camera: scale = camera / OTOS. A lever arm
+measured in the chip's own units must be multiplied by the same scale. A non-zero baked arm wins:
+`setOffset()` (the `setWorldSensorOffset` block) then changes only the
+sensor yaw. With no baked arm the program's offset applies, as before.
+The template never calls it, so before this the centre was sensor-
+referenced on every robot that didn't.
+
+Implementations: `OtosPort` (target-only, `otos_port.h`; both
+interfaces, fed by the one burst `read()`), and `SimGyro`
+(`tests/host/sim_gyro.h`; configurable bias, temperature-like wander,
+noise, dropout, freeze, read failure). Both headers here are
+host-portable and in the C++11 gate.
+
+`sensor_config.h` holds `SensorConfig {kOptical, kGyroOnly,
+kEncodersOnly}` and `probeSensorConfig(gyro, optical)`: a gyro counts
+only if present and its first `readGyro()` is not kFailed; optical
+additionally needs `opticalPresent()`. The caller (shims, ticket 004)
+runs `OtosPort::begin()` first.
+
+Follow-on (no ticket yet): the real driver for the non-OTOS gyro part,
+once the part is chosen, implements `GyroSource` only. `OtosPort` is
+also read while idle, by `idleSense()` at 10 Hz from the protocol fiber's
+idle pass under the bus guard (DESIGN.md, Sprint 044). It does not re-run
+`calibrateImu()` after stillness; that stays a fallback only if software
+bias tracking fails the stationary criterion on hardware.
 
 ## Position moves, the move-live latch and the two speed paths
 

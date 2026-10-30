@@ -57,9 +57,13 @@ transitively through `platform/platform_ports.h` or
 `platform/otos_port.h`. `pxt.h` ships with the `core` dependency
 declared in `pxt.json`, brings CODAL's whole type set (`uBit`, fibers,
 `NRF52Serial`, `MicroBitRadio`) and PXT's `//%` annotation machinery,
-and none of it exists on the host. They are gated by other means
-instead, and that is a decision (sprint 034 ticket 011), not an
-oversight.
+and none of it exists on the host. Eight of them are gated by other
+means instead, and that is a decision (sprint 034 ticket 011), not an
+oversight. **Sprint 044 ticket 011 reversed it for the other four**
+(`shims.cpp`, `platform/otos_port.cpp`, `platform/vfp_guard.cpp`,
+`platform/microbit_i2c_bus.cpp`): they now compile on the host against
+a stub `pxt.h` (`tests/host/pxt_host_stub/pxt.h`) and are listed under
+"Compiled against the stub" below, not in the table.
 
 **One caveat this table's own guard cannot express.**
 `platform/nezha_port.cpp` and `platform/board_nezha.cpp` (sprint 040
@@ -81,9 +85,12 @@ treatment: its own non-target-bound half (the `NezhaBoard` singleton,
 `boardDiagValue()`) constructs its two `NezhaMotorPort`s through the
 DEFAULT bus argument (`defaultI2CBus()`), which only the target's
 `platform/microbit_i2c_bus.cpp` defines — there is no host definition,
-by design (`platform/i2c_bus.h`'s own comment) — so this file is not
-host-linkable as a whole even with the macro defined, and stays hex-
-checkpoint-only in its entirety. The Nezha-specific field mapping each
+by design (`platform/i2c_bus.h`'s own comment). Since sprint 044
+ticket 011 the stub-built `shims.cpp` library links that file too, so
+`board_nezha.cpp` does link and run there (its pair of ports, `boardMotors()`,
+`boardDiagValue()`); only its `#ifndef DIFFDRIVE_HOST_BUILD` half, the
+fault-context stop frame and the Trackbit line sensors, stays
+hex-checkpoint-only. The Nezha-specific field mapping each
 hook delegates to (`nezhaBoardDiagValue()`, the wiring readback
 methods) is host-tested where it actually lives, in
 `platform/nezha_port.h`/`.cpp` (`tests/host/test_board_nezha_diag.py`);
@@ -119,7 +126,6 @@ already cover.
 
 | file | what binds it to the target | what gates it |
 |---|---|---|
-| `shims.cpp` | the PXT `//%` block surface itself, plus the real `Rig` composition and watchdog | hex checkpoint; the extracted math is host-tested (`motion/odometry.h`, `core/bus_guard.h`, `core/fiber_identity.h`) |
 | `comms/protocol.cpp` | the serial/radio fiber loop, via `platform_ports.h` | hex checkpoint; `test_wire_constants_drift.py` pins the RX drain bound as source text; the cleartext RUN rules were extracted to `comms/run_bridge.cpp`, which **is** in the C++11 gate |
 | `comms/radio_transport.cpp` | `MicroBitRadio`, `uBit.radio` datagram callbacks | hex checkpoint; the RX accept/drop decision and counters live in `radio_transport.h` and are host-tested (`radio_rx_classify_syntax_check.cpp`, `test_radio_transport_rx_capacity.py`) |
 | `comms/serial_transport.cpp` | `uBit.serial` ring sizing and writes | hex checkpoint (the real build's own `-Woverflow`); the `Wire::Sink` half is `comms/transport_sink.h`, host-tested |
@@ -127,33 +133,52 @@ already cover.
 | `platform/nezha_port.cpp` | the ARM fault handlers (naked `__asm`), unmoved — **inside `#ifndef DIFFDRIVE_HOST_BUILD`** | hex checkpoint for the guarded half; everything else compiles and runs on the host over a simulated brick (`tests/host/sim_nezha_bus.h`, driven by `sim_tour.py`), which is what finally put the shaping layer — quantizer, deadband, slew, write throttle, **reversal dwell** — under simulation; its new `nezhaBoardDiagValue()` free function is additionally host-tested directly by `test_board_nezha_diag.py` |
 | `platform/board_nezha.cpp` | the `NezhaBoard` singleton's default-bus port construction (no host `defaultI2CBus()` exists) AND, inside `#ifndef DIFFDRIVE_HOST_BUILD`, `diffdrive_emergency_motor_stop()`'s CODAL write — moved here from `nezha_port.cpp` (sprint 040 ticket 001) per docs/design/cutebot-pro-support.md S2.1, since a second board's frame at the same address must not answer for this one | hex checkpoint for the whole file (unlike `nezha_port.cpp`, no host-linkable half); the field mapping its `boardDiagValue()` hook delegates to is host-tested via `nezha_port.h`'s `nezhaBoardDiagValue()` (`test_board_nezha_diag.py`); the hook wiring itself is source-pinned (`test_board_seam_source_pin.py`) |
 | `platform/board_cutebot.cpp` | the `CutebotBoard` singleton's default-bus device construction (no host `defaultI2CBus()` exists) AND, inside `#ifndef DIFFDRIVE_HOST_BUILD`, `diffdrive_emergency_motor_stop()`'s CODAL write for the Cutebot's single-frame both-wheels-zero (sprint 040 ticket 002) per docs/design/cutebot-pro-support.md S1.2/S2.1 | hex checkpoint for the whole file (same shape as `board_nezha.cpp`, no host-linkable half); the Cutebot-specific field mapping its `boardDiagValue()` hook delegates to is host-tested via `cutebot_port.h`'s `cutebotBoardDiagValue()` (`test_cutebot_port.py`); the hook wiring itself is source-pinned (`test_board_cutebot_source_pin.py`) |
-| `platform/microbit_i2c_bus.cpp` | `uBit.i2c` itself: the codebase's entire CODAL I²C dependency, deliberately concentrated here so `nezha_port.cpp` need not carry it | hex checkpoint; there is no logic to test — every line forwards to `uBit.i2c`, and the interface it implements (`platform/i2c_bus.h`) is host-compiled by every `sim_tour.py` build |
-| `platform/otos_port.cpp` | SparkFun OTOS I²C transactions, via `otos_port.h` | hex checkpoint; the heading-wrap math is `core/heading_wrap.h`, host-tested |
-| `platform/vfp_guard.cpp` | `fiber_sleep()` | hex checkpoint; `test_vfp_guard_source_pin.py` |
 | `platform/wifi_flash_port.cpp` | `codal::MicroBitFlash::flash_write()`/`erase_page()` — one dedicated flash page (sprint 038 ticket 002) | hex checkpoint; on-hardware page-survival is ticket 004's job, not a host test's. Record layout, truncation-vs-reject policy, and list semantics live in `comms/wifi_credential_store.cpp`, which **is** in the C++11 gate and host-tested (`test_wifi_credential_store.py`) against a fake `WifiFlashPort` (`wifi_flash_port_shim.cpp`) |
 
-Two things cover all twelve regardless:
+Two things cover all eight regardless:
 `host/test_include_paths_match_target.py` checks every `#include`
 under `src/` with no compiler at all, these files included, and the
 **hex checkpoint** — a real PXT build for a real target — is the only
 thing that compiles them as the robot will. `host/test_cxx11_syntax_gate.py`
-covers a deliberate list that excludes all twelve.
+covers a deliberate list that excludes all eight.
 
-**Why no stub `pxt.h`.** A stub would only re-prove that these files
-parse, which the include gate plus the hex checkpoint already cover
-between them, and it could not be honest: `serial_transport.cpp:40`'s
-`uBit.serial.setRxBufferSize(kRingBytes)` shipped a silent `uint8_t`
-truncation (sprint 004 ticket 007, Defect B) that the real build's
-`-Woverflow` caught — a stub has to invent that parameter's type, so
-it would only catch the bug if it already encoded the fact under test.
-The project's standing remedy for "logic in a `pxt.h`-bound TU is
-untested" is the pattern in the right-hand column above: move the
-decision into a host-portable header and test it there.
+### Compiled against the stub
+
+Sprint 044 ticket 011, at the stakeholder's direction, host-compiles
+`shims.cpp` and the three pxt-bound platform files its composition needs:
+
+| file | how it runs on the host |
+|---|---|
+| `shims.cpp` | the real `Rig`, `ensure()` boot probe, `tickDrive()`, `idleSense()`, `seedPose()`, `diagValue()` and the config tables, behind `tests/host/shims_cpp_shim.cpp` |
+| `platform/otos_port.cpp` | the real `OtosPort` over a simulated OTOS I2C slave (`tests/host/sim_otos_bus.h`) |
+| `platform/vfp_guard.cpp` | `vfpSafeSleep()` onto the stub's `fiber_sleep()`, which advances the test's clock |
+| `platform/microbit_i2c_bus.cpp` | `defaultI2CBus()` onto the stub's `uBit.i2c`, which routes each address to a simulated slave |
+
+The recipe is `tests/host/shims_cpp_rig.py`; its tests are
+`test_shims_cpp_estimator_wiring.py` (and the pose-estimator suite
+beneath it). `protocol.cpp` and the other transports are still
+excluded, so the `protocol*()` functions `shims.cpp` forward-declares are faked
+in the shim.
+
+**Why a stub now, when sprint 034 said no.** The objection was that a
+stub only re-proves that the files parse, and cannot be honest about CODAL
+signatures (`serial_transport.cpp:40`'s `setRxBufferSize` truncation, caught
+only by the real build's `-Woverflow`). Both still hold for the files that
+stay in the table, which is why they stay. What changed is the cost of the
+alternative: the sprint 044 estimator wiring in `shims.cpp` (boot probe, idle
+sensing and its gates, sample cadence, re-prime after a seed) held
+behaviour that text pins could only check for spelling, and tickets 007/008
+add more of it in the same file. The stub here is not inert — a
+test-owned clock, recorded fibers, per-address I2C slaves — and it declares
+only names the compiled sources use, so it cannot be mistaken for a model of
+CODAL. It proves the wiring executes as written, not that the types match
+the target; the hex build still does that.
 
 **Adding a ninth.** `host/test_pxt_bound_exclusion_is_current.py`
 re-derives this list from the tree and fails if it and the table
 disagree, so a new `pxt.h`-bound `.cpp` cannot land silently
-uncovered.
+uncovered. Files compiled against the stub are named in that test and
+checked against `shims_cpp_rig.SOURCES`.
 
 ## `system/` — the hardware tour suite
 

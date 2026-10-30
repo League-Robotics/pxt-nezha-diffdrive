@@ -473,3 +473,105 @@ def test_decel_bakes_only_motion_limits(tmp_path, monkeypatch):
     assert "float decel = 1000.0f;" in limits
     assert "float accel = 400.0f;" in limits
     assert "float stopDistance = 0.0f;" in limits
+
+
+_OTOS_HEADER = """\
+  float linearScale_ = 1.0f;   // [1] chip distance gain, baked per robot
+  float bakedArmX_ = 0.0f;  // [mm] body frame, baked per robot
+  float bakedArmY_ = 0.0f;  // [mm] body frame, baked per robot
+"""
+
+
+def _deploy_with_otos(tmp_path):
+    deploy = _deploy(tmp_path)
+    platform = deploy / "src" / "platform"
+    platform.mkdir(parents=True)
+    (platform / "otos_port.h").write_text(_OTOS_HEADER)
+    return deploy
+
+
+def test_otos_arm_bakes_signed_values_into_otos_port(tmp_path, monkeypatch):
+    deploy = _deploy_with_otos(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov", {"firmware_bake": {
+                            "otos_arm_x": -43.0, "otos_arm_y": 2.0}})))
+    applied = make_deploy._inject_geometry(str(deploy), "vevov")
+    text = (deploy / "src" / "platform" / "otos_port.h").read_text()
+    assert "float bakedArmX_ = -43.0f;" in text
+    assert "float bakedArmY_ = 2.0f;" in text
+    assert dict(applied) == {"otos_arm_x": -43.0, "otos_arm_y": 2.0}
+
+
+def test_otos_arm_accepts_zero_and_rejects_non_numbers(tmp_path, monkeypatch):
+    deploy = _deploy_with_otos(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov", {"firmware_bake": {
+                            "otos_arm_x": 0.0}})))
+    make_deploy._inject_geometry(str(deploy), "vevov")
+    for bad in ("-43", None, True):
+        monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                            str(_config(tmp_path, "vevov", {"firmware_bake": {
+                                "otos_arm_x": bad}})))
+        with pytest.raises(SystemExit):
+            make_deploy._inject_geometry(str(deploy), "vevov")
+
+
+def test_bake_override_wins_over_the_robot_config(tmp_path, monkeypatch):
+    deploy = _deploy(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov",
+                                    {"firmware_bake": {"travel_calib": 0.7122,
+                                                       "trackwidth": 128.0}})))
+    monkeypatch.setattr(make_deploy, "BAKE_OVERRIDES", {"trackwidth": 111.6})
+    make_deploy._inject_geometry(str(deploy), "vevov")
+    engine_text = _read_engine(deploy)
+    assert "float travelCalib_ = 0.7122f;" in engine_text
+    assert "float trackWidth_ = 111.6f;" in engine_text
+
+
+def test_bake_override_applies_without_a_config_file(tmp_path, monkeypatch):
+    deploy = _deploy(tmp_path)
+    (tmp_path / "lib" / "config" / "robots").mkdir(parents=True)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB", str(tmp_path / "lib"))
+    monkeypatch.setattr(make_deploy, "BAKE_OVERRIDES", {"trackwidth": 111.6})
+    make_deploy._inject_geometry(str(deploy), "nosuch")
+    assert "float trackWidth_ = 111.6f;" in _read_engine(deploy)
+
+
+def test_otos_linear_scale_bakes_into_otos_port(tmp_path, monkeypatch):
+    deploy = _deploy_with_otos(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov", {"firmware_bake": {
+                            "otos_linear_scale": 1.033}})))
+    applied = make_deploy._inject_geometry(str(deploy), "vevov")
+    text = (deploy / "src" / "platform" / "otos_port.h").read_text()
+    assert "float linearScale_ = 1.033f;" in text
+    assert dict(applied) == {"otos_linear_scale": 1.033}
+
+
+def test_otos_linear_scale_absent_leaves_header_identical(tmp_path, monkeypatch):
+    deploy = _deploy_with_otos(tmp_path)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB",
+                        str(_config(tmp_path, "vevov", {"firmware_bake": {
+                            "otos_arm_x": -43.0}})))
+    make_deploy._inject_geometry(str(deploy), "vevov")
+    text = (deploy / "src" / "platform" / "otos_port.h").read_text()
+    assert "float linearScale_ = 1.0f;" in text
+
+
+def test_otos_linear_scale_via_bake_override(tmp_path, monkeypatch):
+    deploy = _deploy_with_otos(tmp_path)
+    (tmp_path / "lib" / "config" / "robots").mkdir(parents=True)
+    monkeypatch.setattr(make_deploy, "RADIO_ROBOT_LIB", str(tmp_path / "lib"))
+    monkeypatch.setattr(make_deploy, "BAKE_OVERRIDES", {"otos_linear_scale": 1.033})
+    make_deploy._inject_geometry(str(deploy), "nosuch")
+    text = (deploy / "src" / "platform" / "otos_port.h").read_text()
+    assert "float linearScale_ = 1.033f;" in text
+
+
+def test_otos_begin_writes_clamped_linear_scalar_register():
+    src = (_REPO_ROOT / "src" / "platform" / "otos_port.cpp").read_text()
+    assert "(linearScale_ - 1.0f) / 0.001f" in src
+    assert "if (linear > 127) linear = 127;" in src
+    assert "if (linear < -127) linear = -127;" in src
+    assert "writeReg8(kRegLinearScalar, static_cast<uint8_t>(static_cast<int8_t>(linear)))" in src

@@ -56,7 +56,7 @@ RIGHT = 1
 
 
 def compile_shared_lib(tmp_path_factory, sources=None, include_dirs=None,
-                        out_name="libkernel_shim.so"):
+                        out_name="libkernel_shim.so", production_flags=None):
     """Compile `sources` (default: diffdrive.cpp + kernel_shim.cpp) into a
     shared library under a fresh session-scoped tmp dir and return its
     path. Mirrors radio-robot-lib/tests/protocol/test_protocol_harness.py's
@@ -70,6 +70,8 @@ def compile_shared_lib(tmp_path_factory, sources=None, include_dirs=None,
     fails here exactly as it fails the real build); `tests/host` shims
     get `include_dirs`, since they must reach into `src/` and nothing
     under `src/` ever includes them. The objects are then linked.
+    `production_flags` are extra compiler flags for the `src/` sources only
+    (the pxt.h stub's `-I`, `-DDIFFDRIVE_HOST_BUILD`).
     """
     sources = [pathlib.Path(s) for s in (sources or _SHIM_SOURCES)]
     include_dirs = include_dirs or [_SRC_DIR, _TEST_DIR]
@@ -82,7 +84,9 @@ def compile_shared_lib(tmp_path_factory, sources=None, include_dirs=None,
         is_production_source = source.resolve().is_relative_to(resolved_src_dir)
         obj_path = build_dir / f"{source.stem}.{index}.o"
         cmd = ["/usr/bin/c++", "-std=c++20", "-Wall", "-Wextra", "-fPIC", "-c"]
-        if not is_production_source:
+        if is_production_source:
+            cmd += list(production_flags or [])
+        else:
             # Host-only test scaffolding (tests/host/*.cpp): the real
             # build never compiles these, so it is fine -- and necessary
             # -- for them to reach into src/ via an explicit search path.

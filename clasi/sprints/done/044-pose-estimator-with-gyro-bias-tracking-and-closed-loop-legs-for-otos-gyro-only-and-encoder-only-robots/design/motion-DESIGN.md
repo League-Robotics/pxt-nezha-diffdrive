@@ -1,0 +1,237 @@
+# src/motion — motion engine
+
+**Owner:** Eric Busboom · **Last reviewed:** 2026-08-26 · **Status:** stable
+
+`motion_engine.h/.cpp` (`diffDrive::MotionEngine`) — reduces every
+student-facing move (`goTo`, `moveX`, `wheelsX`, pivot, twist) to
+constant-ratio wheel segments the kernel can drive. Host-portable: only
+`diffdrive.h` plus libc, no I2C/CODAL dependency.
+
+**Sprint 029** added three new host-portable files to this directory,
+replacing `MotionEngine`'s inline shaping algorithms and `MoveState`:
+`motion_limits.h` (`MotionLimits`, the one settable value object for
+accel/decel/jerk/floors/ceilings/arrival windows), `velocity_shaper.h`/
+`.cpp` (`VelocityShaper`, the one per-tick commanded-speed function used
+by every entry point), and `segment.h` (`Segment`, replacing
+`MoveState`). `motion_engine.h`/`.cpp` keep their public surface but
+`service()` is rewritten to orchestrate these three objects instead of
+running two braided algorithms inline.
+
+**Sprint 033** added `odometry.h` (`Odometry`): the robot's
+dead-reckoned pose as one host-portable object that directly implements
+`PoseSource`. It absorbed `shims.cpp`'s five loose `Rig` odometry
+fields, the free `odomUpdate()` over them, `platform/
+encoder_pose_source.h`'s read-only adapter (deleted), and the
+rebase-epoch guard — which now has exactly one reader in the codebase.
+The integration math itself moved unchanged. `Odometry` reads geometry
+(`countsPerMm()`/`effectiveTrackWidth()`) from `MotionEngine` by
+reference and integrates whatever kernel `Output` it is handed, so it
+holds no kernel and is driven directly by
+`tests/host/test_odometry.py`.
+
+**Sprint 040 ticket 003** added `wheel_command_tap.h`
+(`WheelCommandTap`): a small, host-portable, optional observer
+`MotionEngine` notifies with the shaped per-wheel `(left, right)` mm/s
+alongside every `kernel_.drive()` call (plus that tick's
+`VelocityShaper::Step::phase`), and `onNeutral()` alongside every
+`kernel_.neutral()` call. It exists because the vendored kernel does
+not publish what it was last commanded, only what it measured — a
+board sitting below the kernel has no other way to learn the setpoint.
+`MotionEngine` holds it as a nullable, non-owning pointer
+(`setWheelCommandTap()`); no tap installed is byte-identical to before
+this class existed. **Ticket 004**, same sprint, gives it its first
+real consumer: a Cutebot-composed board installs a `CutebotTapAdapter`
+(`platform/cutebot_port.h`) that converts the shaped mm/s to
+`CutebotActuationPolicy`'s hybrid-actuation decision (`src/DESIGN.md`
+§7). A Nezha-composed board still leaves the pointer `nullptr`.
+
+Detail lives in [`src/DESIGN.md`](../DESIGN.md) §3. This file does not
+duplicate that content — it exists so `ls src/motion/` points
+somewhere.
+
+## pose_estimator.h — one pose from whatever sensors are fitted (sprint 044)
+
+`PoseEstimator` replaces `Odometry::fuseHeading()`. It implements
+`PoseSource` and is what `goToW()` and the closed-loop leg phases read.
+Inputs are the kernel `Output` (encoders, always), an optional
+`GyroSource` (heading rate or integrated heading, with read status) and
+an optional optical position source (the OTOS x/y). Host-portable, no
+I2C; driven by `tests/host` with scripted/simulated sensors.
+
+- **Shape** (ticket 002). `PoseEstimator(const MotionEngine&, params)`;
+  `attachSensors(GyroSource*, OpticalPositionSource*, SensorConfig)`;
+  `update(const Output&, dt, sampleSensors = true)` folds the encoders every
+  call and reads the sensors only when `sampleSensors`, so the shim owns
+  the read cadence; `seed()`/`reset()` as `Odometry`; `config()` is the
+  effective configuration now; `atRest()`, `biasRate()` [rad/s],
+  `rejectedCount()`, `stepCount()` feed TLM. `GyroBiasTracker`
+  (`gyro_bias_tracker.h`) is the separate bias model:
+  `observeRest(change, dt)`, `observeMotion(time, gyroTurn, encoderTurn)`,
+  `rate()`; gains live in `GyroBiasParams`/`PoseEstimatorParams`.
+  `Odometry` gained `stepCentre()`/`stepHeading()` (what the last
+  `update()` folded in) and is otherwise unchanged.
+- **Configurations** (set by what the boot probe found, re-evaluated
+  on sensor failure): `Optical` (OTOS x/y + gyro heading), `GyroOnly`
+  (gyro heading, encoder distance along it), `EncodersOnly` (today's
+  `Odometry` maths, bit-identical). Position and heading are integrated
+  by the estimator itself from `Odometry`'s per-update steps.
+- **Heading** = gyro heading minus an estimated bias angle. In motion
+  the gyro outranks the encoders (ticket 012): a change they disagree
+  with is slip they missed or the gyro's lag at pivot ends, and is taken.
+  Only a read faster than `maxPlausibleRate` (240 deg/s, twice the closed
+  profile's 120 deg/s) is a glitch: its excess over the encoders is
+  skipped and the output follows the encoders. A jump that then holds
+  steady for 3 reads becomes the new reference; the heading is then the
+  gyro since the last accepted anchor minus the glitch, never the
+  encoders' over the rejected interval. Gyro heading is differenced
+  wrap-aware.
+- **Bias** has two observations. Rest (ZARU): encoders unchanged for
+  0.25 s means the true rate is zero, so the heading is HELD and the gyro
+  change feeds the rate (2 s windows, duration-weighted running mean that
+  settles to a 180 s time constant; windows above 0.1 deg/s are steps and
+  skipped). Rest requires the sensors to agree (see Disturbance). Motion: running least-squares of gyro-minus-encoder heading on
+  [1, time, encoder net turn], blended by inverse variance at 0.3 trust.
+  The motion weight is capped at (moved / 300 s)^2 times the rest weight,
+  where moved is the driving time since the last rest observation, so
+  fresh rest evidence leads and the fit only takes over after a long
+  drive (ticket 013). The assumed noise density is 0.012 deg/sqrt(s), twice
+  the worst fleet value.
+  Idle gyro reads must therefore continue while no move is active (ticket 004).
+- **Position** in `Optical`: the source's centre-referenced increments
+  (arm already removed by the port with the chip's heading) rotated by
+  corrected-heading minus raw-gyro heading, which also corrects the arm's
+  heading dependence; encoder motion fills between takes. A take is
+  skipped when it disagrees with the encoders (30 mm + 50%) and the source
+  is dropped after 8 in a row or when it falls 40 mm short of the encoders
+  beyond a 20% allowance (frozen). Increments seen while the wheels are
+  still and the sensor is still are held for the 1 s window and applied if
+  the wheels start moving (the chip sees a start before the encoders do),
+  else dropped. The first take after `attachSensors()`/`reprime()` is only a
+  baseline: the encoder motion before it stays in the output.
+- **Disturbance** (ticket 010). A diff-drive robot cannot slide sideways
+  under its own power, so with the wheels still the OTOS raw track (lever
+  arm NOT applied; `takeOpticalIncrement` returns it beside the centre
+  increment) stays still. Rest therefore means wheels still AND raw track
+  within `disturbDistance` (5 mm) over `disturbWindow` (1 s). Beyond it, or
+  with a gyro rate beyond bias above `disturbRate` (3 deg/s; the only test
+  when no optical fix is up), the robot was bumped or lifted: no ZARU, the
+  gyro change is real rotation and goes to the output (kept out of the bias
+  fit and the step count), position follows the optical track while the fix
+  holds and stays put when it is lost, and `disturbCount()` (TLM `dist`)
+  counts it. The state lasts `disturbWindow` past the last evidence. The
+  gate uses the raw track because the arm-corrected centre creeps at rest by
+  arm x gyro drift (5-10 mm per 30 min on the fleet). The arm is a pure
+  position correction here, never a rotation or bias observer: pivot skid of
+  0.2-2.4 cm per 90 deg swamps it. Limit: a hand turn slower than 3 deg/s
+  moving the sensor less than 5 mm/s is indistinguishable from bias and is
+  held. `EncodersOnly` has no gyro to disturb.
+- **Degrade rule**: 8 failed/stale reads, or identical readings while the
+  encoders turn 3 deg, drop the gyro (and with it the optical source);
+  8 takes with no fix or a freeze drop only the optical source. Heading is
+  already on the encoders in every such interval, so nothing steps; 10 good
+  reads bring a source back with the output as the new anchor.
+
+Leg control (sprint 044): `goToW()` ends the pivot on estimator heading,
+steers the straight toward the world target on estimator pose, and handles
+a small final residual with a short straight. "Target behind" is an
+explicit policy (pivot then forward straight), never a near-zero-yaw
+reverse arc; a wrong-way termination is reported as its own reason.
+
+**Pivot closure** (ticket 007). When `goToW()`'s pose source reports
+`hasHeadingReference()` (the estimator with a gyro up), the pivot phase
+no longer hands straight to the straight phase. After the encoder pivot
+arrives it rests `dwell` (250 ms, enough for fresh sensor reads), reads the
+pose heading, and if the error to the bearing target (pose heading at call
+plus the body-frame bearing, wrapped) exceeds the band it runs a correction
+pivot of that error, then rests and reads again. Rotational slip varies per
+surface and speed, so the correction is measured, not modelled; the first
+pivot still uses the nominal slip. Bounded three ways: `maxCorrections` (3),
+`maxCorrection` per pivot (45 deg, so a bad estimate cannot swing the robot),
+and `timeout` (2500 ms from the first rest, after which the straight starts
+with the heading reached; the segment deadline still spans everything). The
+band is `max(deadband, omegaFloor * tick)`: a pivot cannot be finer than one
+tick at the floor speed, and a smaller correction overshoots by more than it
+fixes, so landing accuracy is floor-limited (about one tick of floor travel).
+Correction cruise is 1 mm/s, which the shaper raises to the per-robot omega
+floor, so the correction runs at the floor with no accel ramp. A source with
+no heading reference (`EncodersOnly`, Odometry, OtosPort, test fakes) skips
+the closure entirely: no dwell, no correction, timing unchanged. If the gyro
+drops mid-closure the next evaluation ends it. `PivotClosure` is an engine
+struct with no wire config; `lastPivotCorrections()`, `lastPivotResidual()`
+and `lastPivotClosureTimedOut()` expose the last closure.
+
+**Straight steering** (ticket 008). When the pose source `tracksMotion()`
+(the estimator, Odometry; not a hand-set test fake) the pivot-then-straight
+leg keeps a `Goal` (target, pose source, line origin and direction). When the
+pivot has settled the straight is re-planned from where the robot actually
+stands: the chord and the line to the target are recomputed from pose, since
+the pivot closure moves heading but not position. Each service tick of the
+straight then steers on the world cross-track error to that line. The law
+is Stanley/pure-pursuit shaped: the wanted heading is the line's heading less
+`atan(crossTrack / lookahead)`, and the yaw trim is `gain` times the heading
+error, clamped to `maxRate` and to `maxShare` of the dominant wheel speed.
+The trim is a redistribution of the dominant wheel's speed (mean speed drops by
+|trim|), so the outer wheel stays at the shaper's command: the wheel ceiling
+and the stiction floor it enforces still hold. It was chosen over a heading-only
+hold because pivot error, wheel slip and sensor offsets all show up as
+cross-track, and over a bare bearing-to-target law because that law is
+ill-conditioned inside the last centimetres; the line is fixed at straight
+start so it is not. It needs no model of the 10 Hz sensor cadence: the
+estimator dead-reckons on encoders between reads, and the gain (4 /s) is
+slow against both. A straight segment has no yaw target, so `wrongWay()` can
+never fire on the trim, and the trim is too small to look like a stall.
+`StraightSteering` (`lookahead` 150 mm, `gain` 4 /s, `maxRate` 20 deg/s,
+`maxShare` 0.15) is an engine struct with no wire config. EncodersOnly steers
+the same way on the odometry pose: odometry already holds its own heading, so the
+trim is near zero and the leg reduces to today's, now re-planned from the pose.
+
+**Final residual trim** (ticket 008). A straight ends on encoder distance. If
+the pose source tracks motion, the leg then rests `dwell` (250 ms), reads the
+along-heading distance to the target and, when the whole residual is within
+`band` (30 mm), runs a short straight of that distance (forward or reverse)
+instead of a re-pivot, at most `maxTrims` (2) within `timeout` (3000 ms from
+the first rest). A trim smaller than `max(deadband, vFloor * tick)` is not
+run. Trims run at the floor speed the shaper enforces and are not steered.
+
+*Reverse exception.* Stakeholder decision 3 forbids reversing to reach a
+target behind the robot: that target is a pivot then a forward straight.
+That rule stays for every leg whose residual exceeds `band`. The one
+exception is a final residual within `band` that is mostly along the heading
+(`|bodyX| >= |bodyY|`): a `goToW()` that starts that close is driven as a
+short straight without a pivot, reversing if the target is behind, and the same
+applies to the trim after a straight. Without it ticket 006's `x < 0` rule
+pivots up to 180 deg for a 1 cm overshoot. A within-band residual that is mostly
+cross-track still takes the pivot path. `lastTrimCount()`, `lastTrimResidual()`
+and `lastTrimTimedOut()` expose the last leg's trim.
+
+## position_move.h — moves run by the motor's own loop
+
+`position_move.h` (`PositionMove`) is a fourth in-flight command beside
+`Segment`, `Hold` and `Nudge`; exactly one of the four is live.
+`MotionEngine` plans it from the same segment maths (`rotationalSlip`,
+`effectiveTrackWidth`): per-wheel count targets, rounded to the port's
+`positionQuantum()` with the rounding error split across the two wheels
+in opposite directions, and per-wheel degrees-per-second proportional to
+each wheel's share of the dominant distance so an arc's two moves finish
+together. Two `beginMove()` calls go out back to back.
+
+While a position move is live the engine still calls `kernel_.step()`,
+so encoder reads, `Output` positions and `Odometry` stay continuous, but
+it stages no wheel commands. Completion is both wheels within
+`arriveDist`/`arriveYaw` and `atRest()`. The deadline, e-stop,
+cancel and a stall test (no progress for `stallWindow` while live) end it
+through `hardStop()`. `isDriving()` is true for the move's duration.
+Routing between this path and the kernel is `position_mode` (config);
+`WHEELS_V`, `MOVE_V`, twist and line following never use it.
+
+`VelocityShaper` with `jerk > 0` ramps down to the speed floor and never
+through it, so the last nonzero commanded speed is at least the floor.
+
+## Leg liveness (sprint 044 ticket 015)
+
+`isLegLive()` is `seg_.active && (closure_.pose || goal_.pose)`. `closure_`
+and `goal_` are set only by `goToW()` and cleared by `cancelMove()` and when
+the segment ends, so it is true from the call until the command's done, across
+the closure dwell, correction pivots, the pending straight and the trims. It
+is read through `diagValue(47)` for STATUS `active`; `moving()` / `progress()`
+already follow `seg_.active`, which spans the same interval.

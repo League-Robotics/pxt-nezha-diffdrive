@@ -1,0 +1,19 @@
+   1   0.25 m  miss  0.8 cm  cam  -170.8  odo    -73.2  otos   -72.9  i2cf 1232.0
+   2   0.51 m  miss  0.4 cm  cam  +127.0  odo   -134.9  otos  -134.4  i2cf 1236.0
+   3   1.07 m  miss  1.7 cm  cam   -18.4  odo   -281.5  otos   +79.3  i2cf 1246.0
+   4   1.93 m  miss  5.3 cm  cam  +147.7  odo   -113.5  otos  -112.4  i2cf 1261.0
+   5   2.64 m  miss  2.1 cm  cam    +9.0  odo   -251.8  otos  +109.4  i2cf 1263.0
+   6   3.42 m  miss  2.5 cm  cam  -170.9  odo    -71.9  otos   -70.5  i2cf 1275.0
+   7   4.17 m  miss  2.1 cm  cam    +6.0  odo   +105.0  otos  +106.7  i2cf 1275.0
+   8   4.60 m  miss  2.1 cm  cam  -173.1  odo   +284.8  otos   -73.3  i2cf 1275.0
+   9   5.18 m  miss  2.0 cm  cam   -32.7  odo   +424.7  otos   +66.9  i2cf 1279.0
+  10   5.72 m  miss  1.5 cm  cam  +173.9  odo   +274.9  otos   -82.7  i2cf 1283.0
+  11   6.09 m  miss  3.7 cm  cam   +37.1  odo   +136.8  otos  +139.3  i2cf 1300.0
+  12   6.64 m  miss  1.2 cm  cam  +173.5  odo   +271.6  otos   -85.6  i2cf 1302.0
+  13   7.11 m  miss  1.6 cm  cam   -30.8  odo   +427.3  otos   +70.3  i2cf 1305.0
+  14   7.49 m  miss  1.5 cm  cam  +132.5  odo   +590.2  otos  -126.6  i2cf 1311.0
+  15   7.86 m  miss  1.7 cm  cam   -23.9  odo   +435.4  otos   +78.8  i2cf 1319.0
+  16   8.36 m  miss  1.4 cm  cam  +162.5  odo   +261.3  otos   -95.0  i2cf 1335.0
+  17   9.02 m  miss  1.6 cm  cam    -7.1  odo    +91.8  otos   +95.9  i2cf 1359.0
+  18   9.33 m  miss  1.2 cm  cam   -95.4  odo     +3.9  otos    +8.1  i2cf 1381.0
+no TLM row from the robot

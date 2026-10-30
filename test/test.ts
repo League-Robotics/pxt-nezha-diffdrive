@@ -170,34 +170,13 @@ const CORNERS_X = [-50, -50, 50, 50]
 const CORNERS_Y = [30, -30, -30, 30]
 const LEG_CM = [100, 60, 100, 60]
 
-// OTOS lever arm, relative to the centre of rotation. MEASURED vevov
-// 2026-08-28, captures/otos-run-handler-i2c-hang-20260828.md; method and
-// camera cross-check in DESIGN.md.
-let armX = -5.27      // [cm] +forward
-let armY = -0.12      // [cm] +left
-let armYaw = 0.89     // [deg] UNVERIFIED -- carried over from 2026-08-21
+// The OTOS lever arm is the robot's own, baked from its config
+// (geometry.firmware_bake otos_arm_x/y); this program never sets one.
 
-let armApplied = false
-
-function applyArm() {
-    diffDrive.setWorldSensorOffset(armX, armY, armYaw)
-    armApplied = true
-    diffDrive.emitLine("ARM:" + Math.round(armX * 100)
-        + ":" + Math.round(armY * 100) + ":" + Math.round(armYaw * 100))
-}
-
-// True once the OTOS is up AND armed. The fast path must still arm:
-// worldTrackingReady() only asks whether the chip answers, and an
-// un-armed sensor reports its own path, not the centre's.
+// True once the OTOS is up.
 function worldReady(): boolean {
-    if (diffDrive.worldTrackingReady()) {
-        if (!armApplied) applyArm()
-        return true
-    }
-    if (diffDrive.startWorldTracking()) {
-        applyArm()          // begin() re-inits the chip; re-apply
-        return true
-    }
+    if (diffDrive.worldTrackingReady()) return true
+    if (diffDrive.startWorldTracking()) return true
     diffDrive.emitLine("OERR:no-otos")
     return false
 }
@@ -369,14 +348,14 @@ function straightRun(cm: number) {
 // ---- lever-arm calibration -------------------------------------------
 // With the offsets zeroed a pure pivot sweeps the SENSOR around the
 // centre of rotation, so its track is a circle: centre = the robot's
-// centre, radius = the arm. verify=true repeats it with the measured arm
-// applied, where a correct arm collapses the circle to a point.
+// centre, radius = the arm. verify=true keeps the baked arm, where a
+// correct arm collapses the circle to a point. verify=false leaves the
+// arm zeroed until reboot.
 function leverCal(verify: boolean) {
     if (touring) return
     if (!worldReady()) return
     beginJob("CAL")
-    if (verify) applyArm()
-    else diffDrive.setWorldSensorOffset(0, 0, 0)
+    if (!verify) diffDrive.setWorldSensorOffset(0, 0, 0)
     // One-off override of the sweep's own slow, fixed rate.
     diffDrive.setDefaultSpeed(15)
     diffDrive.setDefaultYawRate(45)
@@ -557,16 +536,8 @@ diffDrive.onRun("cal", function (arg: number) {
 })
 
 diffDrive.onRun("fix", function (arg: number) {
-    // worldReady() first, not just logFix(): logFix() calls readWorld()
-    // directly, so a bare RUN:probe -> RUN:fix would report the SENSOR's
-    // position with no lever arm applied -- silently plausible, and off
-    // by up to 38.2 mm.
     if (!worldReady()) return
     logFix("now")
-})
-
-diffDrive.onRun("arm", function (arg: number) {
-    applyArm()
 })
 
 // Hardware verification for the `configure motor` block (sprint-less,
@@ -858,11 +829,6 @@ diffDrive.onRun("snake", function (arg: number) {
 const otosBootId = diffDrive.otosBegin()
 diffDrive.emitLine("OTOS:boot:id=" + otosBootId
     + ":connected=" + diffDrive.otosGet(7))
-// Arming here is pure software (no I2C), and means no tour can start on
-// an un-armed sensor.
-if (diffDrive.otosGet(7) != 0) {
-    applyArm()
-}
 
 // LAST, deliberately: showIcon/showString BLOCK this fiber, and a RUN:
 // line landing during that window needs its handler already registered

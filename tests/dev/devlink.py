@@ -5,6 +5,7 @@ Run from the repo root:
 """
 import math
 import os
+import socket
 import sys
 import time
 import urllib.request
@@ -19,7 +20,7 @@ from field import DOTS, wrap  # noqa: E402
 from mbtools.registry.client import SOCKET_ENV_VAR, RegistryClient, find_local_api_address  # noqa: E402
 from mbtools.registry.remote_client import RemoteRegistryClient  # noqa: E402
 from mbtools.serial import remote_connect  # noqa: E402
-from robotlink import Link  # noqa: E402
+from robotlink import Link, WifiSerial  # noqa: E402
 
 LIGHTS = 'http://192.168.6.122/rpc/Switch.Set?id=0&on=true'
 CAPTURES = REPO / 'captures'
@@ -29,7 +30,12 @@ __all__ = ['Cam', 'DOTS', 'wrap', 'open_serial', 'fix', 'settled', 'still_pose',
 
 def open_serial(name='vevov'):
     """Serial link to `name` through whichever registry node holds it.
-    DEVLINK_NODE=host[:port] skips the local registry when it has not peered."""
+    DEVLINK_NODE=host[:port] skips the local registry when it has not peered.
+    DEVLINK_WIFI=name[,name...] talks to those robots over WiFi (<name>.home)."""
+    if name in os.environ.get('DEVLINK_WIFI', '').split(','):
+        link = Link(WifiSerial(socket.gethostbyname(f'{name}.home')), False)
+        link.hello()
+        return link
     node = os.environ.get('DEVLINK_NODE')
     if node:
         host, _, port = node.partition(':')
@@ -47,9 +53,11 @@ def open_serial(name='vevov'):
 
 
 def fix(cam, n):
-    """Median pose (x cm, y cm, heading deg); turns the garage lights on if the tag is lost."""
+    """Median pose (x cm, y cm, heading deg); turns the garage lights on if the tag is lost.
+    A few tagless frames already refuse the fix: the PIR switches the lights off
+    and the last pose must not be reused while the robot may have moved."""
     for _ in range(3):
-        p = cam.fix(n=n)
+        p = cam.fix(n=n, stale_after=4)
         if p is not None:
             return p
         urllib.request.urlopen(LIGHTS, timeout=5).read()
@@ -85,19 +93,17 @@ def status(link):
 
 
 def send_move(link, cmd, limit=30.0, on_poll=None):
-    """Send a motion verb and return once it has started AND finished.
-    Waiting for active=0 alone races a command still in flight."""
+    """Send a motion verb and return once it has finished: `done` moved on
+    AND active=0. active alone drops to 0 inside a GO_TO_W (pivot-closure
+    dwell, residual trims), so it cannot mark the end of a command."""
     before = status(link).get('done')
     link.send(cmd)
     t0 = time.time()
-    started = False
     while time.time() - t0 < limit:
         if on_poll:
             on_poll()
         st = status(link)
-        if st.get('active') == '1' or st.get('done') != before:
-            started = True
-        if started and st.get('active') == '0':
+        if st.get('done') != before and st.get('active') == '0':
             return st
         time.sleep(0.1)
     return status(link)

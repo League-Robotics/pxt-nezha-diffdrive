@@ -80,6 +80,15 @@ void nbdSetRightCounters(void* h, unsigned maxDrivenStreak, unsigned glitchCount
   handle->right.rebaselineCount_ = rebaselineCount;
 }
 
+void nbdSetFaultCounters(void* h, unsigned busL, unsigned busR, unsigned staleL,
+                         unsigned staleR) {
+  auto* handle = static_cast<Handle*>(h);
+  handle->left.busFailCount_ = busL;
+  handle->right.busFailCount_ = busR;
+  handle->left.staleCount_ = staleL;
+  handle->right.staleCount_ = staleR;
+}
+
 int nbdDiagValue(void* h, int ordinal) {
   auto* handle = static_cast<Handle*>(h);
   return diffDrive::nezhaBoardDiagValue(handle->left, handle->right, ordinal);

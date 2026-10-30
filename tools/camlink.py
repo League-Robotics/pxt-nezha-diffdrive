@@ -141,6 +141,7 @@ class Cam:
         self.samples: list[tuple[float, float, float, float]] = []
         self.err: str | None = None
         self.notag = 0
+        self.frame_at: float | None = None
         self._latest: tuple[float, float, float] | None = None
         self._stopping = False
         self._thread: threading.Thread | None = None
@@ -283,6 +284,7 @@ class Cam:
         skipped -- never published as a pose of zeros.
         """
         with self.lock:
+            self.frame_at = time.time()
             if reading is None:
                 self.notag += 1
                 return
@@ -297,7 +299,8 @@ class Cam:
             return None if self.err else self._latest
 
     def fix(self, n: int = 8,
-            stale_after: int | None = 40
+            stale_after: int | None = 40,
+            max_age: float | None = 2.0
             ) -> tuple[float, float, float] | None:
         """Median of up to `n` samples ~0.06s apart, or `None`.
 
@@ -305,12 +308,15 @@ class Cam:
         before and after sampling, so a death mid-window is not
         missed) or once `stale_after` consecutive frames have arrived
         with no tag in them (~10s at the default and ~4 Hz) -- either
-        way, never a frozen pre-death/pre-loss value.
+        way, never a frozen pre-death/pre-loss value. Also `None` when no
+        frame at all has arrived for `max_age` seconds: a stalled stream
+        leaves `_latest` frozen, and a frozen pose also passes a settle
+        test (2026-10-29, tovez drove out of its lane on one).
         """
         vals = []
         for _ in range(n):
             with self.lock:
-                if self.err:
+                if self.err or self._frame_stale(max_age):
                     return None
                 if stale_after is not None and self.notag > stale_after:
                     return None
@@ -319,7 +325,7 @@ class Cam:
                 vals.append(r)
             time.sleep(0.06)
         with self.lock:
-            if self.err:
+            if self.err or self._frame_stale(max_age):
                 return None
         if not vals:
             return None
@@ -328,6 +334,10 @@ class Cam:
             return sorted(v[i] for v in vals)[len(vals) // 2]
 
         return med(0), med(1), med(2)
+
+    def _frame_stale(self, max_age: float | None) -> bool:
+        return (max_age is not None and self.frame_at is not None
+                and time.time() - self.frame_at > max_age)
 
     def since(self, t0: float) -> list[tuple[float, float, float, float]]:
         with self.lock:

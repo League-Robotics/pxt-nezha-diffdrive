@@ -3,7 +3,10 @@ tree. `tests/DESIGN.md` "Translation units nothing on the host compiles"
 names every `.cpp` under `src/` that no host test can compile and says
 what gates it instead; this re-derives that set from the source and
 fails when the two disagree, so a ninth such file cannot land silently
-uncovered.
+uncovered. The `pxt.h`-bound files the shims.cpp host build compiles
+against `tests/host/pxt_host_stub/pxt.h` (sprint 044 ticket 011) are
+not excluded; they are named below and checked against that build's
+source list.
 
 Include resolution follows the real PXT build's rule -- an
 `#include "X"` in a file at directory D resolves as `(D / X)`, with no
@@ -24,10 +27,20 @@ import re
 
 import pytest
 
+import shims_cpp_rig
+
 # tests/host/test_pxt_bound_exclusion_is_current.py -> host -> tests -> repo root
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 _SRC_DIR = _REPO_ROOT / "src"
 _DESIGN_DOC = _REPO_ROOT / "tests" / "DESIGN.md"
+
+#: pxt.h-bound sources the shims.cpp host build compiles against the stub.
+_COMPILED_AGAINST_STUB = {
+    "shims.cpp",
+    "platform/otos_port.cpp",
+    "platform/vfp_guard.cpp",
+    "platform/microbit_i2c_bus.cpp",
+}
 
 _SECTION_HEADING = "## Translation units nothing on the host compiles"
 
@@ -70,7 +83,7 @@ def _pxt_bound_sources_in_tree() -> set[str]:
         str(cpp.relative_to(_SRC_DIR))
         for cpp in _SRC_DIR.rglob("*.cpp")
         if _reaches_pxt_h(cpp)
-    }
+    } - _COMPILED_AGAINST_STUB
 
 
 def _documented_exclusions() -> set[str]:
@@ -83,8 +96,8 @@ def _documented_exclusions() -> set[str]:
         f"tree (sprint 034 ticket 011); without it nothing records why "
         f"these files are uncompiled."
     )
-    end = text.find("\n## ", start + len(_SECTION_HEADING))
-    section = text[start : end if end != -1 else len(text)]
+    end = re.compile(r"\n#{2,3} ").search(text, start + len(_SECTION_HEADING))
+    section = text[start : end.start() if end else len(text)]
 
     documented = set()
     for line in section.splitlines():
@@ -92,6 +105,21 @@ def _documented_exclusions() -> set[str]:
         if match:
             documented.add(match.group(1))
     return documented
+
+
+def test_stub_compiled_files_are_in_the_shims_cpp_build_and_reach_pxt_h():
+    """The set that is exempt from the table must be real: each file is
+    in the host build's source list and still pxt.h-bound (a file that
+    stopped needing the stub belongs in the C++11 gate instead)."""
+    built = {
+        str(pathlib.Path(source).resolve().relative_to(_SRC_DIR.resolve()))
+        for source in shims_cpp_rig.SOURCES
+        if pathlib.Path(source).resolve().is_relative_to(_SRC_DIR.resolve())
+    }
+    assert _COMPILED_AGAINST_STUB <= built
+    for name in _COMPILED_AGAINST_STUB:
+        assert _reaches_pxt_h(_SRC_DIR / name), name
+    assert not _COMPILED_AGAINST_STUB & _documented_exclusions()
 
 
 def test_documented_exclusion_matches_the_tree():

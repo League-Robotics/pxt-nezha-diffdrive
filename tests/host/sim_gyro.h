@@ -1,0 +1,138 @@
+// sim_gyro.h -- SimGyro: a caller-driven GyroSource for host tests. The
+// simulated chip integrates continuously as the test calls advance();
+// readGyro() then latches (or fails to latch) what the chip holds.
+//
+// Impairments, all off by default:
+//   bias        constant rate offset                       [rad/s]
+//   wander      sinusoidal bias swing (temperature-like)   [rad/s], [s]
+//   noise       white rate noise, standard deviation       [rad/s]
+//   dropout     reads succeed but deliver nothing (kStale)
+//   freeze      reads succeed (kOk) but the latched values never change
+//   readFail    reads fail outright (kFailed), as an I2C NACK would
+//   step        the chip heading jumps once and stays there  [rad]
+//   wrap        latched heading wrapped to (-pi, pi], as OtosPort does
+//   glitch      reads carry an extra heading offset, until cleared  [rad]
+//   latency     reads deliver what the chip held this long ago     [s]
+// Only freeze is silent; the estimator has to detect it from the data.
+//
+// Test scaffolding only: nothing under src/ knows this file exists.
+#pragma once
+
+#include <cmath>
+#include <cstdint>
+
+#include "core/heading_wrap.h"
+#include "platform/gyro_source.h"
+
+class SimGyro : public diffDrive::GyroSource {
+ public:
+  void setPresent(bool present) { present_ = present; }
+  void setBias(float bias) { bias_ = bias; }                    // [rad/s]
+  void setWander(float amplitude, float period) {               // [rad/s] [s]
+    wanderAmplitude_ = amplitude;
+    wanderPeriod_ = period;
+  }
+  void setNoise(float deviation) { noise_ = deviation; }        // [rad/s]
+  void setSeed(uint32_t seed) { rng_ = seed ? seed : 1u; }
+  void setDropout(bool on) { dropout_ = on; }
+  void setFreeze(bool on) { frozen_ = on; }
+  void setReadFail(bool on) { readFail_ = on; }
+  void failNextReads(int count) { failReads_ = count; }
+  void stepHeading(float delta) { chipHeading_ += delta; }      // [rad]
+  void setWrap(bool on) { wrap_ = on; }
+  void setGlitch(float offset) { glitch_ = offset; }            // [rad]
+  void setLatency(float seconds) { latency_ = seconds; }        // [s]
+
+  // Advances the chip by dt with the robot turning at trueRate.
+  void advance(float dt, float trueRate) {  // [s] [rad/s]
+    time_ += dt;
+    trueHeading_ += trueRate * dt;
+    trueRate_ = trueRate;
+    chipRate_ = trueRate + bias() + noise_ * gaussian();
+    chipHeading_ += chipRate_ * dt;
+    slot_ = (slot_ + 1) % kHistory;
+    times_[slot_] = time_;
+    headings_[slot_] = chipHeading_;
+    rates_[slot_] = chipRate_;
+    if (filled_ < kHistory) ++filled_;
+  }
+
+  float bias() const {  // [rad/s] bias in effect now
+    float b = bias_;
+    if (wanderPeriod_ > 0.0f) {
+      b += wanderAmplitude_ *
+           std::sin(6.28318530718f * time_ / wanderPeriod_);
+    }
+    return b;
+  }
+  float trueHeading() const { return trueHeading_; }  // [rad]
+  float chipHeading() const { return chipHeading_; }  // [rad] unwrapped
+
+  bool present() const override { return present_; }
+  bool providesHeading() const override { return true; }
+  bool providesRate() const override { return true; }
+  float gyroHeading() const override { return latchedHeading_; }  // [rad]
+  float gyroRate() const override { return latchedRate_; }        // [rad/s]
+
+  diffDrive::GyroReadStatus readGyro() override {
+    if (!present_) return diffDrive::GyroReadStatus::kFailed;
+    if (failReads_ > 0) {
+      --failReads_;
+      return diffDrive::GyroReadStatus::kFailed;
+    }
+    if (readFail_) return diffDrive::GyroReadStatus::kFailed;
+    if (dropout_) return diffDrive::GyroReadStatus::kStale;
+    if (!frozen_) {
+      const bool delayed = latency_ > 0.0f && filled_ > 0;
+      int slot = slot_;
+      for (int back = 1; back < filled_ && times_[slot] > time_ - latency_; ++back) {
+        slot = (slot_ - back + kHistory) % kHistory;
+      }
+      latchedHeading_ = (delayed ? headings_[slot] : chipHeading_) + glitch_;
+      if (wrap_) latchedHeading_ = diffDrive::wrapRadians(latchedHeading_);
+      latchedRate_ = delayed ? rates_[slot] : chipRate_;
+    }
+    return diffDrive::GyroReadStatus::kOk;
+  }
+
+ private:
+  uint32_t next() {
+    rng_ ^= rng_ << 13;
+    rng_ ^= rng_ >> 17;
+    rng_ ^= rng_ << 5;
+    return rng_;
+  }
+  float uniform() { return static_cast<float>(next() >> 8) / 16777216.0f; }
+  float gaussian() {
+    float sum = 0.0f;
+    for (int i = 0; i < 12; ++i) sum += uniform();
+    return sum - 6.0f;
+  }
+
+  static constexpr int kHistory = 128;
+  float times_[kHistory] = {};
+  float headings_[kHistory] = {};
+  float rates_[kHistory] = {};
+  int slot_ = 0;
+  int filled_ = 0;
+  float latency_ = 0.0f;  // [s]
+  bool present_ = true;
+  bool dropout_ = false;
+  bool frozen_ = false;
+  bool wrap_ = false;
+  bool readFail_ = false;
+  int failReads_ = 0;
+  uint32_t rng_ = 2463534242u;
+  float bias_ = 0.0f;
+  float wanderAmplitude_ = 0.0f;
+  float wanderPeriod_ = 0.0f;
+  float noise_ = 0.0f;
+  float glitch_ = 0.0f;
+  float time_ = 0.0f;
+  float trueHeading_ = 0.0f;
+  float trueRate_ = 0.0f;
+  float chipHeading_ = 0.0f;
+  float chipRate_ = 0.0f;
+  float latchedHeading_ = 0.0f;
+  float latchedRate_ = 0.0f;
+};

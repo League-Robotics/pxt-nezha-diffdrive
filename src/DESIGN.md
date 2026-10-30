@@ -46,6 +46,15 @@ definitions; the host harness supplies its own test-double definitions
 of the same signatures. This is what keeps `wire_adapter.cpp` and
 `shims.cpp` decoupled while sharing one `MotionEngine` singleton.
 
+**Host build of `shims.cpp` (sprint 044 ticket 011).** `shims.cpp`
+and the pxt-bound platform files under it compile on the host against a
+stub `pxt.h` (`tests/host/pxt_host_stub/`) and run over simulated I2C
+slaves (`tests/host/shims_cpp_rig.py`, `shims_cpp_shim.cpp`), so the
+estimator wiring in it is executed by `test_shims_cpp_estimator_wiring.py`.
+This is a test-only seam: nothing in `src/` was changed for it, and
+`protocol.cpp` stays excluded, with the `protocol*()` forward declarations
+faked in the shim.
+
 **Include-path rule (sprint 013).** Every `#include "X"` naming a file
 under one of these subdirectories is qualified relative to `src/`'s
 root (e.g. `motion_engine.h` including the kernel needs
@@ -585,6 +594,54 @@ the deadline, e-stop, cancel and a no-progress stall test (`stallWindow`)
 end the move through `hardStop()` on both wheels. `STATUS` carries
 `posmove=` while a position move is live.
 
+### Sprint 044 — pose estimator and leg control
+
+`PoseEstimator` (`motion/pose_estimator.h`) replaces
+`Odometry::fuseHeading()` as the `PoseSource` `goToW()` reads; `Odometry`
+remains its encoder integrator. `tickDrive()` feeds it encoder output
+every tick and gyro/OTOS samples every 4th tick (96 ms) while a caller is
+ticking. The sensors come up in `ensure()` (firmware init), not in the user
+program: `OtosPort::begin()` then `probeSensorConfig()`, under the bus
+guard, and `otosBegin()` re-probes. No OTOS answering gives `EncodersOnly`,
+which does no I2C and keeps the `Odometry` arithmetic.
+
+**Idle read mechanism (ticket 004).** When nothing ticks the kernel the
+protocol fiber's idle pass (`Protocol::run()`, the branch with no live wire
+obligation) calls `idleSense()` (`shims.cpp`) while `motionOwner_ ==
+kNone`. It reads at most every 100 ms (10 Hz, the driving cadence: one
+12-byte burst plus two 4 ms bus gaps per sample, and a 2 s ZARU window still
+sees ~20 samples). It does nothing in `EncodersOnly`, while any fiber ticked
+within 150 ms or a command looks active, or while `busGuard.held()` (so it
+never blocks and never lands inside a `step()` settle window); otherwise it
+takes the guard, applies a pending OTOS zero, and runs
+`estimator.update(out, realDt, true)`. This stays inside the §8/§9 single
+executor: the protocol fiber is the wire's tick source, the guard is the one
+bus owner, and a block program or RUN job that owns the drivetrain
+(`kBlock`/`kJob`/`kWire`) is sampled by its own `tickDrive()` instead. A
+user program's own I2C to other devices outside the guard cannot be
+excluded. `calibrateImu(255)` after verified stillness is not wired: the
+ticket-003 replay shows ZARU alone holds heading, so it stays a fallback
+only if ticket 009 shows otherwise. Every `odomUpdate()` passes the real
+elapsed time, which the rest detector (0.25 s) and the ZARU windows need.
+`seedPose()` and the deferred SET rebase zero write the OTOS and then
+`reprime()` the estimator so the pose jump is not read as a gyro step.
+`opticalScale` stays 1.0: no per-robot OTOS linear-scale key exists.
+
+`goToW()` legs: pivot ends on estimator heading; straight steers on estimator pose
+toward the world target; a residual <= ~3 cm is a short straight;
+target-behind uses pivot-then-straight. `Segment::wrongWay` termination
+sets a distinct stop reason and `wrng` appears in STATUS. TLM FULL gains
+`bias` (cdeg/min) and a reject counter (§5).
+
+**STATUS `active` across a leg (ticket 015).** `active` is the wheels-moving
+bit OR `diagValue(47)` (`MotionEngine::isLegLive()`: a segment is live and a
+`goToW()` closure or goal is attached). A leg's closure dwell, correction
+pivots, pending straight and trims are separate segments with the wheels at
+rest between them; without the OR `active` read 0 there while `done` had not
+advanced. `done` and ack timing are unchanged; `active` falls on the tick the
+segment ends, the same tick `done` resolves. Plain `MOVE_X`, `WHEELS_*` and
+`MOVE_V` never attach a closure or goal, so their `active` is unchanged.
+
 ## 4. Wire grammar — `comms/wire_handler.h/.cpp` (`Wire::WireHandler`)
 
 **Responsibility.** Protocol v6's ASCII line-grammar mechanics plus
@@ -1035,7 +1092,9 @@ sample; `otosGet(0)`/`otosGet(1)` are 0.1 mm, `otosGet(2)` is already
 centidegrees — do not also divide it); and `wheelSpeed`. POSE's 12
 columns (`seq now flags x y h ox oy oh vl vr i2cf`) are always
 present; FULL adds 8 more (`cyc posl posr dutl dutr lexc wrng cycovr`)
-only in `TlmMode::kFull`. **Sprint 008**: `TlmMode::kAuto` and
+only in `TlmMode::kFull`. Sprint 044 appends `bias rej step` (ticket 005) and
+`dist` (ticket 010, bumps and lifts at rest; diag 46), filling the 24 slots;
+STATUS has no room for it (240 B cap). **Sprint 008**: `TlmMode::kAuto` and
 `TlmMode::kBuffer`'s previously-undocumented fall-through to POSE's
 column set is now a stated decision, not an accident:
 `TlmMode::kAuto` is a documented alias for `TlmMode::kPose` (same 12
@@ -1626,6 +1685,16 @@ in scope than `encoder_glitch_armor.h`) that `setPose()` calls and that
 a host test exercises directly, proving the same LSB round-trip
 (350° → −10°) the real register write would produce without needing
 I2C in the link.
+
+**Sprint 044 — `GyroSource` and the sensor configurations.**
+`platform/gyro_source.h` defines the generic gyro interface
+(read status, integrated heading and/or rate). `OtosPort` implements it
+(and additionally supplies optical x/y); the host `SimGyro` implements
+it for tests; the non-OTOS gyro part's driver is a follow-on. The boot
+probe sets the configuration (OTOS / gyro-only / encoders-only) and
+`motion/pose_estimator.h` (§3, §9) consumes it. `OtosPort` is read while
+the robot is idle as well as driving, under the same bus guard and on the
+same fiber that ticks the kernel (the §7 bus invariant is unchanged).
 
 **`EncoderPoseSource` — RETIRED in sprint 033, replaced by `Odometry`
 (`motion/odometry.h`, §9).** Sprint 006 added it here as a second

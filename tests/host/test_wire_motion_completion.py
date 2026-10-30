@@ -42,6 +42,7 @@ from test_wire_motion_verbs import (  # noqa: F401 -- wa re-exported as a fixtur
     DONE_STALL,
     DONE_STOP,
     DONE_TIMEOUT,
+    DONE_WRONGWAY,
     LEFT,
     RIGHT,
     STATUS_OK,
@@ -761,3 +762,22 @@ def test_obligation_window_narrows_after_natural_completion(wa):
     avoided_ticks = (declared_timeout_ms - completion_ms) // tick_period_ms
     assert avoided_ticks == 414
 
+
+
+def test_move_x_wrong_way_abort_reports_its_own_reason(wa):
+    _ready(wa)
+    wa.set_now_ms(1000)
+    wa.feed(b"MOVE_X 200 1571 100 5000 #1\n")
+    assert wa.take_sink() == _ack(1)
+
+    wa.step()
+    wa.service_move()
+    wa.arm_motor_position(LEFT, 1000.0, sample_time_us=1)
+    wa.arm_motor_position(RIGHT, -1000.0, sample_time_us=1)
+    wa.step()
+    assert not wa.service_move()
+
+    wa.feed(b"STATUS #2\n")
+    reply = wa.take_sink()
+    assert b"done=1 reason=wrongway" in reply
+    assert wa.last_done_reason() == DONE_WRONGWAY

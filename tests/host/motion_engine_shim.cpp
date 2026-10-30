@@ -627,6 +627,9 @@ void meEndMoveSettledStopSequence(void* handle) {
 int meProgress(void* handle) {
   return static_cast<Handle*>(handle)->engine.progress();
 }
+int meLastSegmentEndedByWrongWay(void* handle) {
+  return static_cast<Handle*>(handle)->engine.lastSegmentEndedByWrongWay() ? 1 : 0;
+}
 uint32_t meWrongWayCount(void* handle) {
   return static_cast<Handle*>(handle)->engine.wrongWayCount();
 }
