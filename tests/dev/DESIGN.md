@@ -41,7 +41,9 @@ move; fits the residual lever arm), `tlm_stream_move.py` (TLM FULL
 through one move and the rest after it), `rest_hold.py` (stationary
 hold on the idle read path, never commanded), `goto_probe.py` (GO_TO_W
 legs with delayed TLM reads to expose a stale pose), `status_trace.py`
-(STATUS active/done against wheel counts through one verb) and
+(STATUS active/done against wheel counts through one verb),
+`disturb_watch.py` (a human bumps or lifts the resting robot; then a
+GO_TO_W back to the estimator's start point) and
 `sprint044_score.py` (scores an `otos_drift.py` log taken on sprint 044
 firmware). `devlink.py` gained `DEVLINK_WIFI` and `send_move` now waits
 for `done`, because `active` drops inside a GO_TO_W. `otos_drift.py`

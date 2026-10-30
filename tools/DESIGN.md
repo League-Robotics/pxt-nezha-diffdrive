@@ -61,6 +61,8 @@ need more than a line; a file with no section is fully described here.
 | `tour_chart.py` | the standard two-panel matplotlib plot of a recording (x-y trajectory with closure, wheel speeds), with outlier hygiene. |
 | `practice_chart.py` | the per-run practice plot: one recorded tour against its camera track. |
 | `leg_analysis.py` | turns a recording into a per-leg believed-vs-commanded table with a classification per leg. |
+| `square_closure.py` | square-tour closure per lap and mode from `tour_capture.py` recordings: start-to-end distance and heading residual, encoder truth only. |
+| `square_progress.py` | one PNG overlaying every lap of one or more sets on the commanded square, with per-lap closure, for tracking a tuning change. |
 
 ### Ground truth and calibration probes
 
@@ -129,6 +131,7 @@ WiFi. See [`README.md`](canplay/README.md).
 | `canplay/duo.py` | two gripper robots share the mat and move cans to a layout together: one worker process per robot, a coordinator that reserves the strip of field each move needs and lets both drive only when their strips are well apart. |
 | `canplay/cubeplay.py` | sorts coloured cubes into their garages with a paddle-gripper robot, camera read before every leg. |
 | `canplay/cubeplan.py` | the same sort by planning ahead: one camera look, a simulated batch of moves driven blind on odometry, then a re-look and replan. |
+| `canplay/blocksort.py` | tigez sorts coloured cubes onto the same-coloured squares of the secondary playfield, camera-seeded before every leg. |
 | `canplay/cubes.py` | finds the coloured cubes on the mat in the overhead camera's deskewed frame. |
 | `canplay/matcam.py` | fits the overhead camera straight to the mat (homography through the 12 red circles) and reports a robot's mat pose from its tag. |
 | `canplay/canplay_cal_zetuv.json` | zetuv's learned gripper offset (forward, left, sample count). |

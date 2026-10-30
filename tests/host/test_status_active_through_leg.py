@@ -11,7 +11,6 @@ Run with::
     uv run pytest tests/host/test_status_active_through_leg.py
 """
 
-import math
 
 from test_goto_block_regression import _FULL_DUTY_VELOCITY, _PERIOD_MS
 from test_pivot_closure import ARRIVE, TIMEOUT_MS, _rig

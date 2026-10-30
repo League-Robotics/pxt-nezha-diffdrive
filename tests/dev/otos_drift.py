@@ -21,6 +21,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--robot', default='vevov')
 ap.add_argument('--tag', type=int, default=53)
 ap.add_argument('--metres', type=float, default=100.0)
+ap.add_argument('--minutes', type=float, help='stop after this long; the log is usable at any length')
 ap.add_argument('--speed', type=int, default=120)
 ap.add_argument('--xlim', type=float, default=50.0)
 ap.add_argument('--xmin', type=float, help='lane: targets and guard keep x >= this')
@@ -46,7 +47,16 @@ def guard():
 
 
 def record(n, target, st):
-    c = still_pose(cam, 3)
+    for _ in range(8):
+        try:
+            c = still_pose(cam, 3)
+            break
+        except SystemExit as e:
+            print(f'leg {n}: {e}; holding still and retrying', flush=True)
+            link.send('STOP')
+            time.sleep(10)
+    else:
+        sys.exit(f'STOPPED: leg {n} no camera fix for 2 minutes')
     row = dict(n=n, t=time.time(), target=target, cam=c, tlm=tlm(link), status=st)
     out.write(json.dumps(row) + '\n')
     out.flush()
@@ -58,7 +68,9 @@ list(link.lines(1.0))
 r = record(0, None, {})
 travelled = 0.0
 n = 0
-while travelled < a.metres * 100:
+still = 0
+t0 = time.time()
+while travelled < a.metres * 100 and not (a.minutes and time.time() - t0 > a.minutes * 60):
     n += 1
     cx, cy, ch = r['cam']
     while True:
@@ -81,6 +93,10 @@ while travelled < a.metres * 100:
         link.send('STOP')
         sys.exit(f'STOPPED: leg {n} camera chord {cam_chord:.1f} cm vs OTOS {otos_chord:.1f} cm -- stale camera or lost robot')
     travelled += math.hypot(r['cam'][0] - cx, r['cam'][1] - cy)
+    still = still + 1 if cam_chord < 2 else 0
+    if still >= 3:
+        link.send('STOP')
+        sys.exit(f'STOPPED: leg {n} is the third in a row that did not move -- battery flat?')
     t = r['tlm']
     print(f'{n:4d} {travelled / 100:6.2f} m  miss {math.hypot(r["cam"][0] - tx, r["cam"][1] - ty):4.1f} cm  '
           f'cam {r["cam"][2]:+7.1f}  odo {t["h"] / 100:+8.1f}  otos {t["oh"] / 100:+7.1f}  i2cf {t.get("i2cf")}',

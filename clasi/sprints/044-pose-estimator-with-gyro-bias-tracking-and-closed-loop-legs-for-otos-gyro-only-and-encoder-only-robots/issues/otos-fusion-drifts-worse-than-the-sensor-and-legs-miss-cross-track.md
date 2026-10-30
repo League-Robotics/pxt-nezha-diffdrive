@@ -11,6 +11,12 @@ tickets:
 - 044-007
 - 044-008
 - 044-009
+- 044-010
+- 044-011
+- 044-012
+- 044-013
+- 044-014
+- 044-015
 ---
 
 # OTOS fusion drifts worse than the raw sensor, GO_TO_W stalls on targets behind, and legs miss cross-track
@@ -144,6 +150,37 @@ state, and continued low-gain adaptation is still needed (across power
 cycles and temperature), but there is no evidence of fast in-session
 wander. ZARU must tolerate discrete heading steps: re-anchor heading on
 a step, do not fold it into the bias.
+
+### Fleet stationary result (4 robots, fresh boot)
+
+2026-10-28 18:24, gopiv/vevov/tovez/zuvat all flashed with the same
+test.ts build (1.20261027.1), power-cycled/reset, then 30 min still on
+the bench (`captures/otos-gyro-fleet-20261028/`, `otos_gyro.py --tag 0`;
+wheel counts unchanged throughout, no steps):
+
+| robot | 30-min drift | mean rate | rate by thirds (°/h) | resid sd |
+|---|---|---|---|---|
+| gopiv | +7.4° | +15°/h | +8 → +16 → +21 | 0.32° |
+| vevov | +7.1° | +14°/h | +10 → +15 → +19 | 0.31° |
+| tovez | −13.0° | −26°/h | −21 → −24 → −34 | 0.34° |
+| zuvat | +11.0° | +22°/h | +10 → +22 → +34 | 0.71° |
+
+- Every unit starts with a small bias right after boot calibration and
+  the |rate| **grows steadily for 30 minutes** — consistent with
+  warm-up (ZRO temperature drift) after a cold boot calibration.
+- Sign and size differ per unit (tovez negative).
+- vevov's bias differs a lot between power-ups: ~+45°/h warm after the
+  100 m run, ~+150°/h after a power-cycle (8-min partial run,
+  `gyro3-bench-afterboot.jsonl`), +14°/h after this reset.
+- Consequences for ticket 002: no stored per-robot bias; the tracker
+  must keep adapting for at least the first 30+ minutes (rate changes
+  ~+10–15°/h per 10 min early on); ZARU at every rest is the main
+  observation. Consider re-running `calibrateImu(255)` once the robot
+  is warm and verified still.
+- Finding: the robot template program never calls
+  `startWorldTracking()`, so robots running it (tovez, gopiv until
+  today) never used their OTOS at all (`STATUS otos=0`). Ticket 001's
+  boot probe must not depend on the user program.
 
 ## Research
 

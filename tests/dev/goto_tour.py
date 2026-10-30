@@ -83,7 +83,7 @@ def main():
         dx, dy = c[0] - c0[0], c[1] - c0[1]
         fx = (dx * math.cos(h0) + dy * math.sin(h0)) * 10
         fy = (-dx * math.sin(h0) + dy * math.cos(h0)) * 10
-        def guard():
+        def guard(i=i, name=name):
             q = cam.latest
             if q and (abs(q[0]) > GUARD_X or abs(q[1]) > GUARD_Y):
                 link.send('STOP')
@@ -92,7 +92,7 @@ def main():
                 sys.exit(f'STOPPED: robot at ({q[0]:.1f},{q[1]:.1f}) left the guard box')
 
         first = None
-        for attempt in range(1 + a.retries):
+        for attempt in range(1 + a.retries):  # noqa: B007
             send_move(link, f'GO_TO_W {int(round(fx))} {int(round(fy))} {a.speed} {a.arrive} 30000', 35, guard)
             q = settled(cam, 25)
             pump(1.0)

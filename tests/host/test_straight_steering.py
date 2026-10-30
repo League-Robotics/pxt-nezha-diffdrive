@@ -18,7 +18,7 @@ import pytest
 
 from test_goto_block_regression import _FULL_DUTY_VELOCITY, _PERIOD_MS
 from test_pivot_closure import ARRIVE, TIMEOUT_MS, _rig
-from test_pivot_closure import lib as pivot_lib
+from test_pivot_closure import lib as pivot_lib  # noqa: F401 -- used as a fixture
 from test_pose_estimator import ENCODERS_ONLY, GYRO_ONLY, OPTICAL
 from test_pose_estimator import lib as estimator_lib  # noqa: F401 -- used as a fixture
 
