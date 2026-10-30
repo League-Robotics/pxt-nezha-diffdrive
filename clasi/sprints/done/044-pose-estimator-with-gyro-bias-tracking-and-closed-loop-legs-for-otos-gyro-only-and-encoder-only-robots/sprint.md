@@ -2,7 +2,7 @@
 id: '044'
 title: Pose estimator with gyro bias tracking and closed-loop legs for OTOS, gyro-only
   and encoder-only robots
-status: closing
+status: done
 branch: sprint/044-pose-estimator-with-gyro-bias-tracking-and-closed-loop-legs-for-otos-gyro-only-and-encoder-only-robots
 use-cases: []
 issues:
