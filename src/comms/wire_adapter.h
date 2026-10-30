@@ -417,9 +417,9 @@ class WireAdapter : public Wire::Adapter {
   // not 0. `columns_`/`snapshot_` are members, not locals, so
   // buildSnapshot() can return a reference into them that stays valid
   // until the NEXT call -- sized for the widest documented set (POSE's
-  // 12 plus FULL's 12 more; no spare slot remains).
+  // 12 plus FULL's 19 more; no spare slot remains).
   uint8_t seq_ = 0;
-  static constexpr size_t kMaxSnapshotColumns = 24;
+  static constexpr size_t kMaxSnapshotColumns = 31;
   Wire::Column columns_[kMaxSnapshotColumns];
   Wire::Snapshot snapshot_;
 };

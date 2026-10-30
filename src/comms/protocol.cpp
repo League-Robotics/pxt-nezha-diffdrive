@@ -32,6 +32,9 @@ bool tickDrive();
 // nothing is ticking the kernel. Rate-limits and guards itself.
 void idleSense();
 
+// Accelerometer read for TLM FULL's ax/ay/az/apk (shims.cpp), every pass.
+void accelSense();
+
 // Runs the ONE registered RUN dispatch action (test.ts's onRun()/
 // onRunCommand() handlers all share it), on the caller's own fiber --
 // see handleRun()/dispatchJob() below. Returns false with nothing registered
@@ -1089,6 +1092,7 @@ void Protocol::run() {
 
   while (true) {
     serviceOnce();
+    accelSense();
 
     // Wire-issued motion tracking: with the kernel's own background
     // fiber removed (shims.cpp), a wire-issued WHEELS_V has no student

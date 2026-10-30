@@ -1,5 +1,5 @@
 ---
-status: pending
+status: done
 ---
 
 # `tests/tools` is red on master: `tools/DESIGN.md` inventory lags the sprint 043 tools
@@ -30,3 +30,5 @@ suite is green with the field-dance file ignored; that file is
 Worth folding into the same out-of-process pass: run the inventory test
 as part of every sprint close's checklist so the next tool-adding sprint
 does not leave master red.
+
+Fixed 2026-10-29 at the sprint 044 close: inventory rows for both plus `canplay/blocksort.py`, ruff clean, and `test_parallax_ownership` finds the vevov replate issue under `clasi/issues/low/`.

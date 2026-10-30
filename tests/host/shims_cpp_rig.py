@@ -43,6 +43,10 @@ DIAG_REJECTED = 43
 DIAG_STEPS = 44
 DIAG_CONFIG = 45        # 0 optical, 1 gyro, 2 encoders only
 DIAG_DISTURBS = 46      # bumps and lifts seen at rest
+DIAG_ACCEL_X, DIAG_ACCEL_Y, DIAG_ACCEL_Z = 48, 49, 50   # [mg]
+DIAG_ACCEL_PEAK = 51    # [mg] largest per-axis jump since the last read
+DIAG_I2C_FAULT = 8      # cycles where either wheel's sample did not advance
+DIAG_BUS_FAIL, DIAG_STALE, DIAG_GLITCH = 52, 53, 54   # its causes, both wheels
 
 OPTICAL, GYRO_ONLY, ENCODERS_ONLY = 0, 1, 2
 
@@ -57,6 +61,9 @@ _SIGNATURES = {
     "scDiag": (_I, [_I]),
     "scTick": (_I, []),
     "scIdleSense": (None, []),
+    "scAccelSense": (None, []),
+    "scSetAccel": (None, [_I, _I, _I]),
+    "scNezhaFailReads": (None, [_I]),
     "scIdleSenseDuringNextNezhaWrite": (None, []),
     "scHookFires": (_I, []),
     "scIdleSenseDuringNextOtosWrite": (None, []),

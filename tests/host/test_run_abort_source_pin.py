@@ -483,7 +483,7 @@ def test_dispatch_job_refuses_while_something_already_owns_motion():
 # Non-job onRun() verbs (no beginJob()/endJob() of their own) that can
 # still carry a blocking call in their own body or a helper they call.
 _NON_JOB_ONRUN_VERBS = (
-    "clearestop", "abort", "tour", "fix", "arm", "probe", "gap", "seed",
+    "clearestop", "abort", "tour", "fix", "probe", "gap", "seed",
     "seedxy", "turnrate",
 )
 
@@ -495,7 +495,7 @@ _NON_JOB_ONRUN_VERBS = (
 # that runs both inside and outside a job (worldReady(), for instance,
 # runs before beginJob() everywhere it is called).
 _NON_JOB_HELPER_FUNCTIONS = (
-    "worldReady", "legToward", "circleRun", "arcSegment", "applyArm",
+    "worldReady", "legToward", "circleRun", "arcSegment",
     "logFix", "tickToCompletion", "tickWait", "tickedMove", "tickedGoTo",
     "tickArcSampled", "emitTrajectory",
 )

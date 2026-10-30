@@ -606,6 +606,15 @@ TLM FULL's `bias` is the gyro bias estimate in cdeg/min (diagValue 42),
 as the new reference (44); sprint 044's disturbance counter is one more
 `kDiag*` ordinal plus one `columns_` line. The pose estimator and OTOS
 cache refresh at 10 Hz while idle (`idleSense()`), so these move at rest.
+FULL ends with the micro:bit accelerometer: `ax ay az` [mg] (48-50) and
+`apk` (51), the largest per-axis jump between 50 Hz reads since the last
+row, cleared by the read. `accelSense()` runs on every protocol pass,
+moving or not; the accelerometer is on the internal I2C bus, outside the
+bus guard. Reporting only, for picking lift and bump thresholds.
+Then `busf stl glt` (52-54, from `nezhaBoardDiagValue()`): why `i2cf`
+cycles happened, summed over both wheels -- NAK'd encoder select or read,
+an acked read that did not move while the wheel was driven, and glitch
+rejects plus re-anchors. Most `i2cf` on the floor is `stl`, not the bus.
 
 ## 4. Wire grammar — `comms/wire_handler.h/.cpp` (`Wire::WireHandler`)
 

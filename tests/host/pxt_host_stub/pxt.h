@@ -104,9 +104,17 @@ struct HostSerial {
   int send(const ManagedString&) { return 0; }
 };
 
+struct HostAccelerometer {
+  int v[3] = {0, 0, -1000};  // [mg] flat on the floor
+  int getX() { return v[0]; }
+  int getY() { return v[1]; }
+  int getZ() { return v[2]; }
+};
+
 struct HostUBit {
   HostI2C i2c;
   HostSerial serial;
+  HostAccelerometer accelerometer;
 };
 
 HostUBit& hostUBit();

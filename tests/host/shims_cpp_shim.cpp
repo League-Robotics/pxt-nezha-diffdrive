@@ -29,6 +29,7 @@ HostUBit& hostUBit() {
 namespace diffDrive {
 
 void idleSense();
+void accelSense();
 void startMove(int distance, int yaw, int speed, int yawRate);
 bool tickDrive();
 void seedPose(int x, int y, int heading);
@@ -85,13 +86,19 @@ class HookedBus final : public diffDrive::I2CBus {
     return inner_.write(address, data, len);
   }
   int read(uint16_t address, uint8_t* data, int len) override {
+    if (failReads_ > 0) {
+      --failReads_;
+      return 1;
+    }
     return inner_.read(address, data, len);
   }
   void idleOnNextWrite() { idleOnNextWrite_ = true; }
+  void failReads(int n) { failReads_ = n; }
 
  private:
   diffDrive::I2CBus& inner_;
   bool idleOnNextWrite_ = false;
+  int failReads_ = 0;
 };
 
 struct World {
@@ -127,9 +134,12 @@ int scEnsure() { return diffDrive::diagValue(0); }
 int scDiag(int what) { return diffDrive::diagValue(what); }
 int scTick() { return diffDrive::tickDrive() ? 1 : 0; }
 void scIdleSense() { diffDrive::idleSense(); }
+void scAccelSense() { diffDrive::accelSense(); }
+void scSetAccel(int x, int y, int z) { hostUBit().accelerometer = {{x, y, z}}; }
 int scHookFires() { return gHookFires; }
 void scIdleSenseDuringNextNezhaWrite() { gWorld->nezha.idleOnNextWrite(); }
 void scIdleSenseDuringNextOtosWrite() { gWorld->otosHook.idleOnNextWrite(); }
+void scNezhaFailReads(int n) { gWorld->nezha.failReads(n); }
 void scStartMove(int distance, int yaw, int speed, int yawRate) {
   diffDrive::startMove(distance, yaw, speed, yawRate);
 }

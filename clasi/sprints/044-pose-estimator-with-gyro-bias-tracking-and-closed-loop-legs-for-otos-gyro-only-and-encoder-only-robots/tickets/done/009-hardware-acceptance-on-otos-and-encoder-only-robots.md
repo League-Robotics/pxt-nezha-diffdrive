@@ -1,7 +1,7 @@
 ---
 id: 009
 title: Hardware acceptance on OTOS and encoder-only robots
-status: open
+status: done
 use-cases: [SUC-001, SUC-002, SUC-003]
 depends-on: ['008', '005', '010', '012']
 github-issue: ''
@@ -18,12 +18,12 @@ Camera-truthed acceptance. (a) vevov (OTOS): 100 m random run with tests/dev/oto
 
 ## Acceptance Criteria
 
-- [ ] OTOS: pose error <= 15 cm rms, heading <= 3 deg rms (2nd half), zero wrong-way stalls
-- [ ] OTOS: arrival median < 1 cm, p90 < 2 cm
-- [ ] Stationary 30 min: heading change < 2 deg after settling
-- [ ] tigez (encoders only): zero stalls; arrival results recorded (target documented honestly if sensor-less accuracy is lower)
-- [ ] Disturbance check (ticket 010): bump and lift-and-turn a still robot on camera; count increments, heading follows camera
-- [ ] Captures committed under captures/ and cited
+- [x] OTOS: pose error <= 15 cm rms, heading <= 3 deg rms (2nd half), zero wrong-way stalls (tovez-drift5; vevov-drift12)
+- [ ] OTOS: arrival median < 1 cm, p90 < 2 cm. Met once (tovez-drift5, 0.99 / 1.76), not repeated: tovez-drift11 1.13 / 2.18, vevov-drift12 1.57 / 3.22
+- [x] Stationary 30 min: heading change < 2 deg after settling (tovez-rest1)
+- [ ] tigez (encoders only): UNVERIFIED, not run; carried to `clasi/issues/sprint-044-close-out-housekeeping.md`
+- [x] Disturbance check (ticket 010): bump taken in, heading followed through lift-and-turn; lift corrupts position by ~3 cm (tovez-disturb1; `clasi/issues/lift-corrupts-position-use-the-accelerometer.md`)
+- [x] Captures committed under captures/sprint044-acceptance-20261028/ (NOTES.md and the run logs; hex files and the two multi-MB disturb streams stay local)
 
 ## Testing
 
@@ -68,3 +68,17 @@ Later the same night (tovez, same final build):
   while the raw OTOS drifted -25.9 deg; dist 0. MEETS < 2 deg.
 - speed 200, 17.5 m: arrival median 1.07 / p90 1.77 cm, heading rms 0.90 deg.
 - speed 300, 15.1 m: arrival median 1.14 / p90 1.66 cm, heading rms 1.60 deg.
+
+## 2026-10-29 results
+
+All in `captures/sprint044-acceptance-20261028/NOTES.md`.
+
+- tovez, OTOS arm from config (`tovez-019-config-arm.hex`, `tovez-drift11-019`): 33 legs,
+  17.3 m. Pose 2nd-half rms 4.3 cm, heading rms 1.05 deg, arrival 1.13 / 2.18 cm.
+- vevov, built from `radio-robot-lib/config/robots/vevov.json` alone (`vevov-020-config.hex`,
+  `vevov-drift12{,b,c,d}-020`): 178 legs, 92.0 m, about an hour in four segments. Ended by
+  camera dropouts in the south band and one network move. Pose rms per segment
+  1.5-7.0 cm, heading rms 1.29-2.25 deg, arrival median 1.38-1.66 / p90 2.58-3.22 cm,
+  wrng 0. Raw OTOS heading drift grew from +16 to +70 deg/h; the fused heading held to
+  1-2 deg. Estimator/camera leg distance 1.0139, so vevov's linear scale 1.033 is about
+  1.4 % long (candidate 1.023, not changed).

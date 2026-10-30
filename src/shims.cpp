@@ -62,6 +62,7 @@ constexpr float kRadToCdeg = 1.0f / kCdegToRad;
 
 constexpr uint64_t kIdleSensePeriod = 100000;  // [us]
 constexpr uint64_t kIdleTickQuiet = 150000;    // [us] a tick this recent means another fiber is ticking
+constexpr uint64_t kAccelSensePeriod = 20000;  // [us]
 
 // Forward declaration: the starvation watchdog fiber entry point is
 // defined in its own clearly delineated section further down (see
@@ -147,6 +148,9 @@ struct Rig {
   PoseEstimator estimator{engine};
   uint64_t estimatorStamp = 0;  // [us] of the last estimator update; 0 = none
   uint64_t idleSenseStamp = 0;  // [us] of the last idle sensor read
+  uint64_t accelStamp = 0;      // [us] of the last accelerometer read; 0 = none
+  int accel[3] = {0, 0, 0};     // [mg] micro:bit accelerometer x y z
+  int accelPeak = 0;            // [mg] largest per-axis jump between reads since 51 was last read
 
 
   // tick engine (sprint 002): caller-driven stepping replaces the
@@ -1357,6 +1361,22 @@ int diagValue(int what) {
     case 45: return static_cast<int>(ensure().estimator.config());
     case 46: return static_cast<int>(ensure().estimator.disturbCount());
     case 47: return ensure().engine.isLegLive() ? 1 : 0;
+    // 48-51: the micro:bit accelerometer [mg] (accelSense()), then the
+    // largest per-axis jump between reads since 51 was last read.
+    case 48: return ensure().accel[0];
+    case 49: return ensure().accel[1];
+    case 50: return ensure().accel[2];
+    case 51: {
+      Rig& r = ensure();
+      const int peak = r.accelPeak;
+      r.accelPeak = 0;
+      return peak;
+    }
+    // 52-54: why i2cf cycles happened -- NAK'd encoder transfers, acked
+    // reads that did not move while driven, glitch rejects and re-anchors.
+    case 52: return boardDiagValue(what);
+    case 53: return boardDiagValue(what);
+    case 54: return boardDiagValue(what);
     default: return 0;
   }
 }
@@ -2398,6 +2418,24 @@ void idleSense() {
   applyPendingOtosZero(r);
   odomUpdate(r, true);
   r.busGuard.release();
+}
+
+// Accelerometer read at 50 Hz from every protocol pass, moving or not. It
+// sits on the board's internal I2C bus, not the edge bus the guard owns.
+// Integer only: the caller is the protocol loop's FPU-sensitive site.
+void accelSense() {
+  Rig& r = ensure();
+  const uint64_t now = r.clock.nowMicros();  // [us]
+  if (r.accelStamp != 0 && now - r.accelStamp < kAccelSensePeriod) return;
+  const bool first = r.accelStamp == 0;
+  r.accelStamp = now;
+  const int a[3] = {uBit.accelerometer.getX(), uBit.accelerometer.getY(),
+                    uBit.accelerometer.getZ()};
+  for (int i = 0; i < 3; ++i) {
+    const int jump = a[i] > r.accel[i] ? a[i] - r.accel[i] : r.accel[i] - a[i];
+    if (!first && jump > r.accelPeak) r.accelPeak = jump;
+    r.accel[i] = a[i];
+  }
 }
 
 //%

@@ -217,6 +217,13 @@ constexpr int kDiagStepCount = 44;         // -> `step`
 constexpr int kDiagSensorConfig = 45;      // -> STATUS `sens=`
 constexpr int kDiagDisturbCount = 46;      // -> `dist`
 constexpr int kDiagLegLive = 47;           // -> STATUS `active`
+constexpr int kDiagAccelX = 48;            // -> `ax`  [mg]
+constexpr int kDiagAccelY = 49;            // -> `ay`  [mg]
+constexpr int kDiagAccelZ = 50;            // -> `az`  [mg]
+constexpr int kDiagAccelPeak = 51;         // -> `apk` [mg], cleared by the read
+constexpr int kDiagBusFailCount = 52;      // -> `busf`
+constexpr int kDiagStaleCount = 53;        // -> `stl`
+constexpr int kDiagGlitchCount = 54;       // -> `glt`
 
 // LOCAL flags layout's own free function, extracted (unchanged bit
 // layout) so STATUS's `flags=` and the telemetry `flags` column read
@@ -937,7 +944,7 @@ const Wire::Snapshot& WireAdapter::buildSnapshot() {
   columns_[i++] = {"vr", vr, false};
   columns_[i++] = {"i2cf", i2cf, false};
 
-  // FULL adds these 11; every other mode reachable here is kPose or
+  // FULL adds these 19; every other mode reachable here is kPose or
   // kAuto (a documented ALIAS for kPose -- same 12 columns, same
   // cadence, no separate branch needed). kOff never reaches this call
   // (telemetryEnabled() gates it) and kBuffer can never reach mode_ at
@@ -973,6 +980,17 @@ const Wire::Snapshot& WireAdapter::buildSnapshot() {
     columns_[i++] = {"step", static_cast<int32_t>(diagValue(kDiagStepCount)),
                      false};
     columns_[i++] = {"dist", static_cast<int32_t>(diagValue(kDiagDisturbCount)),
+                     false};
+    columns_[i++] = {"ax", static_cast<int32_t>(diagValue(kDiagAccelX)), false};
+    columns_[i++] = {"ay", static_cast<int32_t>(diagValue(kDiagAccelY)), false};
+    columns_[i++] = {"az", static_cast<int32_t>(diagValue(kDiagAccelZ)), false};
+    columns_[i++] = {"apk", static_cast<int32_t>(diagValue(kDiagAccelPeak)),
+                     false};
+    columns_[i++] = {"busf", static_cast<int32_t>(diagValue(kDiagBusFailCount)),
+                     false};
+    columns_[i++] = {"stl", static_cast<int32_t>(diagValue(kDiagStaleCount)),
+                     false};
+    columns_[i++] = {"glt", static_cast<int32_t>(diagValue(kDiagGlitchCount)),
                      false};
   }
 

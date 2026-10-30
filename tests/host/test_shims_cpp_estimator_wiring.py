@@ -196,13 +196,24 @@ def test_a_sitting_robot_with_no_bias_learns_none(make_rig):
     assert abs(rig.diag(DIAG_BIAS)) <= 2
 
 
-def test_a_baked_arm_is_not_overridden_by_the_program():
+def test_the_arm_starts_at_the_bake_and_only_an_explicit_call_changes_it():
+    header = _strip_comments((_SRC / "platform" / "otos_port.h").read_text())
+    assert re.search(r"float offsetX_ = bakedArmX_;", header)
+    assert re.search(r"float offsetY_ = bakedArmY_;", header)
     port = _strip_comments((_SRC / "platform" / "otos_port.cpp").read_text())
     match = re.search(r"void OtosPort::setOffset\(.*?\n\}", port, re.DOTALL)
     assert match is not None
     body = match.group(0)
-    assert re.search(r"bakedArmX_\s*==\s*0\.0f\s*&&\s*bakedArmY_\s*==\s*0\.0f", body)
-    assert "offsetYaw_ = yaw" in body
+    assert "bakedArm" not in body
+    for token in ("offsetX_ = x", "offsetY_ = y", "offsetYaw_ = yaw"):
+        assert token in body
+    assert not re.search(r"offset[XY]_\s*=", port.replace(match.group(0), ""))
+
+
+def test_test_program_carries_no_lever_arm_of_its_own():
+    program = (_SRC.parent / "test" / "test.ts").read_text()
+    assert "armX" not in program and "applyArm" not in program
+    assert program.count("setWorldSensorOffset") == 1
 
 
 def _idle_for(rig, seconds):

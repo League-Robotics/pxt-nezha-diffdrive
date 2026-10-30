@@ -208,11 +208,12 @@ void OtosPort::centreToSensor(float centreX, float centreY, float heading,
   sensorYOut = centreY + (s * offsetX + c * offsetY);
 }
 
+// The arm starts at the per-robot bake (otos_port.h). A program call is a
+// deliberate override, e.g. the lever calibration zeroing it; reboot
+// restores the bake.
 void OtosPort::setOffset(float x, float y, float yaw) {
-  if (bakedArmX_ == 0.0f && bakedArmY_ == 0.0f) {
-    offsetX_ = x;
-    offsetY_ = y;
-  }
+  offsetX_ = x;
+  offsetY_ = y;
   offsetYaw_ = yaw;
   if (!initialized_) return;
   // Keep the CHIP's own offset register at zero -- the arm is applied

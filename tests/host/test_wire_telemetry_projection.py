@@ -42,6 +42,13 @@ from test_wire_motion_verbs import (  # noqa: F401 -- wa/motion_verb_lib re-expo
     DIAG_REJECT_COUNT,
     DIAG_SENSOR_CONFIG,
     DIAG_DISTURB_COUNT,
+    DIAG_ACCEL_PEAK,
+    DIAG_ACCEL_X,
+    DIAG_ACCEL_Y,
+    DIAG_ACCEL_Z,
+    DIAG_BUS_FAIL_COUNT,
+    DIAG_GLITCH_COUNT,
+    DIAG_STALE_COUNT,
     DIAG_STEP_COUNT,
     DIAG_ESTOPPED,
     DIAG_I2C_FAULT,
@@ -242,6 +249,13 @@ _REALISTIC_FULL_DIAG_OVERRIDES = {
     DIAG_REJECT_COUNT: 99999,
     DIAG_STEP_COUNT: 9999,
     DIAG_DISTURB_COUNT: 9999,
+    DIAG_ACCEL_X: -2048,
+    DIAG_ACCEL_Y: -2048,
+    DIAG_ACCEL_Z: -2048,
+    DIAG_ACCEL_PEAK: 4096,
+    DIAG_BUS_FAIL_COUNT: 99999,
+    DIAG_STALE_COUNT: 99999,
+    DIAG_GLITCH_COUNT: 9999,
 }
 
 
@@ -255,7 +269,7 @@ def test_widest_realistic_full_frame_fits_under_radio_cap(wa):
     wa.set_now_ms(123456789)
 
     snapshot = wa.build_snapshot()
-    assert snapshot.count == 24  # POSE's 12 plus FULL's 12
+    assert snapshot.count == 31  # POSE's 12 plus FULL's 19
 
     wa.emit_telemetry(snapshot)
     lines = wa.take_sink().split(b"\n")
@@ -265,21 +279,23 @@ def test_widest_realistic_full_frame_fits_under_radio_cap(wa):
     # Measured, not guessed -- pinned here as a regression, and this
     # ticket's own final report restates the exact numbers for ticket
     # 005's bench handoff notes to re-state to the stakeholder in turn.
-    assert len(thdr_line) == 105
-    assert len(t_line) == 162
-    assert len(t_line) < 200  # RadioTransport::kMaxPayloadBytes
+    assert len(thdr_line) == 131
+    assert len(t_line) == 202
+    assert len(t_line) < 240  # RadioTransport::kMaxPayloadBytes
 
 
-def test_full_appends_bias_rej_step_dist_after_cycovr(wa):
+def test_full_appends_estimator_then_accelerometer_after_cycovr(wa):
     wa.on_tlm(TLM_FULL)
     names = [name for name, _, _ in wa.build_snapshot().columns()]
-    assert names[-5:] == ["cycovr", "bias", "rej", "step", "dist"]
+    assert names[-12:] == ["cycovr", "bias", "rej", "step", "dist",
+                           "ax", "ay", "az", "apk", "busf", "stl", "glt"]
 
 
 def test_pose_mode_carries_no_estimator_columns(wa):
     wa.on_tlm(TLM_POSE)
     names = [name for name, _, _ in wa.build_snapshot().columns()]
-    assert not {"bias", "rej", "step", "dist"} & set(names)
+    assert not {"bias", "rej", "step", "dist", "ax", "ay", "az", "apk",
+                "busf", "stl", "glt"} & set(names)
 
 
 def test_full_estimator_columns_are_plain_diag_passthrough(wa):
@@ -293,6 +309,26 @@ def test_full_estimator_columns_are_plain_diag_passthrough(wa):
     assert cols["rej"] == (17, False)
     assert cols["step"] == (3, False)
     assert cols["dist"] == (2, False)
+
+
+def test_full_accelerometer_columns_are_plain_diag_passthrough(wa):
+    wa.on_tlm(TLM_FULL)
+    for ordinal, value in ((DIAG_ACCEL_X, 15), (DIAG_ACCEL_Y, -40),
+                           (DIAG_ACCEL_Z, -1002), (DIAG_ACCEL_PEAK, 310)):
+        wa.set_diag_override(ordinal, value)
+    cols = _column_map(wa.build_snapshot())
+    assert [cols[k] for k in ("ax", "ay", "az", "apk")] == [
+        (15, False), (-40, False), (-1002, False), (310, False)]
+
+
+def test_full_i2cf_cause_columns_are_plain_diag_passthrough(wa):
+    wa.on_tlm(TLM_FULL)
+    for ordinal, value in ((DIAG_BUS_FAIL_COUNT, 3), (DIAG_STALE_COUNT, 41),
+                           (DIAG_GLITCH_COUNT, 2)):
+        wa.set_diag_override(ordinal, value)
+    cols = _column_map(wa.build_snapshot())
+    assert [cols[k] for k in ("busf", "stl", "glt")] == [
+        (3, False), (41, False), (2, False)]
 
 
 def test_status_wrng_and_sens_share_the_diag_sources(wa):

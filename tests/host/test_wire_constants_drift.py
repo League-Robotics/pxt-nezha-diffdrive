@@ -519,6 +519,13 @@ _KDIAG_ORDINALS = {
     "kDiagSensorConfig": 45,
     "kDiagDisturbCount": 46,
     "kDiagLegLive": 47,
+    "kDiagAccelX": 48,
+    "kDiagAccelY": 49,
+    "kDiagAccelZ": 50,
+    "kDiagAccelPeak": 51,
+    "kDiagBusFailCount": 52,
+    "kDiagStaleCount": 53,
+    "kDiagGlitchCount": 54,
     "kDiagPositionMoveLive": 41,
 }
 
@@ -554,6 +561,13 @@ _KDIAG_EXPECTED_TOKEN = {
     45: "estimator.config",
     46: "disturbCount",
     47: "isLegLive",
+    48: "accel[0]",
+    49: "accel[1]",
+    50: "accel[2]",
+    51: "accelPeak",
+    52: "boardDiagValue",
+    53: "boardDiagValue",
+    54: "boardDiagValue",
 }
 
 

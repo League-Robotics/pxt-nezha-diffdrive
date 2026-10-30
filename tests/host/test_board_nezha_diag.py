@@ -108,6 +108,8 @@ def lib(tmp_path_factory):
     handle.nbdSetRightCounters.argtypes = [
         ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_uint]
     handle.nbdSetRightCounters.restype = None
+    handle.nbdSetFaultCounters.argtypes = [ctypes.c_void_p] + [ctypes.c_uint] * 4
+    handle.nbdSetFaultCounters.restype = None
     handle.nbdDiagValue.argtypes = [ctypes.c_void_p, ctypes.c_int]
     handle.nbdDiagValue.restype = ctypes.c_int
     return handle
@@ -141,6 +143,16 @@ def test_ordinal_27_sums_both_wheels_rebaseline_count(board):
     lib.nbdSetLeftCounters(handle, 0, 0, 2)
     lib.nbdSetRightCounters(handle, 0, 0, 3)
     assert lib.nbdDiagValue(handle, 27) == 5
+
+
+def test_ordinals_52_54_split_i2cf_by_cause_summed_over_both_wheels(board):
+    lib, handle = board
+    lib.nbdSetFaultCounters(handle, 1, 2, 30, 40)
+    lib.nbdSetLeftCounters(handle, 0, 4, 1)
+    lib.nbdSetRightCounters(handle, 0, 5, 2)
+    assert lib.nbdDiagValue(handle, 52) == 3
+    assert lib.nbdDiagValue(handle, 53) == 70
+    assert lib.nbdDiagValue(handle, 54) == 12
 
 
 def test_ordinals_35_38_read_wired_port_and_sign(board):
