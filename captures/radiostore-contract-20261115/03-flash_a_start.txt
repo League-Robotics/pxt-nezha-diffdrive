@@ -1,0 +1,7 @@
+# mbdeploy radiostore_a.hex attempt 1 rc 0
+mbdeploy: tovez re-announced as NEZHA2 (flash_count=17)
+warning: `VIRTUAL_ENV=/Users/eric/.cache/uv/builds-v0/.tmpv0XzLe` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+0000561 I Loading /Volumes/Proj/proj/robot-projects/pxt-nezha-diffdrive/.tmp/radiostore_a.hex [load_cmd]
+0000753 I Erasing... [loader]
+0012853 I Programming... [loader]
+0032185 I Erased 455680 bytes (112 sectors), programmed 455680 bytes (112 pages), identical 0 bytes (0 pages) at 14.16 kB/s [loader]

@@ -1,0 +1,27 @@
+# 19:30:18 set_then_reboot
+# sent: ['HELLO', 'RUN _radioshow #1', 'RUN _radioset 77 29 #2', 'STATUS', 'RUN _radioshow #3', 'RUN _reboot #4', 'HELLO', 'RUN _radioshow #1', 'STATUS']
+warning: `VIRTUAL_ENV=/Users/eric/.cache/uv/builds-v0/.tmpv0XzLe` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+connected to tovez at 115200 baud -- Ctrl-D or Ctrl-C to exit
+boot radio tovez ch 48 grp 29 name
+boot cal none stored
+boot net 10.55.29.48 default
+RADIOSTORE:boot program=a v=15.01 robot=tovez
+device NEZHA2 robot tovez 2314287040
+ack 1 0 none
+{"ev":"radiostore.values","stored":0,"use_ch":48,"use_grp":29,"src":"name"}
+ack 2 0 none
+{"ev":"radiostore.values","ch":77,"grp":29,"stored":1,"use_ch":48,"use_grp":29,"src":"name"}
+status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=3 done=0 reason=none wifi=0 radio=1 channel=48 group=29 posmove=0 wrng=0 sens=optical
+ack 3 0 none
+{"ev":"radiostore.values","ch":77,"grp":29,"stored":1,"use_ch":48,"use_grp":29,"src":"name"}
+ack 4 0 none
+{"ev":"reboot.ok","why":"asked"}
+device NEZHA2 robot tovez 2314287040
+boot radio tovez ch 77 grp 29 stored
+boot cal none stored
+boot net 10.55.29.48 default
+RADIOSTORE:boot program=a v=15.01 robot=tovez
+device NEZHA2 robot tovez 2314287040
+ack 1 0 none
+{"ev":"radiostore.values","ch":77,"grp":29,"stored":1,"use_ch":77,"use_grp":29,"src":"stored"}
+status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=2 done=0 reason=none wifi=0 radio=1 channel=77 group=29 posmove=0 wrng=0 sens=optical

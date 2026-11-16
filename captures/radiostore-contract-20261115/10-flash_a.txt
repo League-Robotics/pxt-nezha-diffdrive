@@ -1,0 +1,15 @@
+# pyocd flash radiostore_a_trim.hex
+## attempt 1 rc 1
+0000475 I Loading /Volumes/Proj/proj/robot-projects/pxt-nezha-diffdrive/.tmp/radiostore_a_trim.hex [load_cmd]
+0000696 I Erasing... [loader]
+0030667 C Timeout reading from probe 9906360200052820a8fdb5e413abb276000000006e052820 [__main__]
+## attempt 2 rc 1
+0000679 I Loading /Volumes/Proj/proj/robot-projects/pxt-nezha-diffdrive/.tmp/radiostore_a_trim.hex [load_cmd]
+0000846 I Erasing... [loader]
+0024901 C Timeout reading from probe 9906360200052820a8fdb5e413abb276000000006e052820 [__main__]
+## attempt 3 rc 0
+warning: `VIRTUAL_ENV=/Users/eric/.cache/uv/builds-v0/.tmpv0XzLe` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+0000901 I Loading /Volumes/Proj/proj/robot-projects/pxt-nezha-diffdrive/.tmp/radiostore_a_trim.hex [load_cmd]
+0001189 I Erasing... [loader]
+0016838 I Programming... [loader]
+0018445 I Erased 40960 bytes (10 sectors), programmed 40960 bytes (10 pages), identical 409600 bytes (100 pages) at 25.50 kB/s [loader]

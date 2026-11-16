@@ -7,7 +7,6 @@ and checks the restated rule against the bounds read from the source.
     uv run pytest tests/host/test_radio_store_source_pin.py
 """
 import json
-import math
 import pathlib
 import re
 
@@ -28,15 +27,11 @@ CHANNEL_MAX = int(_const("radioChannelMax"))
 GROUP_MAX = int(_const("radioGroupMax"))
 
 
-def _error(channel, group) -> str:
-    def ok(v, mx):
-        return (not isinstance(v, float) or not math.isnan(v)) and 0 <= v <= mx and v == math.floor(v)
-
-    if not ok(channel, CHANNEL_MAX):
-        return "channel"
-    if not ok(group, GROUP_MAX):
-        return "group"
-    return ""
+def _error(args) -> str:
+    if len(args) != 2 or not all(re.fullmatch(r"-?\d+", a) for a in args):
+        return "args"
+    channel, group = int(args[0]), int(args[1])
+    return "" if 0 <= channel <= CHANNEL_MAX and 0 <= group <= GROUP_MAX else "range"
 
 
 def test_keys_are_system_settings_keys():
@@ -53,18 +48,21 @@ def test_store_is_registered_before_program_in_pxt_json():
     assert files.index("src/blocks/radiostore.ts") < files.index("src/blocks/program.ts")
 
 
-@pytest.mark.parametrize("channel,group,expected", [
-    (0, 0, ""), (83, 255, ""), (70, 12, ""), (7, 10, ""),
-    (84, 10, "channel"), (-1, 10, "channel"), (1.5, 10, "channel"),
-    (float("nan"), 10, "channel"),
-    (10, 256, "group"), (10, -1, "group"), (10, 2.5, "group"),
+@pytest.mark.parametrize("args,expected", [
+    (["0", "0"], ""), (["83", "255"], ""), (["70", "12"], ""),
+    (["84", "10"], "range"), (["-1", "10"], "range"), (["10", "256"], "range"),
+    (["1.5", "10"], "args"), (["10", "2.5"], "args"), (["abc", "10"], "args"),
+    (["10"], "args"), ([], "args"), (["10", "20", "30"], "args"), (["", "10"], "args"),
 ])
-def test_validation_table(channel, group, expected):
-    assert _error(channel, group) == expected
+def test_validation_table(args, expected):
+    assert _error(args) == expected
 
 
 def test_validation_source_matches_table():
     assert re.search(r'value >= 0 && value <= max && value == Math\.floor\(value\)', _STORE)
+    m = re.search(r'function radioSetError\(.*?\n    }', _STORE, re.S)
+    body = m.group(0)
+    assert 'count != 2' in body and body.index('"args"') < body.index('"range"')
     assert re.search(r'isWholeNumberInRange\(channel, radioChannelMax\)', _STORE)
     assert re.search(r'isWholeNumberInRange\(group, radioGroupMax\)', _STORE)
 
@@ -78,7 +76,7 @@ def test_source_choice_order():
 def test_set_validates_before_writing():
     m = re.search(r'function saveRadioAddress\(.*?\n    }', _PROGRAM, re.S)
     body = m.group(0)
-    assert body.index("radioPairError(") < body.index("writeRadioAddress(")
+    assert body.index("radioSetError(") < body.index("writeRadioAddress(")
     assert "radiostore.fail" in body
 
 
@@ -101,8 +99,11 @@ def test_three_commands_registered_with_signatures():
 
 
 def test_report_names_and_keys():
-    for key in ["ch", "grp", "stored", "source", "default_ch", "default_grp"]:
-        assert re.search(rf'\.(num|str)\("{key}"', _PROGRAM), key
+    m = re.search(r'function reportRadioAddress\(.*?\n    }', _PROGRAM, re.S)
+    body = m.group(0)
+    keys = re.findall(r'\.(?:num|str)\("(\w+)"', body)
+    assert keys == ["ch", "grp", "stored", "use_ch", "use_grp", "src"]
+    assert re.search(r'if \(stored\.length == 2\) values\.num\("ch"', body)
     assert "radiostore.values" in _PROGRAM and "radiostore.fail" in _PROGRAM
 
 

@@ -1,0 +1,20 @@
+# 19:33:41 reboot_during_raw_move
+# sent: ['HELLO', 'STATUS', 'MOVE_X 300 0 120 15000 #1', 'STATUS', 'RUN _reboot #2', 'STATUS', 'STATUS', 'STATUS', 'STATUS', 'HELLO', 'STATUS']
+warning: `VIRTUAL_ENV=/Users/eric/.cache/uv/builds-v0/.tmpv0XzLe` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+connected to tovez at 115200 baud -- Ctrl-D or Ctrl-C to exit
+device NEZHA2 robot tovez 2314287040
+status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none wifi=0 radio=1 channel=77 group=29 posmove=0 wrng=0 sens=optical
+ack 1 0 none
+status ready=1 active=1 connL=1 connR=1 otos=1 wedge=1 flags=b1 i2cf=15 cyc=17 tlm=off next=2 done=0 reason=none wifi=0 radio=1 channel=77 group=29 posmove=0 wrng=0 sens=enc
+ack 2 0 none
+status ready=1 active=1 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=18 cyc=42 tlm=off next=3 done=0 reason=none wifi=0 radio=1 channel=77 group=29 posmove=0 wrng=0 sens=enc
+status ready=1 active=1 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=18 cyc=55 tlm=off next=3 done=0 reason=none wifi=0 radio=1 channel=77 group=29 posmove=0 wrng=0 sens=optical
+status ready=1 active=1 connL=1 connR=1 otos=1 wedge=0 flags=31 i2cf=18 cyc=76 tlm=off next=3 done=0 reason=none wifi=0 radio=1 channel=77 group=29 posmove=0 wrng=0 sens=optical
+{"ev":"reboot.ok","why":"asked"}
+device NEZHA2 robot tovez 2314287040
+boot radio tovez ch 77 grp 29 stored
+boot cal none stored
+boot net 10.55.29.48 default
+RADIOSTORE:boot program=a v=15.01 robot=tovez
+device NEZHA2 robot tovez 2314287040
+status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none wifi=0 radio=1 channel=77 group=29 posmove=0 wrng=0 sens=optical

@@ -1,0 +1,21 @@
+# 19:30:06 invalid_sets
+# sent: ['HELLO', 'RUN _radioset 84 29 #1', 'RUN _radioset 77 256 #2', 'RUN _radioset 77 1.5 #3', 'RUN _radioset -1 29 #4', 'RUN _radioset 77.5 29 #5', 'RUN _radioset 77 #6']
+warning: `VIRTUAL_ENV=/Users/eric/.cache/uv/builds-v0/.tmpv0XzLe` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+connected to tovez at 115200 baud -- Ctrl-D or Ctrl-C to exit
+boot radio tovez ch 48 grp 29 name
+boot cal none stored
+boot net 10.55.29.48 default
+RADIOSTORE:boot program=a v=15.01 robot=tovez
+device NEZHA2 robot tovez 2314287040
+ack 1 0 none
+{"ev":"radiostore.fail","why":"range"}
+ack 2 0 none
+{"ev":"radiostore.fail","why":"range"}
+ack 3 0 none
+{"ev":"radiostore.fail","why":"args"}
+ack 4 0 none
+{"ev":"radiostore.fail","why":"range"}
+ack 5 0 none
+{"ev":"radiostore.fail","why":"args"}
+ack 6 0 none
+{"ev":"radiostore.fail","why":"args"}

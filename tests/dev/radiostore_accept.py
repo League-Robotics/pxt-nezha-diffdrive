@@ -15,7 +15,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 MBTOOLS = REPO.parent / 'mbtools'
-OUT = REPO / 'captures' / 'sprint045-stored-radio-20261115'
+OUT = REPO / 'captures' / 'radiostore-contract-20261115'
 HEX = {'a': REPO / '.tmp' / 'radiostore_a.hex', 'b': REPO / '.tmp' / 'radiostore_b.hex'}
 ROBOT = 'tovez'
 UID = '9906360200052820a8fdb5e413abb276000000006e052820'
@@ -114,15 +114,16 @@ def start():
 
 
 def baseline():
-    must(show('baseline'), r'"source":"name".*"stored":0|"stored":0.*"source":"name"')
+    must(show('baseline'), r'\{"ev":"radiostore.values","stored":0,"use_ch":48,"use_grp":29,"src":"name"\}')
 
 
 def invalid():
     t = session('invalid_sets', [hello(),
                                  ('RUN _radioset 84 29 #1', 1.0), ('RUN _radioset 77 256 #2', 1.0),
                                  ('RUN _radioset 77 1.5 #3', 1.0), ('RUN _radioset -1 29 #4', 1.0),
-                                 ('RUN _radioset 77.5 29 #5', 1.0)])
-    print('ok: 5 radiostore.fail' if t.count('radiostore.fail') == 5 else 'FAIL: want 5 radiostore.fail')
+                                 ('RUN _radioset 77.5 29 #5', 1.0), ('RUN _radioset 77 #6', 1.0)])
+    print('ok: 3 range' if t.count('"why":"range"') == 3 else 'FAIL: want 3 range')
+    print('ok: 3 args' if t.count('"why":"args"') == 3 else 'FAIL: want 3 args')
     must(show('invalid_then_show'), r'"stored":0')
 
 
@@ -131,10 +132,10 @@ def set_reboot():
         hello(), ('RUN _radioshow #1', 1.5), (f'RUN _radioset {CHANNEL} {GROUP} #2', 1.5), ('STATUS', 1.0),
         ('RUN _radioshow #3', 1.5), ('RUN _reboot #4', 8.0),
         hello(), ('RUN _radioshow #1', 1.5), ('STATUS', 1.0)], tail=2)
-    must(t, rf'"ch":{CHANNEL},"grp":{GROUP},"stored":1,"source":"name"')
+    must(t, rf'"ch":{CHANNEL},"grp":{GROUP},"stored":1,"use_ch":48,"use_grp":29,"src":"name"')
     must(t, r'reboot\.ok')
     must(t, rf'boot radio tovez ch {CHANNEL} grp {GROUP} stored')
-    must(t, rf'"ch":{CHANNEL},"grp":{GROUP},"stored":1,"source":"stored"')
+    must(t, rf'"ch":{CHANNEL},"grp":{GROUP},"stored":1,"use_ch":{CHANNEL},"use_grp":{GROUP},"src":"stored"')
     must(t, rf'channel={CHANNEL} group={GROUP}')
 
 
@@ -173,10 +174,10 @@ def clear():
     t = session('clear_then_reboot', [
         hello(), ('RUN _radioclear #1', 1.5), ('RUN _radioshow #2', 1.5), ('RUN _reboot #3', 8.0),
         hello(), ('RUN _radioshow #1', 1.5), ('STATUS', 1.0)], tail=2)
-    must(t, r'"stored":0,"source":"stored"')
+    must(t, rf'values","stored":0,"use_ch":{CHANNEL},"use_grp":{GROUP},"src":"stored"')
     must(t, r'reboot\.ok')
     must(t, r'boot radio tovez ch 48 grp 29 name')
-    must(t, r'"stored":0,"source":"name"')
+    must(t, r'values","stored":0,"use_ch":48,"use_grp":29,"src":"name"')
     must(t, r'channel=48 group=29')
 
 

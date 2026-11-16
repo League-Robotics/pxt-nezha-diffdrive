@@ -541,14 +541,17 @@ stored Wi-Fi address (`_netshow`, `_netset`, `_netclear`):
 
 - `RUN:_radioshow` reports the stored pair.
 - `RUN:_radioset <channel> <group>` stores it. Channel is 0 to 83 and
-  group 0 to 255, both whole numbers. A bad value answers
-  `radiostore.fail` with a `why` and stores nothing.
+  group 0 to 255, both whole numbers. Anything else answers
+  `radiostore.fail` and stores nothing: `why` is `args` for a wrong
+  argument count or a value that is not a whole number, `range` for a
+  value outside the limits.
 - `RUN:_radioclear` removes it.
 
-Each answers `radiostore.values` with `ch`, `grp` (the pair the next boot
-takes from the store, else the name-derived one), `stored` (0 or 1),
-`source` (where this boot's address came from), `default_ch` and
-`default_grp` (name-derived).
+Each answers `radiostore.values` with `ch` and `grp` (the stored pair,
+absent when nothing is stored), `stored` (0 or 1), `use_ch` and `use_grp`
+(the pair the radio runs this boot) and `src` (`program`, `stored` or
+`name`: where this boot's pair came from). robot-console's
+`docs/design/radio-store-contract.md` is the contract both sides follow.
 
 A stored pair takes effect at the next boot; the radio is never retuned
 while a program runs. Follow a set with `RUN:_reboot`. The pair survives
