@@ -1,0 +1,6 @@
+{"type":"radio-save-state","deviceId":3527777815,"state":"running","step":"checking","seq":207}
+{"type":"radio-save-state","deviceId":3527777815,"state":"running","step":"reserving","seq":211}
+{"type":"radio-save-state","deviceId":3527777815,"state":"running","step":"writing","seq":212}
+{"type":"radio-save-state","deviceId":3527777815,"state":"running","step":"committing","seq":216}
+{"type":"radio-save-state","deviceId":3527777815,"state":"running","step":"rebooting","seq":219}
+{"type":"radio-save-state","deviceId":3527777815,"state":"result","result":{"outcome":"done","channel":72,"group":179,"displaces":null,"warning":"the robot did not reconnect, so the new address was not verified"},"seq":297}

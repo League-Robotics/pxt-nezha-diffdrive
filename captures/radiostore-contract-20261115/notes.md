@@ -26,3 +26,19 @@ not kept).
 `00-*-blocked-by-console-lock.txt`: two first attempts failed because the
 robot console held tovez's serial lock; its session was closed and the run
 repeated.
+
+## Through the robot console, on tigez
+
+Driver: `tests/dev/console_radio.mjs` against the running console's websocket;
+flashes by the console's own flash (`request_flash`, template release hex).
+
+| Step | Result | Evidence |
+|---|---|---|
+| Save 72/179 with console at 3283761, firmware v1.20261115.2 | FAIL: `old-firmware` | not kept (file overwritten). Cause: the robot acks a RUN before the handler's reply and the console stopped reading at the ack. Fixed in robot-console 7c1b0e1. |
+| Save again, console restarted on 7c1b0e1, Wi-Fi session also open | FAIL: `not-writable` | not kept. Cause: the save picked the Wi-Fi session. Fixed in robot-console c6f7918 (not yet running in the console used here). |
+| Save again with the Wi-Fi session closed | reserved, written, committed, rebooted; warning "did not reconnect" | `console/01-save-72-179.jsonl`; `console/02-verify.jsonl` `ok` |
+| After that reboot the robot was still on 52/179 | template `main.ts` called `setupRadioForName()` after `setupRobot()` | STATUS read through the console, not captured to a file. Fixed in template release v0.20261116.3. |
+| Console flash of v0.20261116.3 over the stored 72/179 | robot boots on 72/179, console verify `ok` | `console/04-verify-after-flash.jsonl`; STATUS `channel=72 group=179` read through the console, not captured to a file. `console/03-watch-during-flash.jsonl` is empty: no mismatch was broadcast. |
+
+Not tested: a console flash that mass-erases (tigez's did not), and the Save
+flow end to end on c6f7918.

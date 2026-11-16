@@ -54,5 +54,8 @@ Sprint 045 ticket 003 (logs and notes in `captures/sprint045-stored-radio-202611
 set-then-reboot, reflash B then A, `reboot.fail`, raw-move reboot, clear; flashes by pyocd with a trimmed hex so the
 settings survive). Its firmware is `test/radiostore_a.ts` and `test/radiostore_b.ts`, built with `make_deploy.py --program`.
 
+`console_radio.mjs` (Node: sends a running robot-console's `radio-verify`, `radio-free-channels` and `radio-save`
+websocket messages for one device and prints the answers).
+
 The parent [`tests/DESIGN.md`](../DESIGN.md) table is the authority on
 what each `tests/` subdirectory needs.
