@@ -1,5 +1,8 @@
 ---
 status: pending
+sprint: '045'
+tickets:
+- 045-003
 ---
 
 # The wire has no REBOOT verb, so "takes effect at next boot" cannot be tested remotely

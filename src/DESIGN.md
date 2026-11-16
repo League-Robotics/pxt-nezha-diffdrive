@@ -1238,7 +1238,9 @@ fleet assignment**: `tools/make_deploy.py`'s `_inject_radio_channel()`
 rewrites BOTH in the deploy scratch copy from the robot's own
 `radio-robot-lib` config, so every per-robot build overwrites them (a
 build that reaches hardware still carrying 4/10 is a build that missed
-the injection). `kTransmitPower` = 7 is the one radio constant with no
+the injection). A robot that calls `setupRobot()` can also carry a
+channel and group in flash, set with `_radioset` and used at the next
+boot (see `src/blocks/DESIGN.md`). `kTransmitPower` = 7 is the one radio constant with no
 settable surface at all. **Both** channel and group are settable at
 runtime — `setChannel()`/`setGroup()` on this class, reached by
 students through the blocks layer's "setup radio channel %channel group

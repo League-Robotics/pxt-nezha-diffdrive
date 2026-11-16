@@ -528,6 +528,32 @@ MakeCode's own `radio` blocks (a student's joystick, 32-byte packets)
 work in the same program. `playfield-testing.md` in the repo's rules has
 the relay channels.
 
+### Setting the radio address over the wire (`_radioset`)
+
+A program that calls `setupRobot()` takes its radio channel and group in
+one order: the program's own `setupRadio()`, then the pair stored in
+flash, then the pair derived from the micro:bit's name. The boot line
+ends with the one used: `boot radio <name> ch N grp M <source>`, where
+source is `program`, `stored` or `name`.
+
+The stored pair is written and read back with run commands, like the
+stored Wi-Fi address (`_netshow`, `_netset`, `_netclear`):
+
+- `RUN:_radioshow` reports the stored pair.
+- `RUN:_radioset <channel> <group>` stores it. Channel is 0 to 83 and
+  group 0 to 255, both whole numbers. A bad value answers
+  `radiostore.fail` with a `why` and stores nothing.
+- `RUN:_radioclear` removes it.
+
+Each answers `radiostore.values` with `ch`, `grp` (the pair the next boot
+takes from the store, else the name-derived one), `stored` (0 or 1),
+`source` (where this boot's address came from), `default_ch` and
+`default_grp` (name-derived).
+
+A stored pair takes effect at the next boot; the radio is never retuned
+while a program runs. Follow a set with `RUN:_reboot`. The pair survives
+flashing a different program, unlike the Wi-Fi credential store above.
+
 ## The wire, on any carrier -- what trips people first
 
 - Sequenced verbs need a trailing `#<id>` counting from 1
