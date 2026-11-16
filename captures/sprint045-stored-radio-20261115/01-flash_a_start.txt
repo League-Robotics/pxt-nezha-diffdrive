@@ -1,0 +1,12 @@
+# mbdeploy radiostore_a.hex attempt 2 rc 0
+mbdeploy: tovez re-announced as NEZHA2 (flash_count=15)
+warning: `VIRTUAL_ENV=/Users/eric/.cache/uv/builds-v0/.tmpTigLj4` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+0000481 I Loading /Volumes/Proj/proj/robot-projects/pxt-nezha-diffdrive/.tmp/radiostore_a.hex [load_cmd]
+0000685 I Erasing... [loader]
+flash failed — attempting CTRL-AP mass erase to recover a locked device, then retrying.
+0000670 I Mass erasing device... [eraser]
+0000891 I Mass erase complete [eraser]
+0000458 I Loading /Volumes/Proj/proj/robot-projects/pxt-nezha-diffdrive/.tmp/radiostore_a.hex [load_cmd]
+0000637 I Erasing... [loader]
+0011642 I Programming... [loader]
+0028957 I Erased 455680 bytes (112 sectors), programmed 455680 bytes (112 pages), identical 0 bytes (0 pages) at 15.71 kB/s [loader]

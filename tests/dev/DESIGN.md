@@ -49,5 +49,10 @@ firmware). `devlink.py` gained `DEVLINK_WIFI` and `send_move` now waits
 for `done`, because `active` drops inside a GO_TO_W. `otos_drift.py`
 gained `--xmin/--xmax` lanes so two robots can share the field.
 
+Sprint 045 ticket 003 (logs and notes in `captures/sprint045-stored-radio-20261115/`):
+`radiostore_accept.py` (bench acceptance of the stored radio address and `_reboot` on tovez: invalid sets,
+set-then-reboot, reflash B then A, `reboot.fail`, raw-move reboot, clear; flashes by pyocd with a trimmed hex so the
+settings survive). Its firmware is `test/radiostore_a.ts` and `test/radiostore_b.ts`, built with `make_deploy.py --program`.
+
 The parent [`tests/DESIGN.md`](../DESIGN.md) table is the authority on
 what each `tests/` subdirectory needs.

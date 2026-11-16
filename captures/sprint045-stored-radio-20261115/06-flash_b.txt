@@ -1,0 +1,7 @@
+# pyocd flash radiostore_b_trim.hex
+## attempt 1 rc 0
+warning: `VIRTUAL_ENV=/Users/eric/.cache/uv/builds-v0/.tmpTigLj4` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+0000580 I Loading /Volumes/Proj/proj/robot-projects/pxt-nezha-diffdrive/.tmp/radiostore_b_trim.hex [load_cmd]
+0000738 I Erasing... [loader]
+0016259 I Programming... [loader]
+0017862 I Erased 40960 bytes (10 sectors), programmed 40960 bytes (10 pages), identical 409600 bytes (100 pages) at 25.70 kB/s [loader]

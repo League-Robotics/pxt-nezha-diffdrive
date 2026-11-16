@@ -1,0 +1,9 @@
+# Verbatim from interactive mbserial one-shots run by hand before any flash (2026-11-15, not scripted)
+$ mbserial --timeout 2 tovez HELLO
+device NEZHA2 robot tovez 2314287040
+$ mbserial --timeout 2 tovez STATUS
+status ready=0 active=0 connL=0 connR=0 otos=0 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=1 done=0 reason=none wifi=0 radio=1 channel=48 group=29 posmove=0
+$ mbserial --timeout 2 tovez ID
+id diffdrive calibration-0.20261105.1 1.20261027.1 tovez
+$ mbserial --timeout 2 tovez VER
+ver 1.20261027.1

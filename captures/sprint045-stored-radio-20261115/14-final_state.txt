@@ -1,0 +1,8 @@
+# 17:28:59 baseline
+# sent: ['HELLO', 'RUN _radioshow #1', 'STATUS']
+warning: `VIRTUAL_ENV=/Users/eric/.cache/uv/builds-v0/.tmpTLzgRi` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+connected to tovez at 115200 baud -- Ctrl-D or Ctrl-C to exit
+device NEZHA2 robot tovez 2314287040
+ack 1 0 none
+{"ev":"radiostore.values","ch":48,"grp":29,"stored":0,"source":"name","default_ch":48,"default_grp":29}
+status ready=0 active=0 connL=0 connR=0 otos=1 wedge=0 flags=0 i2cf=0 cyc=0 tlm=off next=2 done=0 reason=none wifi=0 radio=1 channel=48 group=29 posmove=0 wrng=0 sens=optical

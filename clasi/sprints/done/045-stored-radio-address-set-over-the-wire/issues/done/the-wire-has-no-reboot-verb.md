@@ -1,5 +1,8 @@
 ---
-status: pending
+status: done
+sprint: '045'
+tickets:
+- 045-003
 ---
 
 # The wire has no REBOOT verb, so "takes effect at next boot" cannot be tested remotely
@@ -60,3 +63,18 @@ playfield for the middle step.
 ## Triage 2026-10-27 — HIGH
 
 Worth having for scripted fleet provisioning, but no session has needed a remote reboot since 2026-09-09. Pick it up when the next credential-store or provisioning sprint comes around.
+
+---
+
+## Resolution 2026-11-15 (sprint 045, ticket 003)
+
+Done as the run command `_reboot`, not a wire verb (`src/blocks/program.ts`). Measured on tovez, captures in
+`captures/sprint045-stored-radio-20261115/` (see its `notes.md`):
+
+- `reboot.ok` reaches the wire before the reset and the board returns by itself (`05-set_then_reboot.txt`, `13-clear_then_reboot.txt`).
+  It did not at first: the inline run dispatch cannot drain its own emit queue, so the handler now ticks the drive loop six times before
+  `control.reset()`.
+- Refused with `reboot.fail` while a button-started program runs (`10-reboot_fail_while_program_runs.txt`). Sent after `RUN <program>` it
+  waits for the program, then reboots (`11-reboot_queued_behind_run_program.txt`).
+- Raw `MOVE_X` in flight: the reboot waits for the move to finish and then resets (`12-reboot_during_raw_move.txt`); it does not cut the
+  move. UNVERIFIED: that the wheels stop at the reset itself (the move had already ended; STATUS only, no camera).

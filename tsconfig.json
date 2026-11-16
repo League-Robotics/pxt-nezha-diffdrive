@@ -70,6 +70,7 @@
     "src/blocks/motion.ts",
     "src/blocks/report.ts",
     "src/blocks/calibration.ts",
+    "src/blocks/radiostore.ts",
     "src/blocks/program.ts",
     "test/test.ts",
     "test/testrig.ts",

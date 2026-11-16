@@ -1,7 +1,10 @@
 ---
-title: "src/blocks/run.ts JSDoc still says enableRadioLink() uses radio group 10"
-status: pending
+title: src/blocks/run.ts JSDoc still says enableRadioLink() uses radio group 10
+status: done
 created: 2026-09-06
+sprint: '045'
+tickets:
+- 045-002
 ---
 
 # `run.ts` JSDoc still says `enableRadioLink()` uses "group 10"
