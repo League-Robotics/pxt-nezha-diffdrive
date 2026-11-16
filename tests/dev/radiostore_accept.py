@@ -97,7 +97,9 @@ def start():
     """Known-good starting image; settings do not matter here, so mbdeploy (which may
     mass-erase) is fine."""
     counter[0] += 1
-    for attempt in range(1, 5):
+    attempt = 0
+    while attempt < 4:
+        attempt += 1
         r = subprocess.run(['uv', 'run', 'mbdeploy', 'deploy', ROBOT, '--hex', str(HEX['a'])],
                            cwd=MBTOOLS, capture_output=True, text=True)
         if r.returncode == 0:
