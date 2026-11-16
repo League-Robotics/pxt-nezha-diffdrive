@@ -1,7 +1,7 @@
 ---
 id: '045'
 title: Stored radio address set over the wire
-status: executing
+status: done
 branch: sprint/045-stored-radio-address-set-over-the-wire
 use-cases: []
 issues:

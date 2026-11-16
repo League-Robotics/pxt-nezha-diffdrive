@@ -7,8 +7,8 @@ The composition root and the student-facing MakeCode API:
 motion engine — and owns the starvation watchdog fiber) plus the
 TypeScript block modules: `sim.ts`, `run.ts`, `pose.ts`, `stop.ts`,
 `world.ts`, `motion.ts`, and the robot-setup layer `report.ts` (packed
-JSON report lines), `calibration.ts` (calibration stored in flash), `radiostore.ts`
-(the stored radio address and its validation) and `program.ts` (button menu, cancel, `setupRobot()`).
+JSON report lines), `calibration.ts` (calibration stored in flash) and
+`program.ts` (button menu, cancel, `setupRobot()`).
 
 One part of `motion.ts` is **generated, not written**: the
 `ConfigField` enum comes from `src/comms/config_fields.h` via
