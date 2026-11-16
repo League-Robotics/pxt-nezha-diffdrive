@@ -95,7 +95,9 @@
         "test/testrig.ts",
         "test/linefollow.ts",
         "test/identity.ts",
-        "test/canbot.ts"
+        "test/canbot.ts",
+        "test/radiostore_a.ts",
+        "test/radiostore_b.ts"
     ],
     "supportedTargets": [
         "microbit"

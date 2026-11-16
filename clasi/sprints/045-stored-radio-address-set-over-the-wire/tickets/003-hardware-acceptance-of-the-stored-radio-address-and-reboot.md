@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: Hardware acceptance of the stored radio address and _reboot
-status: open
+status: done
 use-cases:
 - SUC-001
 - SUC-002
@@ -51,14 +51,32 @@ not a wire verb; mid-move behaviour as measured or UNVERIFIED).
 
 ## Acceptance Criteria
 
-- [ ] Steps 1-5 pass with capture files named in the results.
-- [ ] `reboot.ok` ordering and `reboot.fail` result recorded with captures.
-- [ ] `tests/dev/DESIGN.md` lists the new script.
-- [ ] Robot restored to its name-derived address.
-- [ ] Results written as MEASURED with artifact paths, or UNVERIFIED.
+- [x] Steps 1-5 pass with capture files named in the results.
+- [x] `reboot.ok` ordering and `reboot.fail` result recorded with captures.
+- [x] `tests/dev/DESIGN.md` lists the new script.
+- [x] Robot restored to its name-derived address.
+- [x] Results written as MEASURED with artifact paths, or UNVERIFIED.
 
 ## Testing
 
 - **Existing tests to run**: `uv run pytest tests/host` unaffected.
 - **New tests to write**: the `tests/dev/` acceptance script (not pytest).
 - **Verification command**: the script's own output in `captures/`.
+
+## Results
+
+Robot tovez, 2026-11-15, captures in `captures/sprint045-stored-radio-20261115/` (index and verbatim lines in its `notes.md`).
+Driver `tests/dev/radiostore_accept.py`; fixtures `test/radiostore_a.ts`, `test/radiostore_b.ts`.
+
+- MEASURED step 1 baseline, source `name` ch 48 grp 29: `02-baseline.txt`.
+- MEASURED step 3 invalid sets (ch 84, grp 256, 1.5, -1, 77.5) store nothing: `03-invalid_sets.txt`, `04-invalid_then_show.txt`.
+- MEASURED step 2 `_radioset 77 29`, STATUS unchanged until reboot, `reboot.ok` before the reset, boot line `ch 77 grp 29 stored`,
+  STATUS `channel=77 group=29`: `05-set_then_reboot.txt` (one session).
+- MEASURED step 4 flash B then A, address kept: `07-b_boot_and_show.txt`, `09-a_boot_and_show.txt` (flash logs `06`, `08`). Only for a
+  flash that does not mass-erase: `mbdeploy` on tovez mass-erases (erase step fails) and wipes the settings; see `notes.md` Findings 2.
+- MEASURED step 5 clear then reboot, back to `name`: `13-clear_then_reboot.txt`. Step 7 final state: `14-final_state.txt`.
+- MEASURED step 6 `reboot.fail` while a button-started program runs: `10-reboot_fail_while_program_runs.txt`. A `RUN`-started program
+  makes `_reboot` wait, then succeed: `11-reboot_queued_behind_run_program.txt`.
+- MEASURED `_reboot` during a raw MOVE_X: queued until the move ends, then `reboot.ok` and reset: `12-reboot_during_raw_move.txt`.
+  UNVERIFIED: that the wheels stop at the reset itself (the move had ended; STATUS only, no camera).
+- Defect found and fixed in this ticket: `reboot.ok` never left the board (queue not drained before `control.reset()`).
