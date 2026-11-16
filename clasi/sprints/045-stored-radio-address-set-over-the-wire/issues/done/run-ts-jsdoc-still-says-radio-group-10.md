@@ -1,6 +1,6 @@
 ---
 title: src/blocks/run.ts JSDoc still says enableRadioLink() uses radio group 10
-status: in-progress
+status: done
 created: 2026-09-06
 sprint: '045'
 tickets:
