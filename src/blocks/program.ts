@@ -190,7 +190,9 @@ namespace diffDrive {
         report("reboot.ok").str("why", "asked").send()
         flushReports()
         stop()
-        basic.pause(120)
+        // The reply leaves only when the protocol fiber drains its queue,
+        // and a handler running on that fiber drains it from the tick.
+        for (let i = 0; i < 6; i++) _tickDrive()
         control.reset()
     }
 
