@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Fix the enableRadioLink JSDoc that says group 10
-status: open
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
@@ -23,9 +23,9 @@ block help; edit text only.
 
 ## Acceptance Criteria
 
-- [ ] The stale "and group 10" claim is gone from `enableRadioLink()`'s doc.
-- [ ] No code change; `setupRadio` default untouched.
-- [ ] `test_typescript_typecheck.py` and `test_block_toolbox_order.py` pass.
+- [x] The stale "and group 10" claim is gone from `enableRadioLink()`'s doc.
+- [x] No code change; `setupRadio` default untouched.
+- [x] `test_typescript_typecheck.py` and `test_block_toolbox_order.py` pass.
 
 ## Testing
 
