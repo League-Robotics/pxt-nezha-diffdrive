@@ -139,13 +139,13 @@ HEX_TESTRIG = os.path.join(DEPLOY_TESTRIG, 'built', 'binary.hex')
 DEPLOY_FAULT_SPIN = os.path.join(REPO, '.tmp', 'deploy-faultspin')
 HEX_FAULT_SPIN = os.path.join(DEPLOY_FAULT_SPIN, 'built', 'binary.hex')
 
-ELITE = '/Volumes/Proj/proj/RobotProjects/radio-robot-elite'
+ELITE = '/Volumes/Proj/proj/robot-projects/radio-robot-elite'
 
 # radio-robot-lib's own per-robot config tree -- the fleet's one
 # canonical source for facts like a robot's assigned radio channel
 # (see _read_robot_radio_channel() below). A sibling checkout, same
 # convention as ELITE above.
-RADIO_ROBOT_LIB = '/Volumes/Proj/proj/RobotProjects/radio-robot-lib'
+RADIO_ROBOT_LIB = '/Volumes/Proj/proj/robot-projects/radio-robot-lib'
 
 # Matches sync()/main()'s own pre-existing default -- factored out so
 # _inject_radio_channel()'s tests and main()'s argparse default cannot
